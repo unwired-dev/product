@@ -1021,7 +1021,6 @@ describe('a Semantic Message Document from Draft HTML', () => {
   });
 });
 
-// The approved Dark A rule (#1267): composers show authored colors on screen only.
 const cell = (
   text: string,
   more: Readonly<{ columns?: number; rows?: number }> = {},
@@ -1236,6 +1235,13 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
         '<table><tr></tr></table>',
         '<table><tr><td rowspan="0">x</td></tr></table>',
         '<table><tr><td rowspan="1001">x</td></tr></table>',
+        '<font color="#ff0000"><table><tr><td>x</td></tr></table></font>',
+        '<h1><table><tr><td>x</td></tr></table></h1>',
+        '<table style="margin:0 auto"><tr><td>x</td></tr></table>',
+        '<table><tbody bgcolor="#ff0000"><tr><td>x</td></tr></tbody></table>',
+        '<table><tr background="a.png"><td>x</td></tr></table>',
+        '<table><tbody><tr><td>B</td></tr></tbody><thead><tr><td>A</td></tr></thead></table>',
+        '<table><thead><tr><th rowspan="2">A</th></tr></thead><tbody><tr><td>C</td></tr></tbody></table>',
       ].map(documentFromHtml),
     ).toStrictEqual(
       [
@@ -1254,11 +1260,19 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
         'tr',
         'rowspan',
         'rowspan',
+        'table',
+        'table',
+        'margin',
+        'bgcolor',
+        'background',
+        'thead',
+        'rowspan',
       ].map((name) => ({ unsupported: [name] })),
     );
   });
 });
 
+// The approved Dark A rule (#1267): composers show authored colors on screen only.
 describe('stored formatting as a composer shows it', () => {
   it.each([
     ['#ff0000', '#ff3333'],

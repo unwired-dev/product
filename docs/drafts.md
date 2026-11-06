@@ -306,10 +306,11 @@ The same reader keeps a table as rows of cells
 own blocks and may span several columns or rows; a header cell reads as bold
 centered text, and an empty cell as one empty paragraph. Widths, heights, cell
 padding and spacing, `border="0"`, collapsed borders and borders that do not show
-are ignored. Visible borders, backgrounds, vertical alignment, table alignment,
-captions, footers, column groups, nested tables, images in cells, empty tables
-and rows, and tables inside lists, quotes, headings, inline formatting, links or
-alignment are reported, because the document cannot hold them yet or standards
+are ignored. Visible borders, backgrounds, vertical alignment, table alignment
+(including auto margins), captions, footers, column groups, a header after body
+rows, a merged cell that crosses row groups, nested tables, images in cells, empty
+tables and rows, and tables inside lists, quotes, headings, inline formatting,
+text color, links or alignment are reported, because the document cannot hold them yet or standards
 and quirks mode show them differently. Outgoing HTML writes tables as plain rows
 and cells and reads back to the same document. Drafts do not store tables yet;
 Draft storage, the plain-text part and editing tables in the composers follow in

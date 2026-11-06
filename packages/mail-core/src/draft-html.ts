@@ -61,6 +61,7 @@ const tableStarts = (context: Context) =>
   context.left !== true &&
   context.format.marks.length === 0 &&
   context.format.link === undefined &&
+  context.format.color === undefined &&
   context.format.background === undefined &&
   context.format.size === undefined;
 const inRows = (context: Context) =>
@@ -424,6 +425,10 @@ const otherProperty =
     ) {
       return context;
     }
+    // Auto margins align a table.
+    if (table && property.startsWith('margin') && /\bauto\b/iu.test(value)) {
+      return undefined;
+    }
     if (property.startsWith('border')) {
       return context.kind === 'quote' && shownBorder(property, value)
         ? context
@@ -467,9 +472,10 @@ const attributeRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
     'table frame',
     'table rules',
     ...['tbody', 'thead', 'tr', 'td', 'th'].map((tag) => `${tag} valign`),
-    ...['tr', 'td', 'th'].map((tag) => `${tag} bgcolor`),
-    'td background',
-    'th background',
+    ...['tbody', 'thead', 'tr', 'td', 'th'].flatMap((tag) => [
+      `${tag} bgcolor`,
+      `${tag} background`,
+    ]),
   ].map((attribute): [string, Rule] => [attribute, () => undefined]),
   [
     'table border',
@@ -901,8 +907,9 @@ export function documentFromHtml(html: string): DraftHtml {
   const blocks: Part[] = [];
   // Where lines go: the body, or the cell being read.
   let target = blocks;
-  // The open table's rows.
+  // The open table's rows, and where its open row group starts.
   let rows: Cell[][] = [];
+  let group = 0;
   let runs: Array<{ text: string; format: Format }> = [];
   // The context of the line's first text, which decides its kind and alignment.
   let line: Context | undefined = undefined;
@@ -980,6 +987,24 @@ export function documentFromHtml(html: string): DraftHtml {
   const startTablePart = (tag: string, inner: Context) => {
     if (tag === 'table') {
       rows = [];
+      group = 0;
+    } else if (tag === 'tbody' || tag === 'thead') {
+      // A header shows above earlier rows, and a merged cell ends with its row group.
+      if (tag === 'thead' && rows.length > 0) {
+        unsupported.add('thead');
+      }
+      if (
+        rows
+          .slice(group)
+          .some((cells, index) =>
+            cells.some(
+              (cell) => group + index + (cell.rows ?? 1) > rows.length,
+            ),
+          )
+      ) {
+        unsupported.add('rowspan');
+      }
+      group = rows.length;
     } else if (tag === 'tr') {
       rows.push([]);
     } else if (tag === 'td' || tag === 'th') {
