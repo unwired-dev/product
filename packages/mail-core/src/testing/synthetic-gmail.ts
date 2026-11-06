@@ -17,7 +17,8 @@ import {
   requestURL,
 } from './synthetic-relay.ts';
 
-// A synthetic Gmail message; `disposition` is served as its Content-Disposition header.
+// A synthetic Gmail message; `disposition` is served as its Content-Disposition header, and a
+// `calendar` makes it multipart/mixed: its body, then the calendar as `invite.ics`.
 interface SyntheticGmailMessage {
   readonly threadId?: string;
   readonly from?: string;
@@ -28,6 +29,7 @@ interface SyntheticGmailMessage {
   readonly html?: string;
   readonly text?: string;
   readonly disposition?: string;
+  readonly calendar?: string;
 }
 
 // A synthetic Gmail mailbox: three Inbox messages over two list pages, one label with an archived
@@ -141,6 +143,35 @@ const syntheticPerformance: Readonly<Record<string, SyntheticGmailMessage>> =
     }),
   );
 
+// The `registration-invitation` mailbox adds Lena Fischer's meeting invitation to the mailbox's
+// own address, the newest Inbox message.
+const syntheticInvitation: Readonly<Record<string, SyntheticGmailMessage>> = {
+  '19a0c0ffee000031': {
+    from: 'Lena Fischer <lena@example.invalid>',
+    subject: 'Invitation: Q4 roadmap review',
+    snippet: 'Join us to review the Q4 roadmap.',
+    internalDate: '1759400000000',
+    labelIds: ['INBOX', 'UNREAD'],
+    text: 'Join us to review the Q4 roadmap.',
+    calendar: [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'METHOD:REQUEST',
+      'BEGIN:VEVENT',
+      'UID:roadmap-42@example.invalid',
+      'SEQUENCE:0',
+      'SUMMARY:Q4 roadmap review',
+      'DTSTART:20261112T150000Z',
+      'DTEND:20261112T160000Z',
+      'LOCATION:Room 4',
+      'ORGANIZER;CN=Lena Fischer:mailto:lena@example.invalid',
+      'ATTENDEE;CN=Alex;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:other@example.invalid',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n'),
+  },
+};
+
 const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
 const mailbox = 'synthetic-alternate-mailbox';
 const LabelChange = Schema.fromJsonString(
@@ -153,7 +184,7 @@ const identity = (subject: string, granted: boolean) => ({
   subject,
   scopes: granted ? [gmailScope] : [],
 });
-// A message's MIME headers, as its single part declares them.
+// The MIME headers a message part declares for its type.
 const mimeHeaders = (message: SyntheticGmailMessage, mimeType: string) => [
   { name: 'Content-Type', value: `${mimeType}; charset=UTF-8` },
   ...(message.disposition === undefined
@@ -169,10 +200,11 @@ const newestFirst = Order.flip(
   ),
 );
 
-const mimeTypeOf = (message: SyntheticGmailMessage) =>
+const bodyTypeOf = (message: SyntheticGmailMessage) =>
   message.html === undefined ? 'text/plain' : 'text/html';
-// The body-free preflight prefetch makes: each synthetic message is one part, and only the
-// requested admission headers are returned.
+const mimeTypeOf = (message: SyntheticGmailMessage) =>
+  message.calendar === undefined ? bodyTypeOf(message) : 'multipart/mixed';
+// The body-free preflight prefetch makes: only the requested admission headers are returned.
 const admission = (
   message: SyntheticGmailMessage,
   requested: ReadonlySet<string>,
@@ -183,17 +215,41 @@ const admission = (
   );
   return { payload: { mimeType, headers } };
 };
-// The single part with every MIME header and its base64url body.
+// A part's inline base64url body.
+const encoded = (content: string) => ({
+  size: new TextEncoder().encode(content).length,
+  data: Base64.encode(content).replaceAll('+', '-').replaceAll('/', '_'),
+});
+// The message's parts with every MIME header and their base64url bodies.
 const full = (message: SyntheticGmailMessage) => {
-  const mimeType = mimeTypeOf(message);
-  const content = message.html ?? message.text ?? '';
-  const data = Base64.encode(content).replaceAll('+', '-').replaceAll('/', '_');
+  const bodyType = bodyTypeOf(message);
+  const body = {
+    mimeType: bodyType,
+    headers: mimeHeaders(message, bodyType),
+    body: encoded(message.html ?? message.text ?? ''),
+  };
   return {
-    payload: {
-      mimeType,
-      headers: mimeHeaders(message, mimeType),
-      body: { size: new TextEncoder().encode(content).length, data },
-    },
+    payload:
+      message.calendar === undefined
+        ? body
+        : {
+            mimeType: 'multipart/mixed',
+            headers: mimeHeaders(message, 'multipart/mixed'),
+            parts: [
+              { ...body, headers: mimeHeaders({}, bodyType) },
+              {
+                mimeType: 'text/calendar',
+                filename: 'invite.ics',
+                headers: [
+                  {
+                    name: 'Content-Type',
+                    value: 'text/calendar; charset=UTF-8; method=REQUEST',
+                  },
+                ],
+                body: encoded(message.calendar),
+              },
+            ],
+          },
   };
 };
 // The message as the Inbox list reads it: its snippet, date and envelope headers.
@@ -234,6 +290,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
       const messages = {
         ...(yield* SyntheticGmailMessages),
         ...(scenario === 'registration-thread' ? syntheticThread : {}),
+        ...(scenario === 'registration-invitation' ? syntheticInvitation : {}),
         ...(scenario === 'registration-performance'
           ? syntheticPerformance
           : {}),

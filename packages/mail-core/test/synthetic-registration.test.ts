@@ -7,6 +7,12 @@ import * as Schema from 'effect/Schema';
 
 import type { SyntheticRegistrationRelay } from '../src/synthetic-registration.ts';
 
+import { invitationOf } from '../src/invitations.ts';
+import {
+  calendarPart,
+  decodeFullMessage,
+  partText,
+} from '../src/message-body.ts';
 import {
   SyntheticGmailMessages,
   SyntheticGoogle,
@@ -750,6 +756,45 @@ describe('the performance mailboxes', () => {
         ),
       ).body.body.content,
     ).toBe('Outlook update 125 body. Nothing here came from a real mailbox.');
+  });
+});
+
+describe('the invitation mailbox', () => {
+  it("serves a meeting invitation to the mailbox's own address", async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-invitation', { state: null });
+    const gmail = (path: string) =>
+      ask('google.gmail', {
+        subject: 'synthetic-alternate-mailbox',
+        url: `https://gmail.googleapis.com/gmail/v1/users/me/${path}`,
+        body: null,
+      });
+    const exchange = <
+      S extends Schema.Top & { readonly DecodingServices: never },
+    >(
+      body: S,
+    ) => Schema.Struct({ status: Schema.Finite, body });
+    const read = decoded(
+      exchange(Schema.String),
+      await gmail('messages/19a0c0ffee000031?format=full'),
+    ).body;
+    const offer = await Effect.runPromise(
+      Effect.gen(function* () {
+        const { id, payload } = yield* decodeFullMessage(read);
+        const part = yield* Effect.fromNullishOr(calendarPart(payload));
+        const data = yield* Effect.fromNullishOr(part.body?.data);
+        const calendar = yield* partText(part, data);
+        return invitationOf({ id, calendar }, 'other@example.invalid');
+      }),
+    );
+    expect(offer).toMatchObject({
+      kind: 'invited',
+      address: 'other@example.invalid',
+      details: {
+        summary: 'Q4 roadmap review',
+        organizer: { name: 'Lena Fischer', address: 'lena@example.invalid' },
+      },
+    });
   });
 });
 

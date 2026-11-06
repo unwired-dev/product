@@ -17,6 +17,7 @@
     "registration-thread",
     "registration-performance",
     "registration-sync-status",
+    "registration-invitation",
     "categorization-spike",
     "assistance-qualification"
   ],
@@ -36,6 +37,7 @@
     "registration-draft-editor",
     "registration-thread",
     "registration-performance",
-    "registration-sync-status"
+    "registration-sync-status",
+    "registration-invitation"
   ]
 }

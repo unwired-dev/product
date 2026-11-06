@@ -169,5 +169,8 @@ separately.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
   render each reader with a synthetic Gmail mailbox; they are component tests, not
   native evidence.
-- Native Mac, iPhone and iPad evidence and a real Gmail organizer receiving the
-  response remain required before release.
+- The iPhone and iPad `registration-invitation`
+  [Mock Mail journey](mock-mail-sessions.md) opens a Gmail invitation and accepts
+  it, keeping captures of the card before and after.
+- Native Mac evidence, the other states on iPhone and iPad, and a real Gmail
+  organizer receiving the response remain required before release.
