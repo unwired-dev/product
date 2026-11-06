@@ -59,8 +59,8 @@ export type Invitation = Readonly<{
 }>;
 
 // What a received message's calendar part offers: nothing, a response the owning mailbox can
-// send, a meeting that names only other addresses, a cancelled meeting, or an invitation Unwired
-// cannot read.
+// send, a meeting that names only other addresses, a cancelled meeting, a series update that
+// doesn't say which of its meetings it changes, or an invitation Unwired cannot read.
 export type InvitationOffer =
   | Invitation
   | Readonly<{
@@ -69,6 +69,7 @@ export type InvitationOffer =
       invited: readonly string[];
     }>
   | Readonly<{ kind: 'cancelled'; details: InvitationDetails }>
+  | Readonly<{ kind: 'ambiguous'; details: InvitationDetails }>
   | Readonly<{ kind: 'unreadable' }>;
 
 const unreadable = { kind: 'unreadable' } as const;
@@ -496,7 +497,7 @@ const seriesOf = (
 };
 
 // One meeting of a series: its RECURRENCE-ID's instant, of the same value type as DTSTART. null
-// without one, undefined for a range of meetings or beside a rule, which it can't read.
+// without one, undefined for a range of meetings, which it can't read.
 const recurrenceOf = (event: readonly Line[], start: InvitationTime) => {
   const line = find(event, 'RECURRENCE-ID');
   if (line === undefined) {
@@ -505,8 +506,7 @@ const recurrenceOf = (event: readonly Line[], start: InvitationTime) => {
   const time = timeOf(line);
   return time === undefined ||
     time.allDay !== start.allDay ||
-    parameterOf(line, 'RANGE') !== undefined ||
-    find(event, 'RRULE') !== undefined
+    parameterOf(line, 'RANGE') !== undefined
     ? undefined
     : time.at;
 };
@@ -531,7 +531,9 @@ const detailsOf = (
     ...(location === undefined ? {} : { location: text(location.value) }),
     organizer,
     ...series,
-    ...(recurrence === null ? {} : { recurrence }),
+    ...(recurrence === null || series.starts !== undefined
+      ? {}
+      : { recurrence }),
   };
 };
 
@@ -596,6 +598,11 @@ export function invitationOf(
   }
   const { method, event } = calendar;
   const { uid, sequence, details, organizerLine, summary } = meeting;
+  // A RECURRENCE-ID beside a rule names one meeting yet carries the whole series, so neither a
+  // response nor a change can be matched to a meeting.
+  if (details.starts !== undefined && find(event, 'RECURRENCE-ID') !== undefined) {
+    return { kind: 'ambiguous', details };
+  }
   // A cancellation needs no attendee: there is nothing to answer. Its STATUS can only be CANCELLED.
   if (method === 'CANCEL') {
     const statuses = event.filter((line) => line.name === 'STATUS');

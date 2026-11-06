@@ -162,6 +162,7 @@ function Details({
   invited,
   earlier,
   older = false,
+  ambiguous = false,
 }: {
   readonly details: InvitationDetails;
   // Who was invited, then secondary lines about them; a cancelled meeting has no row.
@@ -170,15 +171,19 @@ function Details({
   readonly earlier?: EarlierResponse | undefined;
   // A revision older than one the person answered, which has no Invited row.
   readonly older?: boolean;
+  // A series update that names no one meeting, which has no repeats line or Invited row.
+  readonly ambiguous?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useFormats();
   const when = invitationWhen(t, formats, details);
-  const repeats = invitationRepeats(t, formats, details);
+  const repeats = ambiguous
+    ? undefined
+    : invitationRepeats(t, formats, details);
   const was =
     earlier === undefined ? undefined : invitationWas(t, formats, earlier);
-  const cancelled = invited === undefined;
+  const cancelled = invited === undefined && !ambiguous;
   const invitedBy =
     details.recurrence === undefined
       ? 'invitation.from'
@@ -737,6 +742,24 @@ export function InvitationCard({
           icon="xmark"
           title={t('invitation.meetingCancelled')}
           detail={t('invitation.meetingCancelledDetail')}
+        />
+      </View>
+    );
+  }
+  if (offer.kind === 'ambiguous') {
+    return (
+      <View style={card}>
+        <Details
+          details={offer.details}
+          ambiguous
+        />
+        <Status
+          icon="exclamationmark.triangle.fill"
+          tone="statusWarning"
+          title={t('invitation.ambiguous')}
+          detail={t('invitation.ambiguousDetail', {
+            name: organizerName(offer.details),
+          })}
         />
       </View>
     );

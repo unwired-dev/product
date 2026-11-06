@@ -650,6 +650,8 @@
     "signIn": "Sign In…",
     "elsewhere": "You can’t respond from here",
     "elsewhereDetail": "Unwired responds only for an address the invitation names. {{name}} invited {{addresses}}.",
+    "ambiguous": "Unwired can’t tell which meeting this is",
+    "ambiguousDetail": "This update doesn’t identify one meeting in the series, so you can’t respond to it or add it here. Ask {{name}} to send it again.",
     "unreadable": "Unwired can’t read this invitation",
     "unreadableDetail": "Its calendar details are damaged or use a format Unwired doesn’t support. The calendar attachment is still in the message.",
     "acceptedSubject": "Accepted: {{summary}}",

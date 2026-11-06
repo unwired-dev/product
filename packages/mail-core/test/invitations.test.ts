@@ -327,7 +327,10 @@ describe('meeting invitations', () => {
     ],
     ['a floating original start', 'RECURRENCE-ID:20261113T140000'],
     ['two original starts', `${occurrence}\r\n${occurrence}`],
-    ['a rule beside it', `${occurrence}\r\nRRULE:FREQ=WEEKLY;COUNT=4`],
+    [
+      'a range beside a rule',
+      `${occurrence.replace(';', ';RANGE=THISANDFUTURE;')}\r\nRRULE:FREQ=WEEKLY;COUNT=4`,
+    ],
   ])('keeps one meeting of a series with %s unreadable', (_, lines) => {
     expect.hasAssertions();
     expect(
@@ -336,6 +339,27 @@ describe('meeting invitations', () => {
         me,
       ),
     ).toStrictEqual({ kind: 'unreadable' });
+  });
+
+  it('offers no response to an update that names one meeting but carries the whole series', () => {
+    expect.hasAssertions();
+    const ambiguous = [...series, 'RRULE:FREQ=WEEKLY;COUNT=4', occurrence];
+    for (const [address, method] of [
+      [me, 'REQUEST'],
+      [me, 'CANCEL'],
+      ['mara@example.invalid', 'REQUEST'],
+    ] as const) {
+      const offer = invitationOf(
+        documentOf(calendar(ambiguous, method)),
+        address,
+      );
+
+      expect(offer).toMatchObject({
+        kind: 'ambiguous',
+        details: { starts: expect.arrayContaining([Date.UTC(2026, 9, 16, 12)]) },
+      });
+      expect(offer).not.toHaveProperty('details.recurrence');
+    }
   });
 
   it('reads a series that ends at a distant UNTIL', () => {

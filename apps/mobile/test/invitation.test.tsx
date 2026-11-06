@@ -670,6 +670,47 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     }
   });
 
+  it('offers nothing for a series update that names no one meeting', async () => {
+    expect.hasAssertions();
+    const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { gmail, app } = await opened(
+      invitation('alex@example.invalid', [
+        'RRULE:FREQ=WEEKLY;COUNT=7',
+        `RECURRENCE-ID;TZID=${zone}:20261113T120000`,
+      ])
+        .replace(
+          'DTSTART:20261106T130000Z',
+          `DTSTART;TZID=${zone}:20261106T120000`,
+        )
+        .replace(
+          'DTEND:20261106T140000Z',
+          `DTEND;TZID=${zone}:20261106T130000`,
+        ),
+    );
+    try {
+      await expect(
+        screen.findByText('Unwired can’t tell which meeting this is'),
+      ).resolves.toBeOnTheScreen();
+
+      expect(
+        screen.getByText(
+          'This update doesn’t identify one meeting in the series, so you can’t respond to it or add it here. Ask Lena Fischer to send it again.',
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('Invitation from Lena Fischer'),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText(/^When, Fridays, [^,]+$/u)).toBeOnTheScreen();
+      expect(screen.queryByText('Invited')).toBeNull();
+      for (const action of ['Accept', 'Maybe', 'Decline', 'Add to Calendar']) {
+        expect(screen.queryByRole('button', { name: action })).toBeNull();
+      }
+      expect(gmail.sends).toHaveLength(0);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('says when it cannot read an invitation', async () => {
     expect.hasAssertions();
     const { app } = await opened(
