@@ -486,6 +486,22 @@ const shownFormatting = (body: Shown) =>
         ],
   );
 
+// Gmail answers each body download once `answer` settles, and fails it when `answer` rejects.
+const answerBodies = (
+  gmail: ReturnType<typeof createSyntheticGmail>,
+  answer: () => Promise<undefined>,
+) => {
+  const { gmailRequest } = gmail.native;
+  gmail.native.gmailRequest = async (...request) => {
+    if (
+      request[1].some(([key, value]) => key === 'format' && value === 'full')
+    ) {
+      await answer();
+    }
+    return gmailRequest(...request);
+  };
+};
+
 // With the compact Reply picker open, its choice shares the toolbar button's name and renders last.
 const pressLast = async (name: string) => {
   const button = screen.getAllByRole('button', { name }).at(-1);
@@ -5670,6 +5686,107 @@ describe('replying to and forwarding from the reader', () => {
         'This Gmail mailbox has no labels of its own yet.',
       ),
     ).toBeVisible();
+  });
+
+  it.each([
+    ['body', 'drafts'],
+    ['drafts', 'body'],
+  ] as const)(
+    'keeps the iPhone reader toolbar when %s loads before %s (#1449)',
+    async (first, last) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      // Drafts open only when the test releases them.
+      const opened = Promise.withResolvers<undefined>();
+      const drafts = createDrafts(
+        {
+          ...storage.native,
+          openDrafts: async () => {
+            await opened.promise;
+            return storage.native.openDrafts();
+          },
+        },
+        registration,
+      );
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        subject: 'Slow plans',
+        content: { text: 'Meet on Saturday?' },
+        headers: { 'Message-ID': '<slow@example.invalid>' },
+      });
+      // Gmail answers the body download only when the test answers it.
+      const answered = Promise.withResolvers<undefined>();
+      answerBodies(gmail, () => answered.promise);
+      const prerequisites = {
+        body: {
+          release: answered.resolve,
+          wait: () => screen.findByText('Meet on Saturday?'),
+        },
+        drafts: {
+          release: opened.resolve,
+          wait: () =>
+            waitFor(() => {
+              expect(drafts.getSnapshot().kind).toBe('ready');
+            }),
+        },
+      };
+      await render(
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />,
+      );
+      await screen.findByLabelText('Opening message');
+      // Each prerequisite keeps Reply unavailable when it is the last one still loading.
+      expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
+      await act(() => {
+        prerequisites[first].release(undefined);
+      });
+      await prerequisites[first].wait();
+      expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+      await act(() => {
+        prerequisites[last].release(undefined);
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled();
+      });
+      expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    },
+  );
+
+  it('offers More in place of Reply when the iPhone reader cannot open the body (#1449)', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Lost plans',
+      content: { text: 'Meet on Saturday?' },
+      headers: { 'Message-ID': '<lost@example.invalid>' },
+    });
+    answerBodies(gmail, () =>
+      Promise.reject(new Error('Gmail is unreachable')),
+    );
+    await render(
+      <ReaderApp
+        drafts={drafts}
+        gmail={gmail}
+        message={message}
+        registration={registration}
+      />,
+    );
+    // The Thread actions stay reachable without the Reply sheet that would hold them.
+    await expect(
+      screen.findByRole('button', { name: 'More' }),
+    ).resolves.toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
   });
 
   it('keeps the Reply picker on a landscape iPhone and ignores a choice after the reader closes', async () => {

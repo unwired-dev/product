@@ -1,7 +1,6 @@
 # Translation: architecture notes
 
-Reviewer-only companion to [on-device translation](../message-translation.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [on-device translation](../message-translation.md).
 
 ## Native boundary
 

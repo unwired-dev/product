@@ -33,8 +33,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check agent workflow contracts
-        run: bash scripts/check-pr-babysitter-contract.sh
+      - name: Check workflow permissions
+        run: bash scripts/check-workflow-permissions.sh
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

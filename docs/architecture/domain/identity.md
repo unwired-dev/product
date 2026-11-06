@@ -1,6 +1,6 @@
 # Identity: architecture notes
 
-The reviewer-only topic owner is [Identity](../product/identity.md).
+The topic owner is [Identity](../product/identity.md).
 This route preserves links from the earlier extraction.
 
 ## Profile Record Scope

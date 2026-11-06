@@ -1,7 +1,6 @@
 # Messages and delivery: architecture notes
 
-Reviewer-only companion to [docs/product/messages-and-delivery.md](../../product/messages-and-delivery.md).
-Read under the [implementation and review workflow](../../agents/implementation-review.md).
+Architecture notes for [docs/product/messages-and-delivery.md](../../product/messages-and-delivery.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 

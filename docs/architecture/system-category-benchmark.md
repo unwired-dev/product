@@ -1,7 +1,6 @@
 # System Category benchmark: architecture notes
 
-Reviewer-only companion to [the benchmark guide](../../tools/system-category-benchmark/README.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [the benchmark guide](../../tools/system-category-benchmark/README.md).
 Issues [#828](https://github.com/unwired-dev/product/issues/828) and
 [#829](https://github.com/unwired-dev/product/issues/829) govern these isolated
 System and Custom comparisons; [#827](https://github.com/unwired-dev/product/issues/827) governs the

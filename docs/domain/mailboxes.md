@@ -1,7 +1,7 @@
 # Providers and mailboxes
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/domain/mailboxes.md).
+Architecture notes live in the separate [architecture companion](../architecture/domain/mailboxes.md).
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/mailboxes.md)
 
