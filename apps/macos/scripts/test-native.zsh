@@ -50,6 +50,19 @@ allowance=120
 [[ "$journey" == testWarmCachePerformance ]] && allowance=1200
 [[ "$journey" == testKeyboardAndAccessibility* ]] && allowance=600
 [[ "$UNWIRED_TEST_SCENARIO" == registration-draft-editor ]] && allowance=600
+# Concurrent XCUITest runs share one desktop and time out each other's event synthesis, so one
+# journey runs per user at a time. The kernel releases the lock when its owner exits.
+zmodload zsh/system
+journey_lock="$(getconf DARWIN_USER_TEMP_DIR)unwired-mac-journey.lock"
+: >> "$journey_lock"
+if ! zsystem flock -t 0.1 -f lock_fd "$journey_lock" 2>/dev/null; then
+  print "Waiting for the Mac journey lock held by pid $(<"$journey_lock")"
+  wait_start=$SECONDS
+  zsystem flock -f lock_fd "$journey_lock"
+  print "Waited $(( SECONDS - wait_start )) s for the Mac journey lock"
+fi
+# A redirection to the lock file in this shell would release the lock.
+(print $$ > "$journey_lock")
 "$repo_root/scripts/record-host-load.sh" "$UNWIRED_TEST_ARTIFACTS/host-load.txt" "before $journey"
 test_exit=0
 xcodebuild test "-only-testing:WindowProbe/WindowTests/$journey" -project WindowProbe.xcodeproj -scheme WindowProbe \
