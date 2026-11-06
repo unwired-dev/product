@@ -2989,6 +2989,7 @@ describe('product registration', () => {
   /* oxlint-enable vitest/max-expects */
 
   it('chooses and changes Spam and Trash folders for an IMAP connection from Settings › Email Accounts, asking again for a removed folder and leaving once its server marks both', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves the needed row, saving, Change…, a removed folder and leaving. */
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.deliver('INBOX', { subject: 'Kept IMAP message' });
@@ -3038,11 +3039,10 @@ describe('product registration', () => {
     ).toBeVisible();
     const choose = async (role: string, folder: string) => {
       const menu = screen.getByLabelText(role);
-      const item = (
-        menu.props.sections as ReadonlyArray<{
-          items: ReadonlyArray<{ id: string; title: string }>;
-        }>
-      )
+      const sections: ReadonlyArray<{
+        items: ReadonlyArray<{ id: string; title: string }>;
+      }> = menu.props.sections;
+      const item = sections
         .flatMap(({ items }) => items)
         .find(({ title }) => title === folder);
       await act(async () => {
@@ -3095,6 +3095,7 @@ describe('product registration', () => {
       screen.queryByRole('header', { name: 'Spam and Trash Folders' }),
     ).toBeNull();
   });
+  /* oxlint-enable vitest/max-expects */
 
   it('keeps a mailbox’s New Mail Notifications off when Product Sync cannot save them, and links denied permission to the system', async () => {
     expect.hasAssertions();
