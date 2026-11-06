@@ -844,17 +844,23 @@ describe('meeting invitations', () => {
     expect(later.responses.latest(invitation)).toBe(newer);
 
     later.close();
-    // An online result must not keep a deleted message available.
-    const found = await inbox.searchGmail('Updated');
-    expect(found).toMatchObject({
-      kind: 'found',
-      messages: expect.arrayContaining([
-        expect.objectContaining({ id: newer }),
-      ]),
-    });
+    // An archived message is still in the mailbox, so Gmail is asked for it.
+    gmail.archive(newer);
+    await inbox.load();
+
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    await responses.findLatest(invitation);
+
+    expect(responses.latest(invitation)).toBe(newer);
+
     // The answered message left the mailbox, so nothing opens it.
     gmail.remove(newer);
     await inbox.load();
+
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    await responses.findLatest(invitation);
 
     expect(responses.latest(invitation)).toBeUndefined();
   });

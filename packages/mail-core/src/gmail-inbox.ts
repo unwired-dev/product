@@ -5084,6 +5084,35 @@ export function createGmailInbox(
         ),
       );
     },
+    // Holds a Gmail message from anywhere in the mailbox for the reader, as a search result is
+    // held. Resolves whether Gmail has it, or undefined when it was not looked at, as when the
+    // mailbox is Microsoft's or closed or changed meanwhile.
+    findMessage: (id: string) => {
+      const scope = opened;
+      const reading = owner;
+      if (scope === undefined || forgotten || graph !== undefined) {
+        return Promise.resolve(undefined);
+      }
+      return runLogged(
+        metadata(scope, id, true).pipe(
+          Effect.map(([, message]) => {
+            if (owner !== reading || state.kind !== 'ready') {
+              return undefined;
+            }
+            if (message !== undefined) {
+              found.set(message.id, message);
+              publish(render());
+            }
+            return message !== undefined;
+          }),
+          Effect.catchTags({
+            SyncFailure: (failure) =>
+              searchFailed(failure, reading).pipe(Effect.as(undefined)),
+            GmailInvalidPage: () => Effect.void,
+          }),
+        ),
+      );
+    },
     recordResponse: (
       revision: Readonly<
         Pick<InvitationResponse, 'uid' | 'sequence' | 'recurrence'>

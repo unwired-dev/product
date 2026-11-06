@@ -26,6 +26,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -83,6 +84,7 @@ type InvitationInbox = Pick<
   GmailInbox,
   | 'send'
   | 'findSent'
+  | 'findMessage'
   | 'getSnapshot'
   | 'subscribe'
   | 'responseSource'
@@ -358,6 +360,13 @@ function Responding({
   const latest = useSyncExternalStore(responses.subscribe, () =>
     responses.latest(invitation),
   );
+  const older = recorded.kind === 'older';
+  // An archived newer revision is asked of Gmail, so Show Latest can open it.
+  useEffect(() => {
+    if (older && latest === undefined) {
+      void responses.findLatest(invitation);
+    }
+  }, [responses, invitation, older, latest]);
   const open = use(OpenMessageContext);
   const sync = useSyncExternalStore(inbox.subscribe, () => {
     const state = inbox.getSnapshot();
@@ -433,7 +442,7 @@ function Responding({
     }
   };
   // An older revision cannot respond, so it only points to the newer one.
-  if (recorded.kind === 'older') {
+  if (older) {
     return (
       <Status {...shown}>
         {latest === undefined || open === undefined ? undefined : (

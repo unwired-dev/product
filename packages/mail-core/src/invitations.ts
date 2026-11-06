@@ -754,7 +754,12 @@ export type ResponseCopy = Readonly<{ subject: string; text: string }>;
 
 type ResponseInbox = Pick<
   GmailInbox,
-  'send' | 'findSent' | 'getSnapshot' | 'subscribe' | 'recordResponse'
+  | 'send'
+  | 'findSent'
+  | 'findMessage'
+  | 'getSnapshot'
+  | 'subscribe'
+  | 'recordResponse'
 >;
 
 const unanswered: ResponseState = { kind: 'unanswered' };
@@ -1000,6 +1005,12 @@ function createInvitationResponses(
       .catch(() => false);
     return saved;
   };
+  const newerMessageOf = (invitation: Invitation) => {
+    const newest = newestOtherOf(invitation);
+    return newest !== undefined && newest.sequence > invitation.sequence
+      ? newest.message
+      : undefined;
+  };
   const receivedOf = (message: string) => {
     const state = inbox.getSnapshot();
     return state.kind === 'ready'
@@ -1070,15 +1081,20 @@ function createInvitationResponses(
     state: stateOf,
     earlier: earlierOf,
     // The message of the newest revision this device answered after `invitation`'s, while the
-    // mailbox still has it.
+    // reader can open it.
     latest: (invitation: Invitation) => {
-      const newest = newestOtherOf(invitation);
-      return newest !== undefined &&
-        newest.sequence > invitation.sequence &&
-        newest.message !== undefined &&
-        receivedOf(newest.message) !== undefined
-        ? newest.message
+      const message = newerMessageOf(invitation);
+      return message !== undefined && receivedOf(message) !== undefined
+        ? message
         : undefined;
+    },
+    // Asks Gmail for that message when the reader cannot open it yet, as when it was archived, so
+    // `latest` finds it while the mailbox still has it.
+    findLatest: async (invitation: Invitation) => {
+      const message = newerMessageOf(invitation);
+      if (message !== undefined && receivedOf(message) === undefined) {
+        await inbox.findMessage(message).catch(() => undefined);
+      }
     },
     // Sends `choice` to the organizer, unless a response is under way or its delivery is unknown.
     respond: (

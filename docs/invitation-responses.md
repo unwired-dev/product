@@ -86,8 +86,8 @@ separately.
 - **Show Latest** ([#1852](https://github.com/unwired-dev/product/issues/1852)) on
   an older revision opens the message carrying the newest revision this device
   answered in the reader, in the same mailbox; an open Mac composer stays open
-  over it. The button is absent when the reader cannot show that message, because
-  Gmail deleted it or it left the Inbox and every opened view and search result,
+  over it. When the message left the Inbox, as when it was archived, the card asks
+  Gmail for it first. The button is absent when Gmail no longer has the message,
   or when the response was recorded before #1852 without its message.
 - A `METHOD:CANCEL` for one meeting
   ([#1826](https://github.com/unwired-dev/product/issues/1826)) shows the same
