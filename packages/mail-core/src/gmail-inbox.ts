@@ -5086,7 +5086,8 @@ export function createGmailInbox(
     },
     // Holds a Gmail message from anywhere in the mailbox for the reader, as a search result is
     // held. Resolves whether Gmail has it, or undefined when it was not looked at, as when the
-    // mailbox is Microsoft's or closed or changed meanwhile.
+    // mailbox is Microsoft's or closed or changed meanwhile. It waits for a synchronization, so
+    // a deletion that synchronization applies cannot be undone by an older answer.
     findMessage: (id: string) => {
       const scope = opened;
       const reading = owner;
@@ -5094,7 +5095,7 @@ export function createGmailInbox(
         return Promise.resolve(undefined);
       }
       return runLogged(
-        metadata(scope, id, true).pipe(
+        semaphore.withPermit(metadata(scope, id, true)).pipe(
           Effect.map(([, message]) => {
             if (owner !== reading || state.kind !== 'ready') {
               return undefined;

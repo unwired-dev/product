@@ -865,6 +865,38 @@ describe('meeting invitations', () => {
     expect(responses.latest(invitation)).toBeUndefined();
   });
 
+  it('does not hold a message Gmail deleted while it was being looked up', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Updated invitation' });
+    gmail.archive(id);
+    const lookup = Promise.withResolvers<undefined>();
+    const answered = Promise.withResolvers<undefined>();
+    const native: NativeGmail = {
+      ...gmail.native,
+      gmailRequest: async (path, query, request) => {
+        const reply = gmail.native.gmailRequest(path, query, request);
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the lookup's answer is held.
+        if (path === `messages/${id}`) {
+          answered.resolve(undefined);
+          await lookup.promise;
+        }
+        return reply;
+      },
+    };
+    const inbox = createGmailInbox(native);
+    await inbox.load();
+    const found = inbox.findMessage(id);
+    await answered.promise;
+    gmail.remove(id);
+    const synchronized = inbox.load();
+    lookup.resolve(undefined);
+    await Promise.all([found, synchronized]);
+
+    expect(inbox.getSnapshot()).toMatchObject({ kind: 'ready' });
+    expect(inbox.getSnapshot()).not.toHaveProperty('found');
+  });
+
   it('opens nothing from a record saved without its message', async () => {
     expect.hasAssertions();
     const { inbox, invitation, responses, close } = await invited();
