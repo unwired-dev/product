@@ -1,7 +1,5 @@
 # Repository documentation routing
 
-Reviewer-only under the [implementation and review workflow](../agents/implementation-review.md).
-
 ## Bootstrap references
 
 The [Expo bootstrap](../expo-client.md) uses Effect v4 and native split-view

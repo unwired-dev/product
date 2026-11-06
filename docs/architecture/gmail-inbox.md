@@ -1,7 +1,6 @@
 # Gmail Inbox: architecture notes
 
-Reviewer-only companion to [the operational guide](../gmail-inbox.md), under the
-[implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [the operational guide](../gmail-inbox.md).
 Issue [#604](https://github.com/unwired-dev/product/issues/604) introduces the
 replacement Gmail provider adapter. It reuses no prototype Swift mail engine.
 

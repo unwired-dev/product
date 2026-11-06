@@ -1,8 +1,7 @@
 # Mail Commitments: architecture notes
 
-Reviewer-only companion to
+Architecture notes for
 [the confirmed post-launch requirements](../../product/mail-commitments.md).
-Read under the [implementation and review workflow](../../agents/implementation-review.md).
 
 ## Scope and decisions
 

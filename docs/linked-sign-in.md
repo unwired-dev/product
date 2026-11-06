@@ -1,7 +1,7 @@
 # Linked Google and Apple sign-in
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/linked-sign-in.md).
+Architecture notes live in the separate [architecture companion](architecture/linked-sign-in.md).
 
 [#598](https://github.com/unwired-dev/product/issues/598) lets a person add the
 other Sign-In Provider to an existing Product Account. After linking, either

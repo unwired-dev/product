@@ -1,7 +1,6 @@
 # Privacy and sync: architecture notes
 
-Reviewer-only companion to [docs/product/privacy-and-sync.md](../../product/privacy-and-sync.md).
-Read under the [implementation and review workflow](../../agents/implementation-review.md).
+Architecture notes for [docs/product/privacy-and-sync.md](../../product/privacy-and-sync.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 

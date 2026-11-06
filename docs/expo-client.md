@@ -1,7 +1,7 @@
 # Expo client and mock Inbox
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/expo-client.md).
+Architecture notes live in the separate [architecture companion](architecture/expo-client.md).
 
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
 a deterministic Inbox and message detail for iPhone and iPad. The shell is a native

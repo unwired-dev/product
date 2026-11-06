@@ -1,7 +1,6 @@
 # Storage and Private Sync export: architecture notes
 
-Reviewer-only companion to [docs/storage-and-product-sync-export.md](../storage-and-product-sync-export.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [docs/storage-and-product-sync-export.md](../storage-and-product-sync-export.md).
 Extracted passages retain their source scope; prototype details do not establish
 replacement requirements or release qualification.
 

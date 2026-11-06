@@ -234,7 +234,7 @@ it.
 - Sent messages preserve the formatted body, plain-text alternative, quoted
   correspondence, attachments, inline images and eligible reply threading.
 
-The reviewer-only [Outbox companion](architecture/outbox.md) records internal
+The [Outbox architecture notes](architecture/outbox.md) record internal
 mechanisms and the scope of the retry policy.
 
 ## Verification

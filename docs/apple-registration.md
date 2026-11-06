@@ -1,7 +1,7 @@
 # Apple registration and mailbox authorization
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/apple-registration.md).
+Architecture notes live in the separate [architecture companion](architecture/apple-registration.md).
 
 ## Launch first-connection requirement
 

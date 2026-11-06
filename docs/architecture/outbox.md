@@ -1,7 +1,6 @@
 # Outbox: architecture notes
 
-Reviewer-only companion to [docs/outbox.md](../outbox.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [docs/outbox.md](../outbox.md).
 
 ## Delivery rules
 

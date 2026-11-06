@@ -523,8 +523,11 @@ until it can preserve offline copies and concurrent publication safely.
 **Reply All** and **Forward** to the Gmail reader on iPhone, iPad and Mac, and
 [#1023](https://github.com/unwired-dev/product/issues/1023) to the
 [IMAP reader](imap-mailboxes.md#reading). They
-appear once the opened message's body and headers are read, and only while the
-reader's own mailbox can send: a response never starts from another mailbox. Each
+are offered only while the reader's own mailbox can send: a response never starts
+from another mailbox. On iPhone and iPad, the controls stay visible but unavailable
+while the message's body, headers or Drafts load. On Mac, they appear once those
+are ready. If the body or Drafts cannot open, iPhone keeps **More** instead of
+**Reply**, so Thread actions remain reachable. Each
 opens the new Draft in the existing composer. Nothing is sent; editing, Close,
 reopening, **Undo** and **Discard** work as for any Draft.
 

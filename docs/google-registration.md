@@ -1,7 +1,7 @@
 # Google registration and Gmail consent
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/google-registration.md).
+Architecture notes live in the separate [architecture companion](architecture/google-registration.md).
 
 ## Launch first-connection requirement
 

@@ -1,7 +1,7 @@
 # Providers and mailboxes: behavior notes
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/product/mailboxes.md).
+Architecture notes live in the separate [architecture companion](../architecture/product/mailboxes.md).
 
 [Vocabulary](../domain/mailboxes.md) · [Domain index](../../GLOSSARY.md)
 
@@ -10,8 +10,7 @@ Microsoft mail. Provider and engine terms also describe the Swift prototype;
 their presence does not establish support in the maintained clients.
 
 These observable requirements were separated from the former monolithic glossary
-and its implementation notes. The reviewer owns the separate architecture companion
-under the [implementation and review workflow](../agents/implementation-review.md).
+and its implementation notes.
 “v1” and “first release” in these notes refer to their original feature scope.
 They do not establish replacement launch requirements or proof that a feature is
 implemented.

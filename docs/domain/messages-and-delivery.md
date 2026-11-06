@@ -1,7 +1,7 @@
 # Messages and delivery
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/domain/messages-and-delivery.md).
+Architecture notes live in the separate [architecture companion](../architecture/domain/messages-and-delivery.md).
 
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/messages-and-delivery.md)
 

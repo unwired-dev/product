@@ -9,12 +9,11 @@ with Gmail, IMAP/SMTP and Microsoft mail. Android and Windows remain later slice
 Google and Apple Product Sign-In replace Apple-only login.
 
 Start with [the documentation index](docs/README.md)
-for requirements, setup and validation.
-The review agent reads [the architecture index](docs/architecture/README.md)
-under the [implementation and review workflow](docs/agents/implementation-review.md).
+for requirements, setup and validation, and
+[the architecture index](docs/architecture/README.md) for design decisions.
 Follow [Expo setup](docs/expo-client.md) for mobile coding conventions and commands.
-Full platform qualification remains required before release; the reviewer tracks
-its evidence through the architecture index.
+Full platform qualification remains required before release; the architecture
+index tracks its evidence.
 
 ## Current checkout
 
@@ -40,22 +39,20 @@ mise install
 mise exec -- pnpm install
 ```
 
-For the replacement app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
+For the app, follow [Expo installation and launch](docs/expo-client.md#install-and-run).
 For Mac, follow [native Mac setup](docs/macos-client.md).
 
 For optional [Graft](https://trailhq.com/graft) code navigation, install the CLI once and
-initialize the local graph from the repository root:
+build the ignored `graft/` cache from the repository root:
 
 ```sh
 npm install --global @nanonets/graft
-graft init --agents agents --no-global --no-mcp
+graft build
 ```
 
-This adds Graft instructions to `AGENTS.md` and builds the ignored `graft/` cache.
-Preserve the repository's scoped [navigation policy](AGENTS.md#graft-code-navigation)
-when regenerating tool-managed instructions.
-`.worktreeinclude` includes the cache when creating worktrees. Run `graft build`
-to regenerate it when needed.
+Register `graft mcp` in your own agent configuration. Avoid `graft init` here: it
+writes tool instructions into `AGENTS.md`, which stays tool-neutral.
+`.worktreeinclude` includes the cache when creating worktrees.
 
 `.mcp.json` registers Figma's remote MCP server for Claude Code. Approve the
 project server when Claude Code prompts, then run `/mcp`, select `figma`, and
@@ -90,11 +87,6 @@ environment settings and signing, and the [Apple](docs/apple-registration.md) an
 credentials and developer-specific deployment values out of source control.
 
 ## Validation
-
-This is the canonical shared-command list. Select relevant evidence under the
-[testing policy](docs/agents/testing.md); host guides add only their platform checks.
-Manifests, `pnpm-workspace.yaml` and `.mise.toml` own current dependency/toolchain
-versions. Keep compatibility and upgrade constraints in the host guides.
 
 ```sh
 mise exec -- pnpm lint
@@ -137,13 +129,8 @@ Use [the testing policy](docs/agents/testing.md) to select meaningful checks and
 ownership during native checks. [Isolated Mock Mail Sessions](docs/mock-mail-sessions.md) keep
 deterministic mocked journeys distinct from real integration evidence.
 
-CI covers both replacement hosts, shared core/contracts, and the retained Convex backend. The
-legacy SwiftMail provider-qualification job is disabled by maintainer decision; its test
-sources and local commands remain available.
-
 ## Working on the project
 
-- [Documentation index and historical status](docs/README.md)
 - [Agent guide](AGENTS.md)
 - [Implementation and review workflow](docs/agents/implementation-review.md)
 - [Product terminology](GLOSSARY.md)
