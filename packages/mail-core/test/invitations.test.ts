@@ -6,6 +6,7 @@ import type { BodyDocument } from '@private-email/mail-core/message-body';
 
 import { english } from '@private-email/localization';
 import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import {
   alsoInvited,
   createInvitationFormats,
@@ -117,20 +118,25 @@ async function invited(
   const inbox = createGmailInbox(native(gmail.native));
   await inbox.load();
   const close = inbox.retainMessage(id);
+  return {
+    gmail,
+    id,
+    inbox,
+    close,
+    invitation: await invitationIn(inbox, id),
+    responses: invitationResponses(inbox, () => Date.UTC(2026, 10, 2, 9, 52)),
+  };
+}
+
+// The invitation a retained message offers the mailbox.
+async function invitationIn(inbox: GmailInbox, id: string) {
   await inbox.readMessage(id);
   const document = inbox.responseSource(id);
   const offer = document === undefined ? undefined : invitationOf(document, me);
   if (offer?.kind !== 'invited') {
     throw new Error('Expected an invitation for the mailbox');
   }
-  return {
-    gmail,
-    id,
-    inbox,
-    close,
-    invitation: offer,
-    responses: invitationResponses(inbox, () => Date.UTC(2026, 10, 2, 9, 52)),
-  };
+  return offer;
 }
 
 // The same mailbox's responses after the app relaunches and opens the invitation again.
@@ -798,14 +804,29 @@ describe('meeting invitations', () => {
     const newer = gmail.deliver({
       from: 'Lena Fischer <lena@northwind.example>',
       subject: 'Updated invitation: Q4 roadmap review',
-      content: { text: 'Moved.' },
+      content: {
+        text: 'Moved.',
+        attachments: [
+          {
+            filename: 'invite.ics',
+            mimeType: 'text/calendar',
+            bytes: [
+              ...Buffer.from(
+                calendar(
+                  meeting.map((line) => line.replace('SEQUENCE:2', 'SEQUENCE:3')),
+                ),
+              ),
+            ],
+          },
+        ],
+      },
     });
     await inbox.load();
-    const revised = {
-      ...invitation,
-      sequence: invitation.sequence + 1,
-      message: newer,
-    };
+    const release = inbox.retainMessage(newer);
+    const revised = await invitationIn(inbox, newer);
+    release();
+
+    expect(revised).toMatchObject({ sequence: 3, message: newer });
 
     expect(responses.latest(invitation)).toBeUndefined();
 
