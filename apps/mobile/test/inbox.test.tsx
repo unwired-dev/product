@@ -46,7 +46,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { withTiming } from 'react-native-reanimated';
+import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import { makeMutable, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import type { ipad } from '../src/inbox-styles.ts';
@@ -590,13 +591,23 @@ describe('preview Inbox', () => {
         bar.getByLabelText('Search senders and subjects'),
         'focus',
       );
+      const keyboard = jest.mocked(useReanimatedKeyboardAnimation);
+      keyboard.mockReturnValue({
+        height: makeMutable(-280),
+        progress: makeMutable(1),
+      });
       await app.rerender(<WindowJourney keyboardLift={280} />);
       expect(screen.getByTestId('window-bar')).toHaveStyle({ bottom: 300 });
       // Sync status over the list rises with the bar, 12 pt above it.
       expect(screen.getByTestId('list-notice')).toHaveStyle({ bottom: 356 });
       // The keyboard must not move the bar on top of the window bar's own lift.
+      // Reanimated's test renderer applies animated styles to `jestAnimatedStyle` on the next frame.
       const sticky = screen.getByTestId('keyboard-bar');
-      expect(sticky).toHaveProp('enabled', false);
+      await waitFor(() => {
+        expect(sticky.props.jestAnimatedStyle).toMatchObject({
+          value: { top: 0 },
+        });
+      });
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'automaticallyAdjustKeyboardInsets',
         true,
@@ -611,13 +622,20 @@ describe('preview Inbox', () => {
         Dimensions.set({ window: { ...window, width: 500, height: 768 } });
       });
       // The compact bar tracks the keyboard 12pt above it, 8pt more than its 4pt bottom padding.
-      expect(sticky).toHaveProp('enabled', true);
-      expect(sticky).toHaveProp('offset', { opened: -8 });
+      await waitFor(() => {
+        expect(sticky.props.jestAnimatedStyle).toMatchObject({
+          value: { top: -288, bottom: 288 },
+        });
+      });
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'automaticallyAdjustKeyboardInsets',
         true,
       );
     } finally {
+      jest.mocked(useReanimatedKeyboardAnimation).mockReturnValue({
+        height: makeMutable(0),
+        progress: makeMutable(0),
+      });
       await act(() => {
         Dimensions.set({ window });
       });

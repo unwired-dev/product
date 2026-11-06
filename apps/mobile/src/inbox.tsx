@@ -32,8 +32,7 @@ import {
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { spacing } from '@private-email/mail-core/theme';
 import { use, useEffect, useMemo, useRef, useState } from 'react';
-import { SectionList, StyleSheet, Text, View } from 'react-native';
-import { KeyboardStickyView } from 'react-native-keyboard-controller';
+import { SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
@@ -52,6 +51,7 @@ import { Button, Notice, SFSymbol } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { FolderChoice } from './folder-choice.tsx';
 import {
+  KeyboardLift,
   useBarIndicatorInsets,
   useListBottomInset,
   WindowBarContext,
@@ -1319,13 +1319,11 @@ function InboxControls({
     );
   }
   return (
-    <KeyboardStickyView
+    <KeyboardLift
       enabled={sticky}
-      offset={{ opened: stickyOffset }}
-      pointerEvents="box-none"
-      style={StyleSheet.absoluteFill}
+      opened={stickyOffset}
       testID="keyboard-bar">
       <InboxBar {...props} />
-    </KeyboardStickyView>
+    </KeyboardLift>
   );
 }
