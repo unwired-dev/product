@@ -1007,6 +1007,18 @@ export function documentFromHtml(html: string): DraftHtml {
     }
     pushChildren(node.childNodes, inner);
   };
+  const endTablePart = (tag: string) => {
+    if (tag === 'td' || tag === 'th') {
+      target = blocks;
+    } else if (tag === 'table') {
+      if (rows.length === 0) {
+        unsupported.add('table');
+      } else if (rows.some((cells) => cells.length === 0)) {
+        unsupported.add('tr');
+      }
+      blocks.push({ kind: 'table', rows });
+    }
+  };
   const endElement = (step: Extract<Step, { kind: 'end' }>) => {
     const empty = lineTags.has(step.tag) && target.length === step.before;
     if (line !== undefined || empty) {
@@ -1015,14 +1027,7 @@ export function documentFromHtml(html: string): DraftHtml {
     if (listChanged(step.tag, step.before, target)) {
       unsupported.add(step.tag);
     }
-    if (step.tag === 'td' || step.tag === 'th') {
-      target = blocks;
-    } else if (step.tag === 'table') {
-      if (rows.length === 0 || rows.some((cells) => cells.length === 0)) {
-        unsupported.add(rows.length === 0 ? 'table' : 'tr');
-      }
-      blocks.push({ kind: 'table', rows });
-    }
+    endTablePart(step.tag);
   };
   const visit = (step: Step) => {
     if (step.kind === 'end') {
