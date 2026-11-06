@@ -3867,6 +3867,38 @@ describe('composing Drafts', () => {
         await fireEvent.changeText(body(), 'lets meet monday. thanks');
         expect(screen.queryByText(failed)).toBeNull();
         expect(screen.queryByText(dropped)).toBeNull();
+
+        // Cancel and Retry change request ownership before React commits the next panel.
+        await chooseWritingTool('Rewrite the message body');
+        const cancel = queuedPress('Cancel writing help');
+        const edit = body().props.onChangeText;
+        await act(() => {
+          cancel();
+          edit('lets meet tuesday. thanks');
+        });
+        expect(screen.queryByText(dropped)).toBeNull();
+        await chooseWritingTool('Rewrite the message body');
+        await press('Cancel writing help');
+        const retry = queuedPress('Try writing help again');
+        await act(() => {
+          retry();
+          edit('lets meet wednesday. thanks');
+        });
+        expect(screen.getByText(dropped)).toBeOnTheScreen();
+        expect(body()).toHaveTextContent('lets meet wednesday. thanks', {
+          exact: true,
+        });
+        const oldRewrite = queuedPress('Rewrite your current text again');
+        const close = queuedPress('Close this notice');
+        await act(() => {
+          close();
+          oldRewrite();
+        });
+        expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+        await act(() => {
+          oldRewrite();
+        });
+        expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
       } finally {
         platform.restore();
       }

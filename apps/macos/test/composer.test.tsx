@@ -3718,6 +3718,56 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it('uses live request state when Cancel or Retry precedes a body edit before rendering', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native } = scriptedDraftAssistance();
+    await render(
+      <AssistanceContext value={native}>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    const body = () => screen.getByLabelText('Message body');
+    await fireEvent.changeText(body(), 'lets meet monday. thanks');
+    const dropped =
+      'Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.';
+    await writingTool('Rewrite');
+    const cancel = queuedPress('Cancel writing help');
+    const edit = body().props.onChangeText;
+    await act(() => {
+      cancel();
+      edit('lets meet tuesday. thanks');
+    });
+    expect(screen.queryByText(dropped)).toBeNull();
+    await writingTool('Rewrite');
+    await press('Cancel writing help');
+    const retry = queuedPress('Try writing help again');
+    await act(() => {
+      retry();
+      edit('lets meet wednesday. thanks');
+    });
+    expect(screen.getByText(dropped)).toBeOnTheScreen();
+    expect(body()).toHaveTextContent('lets meet wednesday. thanks', {
+      exact: true,
+    });
+    const oldRewrite = queuedPress('Rewrite your current text again');
+    const close = queuedPress('Close this notice');
+    await act(() => {
+      close();
+      oldRewrite();
+    });
+    expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+    await act(() => {
+      oldRewrite();
+    });
+    expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+  });
+
   it('flags the details a rewrite changed and applies it only when chosen with its changes', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

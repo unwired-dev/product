@@ -403,11 +403,18 @@ export function DraftAssistance({
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
-  const pending =
-    input !== undefined && (!finished(state) || state.kind === 'ready');
   useLayoutEffect(() => {
-    onPending?.(pending);
-  }, [onPending, pending]);
+    // Native Cancel, Retry and body edits can arrive before React commits another state.
+    const report = () => {
+      const current = input === undefined ? idle : store.getSnapshot(input);
+      onPending?.(
+        input !== undefined && (!finished(current) || current.kind === 'ready'),
+      );
+    };
+    const unsubscribe = store.subscribe(report);
+    report();
+    return unsubscribe;
+  }, [input, onPending, store]);
   const check =
     state.kind === 'ready' && isTextTool(purpose)
       ? checkDetails(original, state.text)
@@ -537,6 +544,13 @@ export function DroppedAssistance({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const active = useRef(true);
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
   const message = t('assistance.dropped');
   useOutcomeAnnouncement(message, false);
   return (
@@ -565,12 +579,21 @@ export function DroppedAssistance({
         <Button
           label={t('assistance.rewriteAgain')}
           accessibilityLabel={t('assistance.rewriteAgainLabel')}
-          onPress={onRewrite}
+          onPress={() => {
+            if (active.current) {
+              onRewrite();
+            }
+          }}
         />
         <Button
           label={t('assistance.close')}
           accessibilityLabel={t('assistance.closeLabel')}
-          onPress={onClose}
+          onPress={() => {
+            if (active.current) {
+              active.current = false;
+              onClose();
+            }
+          }}
         />
       </View>
     </View>

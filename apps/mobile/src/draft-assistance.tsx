@@ -462,11 +462,18 @@ export function DraftAssistance({
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
-  const pending =
-    input !== undefined && (!finished(state) || state.kind === 'ready');
   useLayoutEffect(() => {
-    onPending?.(pending);
-  }, [onPending, pending]);
+    // Native Cancel, Retry and body edits can arrive before React commits another state.
+    const report = () => {
+      const current = input === undefined ? idle : store.getSnapshot(input);
+      onPending?.(
+        input !== undefined && (!finished(current) || current.kind === 'ready'),
+      );
+    };
+    const unsubscribe = store.subscribe(report);
+    report();
+    return unsubscribe;
+  }, [input, onPending, store]);
   // iPhone stacks a checked result's buttons; iPad sets them out side by side and wraps any that do
   // not fit a narrow composer.
   const stacked = !ipad;
@@ -624,35 +631,51 @@ export function DroppedAssistance({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const active = useRef(true);
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
   const message = t('assistance.dropped');
   useOutcomeAnnouncement(message, false);
-  const button = (
-    label: string,
-    accessibilityLabel: string,
-    onPress: () => void,
-  ) => (
+  const rewrite = (
     <SwiftUIButton
-      onPress={onPress}
+      onPress={() => {
+        if (active.current) {
+          onRewrite();
+        }
+      }}
       modifiers={[
         buttonStyle('bordered'),
         controlSize('large'),
         tint(colors.textPrimary),
-        spokenLabel(accessibilityLabel),
+        spokenLabel(t('assistance.rewriteAgainLabel')),
       ]}>
       <SwiftUIText modifiers={ipad ? [] : [frame({ maxWidth: Infinity })]}>
-        {label}
+        {t('assistance.rewriteAgain')}
       </SwiftUIText>
     </SwiftUIButton>
   );
-  const rewrite = button(
-    t('assistance.rewriteAgain'),
-    t('assistance.rewriteAgainLabel'),
-    onRewrite,
-  );
-  const close = button(
-    t('assistance.close'),
-    t('assistance.closeLabel'),
-    onClose,
+  const close = (
+    <SwiftUIButton
+      onPress={() => {
+        if (active.current) {
+          active.current = false;
+          onClose();
+        }
+      }}
+      modifiers={[
+        buttonStyle('bordered'),
+        controlSize('large'),
+        tint(colors.textPrimary),
+        spokenLabel(t('assistance.closeLabel')),
+      ]}>
+      <SwiftUIText modifiers={ipad ? [] : [frame({ maxWidth: Infinity })]}>
+        {t('assistance.close')}
+      </SwiftUIText>
+    </SwiftUIButton>
   );
   return (
     <View
