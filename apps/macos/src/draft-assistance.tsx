@@ -6,6 +6,7 @@ import type {
   DraftAssistanceInput,
   DraftAssistanceState,
   NativeAssistance,
+  TextTool,
 } from '@private-email/mail-core/assistance';
 
 import {
@@ -386,6 +387,7 @@ export function DraftAssistance({
   input,
   onApply,
   onClose,
+  onPending,
 }: {
   readonly native: NativeAssistance;
   readonly original: CapturedDraftText;
@@ -395,10 +397,26 @@ export function DraftAssistance({
   readonly input: DraftAssistanceInput | undefined;
   readonly onApply: (replacement: string) => void;
   readonly onClose: () => void;
+  // Whether its request is running or its result waits to be used, rather than why there is none.
+  readonly onPending?: ((pending: boolean) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { store, state, act } = useDraftAssistance(native, input);
+  useLayoutEffect(() => {
+    // Native Cancel, Retry and body edits can arrive before React commits another state.
+    const report = () => {
+      // Discarding publishes idle, which is not pending.
+      const { kind } = input === undefined ? idle : store.getSnapshot(input);
+      onPending?.(kind === 'generating' || kind === 'ready');
+    };
+    const unsubscribe = store.subscribe(report);
+    report();
+    return () => {
+      unsubscribe();
+      onPending?.(false);
+    };
+  }, [input, onPending, store]);
   const check =
     state.kind === 'ready' && isTextTool(purpose)
       ? checkDetails(original, state.text)
@@ -510,6 +528,78 @@ export function DraftAssistance({
             {retryAction}
           </>
         )}
+      </View>
+    </View>
+  );
+}
+
+// Says that a Writing tools result was dropped because the Draft changed while it was made or
+// shown. Rewrite again starts the tool over from the current text.
+export function DroppedAssistance({
+  purpose,
+  rewritable,
+  onRewrite,
+  onClose,
+}: {
+  readonly purpose: TextTool;
+  readonly rewritable: boolean;
+  readonly onRewrite: () => void;
+  readonly onClose: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const active = useRef(true);
+  useLayoutEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  const message = t('assistance.dropped');
+  useOutcomeAnnouncement(message, false);
+  return (
+    <View
+      accessibilityLabel={t(`assistance.${purpose}Title`)}
+      style={[
+        styles.panel,
+        {
+          borderColor: colors.separator,
+          backgroundColor: colors.onDeviceSurface,
+        },
+      ]}>
+      <OnDeviceMarker
+        compact
+        label={t('assistance.droppedMarker', {
+          tool: t(`assistance.${purpose}Title`),
+        })}
+      />
+      <Text
+        selectable
+        accessibilityRole="alert"
+        style={[styles.text, { color: colors.textPrimary }]}>
+        {message}
+      </Text>
+      <View style={styles.buttons}>
+        <Button
+          label={t('assistance.rewriteAgain')}
+          accessibilityLabel={t('assistance.rewriteAgainLabel')}
+          disabled={!rewritable}
+          onPress={() => {
+            if (active.current) {
+              onRewrite();
+            }
+          }}
+        />
+        <Button
+          label={t('assistance.close')}
+          accessibilityLabel={t('assistance.closeLabel')}
+          onPress={() => {
+            if (active.current) {
+              active.current = false;
+              onClose();
+            }
+          }}
+        />
       </View>
     </View>
   );
