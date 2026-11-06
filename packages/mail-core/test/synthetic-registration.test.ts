@@ -781,11 +781,9 @@ describe('the invitation mailbox', () => {
     const offer = await Effect.runPromise(
       Effect.gen(function* () {
         const { id, payload } = yield* decodeFullMessage(read);
-        const part = calendarPart(payload);
-        const calendar =
-          part === undefined
-            ? undefined
-            : yield* partText(part, part.body?.data ?? '');
+        const part = yield* Effect.fromNullishOr(calendarPart(payload));
+        const data = yield* Effect.fromNullishOr(part.body?.data);
+        const calendar = yield* partText(part, data);
         return invitationOf({ id, calendar }, 'other@example.invalid');
       }),
     );
