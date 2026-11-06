@@ -633,6 +633,7 @@
     "sentDetail": "{{provider}} confirmed it sent your response to {{name}} at {{time}}. Choose another response to change it.",
     "refused": "Not sent",
     "refusedDetail": "{{provider}} refused your {{choice}} response, so {{name}} didn’t get it. Choose a response to try again.",
+    "removedDetail": "{{address}} was removed from Unwired before your response was sent. Unwired won’t send it from another address.",
     "unknown": "Delivery unknown",
     "unknownDetail": "{{provider}} may have sent your {{choice}} response. Unwired won’t send it again on its own — check Sent in {{provider}}, or check again.",
     "checkAgain": "Check Again",
@@ -848,7 +849,13 @@
     "unsupported-locale": "Writing help is not available in this device’s language yet.",
     "refused": "This request cannot be answered. Your text is unchanged.",
     "failed": "The suggestion could not be created. Your text is unchanged.",
-    "cancelled": "Cancelled. Your text is unchanged."
+    "cancelled": "Cancelled. Your text is unchanged.",
+    "dropped": "Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.",
+    "droppedMarker": "{{tool}} · On device",
+    "rewriteAgain": "Rewrite again",
+    "rewriteAgainLabel": "Rewrite your current text again",
+    "close": "Close",
+    "closeLabel": "Close this notice"
   },
   "search": {
     "title": "Search",

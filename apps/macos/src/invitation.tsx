@@ -441,6 +441,10 @@ function Responding({
       responses.signedIn(invitation);
     }
   };
+  // A mailbox removed while sending answers nothing, and no other mailbox answers for it.
+  if (recorded.kind === 'removed') {
+    return <Status {...shown} />;
+  }
   // An older revision cannot respond, so it only points to the newer one.
   if (older) {
     return (

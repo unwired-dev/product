@@ -42,6 +42,10 @@ separately.
 - When Gmail refuses the message the card says **Not sent** and the buttons
   stay available. Offline, it says **You’re offline** and keeps nothing to send
   later. When Gmail needs a new sign-in it says so with **Sign In…**.
+- When the mailbox is removed from Unwired while the response is sending, the
+  card says **Not sent**, names the removed address and offers no buttons:
+  Unwired never sends the response from another mailbox
+  ([#1868](https://github.com/unwired-dev/product/issues/1868)).
 - When Gmail may have sent the response but did not confirm it, the card says
   **Delivery unknown** and never sends it again on its own. **Check Again** looks
   for the message in Gmail's Sent; **Respond Again…** asks first, because a second

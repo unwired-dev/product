@@ -180,6 +180,30 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     }
   });
 
+  it('sends nothing more once the mailbox is removed while sending', async () => {
+    expect.hasAssertions();
+    const { gmail, app } = await opened(invitation('alex@example.invalid'));
+    try {
+      gmail.failSend({ code: 'mailbox-revoked' });
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Accept' }),
+      );
+
+      await expect(screen.findByText('Not sent')).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          'alex@example.invalid was removed from Unwired before your response was sent. Unwired won’t send it from another address.',
+        ),
+      ).toBeOnTheScreen();
+      for (const name of ['Accept', 'Maybe', 'Decline']) {
+        expect(screen.queryByRole('button', { name })).toBeNull();
+      }
+      expect(gmail.sends).toHaveLength(0);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('offers responses again only once Gmail accepts the sign-in', async () => {
     expect.hasAssertions();
     const authorizations: string[] = [];

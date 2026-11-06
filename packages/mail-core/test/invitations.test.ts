@@ -1428,6 +1428,7 @@ describe('meeting invitations', () => {
     [{ code: 'mailbox-invalidated' }, 'offline'],
     [{ status: 401 }, 'authentication'],
     [{ status: 400 }, 'refused'],
+    [{ code: 'mailbox-revoked' }, 'removed'],
   ] as const)(
     'keeps nothing to send later when Gmail does not take it',
     async (failure, kind) => {
@@ -1454,6 +1455,23 @@ describe('meeting invitations', () => {
       later.close();
     },
   );
+
+  it('never sends again for a mailbox removed while sending', async () => {
+    expect.hasAssertions();
+    const { gmail, invitation, responses, close } = await invited();
+    gmail.failSend({ code: 'mailbox-revoked' });
+    await responses.respond(invitation, 'accepted', copy);
+
+    await responses.respond(invitation, 'declined', copy);
+
+    expect(gmail.sends).toHaveLength(0);
+    expect(responses.state(invitation)).toStrictEqual({
+      kind: 'removed',
+      choice: 'accepted',
+    });
+
+    close();
+  });
 
   it('lets the person respond again after signing in', async () => {
     expect.hasAssertions();
@@ -1926,6 +1944,7 @@ describe('meeting invitations', () => {
         { kind: 'sending', choice },
         { kind: 'sent', choice, at: Date.UTC(2026, 10, 4, 9, 41) },
         { kind: 'refused', choice },
+        { kind: 'removed', choice },
         { kind: 'unknown', choice, boundary },
         { kind: 'checking', choice, boundary },
         { kind: 'offline', choice },
@@ -1957,6 +1976,12 @@ describe('meeting invitations', () => {
           title: 'Not sent',
           detail:
             'Gmail refused your Accept response, so Lena Fischer didn’t get it. Choose a response to try again.',
+        },
+        {
+          icon: 'exclamationmark.triangle.fill',
+          tone: 'statusDestructive',
+          title: 'Not sent',
+          detail: `${me} was removed from Unwired before your response was sent. Unwired won’t send it from another address.`,
         },
         {
           icon: 'exclamationmark.triangle.fill',
