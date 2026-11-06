@@ -395,12 +395,17 @@ styles) so the file stays editable.
   narrow window hides the sidebar. Compact layouts collapse the three destinations
   into native navigation, per the [organization requirements](docs/product/organization.md).
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
-  then the primary Unified Mailboxes (Inbox, Snoozed, Pins, Drafts and Sent),
+  then the primary Unified Mailboxes (Inbox, Snoozed, Pins and Sent),
   secondary Archive, All Mail, Spam and Trash, one collapsible section per
   Mailbox Connection ("Gmail · address") with
-  its folders and labels, Saved Searches, and Settings pinned to the bottom.
+  its folders and labels, Saved Searches, and Drafts above Settings pinned to the bottom.
   Synchronization and authorization problems appear beside the affected Mailbox
-  Connection. Conditional [Outbox](docs/outbox.md#sending) sits above Drafts.
+  Connection. Conditional [Outbox](docs/outbox.md#sending) follows Sent.
+  Drafts opens its own screen: the Drafts list, grouped Needs Attention first, with
+  the selected Draft editable beside it on Mac and iPad and in the composer sheet
+  on iPhone, where Drafts is the last row of Mailboxes. Drafts shows a badge only
+  when a Draft is offline or needs action, and the main screen's status capsule
+  says when Drafts are not synced, as the approved #1269–#1276 frames show.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
   The unified Archive frames on each platform's New features page show the secondary
   mailboxes under Favorites and a connection without that role; other mockups omit them.

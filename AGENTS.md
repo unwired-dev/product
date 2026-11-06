@@ -67,8 +67,10 @@ user-visible change according to them.
   `rajzik/agent-config@impeccable` or `rajzik/agent-config@apple-design` from
   [agent-config](https://github.com/rajzik/agent-config).
 - Before changing UI, read DESIGN.md and inspect the matching frames through the
-  Figma MCP server: the macOS, iPadOS and iOS pages are organized into numbered
-  or platform-prefixed sections (for example "2 · Inbox" or "iPhone · Mail"), each
+  Figma MCP server. Each platform has a group of pages (`macOS · …`, `iPadOS · …`
+  and `iOS · …`): Core screens, two Features pages, Approved issue work and the
+  Review pages for proposals awaiting approval. Pages hold numbered or
+  platform-prefixed sections (for example "2 · Inbox" or "iPhone · Mail"), each
   with Light and Dark frames.
 - Use DESIGN.md's color, typography, spacing and radius tokens, and SF Symbols.
   Reuse matching shared tokens in `packages/mail-core/src/theme.ts`; add or

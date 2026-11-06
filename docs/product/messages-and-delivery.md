@@ -91,6 +91,22 @@ delivery or establish that scheduling is implemented. Use the
 - Removing a Mailbox Connection everywhere warns the user, lists its Scheduled Sends and requires confirmation before cancelling them. Cancellation restores editable Drafts without silently choosing another sending connection.
 - Deleting the Product Account warns the user, lists every Scheduled Send and Send Reminder and requires confirmation to cancel them as part of deleting the account and its data.
 
+### Owner decisions for Scheduled Send (6 Nov 2026)
+
+On 6 Nov 2026 the owner approved the
+[#659 Scheduled messages frames](https://github.com/unwired-dev/product/issues/659#issuecomment-6692821318)
+and made the decisions below. They replace the originating-device rule above for
+Scheduled Send. ADR 0062 and the domain vocabulary still describe the old rule
+and need a matching update before implementation.
+
+- Scheduled messages have their own Scheduled sidebar item, placed above Drafts at the bottom. It shows only while something is scheduled, with a count. A warning badge appears only when an item needs attention.
+- Opening a scheduled message makes it editable straight away, with autosave. Its banner offers Reschedule and Cancel Schedule. Cancelling turns the message back into a Draft.
+- A message that is open at its send time waits until it is closed. Its banner says "Sends when you close this message" and offers Send Now.
+- A message less than 24 hours late sends automatically. One more than 24 hours late needs attention, and the Inbox capsule offers to review it.
+- Any of the user's devices can edit and send a Scheduled Send. When the provider's API supports scheduled delivery, such as Outlook or JMAP, the provider schedules the message. Otherwise the first available device claims it through sync and sends it.
+- Opening a message the provider has scheduled pauses the provider's schedule until the message is closed. If the provider can't be reached when the message is closed, the banner says "Not scheduled with Outlook yet" and the user's devices send it.
+- When a send outcome can't be confirmed, the banner says "Sending status unknown" and offers Check Sent and Send Now. The app never sends a message twice.
+
 ## Authored content and delivery attempts
 
 The [provider-hosted Draft launch requirements](power-user-launch.md#confirmed-scope-additions-from-2026-10-24)

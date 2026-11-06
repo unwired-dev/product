@@ -438,8 +438,8 @@ styles, copy, icons, motion, notifications or accessibility labels.
 1. Read [DESIGN.md](../../DESIGN.md) and the issue. Through the Figma MCP server,
    locate the frames for every changed screen and state in the
    [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
-   file on its macOS, iPadOS and iOS pages, in Light and Dark. Enumerate every
-   page from the full document (`figma.root.children` through `use_figma`) and
+   file on its `macOS · …`, `iPadOS · …` and `iOS · …` pages, in Light and
+   Dark. Enumerate every page from the full document (`figma.root.children` through `use_figma`) and
    record that list with the searches before concluding that no frame exists;
    metadata showing only the Cover page is incomplete. When a section's result is
    too large, extract a compact frame ID and name index from the saved result,
@@ -489,8 +489,10 @@ provided their visual design stays unchanged.
    in the
    [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
    file, add or update the frames for every affected screen and state on the
-   macOS, iPadOS and iOS pages, in Light and Dark, using DESIGN.md's tokens,
-   the file's components and variables, and SF Symbols.
+   `macOS · …`, `iPadOS · …` and `iOS · …` pages, in Light and Dark, using
+   DESIGN.md's tokens, the file's components and variables, and SF Symbols.
+   Put proposals awaiting approval on the platform's Review pages and move
+   approved sections to its Approved issue work page.
 2. Ask the user to review: link each changed frame, summarize what changed and
    why, and list open questions. This explicit design approval cannot be
    replaced by an advisory panel.
