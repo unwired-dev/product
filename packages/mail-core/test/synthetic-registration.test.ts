@@ -13,7 +13,6 @@ import {
   decodeFullMessage,
   partText,
 } from '../src/message-body.ts';
-
 import {
   SyntheticGmailMessages,
   SyntheticGoogle,

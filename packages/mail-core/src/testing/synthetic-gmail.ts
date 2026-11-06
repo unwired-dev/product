@@ -184,7 +184,7 @@ const identity = (subject: string, granted: boolean) => ({
   subject,
   scopes: granted ? [gmailScope] : [],
 });
-// A message's MIME headers, as its single part declares them.
+// The MIME headers a message part declares for its type.
 const mimeHeaders = (message: SyntheticGmailMessage, mimeType: string) => [
   { name: 'Content-Type', value: `${mimeType}; charset=UTF-8` },
   ...(message.disposition === undefined

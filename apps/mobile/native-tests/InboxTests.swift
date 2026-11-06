@@ -1075,9 +1075,6 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
-  // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
-  // is within one screen of the visible range.
   // Registers with the synthetic Gmail mailbox another device already connected, confirming its
   // Recovery Key.
   private func connectAlternateMailbox(_ app: XCUIApplication) {
@@ -1123,6 +1120,9 @@ final class InboxTests: XCTestCase {
     add(accepted)
   }
 
+  // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
+  // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
+  // is within one screen of the visible range.
   private func threadJourney(_ app: XCUIApplication) {
     connectAlternateMailbox(app)
     // The connection's opaque ID, as native code derives it from the synthetic Gmail subject.
