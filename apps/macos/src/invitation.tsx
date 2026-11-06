@@ -131,29 +131,31 @@ function Details({
   details,
   invited,
   earlier,
-  older = false,
-  ambiguous = false,
+  older,
+  unanswerable,
 }: {
   readonly details: InvitationDetails;
-  // Who was invited, then secondary lines about them; a cancelled meeting has no row.
+  // Who was invited, then secondary lines about them; a meeting nobody can answer has no row.
   readonly invited?: readonly string[];
   // The response to an earlier revision at another time, which marks this one as updated.
   readonly earlier?: EarlierResponse | undefined;
   // A revision older than one the person answered, which has no Invited row.
   readonly older?: boolean;
-  // A series update that names no one meeting, which has no repeats line or Invited row.
-  readonly ambiguous?: boolean;
+  // Why nobody can answer it: a cancellation is struck through, and a series update that
+  // names no one meeting has no repeats line.
+  readonly unanswerable?: 'cancelled' | 'ambiguous';
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useFormats();
   const when = invitationWhen(t, formats, details);
-  const repeats = ambiguous
-    ? undefined
-    : invitationRepeats(t, formats, details);
+  const repeats =
+    unanswerable === 'ambiguous'
+      ? undefined
+      : invitationRepeats(t, formats, details);
   const was =
     earlier === undefined ? undefined : invitationWas(t, formats, earlier);
-  const cancelled = invited === undefined && !ambiguous;
+  const cancelled = unanswerable === 'cancelled';
   const invitedBy =
     details.recurrence === undefined
       ? 'invitation.from'
@@ -595,7 +597,10 @@ export function InvitationCard({
   if (offer.kind === 'cancelled') {
     return (
       <View style={card}>
-        <Details details={offer.details} />
+        <Details
+          details={offer.details}
+          unanswerable="cancelled"
+        />
         <Status
           icon="xmark"
           title={t('invitation.meetingCancelled')}
@@ -609,7 +614,7 @@ export function InvitationCard({
       <View style={card}>
         <Details
           details={offer.details}
-          ambiguous
+          unanswerable="ambiguous"
         />
         <Status
           icon="exclamationmark.triangle.fill"
