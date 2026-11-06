@@ -14,6 +14,8 @@ import type {
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
+import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import { buttonStyle, tint } from '@expo/ui/swift-ui/modifiers';
 import { folderSummary } from '@private-email/mail-core/mailboxes';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import {
@@ -387,14 +389,13 @@ function Mailboxes({
 }
 
 // Each IMAP connection whose server leaves Spam or Trash unmarked, with the folders chosen for
-// them. iPad rows end in a push button; iPhone rows open the sheet from the whole row.
+// them. iPad rows end in a native push button; iPhone rows open the sheet from the whole row,
+// a Pressable around the house row until Settings rows are native list rows (#1057).
 function SpamTrashFolders({
   mailboxes,
-  button,
   store,
 }: {
   readonly mailboxes: readonly MailboxConnection[];
-  readonly button: SettingsButton;
   readonly store: Registration;
 }) {
   const colors = usePalette();
@@ -451,9 +452,17 @@ function SpamTrashFolders({
             {(open) =>
               settingsColumns ? (
                 row(
-                  button(label, async () => {
-                    open();
-                  }),
+                  <Host matchContents>
+                    <SwiftUIButton
+                      label={label}
+                      // A Secondary push button: the quiet fill with primary text.
+                      modifiers={[
+                        buttonStyle('bordered'),
+                        tint(colors.textPrimary),
+                      ]}
+                      onPress={open}
+                    />
+                  </Host>,
                 )
               ) : (
                 <Pressable
@@ -979,7 +988,6 @@ export function AccountSettings({
       {shows('mailboxes') ? (
         <SpamTrashFolders
           mailboxes={mailboxes}
-          button={button}
           store={store}
         />
       ) : null}
