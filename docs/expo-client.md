@@ -112,9 +112,11 @@ and its own `react-native-webview` 13.16.1 patch. SDK 58 generates the UIKit
 scene lifecycle and no longer installs `expo-symbols` for Expo Router, which loads
 it only when present; the app draws SF Symbols through its own design views.
 
-Inbox keyboard tracking uses `react-native-keyboard-controller` and Reanimated's
-`IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS` static flag so React commits do not pause the
-bar's transform. Rebuild the native app after changing this flag. Both composers
+Inbox keyboard tracking uses `react-native-keyboard-controller`. Bar controls and
+notices must accept presses with slight finger movement during keyboard motion
+and keep one accessibility element per control (#1508). Reanimated's
+`IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS` static flag remains enabled for other motion;
+rebuild the native app after changing it. Both composers
 use that library's `KeyboardAvoidingView`, which follows the keyboard frame by
 frame. The pinned keyboard-controller patch clears its padding when avoidance
 is disabled, preserving the iPad composer's collapsed layout. Remove the patch

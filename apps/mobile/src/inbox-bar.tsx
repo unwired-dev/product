@@ -13,7 +13,11 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useKeyboardState } from 'react-native-keyboard-controller';
+import {
+  useKeyboardState,
+  useReanimatedKeyboardAnimation,
+} from 'react-native-keyboard-controller';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RegisterCommands, usePaletteHeader } from './command-palette.tsx';
@@ -620,6 +624,36 @@ export function FloatingBar({
         {windowBar === undefined ? notice : null}
       </BarNotices>
     </>
+  );
+}
+
+// Moves its children with the keyboard, `opened` points further once it is open. It moves by
+// layout rather than KeyboardStickyView's transform: the transform reaches the screen ahead of
+// Fabric's layout, so Pressable measures a stale region and cancels a press that moves slightly
+// while the keyboard slides (#1508).
+export function KeyboardLift({
+  enabled = true,
+  opened,
+  testID,
+  children,
+}: {
+  readonly enabled?: boolean;
+  readonly opened: number;
+  readonly testID?: string;
+  readonly children: ReactNode;
+}) {
+  const { height, progress } = useReanimatedKeyboardAnimation();
+  const lift = useAnimatedStyle(() => {
+    const top = enabled ? height.get() + progress.get() * opened : 0;
+    return { top, bottom: -top };
+  });
+  return (
+    <Animated.View
+      pointerEvents="box-none"
+      style={[StyleSheet.absoluteFill, lift]}
+      testID={testID}>
+      {children}
+    </Animated.View>
   );
 }
 

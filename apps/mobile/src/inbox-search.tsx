@@ -16,7 +16,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { KeyboardStickyView } from 'react-native-keyboard-controller';
 
 import type { useInboxFilter } from './inbox-filters.tsx';
 import type { InboxMailbox } from './private-storage.ts';
@@ -30,6 +29,7 @@ import {
   barHeight,
   BarSpacer,
   FloatingBar,
+  KeyboardLift,
   NewMessageButton,
   ScrollEdge,
   SearchField,
@@ -266,17 +266,14 @@ export function InboxToolbar({
       />
       {/* The safe area ends a spacing above the toolbar's glass, so notices sit on it. Above the
           keyboard, search's field takes the bar's place, floated above the keyboard by UIKit. */}
-      <KeyboardStickyView
-        offset={{ opened: bottomInset - barHeight - spacing.m - fieldLift }}
-        pointerEvents="box-none"
-        style={StyleSheet.absoluteFill}>
+      <KeyboardLift opened={bottomInset - barHeight - spacing.m - fieldLift}>
         <BarNotices
           bottom={bottomInset}
           hidden={hidden}>
           {listNotice}
           {notice}
         </BarNotices>
-      </KeyboardStickyView>
+      </KeyboardLift>
       <InboxFilterButton
         state={filter}
         renderControl={({ label, onToggle, onOpen }) => (
