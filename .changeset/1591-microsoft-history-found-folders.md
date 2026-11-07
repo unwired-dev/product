@@ -2,4 +2,4 @@
 '@private-email/mail-core': patch
 ---
 
-Microsoft history download progress stays incomplete, with no total, until every folder the mailbox has is in the download, so finding more folders no longer briefly shows it complete.
+When Microsoft history finishes listing the folders Move to does not list, the folders it found join the download in the same step, so the download progress no longer briefly shows complete before them.

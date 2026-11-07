@@ -176,14 +176,12 @@ export const reconciledFolder = (
   return ended ? Struct.omit(listing, ['check']) : listing;
 };
 
-// Progress across folders, unknown in total and incomplete until the mailbox's folders are known and
-// each is in the history. A folder whose pass after an expired link is still listing counts its last
-// complete pass, so downloaded history never rewinds.
+// Progress across folders, unknown in total and incomplete until the mailbox's folders are known. A
+// folder whose pass after an expired link is still listing counts its last complete pass, so
+// downloaded history never rewinds.
 export const graphProgress = (document: MailboxDocument) => {
-  const { known, wanted } = historyFolders(document);
+  const { known } = historyFolders(document);
   const folders = document.graphHistory?.folders ?? [];
-  const listed = new Set(folders.map(({ folder }) => folder));
-  const found = known && wanted.every((folder) => listed.has(folder));
   const passes = folders.map(({ history }) => shownPass(history));
   const totals = folders.map(({ history }) => history.total);
   return {
@@ -192,11 +190,11 @@ export const graphProgress = (document: MailboxDocument) => {
         segments.reduce((count, segment) => count + segment.count, sum),
       0,
     ),
-    ...(found && totals.every((total) => total !== undefined)
+    ...(known && totals.every((total) => total !== undefined)
       ? { total: totals.reduce((sum, total) => sum + total, 0) }
       : {}),
     complete:
-      found &&
+      known &&
       folders.every(
         ({ history, check }) =>
           history.current.complete === true && check === undefined,

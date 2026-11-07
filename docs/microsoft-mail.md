@@ -126,7 +126,9 @@ bounds never evict downloaded history.
 When Move to lists only part of the mailbox's folders, each backfill run first
 walks every folder list page, nested folders included, saving its place after
 each page. Until that walk completes, including on later runs, the progress
-names no total and is not complete, and no folder leaves the history.
+names no total and is not complete, and no folder leaves the history. The step
+that completes the walk adds the folders it found to the download as pending, so
+the progress never shows complete before they are downloaded.
 
 Changes made while the download runs are retained. Each synchronization keeps
 new, moved, deleted and read mail current in the downloaded history: a message
@@ -139,8 +141,7 @@ The Inbox state reports the progress per mailbox, like Gmail's: downloaded messa
 the total from each folder's item count, and whether every folder's download
 and final reconciliation are complete.
 Newly discovered folders remain pending, including when reading their item counts
-fails; progress names no total and is not complete until every folder is in the
-download and its count is known.
+fails; progress names no total until every folder's count is known.
 The [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) includes the pass, with
 each connection's history status on Mac and in the capsule's details on iPhone and
 iPad. A failed read, including Graph throttling, pauses the pass until the next
