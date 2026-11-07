@@ -44,6 +44,7 @@ import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { redirectSystemPath } from '../app/+native-intent.tsx';
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
@@ -3229,6 +3230,49 @@ describe('composing Drafts', () => {
       ),
     ).toBeOnTheScreen();
     await press('Try again');
+    expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
+  });
+
+  it('keeps a composer open when a delivered link cannot leave it', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    const link = { path: 'unwired-mail://message/m1', initial: false };
+    let opened: ReturnType<typeof redirectSystemPath> = Promise.resolve(null);
+    // The link waits for the answer to the question Close asks.
+    const deliver = async () => {
+      await act(async () => {
+        opened = redirectSystemPath(link);
+      });
+      await press('Save Draft');
+    };
+    await press('New Message');
+    await fireEvent.changeText(
+      await screen.findByLabelText('To'),
+      'unfinished',
+    );
+    await deliver();
+    await expect(opened).resolves.toBeNull();
+    expect(
+      screen.getByText(
+        'Correct or remove the invalid address to close this Draft.',
+      ),
+    ).toBeOnTheScreen();
+    await fireEvent.changeText(screen.getByLabelText('To'), '');
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Unsaved');
+    storage.setLocked(true);
+    await deliver();
+    await expect(opened).resolves.toBeNull();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
+    storage.setLocked(false);
+    await deliver();
+    await expect(opened).resolves.toBe(link.path);
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 

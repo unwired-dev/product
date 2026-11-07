@@ -359,7 +359,9 @@ empty Draft and closes an unchanged one at once; otherwise **Delete Draft** and
 **Save Draft** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed. It
 then closes once the Draft is stored; when that fails the composer stays open with
-**Try again**, and its edits still ask on the next **Close**. A Draft deleted or
+**Try again**, and its edits still ask on the next **Close**. An `unwired-mail://`
+link opened while the composer is open asks the same question first and opens only
+once the composer closes. A Draft deleted or
 changed elsewhere while open keeps this composer's version, and **Save Draft** stores
 it as a conflicting copy.
 
