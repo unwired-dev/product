@@ -343,6 +343,66 @@ final class WindowTests: XCTestCase {
     if apple { composerMenuJourney(app, first: relaunched) }
   }
 
+  // #1915: Lena Fischer's Gmail invitation is answered in the reader, in Dark and then in Light.
+  // Dark captures the unanswered card, Accept and Decline; Light starts from Decline and accepts.
+  private func invitationJourney(_ app: XCUIApplication, first: XCUIElement) {
+    XCTAssertTrue(first.buttons["Continue"].waitForExistence(timeout: 20))
+    first.buttons["Continue"].click()
+    XCTAssertTrue(first.buttons["Sign in with Google"].waitForExistence(timeout: 20))
+    first.buttons["Sign in with Google"].click()
+    XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
+    let presented = recoveryKey(in: first).value as? String ?? ""
+    first.buttons["Choose another Google mailbox"].click()
+    XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
+    let entry = first.textFields["Last four characters"]
+    entry.click()
+    entry.typeText(String(presented.suffix(4)))
+    first.buttons["Confirm Recovery Key"].click()
+    XCTAssertTrue(
+      first.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    for appearance in ["Dark", "Light"] {
+      app.terminate()
+      app.launchArguments =
+        ["-ApplePersistenceIgnoreState", "YES"]
+        + (appearance == "Dark"
+          ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+      app.launch()
+      let window = app.windows["Inbox 1"]
+      let row = window.buttons.matching(
+        NSPredicate(format: "label CONTAINS %@", "Lena Fischer. Invitation: Q4 roadmap review")
+      ).firstMatch
+      XCTAssertTrue(row.waitForExistence(timeout: 20))
+      row.click()
+      func capture(_ state: String) {
+        let attachment = XCTAttachment(screenshot: window.screenshot())
+        attachment.name = "Invitation \(state) \(appearance)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+      }
+      func respond(_ button: String, _ status: String) {
+        window.buttons[button].click()
+        XCTAssertTrue(
+          text("\(status). Gmail confirmed", in: window).waitForExistence(timeout: 20))
+        XCTAssertTrue(window.buttons[status].exists)
+        capture(status)
+      }
+      if appearance == "Dark" {
+        XCTAssertTrue(window.buttons["Accept"].waitForExistence(timeout: 20))
+        XCTAssertTrue(window.buttons["Maybe"].exists)
+        XCTAssertTrue(window.buttons["Decline"].exists)
+        capture("card")
+        respond("Accept", "Accepted")
+        respond("Decline", "Declined")
+      } else {
+        // The answer Gmail confirmed is kept across the relaunch.
+        XCTAssertTrue(
+          text("Declined. Gmail confirmed", in: window).waitForExistence(timeout: 20))
+        capture("Declined")
+        respond("Accept", "Accepted")
+      }
+    }
+  }
+
   // #1076: the composer's Text style, From and actions pop-ups open AppKit menus that the system
   // dismisses, and each choice changes only the Draft of the window that opened the menu.
   private func composerMenuJourney(_ app: XCUIApplication, first: XCUIElement) {
@@ -1046,6 +1106,10 @@ final class WindowTests: XCTestCase {
     }
     if environment["UNWIRED_TEST_SCENARIO"] == "registration-draft-editor" {
       draftEditorJourney(app, first: first)
+      return
+    }
+    if environment["UNWIRED_TEST_SCENARIO"] == "registration-invitation" {
+      invitationJourney(app, first: first)
       return
     }
     if environment["UNWIRED_TEST_SCENARIO"]?.hasPrefix("registration-") == true {

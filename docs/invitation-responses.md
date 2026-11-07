@@ -182,7 +182,11 @@ separately.
   in turn, and the journey captures **You’re offline**, **Not sent**, **Delivery
   unknown**, **Check Again** checking Sent and, after **Respond Again**, the
   sign-in Gmail needs.
-- Native Mac evidence, a mailbox removed while its response is sending on iPhone
-  and iPad, and a real Gmail organizer receiving the response remain required
-  before release. Only revoking the device removes a mailbox mid-send, and that
-  also removes the Mail Profile's mail, so no Mock Mail journey can show it.
+- The Mac `registration-invitation` journey opens the same invitation in Dark,
+  captures the card, accepts and declines it, then captures the kept answer in
+  Light and accepts again.
+- Native Mac evidence for the other invitations, revisions and failures, a mailbox
+  removed while its response is sending on iPhone and iPad, and a real Gmail
+  organizer receiving the response remain required before release. Only revoking
+  the device removes a mailbox mid-send, and that also removes the Mail Profile's
+  mail, so no Mock Mail journey can show it.
