@@ -104,8 +104,11 @@ in Figma. Implementing existing frames needs no new approval.
 1. Read [DESIGN.md](../../DESIGN.md). In the
    [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
    file, add or update the frames for every affected screen and state on the
-   macOS, iPadOS and iOS pages, in Light and Dark, with DESIGN.md's tokens, the
-   file's components and SF Symbols.
+   `macOS · …`, `iPadOS · …` and `iOS · …` pages, in Light and Dark, with
+   DESIGN.md's tokens, the file's components and SF Symbols. Put proposals
+   awaiting approval on the platform's Review pages, copying any approved frame
+   they change so the approved design stays in place, and move approved
+   sections to its Approved issue work page.
 2. Ask the user to review: link each changed frame, say what changed and why,
    and list open questions.
 3. Write design-dependent code only after the user approves; other work can
