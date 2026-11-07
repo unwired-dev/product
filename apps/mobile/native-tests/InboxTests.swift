@@ -526,10 +526,37 @@ final class InboxTests: XCTestCase {
     work.name = "Work Profile with its moved mailbox and Draft"
     work.lifetime = .keepAlways
     add(work)
+    // #1912: a message Work sends waits in Work's Outbox, and the Primary Profile shows no Outbox
+    // while it is still there.
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("maya@example.invalid", into: to)
+    subject.tap()
+    type("Work report", into: subject)
+    let sentAt = Date()
+    app.buttons["Send"].tap()
+    let outbox = app.staticTexts["Outbox"].firstMatch
+    let sending = app.descendants(matching: .any).matching(
+      NSPredicate(
+        format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Work report.", ". Sending soon")
+    ).firstMatch
+    XCTAssertTrue(sending.waitForExistence(timeout: 10))
+    let queued = XCTAttachment(screenshot: app.screenshot())
+    queued.name = "Work Profile with its Outbox"
+    queued.lifetime = .keepAlways
+    add(queued)
     switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
     XCTAssertFalse(jordan.exists)
     XCTAssertFalse(draft.exists)
+    XCTAssertFalse(outbox.exists)
+    XCTAssertFalse(sending.exists)
+    // Synthetic Graph holds the Work report a minute after the Undo Send Window.
+    XCTAssertLessThan(
+      Date().timeIntervalSince(sentAt), 70, "The Primary Profile was checked after Work's send")
     let kept = XCTAttachment(screenshot: app.screenshot())
     kept.name = "Primary Profile without Work's mail and Draft"
     kept.lifetime = .keepAlways
@@ -559,10 +586,18 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(rowan.waitForExistence(timeout: 10))
       XCTAssertFalse(jordan.exists)
     }
+    // Moving the mailbox back waits until synthetic Graph accepts the Work report and it leaves
+    // Work's Outbox.
+    switchProfile(to: "Work", from: primary, app)
+    XCTAssertTrue(sending.waitForNonExistence(timeout: 120))
+    switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
     // The Draft belongs to its mailbox's Profile, so it returns with the mailbox.
     moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     XCTAssertTrue(draft.waitForExistence(timeout: 10))
+    // Delivery has taken Work's message, so no Outbox returns with the mailbox.
+    XCTAssertTrue(outbox.waitForNonExistence(timeout: 90))
+    XCTAssertFalse(sending.exists)
     app.open(URL(string: link)!)
     XCTAssertTrue(reading.waitForExistence(timeout: 15))
     if UIDevice.current.userInterfaceIdiom == .phone { back.tap() }
