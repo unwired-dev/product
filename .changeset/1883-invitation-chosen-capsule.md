@@ -2,4 +2,4 @@
 '@private-email/mobile': patch
 ---
 
-On iPad, the chosen invitation response keeps its checkmark and title on one line in the narrow reader, instead of wrapping into a tall circle.
+On iPhone and iPad, invitation responses keep their titles on one line. When the row cannot fit them, such as the chosen response's checkmark in iPad's narrow three-column reader, they stack at full width instead of wrapping into tall circles.

@@ -373,16 +373,27 @@ function Actions({
   readonly children: ReactNode;
 }) {
   // The three choices also stack when the row cannot keep each title on one line (#1883): the row
-  // is measured while it shows and compared with the width it has.
+  // is measured while it shows and compared with the width it has. A new width measures it again.
   const [row, setRow] = useState(0);
   const [room, setRoom] = useState(Infinity);
   const stacked = useStacked() || (fill && row > room + 1);
   return (
-    <View onLayout={(event) => setRoom(event.nativeEvent.layout.width)}>
+    <View
+      onLayout={
+        fill
+          ? (event) => {
+              const { width } = event.nativeEvent.layout;
+              if (width !== room) {
+                setRoom(width);
+                setRow(0);
+              }
+            }
+          : undefined
+      }>
       <Host
         matchContents={{ vertical: true }}
         onLayoutContent={(event) => {
-          if (!stacked) setRow(event.nativeEvent.width);
+          if (fill && !stacked) setRow(event.nativeEvent.width);
         }}>
         {stacked ? (
           <VStack spacing={spacing.s}>{children}</VStack>
