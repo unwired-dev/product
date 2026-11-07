@@ -1138,6 +1138,11 @@ final class InboxTests: XCTestCase {
         NSPredicate(format: "label BEGINSWITH %@", "Lena Fischer. " + subject)
       ).firstMatch
       XCTAssertTrue(row.waitForExistence(timeout: 20), subject)
+      // On iPhone the last rows sit under the bottom toolbar, which would take the tap.
+      let toolbar = app.buttons["New Message"].firstMatch
+      for _ in 0..<3 where row.frame.maxY > toolbar.frame.minY {
+        app.swipeUp(velocity: .slow)
+      }
       row.tap()
       XCTAssertTrue(
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", status))
