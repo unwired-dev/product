@@ -188,6 +188,30 @@ It does not authorize broader inputs for existing
 Users can add and edit Mail Commitments directly when scanning is disabled,
 unavailable or misses an item. Inference is not required to use the commitment list.
 
+### Owner decisions for the commitment list (7 Nov 2026)
+
+The owner approved the Mac, iPad and iPhone Commitments frames for #939, #944
+and #947 in the `· Approved issue work` pages of the
+[Figma file](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T): Mac
+[1022:17202](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1022-17202),
+iPad [1027:22366](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1027-22366)
+and iPhone [1030:8587](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1030-8587).
+
+- Commitments appears in the sidebar (iPhone: Mailboxes) after Snoozed, one list
+  per Mail Profile, with the Open count and a warning badge while a reminder was
+  missed.
+- The list groups Open commitments under Needs Attention, by due week, then No
+  Due Date. A reply in a source Thread moves the commitment into Needs Attention,
+  even without a due date or reminder; it never completes it.
+- Done and Cancelled commitments live in a History view opened from the list's
+  menu.
+- Add Commitment… is a message action that opens a sheet linked to that message.
+  Suggested title, direction and due phrase carry the On device marker and stay
+  editable. A vague phrase lists its meanings as choices with Leave Unset; on
+  iPhone they are a checkmark list in the Due group.
+- A missed reminder stays as "Reminder missed" on the row and in a detail banner
+  with Mark Done and Remind Me Again… until the user acts.
+
 ## Review queue
 
 - A separate review queue within Mail Commitments shows editable proposals,
