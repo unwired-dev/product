@@ -1462,6 +1462,7 @@ final class WindowTests: XCTestCase {
     recipient.typeText("maya@example.invalid")
     subject.click()
     subject.typeText("Work report")
+    let sentAt = Date()
     work.buttons["Send"].click()
     func outbox(_ window: XCUIElement) -> XCUIElement {
       window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Outbox")).firstMatch
@@ -1476,6 +1477,8 @@ final class WindowTests: XCTestCase {
     attach(work, "Work window with its Outbox")
     attach(primary, "Primary Profile window without an Outbox")
     XCTAssertTrue(outbox(work).waitForNonExistence(timeout: 40))
+    // Admission follows the click, so the 10 s Undo Send Window cannot end sooner.
+    XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(sentAt), 10)
 
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
