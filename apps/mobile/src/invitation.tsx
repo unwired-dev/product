@@ -24,6 +24,7 @@ import {
   buttonBorderShape,
   buttonStyle,
   disabled,
+  fixedSize,
   font,
   frame,
   tint,
@@ -371,18 +372,28 @@ function Actions({
   readonly fill?: boolean;
   readonly children: ReactNode;
 }) {
-  const stacked = useStacked();
+  // The three choices also stack when the row cannot keep each title on one line (#1883): the row
+  // is measured while it shows and compared with the width it has.
+  const [row, setRow] = useState(0);
+  const [room, setRoom] = useState(Infinity);
+  const stacked = useStacked() || (fill && row > room + 1);
   return (
-    <Host matchContents={{ vertical: true }}>
-      {stacked ? (
-        <VStack spacing={spacing.s}>{children}</VStack>
-      ) : (
-        <HStack spacing={spacing.s}>
-          {children}
-          {fill ? null : <Spacer />}
-        </HStack>
-      )}
-    </Host>
+    <View onLayout={(event) => setRoom(event.nativeEvent.layout.width)}>
+      <Host
+        matchContents={{ vertical: true }}
+        onLayoutContent={(event) => {
+          if (!stacked) setRow(event.nativeEvent.width);
+        }}>
+        {stacked ? (
+          <VStack spacing={spacing.s}>{children}</VStack>
+        ) : (
+          <HStack spacing={spacing.s}>
+            {children}
+            {fill ? null : <Spacer />}
+          </HStack>
+        )}
+      </Host>
+    </View>
   );
 }
 
@@ -402,11 +413,15 @@ function Action({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
-  const stacked = useStacked();
-  const wide = fill || stacked;
+  const large = useStacked();
+  const wide = fill || large;
+  // A choice keeps its title on one line, so a row that cannot fit them stacks (#1883). A finite
+  // maximum makes the chosen one, widened by its checkmark, the least flexible button, so the row
+  // sizes it first and the others share what is left, wherever it stands.
   const text = [
     font({ textStyle: 'subheadline', weight: 'semibold' }),
-    ...(wide ? [frame({ maxWidth: Infinity })] : []),
+    ...(fill && !large ? [fixedSize({ horizontal: true })] : []),
+    ...(wide ? [frame({ maxWidth: chosen ? 10_000 : Infinity })] : []),
   ];
   return (
     <Button
