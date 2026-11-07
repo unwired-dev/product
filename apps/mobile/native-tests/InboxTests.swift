@@ -1175,28 +1175,60 @@ final class InboxTests: XCTestCase {
       ("Updated series: Weekly design review", "can’t tell which meeting", false, "ambiguous"),
       ("Invitation: Daily launch check", "can’t read this invitation", false, "unreadable"),
     ] {
-      if UIDevice.current.userInterfaceIdiom == .phone {
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
-      }
-      let row = app.buttons.matching(
-        NSPredicate(format: "label BEGINSWITH %@", "Lena Fischer. " + subject)
-      ).firstMatch
-      XCTAssertTrue(row.waitForExistence(timeout: 20), subject)
-      // On iPhone the last rows sit under the bottom toolbar, which would take the tap.
-      let toolbar = app.buttons["New Message"].firstMatch
-      for _ in 0..<3 where row.frame.maxY > toolbar.frame.minY {
-        app.swipeUp(velocity: .slow)
-      }
-      row.tap()
-      XCTAssertTrue(
-        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", status))
-          .firstMatch.waitForExistence(timeout: 20), subject)
+      openInvitation(app, subject)
+      XCTAssertTrue(labelled(app, status).waitForExistence(timeout: 20), subject)
       XCTAssertEqual(app.buttons["Accept"].firstMatch.exists, answerable, subject)
-      let capture = XCTAttachment(screenshot: app.screenshot())
-      capture.name = "Invitation " + name
-      capture.lifetime = .keepAlways
-      add(capture)
+      captureInvitation(app, name)
     }
+  }
+
+  // The Q4 roadmap review moved after the declined answer (#1892): the revision names the earlier
+  // answer, and answering it makes the original an older version whose Show Latest opens it.
+  private func invitationRevisionJourney(_ app: XCUIApplication) {
+    openInvitation(app, "Updated invitation: Q4 roadmap review")
+    XCTAssertTrue(labelled(app, "Lena Fischer changed the time").waitForExistence(timeout: 20))
+    XCTAssertTrue(labelled(app, "You declined the earlier time").exists)
+    captureInvitation(app, "updated time")
+    app.buttons["Accept"].firstMatch.tap()
+    XCTAssertTrue(labelled(app, "Accepted. Gmail confirmed").waitForExistence(timeout: 20))
+    openInvitation(app, "Invitation: Q4 roadmap review")
+    XCTAssertTrue(
+      labelled(app, "There’s a newer version of this invitation").waitForExistence(timeout: 20))
+    XCTAssertFalse(app.buttons["Accept"].firstMatch.exists)
+    captureInvitation(app, "older version")
+    app.buttons["Show Latest"].firstMatch.tap()
+    XCTAssertTrue(labelled(app, "Accepted. Gmail confirmed").waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["Accepted"].firstMatch.isSelected)
+  }
+
+  // Opens Lena Fischer's invitation with `subject` from the Inbox list.
+  private func openInvitation(_ app: XCUIApplication, _ subject: String) {
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+    }
+    // The row starts with Unread. until the message is read.
+    let row = app.buttons.matching(
+      NSPredicate(format: "label CONTAINS %@", "Lena Fischer. " + subject)
+    ).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 20), subject)
+    // On iPhone the last rows sit under the bottom toolbar, which would take the tap.
+    let toolbar = app.buttons["New Message"].firstMatch
+    for _ in 0..<3 where row.frame.maxY > toolbar.frame.minY {
+      app.swipeUp(velocity: .slow)
+    }
+    row.tap()
+  }
+
+  private func labelled(_ app: XCUIApplication, _ text: String) -> XCUIElement {
+    app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+      .firstMatch
+  }
+
+  private func captureInvitation(_ app: XCUIApplication, _ name: String) {
+    let capture = XCTAttachment(screenshot: app.screenshot())
+    capture.name = "Invitation " + name
+    capture.lifetime = .keepAlways
+    add(capture)
   }
 
   // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
@@ -2428,6 +2460,7 @@ final class InboxTests: XCTestCase {
       case "registration-invitation":
         invitationJourney(app)
         invitationStatesJourney(app)
+        invitationRevisionJourney(app)
       default:
         try registrationJourney(app)
       }
