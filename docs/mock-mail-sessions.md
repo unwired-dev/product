@@ -172,8 +172,9 @@ In `registration-invitation`, the synthetic Gmail mailbox also lists Lena Fische
 newest Inbox message. The Expo native journey signs in like Google registration,
 opens it, and checks that its card offers **Accept**, **Maybe** and **Decline**.
 **Accept** then shows **Accepted** with Gmail's confirmation, and **Decline** then
-shows **Declined**; the journey keeps a capture of each. The Mac falls back to the registration journey. CI does not run
-this scenario; it is local native evidence for iPhone and iPad in Light and Dark.
+shows **Declined**; the journey keeps a capture of each. The Mac falls back to
+the registration journey. CI does not run this scenario; it is local native
+evidence for iPhone and iPad in Light and Dark.
 The Mac, iPhone and iPad `categorization-spike` builds reuse the `open-read-relaunch`
 mailbox and add the [DeBERTa categorization spike](categorization-spike.md) page to
 the empty reader; iPhone opens on it. They have no native journey; their evidence
