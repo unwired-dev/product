@@ -3244,7 +3244,7 @@ describe('composing Drafts', () => {
       />,
     );
     const link = { path: 'unwired-mail://message/m1', initial: false };
-    let opened: Promise<string | null> = Promise.resolve(null);
+    let opened: ReturnType<typeof redirectSystemPath> = Promise.resolve(null);
     // The link waits for the answer to the question Close asks.
     const deliver = async () => {
       await act(async () => {

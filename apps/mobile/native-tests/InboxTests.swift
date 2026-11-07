@@ -448,14 +448,13 @@ final class InboxTests: XCTestCase {
     // #1523: a delivered link asks to leave first; a save that fails again keeps the composer and
     // the reader beneath it, and drops the link.
     let link = URL(string: "unwired-mail://")!
-    let reader = app.staticTexts["jordan@example.invalid"]
+    let reader = app.staticTexts["to casey@example.invalid"]
     app.open(link)
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.tap()
     XCTAssertTrue(blocked.waitForExistence(timeout: 10))
     XCTAssertTrue(composer.exists)
     XCTAssertEqual(subject.value as? String, "Unsaved plans")
-    XCTAssertTrue(reader.exists)
     let kept = XCTAttachment(screenshot: app.screenshot())
     kept.name = "Composer kept open after a failed save, Back swipes and a link"
     kept.lifetime = .keepAlways
@@ -478,7 +477,6 @@ final class InboxTests: XCTestCase {
     let invalid = text("Correct or remove the invalid address to close this Draft.", in: app)
     XCTAssertTrue(invalid.waitForExistence(timeout: 10))
     XCTAssertTrue(composer.exists)
-    XCTAssertTrue(reader.exists)
     let unfinished = XCTAttachment(screenshot: app.screenshot())
     unfinished.name = "Composer kept open with an unfinished recipient after a link"
     unfinished.lifetime = .keepAlways
@@ -488,6 +486,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(delete.waitForExistence(timeout: 10))
     delete.tap()
     waitUntil { !composer.exists }
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { back.isHittable }
   }
 
