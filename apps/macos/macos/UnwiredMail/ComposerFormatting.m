@@ -229,6 +229,40 @@ void UnwiredForgetComposerTyping(NSString *identifier)
   if ([identifier isEqualToString:composer]) forget(TypingAwaitingText);
 }
 
+// The text view inside the view whose accessibility identifier is the body's testID.
+static NSTextView *textViewIn(NSView *view, NSString *identifier, BOOL inside)
+{
+  inside = inside || [view.accessibilityIdentifier isEqualToString:identifier];
+  if (inside && [view isKindOfClass:NSTextView.class]) return (NSTextView *)view;
+  for (NSView *child in view.subviews) {
+    NSTextView *found = textViewIn(child, identifier, inside);
+    if (found != nil) return found;
+  }
+  return nil;
+}
+
+static __weak NSTextView *highlighted;
+
+// While the Link Editor has focus, the body shows the selection it links as an inactive highlight:
+// React Native drops an RCTUITextView's selection when it resigns first responder. An empty range
+// removes it.
+void UnwiredShowComposerSelection(NSString *identifier, NSRange range, NSColor *color)
+{
+  NSTextView *view = highlighted;
+  [view.layoutManager removeTemporaryAttribute:NSBackgroundColorAttributeName
+                             forCharacterRange:NSMakeRange(0, view.textStorage.length)];
+  highlighted = nil;
+  if (range.length == 0 || color == nil) return;
+  view = nil;
+  for (NSWindow *window in NSApp.windows) {
+    view = textViewIn(window.contentView, identifier, NO);
+    if (view != nil) break;
+  }
+  if (view == nil || NSMaxRange(range) > view.textStorage.length) return;
+  [view.layoutManager addTemporaryAttribute:NSBackgroundColorAttributeName value:color forCharacterRange:range];
+  highlighted = view;
+}
+
 void UnwiredInstallComposerFormatting(void)
 {
   // Each JavaScript span carries its own event emitter, so a render after marks shown here

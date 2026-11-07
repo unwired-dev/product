@@ -4,7 +4,7 @@ import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { TextStyle, useColorScheme } from 'react-native';
+import type { TextStyle, TurboModule, useColorScheme } from 'react-native';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
@@ -34,7 +34,9 @@ import {
   AppState,
   StyleSheet,
   TextInput,
+  TurboModuleRegistry,
   View,
+  processColor,
 } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -233,6 +235,16 @@ function popoverOf(
 }
 
 const ignore = () => undefined;
+
+// Only the window host boundary is substituted, answering as the native module does.
+const windowHostWith = (host: TurboModule) => {
+  const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  return jest
+    .spyOn(TurboModuleRegistry, 'get')
+    .mockImplementation((name) =>
+      name === 'UnwiredCommands' ? host : get(name),
+    );
+};
 
 // A save that throws once, as when storage fails unexpectedly, then saves normally.
 const failingOnce = (save: () => Promise<boolean>) => {
@@ -1950,7 +1962,22 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'Edit Link' })).toBeDisabled();
     await select(5, 14);
     const focus = jest.spyOn(TextInput.prototype, 'focus');
+    const highlight = jest.fn();
+    const host: TurboModule &
+      Readonly<{
+        showComposerSelection: typeof highlight;
+        forgetComposerTyping: typeof ignore;
+      }> = { showComposerSelection: highlight, forgetComposerTyping: ignore };
+    const modules = windowHostWith(host);
     await press('Add Link');
+    // While its fields have focus, the body draws what it links as an inactive selection.
+    expect(highlight.mock.calls).toStrictEqual([
+      [
+        body.props.testID,
+        { start: 5, end: 14 },
+        processColor(palette.light.accentSelectionSubtle),
+      ],
+    ]);
     // Its fields take focus from the body, which drops its selection; closing puts it back.
     await select(0, 0);
     // Escape in a field closes it without a change.
@@ -1961,6 +1988,8 @@ describe('composing Drafts', () => {
     expect(popover).toHaveProp('shown', false);
     focus.mockClear();
     await fireEvent(popover, 'close');
+    expect(highlight.mock.lastCall?.[1]).toStrictEqual({ start: 5, end: 5 });
+    modules.mockRestore();
     expect(body).toHaveProp('selection', { start: 5, end: 14 });
     // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
     expect(focus).toHaveBeenCalledTimes(1);
