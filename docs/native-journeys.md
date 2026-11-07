@@ -184,6 +184,27 @@ appearance whatever the desktop's; `testKeyboardAndAccessibilityDark` runs the s
 journey in Dark. Increase Contrast is not audited. The audits do not replace VoiceOver,
 Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
 
+## Mac Mail Profile isolation journey
+
+The `testMailProfileIsolation` journey uses the same `registration-performance`
+`Testing` build and sign-in as the [performance journey](#mac-performance-journey)
+([#1901](https://github.com/unwired-dev/product/issues/1901)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testMailProfileIsolation
+```
+
+In Settings › Mail Profiles it adds a **Work** Mail Profile and moves the Microsoft
+mailbox into it from the Primary Profile. A second window switches to Work through
+its Profile Switcher. With both windows open, each lists only its own mailbox and
+messages, and Search for `update 003` in each finds only its own mailbox's message.
+A Draft saved from Work's window appears there and not in the Primary Profile's.
+Moving the mailbox back restores its messages and the Draft to the Primary Profile
+window. Each window's capture is kept as an attachment. Links and Outbox are not
+covered.
+
 ## iPhone and iPad keyboard and accessibility journey
 
 The Expo native journey for a `registration-performance` Release build drives
