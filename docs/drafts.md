@@ -195,7 +195,8 @@ change is one Undo step. With unlinked text selected inside one block, without a
 line break or inline image, the control is **Add Link** instead: the same editor,
 titled **Add Link** on iPhone and without **Remove Link**, opens with the
 selection as its text and an empty, focused Link field, and **Apply** links the
-text as one Undo step. The control is unavailable otherwise, including for a
+text as one Undo step. While a Mac Link Editor has focus, the body draws the text it
+links as an inactive selection. The control is unavailable otherwise, including for a
 caret away from a link or a selection that is partly linked. The Tiptap
 evaluation editor's Link control behaves the same way. The Slash Command Menu and
 recipient suggestions are later slices.

@@ -116,6 +116,7 @@ import {
   Text,
   TextInput,
   View,
+  processColor,
   useColorScheme,
 } from 'react-native';
 
@@ -2676,6 +2677,13 @@ function Editor({
           }}
           onShown={(shown, returning) => {
             linking.current = shown;
+            // The body's selection stays drawn, inactive, while the editor has focus.
+            const { start, end } = selectionNow.current;
+            windowHost()?.showComposerSelection(
+              bodyID,
+              { start, end: shown ? end : start },
+              processColor(colors.accentSelectionSubtle),
+            );
             if (returning === true) {
               bodyInput.current?.focus();
               setPlaced({ ...selectionNow.current });
