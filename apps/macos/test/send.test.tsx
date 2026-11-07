@@ -677,6 +677,7 @@ describe('sending a Draft', () => {
         );
       await compose('Lunch');
       await press('Send');
+      expect(screen.queryByLabelText('Subject')).toBeNull();
       await compose('Dinner');
       await act(async () => {
         await sender.drafts.save();
@@ -684,6 +685,7 @@ describe('sending a Draft', () => {
       await press('Compose actions');
       await chooseMenuItem('Discard');
       await press('Discard Draft');
+      expect(screen.queryByLabelText('Subject')).toBeNull();
       await press('New Message');
       await press('Close');
 
