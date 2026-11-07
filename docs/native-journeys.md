@@ -131,8 +131,8 @@ Link Editor popover opens with the selection as its Text, Link focused and empty
 Apply disabled and no Remove Link. Its audit completes with two exceptions: the
 tracked contrast gap [#1794](https://github.com/unwired-dev/product/issues/1794)
 and the hint's false "Label duplicates role description" finding. The capture is
-kept as an `Add Link` attachment and shows the body's selection drawn as inactive
-([#1796](https://github.com/unwired-dev/product/issues/1796)). An invalid destination shows its reason after Return,
+kept as an `Add Link` attachment. Review it for the body's selection drawn as inactive
+([#1796](https://github.com/unwired-dev/product/issues/1796)); no assertion checks the highlight. An invalid destination shows its reason after Return,
 Escape closes the popover keeping the text and selection, which reopening it
 prefills again, and a valid destination applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
 Edit Link then offers Remove Link with the saved destination, and Escape closes
