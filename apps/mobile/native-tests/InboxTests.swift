@@ -554,9 +554,9 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(draft.exists)
     XCTAssertFalse(outbox.exists)
     XCTAssertFalse(sending.exists)
+    // Synthetic Graph holds the Work report a minute after the Undo Send Window.
     XCTAssertLessThan(
-      Date().timeIntervalSince(sentAt), 10,
-      "The Primary Profile was checked after the Undo Send Window")
+      Date().timeIntervalSince(sentAt), 70, "The Primary Profile was checked after Work's send")
     let kept = XCTAttachment(screenshot: app.screenshot())
     kept.name = "Primary Profile without Work's mail and Draft"
     kept.lifetime = .keepAlways
@@ -591,7 +591,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     XCTAssertTrue(draft.waitForExistence(timeout: 10))
     // Delivery has taken Work's message, so no Outbox returns with the mailbox.
-    XCTAssertTrue(outbox.waitForNonExistence(timeout: 40))
+    XCTAssertTrue(outbox.waitForNonExistence(timeout: 90))
     XCTAssertFalse(sending.exists)
     app.open(URL(string: link)!)
     XCTAssertTrue(reading.waitForExistence(timeout: 15))

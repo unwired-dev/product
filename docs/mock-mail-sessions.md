@@ -71,7 +71,10 @@ registration journey's two relaunches, during setup and with a connected mailbox
 also fail if Welcome shows before the saved account's page. A synthetic
 Microsoft mailbox answers the [Microsoft mail](microsoft-mail.md) Graph requests
 with one message, its folders and search, applying read-state changes and moves
-for the rest of the launch; `registration-apple` connects it before adding Gmail.
+for the rest of the launch; `registration-apple` connects it before adding Gmail
+and holds the journey's Work report send for a minute, so the message is still in
+Work's Outbox when the Primary Profile is checked
+([#1912](https://github.com/unwired-dev/product/issues/1912)).
 Its synthetic [Private Sync](private-product-sync.md#deterministic-evidence)
 backend keeps the run's encrypted records in the same Keychain service, so new
 accounts present a Recovery Key and relaunches keep their keys. Like Convex, it

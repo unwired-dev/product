@@ -1,6 +1,8 @@
 import * as Context from 'effect/Context';
 import * as Effect from 'effect/Effect';
+import * as Base64 from 'effect/encoding/Base64';
 import * as Layer from 'effect/Layer';
+import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 
 import type { Reply, RequestURL } from './synthetic-relay.ts';
@@ -249,6 +251,17 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
         contentType: string;
       }>) {
         if (contentType === 'text/plain') {
+          // The iPhone and iPad journey's Work report waits in its Outbox for a minute, so the
+          // Primary Profile is checked while it is still there (#1912).
+          if (
+            scenario === 'registration-apple' &&
+            Result.getOrElse(
+              Base64.decodeString(body ?? ''),
+              () => '',
+            ).includes('Subject: Work report')
+          ) {
+            yield* Effect.sleep('1 minute');
+          }
           return { status: 202, body: '' };
         }
         if (body !== null) {
