@@ -175,7 +175,10 @@ separately.
   [Mock Mail journey](mock-mail-sessions.md) opens a Gmail invitation and accepts
   it, keeping captures of the card before and after. It also captures an invitation
   for another address, a cancellation, a weekly series, one meeting of a series, an
-  ambiguous series update and an invitation Unwired can't read.
-- Native Mac evidence, the response states that need a Gmail failure or an
-  earlier response on iPhone and iPad, and a real Gmail organizer receiving the
-  response remain required before release.
+  ambiguous series update and an invitation Unwired can't read. Last, it captures a
+  revision at a new time as **Updated** after the declined answer, accepts it,
+  captures the original as an **Older version** and follows **Show Latest** back
+  to the revision.
+- Native Mac evidence, the response states that need a Gmail failure on iPhone and
+  iPad, and a real Gmail organizer receiving the response remain required before
+  release.

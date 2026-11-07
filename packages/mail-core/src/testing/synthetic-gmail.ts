@@ -167,7 +167,8 @@ const weeklyReview = [
 ];
 // Below the answerable invitation, each invitation state the card shows without a response:
 // another attendee, a cancellation, a weekly series, one meeting of it, an update that carries
-// the series and names one meeting, and a calendar Unwired can't read.
+// the series and names one meeting, and a calendar Unwired can't read. Last, the Q4 roadmap
+// review moved to the next morning, which answering makes the original an older version.
 const invitationStates = [
   {
     subject: 'Invitation: Hiring sync',
@@ -229,6 +230,18 @@ const invitationStates = [
       'DTSTART:20261116T090000Z',
       'DTEND:20261116T091500Z',
       'RRULE:FREQ=DAILY;COUNT=5',
+      invited('other@example.invalid'),
+    ]),
+  },
+  {
+    subject: 'Updated invitation: Q4 roadmap review',
+    calendar: meetingCalendar([
+      'UID:roadmap-42@example.invalid',
+      'SEQUENCE:1',
+      'SUMMARY:Q4 roadmap review',
+      'DTSTART:20261113T090000Z',
+      'DTEND:20261113T100000Z',
+      'LOCATION:Room 4',
       invited('other@example.invalid'),
     ]),
   },

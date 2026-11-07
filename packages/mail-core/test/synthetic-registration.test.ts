@@ -819,6 +819,15 @@ describe('the invitation mailbox', () => {
     ],
     ['19a0c0ffee000044', { kind: 'ambiguous' }],
     ['19a0c0ffee000045', { kind: 'unreadable' }],
+    [
+      '19a0c0ffee000046',
+      {
+        kind: 'invited',
+        uid: 'roadmap-42@example.invalid',
+        sequence: 1,
+        details: { start: { at: Date.UTC(2026, 10, 13, 9) } },
+      },
+    ],
   ])('serves %s as an invitation state', async (id, state) => {
     expect.hasAssertions();
     await expect(offerOf(id)).resolves.toMatchObject(state);
