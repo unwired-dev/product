@@ -23,7 +23,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react-native';
-import { useState } from 'react';
+import { Profiler, useState } from 'react';
 import { AccessibilityInfo } from 'react-native';
 
 import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
@@ -652,6 +652,48 @@ describe('sending a Draft', () => {
       }
     },
   );
+
+  it('never shows a Draft as unavailable while Send, Discard or Close closes its composer', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    // Whether each commit after the first render shows the fallback for an unavailable Draft.
+    const unavailable: boolean[] = [];
+    let record = () => 0;
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(
+        <Profiler
+          id="composer"
+          onRender={() => record()}>
+          <App sender={sender} />
+        </Profiler>,
+      );
+      // The screen can be queried once render returns.
+      record = () =>
+        unavailable.push(
+          screen.queryByText('This Draft is not available.') !== null,
+        );
+      await compose('Lunch');
+      await press('Send');
+      await compose('Dinner');
+      await act(async () => {
+        await sender.drafts.save();
+      });
+      await press('Compose actions');
+      await chooseMenuItem('Discard');
+      await press('Discard Draft');
+      await press('New Message');
+      await press('Close');
+
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      expect(unavailable).toContain(false);
+      expect(unavailable).not.toContain(true);
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
 
   it('closes a Draft its refused Send stored without asking to save it', async () => {
     expect.hasAssertions();
