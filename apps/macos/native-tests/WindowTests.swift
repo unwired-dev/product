@@ -1337,6 +1337,7 @@ final class WindowTests: XCTestCase {
   // #1901: moving the Microsoft mailbox into a Work Mail Profile takes its messages, Search
   // results and Drafts to Work's window only, beside a Primary Profile window that keeps the
   // Gmail mailbox; moving it back restores them to the Primary Profile.
+  // swiftlint:disable:next function_body_length
   func testMailProfileIsolation() throws {
     continueAfterFailure = false
     // Two Inbox windows at their 760-point minimum width need a display at least twice as wide.
@@ -1420,9 +1421,9 @@ final class WindowTests: XCTestCase {
         .withOffset(CGVector(dx: -2, dy: -2))
       corner.click(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: half - 20 - window.frame.width, dy: 0)))
     }
-    func place(_ window: XCUIElement, _ x: CGFloat, from dx: CGFloat) {
-      let top = window.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.01))
-      top.click(forDuration: 0.2, thenDragTo: top.withOffset(CGVector(dx: x - window.frame.minX, dy: 0)))
+    func place(_ window: XCUIElement, _ targetX: CGFloat, from grabX: CGFloat) {
+      let top = window.coordinate(withNormalizedOffset: CGVector(dx: grabX, dy: 0.01))
+      top.click(forDuration: 0.2, thenDragTo: top.withOffset(CGVector(dx: targetX - window.frame.minX, dy: 0)))
     }
     narrow(work)
     place(work, half, from: 0.9)
@@ -1461,7 +1462,10 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(primary.buttons["Inbox. In \(microsoft.0)"].waitForExistence(timeout: 30))
     XCTAssertTrue(row(primary, microsoft.1).waitForExistence(timeout: 30))
     XCTAssertTrue(primary.buttons.matching(draft).firstMatch.waitForExistence(timeout: 30))
-    waitUntil { !row(work, microsoft.1).exists && !work.buttons.matching(draft).firstMatch.exists }
+    waitUntil {
+      !work.buttons["Inbox. In \(microsoft.0)"].exists
+        && !row(work, microsoft.1).exists && !work.buttons.matching(draft).firstMatch.exists
+    }
     attach(primary, "Primary Profile window after moving back")
   }
 
