@@ -102,3 +102,4 @@ ADRs take the next number after the highest in this index.
 | 0073   | [Separate External Agent access from On-Device Mail Assistance](0073-separate-external-agent-access-from-on-device-assistance.md)              |
 | 0074   | [Use provider-hosted Drafts for cross-client editing](0074-use-provider-hosted-drafts-for-cross-client-editing.md)                             |
 | 0075   | [Prefer separately authorized PCC mail assistance](0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)             |
+| 0076   | [Deliver Scheduled Sends from any trusted device or the provider](0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md)     |

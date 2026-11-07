@@ -7,10 +7,8 @@ Architecture notes live in the separate [architecture companion](../architecture
 
 The replacement keeps queued delivery on its originating device under
 [ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md),
-except Scheduled Send, which follows the [owner decisions](#owner-decisions-for-scheduled-send-6-nov-2026).
-Scheduled Send Claim and Scheduled Delivery Authorization name the older
-cross-device scheduling protocol; their definitions do not authorize takeover
-in the replacement.
+except Scheduled Send, which follows the [owner decisions](#owner-decisions-for-scheduled-send-6-nov-2026)
+and [ADR 0076](../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md).
 
 These observable requirements were separated from the former monolithic glossary
 and its implementation notes.
@@ -81,7 +79,7 @@ implemented, and another device delivers only as the [owner decisions](#owner-de
 - A Send Reminder synchronizes end-to-end encrypted; its Draft remains the content authority, and only the current reminder can be opened, cleared or rescheduled.
 - The latest active notification-authorized Trusted Device to reconcile a Send Reminder owns its local notification. A later owner fences the prior owner, while offline reminders remain visibly pending and denied or suppressed reminders remain available as overdue Drafts
 - Send Reminder interruption is governed by the existing default-on **Return-to-Attention** preference together with device interruption controls, Quiet State, Profile Lock, OS notification authorization, and device-local lock-screen content policy
-- Scheduled Send is available for every send-capable new-message, reply, reply-all, and forward composer and uses the same product-owned behavior for every send-capable **Mailbox Connection**
+- Scheduled Send is available for every send-capable new-message, reply, reply-all, and forward composer and every send-capable **Mailbox Connection**; delivery uses the provider's schedule only where the [owner decisions](#owner-decisions-for-scheduled-send-6-nov-2026) allow
 - A Scheduled Send is admitted only after its complete payload synchronizes end-to-end encrypted and its Draft is durably retired; admission fails closed while offline or uncertain and leaves the message as a Draft
 
 - Scheduled Send delivery is best-effort at or after its absolute selected instant; it never promises exact background execution, and an item more than 24 hours late requires user attention instead of sending automatically
@@ -96,8 +94,8 @@ implemented, and another device delivers only as the [owner decisions](#owner-de
 On 6 Nov 2026 the owner approved the
 [#659 Scheduled messages frames](https://github.com/unwired-dev/product/issues/659#issuecomment-6692821318)
 and made the decisions below. They replace the originating-device rule above for
-Scheduled Send. ADR 0062 and the domain vocabulary still describe the old rule
-and need a matching update before implementation.
+Scheduled Send. [ADR 0076](../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md) records the matching architecture
+decision.
 
 - Scheduled messages have their own Scheduled sidebar item, placed above Drafts at the bottom. It shows only while something is scheduled, with a count. A warning badge appears only when an item needs attention.
 - Opening a scheduled message makes it editable straight away, with autosave. Its banner offers Reschedule and Cancel Schedule. Cancelling turns the message back into a Draft.

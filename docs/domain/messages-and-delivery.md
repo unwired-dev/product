@@ -6,10 +6,9 @@ Architecture notes live in the separate [architecture companion](../architecture
 [Domain index](../../GLOSSARY.md) · [behavior notes](../product/messages-and-delivery.md)
 
 The replacement keeps queued delivery on its originating device under
-[ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md).
-Scheduled Send Claim and Scheduled Delivery Authorization name the older
-cross-device scheduling protocol; their definitions do not authorize takeover
-in the replacement.
+[ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md),
+except Scheduled Send, which the provider or any Trusted Device of the Profile
+delivers under [ADR 0076](../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md).
 
 Each term has one canonical definition in this glossary collection. Use the
 [documentation index](../README.md) and
@@ -68,7 +67,7 @@ An immutable attempt to send one Outbox message through a selected **Mailbox Con
 _Avoid_: Draft edit, Provider Mail Action
 
 **Delivery Owner**:
-The trusted device where the person pressed Send and that owns execution of the resulting queued **Outgoing Delivery Attempt**.
+The trusted device where the person pressed Send and that owns execution of the resulting queued **Outgoing Delivery Attempt**. A **Scheduled Send** has no Delivery Owner; it is delivered by its provider schedule or under a **Scheduled Send Claim**.
 _Avoid_: Current foreground device, backend mail sender, any available device
 
 **Undo Send Window**:
@@ -84,7 +83,7 @@ A one-time future prompt attached to a **Draft** that does not authorize the pro
 _Avoid_: Scheduled Send, automatic send
 
 **Scheduled Send Claim**:
-A revision-bound right held by one eligible **Trusted Device** to advance a **Scheduled Send** toward provider handoff.
+A revision-bound right, acquired through **Private Sync** by the first eligible **Trusted Device** of the Profile, to advance a **Scheduled Send** that no provider schedules toward provider handoff.
 _Avoid_: Unfenced timer, renewable delivery lease
 
 **Scheduled Delivery Authorization**:

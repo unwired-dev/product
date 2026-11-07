@@ -7,10 +7,9 @@ replacement requirements or release qualification.
 ## Scope
 
 The replacement keeps queued delivery on its originating device under
-[ADR 0062](../../adr/0062-keep-queued-delivery-on-its-originating-device.md).
-Scheduled Send Claim and Scheduled Delivery Authorization name the older
-cross-device scheduling protocol; their definitions do not authorize takeover
-in the replacement.
+[ADR 0062](../../adr/0062-keep-queued-delivery-on-its-originating-device.md),
+except Scheduled Send, which the provider or any Trusted Device of the Profile
+delivers under [ADR 0076](../../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md).
 
 ## Decisions and scope
 
@@ -18,6 +17,7 @@ in the replacement.
 - [Power-user Apple launch scope](../../adr/0069-expand-the-apple-launch-to-power-user-mail.md)
 - [Original replacement scope](../../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md)
 - [Keep queued delivery on its originating device](../../adr/0062-keep-queued-delivery-on-its-originating-device.md)
+- [Deliver Scheduled Sends from any trusted device or the provider](../../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md)
 - [Model Outbox delivery as immutable attempts](../../adr/0016-durable-outbox-delivery-attempts.md)
 - [Use semantic rich-text Drafts with encrypted assets](../../adr/0025-use-semantic-rich-text-drafts-with-encrypted-assets.md)
 - [Scope verified Sending Identities to Mail Profiles](../../adr/0054-scope-verified-sending-identities-to-mail-profiles.md)
@@ -51,11 +51,12 @@ safety remain required.
 ## Historical cross-device scheduling
 
 The [prototype mechanism](../../archive/scheduled-send.md#historical-cross-device-scheduling)
-is archived. Current delivery remains on its originating device under
-[ADR 0062](../../adr/0062-keep-queued-delivery-on-its-originating-device.md).
+is archived. Immediate queued delivery remains on its originating device under
+[ADR 0062](../../adr/0062-keep-queued-delivery-on-its-originating-device.md);
+[ADR 0076](../../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md) governs Scheduled Send.
 The [operational delivery contract](../../product/messages-and-delivery.md#historical-cross-device-scheduling)
 owns agreed future Send Reminder requirements; archiving the old protocol does
-not remove them or authorize cross-device takeover.
+not remove them or authorize cross-device takeover of immediate queued delivery.
 
 ## Reader loading
 
