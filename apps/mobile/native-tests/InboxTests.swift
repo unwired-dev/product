@@ -1118,6 +1118,15 @@ final class InboxTests: XCTestCase {
     accepted.name = "Invitation accepted"
     accepted.lifetime = .keepAlways
     add(accepted)
+    // The last response chosen keeps its title on one line too (#1883).
+    app.buttons["Decline"].firstMatch.tap()
+    let declinedButton = app.buttons["Declined"].firstMatch
+    XCTAssertTrue(declinedButton.waitForExistence(timeout: 20))
+    XCTAssertTrue(declinedButton.isSelected)
+    let declined = XCTAttachment(screenshot: app.screenshot())
+    declined.name = "Invitation declined"
+    declined.lifetime = .keepAlways
+    add(declined)
   }
 
   // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
