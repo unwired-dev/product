@@ -526,10 +526,37 @@ final class InboxTests: XCTestCase {
     work.name = "Work Profile with its moved mailbox and Draft"
     work.lifetime = .keepAlways
     add(work)
+    // #1912: a message Work sends waits in Work's Outbox, and the Primary Profile shows no Outbox
+    // while the Undo Send Window lasts.
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("maya@example.invalid", into: to)
+    subject.tap()
+    type("Work report", into: subject)
+    let sentAt = Date()
+    app.buttons["Send"].tap()
+    let outbox = app.staticTexts["Outbox"].firstMatch
+    let sending = app.descendants(matching: .any).matching(
+      NSPredicate(
+        format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Work report.", ". Sending soon")
+    ).firstMatch
+    XCTAssertTrue(sending.waitForExistence(timeout: 10))
+    let queued = XCTAttachment(screenshot: app.screenshot())
+    queued.name = "Work Profile with its Outbox"
+    queued.lifetime = .keepAlways
+    add(queued)
     switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
     XCTAssertFalse(jordan.exists)
     XCTAssertFalse(draft.exists)
+    XCTAssertFalse(outbox.exists)
+    XCTAssertFalse(sending.exists)
+    XCTAssertLessThan(
+      Date().timeIntervalSince(sentAt), 10,
+      "The Primary Profile was checked after the Undo Send Window")
     let kept = XCTAttachment(screenshot: app.screenshot())
     kept.name = "Primary Profile without Work's mail and Draft"
     kept.lifetime = .keepAlways
@@ -563,6 +590,9 @@ final class InboxTests: XCTestCase {
     moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     XCTAssertTrue(draft.waitForExistence(timeout: 10))
+    // Delivery has taken Work's message, so no Outbox returns with the mailbox.
+    XCTAssertTrue(outbox.waitForNonExistence(timeout: 40))
+    XCTAssertFalse(sending.exists)
     app.open(URL(string: link)!)
     XCTAssertTrue(reading.waitForExistence(timeout: 15))
     if UIDevice.current.userInterfaceIdiom == .phone { back.tap() }
