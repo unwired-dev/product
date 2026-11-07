@@ -140,7 +140,18 @@ it. With the reply docked, it clicks the
 reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
 **Folders** opens its menu, which Escape closes, and the read toggle flips while the
 reply keeps its text. After relaunch, it checks that the
-saved Draft reopens with that text, and Edit Link with its saved destination. Command-N opens a second Inbox with no
+saved Draft reopens with that text, and Edit Link with its saved destination.
+With Mail Assistance turned on in Privacy & Data, **Rewrite the message body** from
+Writing tools ([#1898](https://github.com/unwired-dev/product/issues/1898)) shows the
+synthetic rewrite with the kept link note and **Replace text** as the default button.
+Return adds a new line to the focused body instead, which the result survives
+([#1899](https://github.com/unwired-dev/product/issues/1899)); Replace text makes
+the body the rewrite, and one Undo restores the reply. After " at 9:30" is typed, the
+rewrite reports one differing detail with its row and **Use rewrite with changes**;
+the count line above the row is checked only in the capture until it reaches the
+accessibility tree ([#1902](https://github.com/unwired-dev/product/issues/1902)),
+and Keep original closes it with the reply unchanged. Both states are audited and
+kept as `Writing tools W1` and `Writing tools W2` attachments. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there.
@@ -173,8 +184,10 @@ labels the contrast audit flags although their captured pixels pass, that
 fail only while another window or an AppKit sheet dims their window, or that sit
 on the Command Palette's glass panel
 ([#1550](https://github.com/unwired-dev/product/issues/1550)),
-AppKit's text Touch Bar, email or web addresses used as labels, and the Link Editor
-hint's false "Label duplicates role description" finding. The contrast gaps list
+AppKit's text Touch Bar, email or web addresses used as labels, Private Cloud's
+row while Mail Assistance is off (an inactive control), and the false "Label
+duplicates role description" finding on the Link Editor hint, Private Cloud's
+explanation and the Writing tools privacy note, sentences containing "text". The contrast gaps list
 the labels each owner covers in either appearance. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
@@ -183,6 +196,30 @@ with its log when investigating that exception. The journey launches the app in 
 appearance whatever the desktop's; `testKeyboardAndAccessibilityDark` runs the same
 journey in Dark. Increase Contrast is not audited. The audits do not replace VoiceOver,
 Full Keyboard Access or the [iPhone and iPad journey](#iphone-and-ipad-keyboard-and-accessibility-journey).
+
+## Mac Mail Profile isolation journey
+
+The `testMailProfileIsolation` journey uses the same `registration-performance`
+`Testing` build and sign-in as the [performance journey](#mac-performance-journey)
+([#1901](https://github.com/unwired-dev/product/issues/1901)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testMailProfileIsolation
+```
+
+In Settings › Mail Profiles it adds a **Work** Mail Profile and moves the Microsoft
+mailbox into it from the Primary Profile. A second window switches to Work through
+its Profile Switcher. The journey tiles the two windows side by side, each on its
+own half of the screen, and checks they do not overlap; it skips on a display
+narrower than 1560 points, where two windows cannot fit. Each lists its own
+mailbox and an `update` message but not the other mailbox or its `update` messages;
+other messages are not checked. Search for `update 003` in each finds only its own mailbox's message.
+A Draft saved from Work's window appears there and not in the Primary Profile's.
+Moving the mailbox back restores its messages and the Draft to the Primary Profile
+window. Each window's capture is kept as an attachment. Links and Outbox are not
+covered.
 
 ## iPhone and iPad keyboard and accessibility journey
 
