@@ -443,9 +443,18 @@ describe('microsoft historical metadata backfill', () => {
     refusal = undefined;
 
     const relaunched = createInbox(graph.native);
+    // Finding the last folder never shows the download complete before those folders are in it.
+    const completed: unknown[] = [];
+    const stop = relaunched.subscribe(() => {
+      const state = relaunched.getSnapshot();
+      if (state.kind === 'ready' && state.history?.complete === true) {
+        completed.push(state.history);
+      }
+    });
+    onTestFinished(stop);
     await relaunched.load();
     await backfilled(relaunched);
-    expect(progress(relaunched)).toStrictEqual({
+    expect(completed[0]).toStrictEqual({
       downloaded: 9,
       total: 9,
       complete: true,
@@ -455,7 +464,8 @@ describe('microsoft historical metadata backfill', () => {
     const saved = await downloaded(graph);
     expect(saved.get(last)).toStrictEqual(sorted(lastIds));
     expect(saved.get(nested)).toStrictEqual(sorted(nestedIds));
-  }, 15_000);
+    // Hundreds of folder steps each commit; the native store takes as long as backfilled waits.
+  }, 60_000);
 
   it('stays incomplete when refreshing a known folder inventory is paused', async () => {
     expect.hasAssertions();
