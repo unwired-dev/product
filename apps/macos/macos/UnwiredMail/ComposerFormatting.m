@@ -229,6 +229,20 @@ void UnwiredForgetComposerTyping(NSString *identifier)
   if ([identifier isEqualToString:composer]) forget(TypingAwaitingText);
 }
 
+// While the Link Editor has focus, the body shows the selection it links as an inactive highlight:
+// React Native drops an RCTUITextView's selection when it resigns first responder. An empty range
+// removes it.
+void UnwiredShowComposerSelection(NSString *identifier, NSRange range, NSColor *color)
+{
+  if (body == nil || ![identifier isEqualToString:composer]) return;
+  NSLayoutManager *layout = body.layoutManager;
+  NSUInteger length = body.textStorage.length;
+  [layout removeTemporaryAttribute:NSBackgroundColorAttributeName forCharacterRange:NSMakeRange(0, length)];
+  if (range.length > 0 && NSMaxRange(range) <= length && color != nil) {
+    [layout addTemporaryAttribute:NSBackgroundColorAttributeName value:color forCharacterRange:range];
+  }
+}
+
 void UnwiredInstallComposerFormatting(void)
 {
   // Each JavaScript span carries its own event emitter, so a render after marks shown here

@@ -1,4 +1,5 @@
 #import <React/RCTBridgeModule.h>
+#import <React/RCTConvert.h>
 #import <React/RCTEventEmitter.h>
 
 // The Commands… menu item, Command-P, tells the key window's JavaScript to open its Command Palette.
@@ -201,6 +202,16 @@ void UnwiredForgetComposerTyping(NSString *identifier);
 RCT_EXPORT_METHOD(forgetComposerTyping:(NSString *)identifier)
 {
   UnwiredForgetComposerTyping(identifier);
+}
+
+void UnwiredShowComposerSelection(NSString *identifier, NSRange range, NSColor *color);
+
+// The body shows the selection the Link Editor links while the editor has focus.
+RCT_EXPORT_METHOD(showComposerSelection:(NSString *)identifier selection:(NSDictionary *)selection color:(id)color)
+{
+  NSUInteger start = [RCTConvert NSUInteger:selection[@"start"]];
+  NSUInteger end = [RCTConvert NSUInteger:selection[@"end"]];
+  UnwiredShowComposerSelection(identifier, NSMakeRange(start, end > start ? end - start : 0), [RCTConvert NSColor:color]);
 }
 
 // The Settings window closes itself once no Inbox can open, as after signing out.

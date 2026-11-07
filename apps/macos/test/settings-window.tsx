@@ -71,6 +71,7 @@ const host = {
     sidebarToggles.push(window);
   },
   forgetComposerTyping: () => undefined,
+  showComposerSelection: () => undefined,
   openFolderChoice: (window: string, connection: string, profile: string) => {
     if (sheet === undefined) {
       sheet = { window: `${window}-folder-choice`, connection, profile };

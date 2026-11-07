@@ -1,4 +1,4 @@
-import type { TurboModule } from 'react-native';
+import type { TurboModule, processColor } from 'react-native';
 
 import * as Schema from 'effect/Schema';
 import { NativeEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -36,6 +36,14 @@ interface WindowHost extends TurboModule {
   // Ends the marks the composer body shows for typing before a render, after a control edits it;
   // `body` is the body's testID.
   readonly forgetComposerTyping: (body: string) => void;
+  // Highlights the body's `selection` in `color` while the body is not first responder; an empty
+  // selection removes the highlight.
+  readonly showComposerSelection: (
+    body: string,
+    selection: { readonly start: number; readonly end: number },
+    // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- React Native's processed color type is mutable.
+    color: ReturnType<typeof processColor>,
+  ) => void;
 }
 
 export const windowHost = () =>
