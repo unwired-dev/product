@@ -1476,9 +1476,10 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(primary.descendants(matching: .any).matching(sending).firstMatch.exists)
     attach(work, "Work window with its Outbox")
     attach(primary, "Primary Profile window without an Outbox")
+    // Admission follows the click, so the 10 s Undo Send Window outlasts sentAt + 9 s.
+    Thread.sleep(forTimeInterval: max(0, 9 - Date().timeIntervalSince(sentAt)))
+    XCTAssertTrue(outbox(work).exists)
     XCTAssertTrue(outbox(work).waitForNonExistence(timeout: 40))
-    // Admission follows the click, so the 10 s Undo Send Window cannot end sooner.
-    XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(sentAt), 10)
 
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
