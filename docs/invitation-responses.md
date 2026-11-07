@@ -155,6 +155,8 @@ separately.
   (18pt corners on iPhone, 10pt on iPad), and native capsule **Accept**, **Maybe** and **Decline** buttons in one row;
   the chosen one takes the accent fill. With larger text each value moves below its
   label, and from the first accessibility size the buttons stack at full width.
+  They also stack when the row cannot keep each title on one line, such as the
+  chosen one's checkmark in iPad's narrow three-column reader.
 - **Respond Again…** asks in the system alert, with **Respond Again** and
   **Cancel**. Closing the message dismisses the alert without sending.
 - VoiceOver hears each status change once, since iOS ignores live regions.
