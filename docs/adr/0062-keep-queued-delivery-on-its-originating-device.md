@@ -4,6 +4,15 @@ status: accepted
 
 # Keep queued delivery on its originating device
 
+## Scheduled Send amendment, 2026-11-06
+
+[ADR 0076](0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md) supersedes originating-device ownership for Scheduled Send only.
+Any Trusted Device of the Profile may manage a Scheduled Send, and the provider
+or the first eligible device that claims it delivers it. Immediate Send, the Undo
+Send Window and all other queued delivery stay on the originating device as
+described below. Content-free atomic send admission and unknown-outcome safety
+apply to both.
+
 ## Provider Draft amendment, 2026-10-24
 
 [ADR 0074](0074-use-provider-hosted-drafts-for-cross-client-editing.md) replaces

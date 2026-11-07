@@ -58,6 +58,7 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Mock testing and real integration evidence](../adr/0060-pair-mocked-mail-journeys-with-real-integration-evidence.md)
 - [Product identity and mailbox consent](../adr/0061-separate-product-identity-from-registration-mailbox-authorization.md)
 - [Originating-device Outbox and atomic admission](../adr/0062-keep-queued-delivery-on-its-originating-device.md)
+- [Scheduled Send from any trusted device or the provider](../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md)
 - [Private new-Inbox notifications](../adr/0063-notify-for-new-inbox-mail-without-categorization.md)
 - [Workspace catalogs and native dependency boundaries](../adr/0064-isolate-mobile-and-macos-native-dependencies.md)
 - [Effect adoption scope](../adr/0065-scope-effect-adoption.md)

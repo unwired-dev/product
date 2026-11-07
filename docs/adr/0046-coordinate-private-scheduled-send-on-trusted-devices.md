@@ -5,11 +5,11 @@ status: accepted
 # Coordinate private Scheduled Send on trusted devices
 
 Replacement scope: scheduling is deferred by
-[ADR 0059](0059-replace-the-client-for-a-shared-cross-platform-product.md).
-[ADR 0062](0062-keep-queued-delivery-on-its-originating-device.md) and
-[follow-up #659](https://github.com/unwired-dev/product/issues/659) retain
-originating-device ownership. The cross-device takeover design below belongs
-to the Swift prototype and is not adopted by the replacement.
+[ADR 0059](0059-replace-the-client-for-a-shared-cross-platform-product.md) to
+[follow-up #659](https://github.com/unwired-dev/product/issues/659).
+[ADR 0076](0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md) adopts the trusted-device claim below for Scheduled Sends that
+no provider schedules, and uses provider-native scheduling where the provider
+supports it. Other prototype details below are not adopted by the replacement.
 
 A Scheduled Send is a committed, end-to-end encrypted Outbox item rather than a long Undo Send Window, a provider-native timer, or a Draft reminder. Its exact outgoing payload, assets, selected Mailbox Connection, schedule, and idempotency data synchronize through Product Sync and remain readable only by trusted devices. The backend may retain only the Product Account, opaque schedule identity, absolute delivery instant, 24-hour deadline, expected encrypted-record revision, scheduled wake identifier, admission state, claim owner, claim generation, claim phase and timestamps, compatible device-authorization generation, and terminal or cleanup state without message outcome details. It deletes that operational record after terminal delivery, cancellation, conversion to Send Reminder, or Product Account deletion and never receives provider credentials, message outcome details, or authority to perform mail delivery.
 

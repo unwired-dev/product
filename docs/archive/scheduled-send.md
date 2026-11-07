@@ -2,8 +2,9 @@
 
 Historical Swift-prototype document, archived on 2026-09-09. Preserve this
 record as implementation and decision history. The accepted replacement scope
-is defined by the [power-user launch specification](../product/power-user-launch.md)
-and [originating-device delivery decision](../adr/0062-keep-queued-delivery-on-its-originating-device.md).
+is defined by the [power-user launch specification](../product/power-user-launch.md),
+[originating-device delivery decision](../adr/0062-keep-queued-delivery-on-its-originating-device.md)
+and [Scheduled Send delivery decision](../adr/0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md).
 The status and future-tense plans below belong to the prototype and do not
 establish replacement behavior or qualification.
 
