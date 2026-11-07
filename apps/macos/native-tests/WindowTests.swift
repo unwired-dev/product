@@ -1702,6 +1702,8 @@ final class WindowTests: XCTestCase {
     try review("W2")
     // The count line above the rows shows only in the capture until #1902 exposes it.
     XCTAssertTrue(text("Time. Original: 9:30. Rewrite: —. Removed", in: window).exists)
+    XCTAssertEqual(
+      window.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", ". Original: ")).count, 1)
     XCTAssertTrue(withChanges.exists)
     XCTAssertFalse(replace.exists)
     keep.click()
@@ -1867,6 +1869,9 @@ final class WindowTests: XCTestCase {
     }
   }
 
+  private static let privateCloudFooter =
+    "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Mail Profile on this Mac. Other devices and accounts keep their own choices."
+
   // Text the contrast audit still flags after #1195's solid colours, by the issue that owns it. The
   // audits cover every open window, so these list labels rather than screens.
   private let contrastGaps: [String: Set<String>] = [
@@ -1884,7 +1889,7 @@ final class WindowTests: XCTestCase {
       "Mailboxes", "Microsoft · casey@example.invalid", "October 2025", "On-device assistance is off.",
       "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
       "Select a message to start reading.", "Selected Message", "September 2025",
-      "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Mail Profile on this Mac. Other devices and accounts keep their own choices.",
+      WindowTests.privateCloudFooter,
       "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
       "casey@example.invalid, other@example.invalid are connected on this device.",
     ],
@@ -1926,10 +1931,13 @@ final class WindowTests: XCTestCase {
       && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
         .contains(label):
       return "email address"
-    // Sentences such as the Link Editor's hint and Private Cloud's explanation contain the word
-    // "text"; they are not labels repeating their role.
+    // The Link Editor's hint, Private Cloud's explanation and the Writing tools result's privacy
+    // note are sentences containing the word "text", not labels repeating their role.
     case _ where type == .staticText && issue.compactDescription == "Label duplicates role description"
-      && label.hasSuffix("."):
+      && [
+        "Enter a web, email or phone link for the selected text.", WindowTests.privateCloudFooter,
+        "Written on this device. It may be inaccurate, is not saved, and changes nothing until you use it. Used text takes the style of the text before it.",
+      ].contains(label):
       return "sentence"
     // A message link whose text is a web address reads as that address.
     case .sufficientElementDescription

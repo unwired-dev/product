@@ -185,7 +185,8 @@ on the Command Palette's glass panel
 ([#1550](https://github.com/unwired-dev/product/issues/1550)),
 AppKit's text Touch Bar, email or web addresses used as labels, Private Cloud's
 row while Mail Assistance is off (an inactive control), and the false "Label
-duplicates role description" finding on sentences such as the Link Editor hint. The contrast gaps list
+duplicates role description" finding on the Link Editor hint, Private Cloud's
+explanation and the Writing tools privacy note, sentences containing "text". The contrast gaps list
 the labels each owner covers in either appearance. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
