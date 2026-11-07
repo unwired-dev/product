@@ -395,7 +395,9 @@ function Actions({
         key={fill ? room : undefined}
         matchContents={{ vertical: true }}
         onLayoutContent={(event) => {
-          if (fill && !stacked) setRow(event.nativeEvent.width);
+          if (fill && !stacked) {
+            setRow(event.nativeEvent.width);
+          }
         }}>
         {stacked ? (
           <VStack spacing={spacing.s}>{children}</VStack>
