@@ -198,8 +198,9 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 
 In Settings › Mail Profiles it adds a **Work** Mail Profile and moves the Microsoft
 mailbox into it from the Primary Profile. A second window switches to Work through
-its Profile Switcher. With both windows open, each lists only its own mailbox and
-messages, and Search for `update 003` in each finds only its own mailbox's message.
+its Profile Switcher. The journey tiles the two windows side by side, each on its
+own half of the screen, and checks they do not overlap. Each lists only its own
+mailbox and messages, and Search for `update 003` in each finds only its own mailbox's message.
 A Draft saved from Work's window appears there and not in the Primary Profile's.
 Moving the mailbox back restores its messages and the Draft to the Primary Profile
 window. Each window's capture is kept as an attachment. Links and Outbox are not

@@ -1378,7 +1378,6 @@ final class WindowTests: XCTestCase {
       app.menuItems[target].click()
       XCTAssertTrue(popUp.waitForNonExistence(timeout: 30))
     }
-    // The windows overlap, so each is captured while it is in front.
     func attach(_ window: XCUIElement, _ name: String) {
       let attachment = XCTAttachment(screenshot: window.screenshot())
       attachment.name = name
@@ -1410,6 +1409,24 @@ final class WindowTests: XCTestCase {
     // Each Profile Menu item adds its connections and unread count to the Profile's name.
     app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "Work, Microsoft")).firstMatch.click()
     XCTAssertTrue(work.buttons["Mail Profile, Work"].waitForExistence(timeout: 15))
+    // Each window takes its own half of the screen, so both stay in view side by side. The new
+    // window starts in front, offset below the first's title bar: narrow it and move it right,
+    // then drag the first by its uncovered title bar to the left and narrow it.
+    let half = (NSScreen.main?.visibleFrame.width ?? 1920) / 2
+    func narrow(_ window: XCUIElement) {
+      let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+        .withOffset(CGVector(dx: -2, dy: -2))
+      corner.click(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: half - 20 - window.frame.width, dy: 0)))
+    }
+    func place(_ window: XCUIElement, _ x: CGFloat, from dx: CGFloat) {
+      let top = window.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.01))
+      top.click(forDuration: 0.2, thenDragTo: top.withOffset(CGVector(dx: x - window.frame.minX, dy: 0)))
+    }
+    narrow(work)
+    place(work, half, from: 0.9)
+    place(primary, 10, from: 0.1)
+    narrow(primary)
+    XCTAssertLessThanOrEqual(primary.frame.maxX, work.frame.minX)
     lists(work, microsoft, without: gmail)
     lists(primary, gmail, without: microsoft)
     for (window, own, other, name) in [
@@ -1443,7 +1460,6 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(row(primary, microsoft.1).waitForExistence(timeout: 30))
     XCTAssertTrue(primary.buttons.matching(draft).firstMatch.waitForExistence(timeout: 30))
     waitUntil { !row(work, microsoft.1).exists && !work.buttons.matching(draft).firstMatch.exists }
-    primary.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01)).click()
     attach(primary, "Primary Profile window after moving back")
   }
 
