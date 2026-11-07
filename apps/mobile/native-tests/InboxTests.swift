@@ -586,8 +586,11 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(rowan.waitForExistence(timeout: 10))
       XCTAssertFalse(jordan.exists)
     }
-    // Moving the mailbox back waits for synthetic Graph to accept the Work report.
-    waitUntil({ Date().timeIntervalSince(sentAt) > 75 }, timeout: 80)
+    // Moving the mailbox back waits until synthetic Graph accepts the Work report and it leaves
+    // Work's Outbox.
+    switchProfile(to: "Work", from: primary, app)
+    XCTAssertTrue(sending.waitForNonExistence(timeout: 120))
+    switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
     // The Draft belongs to its mailbox's Profile, so it returns with the mailbox.
     moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
