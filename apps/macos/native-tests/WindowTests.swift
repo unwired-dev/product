@@ -1334,6 +1334,141 @@ final class WindowTests: XCTestCase {
     try keyboardAndAccessibility(appearance: "Dark")
   }
 
+  // #1901: moving the Microsoft mailbox into a Work Mail Profile takes its messages, Search
+  // results and Drafts to Work's window only, beside a Primary Profile window that keeps the
+  // Gmail mailbox; moving it back restores them to the Primary Profile.
+  // swiftlint:disable:next function_body_length
+  func testMailProfileIsolation() throws {
+    continueAfterFailure = false
+    // Two Inbox windows at their 760-point minimum width need a display at least twice as wide.
+    let half = try XCTUnwrap(NSScreen.main?.visibleFrame.width) / 2
+    try XCTSkipIf(half - 20 < 760, "The display is too narrow for two Inbox windows side by side")
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let primary = app.windows["Inbox 1"]
+    performanceSetup(app, window: primary)
+    let settings = app.windows["settings-window"]
+    let microsoft = ("casey@example.invalid", "Outlook update")
+    let gmail = ("other@example.invalid", "Gmail update")
+    func row(_ window: XCUIElement, _ label: String) -> XCUIElement {
+      window.buttons.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+    }
+    let draft = NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Draft.", "Work agenda")
+    // A window lists its Profile's mailbox and messages and none of the other mailbox's.
+    func lists(_ window: XCUIElement, _ own: (String, String), without other: (String, String)) {
+      XCTAssertTrue(window.buttons["Inbox. In \(own.0)"].waitForExistence(timeout: 30))
+      XCTAssertTrue(row(window, own.1).waitForExistence(timeout: 30))
+      waitUntil { !window.buttons["Inbox. In \(other.0)"].exists && !row(window, other.1).exists }
+    }
+    // Search Mail runs in the key window; an empty query shows the whole list again.
+    func search(_ window: XCUIElement, _ query: String) {
+      window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01)).click()
+      runCommand("Search Mail", in: app)
+      let field = window.textFields["Search senders and subjects"]
+      waitForFocus(field)
+      app.typeKey("a", modifierFlags: .command)
+      if query.isEmpty { app.typeKey(.delete, modifierFlags: []) } else { app.typeText(query) }
+      waitUntil { field.value as? String == query }
+    }
+    // Settings › Mail Profiles moves the Microsoft mailbox out of the selected Profile.
+    func move(from source: String, to target: String) {
+      settings.buttons[source].click()
+      let popUp = settings.popUpButtons["Mail Profile for \(microsoft.0)"]
+      XCTAssertTrue(popUp.waitForExistence(timeout: 15))
+      popUp.click()
+      app.menuItems[target].click()
+      XCTAssertTrue(popUp.waitForNonExistence(timeout: 30))
+    }
+    func attach(_ window: XCUIElement, _ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = name
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Mail Profiles"].click()
+    settings.buttons["Add Mail Profile…"].click()
+    let sheet = settings.sheets.firstMatch
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    sheet.textFields.firstMatch.click()
+    sheet.typeText("Work")
+    sheet.buttons["Create"].click()
+    XCTAssertTrue(settings.buttons["Work"].waitForExistence(timeout: 15))
+    move(from: "Primary Profile", to: "Work")
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+    lists(primary, gmail, without: microsoft)
+
+    // A second window opens the Startup Profile, and its switcher's menu switches it to Work.
+    app.typeKey("n", modifierFlags: .command)
+    let work = app.windows["Inbox 2"]
+    let switcher = work.buttons["Mail Profile, Primary Profile"]
+    XCTAssertTrue(switcher.waitForExistence(timeout: 15))
+    switcher.click()
+    // Each Profile Menu item adds its connections and unread count to the Profile's name.
+    app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "Work, Microsoft")).firstMatch.click()
+    XCTAssertTrue(work.buttons["Mail Profile, Work"].waitForExistence(timeout: 15))
+    // Each window takes its own half of the screen, so both stay in view side by side. The new
+    // window starts in front, offset below the first's title bar: narrow it and move it right,
+    // then drag the first by its uncovered title bar to the left and narrow it.
+    func narrow(_ window: XCUIElement) {
+      let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+        .withOffset(CGVector(dx: -2, dy: -2))
+      corner.click(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: half - 20 - window.frame.width, dy: 0)))
+    }
+    func place(_ window: XCUIElement, _ targetX: CGFloat, from grabX: CGFloat) {
+      let top = window.coordinate(withNormalizedOffset: CGVector(dx: grabX, dy: 0.01))
+      top.click(forDuration: 0.2, thenDragTo: top.withOffset(CGVector(dx: targetX - window.frame.minX, dy: 0)))
+    }
+    narrow(work)
+    place(work, half, from: 0.9)
+    place(primary, 10, from: 0.1)
+    narrow(primary)
+    XCTAssertLessThanOrEqual(primary.frame.maxX, work.frame.minX)
+    lists(work, microsoft, without: gmail)
+    lists(primary, gmail, without: microsoft)
+    for (window, own, other, name) in [
+      (work, microsoft, gmail, "Work window"), (primary, gmail, microsoft, "Primary Profile window"),
+    ] {
+      search(window, "update 003")
+      XCTAssertTrue(row(window, "\(own.1) 003").waitForExistence(timeout: 15))
+      waitUntil { !row(window, "\(other.1) 003").exists }
+      search(window, "")
+      attach(window, name)
+    }
+
+    work.buttons["New Message"].click()
+    let subject = work.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 30))
+    subject.click()
+    subject.typeText("Work agenda")
+    saveOnClose(work)
+    XCTAssertTrue(work.buttons.matching(draft).firstMatch.waitForExistence(timeout: 30))
+    lists(primary, gmail, without: microsoft)
+    XCTAssertFalse(primary.buttons.matching(draft).firstMatch.exists)
+    attach(work, "Work window with its Draft")
+
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Mail Profiles"].click()
+    move(from: "Work", to: "Primary Profile")
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(primary.buttons["Inbox. In \(microsoft.0)"].waitForExistence(timeout: 30))
+    XCTAssertTrue(row(primary, microsoft.1).waitForExistence(timeout: 30))
+    XCTAssertTrue(primary.buttons.matching(draft).firstMatch.waitForExistence(timeout: 30))
+    waitUntil {
+      !work.buttons["Inbox. In \(microsoft.0)"].exists
+        && !row(work, microsoft.1).exists && !work.buttons.matching(draft).firstMatch.exists
+    }
+    attach(primary, "Primary Profile window after moving back")
+  }
+
   // swiftlint:disable:next function_body_length
   private func keyboardAndAccessibility(appearance: String) throws {
     continueAfterFailure = false

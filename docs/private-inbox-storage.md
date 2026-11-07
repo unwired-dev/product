@@ -245,7 +245,10 @@ mailbox from the Primary Profile into a second Profile and back
 ([#1821](https://github.com/unwired-dev/product/issues/1821)). While it is moved,
 only that Profile's Inbox lists the mailbox's message, each Profile's Search finds
 only its own messages, and a Draft saved in that Profile appears in its Inbox and
-not in the Primary Profile's. Links, Outbox and Mac windows are not covered by it.
+not in the Primary Profile's. The Mac `testMailProfileIsolation` journey does the
+same with two windows open side by side, one per Profile
+([#1901](https://github.com/unwired-dev/product/issues/1901)). Links and Outbox
+are not covered by either.
 
 Each Profile other than the Primary Profile may carry a curated **Color** and
 **Icon** in its synchronized definition
