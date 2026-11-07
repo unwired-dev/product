@@ -1,7 +1,7 @@
 # Deterministic Mock Mail Sessions
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/mock-mail-sessions.md).
+Architecture notes live in the separate [architecture companion](architecture/mock-mail-sessions.md).
 
 [#595](https://github.com/unwired-dev/product/issues/595) provides test-only
 synthetic identity, mail and assistance providers and external native runners.
@@ -51,8 +51,8 @@ described in [Google registration](google-registration.md#deterministic-evidence
 [sign-out and deletion](account-removal.md#deterministic-evidence), the
 [Tiptap Draft editor evaluation](draft-editor-evaluation.md), the
 [Thread view](catch-up.md#thread-view), the
-[Mac performance journey](agents/native-validation.md#mac-performance-journey) and the
-[Mac keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey).
+[Mac performance journey](native-journeys.md#mac-performance-journey) and the
+[Mac keyboard and accessibility journey](native-journeys.md#mac-keyboard-and-accessibility-journey).
 The registration journeys use the real native vault, Keychain and encrypted Inbox store.
 At each provider and backend seam, the vault asks a relay compiled only into the
 selected registration build (`native/private-inbox/synthetic/`). The synthetic Effect
@@ -153,11 +153,11 @@ does not run this scenario; it is local native evidence.
 In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
 also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and
 Outlook update 001 to 125, each with its own body. Every other Gmail body is HTML.
-The Mac [performance journey](agents/native-validation.md#mac-performance-journey)
+The Mac [performance journey](native-journeys.md#mac-performance-journey)
 connects both mailboxes and times its interactions over them; the Mac
-[keyboard and accessibility journey](agents/native-validation.md#mac-keyboard-and-accessibility-journey)
+[keyboard and accessibility journey](native-journeys.md#mac-keyboard-and-accessibility-journey)
 drives them by keyboard. The Expo native journey connects the Microsoft mailbox and
-[drives it by hardware keyboard](agents/native-validation.md#iphone-and-ipad-keyboard-and-accessibility-journey)
+[drives it by hardware keyboard](native-journeys.md#iphone-and-ipad-keyboard-and-accessibility-journey)
 on iPhone and iPad. CI runs none of them.
 In `registration-sync-status`, the synthetic Gmail mailbox downloads its history
 slowly: Gmail reports the mailbox's message count, lists two messages, then holds
@@ -167,6 +167,18 @@ Inbox's [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) while it shows
 progress, then after the failure, when it asks for attention. Try Again downloads
 the rest and hides the capsule. CI does not run this scenario; it is local native
 evidence for iPhone and iPad in Light and Dark (`UNWIRED_APPEARANCE`).
+In `registration-invitation`, the synthetic Gmail mailbox also lists Lena Fischer's
+[meeting invitation](invitation-responses.md) to the mailbox's own address, its
+newest Inbox message. The Expo native journey signs in like Google registration,
+opens it, and checks that its card offers **Accept**, **Maybe** and **Decline**.
+**Accept** then shows **Accepted** with Gmail's confirmation, and **Decline** then
+shows **Declined**; the journey keeps a capture of each. Below it, Lena Fischer's
+other invitations show an invitation for another address, a cancelled meeting, a
+weekly series, one meeting of that series, an update that names one meeting but
+carries the whole series, and a daily series Unwired can't read; the journey opens
+each, checks its status and whether it offers **Accept**, and keeps a capture of
+each card. The Mac falls back to the registration journey. CI does not run this
+scenario; it is local native evidence for iPhone and iPad in Light and Dark.
 The Mac, iPhone and iPad `categorization-spike` builds reuse the `open-read-relaunch`
 mailbox and add the [DeBERTa categorization spike](categorization-spike.md) page to
 the empty reader; iPhone opens on it. They have no native journey; their evidence

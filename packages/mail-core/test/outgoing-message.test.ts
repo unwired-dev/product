@@ -2,7 +2,11 @@ import PostalMime from 'postal-mime';
 
 import type { Draft } from '../src/drafts.ts';
 
-import { base64Lines, outgoingMessage } from '../src/outgoing-message.ts';
+import {
+  base64Lines,
+  outgoingMessage,
+  plainOf,
+} from '../src/outgoing-message.ts';
 
 const draft = (patch: Partial<Draft> = {}): Draft => ({
   id: 'd1',
@@ -161,6 +165,55 @@ describe('building an outgoing message', () => {
     );
     expect(parsed.text).toBe(
       'Read the big plan <https://example.invalid/plan?a=1&b=2> or write to mailto:sam@example.invalid',
+    );
+  });
+
+  it('writes a table in the plain-text alternative as one line per row with a tab between cells', () => {
+    expect.hasAssertions();
+
+    expect(
+      plainOf([
+        { kind: 'numbered', spans: [{ text: 'First' }] },
+        {
+          kind: 'table',
+          rows: [
+            [
+              {
+                blocks: [
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Date', marks: ['bold'] }],
+                  },
+                ],
+              },
+              {
+                blocks: [{ kind: 'paragraph', spans: [{ text: 'Place' }] }],
+                rows: 2,
+              },
+            ],
+            [
+              {
+                blocks: [
+                  { kind: 'numbered', spans: [{ text: 'One' }] },
+                  { kind: 'numbered', spans: [{ text: 'Two' }] },
+                  {
+                    kind: 'paragraph',
+                    spans: [{ text: 'Plan', link: 'https://example.invalid' }],
+                  },
+                ],
+              },
+            ],
+            [{ blocks: [{ kind: 'paragraph', spans: [] }], columns: 2 }],
+            [
+              { blocks: [{ kind: 'paragraph', spans: [{ text: 'Total' }] }] },
+              { blocks: [{ kind: 'paragraph', spans: [{ text: '2' }] }] },
+            ],
+          ],
+        },
+        { kind: 'numbered', spans: [{ text: 'Next' }] },
+      ]),
+    ).toBe(
+      '1. First\r\nDate\tPlace\r\n1. One\r\n2. Two\r\nPlan <https://example.invalid>\r\n\r\nTotal\t2\r\n1. Next',
     );
   });
 

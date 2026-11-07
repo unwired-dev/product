@@ -1,19 +1,19 @@
 # Messages and delivery: behavior notes
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/product/messages-and-delivery.md).
+Architecture notes live in the separate [architecture companion](../architecture/product/messages-and-delivery.md).
 
 [Vocabulary](../domain/messages-and-delivery.md) · [Domain index](../../GLOSSARY.md)
 
 The replacement keeps queued delivery on its originating device under
-[ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md).
+[ADR 0062](../adr/0062-keep-queued-delivery-on-its-originating-device.md),
+except Scheduled Send, which follows the [owner decisions](#owner-decisions-for-scheduled-send-6-nov-2026).
 Scheduled Send Claim and Scheduled Delivery Authorization name the older
 cross-device scheduling protocol; their definitions do not authorize takeover
 in the replacement.
 
 These observable requirements were separated from the former monolithic glossary
-and its implementation notes. The reviewer owns the separate architecture companion
-under the [implementation and review workflow](../agents/implementation-review.md).
+and its implementation notes.
 “v1” and “first release” in these notes refer to their original feature scope.
 They do not establish replacement launch requirements or proof that a feature is
 implemented.
@@ -68,13 +68,13 @@ and back out of the Outbox. Current implementation is documented in the
 
 The superseded takeover rules and mechanism are in the
 [Scheduled Send archive](../archive/scheduled-send.md#historical-cross-device-scheduling).
-The replacement keeps delivery on its originating device, including future
-scheduling, under the [current Outbox contract](../outbox.md).
+The replacement keeps other queued delivery on its originating device under the
+[current Outbox contract](../outbox.md); Scheduled Send follows the [owner decisions](#owner-decisions-for-scheduled-send-6-nov-2026).
 
 ## Future Scheduled Send and Send Reminder requirements
 
-These agreed future requirements do not authorize another device to take over
-delivery or establish that scheduling is implemented. Use the
+These agreed future requirements do not establish that scheduling is
+implemented, and another device delivers only as the [owner decisions](#owner-decisions-for-scheduled-send-6-nov-2026) allow. Use the
 [launch scope](power-user-launch.md) and owning issues for delivery order.
 
 - A **Scheduled Send** is a synchronized Outbox commitment, while a **Send Reminder** remains attached to a Draft and never authorizes delivery

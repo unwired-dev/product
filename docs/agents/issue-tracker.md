@@ -1,47 +1,37 @@
 # Issue tracker: GitHub
 
-Issues and PRDs live in GitHub Issues for `unwired-dev/product`.
-Use the GitHub CLI for creating, reading, updating, labelling, and closing issues.
+Issues and PRDs live in GitHub Issues for `unwired-dev/product`; manage them with `gh`.
 
-Pull requests are not a triage request surface.
+Put triage questions on the issue, not the PR.
 
 When publishing tickets, use native GitHub blocking dependencies where available,
 falling back to a "Blocked by" reference in the issue body.
 
 ## Triage labels
 
-Use the repository's existing readiness labels:
+Use the repository's existing labels:
 
-| Role                   | GitHub label      |
-| ---------------------- | ----------------- |
-| Ready for an agent     | `ready-for-agent` |
-| Ready for a human      | `ready-for-human` |
-| Ready for device test  | `ready-for-test`  |
-| Will not be actioned   | `wontfix`         |
-| Claimed by active work | `in progress`     |
+| GitHub label       | Meaning                                                         |
+| ------------------ | --------------------------------------------------------------- |
+| `ready-for-agent`  | Ready for an agent                                              |
+| `ready-for-human`  | Ready for a human                                               |
+| `ready-for-test`   | Merged; awaiting a person testing a released build              |
+| `human needed`     | A person must act before the PR merges or the issue completes   |
+| `priority: high`   | Work first: core mail reliability, safety, foundations, release |
+| `priority: medium` | Planned feature or improvement                                  |
+| `priority: low`    | Deferred expansion, optional experiment or maintenance          |
+| `wontfix`          | Will not be actioned                                            |
+| `in progress`      | Claimed by active work                                          |
 
-When only human work remains, replace `ready-for-agent` with `ready-for-human`.
-Use `ready-for-test` instead when the implementation
-is merged and only a person testing a released build, such as one distributed
-through TestFlight, remains. Comment what remains, including what to test.
+When only human work remains, replace `ready-for-agent` with `ready-for-human`,
+or with `ready-for-test` when only testing a released build, such as a TestFlight
+one, remains. Comment what remains, including what to test.
 
-Check `gh label list --repo unwired-dev/product` before applying labels. Explain
-missing information or blockers in the issue; do not assume `needs-triage` or
-`needs-info` exists. Use native blocking dependencies for relationships between
-issues, rather than encoding dependencies in labels.
+Apply only labels `gh label list --repo unwired-dev/product` shows; explain
+missing information or blockers in the issue.
 
-Add `in progress` when implementation starts and remove it when that work ends,
-whether or not it delivered. A crashed run can leave a stale claim that agents
-keep skipping; a person clears it by removing the label or by explicitly asking
-an agent to take the issue over. The daily
-[Stale claims workflow](../../.github/workflows/stale-claims.yml) runs
-`scripts/stale-claims`, which flags such claims: an open `in progress` issue
-with no open pull request closing it or from its claim branch, and no commit on
-that branch, for `STALE_CLAIM_DAYS` days (a repository variable, default 3). It
-dates a claim by its `scripts/issue-claim` comment, or by when the label was
-added when no claim comment remains, comments once per claim and never removes
-the label. Agents skip issues claimed by other work, so the label helps prevent
-duplicate work. Work that delivers only part of an issue applies `in progress`
-only to the sub-issue it implements and leaves it off the parent. The
-[implement-issue skill](../../.agents/skills/implement-issue/SKILL.md) owns
-claiming and parent updates, through `scripts/issue-claim`.
+Claim an issue with `scripts/issue-claim claim <issue>` when implementation
+starts, and release it with `scripts/issue-claim release <issue> --outcome <outcome>`
+when that work ends, delivered or not. Skip issues claimed by other work unless
+asked to take one over (`--takeover`). Partial delivery claims only the
+sub-issue it implements.

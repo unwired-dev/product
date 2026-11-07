@@ -33,8 +33,6 @@ export default buildOxlintConfig({
       '**/convex/_generated/**',
       // The Expo and animation skill bundles are pinned upstream code, not application code.
       '.agents/skills/expo-*/**',
-      '.agents/skills/eas-*/**',
-      '.agents/skills/ios-animations/**',
     ],
     rules: {
       'effect-imports/namespace-imports': 'deny',

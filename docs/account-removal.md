@@ -1,7 +1,7 @@
 # Sign-out and Product Account deletion
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/account-removal.md).
+Architecture notes live in the separate [architecture companion](architecture/account-removal.md).
 
 [#603](https://github.com/unwired-dev/product/issues/603) lets the replacement
 hosts on iPhone, iPad and Mac sign the current device out, or permanently delete

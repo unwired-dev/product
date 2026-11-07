@@ -7,7 +7,7 @@ The implementation below remains subject to the explicit rollout checks.
 The approved error-reporting implementation slice is tracked in
 [issue #1049](https://github.com/unwired-dev/product/issues/1049), following the
 2026-10-18 interview below. Product analytics remains separate future work.
-The reviewer-owned provider decision is recorded in
+The provider decision is recorded in
 [ADR 0071](adr/0071-use-opt-in-posthog-eu-telemetry-on-the-free-plan.md).
 
 [Vocabulary](domain/privacy-and-sync.md) · [Privacy requirements](product/privacy-and-sync.md)
@@ -198,7 +198,7 @@ are [iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-138
 [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-133080).
 
 The shared store owns consent, safe projection, the bounded queue and deletion
-state. The reviewer-owned [architecture companion](architecture/telemetry.md)
+state. The [architecture companion](architecture/telemetry.md)
 records its implementation boundaries. The native host owns an independent Keychain installation UUID and
 256-bit deletion credential, generation checks, native collection and purge.
 Neither identity nor credential is exposed to screens or linked to Product

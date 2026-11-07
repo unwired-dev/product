@@ -5,7 +5,7 @@ and explicit Mock Mail Sessions. Feature guides below own their current behavior
 and limitations. The launch specification owns target scope; GitHub issues own
 completion status. Publication of a plan does not prove implementation or release.
 
-## Replacement requirements and operations
+## Launch requirements and operations
 
 - [Confirmed power-user launch scope and delivery order](product/power-user-launch.md)
 - [iPhone Duo requirements and delivery](product/iphone-duo.md)
@@ -15,6 +15,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Convex production deploys from CI](convex-deploy.md)
 
 - [Deterministic Mock Mail Sessions and external runners](mock-mail-sessions.md)
+- [Native journeys](native-journeys.md)
 - [Private preview Inbox storage and credentials](private-inbox-storage.md)
 - [Google registration, Gmail consent, production authorization and protected OAuth qualification](google-registration.md)
 - [Apple registration, mailbox choice and current Gmail authorization](apple-registration.md)
@@ -43,6 +44,8 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Sign-out and Product Account deletion](account-removal.md)
 - [Interface translations and language preferences](localization.md)
 - [Opt-in error reporting and planned analytics](telemetry.md)
+- [Confirmed interaction motion goals and tracked coverage gaps](product/interaction-motion.md)
+- [Dedicated Gmail test accounts and protected qualification](gmail-provider-test-tenant.md)
 
 ## Post-launch requirements
 
@@ -50,42 +53,10 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Mail Commitments: confirmed future-feature requirements](product/mail-commitments.md)
 - [Agent access: confirmed MCP mail access requirements](product/agent-access.md)
 
-## Shared policies
+## Architecture and evidence
 
-- [Root agent guide](../AGENTS.md) and [backend guide](../packages/convex/AGENTS.md)
-- [Implement a GitHub issue through PR babysitting](../.agents/skills/implement-issue/SKILL.md)
-- [Implementation handoff, simplicity review, review depth and decisions](agents/implementation-review.md)
-- [Domain vocabulary by topic](../GLOSSARY.md) and [maintenance policy](agents/domain.md)
-- [Native design system: tokens, type, layout and components](../DESIGN.md)
-- [Native component selection and UI rewrite tracking](agents/native-components.md)
-- [Confirmed interaction motion goals and tracked coverage gaps](product/interaction-motion.md)
-- [Test admission, retirement, and feedback budgets](agents/testing.md), with [shared validation commands](../README.md#validation)
-- [Effect conventions and lint enforcement](agents/effect.md)
-- [Effect service constructors, methods and layers](agents/effect-services.md)
-- [Native validation and resource ownership](agents/native-validation.md)
-- [GitHub issue workflow and triage labels](agents/issue-tracker.md)
-- [Automated reviews and PR babysitting](agents/pull-request-babysitting.md)
-- [Dedicated Gmail test accounts and protected qualification](gmail-provider-test-tenant.md)
-
-The implementer uses this index to find requirements and operational guidance.
-Only the review agent opens architecture docs and decision records under the
+The [architecture index](architecture/README.md) routes extracted companions,
+ADRs, patterns, research, qualification evidence and historical sources;
+[AGENTS.md](../AGENTS.md) routes agent policies. Review verifies applicable
+decisions and deferred release checks under the
 [implementation and review workflow](agents/implementation-review.md).
-
-## Retired Swift prototype
-
-The SwiftUI and Mac Catalyst prototype was removed in
-[#1371](https://github.com/unwired-dev/product/issues/1371). This guide records its
-behavior; it does not describe or qualify the maintained hosts.
-
-- [Storage and Private Sync export](storage-and-product-sync-export.md)
-
-## Review handoff
-
-The [reviewer-only architecture index](architecture/README.md) routes extracted
-companions, ADRs, patterns, research, qualification evidence and historical sources.
-Implementers do not open those files. The reviewer verifies applicable decisions
-and deferred release checks under the [handoff workflow](agents/implementation-review.md).
-
-Update affected operational documentation in each implementation slice.
-[Cutover #627](https://github.com/unwired-dev/product/issues/627) tracks what remains of
-the prototype's retirement. Prototype commands and results do not qualify replacement hosts.

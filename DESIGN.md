@@ -151,6 +151,13 @@ rounded:
   mailbox-group: '22px'
   settings-detail: '16.923076629638672px'
   format-panel: '34px'
+  touch-card: '18px'
+  badge-mac: '4px'
+  badge-touch: '8px'
+  brand-panel: '24px'
+  ipad-sheet: '29.095px'
+  profile-switcher: '14px'
+  close-question: '36px'
 spacing:
   xs: '4px'
   s: '8px'
@@ -230,10 +237,6 @@ such as Catch Up. It does not describe shipped coverage or change release scope;
 the feature guides and launch specification own those requirements. Layout
 dimensions describe the Figma reference mockups. Both clients read the color,
 type, spacing and radius tokens from `packages/mail-core/src/theme.ts`.
-Use provided native, React Native and Expo components under the
-[component selection policy](docs/agents/native-components.md). Existing
-`native/design` views are current implementation details, not a requirement to
-retain custom bridges when a supported provided component covers the interaction.
 
 The visual reference for screens and components is the Figma file
 [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T).
@@ -242,14 +245,9 @@ Dark modes. Tokens with a `-dark` suffix are the Dark value of the token
 without the suffix; a token without a `-dark` sibling is the same in both modes.
 Dimensions in the frontmatter use `px` because the DESIGN.md format requires CSS
 units. The Figma frames are drawn at 1×, so 1px equals 1pt on Apple platforms.
-The linked product requirements and feature guides govern behavior, controls and
-defaults wherever an earlier reference mockup differs.
-
-Native controls own their standard behavior and motion. Component recipes and
-dimensions below describe design intent and supported customization; they do
-not require rebuilding system controls or overriding their intrinsic metrics.
-When adoption changes the visible design, update the Figma reference and obtain
-the existing design approval before implementing the migration.
+Component recipes and dimensions below describe design intent and supported
+customization; they do not require rebuilding system controls or overriding
+their intrinsic metrics.
 
 ## Overview
 
@@ -402,25 +400,20 @@ styles) so the file stays editable.
   Synchronization and authorization problems appear beside the affected Mailbox
   Connection. Conditional [Outbox](docs/outbox.md#sending) follows Sent.
   Drafts opens its own screen: the Drafts list, grouped Needs Attention first, with
-  the selected Draft editable beside it on Mac and iPad and in the composer sheet
-  on iPhone, where Drafts is the last row of Mailboxes. Drafts shows a badge only
+  the selected Draft editable beside it on Mac and iPad. On iPhone, where Drafts is
+  the last row of Mailboxes, selecting a Draft pushes the composer onto the
+  navigation stack, per the [composer requirements](docs/product/messages-and-delivery.md);
+  the approved frames show a sheet. Drafts shows a badge only
   when a Draft is offline or needs action, and the main screen's status capsule
   says when Drafts are not synced, as the approved #1269–#1276 frames show.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
-  The unified Archive frames on each platform's New features page show the secondary
-  mailboxes under Favorites and a connection without that role; other mockups omit them.
   iPhone Mailboxes puts Settings in a glass **Account** circle at the header's trailing
-  edge and a glass New Message at the bottom trailing corner; the frames' **Edit**
-  beside Account has no feature behind it yet.
+  edge and a glass New Message at the bottom trailing corner.
 - **Message list header:** mailbox title, a subtitle carrying unread count and
-  sync status, and a row of up to five Mail View chips, as the
-  [organization requirements](docs/product/organization.md) specify: Important and
-  All Messages first and second, then up to three configured Category views
-  (Orders, Newsletters & Promotions and Flights for new users).
-  The reference mockups show an earlier System Category row with All selected.
-  On iPhone the title and subtitle sit centered in the system navigation bar,
-  whose Back returns to Mailboxes; the bar hides while searching. The frames'
-  **…** menu and List/Chat toggle beside them have no feature behind them yet.
+  sync status, and a row of up to five Mail View chips in the order the
+  [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior)
+  set. On iPhone the title and subtitle sit centered in the system navigation bar,
+  whose Back returns to Mailboxes; the bar hides while searching.
 - **Search bar:** search and New Message share one floating glass bar at the
   bottom of the window, as the [organization requirements](docs/product/organization.md)
   specify. The search field is 400pt wide and centered, with New Message pinned
@@ -428,10 +421,8 @@ styles) so the file stays editable.
   above the bottom safe area, or 12pt above the software keyboard. Rows scroll
   under it behind a 72pt scroll edge fade. On iPhone, Filter, the system search
   field and New Message are items of the system toolbar instead, which UIKit
-  places and lifts above the software keyboard; its glass sits lower and further
-  inset than the frames draw (#1534). It hides while the composer is open;
-  on Mac, explicitly invoking Search Mail reveals it while keeping the overlay
-  Draft open.
+  places and lifts above the software keyboard. Whether it shows while composing
+  follows [Drafts](docs/drafts.md#composing).
 - **Command Palette:** on the Mac a glass command input (command symbol,
   "Commands", ⌘P key cap) sits in the window's toolbar row: 36pt at the leading
   end of the Inbox reader's row, beside its glass groups, and 32pt at the trailing
@@ -442,15 +433,14 @@ styles) so the file stays editable.
   or a chevron for a picker, highlighted in the accent fill; section headers read
   Selected Message · subject, App and Go To, and a footer names the keys. iPhone
   and iPad show a panel attached to the top with the input, Cancel and 44pt rows;
-  iPad keeps the command input in the Inbox heading and, pending a compact
-  frame, in the reader and composer headers too; iPhone opens by header swipe
-  with a one-time hint. See the [Command Palette guide](docs/command-palette.md).
-- **Synchronization status:** retain the bottom-anchored, non-blocking progress
-  overlay, Retry on failure, aggregate progress with expandable connection details,
-  and globally visible refresh and last success from the
+  iPad keeps the command input in the Inbox heading and in the reader and
+  composer headers too. The [Command Palette guide](docs/command-palette.md) owns
+  its entry points, including iPhone's header swipe.
+- **Synchronization status:** a bottom-anchored overlay whose states, progress
+  and controls follow the
   [sync-status requirements](docs/product/privacy-and-sync.md#local-storage-and-background-freshness).
-  Status never shifts visible Threads; the header subtitle does not replace the
-  overlay or connection-local problem indicators.
+  The header subtitle does not replace the overlay or connection-local problem
+  indicators.
 - **Conversation reader:** one flat scroll, subject and Thread summary first,
   then every message expanded newest to oldest with compact sender-and-date headers,
   disclosed recipients, bodies and thin separators, per the
@@ -462,54 +452,43 @@ styles) so the file stays editable.
   following the [received-attachment contract](docs/gmail-inbox.md#received-attachments).
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
-  safe area, and the reading pane runs to the screen's bottom edge beneath them,
-  per the
-  [conversation reader requirements](docs/product/messages-and-delivery.md):
-  Reply, Reply All, Forward and the multi-select Category control, which target
-  the newest message; Archive, Delete, Move, Spam, Pin, Muted Thread, and Mark
-  Read or Unread target the whole Thread. Snooze also targets the whole Thread,
-  per the [Thread Snooze requirements](docs/product/organization.md#snooze-and-follow-up-notes). The reference
-  mockups show only Archive, Delete, Move, Reply, Reply All, Forward, a flag and
-  Snooze.
-- **Compose:** follows the
-  [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation).
-  On regular width it opens as a bottom-anchored, nonmodal overlay inside the
+  safe area, and the reading pane runs to the screen's bottom edge beneath them.
+  Its controls are Reply, Reply All, Forward, the multi-select Category control,
+  Archive, Delete, Move, Spam, Pin, Muted Thread, Mark Read or Unread and Snooze;
+  the [conversation reader requirements](docs/product/messages-and-delivery.md#thread-identity-and-reader-behavior)
+  and [Thread Snooze requirements](docs/product/organization.md#snooze-and-follow-up-notes)
+  set what each targets.
+- **Compose:** the
+  [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation)
+  and [Drafts](docs/drafts.md#composing) own its states, Expand, Close, Discard,
+  interactivity beside it and save behavior.
+  On regular width it opens as a bottom-anchored overlay inside the
   reading pane, with 12pt outer insets on iPad and docked across the reading pane's full width
   at its bottom edge on the Mac, as the inline composer frame shows, at 70% of the available height, clamped
-  from 420 to 720pt. On iPad, expanding it takes over the whole app window with
-  the same Draft. On the Mac, Expand saves the Draft and moves it into its own
-  New Message window, closing the overlay with no way back
+  from 420 to 720pt. Expand covers the app window on iPad and moves the Draft into
+  its own New Message window on the Mac
   ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).
-  There is no freeform resizing of the overlay. Compact
+  Compact
   layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
-  field reveals together. The sender is a From pop-up beside Send. The reference
-  mockups still show a 60% inline composer.
-  One composer per window keeps Expand visible in the Mac overlay and
-  expand/collapse visible on regular-width iPad; the Mac New Message window
-  omits both. Close stays directly accessible and destructive Discard in overflow.
+  field reveals together. The sender is a From pop-up beside Send.
   The Mac New Message window has no composer header or bottom row: its toolbar
   row holds the window controls, the "New Message" title, the Command Input, the
-  From pop-up, the Compose actions overflow and Send. The frame's Remind Me to
-  Send bell waits for #658, and the overflow keeps Discard reachable. The sidebar and list
-  remain interactive beside the overlay, and on the Mac so do the reader's
-  toolbar and the uncovered reader above it; save failures appear inline.
+  From pop-up, the Compose actions overflow and Send.
   In the approved compose design ([iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140),
   [iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=295-50811),
   [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=297-46535)),
   which the Tiptap evaluation editor follows and the regular composer adopts in
   [#991](https://github.com/unwired-dev/product/issues/991), iPad also uses the glass
-  close cross, and Close offers Delete Draft and Save Draft growing out of it on iPhone
-  and iPad; the Mac asks "Do you want to save this message as a draft?" with Save,
-  Don't Save and Cancel. iPhone moves the format bar into a floating Liquid Glass
+  close cross, and Delete Draft and Save Draft grow out of Close on iPhone and
+  iPad; the Mac asks in an alert sheet. iPhone moves the format bar into a floating Liquid Glass
   pill (Aa and paperclip) with a separate Writing tools button above the keyboard;
   Aa replaces the keyboard with the glass Format panel.
 - **Settings:** the Mac reference is a 900×720 independent window, opened with
   `Command-,`, with a glass sidebar grouped as Accounts, Mail, Composing,
   Automation and Application, and grouped forms on the right. iPad uses an in-app
   two-column workspace; iPhone pushes one column into the existing navigation
-  stack. Detail errors and Retry stay inline beside retained values, with other
-  destinations usable, per the
+  stack. Detail failures follow the
   [Settings requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
 - **Spacing scale:** 4, 8, 12, 16, 20pt. Hit targets are at least 28pt on the Mac
   and 44pt on iPhone.
@@ -580,9 +559,8 @@ form accessories, keyboards, status bar).
 - **Button:** Primary (graphite), Secondary (quiet fill), Brand (cinnabar, Welcome
   "Continue" only). 28pt tall.
 - **Message Row:** Mail.app-style hierarchy: sender and time, subject, then the
-  preview. The preview is one line by default and follows the person's saved
-  density and zero-to-three-line preview preference; the reference mockups show
-  two lines. Essential attachment, Pin, Category and source-connection status
+  preview. The preview is one line by default; density and preview length follow
+  the person's saved preferences. Essential attachment, Pin, Category and source-connection status
   accompany the preview, with Category badges and attachment indicators following
   the saved Inbox presentation preferences; every unified-list Thread identifies its Mailbox Connection,
   per the [list requirements](docs/product/mailboxes.md#unified-list-behavior).
@@ -604,14 +582,11 @@ form accessories, keyboards, status bar).
   a checkmark, then New Mail Profile… and Manage Mail Profiles…, which opens
   [Settings › Mail Profiles](https://github.com/unwired-dev/product/issues/1038). It is the system
   menu, so each Profile's connections and unread count share its subtitle, the
-  checkmark leads and the Profile's monogram is the item image; the reference
-  frames' trailing counts are not drawn. The Default Profile is named Primary
+  checkmark leads and the Profile's monogram is the item image. The Default Profile is named Primary
   Profile.
 - **Mail View Chip (Figma: Category Chip):** the `category-chip` token recipes
   style each header chip with an icon, label and unread-Thread count badge capped
   at 99+. Selected chips are graphite with an emphasized label; others use the quiet fill.
-  Settings exposes
-  Important membership and three configurable Category slots, without overflow.
   Details follow the
   [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
 - **Category Control:** the reader's multi-select control shows Apply, Cancel and
@@ -644,8 +619,8 @@ form accessories, keyboards, status bar).
   search bar, with Undo during the Undo Send Window. Window preferences follow the
   [delivery requirements](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
   [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
-  states with recovery controls after the toast ends. When storage refuses Undo
-  or Edit, the same toast shows the refusal with **Try Again**.
+  states with recovery controls after the toast ends. Its refusal state follows
+  the [Outbox delivery rules](docs/outbox.md#delivery-rules).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Suggest reply, Proofread, Break into Paragraphs, Translate, Expand
@@ -668,34 +643,27 @@ form accessories, keyboards, status bar).
   offers Attach Files… and Insert Image… plus paste/drop. Attachment Chips show
   name, size, Remove, import progress/Cancel and failure state; Inline Images retain
   their authored position, with explicit conversion actions between images and
-  attachments. Keep reasons for blocked Send visible. No client shows save status: iPhone
-  and iPad ask through the Close question and the Mac asks on Close, per
-  [Draft saving and asset availability](docs/drafts.md#saving).
+  attachments. Keep reasons for blocked Send visible. No client shows save status;
+  saving follows [Draft saving and asset availability](docs/drafts.md#saving).
 - **Compose recipients and sender:** Recipient Suggestions appear beneath the
-  active To/Cc/Bcc field; recipients are removable tokens. Invalid entries stay
-  editable with an inline explanation; duplicates show Already added. Populated
-  Cc/Bcc remain visible. From always shows the selected Sending Identity and
-  explains blocked Send beside the retained address, per the
+  active To/Cc/Bcc field; recipients are removable tokens. Entry, validation and
+  From follow the
   [recipient and sender requirements](docs/product/messages-and-delivery.md#sending-identities-and-recipient-entry)
   and [Draft sender contract](docs/drafts.md#composing).
 - **Draft assistance panels:** Rewrite, Translate and Suggest reply show progress,
   Cancel, Keep original and Replace text, Replace selection or Use reply, per
   [Draft assistance](docs/draft-assistance.md#behavior) and
-  [Draft translation](docs/message-translation.md#behavior). In a Reply or Reply
-  All Draft, the [Response Assistance](docs/domain/assistance.md) chooser offers
-  three concise directions and one full contextual reply; each opens an editable
-  preview with a read-only, source-linked check of addressed and unresolved
-  questions.
+  [Draft translation](docs/message-translation.md#behavior). The
+  [Response Assistance](docs/domain/assistance.md) chooser's options and previews
+  follow the
+  [assistance requirements](docs/product/assistance.md#assistance-inputs-previews-and-acceptance).
 - **Catch Up:** received bubbles show the avatar, sender, a muted subject, the
   summary or preview (up to three lines), time, unread dot and attachment icon.
   Sent bubbles are right-aligned in the accent fill. Also: the collapsed category
   bubble ("12 newsletters"), the unread divider, day separators and the List/Chat
-  Inbox View Toggle in the Inbox header. The list is default; the timeline is
-  newest-at-bottom, per the [Catch Up requirements](docs/catch-up.md#behavior).
-  Quick reply uses a bottom composer bar with
-  a quote/recipient chip. Long-press offers Reply and Open Thread for the pressed
-  message, then Archive, Delete and Mark Unread labelled as acting on the whole
-  Thread. Quoted history is collapsed and expandable.
+  Inbox View Toggle in the Inbox header. Order, quick reply, long-press actions
+  and quoted history follow the [Catch Up requirements](docs/catch-up.md#behavior).
+  Quick reply uses a bottom composer bar with a quote/recipient chip.
   [Background-summary states](docs/catch-up.md#summaries) show a preview with
   Summary coming soon while pending, or a preview alone when assistance is disabled
   or unavailable.
@@ -724,3 +692,27 @@ form accessories, keyboards, status bar).
 - **Do** keep hit targets at 28pt on the Mac and 44pt on iPhone, and test layouts
   with German strings.
 - **Don't** generate initials avatars or add hover actions in message list rows.
+
+## Known frame differences
+
+These frames predate the requirements or implementation they show:
+
+- **Sidebar:** the unified Archive frames on each platform's New features page
+  show the secondary mailboxes under Favorites and a connection without that
+  role; other mockups omit them. The iPhone Mailboxes frames' **Edit** beside
+  Account has no feature behind it yet.
+- **Message list header:** the reference mockups show an earlier System Category
+  row with All selected. The iPhone frames' **…** menu and List/Chat toggle
+  beside the title have no feature behind them yet.
+- **Search bar:** on iPhone the system toolbar's glass sits lower and further
+  inset than the frames draw (#1534).
+- **Command Palette:** no compact iPad frame shows the command input in the
+  reader and composer headers yet.
+- **Toolbar:** the reference mockups show only Archive, Delete, Move, Reply,
+  Reply All, Forward, a flag and Snooze.
+- **Compose:** the reference mockups still show a 60% inline composer. The Mac
+  New Message frame's Remind Me to Send bell waits for #658, and the overflow
+  keeps Discard reachable.
+- **Message Row:** the reference mockups show a two-line preview.
+- **Profile Menu:** the reference frames' trailing counts are not drawn; the
+  system menu puts each Profile's unread count in its subtitle.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the TypeScript and Fallow job commands from .github/workflows/ci.yml
-# locally and prints one verdict line for the reviewer handoff. Update this list
+# locally and prints one verdict line to hand to the reviewer. Update this list
 # when those jobs change.
 # Usage: mise exec -- scripts/pre-handoff.sh [comparison-base]
 # The comparison base defaults to the merge-base with origin/main.
@@ -19,7 +19,7 @@ step() {
   "$@" || failed+=("$*")
 }
 
-step bash scripts/check-pr-babysitter-contract.sh
+step bash scripts/check-workflow-permissions.sh
 step node scripts/check-changesets.mjs
 step node --test scripts/check-changesets.test.mjs scripts/release.test.mjs scripts/auto-merge.test.mjs
 step pnpm test:native-runner

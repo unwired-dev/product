@@ -9,7 +9,7 @@ import type {
   Block,
   BlockKind,
   Mark,
-  SemanticDocument,
+  TableDocument,
 } from './semantic-document.ts';
 
 import { fontKeywordPixels, parseDeclarations } from './html-sanitizer.ts';
@@ -19,14 +19,14 @@ import {
   FontSchema,
   imageCharacter,
   MarkSchema,
-  SemanticDocumentSchema,
+  TableDocumentSchema,
 } from './semantic-document.ts';
 
 // A Draft body written as HTML, by another mail client or by outgoing mail, as a Semantic
 // Message Document. HTML the document cannot hold is not approximated: the result names the
 // element, attribute or CSS property instead, never the text around it.
 export type DraftHtml =
-  | Readonly<{ document: SemanticDocument }>
+  | Readonly<{ document: TableDocument }>
   | Readonly<{ unsupported: readonly string[] }>;
 
 type Span = Block['spans'][number];
@@ -42,10 +42,35 @@ type Context = Readonly<{
   kind: BlockKind;
   list?: 'bulleted' | 'numbered';
   align?: Block['align'];
+  // Set by an explicit `left`, which differs from the initial `start` only for header cells.
+  left?: boolean;
   linkColor?: string;
   format: Format;
+  // Inside a table, where text belongs in cells; inside a cell, the columns and rows it spans.
+  table?: true;
+  cell?: Readonly<{ columns?: number; rows?: number }>;
 }>;
 
+// A table holds rows of cells, and only where both standards and quirks mode show its cells with
+// the formatting the document gives them.
+const tableStarts = ({ kind, list, table, align, left, format }: Context) =>
+  kind === 'paragraph' &&
+  [
+    list,
+    table,
+    align,
+    format.link,
+    format.color,
+    format.background,
+    format.size,
+  ].every((value) => value === undefined) &&
+  left !== true &&
+  format.marks.length === 0;
+const inRows = (context: Context) =>
+  context.table !== undefined && context.cell === undefined;
+const tableParts =
+  (next: (context: Context) => Context) => (context: Context) =>
+    inRows(context) ? next(context) : undefined;
 const markOrder: readonly Mark[] = MarkSchema.literals;
 const markTags: ReadonlyMap<string, Mark> = new Map([
   ['b', 'bold'],
@@ -115,12 +140,32 @@ const structureTags: ReadonlyMap<
         ? undefined
         : { ...context, kind: context.list },
   ],
+  [
+    'table',
+    (context) =>
+      tableStarts(context) ? { ...context, table: true } : undefined,
+  ],
+  ['tbody', tableParts((context) => context)],
+  ['thead', tableParts((context) => context)],
+  ['tr', tableParts((context) => context)],
+  ['td', tableParts((context) => ({ ...context, cell: {} }))],
+  // A header cell is bold, and centered unless its row sets an alignment, including left.
+  [
+    'th',
+    tableParts((context) => ({
+      ...context,
+      format: withMark(context.format, 'bold'),
+      align: context.align ?? (context.left === true ? undefined : 'center'),
+      cell: {},
+    })),
+  ],
 ]);
+const tableTags = new Set(['table', 'tbody', 'thead', 'tr', 'td', 'th']);
 const isBlock = (tag: string) =>
   !transparentTags.has(tag) && !markTags.has(tag);
 // Each of these holds at least one block, so an empty heading or list item reads back. An empty
 // paragraph shows nothing, and outgoing mail writes a blank line as `<p><br></p>`.
-const lineTags = new Set(['li', 'h1', 'h2', 'h3', 'pre']);
+const lineTags = new Set(['li', 'h1', 'h2', 'h3', 'pre', 'td', 'th']);
 // Spacing and wrapping that browsers and mail clients add; the document has none of its own.
 const ignoredProperties =
   /^(?:margin|padding|line-height|word-wrap|overflow-wrap|line-break|caret-color|-webkit-nbsp-mode|mso-)/u;
@@ -248,7 +293,7 @@ const fontRule: Rule = (context, value) => {
 const alignRule: Rule = (context, value) => {
   const lower = value.toLowerCase();
   return alignments.has(lower)
-    ? { ...context, align: alignments.get(lower) }
+    ? { ...context, align: alignments.get(lower), left: lower === 'left' }
     : undefined;
 };
 const decorations: ReadonlyMap<string, Mark> = new Map([
@@ -349,6 +394,8 @@ const borderShorthand =
   /^border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/u;
 const borderLine =
   /^(?:solid|dotted|dashed|double|groove|ridge|inset|outset)$/iu;
+const hidesBorder = (part: string) =>
+  noBorder.test(part) || Number(borderLength.exec(part)?.[1]) === 0;
 const shownBorder = (property: string, value: string) => {
   if (property === 'border-radius') {
     return true;
@@ -361,23 +408,66 @@ const shownBorder = (property: string, value: string) => {
   const parts = literal.split(/[\t\n\f\r ]+/u);
   return (
     !literal.includes('(') &&
-    !parts.some(
-      (part) =>
-        noBorder.test(part) || Number(borderLength.exec(part)?.[1]) === 0,
-    ) &&
+    !parts.some(hidesBorder) &&
     (!borderShorthand.test(property) ||
       parts.some((part) => borderLine.test(part)))
   );
 };
+// Tables size and space their cells themselves; a border that does not show changes nothing.
+const tableLayout =
+  /^(?:width|height|min-width|max-width|min-height|max-height|table-layout|border-collapse|border-spacing)$/u;
+// Auto margins align a table.
+const tableAligns = (property: string, value: string) =>
+  property.startsWith('margin') && /\bauto\b/iu.test(value);
+// Only a border proven hidden is ignored: no style, no width or a transparent color, on every side.
+const hiddenBorder = (property: string, value: string) => {
+  const parts = value.split(/[\t\n\f\r ]+/u);
+  return borderShorthand.test(property)
+    ? parts.some(hidesBorder)
+    : property !== 'border-radius' && parts.every(hidesBorder);
+};
+const tableIgnores = (property: string, value: string) =>
+  tableLayout.test(property) ||
+  (property.startsWith('border') && hiddenBorder(property, value));
 const otherProperty =
-  (property: string): Rule =>
+  (property: string, table: boolean): Rule =>
   (context, value) => {
+    if (table && tableAligns(property, value)) {
+      return undefined;
+    }
+    if (table && tableIgnores(property, value)) {
+      return context;
+    }
     if (property.startsWith('border')) {
       return context.kind === 'quote' && shownBorder(property, value)
         ? context
         : undefined;
     }
     return ignoredProperties.test(property) ? context : undefined;
+  };
+
+// Whether a merged cell in the row group starting at `group` spans past its last row.
+const crossesGroup = (
+  rows: ReadonlyArray<ReadonlyArray<{ rows?: number }>>,
+  group: number,
+) =>
+  rows
+    .slice(group)
+    .some((cells, index) =>
+      cells.some((cell) => group + index + (cell.rows ?? 1) > rows.length),
+    );
+
+// A merged cell spans up to the 1000 columns browsers allow.
+const spanRule =
+  (key: 'columns' | 'rows'): Rule =>
+  (context, value) => {
+    const span = /^\d{1,4}$/u.test(value) ? Number(value) : 0;
+    return span < 1 || span > 1000
+      ? undefined
+      : {
+          ...context,
+          cell: { ...context.cell, ...(span > 1 ? { [key]: span } : {}) },
+        };
   };
 
 const attributeRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
@@ -394,7 +484,27 @@ const attributeRules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
     'br clear',
     'hidden',
     'popover',
+    // Table and cell formatting the document does not hold yet.
+    'table align',
+    'table bgcolor',
+    'table background',
+    'table bordercolor',
+    'table frame',
+    'table rules',
+    ...['tbody', 'thead', 'tr', 'td', 'th'].map((tag) => `${tag} valign`),
+    ...['tbody', 'thead', 'tr', 'td', 'th'].flatMap((tag) => [
+      `${tag} bgcolor`,
+      `${tag} background`,
+    ]),
   ].map((attribute): [string, Rule] => [attribute, () => undefined]),
+  [
+    'table border',
+    (context, value) => (/^0+$/u.test(value) ? context : undefined),
+  ],
+  ['td colspan', spanRule('columns')],
+  ['th colspan', spanRule('columns')],
+  ['td rowspan', spanRule('rows')],
+  ['th rowspan', spanRule('rows')],
   ['font color', attributeColorRule],
   ['body text', attributeColorRule],
   [
@@ -439,6 +549,7 @@ const genericRules: ReadonlyMap<string, Rule> = new Map([
 type Applying = Readonly<{
   context: Context;
   block: boolean;
+  table?: boolean;
   unsupported: Set<string>;
 }>;
 // The context after one rule, which names the attribute or property it cannot hold.
@@ -512,7 +623,14 @@ const inheritedRules: ReadonlyMap<
         ? undefined
         : formatted(context, { size: parent.format.size }),
   ],
-  ['text-align', (context, parent) => ({ ...context, align: parent.align })],
+  [
+    'text-align',
+    (context, parent) => ({
+      ...context,
+      align: parent.align,
+      left: parent.left === true,
+    }),
+  ],
   [
     'font-weight',
     (context, parent) =>
@@ -614,7 +732,8 @@ const styled = (
     }
     const rule = keyword
       ? () => undefined
-      : (propertyRules.get(property) ?? otherProperty(property));
+      : (propertyRules.get(property) ??
+        otherProperty(property, applying.table === true));
     const base = replacementContext(context, parent, property);
     return applied({ ...applying, context: base }, [property, value], rule);
   }, applying.context);
@@ -718,7 +837,16 @@ const contextOf = (
   const inner =
     style === undefined
       ? attributed
-      : styled({ context: attributed, block, unsupported }, style, context);
+      : styled(
+          {
+            context: attributed,
+            block,
+            table: tableTags.has(tag),
+            unsupported,
+          },
+          style,
+          context,
+        );
   if (decorationColorChanged(tag, inner, context)) {
     unsupported.add('color');
   }
@@ -759,9 +887,13 @@ const sameFormat = (one: Format, other: Format) =>
   one.font === other.font &&
   one.size === other.size;
 
-const isDocument = Schema.is(SemanticDocumentSchema);
+const isDocument = Schema.is(TableDocumentSchema);
 
-const listChanged = (tag: string, before: number, blocks: readonly Block[]) =>
+const listChanged = (
+  tag: string,
+  before: number,
+  blocks: ReadonlyArray<Readonly<{ kind: string }>>,
+) =>
   tag === 'li'
     ? blocks.length - before > 1
     : tag === 'ol' &&
@@ -786,7 +918,18 @@ const hiddenElement = (element: DefaultTreeAdapterTypes.Element) => {
 
 export function documentFromHtml(html: string): DraftHtml {
   const unsupported = new Set<string>();
-  const blocks: Block[] = [];
+  type Part = Block | { kind: 'table'; rows: Cell[][] };
+  interface Cell {
+    blocks: Part[];
+    columns?: number;
+    rows?: number;
+  }
+  const blocks: Part[] = [];
+  // Where lines go: the body, or the cell being read.
+  let target = blocks;
+  // The open table's rows, and where its open row group starts.
+  let rows: Cell[][] = [];
+  let group = 0;
   let runs: Array<{ text: string; format: Format }> = [];
   // The context of the line's first text, which decides its kind and alignment.
   let line: Context | undefined = undefined;
@@ -804,7 +947,7 @@ export function documentFromHtml(html: string): DraftHtml {
           .filter(({ text }) => text !== '')
           .map(({ text, format }) => spanOf(text, format))
       : [];
-    blocks.push({ kind, spans, ...(align === undefined ? {} : { align }) });
+    target.push({ kind, spans, ...(align === undefined ? {} : { align }) });
     runs = [];
     line = undefined;
   };
@@ -861,6 +1004,30 @@ export function documentFromHtml(html: string): DraftHtml {
       }
     }
   };
+  // A header shows above earlier rows, and a merged cell ends with its row group.
+  const startRowGroup = (tag: string) => {
+    if (tag === 'thead' && rows.length > 0) {
+      unsupported.add('thead');
+    }
+    if (crossesGroup(rows, group)) {
+      unsupported.add('rowspan');
+    }
+    group = rows.length;
+  };
+  const startTablePart = (tag: string, inner: Context) => {
+    if (tag === 'table') {
+      rows = [];
+      group = 0;
+    } else if (tag === 'tbody' || tag === 'thead') {
+      startRowGroup(tag);
+    } else if (tag === 'tr') {
+      rows.push([]);
+    } else if (tag === 'td' || tag === 'th') {
+      const cell = { blocks: [], ...inner.cell };
+      rows.at(-1)?.push(cell);
+      target = cell.blocks;
+    }
+  };
   const visitElement = (
     node: DefaultTreeAdapterTypes.Element,
     outer: Context,
@@ -880,23 +1047,37 @@ export function documentFromHtml(html: string): DraftHtml {
       if (line !== undefined) {
         endLine(outer);
       }
+      startTablePart(node.tagName, inner);
       steps.push({
         kind: 'end',
         tag: node.tagName,
         context: inner,
-        before: blocks.length,
+        before: target.length,
       });
     }
     pushChildren(node.childNodes, inner);
   };
+  const endTablePart = (tag: string) => {
+    if (tag === 'td' || tag === 'th') {
+      target = blocks;
+    } else if (tag === 'table') {
+      if (rows.length === 0) {
+        unsupported.add('table');
+      } else if (rows.some((cells) => cells.length === 0)) {
+        unsupported.add('tr');
+      }
+      blocks.push({ kind: 'table', rows });
+    }
+  };
   const endElement = (step: Extract<Step, { kind: 'end' }>) => {
-    const empty = lineTags.has(step.tag) && blocks.length === step.before;
+    const empty = lineTags.has(step.tag) && target.length === step.before;
     if (line !== undefined || empty) {
       endLine(step.context);
     }
-    if (listChanged(step.tag, step.before, blocks)) {
+    if (listChanged(step.tag, step.before, target)) {
       unsupported.add(step.tag);
     }
+    endTablePart(step.tag);
   };
   const visit = (step: Step) => {
     if (step.kind === 'end') {
@@ -905,7 +1086,10 @@ export function documentFromHtml(html: string): DraftHtml {
     }
     const { node, context: outer } = step;
     if (node.nodeName === '#text' && 'value' in node) {
-      addText(node.value, outer);
+      // Text between a table's rows and cells is the layout's whitespace.
+      if (!inRows(outer)) {
+        addText(node.value, outer);
+      }
     } else if ('tagName' in node) {
       visitElement(node, outer);
     }
@@ -920,8 +1104,6 @@ export function documentFromHtml(html: string): DraftHtml {
   if (unsupported.size > 0) {
     return { unsupported: [...unsupported] };
   }
-  const [first, ...rest] = blocks;
-  const document: SemanticDocument =
-    first === undefined ? emptyDocument : [first, ...rest];
+  const document = blocks.length === 0 ? emptyDocument : blocks;
   return isDocument(document) ? { document } : { unsupported: ['document'] };
 }

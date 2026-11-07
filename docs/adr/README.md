@@ -1,6 +1,5 @@
 # Architecture decision records
 
-Reviewer-only under the [implementation and review workflow](../agents/implementation-review.md).
 The [architecture index](../architecture/README.md) routes the replacement
 decisions and evidence.
 

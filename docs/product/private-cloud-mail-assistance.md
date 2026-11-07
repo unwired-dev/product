@@ -7,7 +7,7 @@ clients currently provide [on-device summaries](../message-summaries.md) and
 
 [Vocabulary](../domain/assistance.md) · [Current assistance requirements](assistance.md)
 
-The reviewer-owned [ADR 0075](../adr/0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
+[ADR 0075](../adr/0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
 records this accepted decision and its scoped amendments.
 
 Delivery is tracked in [#1451](https://github.com/unwired-dev/product/issues/1451).

@@ -406,8 +406,9 @@ final class InboxTests: XCTestCase {
     sendJourney(app)
   }
 
-  // #778: the iPhone composer covers the split columns, so neither the reader's Back button nor an
-  // edge swipe leaves a Draft whose save failed. It stays open with its edits until a retry saves.
+  // #778: the iPhone composer covers the split columns, so neither the reader's Back button, an
+  // edge swipe nor a delivered link (#1523) leaves a Draft whose save failed. It stays open with
+  // its edits until a retry saves.
   private func failedSaveBack(_ app: XCUIApplication) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let identifier = ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"]!
@@ -444,14 +445,48 @@ final class InboxTests: XCTestCase {
       XCTAssertEqual(subject.value as? String, "Unsaved plans")
       XCTAssertFalse(back.isHittable)
     }
+    // #1523: a delivered link asks to leave first; a save that fails again keeps the composer and
+    // the reader beneath it, and drops the link.
+    let link = URL(string: "unwired-mail://")!
+    let reader = app.staticTexts["to casey@example.invalid"]
+    app.open(link)
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    XCTAssertTrue(blocked.waitForExistence(timeout: 10))
+    XCTAssertTrue(composer.exists)
+    XCTAssertEqual(subject.value as? String, "Unsaved plans")
     let kept = XCTAttachment(screenshot: app.screenshot())
-    kept.name = "Composer kept open after a failed save and Back swipes"
+    kept.name = "Composer kept open after a failed save, Back swipes and a link"
     kept.lifetime = .keepAlways
     add(kept)
     post(".draft-saves-restore")
     composer.buttons["Try again"].tap()
     waitUntil { !composer.exists }
-    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    waitUntil { back.isHittable }
+    // An unfinished recipient keeps the composer open past a link too.
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("unfinished", into: to)
+    app.open(link)
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    let invalid = text("Correct or remove the invalid address to close this Draft.", in: app)
+    XCTAssertTrue(invalid.waitForExistence(timeout: 10))
+    XCTAssertTrue(composer.exists)
+    let unfinished = XCTAttachment(screenshot: app.screenshot())
+    unfinished.name = "Composer kept open with an unfinished recipient after a link"
+    unfinished.lifetime = .keepAlways
+    add(unfinished)
+    app.buttons["Close"].tap()
+    let delete = app.buttons["Delete Draft"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 10))
+    delete.tap()
+    waitUntil { !composer.exists }
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { back.isHittable }
   }
 
@@ -1075,10 +1110,9 @@ final class InboxTests: XCTestCase {
     add(shot)
   }
 
-  // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
-  // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
-  // is within one screen of the visible range.
-  private func threadJourney(_ app: XCUIApplication) {
+  // Registers with the synthetic Gmail mailbox another device already connected, confirming its
+  // Recovery Key.
+  private func connectAlternateMailbox(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
     let recoveryKey = app.staticTexts["recovery-key"]
@@ -1090,6 +1124,86 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+  }
+
+  // The registration-invitation mailbox's Gmail invitation: its card offers Accept, Maybe and
+  // Decline, and Accept reports Gmail's confirmation.
+  private func invitationJourney(_ app: XCUIApplication) {
+    connectAlternateMailbox(app)
+    let row = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Unread. Lena Fischer. Invitation: Q4 roadmap review")
+    ).firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 20))
+    row.tap()
+    let accept = app.buttons["Accept"].firstMatch
+    XCTAssertTrue(accept.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["Maybe"].firstMatch.exists)
+    XCTAssertTrue(app.buttons["Decline"].firstMatch.exists)
+    let card = XCTAttachment(screenshot: app.screenshot())
+    card.name = "Invitation card"
+    card.lifetime = .keepAlways
+    add(card)
+    accept.tap()
+    let confirmed = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Accepted. Gmail confirmed")
+    ).firstMatch
+    XCTAssertTrue(confirmed.waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["Accepted"].firstMatch.isSelected)
+    let accepted = XCTAttachment(screenshot: app.screenshot())
+    accepted.name = "Invitation accepted"
+    accepted.lifetime = .keepAlways
+    add(accepted)
+    // The last response chosen keeps its title on one line too (#1883).
+    app.buttons["Decline"].firstMatch.tap()
+    let declinedButton = app.buttons["Declined"].firstMatch
+    XCTAssertTrue(declinedButton.waitForExistence(timeout: 20))
+    XCTAssertTrue(declinedButton.isSelected)
+    let declined = XCTAttachment(screenshot: app.screenshot())
+    declined.name = "Invitation declined"
+    declined.lifetime = .keepAlways
+    add(declined)
+  }
+
+  // The registration-invitation mailbox's other invitations (#1888): each card states why it can't
+  // be answered, or which meetings of a series a response answers.
+  private func invitationStatesJourney(_ app: XCUIApplication) {
+    for (subject, status, answerable, name) in [
+      ("Invitation: Hiring sync", "You can’t respond from here", false, "not your address"),
+      ("Cancelled: Budget check-in", "This meeting was cancelled", false, "cancelled"),
+      ("Invitation: Weekly design review", "applies to every meeting", true, "whole series"),
+      ("Updated invitation: Weekly design review on 20 Nov", "applies only to", true, "one meeting"),
+      ("Updated series: Weekly design review", "can’t tell which meeting", false, "ambiguous"),
+      ("Invitation: Daily launch check", "can’t read this invitation", false, "unreadable"),
+    ] {
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+      }
+      let row = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "Lena Fischer. " + subject)
+      ).firstMatch
+      XCTAssertTrue(row.waitForExistence(timeout: 20), subject)
+      // On iPhone the last rows sit under the bottom toolbar, which would take the tap.
+      let toolbar = app.buttons["New Message"].firstMatch
+      for _ in 0..<3 where row.frame.maxY > toolbar.frame.minY {
+        app.swipeUp(velocity: .slow)
+      }
+      row.tap()
+      XCTAssertTrue(
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", status))
+          .firstMatch.waitForExistence(timeout: 20), subject)
+      XCTAssertEqual(app.buttons["Accept"].firstMatch.exists, answerable, subject)
+      let capture = XCTAttachment(screenshot: app.screenshot())
+      capture.name = "Invitation " + name
+      capture.lifetime = .keepAlways
+      add(capture)
+    }
+  }
+
+  // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
+  // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
+  // is within one screen of the visible range.
+  private func threadJourney(_ app: XCUIApplication) {
+    connectAlternateMailbox(app)
     // The connection's opaque ID, as native code derives it from the synthetic Gmail subject.
     let connection = SHA256.hash(
       data: Data("dev.unwired.mailbox-connection\nsynthetic-alternate-mailbox".utf8)
@@ -2273,15 +2387,17 @@ final class InboxTests: XCTestCase {
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
-    // Undiagnosed: the same unlocated text while iPad's system Filters or Link Editor popover is
-    // open, and while the Sync Status details' sheet or popover is open, whose elements are all
-    // labelled.
+    // An open iPad popover hides the window behind it from accessibility, as a modal should, and
+    // the audit reports the text it can still see there, such as the Mailboxes sidebar's rows, as
+    // text it locates no element for. A plain UIKit split view behind a SwiftUI popover does the
+    // same (#1403).
     case .elementDetection
-    where (["Filters", "Link Editor"].contains(screen) && UIDevice.current.userInterfaceIdiom == .pad
-      || screen.hasPrefix("Sync Status Details "))
+    where UIDevice.current.userInterfaceIdiom == .pad
+      && ["Filters", "Link Editor", "Sync Status Details Progress", "Sync Status Details Attention"]
+        .contains(screen)
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
-      return "#1403"
+      return "system popover"
     default:
       return nil
     }
@@ -2309,6 +2425,9 @@ final class InboxTests: XCTestCase {
       case "registration-thread": threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
       case "registration-sync-status": try syncStatusJourney(app)
+      case "registration-invitation":
+        invitationJourney(app)
+        invitationStatesJourney(app)
       default:
         try registrationJourney(app)
       }

@@ -24,6 +24,7 @@ import {
   buttonBorderShape,
   buttonStyle,
   disabled,
+  fixedSize,
   font,
   frame,
   tint,
@@ -161,24 +162,31 @@ function Details({
   details,
   invited,
   earlier,
-  older = false,
+  older,
+  unanswerable,
 }: {
   readonly details: InvitationDetails;
-  // Who was invited, then secondary lines about them; a cancelled meeting has no row.
+  // Who was invited, then secondary lines about them; a meeting nobody can answer has no row.
   readonly invited?: readonly string[];
   // The response to an earlier revision at another time, which marks this one as updated.
   readonly earlier?: EarlierResponse | undefined;
   // A revision older than one the person answered, which has no Invited row.
   readonly older?: boolean;
+  // Why nobody can answer it: a cancellation is struck through, and a series update that
+  // names no one meeting has no repeats line.
+  readonly unanswerable?: 'cancelled' | 'ambiguous';
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useFormats();
   const when = invitationWhen(t, formats, details);
-  const repeats = invitationRepeats(t, formats, details);
+  const repeats =
+    unanswerable === 'ambiguous'
+      ? undefined
+      : invitationRepeats(t, formats, details);
   const was =
     earlier === undefined ? undefined : invitationWas(t, formats, earlier);
-  const cancelled = invited === undefined;
+  const cancelled = unanswerable === 'cancelled';
   const invitedBy =
     details.recurrence === undefined
       ? 'invitation.from'
@@ -364,18 +372,43 @@ function Actions({
   readonly fill?: boolean;
   readonly children: ReactNode;
 }) {
-  const stacked = useStacked();
+  // The three choices also stack when the row cannot keep each title on one line (#1883): the row
+  // is measured while it shows and compared with the width it has. A new width remounts the Host,
+  // which then reports its first size, so the row is measured again.
+  const [row, setRow] = useState(0);
+  const [room, setRoom] = useState(Infinity);
+  const stacked = useStacked() || (fill && row > room + 1);
   return (
-    <Host matchContents={{ vertical: true }}>
-      {stacked ? (
-        <VStack spacing={spacing.s}>{children}</VStack>
-      ) : (
-        <HStack spacing={spacing.s}>
-          {children}
-          {fill ? null : <Spacer />}
-        </HStack>
-      )}
-    </Host>
+    <View
+      onLayout={
+        fill
+          ? (event) => {
+              const { width } = event.nativeEvent.layout;
+              if (width !== room) {
+                setRoom(width);
+                setRow(0);
+              }
+            }
+          : undefined
+      }>
+      <Host
+        key={fill ? room : undefined}
+        matchContents={{ vertical: true }}
+        onLayoutContent={(event) => {
+          if (fill && !stacked) {
+            setRow(event.nativeEvent.width);
+          }
+        }}>
+        {stacked ? (
+          <VStack spacing={spacing.s}>{children}</VStack>
+        ) : (
+          <HStack spacing={spacing.s}>
+            {children}
+            {fill ? null : <Spacer />}
+          </HStack>
+        )}
+      </Host>
+    </View>
   );
 }
 
@@ -395,11 +428,15 @@ function Action({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
-  const stacked = useStacked();
-  const wide = fill || stacked;
+  const large = useStacked();
+  const wide = fill || large;
+  // A choice keeps its title on one line, so a row that cannot fit them stacks (#1883). A finite
+  // maximum makes the chosen one, widened by its checkmark, the least flexible button, so the row
+  // sizes it first and the others share what is left, wherever it stands.
   const text = [
     font({ textStyle: 'subheadline', weight: 'semibold' }),
-    ...(wide ? [frame({ maxWidth: Infinity })] : []),
+    ...(fill && !large ? [fixedSize({ horizontal: true })] : []),
+    ...(wide ? [frame({ maxWidth: chosen ? 10_000 : Infinity })] : []),
   ];
   return (
     <Button
@@ -732,11 +769,32 @@ export function InvitationCard({
   if (offer.kind === 'cancelled') {
     return (
       <View style={card}>
-        <Details details={offer.details} />
+        <Details
+          details={offer.details}
+          unanswerable="cancelled"
+        />
         <Status
           icon="xmark"
           title={t('invitation.meetingCancelled')}
           detail={t('invitation.meetingCancelledDetail')}
+        />
+      </View>
+    );
+  }
+  if (offer.kind === 'ambiguous') {
+    return (
+      <View style={card}>
+        <Details
+          details={offer.details}
+          unanswerable="ambiguous"
+        />
+        <Status
+          icon="exclamationmark.triangle.fill"
+          tone="statusWarning"
+          title={t('invitation.ambiguous')}
+          detail={t('invitation.ambiguousDetail', {
+            name: organizerName(offer.details),
+          })}
         />
       </View>
     );

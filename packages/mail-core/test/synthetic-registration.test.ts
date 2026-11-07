@@ -7,6 +7,12 @@ import * as Schema from 'effect/Schema';
 
 import type { SyntheticRegistrationRelay } from '../src/synthetic-registration.ts';
 
+import { invitationOf } from '../src/invitations.ts';
+import {
+  calendarPart,
+  decodeFullMessage,
+  partText,
+} from '../src/message-body.ts';
 import {
   SyntheticGmailMessages,
   SyntheticGoogle,
@@ -750,6 +756,72 @@ describe('the performance mailboxes', () => {
         ),
       ).body.body.content,
     ).toBe('Outlook update 125 body. Nothing here came from a real mailbox.');
+  });
+});
+
+describe('the invitation mailbox', () => {
+  const offerOf = async (id: string) => {
+    const ask = launch('registration-invitation', { state: null });
+    const gmail = (path: string) =>
+      ask('google.gmail', {
+        subject: 'synthetic-alternate-mailbox',
+        url: `https://gmail.googleapis.com/gmail/v1/users/me/${path}`,
+        body: null,
+      });
+    const exchange = <
+      S extends Schema.Top & { readonly DecodingServices: never },
+    >(
+      body: S,
+    ) => Schema.Struct({ status: Schema.Finite, body });
+    const read = decoded(
+      exchange(Schema.String),
+      await gmail(`messages/${id}?format=full`),
+    ).body;
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const message = yield* decodeFullMessage(read);
+        const part = yield* Effect.fromNullishOr(calendarPart(message.payload));
+        const data = yield* Effect.fromNullishOr(part.body?.data);
+        const calendar = yield* partText(part, data);
+        return invitationOf(
+          { id: message.id, calendar },
+          'other@example.invalid',
+        );
+      }),
+    );
+  };
+
+  it("serves a meeting invitation to the mailbox's own address", async () => {
+    expect.hasAssertions();
+    await expect(offerOf('19a0c0ffee000031')).resolves.toMatchObject({
+      kind: 'invited',
+      address: 'other@example.invalid',
+      details: {
+        summary: 'Q4 roadmap review',
+        organizer: { name: 'Lena Fischer', address: 'lena@example.invalid' },
+      },
+    });
+  });
+
+  it.each([
+    [
+      '19a0c0ffee000040',
+      { kind: 'elsewhere', invited: ['mara@example.invalid'] },
+    ],
+    ['19a0c0ffee000041', { kind: 'cancelled' }],
+    [
+      '19a0c0ffee000042',
+      { kind: 'invited', details: { starts: expect.any(Array) } },
+    ],
+    [
+      '19a0c0ffee000043',
+      { kind: 'invited', details: { recurrence: Date.UTC(2026, 10, 20, 15) } },
+    ],
+    ['19a0c0ffee000044', { kind: 'ambiguous' }],
+    ['19a0c0ffee000045', { kind: 'unreadable' }],
+  ])('serves %s as an invitation state', async (id, state) => {
+    expect.hasAssertions();
+    await expect(offerOf(id)).resolves.toMatchObject(state);
   });
 });
 

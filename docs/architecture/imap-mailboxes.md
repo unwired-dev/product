@@ -1,6 +1,6 @@
 # IMAP mailbox implementation and qualification
 
-Reviewer-only companion to [IMAP mailboxes](../imap-mailboxes.md), introduced by
+Architecture notes for [IMAP mailboxes](../imap-mailboxes.md), introduced by
 [#629](https://github.com/unwired-dev/product/issues/629). Operational requirements
 and validation commands remain there. Prototype SwiftMail qualification does not
 qualify these replacement hosts or this adapter.

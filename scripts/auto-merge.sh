@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Squash-merge open pull requests that Codex and CodeRabbit have both cleared.
 # The policy lives in docs/agents/pull-request-babysitting.md#automatic-merge.
+# Preview decisions without dismissing or merging: run the workflow on main with
+# dry_run, or DRY_RUN=1 GITHUB_REPOSITORY=unwired-dev/product bash scripts/auto-merge.sh [number...]
 set -euo pipefail
 
 repo=${GITHUB_REPOSITORY:?}

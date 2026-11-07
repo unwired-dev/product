@@ -1,7 +1,6 @@
 # New Mail Notifications: architecture notes
 
-Reviewer-only companion to [the operational guide](../new-mail-notifications.md),
-under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [the operational guide](../new-mail-notifications.md).
 Issue #619 implements ADR 0063's Gmail slice; #1094 extends it to IMAP and
 Microsoft. Quiet/Profile Lock remains #648, filtering #853 and presentation
 expansion #908.

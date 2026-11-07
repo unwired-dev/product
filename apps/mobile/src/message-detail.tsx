@@ -503,6 +503,9 @@ function ResponseActions({
   const source = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox ? inbox.responseSource(message.id) : undefined,
   );
+  const body = useSyncExternalStore(inbox.subscribe, () =>
+    'responseSource' in inbox ? inbox.messageBody(message.id)?.kind : undefined,
+  );
   const [choosing, setChoosing] = useState<typeof source>();
   const responseOpen = compact && choosing !== undefined && choosing === source;
   const close = () => {
@@ -519,15 +522,20 @@ function ResponseActions({
     mailboxes,
     profileOf(mailbox?.id, mailboxes),
   ).find(({ id }) => id === mailbox?.id);
+  // While the body, its headers or the Drafts load, the same buttons show disabled, so the toolbar
+  // keeps its layout as the message loads; a body or Drafts that cannot open leaves them out.
+  const ready = source !== undefined && drafts.kind === 'ready';
   if (
     !('responseSource' in inbox) ||
     onCompose === undefined ||
     sender === undefined ||
-    source === undefined ||
-    drafts.kind !== 'ready'
+    (!ready &&
+      (body === 'unavailable' ||
+        (drafts.kind !== 'ready' && drafts.kind !== 'loading')))
   ) {
     return null;
   }
+  const disabled = !ready || pending !== undefined;
   const received = t('message.received', {
     date: dateFormat.format(new Date(message.receivedAt)),
   });
@@ -581,20 +589,22 @@ function ResponseActions({
   };
   return (
     <>
-      <RegisterCommands
-        offer={() =>
-          responseCommands(t, commandTarget(mailbox?.id, message), {
-            start,
-            starting: pending !== undefined,
-          })
-        }
-      />
+      {ready ? (
+        <RegisterCommands
+          offer={() =>
+            responseCommands(t, commandTarget(mailbox?.id, message), {
+              start,
+              starting: pending !== undefined,
+            })
+          }
+        />
+      ) : null}
       {compact ? (
         <ToolbarButton
           icon="arrowshape.turn.up.left"
           label={t('message.reply')}
-          disabled={pending !== undefined}
-          expanded={choosing === source}
+          disabled={disabled}
+          expanded={responseOpen}
           onPress={() => {
             // The Reply sheet replaces an open More or Move rather than covering it.
             onPanel(undefined);
@@ -606,7 +616,7 @@ function ResponseActions({
           <ToolbarButton
             icon="arrowshape.turn.up.left"
             label={t('message.reply')}
-            disabled={pending !== undefined}
+            disabled={disabled}
             onPress={() => {
               void start('reply');
             }}
@@ -614,7 +624,7 @@ function ResponseActions({
           <ToolbarButton
             icon="arrowshape.turn.up.left.2"
             label={t('message.replyAll')}
-            disabled={pending !== undefined}
+            disabled={disabled}
             onPress={() => {
               void start('replyAll');
             }}
@@ -622,7 +632,7 @@ function ResponseActions({
           <ToolbarButton
             icon="arrowshape.turn.up.right"
             label={t('message.forward')}
-            disabled={pending !== undefined}
+            disabled={disabled}
             onPress={() => {
               void start('forward');
             }}

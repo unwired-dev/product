@@ -1,7 +1,7 @@
 # Private preview Inbox storage
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](architecture/private-inbox-storage.md).
+Architecture notes live in the separate [architecture companion](architecture/private-inbox-storage.md).
 
 [#594](https://github.com/unwired-dev/product/issues/594) adds persistent read
 state to the synthetic Inbox in both Apple hosts. Selecting a message leaves its

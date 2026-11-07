@@ -1,7 +1,6 @@
 # Account removal: architecture notes
 
-Reviewer-only companion to [the operational guide](../account-removal.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [the operational guide](../account-removal.md).
 
 ## Identity and backend cleanup
 

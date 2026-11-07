@@ -1,7 +1,7 @@
 # Mail organization: behavior notes
 
 Setup, coding rules, validation and observable requirements remain in this file.
-The review agent owns the separate [architecture companion](../architecture/product/organization.md).
+Architecture notes live in the separate [architecture companion](../architecture/product/organization.md).
 
 [Vocabulary](../domain/organization.md) · [Domain index](../../GLOSSARY.md)
 
@@ -11,8 +11,7 @@ References to a feature's first release or v1 retain their original scope. The
 organization workflows are required in the maintained clients.
 
 These observable requirements were separated from the former monolithic glossary
-and its implementation notes. The reviewer owns the separate architecture companion
-under the [implementation and review workflow](../agents/implementation-review.md).
+and its implementation notes.
 “v1” and “first release” in these notes refer to their original feature scope.
 They do not establish replacement launch requirements or proof that a feature is
 implemented.
@@ -60,7 +59,7 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 - Regular-width layouts retain three stable columns, while compact layouts collapse those destinations into native navigation
 - The regular-width sidebar presents the active Profile first, primary Unified Mailboxes before secondary Archive, All Mail, Spam, and Trash, then collapsible connection sections containing provider folders and labels
 - On the Mac and iPad, search and a prominent New Message action live in one floating bar at the bottom of the window rather than in the sidebar: the search field is centered and New Message sits at the trailing edge; in compact-width iPad windows the bar spans the screen width. The Mac and iPad Inboxes follow this placement, with [saved-mail search](../gmail-inbox.md#searching-saved-mail) in the bar. The iPhone Inbox uses the system toolbar instead: Filter, its integrated search field and New Message
-- Drafts sits at the bottom of the sidebar above Settings, outside the Unified Mailboxes, and opens a dedicated Drafts screen; Drafts that are not synced are reported by a badge on Drafts and a status capsule on the main screen, never by a Drafts row among the Unified Mailboxes
+- Drafts sits at the bottom of the sidebar above Settings, outside the Unified Mailboxes, and opens a dedicated Drafts screen; Drafts shows a badge only when a Draft is offline or needs action, and a status capsule on the main screen says when Drafts are not synced, as the [approved Drafts design](../../DESIGN.md#layout) shows
 - Settings remains fixed at the bottom of the sidebar, while synchronization or authorization problems appear beside the affected **Mailbox Connection** rather than as global status
 - Settings owns navigation state independently from mailbox synchronization and composer presentation: Mac and Catalyst use a dedicated native Settings window available through `Command-,`, iPad uses an in-app two-column Settings workspace, and iPhone pushes a one-column Settings destination into the existing navigation stack
 - Opening Settings or a deep-linked Settings destination never waits for Thread, message-body, image, prefetch, or historical synchronization work

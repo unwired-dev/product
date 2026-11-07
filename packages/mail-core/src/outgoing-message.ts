@@ -1,5 +1,5 @@
 import type { Draft, Recipient } from './draft-model.ts';
-import type { Asset, Block, Mark } from './semantic-document.ts';
+import type { Asset, Block, Mark, Table } from './semantic-document.ts';
 
 import { assetsOf } from './draft-model.ts';
 import { imagesOf } from './semantic-document.ts';
@@ -255,31 +255,55 @@ const htmlBlock = ({ kind, spans, align }: Block) => {
     ? inner
     : `<p${style}>${inner === '' ? '<br>' : inner}</p>`;
 };
+const spanAttribute = (name: string, span: number | undefined) =>
+  span === undefined ? '' : ` ${name}="${span}"`;
 // Consecutive list items, quotes and code lines share one container.
 // fallow-ignore-next-line complexity -- One pass opens and closes each run of blocks in reading order.
-const htmlOf = (document: readonly Block[]) => {
+export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
   let html = '';
   for (const [index, block] of document.entries()) {
-    const container = containers[block.kind];
-    const previous = document[index - 1]?.kind;
-    const opens = container !== undefined && previous !== block.kind;
-    if (opens) {
-      html += block.kind === 'code' ? '<pre><code>' : `<${container}>`;
-    } else if (block.kind === 'code') {
-      html += '\n';
-    }
-    html += htmlBlock(block);
-    if (container !== undefined && document[index + 1]?.kind !== block.kind) {
-      html += block.kind === 'code' ? '</code></pre>' : `</${container}>`;
+    if (block.kind === 'table') {
+      html += `<table><tbody>${block.rows
+        .map(
+          (cells) =>
+            `<tr>${cells
+              .map(
+                ({ blocks, columns, rows }) =>
+                  `<td${spanAttribute('colspan', columns)}${spanAttribute('rowspan', rows)}>${htmlOf(blocks)}</td>`,
+              )
+              .join('')}</tr>`,
+        )
+        .join('')}</tbody></table>`;
+    } else {
+      const container = containers[block.kind];
+      const previous = document[index - 1]?.kind;
+      const opens = container !== undefined && previous !== block.kind;
+      if (opens) {
+        html += block.kind === 'code' ? '<pre><code>' : `<${container}>`;
+      } else if (block.kind === 'code') {
+        html += '\n';
+      }
+      html += htmlBlock(block);
+      if (container !== undefined && document[index + 1]?.kind !== block.kind) {
+        html += block.kind === 'code' ? '</code></pre>' : `</${container}>`;
+      }
     }
   }
   return html;
 };
 
-const plainOf = (document: readonly Block[]) => {
+export const plainOf = (document: ReadonlyArray<Block | Table>): string => {
   let number = 0;
   return document
-    .map(({ kind, spans }) => {
+    .map((block) => {
+      // A table writes each row on its own line with a tab between cells, as a browser copies its text.
+      if (block.kind === 'table') {
+        number = 0;
+        return block.rows
+          .map((cells) => cells.map(({ blocks }) => plainOf(blocks)).join('\t'))
+          .join(crlf);
+      }
+      const { kind, spans } = block;
       number = kind === 'numbered' ? number + 1 : 0;
       // Linked text is followed by its destination, unless it already reads as it.
       const text = linkRuns(spans)

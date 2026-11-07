@@ -284,7 +284,7 @@ width, a transparent color, an omitted line style in a shorthand or an unvetted
 function is reported rather than turning an indentation into a quote.
 Browser-dependent active/visited
 link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
-Anything else, such as a table, an image, headings four to six, a nested list
+Anything else, such as an image, headings four to six, a nested list
 or quote, a color name, a relative size, a block background (including an inherited one), a popover, list
 markers with colors or fonts (including bold and italic), custom or reversed
 list numbering, adjacent ordered lists that restart numbering without a
@@ -299,6 +299,27 @@ content is reported rather than discarding potentially visible text. An empty
 paragraph shows nothing and adds no line; a blank line is `<p><br></p>`. Outgoing HTML reads back to the same
 document, apart from the spaces HTML collapses, a trailing empty code line and
 code alignment, which is not sent.
+
+The same reader keeps a table as rows of cells
+([#1878](https://github.com/unwired-dev/product/issues/1878), a first slice of
+[#1268](https://github.com/unwired-dev/product/issues/1268)). Each cell holds its
+own blocks and may span several columns or rows; a header cell reads as bold
+centered text, and an empty cell as one empty paragraph. Widths, heights, cell
+padding and spacing, `border="0"`, collapsed borders and borders that do not show
+are ignored. Visible borders, backgrounds, vertical alignment, table alignment
+(including auto margins), captions, footers, column groups, a header after body
+rows, a merged cell that crosses row groups, nested tables, images in cells, empty
+tables and rows, and tables inside lists, quotes, headings, inline formatting,
+text color, links or alignment are reported, because the document cannot hold them yet or standards
+and quirks mode show them differently. Outgoing HTML writes tables as plain rows
+and cells and reads back to the same document. The plain-text alternative
+([#1886](https://github.com/unwired-dev/product/issues/1886)) writes each row on
+its own line with a tab between cells, as a browser copies a table's text; a cell
+with several blocks keeps them on separate lines, an empty cell writes nothing and
+a merged cell writes its text once. The table sits on its own lines, and
+numbered lists restart around it as around any other block. Drafts do not store
+tables yet; Draft storage and editing tables in the composers follow in later
+#1268 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
@@ -338,7 +359,9 @@ empty Draft and closes an unchanged one at once; otherwise **Delete Draft** and
 **Save Draft** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed. It
 then closes once the Draft is stored; when that fails the composer stays open with
-**Try again**, and its edits still ask on the next **Close**. A Draft deleted or
+**Try again**, and its edits still ask on the next **Close**. An `unwired-mail://`
+link opened while the composer is open asks the same question first and opens only
+once the composer closes. A Draft deleted or
 changed elsewhere while open keeps this composer's version, and **Save Draft** stores
 it as a conflicting copy.
 
@@ -508,8 +531,11 @@ until it can preserve offline copies and concurrent publication safely.
 **Reply All** and **Forward** to the Gmail reader on iPhone, iPad and Mac, and
 [#1023](https://github.com/unwired-dev/product/issues/1023) to the
 [IMAP reader](imap-mailboxes.md#reading). They
-appear once the opened message's body and headers are read, and only while the
-reader's own mailbox can send: a response never starts from another mailbox. Each
+are offered only while the reader's own mailbox can send: a response never starts
+from another mailbox. On iPhone and iPad, the controls stay visible but unavailable
+while the message's body, headers or Drafts load. On Mac, they appear once those
+are ready. If the body or Drafts cannot open, iPhone keeps **More** instead of
+**Reply**, so Thread actions remain reachable. Each
 opens the new Draft in the existing composer. Nothing is sent; editing, Close,
 reopening, **Undo** and **Discard** work as for any Draft.
 

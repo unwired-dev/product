@@ -1,7 +1,6 @@
 # Interface localization: architecture notes
 
-Reviewer-only companion to [interface translations](../localization.md).
-Read under the [implementation and review workflow](../agents/implementation-review.md).
+Architecture notes for [interface translations](../localization.md).
 
 Both hosts use the shared message-date formatter with explicit components. Apple's
 [Hermes implementation](https://github.com/facebook/hermes/blob/main/lib/Platform/Intl/PlatformIntlApple.mm)

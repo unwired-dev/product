@@ -123,6 +123,16 @@ separately.
   invitation carries no rule, so the card does not say how the series repeats. The
   `RECURRENCE-ID` must be the only one, without a `RANGE`, the same timed or all-day
   type as the start and in a readable time zone, with no `RRULE`, `RDATE` or `EXDATE`.
+- An update that names one meeting with its `RECURRENCE-ID` but also carries a
+  readable weekly series' `RRULE`
+  ([#1875](https://github.com/unwired-dev/product/issues/1875)) doesn't say which
+  meeting it changes. It shows the meeting under **Invitation from {organizer}**
+  with **When** as for the series but no series line and no **Invited** row, then
+  **Unwired can’t tell which meeting this is** and **This update doesn’t identify
+  one meeting in the series, so you can’t respond to it or add it here. Ask
+  {organizer} to send it again.** It offers no response, so it shows the same way
+  for a cancellation and whether or not it names the opened mailbox. A `RANGE` or
+  an unreadable rule still shows **Unwired can’t read this invitation**.
 - Other recurring meetings, a range of a series' meetings (`RANGE`), series
   with `RDATE` or `EXDATE`, all-day series, floating or unknown time zones,
   a timed meeting whose `DURATION` counts days, and damaged calendar text show
@@ -145,6 +155,8 @@ separately.
   (18pt corners on iPhone, 10pt on iPad), and native capsule **Accept**, **Maybe** and **Decline** buttons in one row;
   the chosen one takes the accent fill. With larger text each value moves below its
   label, and from the first accessibility size the buttons stack at full width.
+  They also stack when the row cannot keep each title on one line, such as the
+  chosen one's checkmark in iPad's narrow three-column reader.
 - **Respond Again…** asks in the system alert, with **Respond Again** and
   **Cancel**. Closing the message dismisses the alert without sending.
 - VoiceOver hears each status change once, since iOS ignores live regions.
@@ -159,5 +171,11 @@ separately.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
   render each reader with a synthetic Gmail mailbox; they are component tests, not
   native evidence.
-- Native Mac, iPhone and iPad evidence and a real Gmail organizer receiving the
+- The iPhone and iPad `registration-invitation`
+  [Mock Mail journey](mock-mail-sessions.md) opens a Gmail invitation and accepts
+  it, keeping captures of the card before and after. It also captures an invitation
+  for another address, a cancellation, a weekly series, one meeting of a series, an
+  ambiguous series update and an invitation Unwired can't read.
+- Native Mac evidence, the response states that need a Gmail failure or an
+  earlier response on iPhone and iPad, and a real Gmail organizer receiving the
   response remain required before release.
