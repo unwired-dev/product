@@ -541,7 +541,7 @@ final class InboxTests: XCTestCase {
     ).prefix(16).map { String(format: "%02x", $0) }.joined()
     let link = "unwired-mail://message/AAMkAGI2-synthetic-outlook%3D?mailbox=\(connection)"
     let unavailable = app.staticTexts["Message unavailable"].firstMatch
-    let reading = app.staticTexts["jordan@example.invalid"].firstMatch
+    let reading = text("Agenda for Thursday.", in: app)
     let back = app.navigationBars.buttons.matching(
       NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
     ).firstMatch
