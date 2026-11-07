@@ -178,7 +178,11 @@ separately.
   ambiguous series update and an invitation Unwired can't read. Last, it captures a
   revision at a new time as **Updated** after the declined answer, accepts it,
   captures the original as an **Older version** and follows **Show Latest** back
-  to the revision.
-- Native Mac evidence, the response states that need a Gmail failure on iPhone and
-  iPad, and a real Gmail organizer receiving the response remain required before
-  release.
+  to the revision. Then synthetic Gmail fails the supplier walkthrough's responses
+  in turn, and the journey captures **You’re offline**, **Not sent**, **Delivery
+  unknown**, **Check Again** checking Sent and, after **Respond Again**, the
+  sign-in Gmail needs.
+- Native Mac evidence, a mailbox removed while its response is sending on iPhone
+  and iPad, and a real Gmail organizer receiving the response remain required
+  before release. Only revoking the device removes a mailbox mid-send, and that
+  also removes the Mail Profile's mail, so no Mock Mail journey can show it.

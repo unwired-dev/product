@@ -6,7 +6,7 @@ import * as Layer from 'effect/Layer';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
-import type { Reply, RequestURL } from './synthetic-relay.ts';
+import type { Reply, RequestURL, SyntheticRefusal } from './synthetic-relay.ts';
 
 import { allMail, inView } from '../gmail-actions.ts';
 import { historyPageSize } from '../gmail-history.ts';
@@ -167,8 +167,9 @@ const weeklyReview = [
 ];
 // Below the answerable invitation, each invitation state the card shows without a response:
 // another attendee, a cancellation, a weekly series, one meeting of it, an update that carries
-// the series and names one meeting, and a calendar Unwired can't read. Last, the Q4 roadmap
-// review moved to the next morning, which answering makes the original an older version.
+// the series and names one meeting, and a calendar Unwired can't read. Then the Q4 roadmap
+// review moved to the next morning, which answering makes the original an older version. Last,
+// the supplier walkthrough, whose responses Gmail fails to send (`failedSends`).
 const invitationStates = [
   {
     subject: 'Invitation: Hiring sync',
@@ -242,6 +243,17 @@ const invitationStates = [
       'DTSTART:20261113T090000Z',
       'DTEND:20261113T100000Z',
       'LOCATION:Room 4',
+      invited('other@example.invalid'),
+    ]),
+  },
+  {
+    subject: 'Invitation: Supplier walkthrough',
+    calendar: meetingCalendar([
+      'UID:supplier-11@example.invalid',
+      'SEQUENCE:0',
+      'SUMMARY:Supplier walkthrough',
+      'DTSTART:20261118T140000Z',
+      'DTEND:20261118T150000Z',
       invited('other@example.invalid'),
     ]),
   },
@@ -519,6 +531,18 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
         }
         return yield* reply(200, { messages: listed.slice(2) });
       });
+      // Responses to the supplier walkthrough fail in turn: offline, refused, delivery unknown and,
+      // after Respond Again, a sign-in Gmail needs. The Sent search Check Again makes waits five
+      // seconds, so the card shows that it is checking, and finds nothing.
+      const failedSends =
+        scenario === 'registration-invitation'
+          ? [
+              refuse('unavailable'),
+              reply(400, {}),
+              reply(500, {}),
+              reply(401, {}),
+            ]
+          : [];
       // Gmail's named resources, by the request's last path segment.
       const resources: Readonly<
         Record<
@@ -526,7 +550,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           (
             url: RequestURL,
             body: string | null,
-          ) => Effect.Effect<Reply, Schema.SchemaError>
+          ) => Effect.Effect<Reply, Schema.SchemaError | SyntheticRefusal>
         >
       > = {
         profile: () =>
@@ -541,8 +565,12 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
                   ).length,
                 }),
           }),
-        // Synthetic Gmail accepts every message and keeps nothing of it.
-        send: () =>
+        // Synthetic Gmail accepts every message and keeps nothing of it, apart from the failures
+        // of responses to the supplier walkthrough.
+        send: (_, body) =>
+          (body?.includes('Re: Invitation: Supplier walkthrough')
+            ? failedSends.shift()
+            : undefined) ??
           reply(200, { id: '19a0c0ffee0000ff', threadId: '19a0c0ffee0000ff' }),
         history: () => reply(200, { historyId: '100' }),
         labels: () =>
@@ -564,6 +592,15 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
               ),
               newestFirst,
             ).map(([id]) => ({ id, threadId: threadOf(id) }));
+            if (
+              scenario === 'registration-invitation' &&
+              item('labelIds') === 'SENT'
+            ) {
+              return Effect.delay(
+                reply(200, { messages: listed }),
+                '5 seconds',
+              );
+            }
             return slowHistory !== undefined &&
               item('labelIds') === undefined &&
               item('maxResults') === String(historyPageSize)

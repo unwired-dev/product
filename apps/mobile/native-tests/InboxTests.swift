@@ -534,10 +534,38 @@ final class InboxTests: XCTestCase {
     kept.name = "Primary Profile without Work's mail and Draft"
     kept.lifetime = .keepAlways
     add(kept)
+    // #1905: a link to the moved mailbox's message reads as unavailable in the Primary Profile,
+    // whether it names that Profile or, as an old-form link, none.
+    let connection = SHA256.hash(
+      data: Data("dev.unwired.mailbox-connection\nmicrosoft-graph:synthetic-microsoft-account".utf8)
+    ).prefix(16).map { String(format: "%02x", $0) }.joined()
+    let link = "unwired-mail://message/AAMkAGI2-synthetic-outlook%3D?mailbox=\(connection)"
+    let unavailable = app.staticTexts["Message unavailable"].firstMatch
+    let reading = text("Agenda for Thursday.", in: app)
+    let back = app.navigationBars.buttons.matching(
+      NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Back", "Back,")
+    ).firstMatch
+    for url in [link + "&profileId=default", link] {
+      app.open(URL(string: url)!)
+      XCTAssertTrue(unavailable.waitForExistence(timeout: 15))
+      XCTAssertFalse(reading.waitForExistence(timeout: 5))
+      let blocked = XCTAttachment(screenshot: app.screenshot())
+      blocked.name = "Primary Profile reading a link to Work's message"
+      blocked.lifetime = .keepAlways
+      add(blocked)
+      // iPhone returns to the Inbox; iPad's Inbox stays beside the reader.
+      if UIDevice.current.userInterfaceIdiom == .phone { back.tap() } else { rowan.tap() }
+      XCTAssertTrue(unavailable.waitForNonExistence(timeout: 10))
+      XCTAssertTrue(rowan.waitForExistence(timeout: 10))
+      XCTAssertFalse(jordan.exists)
+    }
     // The Draft belongs to its mailbox's Profile, so it returns with the mailbox.
     moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     XCTAssertTrue(draft.waitForExistence(timeout: 10))
+    app.open(URL(string: link)!)
+    XCTAssertTrue(reading.waitForExistence(timeout: 15))
+    if UIDevice.current.userInterfaceIdiom == .phone { back.tap() }
   }
 
   // Moves a mailbox from its Profile's Settings row through its system pop-up, then shows every
@@ -1199,6 +1227,31 @@ final class InboxTests: XCTestCase {
     app.buttons["Show Latest"].firstMatch.tap()
     XCTAssertTrue(labelled(app, "Accepted. Gmail confirmed").waitForExistence(timeout: 20))
     XCTAssertTrue(app.buttons["Accepted"].firstMatch.isSelected)
+  }
+
+  // Gmail fails each response to the supplier walkthrough in turn (#1907): offline, refused, then
+  // delivery unknown, whose Check Again finds nothing in Sent, and after Respond Again a sign-in.
+  private func invitationFailuresJourney(_ app: XCUIApplication) {
+    openInvitation(app, "Invitation: Supplier walkthrough")
+    for (status, name) in [("You’re offline", "offline"), ("Not sent", "not sent")] {
+      app.buttons["Accept"].firstMatch.tap()
+      XCTAssertTrue(labelled(app, status).waitForExistence(timeout: 20), name)
+      captureInvitation(app, name)
+    }
+    app.buttons["Accept"].firstMatch.tap()
+    XCTAssertTrue(labelled(app, "Delivery unknown").waitForExistence(timeout: 20))
+    captureInvitation(app, "delivery unknown")
+    app.buttons["Check Again"].firstMatch.tap()
+    XCTAssertTrue(labelled(app, "Checking with Gmail").waitForExistence(timeout: 5))
+    captureInvitation(app, "checking sent")
+    XCTAssertTrue(labelled(app, "Delivery unknown").waitForExistence(timeout: 20))
+    app.buttons["Respond Again…"].firstMatch.tap()
+    let confirm = app.alerts.buttons["Respond Again"].firstMatch
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    confirm.tap()
+    XCTAssertTrue(labelled(app, "Gmail needs you to sign in again").waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["Sign In…"].firstMatch.exists)
+    captureInvitation(app, "sign-in needed")
   }
 
   // Opens Lena Fischer's invitation with `subject` from the Inbox list.
@@ -2461,6 +2514,7 @@ final class InboxTests: XCTestCase {
         invitationJourney(app)
         invitationStatesJourney(app)
         invitationRevisionJourney(app)
+        invitationFailuresJourney(app)
       default:
         try registrationJourney(app)
       }

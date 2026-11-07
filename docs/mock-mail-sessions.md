@@ -179,7 +179,11 @@ carries the whole series, and a daily series Unwired can't read; the journey ope
 each, checks its status and whether it offers **Accept**, and keeps a capture of
 each card. Last, the Q4 roadmap review's revision at a new time names the declined
 answer; the journey captures it, accepts it, captures the original as an older
-version and follows **Show Latest** back to the revision. The Mac falls back to the registration journey. CI does not run this
+version and follows **Show Latest** back to the revision. Synthetic Gmail fails
+each response to the supplier walkthrough in turn: as offline, refused, with
+delivery unknown and, after **Respond Again**, needing a sign-in; its Sent search
+waits five seconds and finds nothing, so **Check Again** shows that it is checking.
+The journey captures each of these states. The Mac falls back to the registration journey. CI does not run this
 scenario; it is local native evidence for iPhone and iPad in Light and Dark.
 The Mac, iPhone and iPad `categorization-spike` builds reuse the `open-read-relaunch`
 mailbox and add the [DeBERTa categorization spike](categorization-spike.md) page to
