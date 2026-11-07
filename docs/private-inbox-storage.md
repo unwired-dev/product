@@ -247,8 +247,11 @@ only that Profile's Inbox lists the mailbox's message, each Profile's Search fin
 only its own messages, and a Draft saved in that Profile appears in its Inbox and
 not in the Primary Profile's. The Mac `testMailProfileIsolation` journey does the
 same with two windows open side by side, one per Profile
-([#1901](https://github.com/unwired-dev/product/issues/1901)). Links and Outbox
-are not covered by either.
+([#1901](https://github.com/unwired-dev/product/issues/1901)). On iPhone and iPad,
+a message link to the moved mailbox, naming the Primary Profile or no Profile,
+reads as unavailable there until the mailbox moves back
+([#1905](https://github.com/unwired-dev/product/issues/1905)). The Outbox is not
+covered by either.
 
 Each Profile other than the Primary Profile may carry a curated **Color** and
 **Icon** in its synchronized definition
