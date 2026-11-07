@@ -204,12 +204,16 @@ describe('building an outgoing message', () => {
               },
             ],
             [{ blocks: [{ kind: 'paragraph', spans: [] }], columns: 2 }],
+            [
+              { blocks: [{ kind: 'paragraph', spans: [{ text: 'Total' }] }] },
+              { blocks: [{ kind: 'paragraph', spans: [{ text: '2' }] }] },
+            ],
           ],
         },
         { kind: 'numbered', spans: [{ text: 'Next' }] },
       ]),
     ).toBe(
-      '1. First\r\nDate\tPlace\r\n1. One\r\n2. Two\r\nPlan <https://example.invalid>\r\n\r\n1. Next',
+      '1. First\r\nDate\tPlace\r\n1. One\r\n2. Two\r\nPlan <https://example.invalid>\r\n\r\nTotal\t2\r\n1. Next',
     );
   });
 

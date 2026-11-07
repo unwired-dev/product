@@ -316,8 +316,10 @@ and cells and reads back to the same document. The plain-text alternative
 ([#1886](https://github.com/unwired-dev/product/issues/1886)) writes each row on
 its own line with a tab between cells, as a browser copies a table's text; a cell
 with several blocks keeps them on separate lines, an empty cell writes nothing and
-a merged cell writes its text once. Drafts do not store tables yet; Draft storage
-and editing tables in the composers follow in later #1268 slices.
+a merged cell writes its text once. The table sits on its own lines, and
+numbered lists restart around it as around any other block. Drafts do not store
+tables yet; Draft storage and editing tables in the composers follow in later
+#1268 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
