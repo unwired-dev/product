@@ -1453,6 +1453,30 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(primary.buttons.matching(draft).firstMatch.exists)
     attach(work, "Work window with its Draft")
 
+    // #1909: Work's window lists its sent message in the Outbox for the Undo Send Window, the
+    // Primary Profile's window shows no Outbox, and delivery then empties it.
+    work.buttons["New Message"].click()
+    let recipient = work.textFields["To"]
+    XCTAssertTrue(recipient.waitForExistence(timeout: 30))
+    recipient.click()
+    recipient.typeText("maya@example.invalid")
+    subject.click()
+    subject.typeText("Work report")
+    work.buttons["Send"].click()
+    func outbox(_ window: XCUIElement) -> XCUIElement {
+      window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Outbox")).firstMatch
+    }
+    let sending = NSPredicate(format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Work report.", ". Sending soon")
+    XCTAssertTrue(work.descendants(matching: .any).matching(sending).firstMatch.waitForExistence(timeout: 10))
+    // Send closes the composer once the Outbox admits the message.
+    XCTAssertTrue(subject.waitForNonExistence(timeout: 5))
+    XCTAssertTrue(outbox(work).exists)
+    XCTAssertFalse(outbox(primary).exists)
+    XCTAssertFalse(primary.descendants(matching: .any).matching(sending).firstMatch.exists)
+    attach(work, "Work window with its Outbox")
+    attach(primary, "Primary Profile window without an Outbox")
+    XCTAssertTrue(outbox(work).waitForNonExistence(timeout: 40))
+
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.buttons["Mail Profiles"].click()
