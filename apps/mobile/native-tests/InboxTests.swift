@@ -527,7 +527,7 @@ final class InboxTests: XCTestCase {
     work.lifetime = .keepAlways
     add(work)
     // #1912: a message Work sends waits in Work's Outbox, and the Primary Profile shows no Outbox
-    // while the Undo Send Window lasts.
+    // while it is still there.
     app.buttons["New Message"].tap()
     let to = app.textFields["To"]
     XCTAssertTrue(to.waitForExistence(timeout: 15))
