@@ -1120,6 +1120,36 @@ final class InboxTests: XCTestCase {
     add(accepted)
   }
 
+  // The registration-invitation mailbox's other invitations (#1888): each card states why it can't
+  // be answered, or which meetings of a series a response answers.
+  private func invitationStatesJourney(_ app: XCUIApplication) {
+    for (subject, status, answerable, name) in [
+      ("Invitation: Hiring sync", "You can’t respond from here", false, "not your address"),
+      ("Cancelled: Budget check-in", "This meeting was cancelled", false, "cancelled"),
+      ("Invitation: Weekly design review", "applies to every meeting", true, "whole series"),
+      ("Updated invitation: Weekly design review on 20 Nov", "applies only to", true, "one meeting"),
+      ("Updated series: Weekly design review", "can’t tell which meeting", false, "ambiguous"),
+      ("Invitation: Daily launch check", "can’t read this invitation", false, "unreadable"),
+    ] {
+      if UIDevice.current.userInterfaceIdiom == .phone {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
+      }
+      let row = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "Lena Fischer. " + subject)
+      ).firstMatch
+      XCTAssertTrue(row.waitForExistence(timeout: 20), subject)
+      row.tap()
+      XCTAssertTrue(
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", status))
+          .firstMatch.waitForExistence(timeout: 20), subject)
+      XCTAssertEqual(app.buttons["Accept"].firstMatch.exists, answerable, subject)
+      let capture = XCTAttachment(screenshot: app.screenshot())
+      capture.name = "Invitation " + name
+      capture.lifetime = .keepAlways
+      add(capture)
+    }
+  }
+
   // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
   // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
   // is within one screen of the visible range.
@@ -2346,7 +2376,9 @@ final class InboxTests: XCTestCase {
       case "registration-thread": threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
       case "registration-sync-status": try syncStatusJourney(app)
-      case "registration-invitation": invitationJourney(app)
+      case "registration-invitation":
+        invitationJourney(app)
+        invitationStatesJourney(app)
       default:
         try registrationJourney(app)
       }
