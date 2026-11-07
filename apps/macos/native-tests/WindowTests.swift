@@ -1429,6 +1429,9 @@ final class WindowTests: XCTestCase {
     never.click()
     waitUntil { policy.value as? String == "Never" }
     try audit(app, "Privacy & Data")
+    // Writing tools in the reply need Mail Assistance Enablement; this build's model is synthetic.
+    settings.switches["Mail Assistance"].click()
+    XCTAssertTrue(text("On-device assistance is on.", in: settings).waitForExistence(timeout: 15))
     // #1196: so is the interface language.
     settings.buttons["Language"].click()
     let language = settings.popUpButtons["Language"]
@@ -1547,6 +1550,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(destination.value as? String, "https://example.com/garden")
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    try detailCheckJourney(app, window: window, typed: typed, appearance: appearance)
 
     // Window commands: a new Inbox, cycling, Show Inbox and closing, each window with its own view.
     app.typeKey("n", modifierFlags: .command)
@@ -1642,6 +1646,71 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(quittingComposer.buttons["Send"].waitForExistence(timeout: 15))
     quittingComposer.typeKey("q", modifierFlags: .command)
     XCTAssertTrue(app.wait(for: .notRunning, timeout: 15))
+  }
+
+  // #1898: a Writing tools rewrite of the reply says which details it changed. The synthetic
+  // rewrite keeps the reply's link, so Replace text is the default button; once the reply has a
+  // time the rewrite drops, Keep original is. Return stays with the body (#1900).
+  private func detailCheckJourney(
+    _ app: XCUIApplication, window: XCUIElement, typed: XCUIElement, appearance: String
+  ) throws {
+    let reply = "Keyboard replyKeyboard reply"
+    let replace = window.buttons["Replace your text with this rewrite"]
+    let keep = window.buttons["Keep your text and close this suggestion"]
+    let withChanges = window.buttons[
+      "Replace your text with this rewrite, including its changed details"]
+    // Selectable text is a text view holding its words as its value.
+    func shown(_ words: String) -> XCUIElement {
+      window.textViews.matching(NSPredicate(format: "value CONTAINS %@", words)).firstMatch
+    }
+    func review(_ state: String) throws {
+      // With the caret at the end and no selection, Writing tools rewrite the whole body.
+      typed.click()
+      app.typeKey(.downArrow, modifierFlags: .command)
+      writingTool("Rewrite the message body", in: window, of: app).click()
+      XCTAssertTrue(keep.waitForExistence(timeout: 15))
+      XCTAssertTrue(window.buttons["Try writing help again"].exists)
+      let capture = XCTAttachment(screenshot: window.screenshot())
+      capture.name = "Writing tools \(state) \(appearance)"
+      capture.lifetime = .keepAlways
+      add(capture)
+      try audit(app, "Writing tools \(state)")
+    }
+    try review("W1")
+    XCTAssertTrue(shown("Kept: https://example.com/garden").exists)
+    XCTAssertTrue(replace.exists)
+    XCTAssertFalse(withChanges.exists)
+    // Keyboard focus stays in the body, which takes Return for a new line. Until #1899, that new
+    // line alone leaves the result open.
+    app.typeKey(.return, modifierFlags: [])
+    waitUntil { typed.value as? String == reply + "\n" }
+    app.typeKey(.delete, modifierFlags: [])
+    waitUntil { typed.value as? String == reply }
+    replace.click()
+    XCTAssertTrue(keep.waitForNonExistence(timeout: 10))
+    // With the result closed, only the body holds the rewrite.
+    let rewritten = window.textViews.matching(
+      NSPredicate(format: "value == %@", "Synthetic rewrite of local mail.")
+    ).firstMatch
+    XCTAssertTrue(rewritten.waitForExistence(timeout: 10))
+    rewritten.click()
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { typed.value as? String == reply }
+    app.typeKey(.downArrow, modifierFlags: .command)
+    app.typeText(" at 9:30")
+    waitUntil { typed.value as? String == reply + " at 9:30" }
+    try review("W2")
+    // The count line above the rows shows only in the capture until #1902 exposes it.
+    XCTAssertTrue(text("Time. Original: 9:30. Rewrite: —. Removed", in: window).exists)
+    XCTAssertTrue(withChanges.exists)
+    XCTAssertFalse(replace.exists)
+    keep.click()
+    XCTAssertTrue(keep.waitForNonExistence(timeout: 10))
+    XCTAssertEqual(typed.value as? String, reply + " at 9:30")
+    typed.click()
+    app.typeKey(.downArrow, modifierFlags: .command)
+    for _ in 0..<8 { app.typeKey(.delete, modifierFlags: []) }
+    waitUntil { typed.value as? String == reply }
   }
 
   // #1792: the format bar's Link control adds a link to the selected reply text in its native
@@ -1812,9 +1881,10 @@ final class WindowTests: XCTestCase {
       "Colleague 003, colleague003@example.invalid", "Favorites",
       "Go To", "Known Tracking Pixels stay blocked for every remote-content policy.",
       "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
-      "Mailboxes", "Microsoft · casey@example.invalid", "On-device assistance is off.",
+      "Mailboxes", "Microsoft · casey@example.invalid", "October 2025", "On-device assistance is off.",
       "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
       "Select a message to start reading.", "Selected Message", "September 2025",
+      "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Mail Profile on this Mac. Other devices and accounts keep their own choices.",
       "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
       "casey@example.invalid, other@example.invalid are connected on this device.",
     ],
@@ -1834,6 +1904,11 @@ final class WindowTests: XCTestCase {
     // Keep the foreground Inbox audit unexempted for #1574.
     case .contrast where type == .staticText && label == "Gmail · other@example.invalid":
       return ["Settings", "Privacy & Data", "Language", "Link sheet"].contains(screen) ? "#1550" : nil
+    // Private Cloud's row is dimmed until Mail Assistance is on; WCAG exempts inactive controls.
+    case .contrast
+    where type == .staticText && screen == "Privacy & Data"
+      && ["Use Private Cloud", "Turn on Mail Assistance above to use Private Cloud."].contains(label):
+      return "Inactive control"
     case .contrast where type == .staticText:
       return contrastGaps.first { $0.value.contains(label) }?.key
     case .action where touchBar, .sufficientElementDescription where touchBar:
@@ -1851,10 +1926,11 @@ final class WindowTests: XCTestCase {
       && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
         .contains(label):
       return "email address"
-    // The Link Editor's hint is a sentence ending in "text", not a label repeating its role.
+    // Sentences such as the Link Editor's hint and Private Cloud's explanation contain the word
+    // "text"; they are not labels repeating their role.
     case _ where type == .staticText && issue.compactDescription == "Label duplicates role description"
-      && label == "Enter a web, email or phone link for the selected text.":
-      return "Link Editor hint"
+      && label.hasSuffix("."):
+      return "sentence"
     // A message link whose text is a web address reads as that address.
     case .sufficientElementDescription
     where type == .link

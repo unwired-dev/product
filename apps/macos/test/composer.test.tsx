@@ -3806,7 +3806,7 @@ describe('composing Drafts', () => {
     ).toHaveBeenLastCalledWith(`Rewrite\n${rewrite}\n${differ}`, {
       queue: true,
     });
-    // Each row reads as one element: the detail, both versions and what happened to it.
+    // Each row reads as one text element: the detail, both versions and what happened to it.
     for (const row of [
       'Date. Original: Saturday. Rewrite: Saturday, 1 Nov. Can’t confirm it’s the same date',
       'Amount. Original: €40. Rewrite: €45. Changed',
@@ -3814,7 +3814,7 @@ describe('composing Drafts', () => {
       'Link. Original: https://example.com/r/4821. Rewrite: https://example.com/r/4812. Link goes somewhere else',
       'Email address. Original: —. Rewrite: reservas@example.com. Added',
     ]) {
-      expect(screen.getByLabelText(row)).toBeOnTheScreen();
+      expect(screen.getByRole('text', { name: row })).toBeOnTheScreen();
     }
     expect(screen.getByText('Kept: 8 pm')).toBeOnTheScreen();
     // A rewrite with changed details is never applied by the plain Replace action.

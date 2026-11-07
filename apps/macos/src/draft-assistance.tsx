@@ -249,6 +249,7 @@ function Checks({ check }: { readonly check: DetailCheck }) {
                 // eslint-disable-next-line react/no-array-index-key
                 key={index}
                 accessible
+                accessibilityRole="text"
                 accessibilityLabel={t('assistance.detailRow', {
                   detail: name(change),
                   original: change.original ?? none,

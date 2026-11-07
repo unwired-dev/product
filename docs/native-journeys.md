@@ -139,7 +139,18 @@ it. With the reply docked, it clicks the
 reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
 **Folders** opens its menu, which Escape closes, and the read toggle flips while the
 reply keeps its text. After relaunch, it checks that the
-saved Draft reopens with that text, and Edit Link with its saved destination. Command-N opens a second Inbox with no
+saved Draft reopens with that text, and Edit Link with its saved destination.
+With Mail Assistance turned on in Privacy & Data, **Rewrite the message body** from
+Writing tools ([#1898](https://github.com/unwired-dev/product/issues/1898)) shows the
+synthetic rewrite with the kept link note and **Replace text** as the default button.
+Return adds a new line to the focused body instead, which the result survives
+([#1899](https://github.com/unwired-dev/product/issues/1899)); Replace text makes
+the body the rewrite, and one Undo restores the reply. After " at 9:30" is typed, the
+rewrite reports one differing detail with its row and **Use rewrite with changes**;
+the count line above the row is checked only in the capture until it reaches the
+accessibility tree ([#1902](https://github.com/unwired-dev/product/issues/1902)),
+and Keep original closes it with the reply unchanged. Both states are audited and
+kept as `Writing tools W1` and `Writing tools W2` attachments. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there.
@@ -172,8 +183,9 @@ labels the contrast audit flags although their captured pixels pass, that
 fail only while another window or an AppKit sheet dims their window, or that sit
 on the Command Palette's glass panel
 ([#1550](https://github.com/unwired-dev/product/issues/1550)),
-AppKit's text Touch Bar, email or web addresses used as labels, and the Link Editor
-hint's false "Label duplicates role description" finding. The contrast gaps list
+AppKit's text Touch Bar, email or web addresses used as labels, Private Cloud's
+row while Mail Assistance is off (an inactive control), and the false "Label
+duplicates role description" finding on sentences such as the Link Editor hint. The contrast gaps list
 the labels each owner covers in either appearance. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
