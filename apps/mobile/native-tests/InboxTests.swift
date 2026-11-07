@@ -1229,6 +1229,31 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Accepted"].firstMatch.isSelected)
   }
 
+  // Gmail fails each response to the supplier walkthrough in turn (#1907): offline, refused, then
+  // delivery unknown, whose Check Again finds nothing in Sent, and after Respond Again a sign-in.
+  private func invitationFailuresJourney(_ app: XCUIApplication) {
+    openInvitation(app, "Invitation: Supplier walkthrough")
+    for (status, name) in [("You’re offline", "offline"), ("Not sent", "not sent")] {
+      app.buttons["Accept"].firstMatch.tap()
+      XCTAssertTrue(labelled(app, status).waitForExistence(timeout: 20), name)
+      captureInvitation(app, name)
+    }
+    app.buttons["Accept"].firstMatch.tap()
+    XCTAssertTrue(labelled(app, "Delivery unknown").waitForExistence(timeout: 20))
+    captureInvitation(app, "delivery unknown")
+    app.buttons["Check Again"].firstMatch.tap()
+    XCTAssertTrue(labelled(app, "Checking with Gmail").waitForExistence(timeout: 5))
+    captureInvitation(app, "checking sent")
+    XCTAssertTrue(labelled(app, "Delivery unknown").waitForExistence(timeout: 20))
+    app.buttons["Respond Again…"].firstMatch.tap()
+    let confirm = app.alerts.buttons["Respond Again"].firstMatch
+    XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+    confirm.tap()
+    XCTAssertTrue(labelled(app, "Gmail needs you to sign in again").waitForExistence(timeout: 20))
+    XCTAssertTrue(app.buttons["Sign In…"].firstMatch.exists)
+    captureInvitation(app, "sign-in needed")
+  }
+
   // Opens Lena Fischer's invitation with `subject` from the Inbox list.
   private func openInvitation(_ app: XCUIApplication, _ subject: String) {
     if UIDevice.current.userInterfaceIdiom == .phone {
@@ -2489,6 +2514,7 @@ final class InboxTests: XCTestCase {
         invitationJourney(app)
         invitationStatesJourney(app)
         invitationRevisionJourney(app)
+        invitationFailuresJourney(app)
       default:
         try registrationJourney(app)
       }

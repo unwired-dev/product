@@ -832,6 +832,34 @@ describe('the invitation mailbox', () => {
     expect.hasAssertions();
     await expect(offerOf(id)).resolves.toMatchObject(state);
   });
+
+  it('fails responses to the supplier walkthrough in turn, and sends the rest', async () => {
+    expect.hasAssertions();
+    await expect(offerOf('19a0c0ffee000047')).resolves.toMatchObject({
+      kind: 'invited',
+      details: { summary: 'Supplier walkthrough' },
+    });
+    const ask = launch('registration-invitation', { state: null });
+    const send = (subject: string) =>
+      ask('google.gmail', {
+        subject: 'synthetic-alternate-mailbox',
+        url: 'https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=multipart',
+        body: `Subject: ${subject}\r\n`,
+      });
+    const status = async (subject: string) =>
+      decoded(Schema.Struct({ status: Schema.Finite }), await send(subject))
+        .status;
+    const walkthrough = 'Re: Invitation: Supplier walkthrough';
+    await expect(status('Re: Invitation: Q4 roadmap review')).resolves.toBe(
+      200,
+    );
+    await expect(send(walkthrough)).resolves.toStrictEqual({
+      code: 'unavailable',
+    });
+    for (const expected of [400, 500, 401, 200]) {
+      await expect(status(walkthrough)).resolves.toBe(expected);
+    }
+  });
 });
 
 describe('the sync status mailbox', () => {
