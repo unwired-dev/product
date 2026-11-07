@@ -212,6 +212,21 @@ and iPhone [1030:8587](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-
 - A missed reminder stays as "Reminder missed" on the row and in a detail banner
   with Mark Done and Remind Me Again… until the user acts.
 
+### Owner decisions for suggestions and changes (7 Nov 2026)
+
+The owner approved the Mac, iPad and iPhone frames for #943, #946, #941, #940
+and #942: Mac
+[1049:17202](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1049-17202),
+iPad [1060:23747](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1060-23747)
+and iPhone [1068:8559](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1068-8559).
+
+- Accepting a suggestion offers a reminder at once: the banner changes to
+  "Added to your commitments" with Remind Me… and Not Now.
+- Dismiss is a single action. It asks for no reason.
+- The older-mail search keeps running in the background after the Commitments
+  window (Mac) or the app (iPad, iPhone) closes, and shows its progress when
+  the user returns. New suggestions appear as they are found.
+
 ## Review queue
 
 - A separate review queue within Mail Commitments shows editable proposals,

@@ -217,9 +217,12 @@ narrower than 1560 points, where two windows cannot fit. Each lists its own
 mailbox and an `update` message but not the other mailbox or its `update` messages;
 other messages are not checked. Search for `update 003` in each finds only its own mailbox's message.
 A Draft saved from Work's window appears there and not in the Primary Profile's.
+A message sent from Work's window waits in its **Outbox** as `Sending soon` during
+the Undo Send Window while the Primary Profile's window shows no Outbox, and
+Work's Outbox empties once delivery takes it
+([#1909](https://github.com/unwired-dev/product/issues/1909)).
 Moving the mailbox back restores its messages and the Draft to the Primary Profile
-window. Each window's capture is kept as an attachment. Links and Outbox are not
-covered.
+window. Each window's capture is kept as an attachment. Links are not covered.
 
 ## iPhone and iPad keyboard and accessibility journey
 
