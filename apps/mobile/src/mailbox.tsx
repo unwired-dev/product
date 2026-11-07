@@ -1,3 +1,4 @@
+import type { ComposerNavigation } from '@private-email/mail-core/composer-navigation';
 import type { Drafts } from '@private-email/mail-core/drafts';
 import type { ViewScope } from '@private-email/mail-core/mailboxes';
 import type { Outbox } from '@private-email/mail-core/outbox';
@@ -57,6 +58,11 @@ export function useComposerNavigation() {
 export function useLeaveComposer() {
   return useComposerNavigation().leave;
 }
+// The mounted Inbox's composer navigation, for links Expo Router opens outside React.
+let mountedNavigation: ComposerNavigation | undefined = undefined;
+export function leaveComposerForLink() {
+  return mountedNavigation?.leave() ?? Promise.resolve(true);
+}
 
 const waitingForMailbox = { kind: 'loading' } as const;
 
@@ -74,6 +80,14 @@ export function InboxProvider({
 }) {
   const account = use(AccountContext);
   const navigation = useMemo(() => createComposerNavigation(), []);
+  useEffect(() => {
+    mountedNavigation = navigation;
+    return () => {
+      if (mountedNavigation === navigation) {
+        mountedNavigation = undefined;
+      }
+    };
+  }, [navigation]);
   useEffect(() => {
     void drafts.load();
     // Returning picks up other devices' Draft changes; leaving publishes this device's.

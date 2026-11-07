@@ -406,8 +406,9 @@ final class InboxTests: XCTestCase {
     sendJourney(app)
   }
 
-  // #778: the iPhone composer covers the split columns, so neither the reader's Back button nor an
-  // edge swipe leaves a Draft whose save failed. It stays open with its edits until a retry saves.
+  // #778: the iPhone composer covers the split columns, so neither the reader's Back button, an
+  // edge swipe nor a delivered link (#1523) leaves a Draft whose save failed. It stays open with
+  // its edits until a retry saves.
   private func failedSaveBack(_ app: XCUIApplication) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
     let identifier = ProcessInfo.processInfo.environment["UNWIRED_BUNDLE_ID"]!
@@ -444,14 +445,49 @@ final class InboxTests: XCTestCase {
       XCTAssertEqual(subject.value as? String, "Unsaved plans")
       XCTAssertFalse(back.isHittable)
     }
+    // #1523: a delivered link asks to leave first; a save that fails again keeps the composer and
+    // the reader beneath it, and drops the link.
+    let link = URL(string: "unwired-mail://")!
+    let reader = app.staticTexts["jordan@example.invalid"]
+    app.open(link)
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    XCTAssertTrue(blocked.waitForExistence(timeout: 10))
+    XCTAssertTrue(composer.exists)
+    XCTAssertEqual(subject.value as? String, "Unsaved plans")
+    XCTAssertTrue(reader.exists)
     let kept = XCTAttachment(screenshot: app.screenshot())
-    kept.name = "Composer kept open after a failed save and Back swipes"
+    kept.name = "Composer kept open after a failed save, Back swipes and a link"
     kept.lifetime = .keepAlways
     add(kept)
     post(".draft-saves-restore")
     composer.buttons["Try again"].tap()
     waitUntil { !composer.exists }
-    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(reader.waitForExistence(timeout: 10))
+    waitUntil { back.isHittable }
+    // An unfinished recipient keeps the composer open past a link too.
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("unfinished", into: to)
+    app.open(link)
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    let invalid = text("Correct or remove the invalid address to close this Draft.", in: app)
+    XCTAssertTrue(invalid.waitForExistence(timeout: 10))
+    XCTAssertTrue(composer.exists)
+    XCTAssertTrue(reader.exists)
+    let unfinished = XCTAttachment(screenshot: app.screenshot())
+    unfinished.name = "Composer kept open with an unfinished recipient after a link"
+    unfinished.lifetime = .keepAlways
+    add(unfinished)
+    app.buttons["Close"].tap()
+    let delete = app.buttons["Delete Draft"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 10))
+    delete.tap()
+    waitUntil { !composer.exists }
     waitUntil { back.isHittable }
   }
 
