@@ -1339,6 +1339,9 @@ final class WindowTests: XCTestCase {
   // Gmail mailbox; moving it back restores them to the Primary Profile.
   func testMailProfileIsolation() throws {
     continueAfterFailure = false
+    // Two Inbox windows at their 760-point minimum width need a display at least twice as wide.
+    let half = try XCTUnwrap(NSScreen.main?.visibleFrame.width) / 2
+    try XCTSkipIf(half - 20 < 760, "The display is too narrow for two Inbox windows side by side")
     let environment = ProcessInfo.processInfo.environment
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
@@ -1412,7 +1415,6 @@ final class WindowTests: XCTestCase {
     // Each window takes its own half of the screen, so both stay in view side by side. The new
     // window starts in front, offset below the first's title bar: narrow it and move it right,
     // then drag the first by its uncovered title bar to the left and narrow it.
-    let half = (NSScreen.main?.visibleFrame.width ?? 1920) / 2
     func narrow(_ window: XCUIElement) {
       let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
         .withOffset(CGVector(dx: -2, dy: -2))
