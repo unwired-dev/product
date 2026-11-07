@@ -760,8 +760,7 @@ describe('the performance mailboxes', () => {
 });
 
 describe('the invitation mailbox', () => {
-  it("serves a meeting invitation to the mailbox's own address", async () => {
-    expect.hasAssertions();
+  const offerOf = async (id: string) => {
     const ask = launch('registration-invitation', { state: null });
     const gmail = (path: string) =>
       ask('google.gmail', {
@@ -776,18 +775,25 @@ describe('the invitation mailbox', () => {
     ) => Schema.Struct({ status: Schema.Finite, body });
     const read = decoded(
       exchange(Schema.String),
-      await gmail('messages/19a0c0ffee000031?format=full'),
+      await gmail(`messages/${id}?format=full`),
     ).body;
-    const offer = await Effect.runPromise(
+    return Effect.runPromise(
       Effect.gen(function* () {
-        const { id, payload } = yield* decodeFullMessage(read);
-        const part = yield* Effect.fromNullishOr(calendarPart(payload));
+        const message = yield* decodeFullMessage(read);
+        const part = yield* Effect.fromNullishOr(calendarPart(message.payload));
         const data = yield* Effect.fromNullishOr(part.body?.data);
         const calendar = yield* partText(part, data);
-        return invitationOf({ id, calendar }, 'other@example.invalid');
+        return invitationOf(
+          { id: message.id, calendar },
+          'other@example.invalid',
+        );
       }),
     );
-    expect(offer).toMatchObject({
+  };
+
+  it("serves a meeting invitation to the mailbox's own address", async () => {
+    expect.hasAssertions();
+    await expect(offerOf('19a0c0ffee000031')).resolves.toMatchObject({
       kind: 'invited',
       address: 'other@example.invalid',
       details: {
@@ -795,6 +801,27 @@ describe('the invitation mailbox', () => {
         organizer: { name: 'Lena Fischer', address: 'lena@example.invalid' },
       },
     });
+  });
+
+  it.each([
+    [
+      '19a0c0ffee000040',
+      { kind: 'elsewhere', invited: ['mara@example.invalid'] },
+    ],
+    ['19a0c0ffee000041', { kind: 'cancelled' }],
+    [
+      '19a0c0ffee000042',
+      { kind: 'invited', details: { starts: expect.any(Array) } },
+    ],
+    [
+      '19a0c0ffee000043',
+      { kind: 'invited', details: { recurrence: Date.UTC(2026, 10, 20, 15) } },
+    ],
+    ['19a0c0ffee000044', { kind: 'ambiguous' }],
+    ['19a0c0ffee000045', { kind: 'unreadable' }],
+  ])('serves %s as an invitation state', async (id, state) => {
+    expect.hasAssertions();
+    await expect(offerOf(id)).resolves.toMatchObject(state);
   });
 });
 
