@@ -66,6 +66,10 @@ On-Device Mail Assistance action, **Summarize**, Draft
 - A device choice that is still saving or could not be saved is shown as such,
   with an explicit retry for the failed save. Turning assistance off still closes
   its actions immediately, even when saving fails.
+  The failed Off lasts only until the app reloads: if the retry has not
+  succeeded by then, the previously saved choice applies again. The same holds
+  for Private Cloud consent. The visible failure and retry are enough; there is
+  no separate fail-closed marker (owner decision, 7 Nov 2026, #1854).
 - Turning it off, in any window, cancels that Profile’s in-flight assistance and
   forgets its shown previews, including a Privacy & Data availability check started under that Profile. A captured Draft request is retired, so turning it on
   again does not restart it. A Draft whose connection moves to another Profile

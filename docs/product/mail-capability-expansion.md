@@ -309,6 +309,33 @@ behavior in feature documentation, and only qualifying architectural trade-offs
 in decision records. The completed documentation review covers the accepted behavior and glossary.
 Editorial status updates and the delivery index preserve that reviewed scope.
 
+## Owner decisions on individual follow-ups (7 Nov 2026)
+
+- **No delivery service while every device is offline (#1663).** Outlook and
+  JMAP Scheduled Sends use the provider's schedule (ADR 0076). Gmail, iCloud
+  and IMAP Scheduled Sends wait for a trusted device of the Profile; more than
+  24 hours late they ask for attention instead of sending. Immediate Outbox
+  sends stay on the originating device.
+- **No open or read tracking (#1662).** Unwired adds no tracking pixels or
+  rewritten links to sent mail and offers no open times or devices, Recent
+  Opens feed, template open metrics or MCP read-status tool. An automatic image
+  fetch is not evidence that a person read a message. Signals from the user's
+  own mailbox, such as "no reply yet" reminders, remain allowed.
+- **Contact pane from local sources only (#1666).** It shows system Contacts
+  (with permission), facts the user typed, and facts found in the user's own
+  mail with their source ("From mail", linking to the message), which the user
+  can correct or remove. No address is sent to an enrichment provider, there is
+  no public profile directory, and an uncertain match is a dismissible
+  suggestion, never a silent merge. Editing one's own published profile is
+  excluded.
+- **Share availability instead of booking links (#1705).** Unwired hosts no
+  booking page and runs no scheduling service. From the composer the user can
+  insert proposed times into a Draft, computed on the device from their own
+  calendar and shown in the recipient's timezone when known. Free/busy is
+  checked again before the user creates the event; a conflict is shown instead
+  of double-booking. Persistent booking pages and live public availability are
+  excluded.
+
 ## Delivery tickets
 
 The owner approved all 46 tickets and their 56 native blocking dependencies on
