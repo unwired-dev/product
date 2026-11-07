@@ -176,10 +176,13 @@ results for changed details on Mac, and on iPhone and iPad.
     so applying them is an explicit choice; **Keep original** and **Try again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**
-    when none do. On Mac, the accent button is the window's default button: Return presses it
-    unless the focused view takes the key, as the Draft body does for a new
-    line. VoiceOver reads each row as one element and hears the count after
-    the result.
+    when none do. On Mac, the accent button is the window's default button, but
+    keyboard focus stays in the Draft body when the result appears, so Return adds
+    a new line there instead ([#1900](https://github.com/unwired-dev/product/issues/1900)),
+    and the result stays open ([#1899](https://github.com/unwired-dev/product/issues/1899)).
+    VoiceOver reads each row as one text element and hears the count after the result,
+    but can't move to the count line yet
+    ([#1902](https://github.com/unwired-dev/product/issues/1902)).
 - A result belongs to the text it was captured from. Any edit to the Draft body, or to the To/Cc recipients
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
   offered or applied. Closing the Draft cancels the request. Controls rendered for
