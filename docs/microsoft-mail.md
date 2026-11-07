@@ -126,7 +126,9 @@ bounds never evict downloaded history.
 When Move to lists only part of the mailbox's folders, each backfill run first
 walks every folder list page, nested folders included, saving its place after
 each page. Until that walk completes, including on later runs, the progress
-names no total and is not complete, and no folder leaves the history.
+names no total and is not complete, and no folder leaves the history. Each walk
+step adds the folders found so far to the download as pending, so the progress
+never shows complete before they are downloaded.
 
 Changes made while the download runs are retained. Each synchronization keeps
 new, moved, deleted and read mail current in the downloaded history: a message

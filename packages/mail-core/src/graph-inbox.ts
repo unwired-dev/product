@@ -981,25 +981,33 @@ export function createGraphReader(native: NativeGraphMailbox) {
     const folders = keptFolders(document);
     const updated = (next: readonly GraphFolderHistory[]) =>
       withFolders(saved, next);
+    const listed = new Set(folders.map(({ folder }) => folder));
+    const missing = (next: MailboxDocument) =>
+      historyFolders(next)
+        .wanted.filter((folder) => !listed.has(folder) && !done.has(folder))
+        .map((folder) => newFolder(folder));
+    // A walk step also saves the folders it found as pending, so the step that finishes the walk
+    // never shows the history complete before those folders are in it.
     if (walkDue(document, done.has(walked))) {
+      const walking = {
+        folders,
+        inventory: yield* inventoryStep(scope, inventory, done),
+      };
       return Option.some({
         history: {
-          folders,
-          inventory: yield* inventoryStep(scope, inventory, done),
+          ...walking,
+          folders: [
+            ...folders,
+            ...missing({ ...document, graphHistory: walking }),
+          ],
         },
         written: [],
       });
     }
-    const listed = new Set(folders.map(({ folder }) => folder));
-    const missing = historyFolders(document).wanted.filter(
-      (folder) => !listed.has(folder) && !done.has(folder),
-    );
-    if (missing.length > 0) {
+    const added = missing(document);
+    if (added.length > 0) {
       return Option.some({
-        history: updated([
-          ...folders,
-          ...missing.map((folder) => newFolder(folder)),
-        ]),
+        history: updated([...folders, ...added]),
         written: [],
       });
     }

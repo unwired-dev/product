@@ -114,15 +114,19 @@ export const withNativeHistory = <
   // Observe early process errors while test cleanup still owns and checks the final result.
   // oxlint-disable-next-line promise/prefer-await-to-then -- Register rejection observation before a process can exit; cleanup awaits it.
   void exited.promise.catch(() => undefined);
+  // A backfill step already under way when the test ends may still call; like a quit app's store,
+  // the closed process refuses it instead of failing the finished test.
+  let closed = false;
   onTestFinished(async () => {
+    closed = true;
     child.stdin.end();
     await exited.promise;
     lines.close();
   });
   const call = (command: unknown) => {
     const result = Promise.withResolvers<unknown>();
-    if (failure !== undefined) {
-      result.reject(failure);
+    if (closed || failure !== undefined) {
+      result.reject(failure ?? new Error('Native history storage closed'));
       return result.promise;
     }
     pending.push(result);
