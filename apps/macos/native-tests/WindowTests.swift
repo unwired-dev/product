@@ -2102,6 +2102,9 @@ final class WindowTests: XCTestCase {
   // Text the contrast audit still flags after #1195's solid colours, by the issue that owns it. The
   // audits cover every open window, so these list labels rather than screens.
   private let contrastGaps: [String: Set<String>] = [
+    // Light's primary hint on popover glass renders about 5:1 where the popover overlaps a dark
+    // window behind, yet the audit flags it.
+    "#1794": ["Enter a web, email or phone link for the selected text."],
     // Their captured pixels pass, yet the audit flags them: the Inbox window's labels while
     // Settings or a sheet is in front, small text, including AppKit's own, and the Command
     // Palette's headers on its glass panel.

@@ -128,8 +128,9 @@ readback. It runs Reply from the palette,
 types into the reply and pastes into it. It then selects the reply and clicks
 **Add Link** ([#1792](https://github.com/unwired-dev/product/issues/1792)): the
 Link Editor popover opens with the selection as its Text, Link focused and empty,
-Apply disabled and no Remove Link. Its audit completes with one exception: the
-hint's false "Label duplicates role description" finding. The capture is
+Apply disabled and no Remove Link. Its audit completes with two exceptions: the
+tracked contrast gap [#1794](https://github.com/unwired-dev/product/issues/1794)
+and the hint's false "Label duplicates role description" finding. The capture is
 kept as an `Add Link` attachment. Review it for the body's selection drawn as inactive
 ([#1796](https://github.com/unwired-dev/product/issues/1796)); no assertion checks the highlight. An invalid destination shows its reason after Return,
 Escape closes the popover keeping the text and selection, which reopening it
@@ -178,7 +179,8 @@ It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
 Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader,
 composer and Link Editor, and prints each issue as an `ACCESSIBILITY` JSON line
 in `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
-audits still report. These are labels the contrast audit flags although their captured pixels pass, that
+audits still report. These are the Link Editor hint on popover glass ([#1794](https://github.com/unwired-dev/product/issues/1794)),
+labels the contrast audit flags although their captured pixels pass, that
 fail only while another window or an AppKit sheet dims their window, or that sit
 on the Command Palette's glass panel
 ([#1550](https://github.com/unwired-dev/product/issues/1550)),
