@@ -292,10 +292,18 @@ export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
   return html;
 };
 
-const plainOf = (document: readonly Block[]) => {
+export const plainOf = (document: ReadonlyArray<Block | Table>): string => {
   let number = 0;
   return document
-    .map(({ kind, spans }) => {
+    .map((block) => {
+      // A table writes each row on its own line with a tab between cells, as a browser copies its text.
+      if (block.kind === 'table') {
+        number = 0;
+        return block.rows
+          .map((cells) => cells.map(({ blocks }) => plainOf(blocks)).join('\t'))
+          .join(crlf);
+      }
+      const { kind, spans } = block;
       number = kind === 'numbered' ? number + 1 : 0;
       // Linked text is followed by its destination, unless it already reads as it.
       const text = linkRuns(spans)

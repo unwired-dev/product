@@ -312,9 +312,12 @@ rows, a merged cell that crosses row groups, nested tables, images in cells, emp
 tables and rows, and tables inside lists, quotes, headings, inline formatting,
 text color, links or alignment are reported, because the document cannot hold them yet or standards
 and quirks mode show them differently. Outgoing HTML writes tables as plain rows
-and cells and reads back to the same document. Drafts do not store tables yet;
-Draft storage, the plain-text part and editing tables in the composers follow in
-later #1268 slices.
+and cells and reads back to the same document. The plain-text alternative
+([#1886](https://github.com/unwired-dev/product/issues/1886)) writes each row on
+its own line with a tab between cells, as a browser copies a table's text; a cell
+with several blocks keeps them on separate lines, an empty cell writes nothing and
+a merged cell writes its text once. Drafts do not store tables yet; Draft storage
+and editing tables in the composers follow in later #1268 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
