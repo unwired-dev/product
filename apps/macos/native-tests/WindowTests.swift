@@ -2226,6 +2226,23 @@ final class WindowTests: XCTestCase {
   private static let privateCloudFooter =
     "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Mail Profile on this Mac. Other devices and accounts keep their own choices."
 
+  // Labels #1550 flags while a Spam and Trash sheet is in front: the sheets' own secondary text,
+  // then the Inbox and Settings labels behind them.
+  private static let folderSheetContrastGaps: Set<String> = [
+    "Not marked by its server", "Chosen by you",
+    "pat@example.invalid doesn’t say which of its folders hold Spam and Trash. Choose them so All Mail can leave those messages out. Unwired Mail doesn’t guess from folder names.",
+    "Until both are chosen, pat@example.invalid isn’t included in All Mail. Its folders stay in the sidebar.",
+    "Saving updates which messages All Mail leaves out, including ones already synced. Until then, your current folders stay in use.",
+    "All Mail. All mailboxes · Syncing", "All Mail. All mailboxes · 7 unread", "November",
+    "pat@example.invalid isn’t included",
+    "Its server doesn’t say which folders hold Spam and Trash, so All Mail can’t leave them out. Its folders are still listed under it in the sidebar.",
+    "Accounts", "Application", "Automation", "Email Accounts", "Mailbox Connections", "Gmail",
+    "Microsoft", "casey@example.invalid", "other@example.invalid", "pat@example.invalid",
+    "Each mailbox keeps its own access and saved mail on this device. The Inbox shows them together or one at a time.",
+    "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you",
+    "Its server doesn’t mark these folders, so you chose them. All Mail leaves out messages in Spam and Trash.",
+  ]
+
   // Text the contrast audit still flags after #1195's solid colours, by the issue that owns it. The
   // audits cover every open window, so these list labels rather than screens.
   private let contrastGaps: [String: Set<String>] = [
@@ -2263,11 +2280,12 @@ final class WindowTests: XCTestCase {
     // Keep the foreground Inbox audit unexempted for #1574.
     case .contrast where type == .staticText && label == "Gmail · other@example.invalid":
       return ["Settings", "Privacy & Data", "Language", "Link sheet"].contains(screen) ? "#1550" : nil
-    // The Spam and Trash sheets' secondary text measures 5.5:1 or more in Light and Dark captures,
-    // and the windows behind them are dimmed.
+    // The Spam and Trash sheets' secondary text measures 5.5:1 or more in Light and Dark captures;
+    // the other labels belong to the dimmed windows behind the sheets.
     case .contrast
     where type == .staticText
-      && ["Choose Spam and Trash Folders", "Spam and Trash Folders"].contains(screen):
+      && ["Choose Spam and Trash Folders", "Spam and Trash Folders"].contains(screen)
+      && WindowTests.folderSheetContrastGaps.contains(label):
       return "#1550"
     // Private Cloud's row is dimmed until Mail Assistance is on; WCAG exempts inactive controls.
     case .contrast

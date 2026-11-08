@@ -39,7 +39,7 @@
       -> ImapHistoryPage
     {
       let all = try Self.messages(request.folder)
-      let shown = all.filter { $0.uid > request.above && $0.uid < (request.below ?? .max) }
+      let shown = all.filter { $0.uid >= request.above && $0.uid < (request.below ?? .max) }
       let kept = Array(shown.suffix(request.limit))
       return ImapHistoryPage(
         uidValidity: Self.uidValidity, uidNext: (all.map(\.uid).max() ?? 0) + 1, total: all.count,

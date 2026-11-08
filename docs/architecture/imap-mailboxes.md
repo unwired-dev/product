@@ -273,7 +273,8 @@ the complete rendered IMAP setup/read/relaunch path or real provider compatibili
 Shared controlled-provider tests exercise the actual TypeScript store and cache
 contracts; those fixtures implement bridge replies rather than TLS/IMAP. App
 registration journeys exercise immediate password repair on both host components.
-Native Mock Mail Sessions still reject IMAP connection attempts.
+Registration Mock Mail Sessions connect any IMAP login to a synthetic server that
+marks only its Sent folder; the Mac Spam and Trash folder journey uses it.
 
 Real iCloud/Fastmail reads require accounts and remain release work in #632. Native
 Mac controlled-TLS reads, complete native IMAP setup/open/relaunch journeys and
