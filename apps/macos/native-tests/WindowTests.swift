@@ -1800,7 +1800,10 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(labelled("All Inboxes. No mailboxes").waitForExistence(timeout: 30))
     XCTAssertTrue(labelled("No Mailboxes").exists)
     XCTAssertTrue(labelled("Move a mailbox into Work from its current Mail Profile.").exists)
-    XCTAssertFalse(window.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Inbox. In ")).firstMatch.exists)
+    // No mailbox section header or Inbox row names either account.
+    XCTAssertFalse(
+      window.descendants(matching: .any)
+        .matching(NSPredicate(format: "label CONTAINS %@", "@example.invalid")).firstMatch.exists)
     let attachment = XCTAttachment(screenshot: window.screenshot())
     attachment.name = "Mail Profile without mailboxes, \(appearance)"
     attachment.lifetime = .keepAlways
