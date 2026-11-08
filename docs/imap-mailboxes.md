@@ -619,5 +619,7 @@ Real iCloud Mail and Fastmail read, organizing, search, IDLE, SMTP submission an
 filing qualification remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
-hosts, and backfilling large real IMAP folders. Native Mock Mail Sessions currently refuse IMAP connection attempts; the shared
-controlled-provider fixture is not native mock or provider qualification.
+hosts, and backfilling large real IMAP folders. Registration Mock Mail Sessions connect any
+IMAP login to a synthetic server that marks only its Sent folder, which the
+[Mac IMAP Spam and Trash folder journey](native-journeys.md#mac-imap-spam-and-trash-folder-journey)
+uses; it is not provider qualification, and neither is the shared controlled-provider fixture.

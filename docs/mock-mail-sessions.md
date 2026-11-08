@@ -162,6 +162,12 @@ connects both mailboxes and times its interactions over them; the Mac
 drives them by keyboard. The Expo native journey connects the Microsoft mailbox and
 [drives it by hardware keyboard](native-journeys.md#iphone-and-ipad-keyboard-and-accessibility-journey)
 on iPhone and iPad. CI runs none of them.
+Every `registration-` session connects any IMAP and SMTP login to a synthetic server.
+It lists INBOX with Sam Rivera's Welcome to IMAP, Sent Messages, the only folder it marks
+(`\Sent`), Bulk Mail with Unwanted offer and Deleted Messages with Old receipt. It accepts
+changes and submissions and discards them. The
+[Mac IMAP Spam and Trash folder journey](native-journeys.md#mac-imap-spam-and-trash-folder-journey)
+connects it in `registration-performance`.
 In `registration-sync-status`, the synthetic Gmail mailbox downloads its history
 slowly: Gmail reports the mailbox's message count, lists two messages, then holds
 the next page for two minutes and fails it once with a server error before listing
