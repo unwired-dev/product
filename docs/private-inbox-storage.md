@@ -199,7 +199,8 @@ that window. The Inbox of a Profile that owns no mailbox is subtitled
 **No Mailboxes** with **Manage Mail Profiles…**, which opens Settings › Mail
 Profiles; its sidebar keeps Favorites only
 ([#1789](https://github.com/unwired-dev/product/issues/1789),
-[#1813](https://github.com/unwired-dev/product/issues/1813)). New Mail Profile… asks for a name and creates the Profile through the
+[#1813](https://github.com/unwired-dev/product/issues/1813), Mac journey
+[#1538](https://github.com/unwired-dev/product/issues/1538)). New Mail Profile… asks for a name and creates the Profile through the
 fenced store without switching to it. When another Trusted Device's client cannot
 keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
 asks to try again. Creating, renaming, moving, removing and notification changes

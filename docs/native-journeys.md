@@ -224,6 +224,14 @@ Work's Outbox empties once delivery takes it
 Moving the mailbox back restores its messages and the Draft to the Primary Profile
 window. Each window's capture is kept as an attachment. Links are not covered.
 
+`testMailProfileWithoutMailboxes` adds Work the same way and switches the only
+window to it while it owns no mailbox
+([#1538](https://github.com/unwired-dev/product/issues/1538)). The heading reads
+`All Inboxes. No mailboxes`, the list shows **No Mailboxes** with its message and
+no mailbox is listed. The window's capture is kept as an attachment and the
+accessibility audit runs on it. **Manage Mail Profiles…** opens Settings › Mail
+Profiles. It sets Light; `testMailProfileWithoutMailboxesDark` runs it in Dark.
+
 ## iPhone and iPad keyboard and accessibility journey
 
 The Expo native journey for a `registration-performance` Release build drives
