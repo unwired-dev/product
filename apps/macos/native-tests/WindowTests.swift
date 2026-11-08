@@ -2163,12 +2163,15 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(shown("Kept: https://example.com/garden").exists)
     XCTAssertTrue(replace.exists)
     XCTAssertFalse(withChanges.exists)
-    // Keyboard focus stays in the body, which takes Return for a new line. Until #1899, that new
-    // line alone leaves the result open.
+    // Keyboard focus stays in the body, which takes Return for a new line. Like any edit, it
+    // closes the result, and Undo removes it.
     app.typeKey(.return, modifierFlags: [])
     waitUntil { typed.value as? String == reply + "\n" }
-    app.typeKey(.delete, modifierFlags: [])
+    XCTAssertTrue(keep.waitForNonExistence(timeout: 10))
+    app.typeKey("z", modifierFlags: .command)
     waitUntil { typed.value as? String == reply }
+    writingTool("Rewrite the message body", in: window, of: app).click()
+    XCTAssertTrue(replace.waitForExistence(timeout: 15))
     replace.click()
     XCTAssertTrue(keep.waitForNonExistence(timeout: 10))
     // With the result closed, only the body holds the rewrite.

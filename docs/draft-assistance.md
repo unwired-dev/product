@@ -179,7 +179,7 @@ results for changed details on Mac, and on iPhone and iPad.
     when none do. On Mac, the accent button is the window's default button, but
     keyboard focus stays in the Draft body when the result appears, so Return adds
     a new line there instead ([#1900](https://github.com/unwired-dev/product/issues/1900)),
-    and the result stays open ([#1899](https://github.com/unwired-dev/product/issues/1899)).
+    which closes the result like any other edit.
     VoiceOver reads each row as one text element and hears the count after the result,
     but can't move to the count line yet
     ([#1902](https://github.com/unwired-dev/product/issues/1902)).

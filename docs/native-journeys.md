@@ -144,9 +144,9 @@ saved Draft reopens with that text, and Edit Link with its saved destination.
 With Mail Assistance turned on in Privacy & Data, **Rewrite the message body** from
 Writing tools ([#1898](https://github.com/unwired-dev/product/issues/1898)) shows the
 synthetic rewrite with the kept link note and **Replace text** as the default button.
-Return adds a new line to the focused body instead, which the result survives
-([#1899](https://github.com/unwired-dev/product/issues/1899)); Replace text makes
-the body the rewrite, and one Undo restores the reply. After " at 9:30" is typed, the
+Return adds a new line to the focused body instead, which closes the result, and
+Undo removes it; Replace text on a new rewrite makes the body the rewrite, and one
+Undo restores the reply. After " at 9:30" is typed, the
 rewrite reports one differing detail with its row and **Use rewrite with changes**;
 the count line above the row is checked only in the capture until it reaches the
 accessibility tree ([#1902](https://github.com/unwired-dev/product/issues/1902)),
