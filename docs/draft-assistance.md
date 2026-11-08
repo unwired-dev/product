@@ -87,8 +87,8 @@ results for changed details on Mac, and on iPhone and iPad.
   Paragraphs, Expand Text, Shorten Text, Make More Friendly and Make More Neutral) is checked mechanically against the
   captured text, using `checkDetails` from the assistance core. The
   `packages/mail-core` TypeScript layer owns detail extraction and the equivalence
-  rules; each host renders the review. On Mac the native push button adapter makes
-  the main button the window's Return default. iPad sets the changes out as a table
+  rules; each host renders the review. On Mac the main button takes the accent tint
+  but no Return key equivalent (#1900). iPad sets the changes out as a table
   with the push buttons in a row; iPhone shows each change as its detail, status and
   a `original → rewrite` line, with **Use rewrite with changes** (or **Replace text**)
   across the panel above Keep original and Try again. When details differ, Keep
