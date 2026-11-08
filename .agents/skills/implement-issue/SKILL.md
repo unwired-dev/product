@@ -144,9 +144,9 @@ decision, otherwise leave it open with its readiness label.
 Keep the claim while you own the work, including while the PR is open. When
 ownership ends, run
 `scripts/issue-claim release <number> --outcome merged|closed|abandoned|handed-back|blocked`,
-adding `--remaining "<text>"` for a sub-issue. After a merge, confirm the issue
-closed (`gh issue view <number> --json state`) and close it if the closing
-reference did not. Apply the readiness policy
+adding `--remaining "<text>"` for a sub-issue. After merging a PR with a
+closing reference, confirm the issue closed (`gh issue view <number> --json
+state`) and close it if it did not. Apply the readiness policy
 to any human-only remainder. Close a parent only when no criterion or open
 sub-issue remains.
 
