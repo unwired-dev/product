@@ -207,6 +207,13 @@ at the stored size and weight, including the italic trait. Remove this hunk when
 the supported renderer preserves those traits itself. The focused AppKit font
 check does not replace packaged composer qualification.
 
+The patch also makes a secure `TextInput` answer as an `NSSecureTextField`. On
+macOS 27 the secure field editor otherwise throws as the field takes focus and
+never reports typed text, so the IMAP form's password never reaches JavaScript
+(#1924). Remove this hunk once a React Native macOS release includes
+microsoft/react-native-macos#3141. The Mac IMAP Spam and Trash folder journey
+types into the password field.
+
 The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
 Shift-Command-Z history.
 
