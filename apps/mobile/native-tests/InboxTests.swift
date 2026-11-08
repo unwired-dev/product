@@ -2177,6 +2177,142 @@ final class InboxTests: XCTestCase {
   // screen in the runner's appearance. Opening the Command Palette, opening a row and placing the
   // caret in a new reply still need touch (#849). Every audit issue is printed, and one outside
   // knownAccessibilityGap fails the journey.
+  // #1928: an IMAP server that marks no Spam or Trash folder leaves its connection out of All Mail
+  // until the person chooses both, from the All Mail notice or Settings › Email Accounts. The
+  // runner's appearance names each capture for comparison with the Light and Dark frames.
+  private func imapFoldersJourney(_ app: XCUIApplication) throws {
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let address = "pat@example.invalid"
+    let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE"] ?? "dark"
+    func capture(_ name: String) {
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "\(name) (\(appearance))"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+    func row(_ label: String) -> XCUIElement {
+      app.buttons.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+    }
+    // iPad's sidebar opens Settings and lists All Mail; on iPhone, Account and All Mail are in the
+    // Mailboxes column, one Back away.
+    func showMailboxes() {
+      let account = app.buttons["Account"]
+      if phone && (!account.waitForExistence(timeout: 5) || !account.isHittable) {
+        app.buttons["Back to Mailboxes"].tap()
+      }
+    }
+    func openEmailAccounts() {
+      showMailboxes()
+      let settings = app.buttons[phone ? "Account" : "Settings"]
+      XCTAssertTrue(settings.waitForExistence(timeout: 10))
+      settings.tap()
+      openSettings("Email Accounts", in: app)
+    }
+    // iPhone rows name the connection and carry the folders as their value; iPad rows end in a
+    // push button beside the visible summary. The row is scrolled into view for its capture.
+    func settingsRow(_ action: String, _ summary: String) -> XCUIElement {
+      let row = phone ? app.buttons[address] : app.buttons["\(action) \(address)"]
+      XCTAssertTrue(row.waitForExistence(timeout: 20))
+      for _ in 0..<5 where !row.isHittable { app.swipeUp() }
+      if phone {
+        XCTAssertEqual(row.value as? String, summary)
+      } else {
+        XCTAssertTrue(text(summary, in: app).exists)
+      }
+      return row
+    }
+    func choose(_ role: String, _ folder: String) {
+      app.buttons[role].tap()
+      let item = app.buttons[folder].firstMatch
+      XCTAssertTrue(item.waitForExistence(timeout: 10))
+      item.tap()
+      waitUntil { app.buttons[role].value as? String == folder }
+    }
+    app.buttons["Continue"].tap()
+    app.buttons["Sign in with Apple"].tap()
+    XCTAssertTrue(app.buttons["Gmail"].waitForExistence(timeout: 15))
+    app.buttons["Gmail"].tap()
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
+    enter(
+      String(app.staticTexts["recovery-key"].label.suffix(4)),
+      into: app.textFields["Last four characters"], in: app)
+    app.buttons["Confirm Recovery Key"].tap()
+    XCTAssertTrue(row("Garden plans for spring").waitForExistence(timeout: 20))
+
+    openEmailAccounts()
+    if !phone {
+      XCTAssertTrue(app.buttons["Add Mailbox Connection…"].waitForExistence(timeout: 15))
+      app.buttons["Add Mailbox Connection…"].tap()
+    }
+    XCTAssertTrue(app.buttons["Add an IMAP mailbox"].waitForExistence(timeout: 15))
+    app.buttons["Add an IMAP mailbox"].tap()
+    XCTAssertTrue(app.buttons["Other IMAP Account"].waitForExistence(timeout: 15))
+    app.buttons["Other IMAP Account"].tap()
+    for (field, value) in [
+      ("Email address", address), ("User name", "pat"), ("IMAP server", "imap.example.invalid"),
+      ("SMTP server", "smtp.example.invalid"),
+    ] {
+      enter(value, into: app.textFields[field], in: app)
+    }
+    let password = app.secureTextFields["Password"]
+    focus(password) { self.hasFocus(password) }
+    password.typeText("synthetic")
+    app.buttons["Connect"].tap()
+    let needed = "Spam and Trash not chosen · not in All Mail"
+    _ = settingsRow("Choose Folders…", needed)
+    capture("Settings folders not chosen")
+    app.buttons[settingsExit].tap()
+
+    showMailboxes()
+    let allMail = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'All Mail'"))
+      .firstMatch
+    XCTAssertTrue(allMail.waitForExistence(timeout: 10))
+    allMail.tap()
+    XCTAssertTrue(text("\(address) isn’t included", in: app).waitForExistence(timeout: 20))
+    XCTAssertFalse(row("Welcome to IMAP").exists)
+    capture("All Mail notice")
+    let chooseFolders = app.buttons["Choose Folders…"]
+    chooseFolders.tap()
+    let save = app.buttons["Save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    // Nothing is chosen for the person, and Save waits for both folders.
+    XCTAssertEqual(app.buttons["Spam"].value as? String, "Choose a Folder")
+    XCTAssertEqual(app.buttons["Trash"].value as? String, "Choose a Folder")
+    XCTAssertFalse(save.isEnabled)
+    capture("Folder sheet empty")
+    try audit(app, "Choose Spam and Trash Folders")
+    app.buttons["Close"].tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(chooseFolders.exists)
+
+    chooseFolders.tap()
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    choose("Spam", "Bulk Mail")
+    choose("Trash", "Deleted Messages")
+    XCTAssertTrue(save.isEnabled)
+    capture("Folder sheet chosen")
+    save.tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 15))
+    // The connection joins All Mail without its Spam's or Trash's messages.
+    XCTAssertTrue(row("Welcome to IMAP").waitForExistence(timeout: 20))
+    XCTAssertFalse(text("\(address) isn’t included", in: app).exists)
+    XCTAssertFalse(row("Unwanted offer").exists)
+    XCTAssertFalse(row("Old receipt").exists)
+    capture("All Mail with the connection")
+
+    openEmailAccounts()
+    let change = settingsRow("Change…", "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you")
+    capture("Settings folders chosen")
+    change.tap()
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    XCTAssertEqual(app.buttons["Spam"].value as? String, "Bulk Mail")
+    XCTAssertEqual(app.buttons["Trash"].value as? String, "Deleted Messages")
+    capture("Folder sheet from Settings")
+    try audit(app, "Spam and Trash Folders")
+    app.buttons["Close"].tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+  }
+
   private func keyboardAndAccessibilityJourney(_ app: XCUIApplication) throws {
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     app.buttons["Continue"].tap()
@@ -2545,6 +2681,7 @@ final class InboxTests: XCTestCase {
       case "registration-thread": threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
       case "registration-sync-status": try syncStatusJourney(app)
+      case "registration-imap-folders": try imapFoldersJourney(app)
       case "registration-invitation":
         invitationJourney(app)
         invitationStatesJourney(app)
