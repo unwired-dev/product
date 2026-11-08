@@ -1261,6 +1261,8 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     }];
     [_button selectItemAtIndex:checked == NSNotFound ? -1 : checked];
     cell.menuItem = shown;
+    // With no item checked, AppKit reports its first item; VoiceOver reads the shown title instead.
+    _button.accessibilityValue = shown.title;
   }
 }
 // AppKit selects the chosen item after this action, so the shown items return once it has.

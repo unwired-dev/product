@@ -16,6 +16,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   View,
 } from 'react-native';
 
@@ -399,6 +400,10 @@ export function LinkEditor({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  // The popover glass darkens over a dark window behind it, where Light's secondary text fails
+  // contrast; Dark's passes.
+  const glassText =
+    useColorScheme() === 'dark' ? colors.textSecondary : colors.textPrimary;
   const [editing, setEditing] = useState<Link>();
   const [shown, setShown] = useState(false);
   const returning = useRef(false);
@@ -433,9 +438,7 @@ export function LinkEditor({
     const label = t(url ? 'drafts.link.destination' : 'drafts.link.text');
     return (
       <View style={styles.linkField}>
-        <Text style={[styles.linkLabel, { color: colors.textSecondary }]}>
-          {label}
-        </Text>
+        <Text style={[styles.linkLabel, { color: glassText }]}>{label}</Text>
         <TextInput
           accessibilityLabel={label}
           autoCorrect={!url}
@@ -500,9 +503,7 @@ export function LinkEditor({
             style={[
               textStyles.subheadline,
               {
-                color: invalid
-                  ? colors.statusDestructive
-                  : colors.textSecondary,
+                color: invalid ? colors.statusDestructive : glassText,
               },
             ]}>
             {t(invalid ? 'drafts.link.invalid' : 'drafts.link.hint')}
