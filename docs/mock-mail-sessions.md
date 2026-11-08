@@ -190,8 +190,12 @@ The journey captures each of these states. The Mac journey
 ([#1915](https://github.com/unwired-dev/product/issues/1915)) signs in the same way
 and, relaunched in Dark, opens the Q4 roadmap review, checks its three buttons and
 captures the card, then accepts and declines it, capturing each confirmed answer.
-Relaunched in Light, it captures the kept **Declined** answer and accepts again. The
-Mac journey does not cover the other invitations, the revision or the failures. CI
+Relaunched in Light, it captures the kept **Declined** answer and accepts again. In
+each appearance it then opens Lena Fischer's other invitations and captures each card
+([#1921](https://github.com/unwired-dev/product/issues/1921)). In Light it last
+captures the revision, which names the accepted answer, accepts it, captures the
+original as an older version, follows **Show Latest**, and captures each supplier
+walkthrough failure. CI
 does not run this scenario; it is local native evidence for the Mac, iPhone and iPad
 in Light and Dark.
 The Mac, iPhone and iPad `categorization-spike` builds reuse the `open-read-relaunch`

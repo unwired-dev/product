@@ -368,11 +368,15 @@ final class WindowTests: XCTestCase {
           ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
       app.launch()
       let window = app.windows["Inbox 1"]
-      let row = window.buttons.matching(
-        NSPredicate(format: "label CONTAINS %@", "Lena Fischer. Invitation: Q4 roadmap review")
-      ).firstMatch
-      XCTAssertTrue(row.waitForExistence(timeout: 20))
-      row.click()
+      // Opens Lena Fischer's invitation with `subject`; the row starts with Unread. until read.
+      func open(_ subject: String) {
+        let row = window.buttons.matching(
+          NSPredicate(format: "label CONTAINS %@", "Lena Fischer. " + subject)
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), subject)
+        row.click()
+      }
+      open("Invitation: Q4 roadmap review")
       func capture(_ state: String) {
         let attachment = XCTAttachment(screenshot: window.screenshot())
         attachment.name = "Invitation \(state) \(appearance)"
@@ -400,6 +404,63 @@ final class WindowTests: XCTestCase {
         capture("Declined")
         respond("Accept", "Accepted")
       }
+      // #1921: each other invitation states why it can't be answered, or which meetings of a
+      // series a response answers.
+      for (subject, status, answerable, name) in [
+        ("Invitation: Hiring sync", "You can’t respond from here", false, "not your address"),
+        ("Cancelled: Budget check-in", "This meeting was cancelled", false, "cancelled"),
+        ("Invitation: Weekly design review", "applies to every meeting", true, "whole series"),
+        (
+          "Updated invitation: Weekly design review on 20 Nov", "applies only to", true,
+          "one meeting"
+        ),
+        ("Updated series: Weekly design review", "can’t tell which meeting", false, "ambiguous"),
+        ("Invitation: Daily launch check", "can’t read this invitation", false, "unreadable"),
+      ] {
+        open(subject)
+        XCTAssertTrue(text(status, in: window).waitForExistence(timeout: 20), subject)
+        XCTAssertEqual(window.buttons["Accept"].exists, answerable, subject)
+        capture(name)
+      }
+      guard appearance == "Light" else { continue }
+      // The Q4 roadmap review moved after the accepted answer: the revision names it, and
+      // answering it makes the original an older version whose Show Latest opens it.
+      open("Updated invitation: Q4 roadmap review")
+      XCTAssertTrue(text("Lena Fischer changed the time", in: window).waitForExistence(timeout: 20))
+      XCTAssertTrue(text("You accepted the earlier time", in: window).exists)
+      capture("updated time")
+      respond("Accept", "Accepted")
+      open("Invitation: Q4 roadmap review")
+      XCTAssertTrue(
+        text("There’s a newer version of this invitation", in: window)
+          .waitForExistence(timeout: 20))
+      XCTAssertFalse(window.buttons["Accept"].exists)
+      capture("older version")
+      window.buttons["Show Latest"].click()
+      XCTAssertTrue(text("Accepted. Gmail confirmed", in: window).waitForExistence(timeout: 20))
+      // Gmail fails each response to the supplier walkthrough in turn: offline, refused, then
+      // delivery unknown, whose Check Again finds nothing in Sent, and after Respond Again a
+      // sign-in.
+      open("Invitation: Supplier walkthrough")
+      for (status, name) in [
+        ("You’re offline", "offline"), ("Not sent", "not sent"), ("Delivery unknown", "unknown"),
+      ] {
+        window.buttons["Accept"].click()
+        XCTAssertTrue(text(status, in: window).waitForExistence(timeout: 20), name)
+        capture(name)
+      }
+      window.buttons["Check Again"].click()
+      XCTAssertTrue(text("Checking with Gmail", in: window).waitForExistence(timeout: 5))
+      capture("checking sent")
+      XCTAssertTrue(text("Delivery unknown", in: window).waitForExistence(timeout: 20))
+      window.buttons["Respond Again…"].click()
+      let confirm = window.sheets.firstMatch.buttons["Respond Again"]
+      XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+      confirm.click()
+      XCTAssertTrue(
+        text("Gmail needs you to sign in again", in: window).waitForExistence(timeout: 20))
+      XCTAssertTrue(window.buttons["Sign In…"].exists)
+      capture("sign-in needed")
     }
   }
 
