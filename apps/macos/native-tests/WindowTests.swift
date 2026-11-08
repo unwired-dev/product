@@ -1754,6 +1754,69 @@ final class WindowTests: XCTestCase {
     attach(primary, "Primary Profile window after moving back")
   }
 
+  // #1538: a window switched to a Mail Profile that owns no mailbox shows No Mailboxes, with
+  // Manage Mail Profiles… opening Settings › Mail Profiles, in each appearance.
+  func testMailProfileWithoutMailboxes() throws {
+    try mailProfileWithoutMailboxes(appearance: "Light")
+  }
+
+  func testMailProfileWithoutMailboxesDark() throws {
+    try mailProfileWithoutMailboxes(appearance: "Dark")
+  }
+
+  private func mailProfileWithoutMailboxes(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      appearance == "Dark"
+      ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let settings = app.windows["settings-window"]
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Mail Profiles"].click()
+    settings.buttons["Add Mail Profile…"].click()
+    let sheet = settings.sheets.firstMatch
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    sheet.textFields.firstMatch.click()
+    sheet.typeText("Work")
+    sheet.buttons["Create"].click()
+    XCTAssertTrue(settings.buttons["Work"].waitForExistence(timeout: 15))
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+
+    window.buttons["Mail Profile, Primary Profile"].click()
+    app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "Work")).firstMatch.click()
+    XCTAssertTrue(window.buttons["Mail Profile, Work"].waitForExistence(timeout: 15))
+    func labelled(_ label: String) -> XCUIElement {
+      window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+    // The heading names the Profile's scope, not Gmail, and the sidebar keeps Favorites only.
+    XCTAssertTrue(labelled("All Inboxes. No mailboxes").waitForExistence(timeout: 30))
+    XCTAssertTrue(labelled("No Mailboxes").exists)
+    XCTAssertTrue(labelled("Move a mailbox into Work from its current Mail Profile.").exists)
+    // No mailbox section header or Inbox row names either account.
+    XCTAssertFalse(
+      window.descendants(matching: .any)
+        .matching(NSPredicate(format: "label CONTAINS %@", "@example.invalid")).firstMatch.exists)
+    let attachment = XCTAttachment(screenshot: window.screenshot())
+    attachment.name = "Mail Profile without mailboxes, \(appearance)"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+    try audit(app, "Mail Profile without mailboxes")
+
+    window.buttons["Manage Mail Profiles…"].click()
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    XCTAssertTrue(settings.buttons["Add Mail Profile…"].waitForExistence(timeout: 10))
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+  }
+
   // swiftlint:disable:next function_body_length
   private func keyboardAndAccessibility(appearance: String) throws {
     continueAfterFailure = false
