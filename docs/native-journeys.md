@@ -258,13 +258,12 @@ with Apple, connects the Gmail mailbox and confirms the Recovery Key
 ```sh
 UNWIRED_APPEARANCE=light mise exec -- pnpm --filter @private-email/mobile test:native \
   "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
-UNWIRED_APPEARANCE=dark mise exec -- pnpm --filter @private-email/mobile test:native \
-  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
-  com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB
 ```
 
-Without a device type the runner runs iPhone 18 Pro and then iPad Pro 11-inch (M5); pass one to run a
-single device, as the second command does.
+Run it again with `UNWIRED_APPEARANCE=dark`. Without a device type the runner runs iPhone 18 Pro
+and then iPad Pro 11-inch (M5); pass one, such as
+`com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB`, after the app to run a single
+device.
 
 It then checks the steps of the [Mac journey](#mac-imap-spam-and-trash-folder-journey)
 on iPhone and iPad, with these differences. Settings names the connection's folders
