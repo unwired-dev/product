@@ -49,6 +49,8 @@ Each babysitting pass:
   when it is not required.
 - Gets a fresh [review](implementation-review.md#review) for any behavior change
   made while babysitting before pushing it.
+- Never comments to trigger CodeRabbit or Codex: Codex reviews each push on its
+  own, and a comment restarts the merger's 2-hour quiet period.
 - Ends once it has handled the feedback and gate state available now.
 
 When the PR is merged or closed, call `unwatch_pull_request` in T3 Code and

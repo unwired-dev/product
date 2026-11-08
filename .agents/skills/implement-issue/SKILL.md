@@ -66,6 +66,9 @@ Select exactly one issue; this mode does not drain the backlog.
    - **Blockers**: a closed blocker counts only when completed or explicitly
      waived, so weigh a `not_planned` one. Read "Blocked by" text in the body
      and comments; check cross-repository blockers in their own repository.
+     An open blocker whose merged PR on the default branch closes it still
+     blocks this selection: report it as merged, not closed, and comment once
+     on the blocker naming the PR.
    - **Resolved work**, which closing links miss: merged PRs mentioning the
      number (`gh pr list --state merged --search "<number>"`), including `Refs`
      PRs; the remainder the latest comment names, such as a workflow run that
@@ -97,9 +100,12 @@ Select exactly one issue; this mode does not drain the backlog.
 
 Follow the coding principles in the root `AGENTS.md`. In a fresh worktree run
 `mise exec -- pnpm install --frozen-lockfile`. For code changes, run
-`mise exec -- scripts/pre-handoff.sh` on the starting revision and record
-existing failures. Integrate the target base before substantial work and before
-the review; when widening a shared type, inspect consumers added upstream.
+`mise exec -- scripts/pre-handoff.sh --baseline` on the starting revision and
+record existing failures; it runs in a detached worktree, so you can edit
+meanwhile, but start no native build or journey until it finishes. A
+`+uncommitted` verdict is not a baseline. Integrate the target base before
+substantial work and before the review; when widening a shared type, inspect
+consumers added upstream.
 
 For a look the Figma frames do not show yet, follow
 [design approval](../../../docs/agents/implementation-review.md#design-approval)
@@ -138,7 +144,9 @@ decision, otherwise leave it open with its readiness label.
 Keep the claim while you own the work, including while the PR is open. When
 ownership ends, run
 `scripts/issue-claim release <number> --outcome merged|closed|abandoned|handed-back|blocked`,
-adding `--remaining "<text>"` for a sub-issue, and apply the readiness policy
+adding `--remaining "<text>"` for a sub-issue. After merging a PR with a
+closing reference, confirm the issue closed (`gh issue view <number> --json
+state`) and close it if it did not. Apply the readiness policy
 to any human-only remainder. Close a parent only when no criterion or open
 sub-issue remains.
 
