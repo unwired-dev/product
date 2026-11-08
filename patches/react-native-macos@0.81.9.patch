@@ -137,3 +137,27 @@ diff --git a/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/ren
 +        font = RCTDefaultFontWithFontProperties(fontProperties);
        }
      }
+diff --git a/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm b/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm
+index 6f332dc1701cada0aff0e9a2678fa7bdcea0ef85..cc431623fa724306bb3dedbca54474b9a39abfa3 100644
+--- a/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm
++++ b/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm
+@@ -78,6 +78,19 @@ + (Class)cellClass
+   return RCTUISecureTextFieldCell.class;
+ }
+ 
++// macOS 27's secure field editor needs an NSSecureTextField delegate: otherwise it throws as the
++// field takes focus, keeps no delegate and typed text never reaches JavaScript. Answer as one, and
++// answer the NSSecureTextField-only message it sends while drawing (microsoft/react-native-macos#3141).
++- (BOOL)isKindOfClass:(Class)aClass
++{
++  return aClass == [NSSecureTextField class] || [super isKindOfClass:aClass];
++}
++
++- (BOOL)_shouldShowIndicators
++{
++  return NO;
++}
++
+ @end
+ 
+ #endif // TARGET_OS_OSX

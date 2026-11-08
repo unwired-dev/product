@@ -224,6 +224,29 @@ Work's Outbox empties once delivery takes it
 Moving the mailbox back restores its messages and the Draft to the Primary Profile
 window. Each window's capture is kept as an attachment. Links are not covered.
 
+## Mac IMAP Spam and Trash folder journey
+
+The `testImapSpamAndTrashFolders` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#1923](https://github.com/unwired-dev/product/issues/1923)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testImapSpamAndTrashFolders
+```
+
+Settings › Email Accounts connects the
+[synthetic IMAP server](mock-mail-sessions.md), which marks no Spam or Trash folder,
+and lists it under Spam and Trash Folders as not chosen. All Mail shows the
+[not-included notice](imap-mailboxes.md) and leaves out its Inbox message. Choose
+Folders… opens the sheet with nothing chosen and Save disabled; Escape cancels it. Choosing
+Bulk Mail and Deleted Messages and pressing Return saves them. All Mail then lists the
+Inbox message but not Spam's or Trash's. Settings names both folders, and Change…
+opens them pre-filled; Escape keeps them. Both sheets pass an accessibility audit. Each
+step's capture is kept as an attachment. VoiceOver speech is not covered.
+
 ## iPhone and iPad keyboard and accessibility journey
 
 The Expo native journey for a `registration-performance` Release build drives

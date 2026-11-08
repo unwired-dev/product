@@ -1398,6 +1398,133 @@ final class WindowTests: XCTestCase {
     try keyboardAndAccessibility(appearance: "Dark")
   }
 
+  // #1923: an IMAP server that marks no Spam or Trash folder keeps its connection out of All Mail
+  // until both are chosen, in a sheet from the All Mail notice or from Settings › Email Accounts.
+  func testImapSpamAndTrashFolders() throws {
+    try imapSpamAndTrashFolders(appearance: "Light")
+  }
+
+  func testImapSpamAndTrashFoldersDark() throws {
+    try imapSpamAndTrashFolders(appearance: "Dark")
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func imapSpamAndTrashFolders(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      appearance == "Dark"
+      ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let settings = app.windows["settings-window"]
+    let address = "pat@example.invalid"
+    let notice = "\(address) isn’t included"
+    func row(_ subject: String) -> XCUIElement {
+      window.buttons.matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+    }
+    func choose(_ popUp: XCUIElement, _ folder: String) {
+      popUp.click()
+      app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", folder)).firstMatch.click()
+      waitUntil { popUp.value as? String == folder }
+    }
+    func attach(_ element: XCUIElement, _ name: String) {
+      let attachment = XCTAttachment(screenshot: element.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    func openSettings() {
+      app.typeKey(",", modifierFlags: .command)
+      XCTAssertTrue(settings.waitForExistence(timeout: 15))
+      settings.buttons["Email Accounts"].click()
+    }
+
+    // Settings › Email Accounts connects the synthetic IMAP server, which marks only Sent.
+    openSettings()
+    settings.buttons["Add an IMAP mailbox"].click()
+    settings.buttons["Other IMAP Account"].click()
+    for (label, value) in [
+      ("Email address", address), ("User name", "pat"), ("IMAP server", "imap.example.invalid"),
+      ("SMTP server", "smtp.example.invalid"),
+    ] {
+      let field = settings.textFields[label]
+      XCTAssertTrue(field.waitForExistence(timeout: 15))
+      field.click()
+      field.typeText(value)
+    }
+    let password = settings.secureTextFields["Password"]
+    password.click()
+    password.typeText("synthetic")
+    // Connect appears once the password reaches the form (#1924 kept it out on macOS 27).
+    XCTAssertTrue(settings.buttons["Connect"].waitForExistence(timeout: 15))
+    settings.buttons["Connect"].click()
+    XCTAssertTrue(settings.buttons["Choose Folders… \(address)"].waitForExistence(timeout: 60))
+    XCTAssertTrue(text("Spam and Trash not chosen · not in All Mail", in: settings).exists)
+    attach(settings, "Settings before choosing")
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+
+    // All Mail leaves the connection out and says so; Choose Folders… opens the choice as a sheet,
+    // which Save stays disabled in until both folders are chosen, and Escape cancels.
+    let allMail = window.buttons["All Mail. In All mailboxes"]
+    XCTAssertTrue(allMail.waitForExistence(timeout: 30))
+    allMail.click()
+    XCTAssertTrue(text(notice, in: window).waitForExistence(timeout: 30))
+    XCTAssertFalse(row("Welcome to IMAP").exists)
+    attach(window, "All Mail notice")
+    let sheet = window.sheets.firstMatch
+    window.buttons["Choose Folders…"].click()
+    XCTAssertTrue(sheet.waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Choose Spam and Trash Folders", in: sheet).exists)
+    let spam = sheet.popUpButtons["Spam"]
+    let trash = sheet.popUpButtons["Trash"]
+    XCTAssertEqual(spam.value as? String, "Choose a Folder")
+    XCTAssertEqual(trash.value as? String, "Choose a Folder")
+    XCTAssertFalse(sheet.buttons["Save"].isEnabled)
+    try audit(app, "Choose Spam and Trash Folders")
+    attach(sheet, "Choose sheet")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(text(notice, in: window).exists)
+
+    // Return saves both choices: All Mail then lists the Inbox message but not Spam's or Trash's.
+    window.buttons["Choose Folders…"].click()
+    XCTAssertTrue(sheet.waitForExistence(timeout: 15))
+    choose(spam, "Bulk Mail")
+    choose(trash, "Deleted Messages")
+    XCTAssertTrue(sheet.buttons["Save"].isEnabled)
+    attach(sheet, "Choose sheet ready to save")
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 30))
+    XCTAssertTrue(row("Welcome to IMAP").waitForExistence(timeout: 30))
+    waitUntil {
+      !self.text(notice, in: window).exists && !row("Unwanted offer").exists
+        && !row("Old receipt").exists
+    }
+    attach(window, "All Mail with the connection")
+
+    // Settings shows the chosen folders; Change… opens them pre-filled, and Escape keeps them.
+    openSettings()
+    let chosen = "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you"
+    XCTAssertTrue(text(chosen, in: settings).waitForExistence(timeout: 15))
+    attach(settings, "Settings after choosing")
+    settings.buttons["Change… \(address)"].click()
+    let change = settings.sheets.firstMatch
+    XCTAssertTrue(change.waitForExistence(timeout: 15))
+    XCTAssertEqual(change.popUpButtons["Spam"].value as? String, "Bulk Mail")
+    XCTAssertEqual(change.popUpButtons["Trash"].value as? String, "Deleted Messages")
+    try audit(app, "Spam and Trash Folders")
+    attach(change, "Change sheet")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(change.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(text(chosen, in: settings).exists)
+  }
+
   // #1901: moving the Microsoft mailbox into a Work Mail Profile takes its messages, Search
   // results and Drafts to Work's window only, beside a Primary Profile window that keeps the
   // Gmail mailbox; moving it back restores them to the Primary Profile.
@@ -2136,6 +2263,12 @@ final class WindowTests: XCTestCase {
     // Keep the foreground Inbox audit unexempted for #1574.
     case .contrast where type == .staticText && label == "Gmail · other@example.invalid":
       return ["Settings", "Privacy & Data", "Language", "Link sheet"].contains(screen) ? "#1550" : nil
+    // The Spam and Trash sheets' secondary text measures 5.5:1 or more in Light and Dark captures,
+    // and the windows behind them are dimmed.
+    case .contrast
+    where type == .staticText
+      && ["Choose Spam and Trash Folders", "Spam and Trash Folders"].contains(screen):
+      return "#1550"
     // Private Cloud's row is dimmed until Mail Assistance is on; WCAG exempts inactive controls.
     case .contrast
     where type == .staticText && screen == "Privacy & Data"
@@ -2155,8 +2288,10 @@ final class WindowTests: XCTestCase {
     // An email address is the readable name of the signed-in account or of a mailbox's row.
     case .sufficientElementDescription
     where type == .staticText
-      && ["relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid"]
-        .contains(label):
+      && [
+        "relay@privaterelay.example.invalid", "casey@example.invalid", "other@example.invalid",
+        "pat@example.invalid",
+      ].contains(label):
       return "email address"
     // The Link Editor's hint, Private Cloud's explanation and the Writing tools result's privacy
     // note are sentences containing the word "text", not labels repeating their role.

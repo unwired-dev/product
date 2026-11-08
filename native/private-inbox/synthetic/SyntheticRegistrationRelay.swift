@@ -335,7 +335,7 @@
       keys: keys,
       deployment: "https://synthetic.example.invalid", clientID: "synthetic-client",
       provider: SyntheticGoogleProvider(), apple: SyntheticAppleProvider(),
-      microsoft: SyntheticMicrosoftProvider(),
+      microsoft: SyntheticMicrosoftProvider(), imap: SyntheticImap(), smtp: SyntheticSmtp(),
       productSync: ProductSyncBackend(
         list: { identity, product, prefix in
           let reply = try await ask(

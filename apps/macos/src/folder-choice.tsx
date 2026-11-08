@@ -164,7 +164,8 @@ function FolderSheet({
   };
   return (
     <View
-      style={styles.sheet}
+      // Without a surface of its own, the sheet stays white in Dark (#1923).
+      style={[styles.sheet, { backgroundColor: colors.surfaceContent }]}
       onLayout={({ nativeEvent }) => {
         windowHost()?.fitSheet(window, nativeEvent.layout.height);
       }}>
