@@ -30,7 +30,10 @@ The reviewer reads the whole diff, the callers, owning modules and tests it
 touches, and the architecture notes and ADRs for that area. It applies the
 [checklist](#review-checklist) and returns findings ranked by severity, each
 with `path:line`, the input or state that triggers it, and what goes wrong. The
-reviewer reports; the implementer is the only writer in the checkout.
+reviewer reports; the implementer is the only writer in the checkout. A
+subagent returns its report as text, and the implementer saves it with the
+evidence; when a resumed reviewer reports again, its latest report replaces the
+earlier one.
 
 The implementer validates each finding, fixes the confirmed ones (including
 every other instance of the same defect), reruns the checks and records a

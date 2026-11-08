@@ -19,6 +19,9 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   `xcodebuild` processes, booted Simulators) before and after each journey.
   Before attributing a timing or idle-wait failure to the host, compare it with
   a passing baseline and reproduce it without your own concurrent native work.
+  Before a rerun, check `uptime` and wait while the 1-minute load is above 100,
+  whether from other tasks or your own builds: journeys failed at loads of
+  117–380. Run your own journeys one at a time.
 - The Mac runner holds a per-user lock for its whole XCUITest run; another Mac
   journey waits for it and logs how long. An event-synthesis timeout during a
   concurrent desktop UI automation run is contention, not a product failure:
