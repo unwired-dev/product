@@ -403,6 +403,10 @@ final class WindowTests: XCTestCase {
           text("Declined. Gmail confirmed", in: window).waitForExistence(timeout: 20))
         capture("Declined")
         respond("Accept", "Accepted")
+        // The revision below names the declined answer, as on iPhone and iPad.
+        window.buttons["Decline"].click()
+        XCTAssertTrue(
+          text("Declined. Gmail confirmed", in: window).waitForExistence(timeout: 20))
       }
       // #1921: each other invitation states why it can't be answered, or which meetings of a
       // series a response answers.
@@ -423,11 +427,11 @@ final class WindowTests: XCTestCase {
         capture(name)
       }
       guard appearance == "Light" else { continue }
-      // The Q4 roadmap review moved after the accepted answer: the revision names it, and
+      // The Q4 roadmap review moved after the declined answer: the revision names it, and
       // answering it makes the original an older version whose Show Latest opens it.
       open("Updated invitation: Q4 roadmap review")
       XCTAssertTrue(text("Lena Fischer changed the time", in: window).waitForExistence(timeout: 20))
-      XCTAssertTrue(text("You accepted the earlier time", in: window).exists)
+      XCTAssertTrue(text("You declined the earlier time", in: window).exists)
       capture("updated time")
       respond("Accept", "Accepted")
       open("Invitation: Q4 roadmap review")
