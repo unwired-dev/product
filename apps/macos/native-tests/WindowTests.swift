@@ -1415,8 +1415,9 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      appearance == "Dark"
-      ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -2227,13 +2228,13 @@ final class WindowTests: XCTestCase {
     "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Mail Profile on this Mac. Other devices and accounts keep their own choices."
 
   // Labels #1550 flags while a Spam and Trash sheet is in front: the sheets' own secondary text,
-  // then the Inbox and Settings labels behind them.
+  // then the Inbox and Settings labels behind them. All Mail's sidebar row varies with its unread count.
   private static let folderSheetContrastGaps: Set<String> = [
     "Not marked by its server", "Chosen by you",
     "pat@example.invalid doesn’t say which of its folders hold Spam and Trash. Choose them so All Mail can leave those messages out. Unwired Mail doesn’t guess from folder names.",
     "Until both are chosen, pat@example.invalid isn’t included in All Mail. Its folders stay in the sidebar.",
     "Saving updates which messages All Mail leaves out, including ones already synced. Until then, your current folders stay in use.",
-    "All Mail. All mailboxes · Syncing", "All Mail. All mailboxes · 7 unread", "November",
+    "November",
     "pat@example.invalid isn’t included",
     "Its server doesn’t say which folders hold Spam and Trash, so All Mail can’t leave them out. Its folders are still listed under it in the sidebar.",
     "Accounts", "Application", "Automation", "Email Accounts", "Mailbox Connections", "Gmail",
@@ -2285,7 +2286,8 @@ final class WindowTests: XCTestCase {
     case .contrast
     where type == .staticText
       && ["Choose Spam and Trash Folders", "Spam and Trash Folders"].contains(screen)
-      && WindowTests.folderSheetContrastGaps.contains(label):
+      && (WindowTests.folderSheetContrastGaps.contains(label)
+        || label.hasPrefix("All Mail. All mailboxes · ")):
       return "#1550"
     // Private Cloud's row is dimmed until Mail Assistance is on; WCAG exempts inactive controls.
     case .contrast
