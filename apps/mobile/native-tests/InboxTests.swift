@@ -2180,10 +2180,11 @@ final class InboxTests: XCTestCase {
   // #1928: an IMAP server that marks no Spam or Trash folder leaves its connection out of All Mail
   // until the person chooses both, from the All Mail notice or Settings › Email Accounts. The
   // runner's appearance names each capture for comparison with the Light and Dark frames.
+  // swiftlint:disable:next function_body_length
   private func imapFoldersJourney(_ app: XCUIApplication) throws {
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let address = "pat@example.invalid"
-    let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE"] ?? "dark"
+    let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
     func capture(_ name: String) {
       let shot = XCTAttachment(screenshot: app.screenshot())
       shot.name = "\(name) (\(appearance))"
