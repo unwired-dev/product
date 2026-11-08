@@ -176,10 +176,11 @@ results for changed details on Mac, and on iPhone and iPad.
     so applying them is an explicit choice; **Keep original** and **Try again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**
-    when none do. On Mac, the accent button is the window's default button, but
-    keyboard focus stays in the Draft body when the result appears, so Return adds
-    a new line there instead ([#1900](https://github.com/unwired-dev/product/issues/1900)),
-    which closes the result like any other edit.
+    when none do. The tint marks the recommended action only: on Mac no button
+    answers Return. Keyboard focus stays in the Draft body when the result appears,
+    so Return adds a new line there ([#1900](https://github.com/unwired-dev/product/issues/1900)),
+    which closes the result like any other edit. The buttons stay reachable by
+    click and, with Full Keyboard Access, by Tab.
     VoiceOver reads each row as one text element and hears the count after the result,
     but can't move to the count line yet
     ([#1902](https://github.com/unwired-dev/product/issues/1902)).

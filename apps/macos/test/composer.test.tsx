@@ -3851,10 +3851,10 @@ describe('composing Drafts', () => {
       screen.queryByLabelText('Replace your text with this rewrite'),
     ).toBeNull();
     expect(body()).toHaveTextContent(original, { exact: true });
-    // Keep original is the default button, with the accent tint and Return; using the changes is not.
+    // Keep original takes the accent tint; neither button answers Return, which the body keeps.
     expect(
       screen.getByLabelText('Keep your text and close this suggestion').props,
-    ).toMatchObject({ tint: expect.any(Number), returnKey: true });
+    ).toMatchObject({ tint: expect.any(Number), returnKey: false });
     expect(
       screen.getByLabelText(
         'Replace your text with this rewrite, including its changed details',

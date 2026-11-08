@@ -432,8 +432,9 @@ export function DraftAssistance({
   }
   // A prompted draft has no original text to keep.
   const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
-  // A checked result offers push buttons, as its frames do: Keep original is the default button,
-  // answering Return, when details differ, and the rewrite when none do.
+  // A checked result offers push buttons, as its frames do: the accent tint marks Keep original
+  // when details differ and the rewrite when none do. Neither answers Return, which stays with the
+  // Draft body (#1900).
   const control = ({
     main = false,
     ...props
@@ -448,7 +449,6 @@ export function DraftAssistance({
     ) : (
       <Button
         fill={main ? 'accent' : 'quiet'}
-        isDefault={main}
         {...props}
       />
     );
