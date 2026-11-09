@@ -16,6 +16,12 @@ The separate consent and readiness check (delivery step 3's consent) are
 implemented: see [Private Cloud consent and readiness](../message-summaries.md#private-cloud-consent-and-readiness).
 No operation uses Private Cloud Compute yet.
 
+The [age-eligibility requirements](apple-system-and-legal-readiness.md#audience)
+collected in the 2026-11-09 interview also constrain this optional feature. Keep
+cloud assistance unavailable when the person cannot independently authorize it;
+a parental-consent flow for this feature is deferred. This is a planned
+requirement, not evidence that the existing readiness check enforces it.
+
 ## Confirmed direction
 
 - Private Cloud Mail Assistance uses Apple's Private Cloud Compute, with a
