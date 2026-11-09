@@ -1,5 +1,14 @@
 # Scope each window to one Mail Profile
 
+## External compose amendment, 2026-11-09
+
+The agreed [external compose requirements](../product/apple-system-and-legal-readiness.md#default-mail-setup-and-incoming-links)
+use the device-local Startup Profile for untargeted incoming `mailto:` requests,
+consistent with Share intake. This chooses the initial sending context while
+preserving existing Drafts; ordinary window restoration keeps the precedence
+below. The requirements await final shared-understanding confirmation and do not
+establish implemented or qualified native support.
+
 ## Status
 
 Accepted.
