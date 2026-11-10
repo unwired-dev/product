@@ -51,16 +51,17 @@ sends the mail.
 The Convex backend stores these fields in readable form
 (`packages/convex/convex/schema.ts`):
 
-| Data                                                       | Where                                                     | Why                                      |
-| ---------------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------- |
-| Sign-in issuer and subject (Google or Apple)               | `productAccounts.tokenIdentifier`, `linkedSignIns`        | Product Sign-In and linked sign-in       |
-| Random device identifier, platform, generic device name    | `trustedDevices`, `pendingDevices`                        | Trusted Device enrollment and revocation |
-| APNs device token and environment                          | `trustedDevices.apnsToken`                                | New-mail and scheduled-send wakes        |
-| Keyed HMAC digest of each Gmail address                    | `mailProviderConnections.gmailRoutingDigest`              | Routing Gmail push wakes                 |
-| Opaque connection id, Microsoft Graph subscription id      | `mailProviderConnections`                                 | Routing push wakes                       |
-| Gmail history ids                                          | `gmailPushVerificationSignals`, `mailProviderConnections` | Verifying push ownership                 |
-| Provider tokens or Apple authorization code, until revoked | `productAccountDeletionRequests.revocationMaterial`       | Revoking sign-in during account deletion |
-| Sign-in subject after deletion                             | `productAccountDeletionTombstones`                        | Preventing a deleted account's reuse     |
+| Data                                                                        | Where                                                     | Why                                      |
+| --------------------------------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------- |
+| Sign-in issuer and subject (Google or Apple)                                | `productAccounts.tokenIdentifier`, `linkedSignIns`        | Product Sign-In and linked sign-in       |
+| Random device identifier, platform, generic device name                     | `trustedDevices`, `pendingDevices`                        | Trusted Device enrollment and revocation |
+| APNs device token and environment                                           | `trustedDevices.apnsToken`                                | New-mail and scheduled-send wakes        |
+| Keyed HMAC digest of each Gmail address                                     | `mailProviderConnections.gmailRoutingDigest`              | Routing Gmail push wakes                 |
+| Opaque connection id, Microsoft Graph subscription id                       | `mailProviderConnections`                                 | Routing push wakes                       |
+| Send claim times, scheduled-send due times and states                       | `draftDeliveryClaims`, `scheduledSends`                   | Sending a Draft once; Scheduled Send     |
+| Gmail history ids                                                           | `gmailPushVerificationSignals`, `mailProviderConnections` | Verifying push ownership                 |
+| Provider tokens or Apple authorization code, kept across revocation retries | `productAccountDeletionRequests.revocationMaterial`       | Revoking sign-in during account deletion |
+| Sign-in subject after deletion                                              | `productAccountDeletionTombstones`                        | Preventing a deleted account's reuse     |
 
 Product Accounts store no name or email address. The backend reads the email
 claim of a Google identity token only to derive the Gmail routing digest, then
@@ -104,43 +105,50 @@ Each needs new answers before it is enabled.
 Data used to track you: **none**. No data is used for third-party advertising,
 developer advertising or marketing, analytics or product personalization.
 
-| Category     | Data type               | Collected                                | Linked | Purpose           | Evidence                                                                       |
-| ------------ | ----------------------- | ---------------------------------------- | ------ | ----------------- | ------------------------------------------------------------------------------ |
-| Identifiers  | User ID                 | Yes                                      | Yes    | App Functionality | Sign-in issuer and subject                                                     |
-| Identifiers  | Device ID               | Yes                                      | Yes    | App Functionality | Trusted Device identifier, APNs token; installation id once reporting connects |
-| Contact      | Email Address           | Yes                                      | Yes    | App Functionality | Keyed Gmail address digest, which Apple counts as a hashed email address       |
-| Diagnostics  | Crash Data              | When reporting connects                  | Yes    | App Functionality | Exception names, codes and stack addresses                                     |
-| Diagnostics  | Performance Data        | When reporting connects                  | Yes    | App Functionality | Operation elapsed milliseconds                                                 |
-| Diagnostics  | Other Diagnostic Data   | When reporting connects                  | Yes    | App Functionality | Breadcrumb stages, HTTP status, app, build, OS version and channel             |
-| User Content | Emails or Text Messages | No: device-local or end-to-end encrypted | —      | —                 | Mail and Drafts; see the encryption interpretation above                       |
-| User Content | Other User Content      | No: device-local or end-to-end encrypted | —      | —                 | Mailbox descriptions                                                           |
+| Category     | Data type               | Collected                                | Linked | Purpose           | Evidence                                                                              |
+| ------------ | ----------------------- | ---------------------------------------- | ------ | ----------------- | ------------------------------------------------------------------------------------- |
+| Identifiers  | User ID                 | Yes                                      | Yes    | App Functionality | Sign-in issuer and subject                                                            |
+| Identifiers  | Device ID               | Yes                                      | Yes    | App Functionality | Trusted Device identifier, APNs token; installation id once reporting connects        |
+| Usage Data   | Product Interaction     | Yes                                      | Yes    | App Functionality | Send claim times, scheduled-send times and states, account and device last-seen times |
+| Other Data   | Other Data Types        | Yes                                      | Yes    | App Functionality | Sign-in tokens kept while account-deletion revocation retries                         |
+| Contact      | Email Address           | Yes                                      | Yes    | App Functionality | Keyed Gmail address digest, which Apple counts as a hashed email address              |
+| Diagnostics  | Crash Data              | When reporting connects                  | Yes    | App Functionality | Exception names, codes and stack addresses                                            |
+| Diagnostics  | Performance Data        | When reporting connects                  | Yes    | App Functionality | Operation elapsed milliseconds                                                        |
+| Diagnostics  | Other Diagnostic Data   | When reporting connects                  | Yes    | App Functionality | Breadcrumb stages, HTTP status, app, build, OS version and channel                    |
+| User Content | Emails or Text Messages | No: device-local or end-to-end encrypted | —      | —                 | Mail and Drafts; see the encryption interpretation above                              |
+| User Content | Other User Content      | No: device-local or end-to-end encrypted | —      | —                 | Mailbox descriptions                                                                  |
 
 Every other data type is not collected: name, phone number, physical address,
 health, financial, location, sensitive information, contacts, photos, audio,
-browsing and search history, purchases, product interaction and advertising data.
+browsing and search history, purchases and advertising data.
 
-Two answers are conservative choices for the owner:
+Three answers are conservative choices for the owner:
 
 - **Email Address** is declared because the routing digest is a keyed hash of
   the address, tied to the Product Account. Declaring nothing would rely on the
   backend-held key making the digest unlike a plain hash, which Apple's page does
   not address.
+- **Other Data Types** covers the Apple authorization code or Google tokens a
+  deletion request stores. When Apple revocation times out or fails retryably,
+  the request ends and the material stays in
+  `productAccountDeletionRequests` until a retry revokes it
+  (`packages/convex/convex/productAccountDeletion.ts`), so the real-time
+  exemption does not apply.
 - **Diagnostics are linked** because the installation id identifies a device,
   though it is not tied to the Product Account. Apple treats data as unlinked only
   when direct identifiers are removed before collection.
 
 Not collected under Apple's definition: identity tokens and Gmail push addresses
-verified and discarded in the same request, and the deletion request's provider
-tokens, held only until revocation completes. IP addresses are not stored in the
+verified and discarded in the same request. IP addresses are not stored in the
 schema; the owner confirms that Convex and PostHog logs do not retain them in a
 readable form beyond servicing requests.
 
 ## Differences to resolve
 
-| Source                                                                            | Difference                                                                                                                                                                           | Resolution                                                                                                                                                  |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App privacy manifests                                                             | `apps/macos/macos/PrivacyInfo.xcprivacy` declares no collected data types, and `apps/mobile/app.config.ts` configures none for the iOS app. The answers above declare four.          | [#1967](https://github.com/unwired-dev/product/issues/1967) declares them in both hosts; check the [archive inventory](testflight.md#what-the-script-does). |
-| [Provisional privacy notice](https://www.unwired.dev/privacy)                     | Covers only the website, Product Waitlist and bookings and says nothing about the app.                                                                                               | [#1946](https://github.com/unwired-dev/product/issues/1946) publishes the app notice from this inventory.                                                   |
-| [Google user data disclosure](google-registration.md#google-user-data-disclosure) | Lists Gmail history ids as stored. The relay keeps received ids for 10 minutes and the last verified id on each connection, which conflicts with ADR 0002's transient push payloads. | The owner resolves the retention conflict ([owner action 1](google-registration.md#remaining-owner-actions)), then updates both pages.                      |
-| [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)          | Legacy Gmail rows registered before opaque routing keep a readable `emailAddress` until their device registers again.                                                                | Before submission, the owner confirms the production deployment has no `mailProviderConnections` or `gmailPushVerificationSignals` row with an address.     |
-| [Opt-in error reporting](telemetry.md)                                            | Code ships with the receiver disconnected and native collection off.                                                                                                                 | Add the diagnostics answers in the release that connects the service.                                                                                       |
+| Source                                                                            | Difference                                                                                                                                                                                                                        | Resolution                                                                                                                                                  |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App privacy manifests                                                             | `apps/macos/macos/PrivacyInfo.xcprivacy` declares no collected data types, and `apps/mobile/app.config.ts` configures none for the iOS app. The answers above declare five, plus three diagnostics types once reporting connects. | [#1967](https://github.com/unwired-dev/product/issues/1967) declares them in both hosts; check the [archive inventory](testflight.md#what-the-script-does). |
+| [Provisional privacy notice](https://www.unwired.dev/privacy)                     | Covers only the website, Product Waitlist and bookings and says nothing about the app.                                                                                                                                            | [#1946](https://github.com/unwired-dev/product/issues/1946) publishes the app notice from this inventory.                                                   |
+| [Google user data disclosure](google-registration.md#google-user-data-disclosure) | Lists Gmail history ids as stored. The relay keeps received ids for 10 minutes and the last verified id on each connection, which conflicts with ADR 0002's transient push payloads.                                              | The owner resolves the retention conflict ([owner action 1](google-registration.md#remaining-owner-actions)), then updates both pages.                      |
+| [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)          | Legacy Gmail rows registered before opaque routing keep a readable `emailAddress` until their device registers again.                                                                                                             | Before submission, the owner confirms the production deployment has no `mailProviderConnections` or `gmailPushVerificationSignals` row with an address.     |
+| [Opt-in error reporting](telemetry.md)                                            | Code ships with the receiver disconnected and native collection off.                                                                                                                                                              | Add the diagnostics answers in the release that connects the service.                                                                                       |
