@@ -125,6 +125,12 @@ not evidence of a newly outstanding approval.
 
 ### Native integration
 
+- Following [ADR 0059](../adr/0059-replace-the-client-for-a-shared-cross-platform-product.md),
+  native host modules own URL registration, OS callbacks, default-app selection
+  and URL handoff. Shared TypeScript application code validates the request,
+  resolves sending context and applies the existing Product Account, Profile,
+  Sending Identity and Draft-save guards. Native authentication and vault checks
+  remain required.
 - On iPhone and iPad, obtain Apple's managed
   [mail-client entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.mail-client),
   configure the App ID and signing, and verify the entitlement in the distributed
