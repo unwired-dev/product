@@ -213,11 +213,102 @@ not Thread muting.
   suggestions: [#648](https://github.com/unwired-dev/product/issues/648), [#649](https://github.com/unwired-dev/product/issues/649), [#650](https://github.com/unwired-dev/product/issues/650), [#651](https://github.com/unwired-dev/product/issues/651), [#652](https://github.com/unwired-dev/product/issues/652), [#653](https://github.com/unwired-dev/product/issues/653), [#654](https://github.com/unwired-dev/product/issues/654), [#655](https://github.com/unwired-dev/product/issues/655), [#656](https://github.com/unwired-dev/product/issues/656), [#657](https://github.com/unwired-dev/product/issues/657).
 - [Catch Up](../catch-up.md) and Background Message Summaries.
 - [Mail Commitments](mail-commitments.md) and [Agent access](agent-access.md).
+- [Siri AI search and open](#siri-ai-search-and-open), planned alongside the
+  existing App Intents work with its own confirmed interview scope below.
 - Existing deferred Spotlight, Android/Windows, bulk mailbox import/export and
   shared/delegated-mailbox directions remain visible for scope exploration.
   Their earlier exclusion from the Apple launch remains unchanged. Individual
   delegation is included in this expansion; team/shared-inbox/CRM work remains
   separate.
+
+## Siri AI search and open
+
+On 2026-11-09 the owner chose to plan Siri AI as a post-launch feature. The first
+workflow searches for mail and opens a selected message in Unwired, with iPhone,
+iPad and Mac qualified together. This adds no current launch requirement.
+Reading, summaries and Reply Draft creation are later candidates.
+
+On 2026-11-10 the owner confirmed separate per-device authorization for Siri to
+receive only sender, subject, date, Profile/mailbox labels and opaque message
+references within one authorized Profile and selected Mailbox Connections.
+Exclude bodies, snippets and attachment contents. Disclose potential Siri cloud
+processing; Mail Assistance Enablement does not authorize this access.
+
+Search saved local metadata by default. Contact providers only when explicitly
+requested, and report incomplete coverage and unavailable mailboxes. Qualify
+English Siri requests across all three clients, also checking Czech interface
+and message content without claiming Czech Siri command support.
+
+Find requests return matching metadata. Explicit open requests open an
+unambiguous match directly; multiple matches require selection. Never guess or
+substitute another message. After all three clients qualify, release wherever
+Apple supports the integration with a clear unavailable state elsewhere, without
+waiting for Czech Siri or EU mobile availability. Existing Shortcuts remain
+independent.
+
+The owner confirmed shared understanding and requested ticket planning on
+2026-11-10. This approves the requirements, not runtime implementation.
+EU mobile Siri checks remain deferred until
+they can run in a supported environment; Mac or Shortcuts tests do not qualify
+them. Supported-region mobile evidence can satisfy that platform's qualification
+without waiting for EU availability. See the
+[research and interview decisions](../research/siri-ai.md#confirmed-interview-decisions).
+
+### Siri delivery tickets
+
+The owner approved and published these five follow-up slices on 2026-11-10.
+They extend the October 25 ticket set; the original parent issues and launch
+scope remain unchanged. Dependencies are native GitHub blocking relationships.
+
+1. [Mac saved-mail search and open #1951](https://github.com/unwired-dev/product/issues/1951),
+   blocked by [Mac App Intents #1316](https://github.com/unwired-dev/product/issues/1316).
+2. [iPhone/iPad saved-mail search and open #1952](https://github.com/unwired-dev/product/issues/1952),
+   blocked by [mobile App Intents #1318](https://github.com/unwired-dev/product/issues/1318).
+3. [Mac explicit provider search and open #1953](https://github.com/unwired-dev/product/issues/1953),
+   blocked by #1951.
+4. [iPhone/iPad explicit provider search and open #1954](https://github.com/unwired-dev/product/issues/1954),
+   blocked by #1952.
+5. [Joint client qualification and release #1955](https://github.com/unwired-dev/product/issues/1955),
+   blocked by #1953 and #1954.
+
+The Mac and mobile paths can proceed independently once their existing App
+Intents blockers complete. Both converge on one release gate; a single-client
+delivery does not satisfy the confirmed milestone. Publication does not establish
+runtime implementation or passing qualification.
+
+### Acceptance and qualification
+
+The existing scoped automation, Profile Lock and protected-storage boundaries
+apply to every query, returned result and message open, including retries and
+late results. Approval on one device or for built-in assistance does not enable
+Siri on another device. Changes to account, trust, grants, locks or mailbox
+ownership cannot leave reusable access to stale results. Disabling access blocks
+future requests; do not promise to recall metadata already returned to Siri.
+Siri authorization does not enable Spotlight indexing.
+
+Qualification must demonstrate on each maintained client:
+
+- First-use approval and denial, persisted permission after restart, no implicit
+  permission on upgrade or another device, and disablement or permission narrowing.
+- Only the approved metadata leaves Unwired; body text, snippets, attachments,
+  credentials and keys do not. Locked Profiles and unavailable protected storage
+  reveal no mail through queries, errors, results or opening, independently of
+  the beta's entity authentication-policy behavior.
+- Local and explicitly requested provider search, cached/partial coverage,
+  offline/provider failure, no matches, ambiguous matches and exact-target open.
+- Removal, Profile transfer, sign-out, observed revocation, cancellation, retry
+  and late results cannot use stale authority or open a substitute message.
+- Opening preserves existing Draft work and does not mark mail read or perform
+  another mailbox mutation. Cold and warm starts, background invocation and
+  unavailable foreground handoff are exercised on each host.
+- English requests with Czech interface and message content, plus supported and
+  unavailable OS/language/region states. Shortcuts and Mac-only evidence do not
+  replace iPhone or iPad Siri evidence.
+
+Use App Intents integration tests, Siri Evaluations and real-device Siri journeys
+for the affected behavior. SDK builds, native discovery and signing, Apple
+distribution availability, consent design approval and privacy qualification
+remain release prerequisites, with unavailable checks recorded as deferred.
 
 ## Interview progression
 
