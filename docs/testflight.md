@@ -176,8 +176,8 @@ property list fails the command. Entitlements come from the archive's signature;
 export re-signs for distribution, so values such as `get-task-allow` and
 `aps-environment` differ in the uploaded build. The inventory records what the archive
 declares. It does not decide whether those declarations are complete, and it
-is not the App Store Connect App Privacy answers
-([#1949](https://github.com/unwired-dev/product/issues/1949)). The JSON holds
+is not the App Store Connect App Privacy answers, which are drafted in
+[App Privacy answers](app-privacy.md). The JSON holds
 only archive declarations, so CI uploads it with `status.txt`.
 
 The inventory also records the encryption export declaration and the
