@@ -233,6 +233,9 @@ receive only sender, subject, date, Profile/mailbox labels and opaque message
 references within one authorized Profile and selected Mailbox Connections.
 Exclude bodies, snippets and attachment contents. Disclose potential Siri cloud
 processing; Mail Assistance Enablement does not authorize this access.
+The existing [optional-consent age eligibility](apple-system-and-legal-readiness.md#audience)
+also applies. A saved grant or Apple's Siri availability does not itself establish
+independent eligibility for Unwired's optional consent.
 
 Search saved local metadata by default. Contact providers only when explicitly
 requested, and report incomplete coverage and unavailable mailboxes. Qualify

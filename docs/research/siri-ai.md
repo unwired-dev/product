@@ -352,6 +352,11 @@ mail-specific disclosure, permission or retention contract.
 [assistance requirements](../product/assistance.md),
 [Agent access requirements](../product/agent-access.md).
 
+The confirmed [Apple and legal readiness requirements](../product/apple-system-and-legal-readiness.md#audience)
+also gate optional cloud-feature consent on independent eligibility. Siri's
+metadata authorization must respect that existing boundary; a saved permission
+or Apple's own age threshold does not establish consent eligibility in Unwired.
+
 ## Verification tools and proposed evidence
 
 Apple describes **Siri Integration Advisor in Xcode** as feedback and suggestions
