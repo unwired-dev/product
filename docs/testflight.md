@@ -185,13 +185,14 @@ cryptography the archive ships. `encryption` holds the app's
 (`null` when absent). Each `code` entry's `cryptography` lists the cryptography
 libraries its executable links (CryptoKit, Security, CommonCrypto, OpenSSL's
 `libcrypto` and `libssl`, BoringSSL or libsodium), the CommonCrypto (`CC…`) and
-`SecKey…` functions it imports, and the symbols it defines that mark a bundled
-TLS or cryptography library: `EVP_EncryptInit_ex`, `SSL_CTX_new` or
-`sodium_init`, with or without a prefix such as swift-nio-ssl's
-`CNIOBoringSSL_`. An unreadable executable fails the command. These are name
-checks. They miss cryptography reached through other APIs, such as URLSession's
-TLS, or compiled in under other names, so an empty list does not show that code
-has none.
+`SecKey…` functions it imports, and the strings it contains that mark a bundled
+OpenSSL or BoringSSL (such as swift-nio-ssl's): OpenSSL's version string,
+BoringSSL's `OPENSSL_internal` error strings and the `CRYPTOGAMS by
+<appro@openssl.org>` banners of their assembly. Archives are stripped, so
+defined symbols cannot show bundled libraries. An unreadable executable fails
+the command. These are name checks. They miss cryptography reached through
+other APIs, such as URLSession's TLS, or compiled in without these names, such
+as libsodium, so an empty list does not show that code has none.
 
 Both hosts set `ITSAppUsesNonExemptEncryption` to `false`
 (`apps/mobile/app.config.ts` and `apps/macos/macos/UnwiredMail/Info.plist`),

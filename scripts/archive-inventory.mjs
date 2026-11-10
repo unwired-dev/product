@@ -120,8 +120,8 @@ const matching = (values, pattern) =>
   [...new Set(values.filter((value) => pattern.test(value)))].toSorted();
 
 // Linked cryptography libraries, imported CommonCrypto and SecKey functions,
-// and defined symbols that mark a bundled TLS or cryptography library, such as
-// swift-nio-ssl's prefixed BoringSSL.
+// and strings that mark a bundled OpenSSL or BoringSSL, such as swift-nio-ssl's.
+// Archives are stripped, so their defined symbols cannot show it.
 const cryptography = (file) => ({
   libraries: matching(
     lines('otool', ['-L', file])
@@ -130,9 +130,9 @@ const cryptography = (file) => ({
     /CryptoKit|Security\.framework|commonCrypto|libcrypto|libssl|BoringSSL|sodium/iu,
   ),
   imports: matching(lines('nm', ['-u', '-j', file]), /^_(?:CC|SecKey)/u),
-  implementations: matching(
-    lines('nm', ['-U', '-j', file]),
-    /^_(?:\w+_)?(?:EVP_EncryptInit_ex|SSL_CTX_new|sodium_init)$/u,
+  bundled: matching(
+    lines('strings', ['-a', file]),
+    /CRYPTOGAMS by <appro@openssl\.org>|OPENSSL_internal|^OpenSSL \d/u,
   ),
 });
 
@@ -219,8 +219,8 @@ const executable = (entry) => {
   }
   const layout = [
     ['Contents/Info.plist', 'Contents/MacOS'],
-    ['Resources/Info.plist', ''],
     ['Info.plist', ''],
+    ['Resources/Info.plist', ''],
   ].find(([file]) => existsSync(path.join(bundle, file)));
   if (!layout) {
     return fail(`no Info.plist in ${bundle}`);

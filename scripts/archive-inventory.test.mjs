@@ -67,11 +67,11 @@ function fixture() {
     path.join(tracked, 'Tracked.bundle/PrivacyInfo.xcprivacy'),
     manifest(api('UserDefaults', 'C56D.1'), api('FileTimestamp', 'C617.1')),
   );
-  // Links CryptoKit and Security, imports CommonCrypto and SecKey and defines
-  // a symbol of swift-nio-ssl's prefixed BoringSSL.
+  // Links CryptoKit and Security, imports CommonCrypto and SecKey and, once
+  // stripped, keeps BoringSSL's error format string.
   writeFileSync(
     path.join(directory, 'crypto.c'),
-    '#include <CommonCrypto/CommonDigest.h>\n#include <Security/Security.h>\nvoid CNIOBoringSSL_SSL_CTX_new(void) {}\nint main(void) { unsigned char digest[32]; CC_SHA256("", 0, digest); return SecKeyCreateRandomKey(NULL, NULL) != NULL; }\n',
+    '#include <CommonCrypto/CommonDigest.h>\n#include <Security/Security.h>\n#include <stdio.h>\nint main(int argc, char **argv) { unsigned char digest[32]; CC_SHA256("", 0, digest); if (argc > 1) printf("error:%08x:%s:OPENSSL_internal:%s", 0, "", ""); return SecKeyCreateRandomKey(NULL, NULL) != NULL; }\n',
   );
   execFileSync('clang', [
     path.join(directory, 'crypto.c'),
@@ -83,6 +83,7 @@ function fixture() {
     '-framework',
     'CryptoKit',
   ]);
+  execFileSync('strip', [path.join(tracked, 'Tracked')]);
   // Versioned Mac frameworks link directories; the walk must list them once.
   symlinkSync('Tracked.bundle', path.join(tracked, 'Current'));
   sign(tracked);
@@ -174,7 +175,7 @@ test(
         'Frameworks/Unsigned.framework',
         'Frameworks/Untracked.framework',
       ]);
-      const none = { libraries: [], imports: [], implementations: [] };
+      const none = { libraries: [], imports: [], bundled: [] };
       assert.deepEqual(
         report.code.map(({ cryptography }) => cryptography),
         [
@@ -187,7 +188,7 @@ test(
               '/System/Library/Frameworks/Security.framework/Versions/A/Security',
             ],
             imports: ['_CC_SHA256', '_SecKeyCreateRandomKey'],
-            implementations: ['_CNIOBoringSSL_SSL_CTX_new'],
+            bundled: ['error:%08x:%s:OPENSSL_internal:%s'],
           },
         ],
       );
