@@ -181,9 +181,9 @@ results for changed details on Mac, and on iPhone and iPad.
     so Return adds a new line there ([#1900](https://github.com/unwired-dev/product/issues/1900)),
     which closes the result like any other edit. The buttons stay reachable by
     click and, with Full Keyboard Access, by Tab.
-    VoiceOver reads each row as one text element and hears the count after the result,
-    but can't move to the count line yet
-    ([#1902](https://github.com/unwired-dev/product/issues/1902)).
+    The result text, the count line and each row are separate text elements, in that
+    accessibility order ([#1902](https://github.com/unwired-dev/product/issues/1902));
+    moving through them with VoiceOver still awaits native VoiceOver qualification.
 - A result belongs to the text it was captured from. Any edit to the Draft body, or to the To/Cc recipients
   or quoted text used for a reply, cancels a pending request and closes its review, so a stale result is never
   offered or applied. Closing the Draft cancels the request. Controls rendered for
