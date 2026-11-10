@@ -51,17 +51,17 @@ sends the mail.
 The Convex backend stores these fields in readable form
 (`packages/convex/convex/schema.ts`):
 
-| Data                                                                        | Where                                                     | Why                                      |
-| --------------------------------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------- |
-| Sign-in issuer and subject (Google or Apple)                                | `productAccounts.tokenIdentifier`, `linkedSignIns`        | Product Sign-In and linked sign-in       |
-| Random device identifier, platform, generic device name                     | `trustedDevices`, `pendingDevices`                        | Trusted Device enrollment and revocation |
-| APNs device token and environment                                           | `trustedDevices.apnsToken`                                | New-mail and scheduled-send wakes        |
-| Keyed HMAC digest of each Gmail address                                     | `mailProviderConnections.gmailRoutingDigest`              | Routing Gmail push wakes                 |
-| Opaque connection id, Microsoft Graph subscription id                       | `mailProviderConnections`                                 | Routing push wakes                       |
-| Send claim times, scheduled-send due times and states                       | `draftDeliveryClaims`, `scheduledSends`                   | Sending a Draft once; Scheduled Send     |
-| Gmail history ids                                                           | `gmailPushVerificationSignals`, `mailProviderConnections` | Verifying push ownership                 |
-| Provider tokens or Apple authorization code, kept across revocation retries | `productAccountDeletionRequests.revocationMaterial`       | Revoking sign-in during account deletion |
-| Sign-in subject after deletion                                              | `productAccountDeletionTombstones`                        | Preventing a deleted account's reuse     |
+| Data                                                               | Where                                                     | Why                                      |
+| ------------------------------------------------------------------ | --------------------------------------------------------- | ---------------------------------------- |
+| Sign-in issuer and subject (Google or Apple)                       | `productAccounts.tokenIdentifier`, `linkedSignIns`        | Product Sign-In and linked sign-in       |
+| Random device identifier, platform, generic device name            | `trustedDevices`, `pendingDevices`                        | Trusted Device enrollment and revocation |
+| APNs device token and environment                                  | `trustedDevices.apnsToken`                                | New-mail and scheduled-send wakes        |
+| Keyed HMAC digest of each Gmail address                            | `mailProviderConnections.gmailRoutingDigest`              | Routing Gmail push wakes                 |
+| Opaque connection id, Microsoft Graph subscription id              | `mailProviderConnections`                                 | Routing push wakes                       |
+| Send claim times, scheduled-send due times and states              | `draftDeliveryClaims`, `scheduledSends`                   | Sending a Draft once; Scheduled Send     |
+| Gmail history ids                                                  | `gmailPushVerificationSignals`, `mailProviderConnections` | Verifying push ownership                 |
+| Apple authorization code or tokens, kept across revocation retries | `productAccountDeletionRequests.revocationMaterial`       | Revoking sign-in during account deletion |
+| Sign-in subject after deletion                                     | `productAccountDeletionTombstones`                        | Preventing a deleted account's reuse     |
 
 Product Accounts store no name or email address. The backend reads the email
 claim of a Google identity token only to derive the Gmail routing digest, then
@@ -128,8 +128,8 @@ Three answers are conservative choices for the owner:
   the address, tied to the Product Account. Declaring nothing would rely on the
   backend-held key making the digest unlike a plain hash, which Apple's page does
   not address.
-- **Other Data Types** covers the Apple authorization code or Google tokens a
-  deletion request stores. When Apple revocation times out or fails retryably,
+- **Other Data Types** covers the Sign in with Apple authorization code or
+  tokens a deletion request stores; Google sign-in stores none. When Apple revocation times out or fails retryably,
   the request ends and the material stays in
   `productAccountDeletionRequests` until a retry revokes it
   (`packages/convex/convex/productAccountDeletion.ts`), so the real-time
