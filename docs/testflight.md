@@ -192,6 +192,7 @@ listed, and an unreadable source map or `package.json` fails the command. The
 inventory records declarations. It does not decide licence compatibility,
 produce the notices the build owes, or cover native code from CocoaPods and
 Swift packages ([#1949](https://github.com/unwired-dev/product/issues/1949)).
+CI uploads it with `status.txt`.
 
 The notes helper checks processing at most 40 times, 30 seconds apart, and updates or creates
 the English notes for that exact platform, version and build number. A processing

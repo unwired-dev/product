@@ -216,16 +216,17 @@ if (command === 'xcodebuild') {
   fs.writeFileSync(executable, scenario === 'native-test-path' ? 'UNWIRED_LIFECYCLE_PATH' : 'Production executable');
   fs.writeFileSync(path.join(resources, 'main.jsbundle'), 'production bundle');
   fs.writeFileSync(path.join(resources, 'PrivacyInfo.xcprivacy'), scenario === 'inventory-failure' ? 'unreadable' : '<?xml version="1.0"?><plist version="1.0"><dict><key>NSPrivacyTracking</key><false/></dict></plist>');
-  const sources = ['react@19.3.0/node_modules/react/index.js', 'react-native@0.88.1/node_modules/react-native/index.js', 'effect@4.0.0/index.js', 'react-native-screens/src/components/gamma/split/SplitHost.tsx', '/mail-core/src/index.ts', '/mail-core/src/theme.ts'];
+  // Expo lists sources from the Metro server root, the checkout.
+  const sources = ['/vendor/react@19.3.0/node_modules/react/index.js', 'react-native@0.88.1/node_modules/react-native/index.js', 'effect@4.0.0/index.js', 'react-native-screens/src/components/gamma/split/SplitHost.tsx', '/mail-core/src/index.ts', '/mail-core/src/theme.ts'];
   if (scenario === 'mock-bundle') sources.push('/mail-core/src/testing/mock.ts');
   const sourcesContent = sources.map(source => source.endsWith('/mail-core/src/index.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/index.ts'), 'utf8') : source.endsWith('/mail-core/src/theme.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/theme.ts'), 'utf8') : null);
   const map = args.find(arg => arg.startsWith('SOURCEMAP_FILE='))?.slice('SOURCEMAP_FILE='.length);
   if (map && scenario !== 'missing-map') {
     fs.mkdirSync(path.dirname(map), { recursive: true }); fs.writeFileSync(map, JSON.stringify({ sources, sourcesContent }));
     for (const source of sources.filter(source => source.includes('/node_modules/'))) {
-      const name = source.split('/')[2];
-      fs.mkdirSync(path.join(path.dirname(map), path.dirname(source)), { recursive: true });
-      fs.writeFileSync(path.join(path.dirname(map), path.dirname(source), 'package.json'), scenario === 'licence-failure' ? 'unreadable' : JSON.stringify({ name, version: '1.0.0', license: 'MIT' }));
+      const folder = path.join(source.startsWith('/') ? checkout : path.dirname(map), path.dirname(source));
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(path.join(folder, 'package.json'), scenario === 'licence-failure' ? 'unreadable' : JSON.stringify({ name: path.basename(folder), version: '1.0.0', license: 'MIT' }));
     }
     if (host === 'macos') {
       fs.copyFileSync(map, path.join(checkout, 'apps/macos/dist/main.jsbundle.map'));
@@ -282,7 +283,8 @@ for (const [scenario, platform, expected, workflowRevision] of [
         if (signedScenarios.has(scenario)) {
           env.TESTFLIGHT_IDENTITY_SHA1 = identity;
         }
-        let args = ['scripts/testflight.zsh', platform];
+        // Run from outside the checkout, as the script must not rely on it.
+        let args = [path.join(checkout, 'scripts/testflight.zsh'), platform];
         if (workflowRevision) {
           const tools = path.join(
             checkout,
@@ -329,7 +331,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
           args = ['-e', '-o', 'pipefail', '-c', script];
         }
         const result = spawnSync('/bin/zsh', args, {
-          cwd: checkout,
+          cwd: workflowRevision ? checkout : directory,
           env,
           encoding: 'utf8',
         });
@@ -427,6 +429,9 @@ for (const [scenario, platform, expected, workflowRevision] of [
               ? /CocoaPods installation failed/u
               : /Failed:/u,
           );
+        }
+        if (scenario === 'licence-failure') {
+          assert.match(result.stderr, /Failed: .*macos-licences\.log/u);
         }
       } finally {
         rmSync(directory, { recursive: true, force: true });
