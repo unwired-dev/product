@@ -18,6 +18,7 @@
     "registration-performance",
     "registration-sync-status",
     "registration-invitation",
+    "registration-imap-folders",
     "categorization-spike",
     "assistance-qualification"
   ],
@@ -38,6 +39,7 @@
     "registration-thread",
     "registration-performance",
     "registration-sync-status",
-    "registration-invitation"
+    "registration-invitation",
+    "registration-imap-folders"
   ]
 }
