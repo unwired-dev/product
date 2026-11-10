@@ -28,11 +28,14 @@ ciphertext the backend cannot decrypt as not readable, so not collected. That is
 an interpretation for the owner to confirm, not a claim that the data is
 anonymous: the ciphertext still exists, is tied to a Product Account and is
 deleted with it.
+If the owner rejects it, Emails or Text Messages, Photos or Videos and Other
+User Content become collected and linked, for App Functionality.
 
-## What stays on the device
+## On-device processing and encrypted sync
 
-Mail, Drafts, provider OAuth tokens, search, categorization, summaries,
-translation and rewrites stay on the device. Each device talks to Gmail,
+Mail and provider OAuth tokens stay on the device. Drafts are written on the
+device and leave it only as Private Sync ciphertext. Search, categorization,
+summaries, translation and rewrites run on the device. Each device talks to Gmail,
 Microsoft Graph and IMAP/SMTP servers directly
 ([ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)).
 Mail assistance uses on-device Foundation Models
@@ -41,8 +44,9 @@ contacts, calendar, location, photos, camera or microphone permission and contai
 no advertising SDK, advertising identifier or App Tracking Transparency prompt.
 
 [Private Sync](private-product-sync.md#keys-and-envelopes) stores mailbox
-descriptions (provider and address) and Drafts in Convex as end-to-end encrypted
-records (`encryptedProductSyncPayloads`, `productSyncKeyEnvelopes`). Scheduled
+descriptions (provider and address), Drafts and their files and photos
+([Draft Assets](drafts.md#continuing-on-another-device)) in Convex as end-to-end
+encrypted records (`encryptedProductSyncPayloads`, `productSyncKeyEnvelopes`). Scheduled
 sends keep only the encrypted Draft's identifier and timing; a Trusted Device
 sends the mail.
 
@@ -116,10 +120,11 @@ developer advertising or marketing, analytics or product personalization.
 | Diagnostics  | Performance Data        | When reporting connects                  | Yes    | App Functionality | Operation elapsed milliseconds                                                        |
 | Diagnostics  | Other Diagnostic Data   | When reporting connects                  | Yes    | App Functionality | Breadcrumb stages, HTTP status, app, build, OS version and channel                    |
 | User Content | Emails or Text Messages | No: device-local or end-to-end encrypted | —      | —                 | Mail and Drafts; see the encryption interpretation above                              |
-| User Content | Other User Content      | No: device-local or end-to-end encrypted | —      | —                 | Mailbox descriptions                                                                  |
+| User Content | Photos or Videos        | No: end-to-end encrypted                 | —      | —                 | Photos attached to or inserted in Drafts (Draft Assets)                               |
+| User Content | Other User Content      | No: device-local or end-to-end encrypted | —      | —                 | Mailbox descriptions, files attached to Drafts                                        |
 
 Every other data type is not collected: name, phone number, physical address,
-health, financial, location, sensitive information, contacts, photos, audio,
+health, financial, location, sensitive information, contacts, audio,
 browsing and search history, purchases and advertising data.
 
 Three answers are conservative choices for the owner:
