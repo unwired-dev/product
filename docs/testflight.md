@@ -180,7 +180,9 @@ is not the App Store Connect App Privacy answers
 only archive declarations, so CI uploads it with `status.txt`.
 
 Each host also writes `<host>-licences.json` from the archive's JavaScript source
-map before export; a failed licence inventory refuses the upload. Run it from
+map before export; a failed licence inventory refuses the upload. The Xcode
+archive only supplies that source map; the Node script reads the packages and
+owns the inventory. Run it from
 the repository root, where Expo's Metro server root lists bundle sources, with
 `node scripts/licence-inventory.mjs <main.jsbundle.map>`. The JSON lists each
 third-party npm package with sources in the bundle: name, version, the `license`
