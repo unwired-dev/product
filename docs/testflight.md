@@ -199,8 +199,9 @@ with `status.txt`.
 
 Native code gets its own inventory: each host writes
 `<host>-native-licences.json` from the archive's installed `Pods` folder and
-the Swift packages its build resolved, and a failure refuses the upload. Run it
-on macOS with
+the Swift packages its build resolved, and a failure refuses the upload. The
+archive build only supplies those folders; the Node script reads them and owns
+the inventory. Run it on macOS with
 `node scripts/native-licence-inventory.mjs <Pods> <SourcePackages>`. Each pod
 in the `Manifest.lock` `PODS` section is listed with its version, the licence
 CocoaPods acknowledged or a path or Git pod's podspec declares (`null` when
@@ -208,8 +209,8 @@ neither does) and whether CocoaPods found its licence text. Swift packages
 declare no licence, so each resolved package lists its identity, location,
 version or revision and the `LICENSE`, `LICENCE`, `COPYING` or `NOTICE` files
 its checkout ships. `undeclared` lists pods without a declared licence, and
-`withoutLicenceText` lists pods without acknowledged text and packages without
-such a file. An unreadable lockfile, acknowledgements, podspec or package
+`withoutLicenceText` lists pods without acknowledged licence text and packages
+without a licence file. An unreadable lockfile, acknowledgements, podspec or package
 state, or a missing checkout, fails the command. Like the npm inventory, it
 records declarations only. CI uploads it with `status.txt`.
 

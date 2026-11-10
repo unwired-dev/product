@@ -128,7 +128,7 @@ const swiftList = decode(WorkspaceState, stateFile, read(stateFile))
   .object.dependencies.map(({ packageRef, state, subpath }) => {
     const checkout = path.join(packages, 'checkouts', subpath);
     if (!existsSync(checkout)) {
-      fail(`missing checkout ${checkout}`);
+      return fail(`missing checkout ${checkout}`);
     }
     return {
       identity: packageRef.identity,
