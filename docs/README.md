@@ -8,6 +8,7 @@ completion status. Publication of a plan does not prove implementation or releas
 ## Launch requirements and operations
 
 - [Confirmed power-user launch scope and delivery order](product/power-user-launch.md)
+- [Apple system integration and legal readiness decisions](product/apple-system-and-legal-readiness.md)
 - [iPhone Duo requirements and delivery](product/iphone-duo.md)
 - [Expo bootstrap, stack, setup and checks](expo-client.md)
 - [Native Mac windows, setup and checks](macos-client.md)
