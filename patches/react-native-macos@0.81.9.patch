@@ -172,3 +172,25 @@ index 6f332dc1701cada0aff0e9a2678fa7bdcea0ef85..cc431623fa724306bb3dedbca54474b9
  @end
  
  #endif // TARGET_OS_OSX
+diff --git a/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm b/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
+index 804eec8..b0e30db 100644
+--- a/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
++++ b/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
+@@ -156,13 +156,15 @@ + (ComponentDescriptorProvider)componentDescriptorProvider
+ 
+ - (void)updateProps:(const Props::Shared &)props oldProps:(const Props::Shared &)oldProps
+ {
+-  const auto &oldParagraphProps = static_cast<const ParagraphProps &>(*_props);
+   const auto &newParagraphProps = static_cast<const ParagraphProps &>(*props);
+ 
+   _paragraphAttributes = newParagraphProps.paragraphAttributes;
+   _textView.paragraphAttributes = _paragraphAttributes;
+ 
+-  if (newParagraphProps.isSelectable != oldParagraphProps.isSelectable) {
++  // A recycled view keeps its old props but has its selection disabled, so compare with the
++  // installed text view: otherwise a reused selectable paragraph stays a drawing that is
++  // missing from the accessibility tree.
++  if (newParagraphProps.isSelectable != (_selectableTextView != nil)) {
+     // [macOS Replaced enableContextMenu/disableContextMenu with _enableSelection/_disableSelection
+     // to swap in a native text view that supports text selection.
+     if (newParagraphProps.isSelectable) {

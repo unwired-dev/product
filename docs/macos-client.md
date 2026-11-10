@@ -191,7 +191,10 @@ The View menu's Commands… item (Command-P) opens the key window's
 [Command Palette](command-palette.md). Native menus use AppKit accessibility. Message buttons expose labels and selected
 state, support keyboard focus, and show a focus border. React Native macOS 0.81.9 does
 not expose plain nonselectable `Text` to accessibility: wrap it in an accessible view carrying
-its label, or make it selectable so it becomes a native text view.
+its label, or make it selectable so it becomes a native text view. Recycling a selectable
+text view turns its selection off but keeps its old props, so a reused view never turned
+it back on and stayed out of the accessibility tree. The renderer patch below compares with
+the installed text view instead (#1902); remove that hunk once React Native macOS does.
 `patches/react-native-macos@0.81.9.patch` gives every `Pressable` AppKit's press
 action (VoiceOver's VO-Space), which sends the accessibility click that runs its
 `onPress`, and maps `accessibilityState` `disabled` and `selected` onto the

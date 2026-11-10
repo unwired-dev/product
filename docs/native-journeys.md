@@ -148,8 +148,8 @@ Return adds a new line to the focused body, which closes the result, and
 Undo removes it; Replace text on a new rewrite makes the body the rewrite, and one
 Undo restores the reply. After " at 9:30" is typed, the
 rewrite reports one differing detail with its row and **Use rewrite with changes**;
-the count line above the row is checked only in the capture until it reaches the
-accessibility tree ([#1902](https://github.com/unwired-dev/product/issues/1902)),
+the count line is one text element between the rewrite and the row
+([#1902](https://github.com/unwired-dev/product/issues/1902)),
 and Keep original closes it with the reply unchanged. Both states are audited and
 kept as `Writing tools W1` and `Writing tools W2` attachments. Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close

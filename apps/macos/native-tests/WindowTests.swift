@@ -2186,8 +2186,27 @@ final class WindowTests: XCTestCase {
     app.typeText(" at 9:30")
     waitUntil { typed.value as? String == reply + " at 9:30" }
     try review("W2")
-    // The count line above the rows shows only in the capture until #1902 exposes it.
-    XCTAssertTrue(text("Time. Original: 9:30. Rewrite: —. Removed", in: window).exists)
+    // #1902: the count line is one text element between the result text and its row.
+    let count = shown("1 detail differs from your original. Compare it before using this rewrite.")
+    let row = text("Time. Original: 9:30. Rewrite: —. Removed", in: window)
+    XCTAssertTrue(count.exists)
+    XCTAssertEqual(
+      window.textViews.matching(NSPredicate(format: "value CONTAINS %@", "detail differs")).count, 1)
+    XCTAssertTrue(row.exists)
+    XCTAssertGreaterThan(count.frame.minY, shown("Synthetic rewrite of local mail.").frame.maxY)
+    XCTAssertLessThan(count.frame.maxY, row.frame.minY)
+    // Queries return elements in accessibility order, which VoiceOver follows.
+    let order = window.descendants(matching: .any).matching(
+      NSPredicate(
+        format: "(elementType == %d AND (value CONTAINS %@ OR value CONTAINS %@))"
+          + " OR (elementType == %d AND label CONTAINS %@)",
+        XCUIElement.ElementType.textView.rawValue, "Synthetic rewrite", "detail differs",
+        XCUIElement.ElementType.staticText.rawValue, ". Original: ")
+    ).allElementsBoundByIndex.map { element -> String in
+      if element.elementType == .staticText { return "row" }
+      return (element.value as? String ?? "").contains("Synthetic") ? "rewrite" : "count"
+    }
+    XCTAssertEqual(order, ["rewrite", "count", "row"])
     XCTAssertEqual(
       window.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", ". Original: ")).count, 1)
     XCTAssertTrue(withChanges.exists)
