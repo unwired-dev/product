@@ -143,8 +143,8 @@ reply keeps its text. After relaunch, it checks that the
 saved Draft reopens with that text, and Edit Link with its saved destination.
 With Mail Assistance turned on in Privacy & Data, **Rewrite the message body** from
 Writing tools ([#1898](https://github.com/unwired-dev/product/issues/1898)) shows the
-synthetic rewrite with the kept link note and **Replace text** as the default button.
-Return adds a new line to the focused body instead, which closes the result, and
+synthetic rewrite with the kept link note and **Replace text** in the accent tint.
+Return adds a new line to the focused body, which closes the result, and
 Undo removes it; Replace text on a new rewrite makes the body the rewrite, and one
 Undo restores the reply. After " at 9:30" is typed, the
 rewrite reports one differing detail with its row and **Use rewrite with changes**;
@@ -254,6 +254,31 @@ Bulk Mail and Deleted Messages and pressing Return saves them. All Mail then lis
 Inbox message but not Spam's or Trash's. Settings names both folders, and Change…
 opens them pre-filled; Escape keeps them. Both sheets pass an accessibility audit. Each
 step's capture is kept as an attachment. VoiceOver speech is not covered.
+
+## iPhone and iPad IMAP Spam and Trash folder journey
+
+The Expo native journey for a `registration-imap-folders` Release build signs in
+with Apple, connects the Gmail mailbox and confirms the Recovery Key
+([#1928](https://github.com/unwired-dev/product/issues/1928)). Build it as in
+[Mock Mail Sessions](mock-mail-sessions.md) with
+`UNWIRED_MOCK_SCENARIO=registration-imap-folders` and run it once per appearance:
+
+```sh
+UNWIRED_APPEARANCE=light mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
+```
+
+Run it again with `UNWIRED_APPEARANCE=dark`. Without a device type the runner runs iPhone 18 Pro
+and then iPad Pro 11-inch (M5); pass one, such as
+`com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB`, after the app to run a single
+device.
+
+It then checks the steps of the [Mac journey](#mac-imap-spam-and-trash-folder-journey)
+on iPhone and iPad, with these differences. Settings names the connection's folders
+as the iPhone row's value and as the iPad row's summary beside its button. Close
+dismisses the sheet and Save saves it; the iPhone row opens the sheet from Settings,
+the iPad row's Change… button does. Each step's capture is named with the
+appearance, for comparison with the approved frames. VoiceOver speech is not covered.
 
 ## iPhone and iPad keyboard and accessibility journey
 

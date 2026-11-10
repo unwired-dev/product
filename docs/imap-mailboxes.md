@@ -621,5 +621,6 @@ filing qualification remains required before release
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
 hosts, and backfilling large real IMAP folders. Registration Mock Mail Sessions connect any
 IMAP login to a synthetic server that marks only its Sent folder, which the
-[Mac IMAP Spam and Trash folder journey](native-journeys.md#mac-imap-spam-and-trash-folder-journey)
-uses; it is not provider qualification, and neither is the shared controlled-provider fixture.
+[Mac](native-journeys.md#mac-imap-spam-and-trash-folder-journey) and
+[iPhone and iPad](native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey)
+Spam and Trash folder journeys use; it is not provider qualification, and neither is the shared controlled-provider fixture.

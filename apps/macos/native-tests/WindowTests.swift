@@ -2132,8 +2132,8 @@ final class WindowTests: XCTestCase {
   }
 
   // #1898: a Writing tools rewrite of the reply says which details it changed. The synthetic
-  // rewrite keeps the reply's link, so Replace text is the default button; once the reply has a
-  // time the rewrite drops, Keep original is. Return stays with the body (#1900).
+  // rewrite keeps the reply's link, so Replace text takes the accent tint; once the reply has a
+  // time the rewrite drops, Keep original does. Return stays with the body (#1900).
   private func detailCheckJourney(
     _ app: XCUIApplication, window: XCUIElement, typed: XCUIElement, appearance: String
   ) throws {

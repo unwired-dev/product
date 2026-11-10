@@ -167,7 +167,9 @@ It lists INBOX with Sam Rivera's Welcome to IMAP, Sent Messages, the only folder
 (`\Sent`), Bulk Mail with Unwanted offer and Deleted Messages with Old receipt. It accepts
 changes and submissions and discards them. The
 [Mac IMAP Spam and Trash folder journey](native-journeys.md#mac-imap-spam-and-trash-folder-journey)
-connects it in `registration-performance`.
+connects it in `registration-performance`, and the
+[iPhone and iPad journey](native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey)
+in `registration-imap-folders`, which adds nothing else.
 In `registration-sync-status`, the synthetic Gmail mailbox downloads its history
 slowly: Gmail reports the mailbox's message count, lists two messages, then holds
 the next page for two minutes and fails it once with a server error before listing
