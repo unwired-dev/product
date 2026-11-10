@@ -36,7 +36,7 @@ The lossless migrated **Mail Profile** that owns every pre-Profile **Mailbox Con
 _Avoid_: Startup Profile, default mailbox account
 
 **Startup Profile**:
-The device-local **Mail Profile** used only when opening a new app window. A restored window keeps its own last active Profile, and a targeted deep link takes precedence over both restoration and Startup Profile.
+The device-local **Mail Profile** used as the starting context for new app windows, Share intake and untargeted incoming `mailto:` composition. Ordinary window restoration keeps its own last active Profile, and a targeted deep link takes precedence over restoration and Startup Profile.
 _Avoid_: Default Profile, default sending account
 
 **Mail Profile Window**:

@@ -12,6 +12,13 @@ The provider decision is recorded in
 
 [Vocabulary](domain/privacy-and-sync.md) · [Privacy requirements](product/privacy-and-sync.md)
 
+The [age-eligibility requirements](product/apple-system-and-legal-readiness.md#audience)
+collected in the 2026-11-09 interview additionally constrain optional consent.
+Keep reporting and analytics unavailable when the person cannot independently
+authorize them; a parental-consent flow for these features is deferred. These are
+planned eligibility requirements, not evidence that the current consent controls
+enforce them.
+
 ## Scope
 
 The maintained iPhone, iPad and Mac clients will support product analytics for
