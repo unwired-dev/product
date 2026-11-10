@@ -3,6 +3,7 @@
 set -eo pipefail
 # CI runs workflow-revision tooling against the selected source checkout.
 root=${TESTFLIGHT_SOURCE_ROOT:-${0:A:h:h}}
+tools=${0:A:h}
 if [[ "${UNWIRED_TESTFLIGHT_ENV_LOADED:-}" != 1 ]]; then
   exec node "${0:A:h}/testflight-env.mjs" "$@"
 fi
@@ -156,6 +157,10 @@ upload() {
       cmp "$resources/main.jsbundle" "$root/apps/macos/dist/main.jsbundle" || report "$artifacts/$host-inspection.log"
   fi
   print -r -- "Inspected: $host; production bundle, backend and native test boundary" >> "$artifacts/status.txt"
+  # Record the archive's privacy, permission and entitlement declarations (#1958).
+  node "$tools/archive-inventory.mjs" "$archive" > "$artifacts/$host-inventory.json" 2> "$artifacts/$host-inventory.log" ||
+    report "$artifacts/$host-inventory.log"
+  print -r -- "Inventoried: $host" >> "$artifacts/status.txt"
   xcodebuild -exportArchive -archivePath "$archive" -exportPath "$artifacts/$host-export" \
     -exportOptionsPlist "$artifacts/ExportOptions.plist" "${authentication[@]}" \
     > "$artifacts/$host-upload.log" 2>&1 || report "$artifacts/$host-upload.log"
