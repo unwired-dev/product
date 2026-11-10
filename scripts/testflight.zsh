@@ -164,6 +164,9 @@ upload() {
   # Expo lists bundle sources from the Metro server root, the checkout.
   (builtin cd -q "$root" && node "$tools/licence-inventory.mjs" "$map") > "$artifacts/$host-licences.json" 2> "$artifacts/$host-licences.log" ||
     report "$artifacts/$host-licences.log"
+  # Record the licences of its CocoaPods and resolved Swift packages (#1962).
+  node "$tools/native-licence-inventory.mjs" "${workspace:h}/Pods" "$artifacts/$host-DerivedData/SourcePackages" > "$artifacts/$host-native-licences.json" 2> "$artifacts/$host-native-licences.log" ||
+    report "$artifacts/$host-native-licences.log"
   print -r -- "Inventoried: $host" >> "$artifacts/status.txt"
   xcodebuild -exportArchive -archivePath "$archive" -exportPath "$artifacts/$host-export" \
     -exportOptionsPlist "$artifacts/ExportOptions.plist" "${authentication[@]}" \

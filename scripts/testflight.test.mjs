@@ -74,6 +74,7 @@ function fixture(scenario, { dotenv = false } = {}) {
     'testflight-env.mjs',
     'archive-inventory.mjs',
     'licence-inventory.mjs',
+    'native-licence-inventory.mjs',
   ]) {
     cpSync(
       path.join(root, 'scripts', name),
@@ -193,6 +194,14 @@ if (command === 'xcodebuild') {
   const derived = value('-derivedDataPath');
   fs.mkdirSync(derived, { recursive: true });
   fs.writeFileSync(path.join(derived, 'owned'), '');
+  // One pod, one Swift package and their licences, as an archive build leaves them.
+  const pods = path.join(path.dirname(value('-workspace')), 'Pods');
+  fs.mkdirSync(path.join(pods, 'Target Support Files/Pods-UnwiredMail'), { recursive: true });
+  fs.writeFileSync(path.join(pods, 'Manifest.lock'), scenario === 'native-licence-failure' ? 'unreadable' : 'PODS:\\n  - AppAuth (3.0.0)\\n\\nCOCOAPODS: 1.17.0\\n');
+  fs.writeFileSync(path.join(pods, 'Target Support Files/Pods-UnwiredMail/Pods-UnwiredMail-acknowledgements.plist'), '<?xml version="1.0"?><plist version="1.0"><dict><key>PreferenceSpecifiers</key><array><dict><key>Title</key><string>AppAuth</string><key>License</key><string>Apache-2.0</string></dict></array></dict></plist>');
+  fs.mkdirSync(path.join(derived, 'SourcePackages/checkouts/swift-log'), { recursive: true });
+  fs.writeFileSync(path.join(derived, 'SourcePackages/checkouts/swift-log/LICENSE.txt'), '');
+  fs.writeFileSync(path.join(derived, 'SourcePackages/workspace-state.json'), JSON.stringify({ object: { dependencies: [{ packageRef: { identity: 'swift-log', location: 'https://github.com/apple/swift-log.git' }, state: { checkoutState: { revision: 'c'.repeat(40), version: '1.6.4' } }, subpath: 'swift-log' }] } }));
   if (scenario === 'archive-failure') { console.log('unexpected ordinary signing failure'); process.exit(65); }
   if (scenario === 'interrupted') { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
   if (scenario === 'missing-app') process.exit(0);
@@ -257,6 +266,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
   ['export-failure', 'ios', 1],
   ['inventory-failure', 'ios', 1],
   ['licence-failure', 'macos', 1],
+  ['native-licence-failure', 'ios', 1],
   ['interrupted', 'ios', 143],
   ['missing-app', 'ios', 1],
   ['mock-plist', 'ios', 1],
@@ -296,6 +306,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
             'testflight-env.mjs',
             'archive-inventory.mjs',
             'licence-inventory.mjs',
+            'native-licence-inventory.mjs',
           ]) {
             cpSync(path.join(root, 'scripts', name), path.join(tools, name));
           }
@@ -316,6 +327,10 @@ for (const [scenario, platform, expected, workflowRevision] of [
           writeFileSync(
             path.join(checkout, 'scripts/licence-inventory.mjs'),
             'process.exit(95);\n',
+          );
+          writeFileSync(
+            path.join(checkout, 'scripts/native-licence-inventory.mjs'),
+            'process.exit(96);\n',
           );
           const workflow = readFileSync(
             path.join(root, '.github/workflows/testflight.yml'),
@@ -413,6 +428,21 @@ for (const [scenario, platform, expected, workflowRevision] of [
               ).packages.map(({ name, licence }) => `${name} ${licence}`),
               ['react MIT', 'react-native MIT'],
             );
+            const native = decodeJson(
+              readFileSync(
+                path.join(run, `${host}-native-licences.json`),
+                'utf8',
+              ),
+            );
+            assert.deepEqual(
+              [
+                ...native.pods.map(({ name, licence }) => `${name} ${licence}`),
+                ...native.swiftPackages.map(
+                  ({ identity, licenceFiles }) => `${identity} ${licenceFiles}`,
+                ),
+              ],
+              ['AppAuth Apache-2.0', 'swift-log LICENSE.txt'],
+            );
           }
           assert.ok(
             readFileSync(path.join(directory, 'notes'), 'utf8').includes(
@@ -432,6 +462,9 @@ for (const [scenario, platform, expected, workflowRevision] of [
         }
         if (scenario === 'licence-failure') {
           assert.match(result.stderr, /Failed: .*macos-licences\.log/u);
+        }
+        if (scenario === 'native-licence-failure') {
+          assert.match(result.stderr, /Failed: .*ios-native-licences\.log/u);
         }
       } finally {
         rmSync(directory, { recursive: true, force: true });

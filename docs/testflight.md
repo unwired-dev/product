@@ -106,6 +106,7 @@ scripts/testflight.zsh ios|macos|both
     including the configured Gmail push topic
   write <host>-inventory.json # privacy, permission and entitlement declarations
   write <host>-licences.json  # declared licences of bundled npm packages
+  write <host>-native-licences.json # licences of CocoaPods and Swift packages
   xcodebuild -exportArchive # cloud-managed distribution signing, direct upload
   wait for processing and record the commit in TestFlight What to Test notes
 ```
@@ -191,10 +192,26 @@ the `LICENSE`, `LICENCE`, `COPYING` or `NOTICE` files it ships. Packages without
 a declared licence are listed under `undeclared`, and packages without a
 licence or notice file under `withoutLicenceFile`. Workspace sources are not
 listed, and an unreadable source map or `package.json` fails the command. The
-inventory records declarations. It does not decide licence compatibility,
-produce the notices the build owes, or cover native code from CocoaPods and
-Swift packages ([#1949](https://github.com/unwired-dev/product/issues/1949)).
-CI uploads it with `status.txt`.
+inventory records declarations. It does not decide licence compatibility or
+produce the notices the build owes
+([#1949](https://github.com/unwired-dev/product/issues/1949)). CI uploads it
+with `status.txt`.
+
+Native code gets its own inventory: each host writes
+`<host>-native-licences.json` from the archive's installed `Pods` folder and
+the Swift packages its build resolved, and a failure refuses the upload. Run it
+on macOS with
+`node scripts/native-licence-inventory.mjs <Pods> <SourcePackages>`. Each pod
+in the `Manifest.lock` `PODS` section is listed with its version, the licence
+CocoaPods acknowledged or a path or Git pod's podspec declares (`null` when
+neither does) and whether CocoaPods found its licence text. Swift packages
+declare no licence, so each resolved package lists its identity, location,
+version or revision and the `LICENSE`, `LICENCE`, `COPYING` or `NOTICE` files
+its checkout ships. `undeclared` lists pods without a declared licence, and
+`withoutLicenceText` lists pods without acknowledged text and packages without
+such a file. An unreadable lockfile, acknowledgements, podspec or package
+state, or a missing checkout, fails the command. Like the npm inventory, it
+records declarations only. CI uploads it with `status.txt`.
 
 The notes helper checks processing at most 40 times, 30 seconds apart, and updates or creates
 the English notes for that exact platform, version and build number. A processing
@@ -210,7 +227,7 @@ The helper uses Ruby's standard OpenSSL and HTTP libraries. It never prints
 signed API tokens or response bodies.
 
 Run the credential-free runner and API-contract checks with
-`mise exec -- node --test scripts/testflight.test.mjs scripts/archive-inventory.test.mjs scripts/licence-inventory.test.mjs`. Runner archive checks
+`mise exec -- node --test scripts/testflight.test.mjs scripts/archive-inventory.test.mjs scripts/licence-inventory.test.mjs scripts/native-licence-inventory.test.mjs`. Runner archive checks
 require macOS and substitute build/upload commands; these are not native build
 or live App Store Connect evidence.
 
