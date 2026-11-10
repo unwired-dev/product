@@ -17,6 +17,10 @@ import { env as inheritedEnv } from 'node:process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import * as Schema from 'effect/Schema';
+
+const decodeJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 const sha = 'a'.repeat(40);
 const number = '202610031234';
@@ -65,7 +69,11 @@ function fixture(scenario, { dotenv = false } = {}) {
     path.join(directory, 'other.der'),
     scenario === 'other-identity' ? certificate('Other identity') : '',
   );
-  for (const name of ['testflight.zsh', 'testflight-env.mjs']) {
+  for (const name of [
+    'testflight.zsh',
+    'testflight-env.mjs',
+    'archive-inventory.mjs',
+  ]) {
     cpSync(
       path.join(root, 'scripts', name),
       path.join(checkout, 'scripts', name),
@@ -144,6 +152,7 @@ const record = (name, text) => fs.appendFileSync(path.join(base, name), text + '
 if (process.env.UNRELATED_SECRET) throw Error('unrelated dotenv secret reached build');
 if (command === 'codesign') {
   if (scenario === 'unsigned-archive') { console.log('code object is not signed at all'); process.exit(1); }
+  if (args.includes('--entitlements')) { console.log('<?xml version="1.0"?><plist version="1.0"><dict><key>application-identifier</key><string>SYNTHETIC1.dev.unwired.mail</string></dict></plist>'); process.exit(0); }
   const prefix = args.find(arg => arg.startsWith('--extract-certificates=')).slice('--extract-certificates='.length);
   fs.copyFileSync(path.join(base, scenario === 'other-identity' ? 'other.der' : 'prepared.der'), prefix + '0');
 }
@@ -205,6 +214,7 @@ if (command === 'xcodebuild') {
   fs.mkdirSync(resources, { recursive: true }); fs.mkdirSync(path.dirname(executable), { recursive: true });
   fs.writeFileSync(executable, scenario === 'native-test-path' ? 'UNWIRED_LIFECYCLE_PATH' : 'Production executable');
   fs.writeFileSync(path.join(resources, 'main.jsbundle'), 'production bundle');
+  fs.writeFileSync(path.join(resources, 'PrivacyInfo.xcprivacy'), scenario === 'inventory-failure' ? 'unreadable' : '<?xml version="1.0"?><plist version="1.0"><dict><key>NSPrivacyTracking</key><false/></dict></plist>');
   const sources = ['react@19.3.0/node_modules/react/index.js', 'react-native@0.88.1/node_modules/react-native/index.js', 'effect@4.0.0/index.js', 'react-native-screens/src/components/gamma/split/SplitHost.tsx', '/mail-core/src/index.ts', '/mail-core/src/theme.ts'];
   if (scenario === 'mock-bundle') sources.push('/mail-core/src/testing/mock.ts');
   const sourcesContent = sources.map(source => source.endsWith('/mail-core/src/index.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/index.ts'), 'utf8') : source.endsWith('/mail-core/src/theme.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/theme.ts'), 'utf8') : null);
@@ -238,6 +248,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
   ['pod-failure', 'both', 1],
   ['archive-failure', 'ios', 1],
   ['export-failure', 'ios', 1],
+  ['inventory-failure', 'ios', 1],
   ['interrupted', 'ios', 143],
   ['missing-app', 'ios', 1],
   ['mock-plist', 'ios', 1],
@@ -271,7 +282,11 @@ for (const [scenario, platform, expected, workflowRevision] of [
             'artifacts/testflight/signing-tools/scripts',
           );
           mkdirSync(tools, { recursive: true });
-          for (const name of ['testflight.zsh', 'testflight-env.mjs']) {
+          for (const name of [
+            'testflight.zsh',
+            'testflight-env.mjs',
+            'archive-inventory.mjs',
+          ]) {
             cpSync(path.join(root, 'scripts', name), path.join(tools, name));
           }
           // The wrapper is covered separately; exercise the workflow's actual upload command.
@@ -283,6 +298,10 @@ for (const [scenario, platform, expected, workflowRevision] of [
           writeFileSync(
             path.join(checkout, 'scripts/testflight-env.mjs'),
             'process.exit(93);\n',
+          );
+          writeFileSync(
+            path.join(checkout, 'scripts/archive-inventory.mjs'),
+            'process.exit(94);\n',
           );
           const workflow = readFileSync(
             path.join(root, '.github/workflows/testflight.yml'),
@@ -362,6 +381,19 @@ for (const [scenario, platform, expected, workflowRevision] of [
                 )
               : [],
           );
+          for (const host of hosts) {
+            const { build, withoutPrivacyManifest } = decodeJson(
+              readFileSync(path.join(run, `${host}-inventory.json`), 'utf8'),
+            );
+            assert.deepEqual(build, {
+              bundleId: 'dev.unwired.mail',
+              version: '0.1.0',
+              buildNumber: number,
+              commit: sha,
+              platform: host,
+            });
+            assert.deepEqual(withoutPrivacyManifest, []);
+          }
           assert.ok(
             readFileSync(path.join(directory, 'notes'), 'utf8').includes(
               `${number} ${sha}`,

@@ -104,6 +104,7 @@ scripts/testflight.zsh ios|macos|both
   in CI, refuse an archive not signed by the prepared identity
   inspect the archived bundle, source map, native test markers and Info.plist,
     including the configured Gmail push topic
+  write <host>-inventory.json # privacy, permission and entitlement declarations
   xcodebuild -exportArchive # cloud-managed distribution signing, direct upload
   wait for processing and record the commit in TestFlight What to Test notes
 ```
@@ -157,6 +158,26 @@ commit, and rejects known native Mock Mail Session and external test markers.
 This checks the trusted build's packaged boundaries, not arbitrary malicious
 changes to the checked-out build script.
 
+Before export, each host writes `<host>-inventory.json` to the evidence
+directory and adds `Inventoried: <host>` to `status.txt`; a failed inventory
+refuses the upload. Run it on any archive or app with
+`node scripts/archive-inventory.mjs <path.xcarchive|path.app>`. The JSON records
+the build identity (bundle ID, version, build number, source commit and
+platform), every `PrivacyInfo.xcprivacy` in the app and its embedded code
+(tracking, tracking domains, collected data types and required-reason API
+reasons), the combined required-reason categories, the app's
+`*UsageDescription` permission strings and the signed entitlements of the app
+and each embedded framework, dylib, extension and helper. Embedded code without
+its own manifest is listed under `withoutPrivacyManifest`, and code with no
+signature reports `unsigned` instead of empty entitlements. An unreadable
+property list fails the command. Entitlements come from the archive's signature;
+export re-signs for distribution, so values such as `get-task-allow` and
+`aps-environment` differ in the uploaded build. The inventory records what the archive
+declares. It does not decide whether those declarations are complete, and it
+is not the App Store Connect App Privacy answers
+([#1949](https://github.com/unwired-dev/product/issues/1949)). The JSON holds
+only archive declarations, so CI uploads it with `status.txt`.
+
 The notes helper checks processing at most 40 times, 30 seconds apart, and updates or creates
 the English notes for that exact platform, version and build number. A processing
 or notes failure makes the script fail even if the binary upload succeeded.
@@ -171,7 +192,7 @@ The helper uses Ruby's standard OpenSSL and HTTP libraries. It never prints
 signed API tokens or response bodies.
 
 Run the credential-free runner and API-contract checks with
-`mise exec -- node --test scripts/testflight.test.mjs`. Runner archive checks
+`mise exec -- node --test scripts/testflight.test.mjs scripts/archive-inventory.test.mjs`. Runner archive checks
 require macOS and substitute build/upload commands; these are not native build
 or live App Store Connect evidence.
 
