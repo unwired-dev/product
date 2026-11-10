@@ -6,9 +6,14 @@ import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { argv, exit, stderr, stdout } from 'node:process';
 
+import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
-const Strings = Schema.optional(Schema.Array(Schema.String));
+// Absent manifest keys decode as their empty values.
+const defaulted = (schema, value) =>
+  schema.pipe(Schema.withDecodingDefaultKey(Effect.succeed(value)));
+const Strings = defaulted(Schema.Array(Schema.String), []);
+const Flag = defaulted(Schema.Boolean, false);
 const Info = Schema.Record(Schema.String, Schema.Unknown);
 const Build = Schema.Struct({
   CFBundleIdentifier: Schema.String,
@@ -17,25 +22,27 @@ const Build = Schema.Struct({
   UnwiredCommit: Schema.optional(Schema.String),
 });
 const Manifest = Schema.Struct({
-  NSPrivacyTracking: Schema.optional(Schema.Boolean),
+  NSPrivacyTracking: Flag,
   NSPrivacyTrackingDomains: Strings,
-  NSPrivacyCollectedDataTypes: Schema.optional(
+  NSPrivacyCollectedDataTypes: defaulted(
     Schema.Array(
       Schema.Struct({
         NSPrivacyCollectedDataType: Schema.String,
-        NSPrivacyCollectedDataTypeLinked: Schema.optional(Schema.Boolean),
-        NSPrivacyCollectedDataTypeTracking: Schema.optional(Schema.Boolean),
+        NSPrivacyCollectedDataTypeLinked: Flag,
+        NSPrivacyCollectedDataTypeTracking: Flag,
         NSPrivacyCollectedDataTypePurposes: Strings,
       }),
     ),
+    [],
   ),
-  NSPrivacyAccessedAPITypes: Schema.optional(
+  NSPrivacyAccessedAPITypes: defaulted(
     Schema.Array(
       Schema.Struct({
         NSPrivacyAccessedAPIType: Schema.String,
         NSPrivacyAccessedAPITypeReasons: Strings,
       }),
     ),
+    [],
   ),
 });
 
@@ -62,9 +69,7 @@ const plist = (schema, file, text) => {
     if (result.status !== 0) {
       throw new Error(`${result.stderr}${result.stdout}`.trim());
     }
-    return Schema.decodeUnknownSync(Schema.fromJsonString(schema))(
-      result.stdout,
-    );
+    return Schema.decodeSync(Schema.fromJsonString(schema))(result.stdout);
   } catch (error) {
     return fail(
       `unreadable property list ${text === undefined ? file : 'from codesign'}: ${error.message}`,
@@ -137,22 +142,18 @@ const manifests = entries
     const manifest = plist(Manifest, path.join(app, entry));
     return {
       path: entry,
-      tracking: manifest.NSPrivacyTracking ?? false,
-      trackingDomains: manifest.NSPrivacyTrackingDomains ?? [],
-      collectedDataTypes: (manifest.NSPrivacyCollectedDataTypes ?? []).map(
-        (type) => ({
-          type: type.NSPrivacyCollectedDataType,
-          linked: type.NSPrivacyCollectedDataTypeLinked ?? false,
-          tracking: type.NSPrivacyCollectedDataTypeTracking ?? false,
-          purposes: type.NSPrivacyCollectedDataTypePurposes ?? [],
-        }),
-      ),
-      requiredReasonApis: (manifest.NSPrivacyAccessedAPITypes ?? []).map(
-        (api) => ({
-          category: api.NSPrivacyAccessedAPIType,
-          reasons: api.NSPrivacyAccessedAPITypeReasons ?? [],
-        }),
-      ),
+      tracking: manifest.NSPrivacyTracking,
+      trackingDomains: manifest.NSPrivacyTrackingDomains,
+      collectedDataTypes: manifest.NSPrivacyCollectedDataTypes.map((type) => ({
+        type: type.NSPrivacyCollectedDataType,
+        linked: type.NSPrivacyCollectedDataTypeLinked,
+        tracking: type.NSPrivacyCollectedDataTypeTracking,
+        purposes: type.NSPrivacyCollectedDataTypePurposes,
+      })),
+      requiredReasonApis: manifest.NSPrivacyAccessedAPITypes.map((api) => ({
+        category: api.NSPrivacyAccessedAPIType,
+        reasons: api.NSPrivacyAccessedAPITypeReasons,
+      })),
     };
   });
 

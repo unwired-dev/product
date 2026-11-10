@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "archive-inventory": "node scripts/archive-inventory.mjs",
     "build": "turbo run build",
     "changeset": "changeset",
     "check-types": "turbo run check-types",
