@@ -212,7 +212,7 @@ if (command === 'xcodebuild') {
   const app = path.join(value('-archivePath'), 'Products/Applications/UnwiredMail.app');
   const info = path.join(app, host === 'ios' ? 'Info.plist' : 'Contents/Info.plist');
   fs.mkdirSync(path.dirname(info), { recursive: true });
-  const fields = { CFBundleVersion: process.env.UNWIRED_BUILD_NUMBER, CFBundleShortVersionString: '0.1.0', CFBundleIdentifier: 'dev.unwired.mail', UnwiredCommit: process.env.UNWIRED_COMMIT, UnwiredConvexURL: process.env.UNWIRED_CONVEX_URL, GIDClientID: process.env.UNWIRED_GOOGLE_CLIENT_ID, UnwiredGmailTopic: process.env.UNWIRED_GMAIL_PUBSUB_TOPIC };
+  const fields = { CFBundleVersion: process.env.UNWIRED_BUILD_NUMBER, CFBundleShortVersionString: '0.1.0', CFBundleIdentifier: 'dev.unwired.mail', CFBundleExecutable: 'UnwiredMail', UnwiredCommit: process.env.UNWIRED_COMMIT, UnwiredConvexURL: process.env.UNWIRED_CONVEX_URL, GIDClientID: process.env.UNWIRED_GOOGLE_CLIENT_ID, UnwiredGmailTopic: process.env.UNWIRED_GMAIL_PUBSUB_TOPIC };
   if (scenario === 'mock-plist') fields.UnwiredMockScenario = 'open-read-relaunch';
   if (scenario === 'wrong-backend') fields.UnwiredConvexURL = 'https://wrong.convex.cloud';
   if (scenario === 'missing-topic') delete fields.UnwiredGmailTopic;
@@ -222,7 +222,9 @@ if (command === 'xcodebuild') {
   const resources = host === 'ios' ? app : path.join(app, 'Contents/Resources');
   const executable = host === 'ios' ? path.join(app, 'UnwiredMail') : path.join(app, 'Contents/MacOS/UnwiredMail');
   fs.mkdirSync(resources, { recursive: true }); fs.mkdirSync(path.dirname(executable), { recursive: true });
-  fs.writeFileSync(executable, scenario === 'native-test-path' ? 'UNWIRED_LIFECYCLE_PATH' : 'Production executable');
+  // The inventory reads the executable's linked libraries and symbols.
+  if (scenario === 'native-test-path') fs.writeFileSync(executable, 'UNWIRED_LIFECYCLE_PATH');
+  else fs.copyFileSync('/usr/bin/true', executable);
   fs.writeFileSync(path.join(resources, 'main.jsbundle'), 'production bundle');
   fs.writeFileSync(path.join(resources, 'PrivacyInfo.xcprivacy'), scenario === 'inventory-failure' ? 'unreadable' : '<?xml version="1.0"?><plist version="1.0"><dict><key>NSPrivacyTracking</key><false/></dict></plist>');
   // Expo lists sources from the Metro server root, the checkout.
