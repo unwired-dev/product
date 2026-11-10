@@ -104,7 +104,7 @@ scripts/testflight.zsh ios|macos|both
   in CI, refuse an archive not signed by the prepared identity
   inspect the archived bundle, source map, native test markers and Info.plist,
     including the configured Gmail push topic
-  write <host>-inventory.json # privacy, permission and entitlement declarations
+  write <host>-inventory.json # privacy, permission, entitlement and encryption declarations, shipped cryptography
   write <host>-licences.json  # declared licences of bundled npm packages
   xcodebuild -exportArchive # cloud-managed distribution signing, direct upload
   wait for processing and record the commit in TestFlight What to Test notes
@@ -178,6 +178,32 @@ declares. It does not decide whether those declarations are complete, and it
 is not the App Store Connect App Privacy answers
 ([#1949](https://github.com/unwired-dev/product/issues/1949)). The JSON holds
 only archive declarations, so CI uploads it with `status.txt`.
+
+The inventory also records the encryption export declaration and the
+cryptography the archive ships. `encryption` holds the app's
+`ITSAppUsesNonExemptEncryption` and `ITSEncryptionExportComplianceCode`
+(`null` when absent). Each `code` entry's `cryptography` lists the cryptography
+libraries its executable links (CryptoKit, Security, CommonCrypto, OpenSSL's
+`libcrypto` and `libssl`, BoringSSL or libsodium), the CommonCrypto (`CC…`) and
+`SecKey…` functions it imports, and the symbols it defines that mark a bundled
+TLS or cryptography library: `EVP_EncryptInit_ex`, `SSL_CTX_new` or
+`sodium_init`, with or without a prefix such as swift-nio-ssl's
+`CNIOBoringSSL_`. An unreadable executable fails the command. These are name
+checks. They miss cryptography reached through other APIs, such as URLSession's
+TLS, or compiled in under other names, so an empty list does not show that code
+has none.
+
+Both hosts set `ITSAppUsesNonExemptEncryption` to `false`
+(`apps/mobile/app.config.ts` and `apps/macos/macos/UnwiredMail/Info.plist`),
+which tells App Store Connect that the build uses no non-exempt encryption, so
+uploads skip its export compliance questions. The inventory does not decide
+whether an exemption applies, and using only TLS or standard algorithms is not
+by itself evidence of one. Whether the shipped cryptography is exempt is an
+owner and legal determination
+([#1949](https://github.com/unwired-dev/product/issues/1949)). If it is not,
+the export compliance documentation goes to App Store Connect, the approved
+code is set as `ITSEncryptionExportComplianceCode`, and any territory
+declarations the determination names are filed before release.
 
 Each host also writes `<host>-licences.json` from the archive's JavaScript source
 map before export; a failed licence inventory refuses the upload. The Xcode

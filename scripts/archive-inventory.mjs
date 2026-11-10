@@ -1,6 +1,7 @@
 // Print what an archived app declares: privacy manifests, required-reason APIs,
-// permission strings and signed entitlements. This records declarations; it
-// does not decide compliance or App Privacy answers (#1958).
+// permission strings, signed entitlements, its encryption export declaration
+// and the cryptography its code ships. This records declarations; it does not
+// decide compliance, export exemptions or App Privacy answers (#1958, #1964).
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -21,6 +22,11 @@ const Build = Schema.Struct({
   CFBundleVersion: Schema.String,
   UnwiredCommit: Schema.optional(Schema.String),
 });
+const Export = Schema.Struct({
+  ITSAppUsesNonExemptEncryption: Schema.optional(Schema.Boolean),
+  ITSEncryptionExportComplianceCode: Schema.optional(Schema.String),
+});
+const Executable = Schema.Struct({ CFBundleExecutable: Schema.String });
 const Manifest = Schema.Struct({
   NSPrivacyTracking: Flag,
   NSPrivacyTrackingDomains: Strings,
@@ -101,6 +107,35 @@ const entitlements = (bundle) => {
     : sortedKeys(plist(Info, '-', result.stdout));
 };
 
+const lines = (command, args) => {
+  const result = run(command, args);
+  if (result.status !== 0) {
+    return fail(
+      `${command} failed for ${args.at(-1)}: ${result.stderr.trim()}`,
+    );
+  }
+  return result.stdout.split('\n');
+};
+const matching = (values, pattern) =>
+  [...new Set(values.filter((value) => pattern.test(value)))].toSorted();
+
+// Linked cryptography libraries, imported CommonCrypto and SecKey functions,
+// and defined symbols that mark a bundled TLS or cryptography library, such as
+// swift-nio-ssl's prefixed BoringSSL.
+const cryptography = (file) => ({
+  libraries: matching(
+    lines('otool', ['-L', file])
+      .filter((line) => line.startsWith('\t'))
+      .map((line) => line.trim().replace(/ \(compatibility version .*$/u, '')),
+    /CryptoKit|Security\.framework|commonCrypto|libcrypto|libssl|BoringSSL|sodium/iu,
+  ),
+  imports: matching(lines('nm', ['-u', '-j', file]), /^_(?:CC|SecKey)/u),
+  implementations: matching(
+    lines('nm', ['-U', '-j', file]),
+    /^_(?:\w+_)?(?:EVP_EncryptInit_ex|SSL_CTX_new|sodium_init)$/u,
+  ),
+});
+
 if (!argv.at(2) || !existsSync(argv.at(2))) {
   fail('usage: archive-inventory.mjs <path.xcarchive|path.app>');
 }
@@ -121,6 +156,7 @@ const contents = macos ? 'Contents/' : '';
 const infoFile = path.join(app, `${contents}Info.plist`);
 const info = plist(Info, infoFile);
 const build = plist(Build, infoFile);
+const declaration = plist(Export, infoFile);
 
 // The walk follows the links in versioned Mac frameworks, so each file is
 // listed once under its real path. A dangling link keeps its own path, so a
@@ -174,6 +210,28 @@ const embedded = entries.filter((entry) =>
 // A manifest belongs to the innermost embedded bundle that contains it.
 const owner = (manifest) =>
   embedded.findLast((entry) => manifest.startsWith(`${entry}/`));
+// A dylib is its own executable; a bundle names its executable in the
+// Info.plist of its Mac app, Mac framework or iOS layout.
+const executable = (entry) => {
+  const bundle = path.join(app, entry);
+  if (entry.endsWith('.dylib')) {
+    return bundle;
+  }
+  const layout = [
+    ['Contents/Info.plist', 'Contents/MacOS'],
+    ['Resources/Info.plist', ''],
+    ['Info.plist', ''],
+  ].find(([file]) => existsSync(path.join(bundle, file)));
+  if (!layout) {
+    return fail(`no Info.plist in ${bundle}`);
+  }
+  const [file, folder] = layout;
+  return path.join(
+    bundle,
+    folder,
+    plist(Executable, path.join(bundle, file)).CFBundleExecutable,
+  );
+};
 const code = ['.', ...embedded].map((entry) => ({
   path: entry,
   privacyManifest: manifests.some((manifest) =>
@@ -182,6 +240,7 @@ const code = ['.', ...embedded].map((entry) => ({
       : owner(manifest.path) === entry,
   ),
   entitlements: entitlements(path.join(app, entry)),
+  cryptography: cryptography(executable(entry)),
 }));
 
 stdout.write(
@@ -193,6 +252,12 @@ stdout.write(
         buildNumber: build.CFBundleVersion,
         commit: build.UnwiredCommit ?? null,
         platform: macos ? 'macos' : 'ios',
+      },
+      encryption: {
+        usesNonExemptEncryption:
+          declaration.ITSAppUsesNonExemptEncryption ?? null,
+        exportComplianceCode:
+          declaration.ITSEncryptionExportComplianceCode ?? null,
       },
       privacyManifests: manifests,
       requiredReasonApis: sortedKeys(requiredReasonApis),

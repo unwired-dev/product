@@ -44,7 +44,7 @@ function fixture() {
     writeFileSync(
       path.join(folder, 'Info.plist'),
       plist(
-        `<key>CFBundleIdentifier</key><string>${identifier}</string><key>CFBundleExecutable</key><string>${executable}</string><key>CFBundleShortVersionString</key><string>0.1.0</string><key>CFBundleVersion</key><string>42</string><key>UnwiredCommit</key><string>${'a'.repeat(40)}</string><key>NSCameraUsageDescription</key><string>Attach photos.</string>`,
+        `<key>CFBundleIdentifier</key><string>${identifier}</string><key>CFBundleExecutable</key><string>${executable}</string><key>CFBundleShortVersionString</key><string>0.1.0</string><key>CFBundleVersion</key><string>42</string><key>UnwiredCommit</key><string>${'a'.repeat(40)}</string><key>NSCameraUsageDescription</key><string>Attach photos.</string><key>ITSAppUsesNonExemptEncryption</key><false/>`,
       ),
     );
     return folder;
@@ -67,6 +67,22 @@ function fixture() {
     path.join(tracked, 'Tracked.bundle/PrivacyInfo.xcprivacy'),
     manifest(api('UserDefaults', 'C56D.1'), api('FileTimestamp', 'C617.1')),
   );
+  // Links CryptoKit and Security, imports CommonCrypto and SecKey and defines
+  // a symbol of swift-nio-ssl's prefixed BoringSSL.
+  writeFileSync(
+    path.join(directory, 'crypto.c'),
+    '#include <CommonCrypto/CommonDigest.h>\n#include <Security/Security.h>\nvoid CNIOBoringSSL_SSL_CTX_new(void) {}\nint main(void) { unsigned char digest[32]; CC_SHA256("", 0, digest); return SecKeyCreateRandomKey(NULL, NULL) != NULL; }\n',
+  );
+  execFileSync('clang', [
+    path.join(directory, 'crypto.c'),
+    '-w',
+    '-o',
+    path.join(tracked, 'Tracked'),
+    '-framework',
+    'Security',
+    '-framework',
+    'CryptoKit',
+  ]);
   // Versioned Mac frameworks link directories; the walk must list them once.
   symlinkSync('Tracked.bundle', path.join(tracked, 'Current'));
   sign(tracked);
@@ -105,7 +121,7 @@ const inventory = (target) =>
   spawnSync(process.execPath, [script, target], { encoding: 'utf8' });
 
 test(
-  'archive inventory records manifests, permissions and entitlements',
+  'archive inventory records manifests, permissions, entitlements and cryptography',
   { skip: process.platform !== 'darwin' },
   () => {
     mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
@@ -123,6 +139,10 @@ test(
         buildNumber: '42',
         commit: 'a'.repeat(40),
         platform: 'ios',
+      });
+      assert.deepEqual(report.encryption, {
+        usesNonExemptEncryption: false,
+        exportComplianceCode: null,
       });
       assert.deepEqual(
         report.privacyManifests.map((entry) => entry.path),
@@ -154,6 +174,35 @@ test(
         'Frameworks/Unsigned.framework',
         'Frameworks/Untracked.framework',
       ]);
+      const none = { libraries: [], imports: [], implementations: [] };
+      assert.deepEqual(
+        report.code.map(({ cryptography }) => cryptography),
+        [
+          none,
+          none,
+          none,
+          {
+            libraries: [
+              '/System/Library/Frameworks/CryptoKit.framework/Versions/A/CryptoKit',
+              '/System/Library/Frameworks/Security.framework/Versions/A/Security',
+            ],
+            imports: ['_CC_SHA256', '_SecKeyCreateRandomKey'],
+            implementations: ['_CNIOBoringSSL_SSL_CTX_new'],
+          },
+        ],
+      );
+
+      writeFileSync(
+        path.join(app, 'Frameworks/Unsigned.framework/Unsigned'),
+        'unreadable',
+      );
+      const executable = inventory(archive);
+      assert.equal(executable.status, 1);
+      assert.match(
+        executable.stderr,
+        /nm failed for .*Unsigned\.framework\/Unsigned/u,
+      );
+      assert.equal(executable.stdout, '');
 
       writeFileSync(path.join(app, 'PrivacyInfo.xcprivacy'), 'unreadable');
       const unreadable = inventory(archive);

@@ -157,7 +157,8 @@ upload() {
       cmp "$resources/main.jsbundle" "$root/apps/macos/dist/main.jsbundle" || report "$artifacts/$host-inspection.log"
   fi
   print -r -- "Inspected: $host; production bundle, backend and native test boundary" >> "$artifacts/status.txt"
-  # Record the archive's privacy, permission and entitlement declarations (#1958).
+  # Record the archive's privacy, permission, entitlement and encryption
+  # declarations and its shipped cryptography (#1958, #1964).
   node "$tools/archive-inventory.mjs" "$archive" > "$artifacts/$host-inventory.json" 2> "$artifacts/$host-inventory.log" ||
     report "$artifacts/$host-inventory.log"
   # Record the declared licences of the npm packages in its bundle (#1960).
