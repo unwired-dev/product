@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -26,7 +27,8 @@ const manifest = (...apis) =>
     `<key>NSPrivacyTracking</key><false/><key>NSPrivacyAccessedAPITypes</key><array>${apis.join('')}</array>`,
   );
 
-// An iOS-layout archive: one framework with a manifest, one without and one unsigned.
+// An iOS-layout archive: one framework with a manifest, nested inside one
+// without, and one unsigned.
 function fixture() {
   const directory = mkdtempSync(
     path.join(root, 'scratchpad/archive-inventory-'),
@@ -56,7 +58,7 @@ function fixture() {
     execFileSync('codesign', [...args, folder], { stdio: 'ignore' });
   };
   const tracked = bundle(
-    'Frameworks/Tracked.framework',
+    'Frameworks/Untracked.framework/Frameworks/Tracked.framework',
     'dev.example.tracked',
     'Tracked',
   );
@@ -111,6 +113,7 @@ test(
       const result = inventory(archive);
       assert.equal(result.status, 0, result.stderr);
       assert.equal(inventory(app).stdout, result.stdout);
+      assert.equal(inventory(`${archive}/`).stdout, result.stdout);
       const report = decodeJson(result.stdout);
       assert.deepEqual(report.build, {
         bundleId: 'dev.unwired.mail',
@@ -122,7 +125,7 @@ test(
       assert.deepEqual(
         report.privacyManifests.map((entry) => entry.path),
         [
-          'Frameworks/Tracked.framework/Tracked.bundle/PrivacyInfo.xcprivacy',
+          'Frameworks/Untracked.framework/Frameworks/Tracked.framework/Tracked.bundle/PrivacyInfo.xcprivacy',
           'PrivacyInfo.xcprivacy',
         ],
       );
@@ -140,9 +143,9 @@ test(
         ]),
         [
           ['.', { 'com.apple.developer.applesignin': ['Default'] }],
-          ['Frameworks/Tracked.framework', {}],
           ['Frameworks/Unsigned.framework', 'unsigned'],
           ['Frameworks/Untracked.framework', {}],
+          ['Frameworks/Untracked.framework/Frameworks/Tracked.framework', {}],
         ],
       );
       assert.deepEqual(report.withoutPrivacyManifest, [
@@ -158,6 +161,12 @@ test(
         /unreadable property list .*UnwiredMail\.app\/PrivacyInfo\.xcprivacy/u,
       );
       assert.equal(unreadable.stdout, '');
+
+      rmSync(path.join(app, 'PrivacyInfo.xcprivacy'));
+      symlinkSync('Missing.xcprivacy', path.join(app, 'PrivacyInfo.xcprivacy'));
+      const dangling = inventory(archive);
+      assert.equal(dangling.status, 1);
+      assert.equal(dangling.stdout, '');
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

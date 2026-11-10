@@ -96,10 +96,10 @@ const entitlements = (bundle) => {
     : sortedKeys(plist(Info, '-', result.stdout));
 };
 
-const input = argv.at(2);
-if (!input || !existsSync(input)) {
+if (!argv.at(2) || !existsSync(argv.at(2))) {
   fail('usage: archive-inventory.mjs <path.xcarchive|path.app>');
 }
+const input = path.resolve(argv.at(2));
 let app = input;
 if (input.endsWith('.xcarchive')) {
   const applications = path.join(input, 'Products/Applications');
@@ -117,11 +117,15 @@ const infoFile = path.join(app, `${contents}Info.plist`);
 const info = plist(Info, infoFile);
 const build = plist(Build, infoFile);
 
+// Symlinks stay in the list so a dangling manifest link fails the read.
 const entries = readdirSync(app, { recursive: true, withFileTypes: true })
-  .filter((entry) => !entry.isSymbolicLink())
-  .map((entry) => path.relative(app, path.join(entry.parentPath, entry.name)))
-  .toSorted();
+  .map((entry) => ({
+    path: path.relative(app, path.join(entry.parentPath, entry.name)),
+    link: entry.isSymbolicLink(),
+  }))
+  .toSorted((a, b) => (a.path < b.path ? -1 : 1));
 const manifests = entries
+  .map((entry) => entry.path)
   .filter((entry) => path.basename(entry) === 'PrivacyInfo.xcprivacy')
   .map((entry) => {
     const manifest = plist(Manifest, path.join(app, entry));
@@ -157,17 +161,21 @@ for (const { category, reasons } of manifests.flatMap(
 
 // Embedded code is every nested framework, dylib, extension and helper, plus the app itself.
 const appManifest = `${contents}${macos ? 'Resources/' : ''}PrivacyInfo.xcprivacy`;
-const code = [
-  '.',
-  ...entries.filter((entry) =>
-    /\.(?:framework|dylib|appex|xpc|app)$/u.test(entry),
-  ),
-].map((entry) => ({
+const embedded = entries
+  .filter(
+    (entry) =>
+      !entry.link && /\.(?:framework|dylib|appex|xpc|app)$/u.test(entry.path),
+  )
+  .map((entry) => entry.path);
+// A manifest belongs to the innermost embedded bundle that contains it.
+const owner = (manifest) =>
+  embedded.findLast((entry) => manifest.startsWith(`${entry}/`));
+const code = ['.', ...embedded].map((entry) => ({
   path: entry,
   privacyManifest: manifests.some((manifest) =>
     entry === '.'
       ? manifest.path === appManifest
-      : manifest.path.startsWith(`${entry}/`),
+      : owner(manifest.path) === entry,
   ),
   entitlements: entitlements(path.join(app, entry)),
 }));

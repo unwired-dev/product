@@ -170,7 +170,9 @@ reasons), the combined required-reason categories, the app's
 and each embedded framework, dylib, extension and helper. Embedded code without
 its own manifest is listed under `withoutPrivacyManifest`, and code with no
 signature reports `unsigned` instead of empty entitlements. An unreadable
-property list fails the command. The inventory records what the archive
+property list fails the command. Entitlements come from the archive's signature;
+export re-signs for distribution, so values such as `get-task-allow` and
+`aps-environment` differ in the uploaded build. The inventory records what the archive
 declares. It does not decide whether those declarations are complete, and it
 is not the App Store Connect App Privacy answers
 ([#1949](https://github.com/unwired-dev/product/issues/1949)). The JSON holds
