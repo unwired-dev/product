@@ -155,6 +155,8 @@ not evidence of a newly outstanding approval.
   provider signals, diagnostics, support and any enabled cloud assistance.
   Distinguish implemented processing from planned features. Encryption does not
   justify describing all data as anonymous or claiming that no data is collected.
+  The [App Privacy answers](../app-privacy.md) draft records this inventory and
+  its differences from the manifests and notices.
 - Establish applicable purposes and legal bases, retention and backup-deletion
   rules, service-provider contracts and transfers, request handling and incident
   procedures. Assess controller and processor roles for actual personal and work
