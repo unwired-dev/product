@@ -16,6 +16,11 @@ const write = (file, text = '') => {
   writeFileSync(file, text);
 };
 
+const specifier = (title, licence) =>
+  `<dict><key>Title</key><string>${title}</string>${
+    licence ? `<key>License</key><string>${licence}</string>` : ''
+  }</dict>`;
+
 // An installed Pods folder with a remote pod CocoaPods acknowledged, path pods
 // with string, object and missing podspec licences, and a remote pod without
 // licence text; resolved Swift packages pinned by version and by revision.
@@ -45,10 +50,6 @@ function fixture() {
       '',
     ].join('\n'),
   );
-  const specifier = (title, licence) =>
-    `<dict><key>Title</key><string>${title}</string>${
-      licence ? `<key>License</key><string>${licence}</string>` : ''
-    }</dict>`;
   write(
     path.join(
       pods,

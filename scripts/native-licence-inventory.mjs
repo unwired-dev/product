@@ -100,17 +100,16 @@ const acknowledged = new Map(
   ).PreferenceSpecifiers.map(({ Title, License }) => [Title, License ?? null]),
 );
 // Pods from a path or Git source keep their podspec in the Pods folder.
-const declared = (name) => {
-  if (acknowledged.get(name)) {
-    return acknowledged.get(name);
-  }
+const podspecLicence = (name) => {
   const file = path.join(pods, 'Local Podspecs', `${name}.podspec.json`);
   if (!existsSync(file)) {
-    return null;
+    return undefined;
   }
   const { license } = decode(Podspec, file, read(file));
-  return (typeof license === 'string' ? license : license?.type) || null;
+  return typeof license === 'string' ? license : license?.type;
 };
+const declared = (name) =>
+  acknowledged.get(name) ?? podspecLicence(name) ?? null;
 
 // Order by name, then version, in code units, independent of the locale.
 const order = (a, b) => (a < b ? -1 : Number(a > b));

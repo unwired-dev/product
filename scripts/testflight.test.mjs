@@ -438,7 +438,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
               [
                 ...native.pods.map(({ name, licence }) => `${name} ${licence}`),
                 ...native.swiftPackages.map(
-                  ({ identity, licenceFiles }) => `${identity} ${licenceFiles}`,
+                  (item) => `${item.identity} ${item.licenceFiles}`,
                 ),
               ],
               ['AppAuth Apache-2.0', 'swift-log LICENSE.txt'],
@@ -460,11 +460,12 @@ for (const [scenario, platform, expected, workflowRevision] of [
               : /Failed:/u,
           );
         }
-        if (scenario === 'licence-failure') {
-          assert.match(result.stderr, /Failed: .*macos-licences\.log/u);
-        }
-        if (scenario === 'native-licence-failure') {
-          assert.match(result.stderr, /Failed: .*ios-native-licences\.log/u);
+        const log = {
+          'licence-failure': /Failed: .*macos-licences\.log/u,
+          'native-licence-failure': /Failed: .*ios-native-licences\.log/u,
+        }[scenario];
+        if (log) {
+          assert.match(result.stderr, log);
         }
       } finally {
         rmSync(directory, { recursive: true, force: true });
