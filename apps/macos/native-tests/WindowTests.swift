@@ -2190,6 +2190,8 @@ final class WindowTests: XCTestCase {
     let count = shown("1 detail differs from your original. Compare it before using this rewrite.")
     let row = text("Time. Original: 9:30. Rewrite: —. Removed", in: window)
     XCTAssertTrue(count.exists)
+    XCTAssertEqual(
+      window.textViews.matching(NSPredicate(format: "value CONTAINS %@", "detail differs")).count, 1)
     XCTAssertTrue(row.exists)
     XCTAssertGreaterThan(count.frame.minY, shown("Synthetic rewrite of local mail.").frame.maxY)
     XCTAssertLessThan(count.frame.maxY, row.frame.minY)
