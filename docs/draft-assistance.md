@@ -87,8 +87,8 @@ results for changed details on Mac, and on iPhone and iPad.
   Paragraphs, Expand Text, Shorten Text, Make More Friendly and Make More Neutral) is checked mechanically against the
   captured text, using `checkDetails` from the assistance core. The
   `packages/mail-core` TypeScript layer owns detail extraction and the equivalence
-  rules; each host renders the review. On Mac the native push button adapter makes
-  the main button the window's Return default. iPad sets the changes out as a table
+  rules; each host renders the review. On Mac the main button takes the accent tint
+  but no Return key equivalent (#1900). iPad sets the changes out as a table
   with the push buttons in a row; iPhone shows each change as its detail, status and
   a `original → rewrite` line, with **Use rewrite with changes** (or **Replace text**)
   across the panel above Keep original and Try again. When details differ, Keep
@@ -176,10 +176,11 @@ results for changed details on Mac, and on iPhone and iPad.
     so applying them is an explicit choice; **Keep original** and **Try again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**
-    when none do. On Mac, the accent button is the window's default button, but
-    keyboard focus stays in the Draft body when the result appears, so Return adds
-    a new line there instead ([#1900](https://github.com/unwired-dev/product/issues/1900)),
-    which closes the result like any other edit.
+    when none do. The tint marks the recommended action only: on Mac no button
+    answers Return. Keyboard focus stays in the Draft body when the result appears,
+    so Return adds a new line there ([#1900](https://github.com/unwired-dev/product/issues/1900)),
+    which closes the result like any other edit. The buttons stay reachable by
+    click and, with Full Keyboard Access, by Tab.
     VoiceOver reads each row as one text element and hears the count after the result,
     but can't move to the count line yet
     ([#1902](https://github.com/unwired-dev/product/issues/1902)).
