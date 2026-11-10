@@ -67,6 +67,8 @@ function fixture() {
     path.join(tracked, 'Tracked.bundle/PrivacyInfo.xcprivacy'),
     manifest(api('UserDefaults', 'C56D.1'), api('FileTimestamp', 'C617.1')),
   );
+  // Versioned Mac frameworks link directories; the walk must list them once.
+  symlinkSync('Tracked.bundle', path.join(tracked, 'Current'));
   sign(tracked);
   sign(
     bundle(

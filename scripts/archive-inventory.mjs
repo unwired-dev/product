@@ -2,7 +2,7 @@
 // permission strings and signed entitlements. This records declarations; it
 // does not decide compliance or App Privacy answers (#1958).
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { argv, exit, stderr, stdout } from 'node:process';
 
@@ -117,15 +117,21 @@ const infoFile = path.join(app, `${contents}Info.plist`);
 const info = plist(Info, infoFile);
 const build = plist(Build, infoFile);
 
-// Symlinks stay in the list so a dangling manifest link fails the read.
-const entries = readdirSync(app, { recursive: true, withFileTypes: true })
-  .map((entry) => ({
-    path: path.relative(app, path.join(entry.parentPath, entry.name)),
-    link: entry.isSymbolicLink(),
-  }))
-  .toSorted((a, b) => (a.path < b.path ? -1 : 1));
+// The walk follows the links in versioned Mac frameworks, so each file is
+// listed once under its real path. A dangling link keeps its own path, so a
+// dangling manifest fails the read.
+const realApp = realpathSync(app);
+const canonical = (entry) => {
+  try {
+    return path.relative(realApp, realpathSync(path.join(app, entry)));
+  } catch {
+    return entry;
+  }
+};
+const entries = [
+  ...new Set(readdirSync(app, { recursive: true }).map(canonical)),
+].toSorted();
 const manifests = entries
-  .map((entry) => entry.path)
   .filter((entry) => path.basename(entry) === 'PrivacyInfo.xcprivacy')
   .map((entry) => {
     const manifest = plist(Manifest, path.join(app, entry));
@@ -161,12 +167,9 @@ for (const { category, reasons } of manifests.flatMap(
 
 // Embedded code is every nested framework, dylib, extension and helper, plus the app itself.
 const appManifest = `${contents}${macos ? 'Resources/' : ''}PrivacyInfo.xcprivacy`;
-const embedded = entries
-  .filter(
-    (entry) =>
-      !entry.link && /\.(?:framework|dylib|appex|xpc|app)$/u.test(entry.path),
-  )
-  .map((entry) => entry.path);
+const embedded = entries.filter((entry) =>
+  /\.(?:framework|dylib|appex|xpc|app)$/u.test(entry),
+);
 // A manifest belongs to the innermost embedded bundle that contains it.
 const owner = (manifest) =>
   embedded.findLast((entry) => manifest.startsWith(`${entry}/`));
