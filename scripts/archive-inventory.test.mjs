@@ -68,10 +68,10 @@ function fixture() {
     manifest(api('UserDefaults', 'C56D.1'), api('FileTimestamp', 'C617.1')),
   );
   // Links CryptoKit and Security, imports CommonCrypto and SecKey and, once
-  // stripped, keeps BoringSSL's error format string.
+  // stripped, keeps BoringSSL's error format string and OpenSSL's version string.
   writeFileSync(
     path.join(directory, 'crypto.c'),
-    '#include <CommonCrypto/CommonDigest.h>\n#include <Security/Security.h>\n#include <stdio.h>\nint main(int argc, char **argv) { unsigned char digest[32]; CC_SHA256("", 0, digest); if (argc > 1) printf("error:%08x:%s:OPENSSL_internal:%s", 0, "", ""); return SecKeyCreateRandomKey(NULL, NULL) != NULL; }\n',
+    '#include <CommonCrypto/CommonDigest.h>\n#include <Security/Security.h>\n#include <stdio.h>\nint main(int argc, char **argv) { unsigned char digest[32]; CC_SHA256("", 0, digest); if (argc > 1) printf("error:%08x:%s:OPENSSL_internal:%s", 0, "", ""); if (argc > 2) puts("OpenSSL 3.0.13 30 Jan 2024"); return SecKeyCreateRandomKey(NULL, NULL) != NULL; }\n',
   );
   execFileSync('clang', [
     path.join(directory, 'crypto.c'),
@@ -188,7 +188,10 @@ test(
               '/System/Library/Frameworks/Security.framework/Versions/A/Security',
             ],
             imports: ['_CC_SHA256', '_SecKeyCreateRandomKey'],
-            bundled: ['error:%08x:%s:OPENSSL_internal:%s'],
+            bundled: [
+              'OpenSSL 3.0.13 30 Jan 2024',
+              'error:%08x:%s:OPENSSL_internal:%s',
+            ],
           },
         ],
       );
