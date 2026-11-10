@@ -96,7 +96,8 @@ qualification has not passed. Native collection stays off until
 fails closed until the `POSTHOG_*` Convex variables are configured. Apple requires
 disclosing data collected on an ongoing basis after one permission request, so
 the diagnostics answers below apply from the first build that connects the
-service. Until then, leave them out.
+service. Until then, leave them out of the answers and the
+[privacy manifests](#privacy-manifests).
 
 Product analytics, cloud mail assistance through Private Cloud Compute
 ([#1451](https://github.com/unwired-dev/product/issues/1451)), customer support
@@ -148,12 +149,27 @@ verified and discarded in the same request. IP addresses are not stored in the
 schema; the owner confirms that Convex and PostHog logs do not retain them in a
 readable form beyond servicing requests.
 
+## Privacy manifests
+
+Each app's own privacy manifest declares the five collected types above as
+linked, not used for tracking, for App Functionality:
+`apps/macos/macos/PrivacyInfo.xcprivacy` on the Mac, and `ios.privacyManifests`
+in `apps/mobile/app.config.ts`, which Expo writes into the generated
+`PrivacyInfo.xcprivacy` on iPhone and iPad. Change both with the answers. The
+[archive inventory](testflight.md#what-the-script-does) records what each
+archive declares.
+
+The build that connects error reporting adds
+`NSPrivacyCollectedDataTypeCrashData`,
+`NSPrivacyCollectedDataTypePerformanceData` and
+`NSPrivacyCollectedDataTypeOtherDiagnosticData` to both manifests, also linked,
+not tracking, for App Functionality.
+
 ## Differences to resolve
 
-| Source                                                                            | Difference                                                                                                                                                                                                                        | Resolution                                                                                                                                                  |
-| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App privacy manifests                                                             | `apps/macos/macos/PrivacyInfo.xcprivacy` declares no collected data types, and `apps/mobile/app.config.ts` configures none for the iOS app. The answers above declare five, plus three diagnostics types once reporting connects. | [#1967](https://github.com/unwired-dev/product/issues/1967) declares them in both hosts; check the [archive inventory](testflight.md#what-the-script-does). |
-| [Provisional privacy notice](https://www.unwired.dev/privacy)                     | Covers only the website, Product Waitlist and bookings and says nothing about the app.                                                                                                                                            | [#1946](https://github.com/unwired-dev/product/issues/1946) publishes the app notice from this inventory.                                                   |
-| [Google user data disclosure](google-registration.md#google-user-data-disclosure) | Lists Gmail history ids as stored. The relay keeps received ids for 10 minutes and the last verified id on each connection, which conflicts with ADR 0002's transient push payloads.                                              | The owner resolves the retention conflict ([owner action 1](google-registration.md#remaining-owner-actions)), then updates both pages.                      |
-| [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)          | Legacy Gmail rows registered before opaque routing keep a readable `emailAddress` until their device registers again.                                                                                                             | Before submission, the owner confirms the production deployment has no `mailProviderConnections` or `gmailPushVerificationSignals` row with an address.     |
-| [Opt-in error reporting](telemetry.md)                                            | Code ships with the receiver disconnected and native collection off.                                                                                                                                                              | Add the diagnostics answers in the release that connects the service.                                                                                       |
+| Source                                                                            | Difference                                                                                                                                                                           | Resolution                                                                                                                                              |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Provisional privacy notice](https://www.unwired.dev/privacy)                     | Covers only the website, Product Waitlist and bookings and says nothing about the app.                                                                                               | [#1946](https://github.com/unwired-dev/product/issues/1946) publishes the app notice from this inventory.                                               |
+| [Google user data disclosure](google-registration.md#google-user-data-disclosure) | Lists Gmail history ids as stored. The relay keeps received ids for 10 minutes and the last verified id on each connection, which conflicts with ADR 0002's transient push payloads. | The owner resolves the retention conflict ([owner action 1](google-registration.md#remaining-owner-actions)), then updates both pages.                  |
+| [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)          | Legacy Gmail rows registered before opaque routing keep a readable `emailAddress` until their device registers again.                                                                | Before submission, the owner confirms the production deployment has no `mailProviderConnections` or `gmailPushVerificationSignals` row with an address. |
+| [Opt-in error reporting](telemetry.md)                                            | Code ships with the receiver disconnected and native collection off.                                                                                                                 | Add the diagnostics answers and manifest types in the release that connects the service.                                                                |

@@ -110,6 +110,23 @@ const config: ExpoConfig = {
       UIBackgroundModes: ['remote-notification'],
       ...(commit ? { UnwiredCommit: commit } : {}),
     },
+    // The App Privacy answers in docs/app-privacy.md; the Mac manifest declares the same types.
+    privacyManifests: {
+      NSPrivacyCollectedDataTypes: [
+        'UserID',
+        'DeviceID',
+        'ProductInteraction',
+        'OtherDataTypes',
+        'EmailAddress',
+      ].map((type) => ({
+        NSPrivacyCollectedDataType: `NSPrivacyCollectedDataType${type}`,
+        NSPrivacyCollectedDataTypeLinked: true,
+        NSPrivacyCollectedDataTypeTracking: false,
+        NSPrivacyCollectedDataTypePurposes: [
+          'NSPrivacyCollectedDataTypePurposeAppFunctionality',
+        ],
+      })),
+    },
   },
   plugins: [
     'expo-router',
