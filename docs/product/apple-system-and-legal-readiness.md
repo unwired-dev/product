@@ -1,9 +1,8 @@
 # Apple system integration and legal readiness
 
-Confirmed decisions from the requirements interview begun on 2026-11-09,
-awaiting final shared-understanding confirmation. This document records agreed
-scope, not completed implementation, approved legal documents or passing release
-qualification.
+Confirmed decisions from the requirements interview begun on 2026-11-09 and the
+approved ticket breakdown. This document records agreed scope, not completed
+implementation, approved legal documents or passing release qualification.
 
 ## Operator, availability and purchase model
 
@@ -203,8 +202,23 @@ not evidence of a newly outstanding approval.
 
 ## Delivery boundaries
 
-After shared-understanding confirmation, split implementation and qualification
-into reviewable issues, reusing existing native, provider, telemetry and launch
-work. Track uncompleted account-owner, legal, tax, hosting and real-device actions
-as prerequisites with evidence, not as completed work. App Store submission,
-published notices and code tests alone do not establish worldwide legal clearance.
+The approved delivery slices reuse the existing native and store-release parents:
+
+| Slice                                               | Issue                                                       |
+| --------------------------------------------------- | ----------------------------------------------------------- |
+| Reviewed teen eligibility and country release rules | [#1940](https://github.com/unwired-dev/product/issues/1940) |
+| Age-eligible Product Account onboarding             | [#1941](https://github.com/unwired-dev/product/issues/1941) |
+| Age eligibility for optional consent                | [#1942](https://github.com/unwired-dev/product/issues/1942) |
+| Mac default-mail integration                        | [#1943](https://github.com/unwired-dev/product/issues/1943) |
+| iPhone and iPad default-mail integration            | [#1944](https://github.com/unwired-dev/product/issues/1944) |
+| Support and verified privacy requests               | [#1945](https://github.com/unwired-dev/product/issues/1945) |
+| App privacy notice                                  | [#1946](https://github.com/unwired-dev/product/issues/1946) |
+| Paid Mail service terms                             | [#1947](https://github.com/unwired-dev/product/issues/1947) |
+| Paid universal store setup                          | [#1948](https://github.com/unwired-dev/product/issues/1948) |
+| Archive compliance evidence                         | [#1949](https://github.com/unwired-dev/product/issues/1949) |
+
+Native blocking relationships on those issues own sequencing. Existing provider,
+telemetry and launch work remains in place. Track uncompleted account-owner,
+legal, tax, hosting and real-device actions as prerequisites with evidence, not
+as completed work. App Store submission, published notices and code tests alone
+do not establish worldwide legal clearance.

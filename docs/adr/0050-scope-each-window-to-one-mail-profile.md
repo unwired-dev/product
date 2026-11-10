@@ -6,8 +6,8 @@ The agreed [external compose requirements](../product/apple-system-and-legal-rea
 use the device-local Startup Profile for untargeted incoming `mailto:` requests,
 consistent with Share intake. This chooses the initial sending context while
 preserving existing Drafts; ordinary window restoration keeps the precedence
-below. The requirements await final shared-understanding confirmation and do not
-establish implemented or qualified native support.
+below. The approved requirements do not establish implemented or qualified
+native support.
 
 ## Status
 
