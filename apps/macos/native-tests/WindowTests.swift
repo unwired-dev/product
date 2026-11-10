@@ -2195,6 +2195,18 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(row.exists)
     XCTAssertGreaterThan(count.frame.minY, shown("Synthetic rewrite of local mail.").frame.maxY)
     XCTAssertLessThan(count.frame.maxY, row.frame.minY)
+    // Queries return elements in accessibility order, which VoiceOver follows.
+    let order = window.descendants(matching: .any).matching(
+      NSPredicate(
+        format: "(elementType == %d AND (value CONTAINS %@ OR value CONTAINS %@))"
+          + " OR (elementType == %d AND label CONTAINS %@)",
+        XCUIElement.ElementType.textView.rawValue, "Synthetic rewrite", "detail differs",
+        XCUIElement.ElementType.staticText.rawValue, ". Original: ")
+    ).allElementsBoundByIndex.map { element -> String in
+      if element.elementType == .staticText { return "row" }
+      return (element.value as? String ?? "").contains("Synthetic") ? "rewrite" : "count"
+    }
+    XCTAssertEqual(order, ["rewrite", "count", "row"])
     XCTAssertEqual(
       window.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", ". Original: ")).count, 1)
     XCTAssertTrue(withChanges.exists)
