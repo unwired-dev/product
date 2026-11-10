@@ -73,6 +73,7 @@ function fixture(scenario, { dotenv = false } = {}) {
     'testflight.zsh',
     'testflight-env.mjs',
     'archive-inventory.mjs',
+    'licence-inventory.mjs',
   ]) {
     cpSync(
       path.join(root, 'scripts', name),
@@ -221,6 +222,11 @@ if (command === 'xcodebuild') {
   const map = args.find(arg => arg.startsWith('SOURCEMAP_FILE='))?.slice('SOURCEMAP_FILE='.length);
   if (map && scenario !== 'missing-map') {
     fs.mkdirSync(path.dirname(map), { recursive: true }); fs.writeFileSync(map, JSON.stringify({ sources, sourcesContent }));
+    for (const source of sources.filter(source => source.includes('/node_modules/'))) {
+      const name = source.split('/')[2];
+      fs.mkdirSync(path.join(path.dirname(map), path.dirname(source)), { recursive: true });
+      fs.writeFileSync(path.join(path.dirname(map), path.dirname(source), 'package.json'), scenario === 'licence-failure' ? 'unreadable' : JSON.stringify({ name, version: '1.0.0', license: 'MIT' }));
+    }
     if (host === 'macos') {
       fs.copyFileSync(map, path.join(checkout, 'apps/macos/dist/main.jsbundle.map'));
       fs.writeFileSync(path.join(checkout, 'apps/macos/dist/main.jsbundle'), scenario === 'stale-mac-bundle' ? 'different bundle' : 'production bundle');
@@ -249,6 +255,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
   ['archive-failure', 'ios', 1],
   ['export-failure', 'ios', 1],
   ['inventory-failure', 'ios', 1],
+  ['licence-failure', 'macos', 1],
   ['interrupted', 'ios', 143],
   ['missing-app', 'ios', 1],
   ['mock-plist', 'ios', 1],
@@ -286,6 +293,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
             'testflight.zsh',
             'testflight-env.mjs',
             'archive-inventory.mjs',
+            'licence-inventory.mjs',
           ]) {
             cpSync(path.join(root, 'scripts', name), path.join(tools, name));
           }
@@ -302,6 +310,10 @@ for (const [scenario, platform, expected, workflowRevision] of [
           writeFileSync(
             path.join(checkout, 'scripts/archive-inventory.mjs'),
             'process.exit(94);\n',
+          );
+          writeFileSync(
+            path.join(checkout, 'scripts/licence-inventory.mjs'),
+            'process.exit(95);\n',
           );
           const workflow = readFileSync(
             path.join(root, '.github/workflows/testflight.yml'),
@@ -393,6 +405,12 @@ for (const [scenario, platform, expected, workflowRevision] of [
               platform: host,
             });
             assert.deepEqual(withoutPrivacyManifest, []);
+            assert.deepEqual(
+              decodeJson(
+                readFileSync(path.join(run, `${host}-licences.json`), 'utf8'),
+              ).packages.map(({ name, licence }) => `${name} ${licence}`),
+              ['react MIT', 'react-native MIT'],
+            );
           }
           assert.ok(
             readFileSync(path.join(directory, 'notes'), 'utf8').includes(
