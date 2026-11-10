@@ -2258,6 +2258,9 @@ final class InboxTests: XCTestCase {
     let password = app.secureTextFields["Password"]
     focus(password) { self.hasFocus(password) }
     password.typeText("synthetic")
+    // On iPad the software keyboard covers Connect, so the tap would land on a key.
+    press("\n", in: app)
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
     app.buttons["Connect"].tap()
     let needed = "Spam and Trash not chosen · not in All Mail"
     _ = settingsRow("Choose Folders…", needed)
@@ -2636,22 +2639,24 @@ final class InboxTests: XCTestCase {
     // The software keyboard's suggestion cells.
     case .sufficientElementDescription where issue.detailedDescription.contains("TUIPrediction"):
       return "system keyboard"
-    // An address is the readable name of a sender or, in Settings, of the signed-in account.
+    // An address is the readable name of a sender or, in Settings, of the signed-in account or a
+    // mailbox.
     case .sufficientElementDescription
-    where issue.element?.elementType == .staticText
-      && ["colleague003@example.invalid", "relay@privaterelay.example.invalid"].contains(label):
+    where issue.element?.elementType == .staticText && label.hasSuffix("example.invalid"):
       return "email address"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
-    // An open iPad popover hides the window behind it from accessibility, as a modal should, and
-    // the audit reports the text it can still see there, such as the Mailboxes sidebar's rows, as
-    // text it locates no element for. A plain UIKit split view behind a SwiftUI popover does the
-    // same (#1403).
+    // An open iPad popover or form sheet hides the window behind it from accessibility, as a modal
+    // should, and the audit reports the text it can still see there, such as the Mailboxes
+    // sidebar's rows, as text it locates no element for. A plain UIKit split view behind a SwiftUI
+    // popover does the same (#1403).
     case .elementDetection
     where UIDevice.current.userInterfaceIdiom == .pad
-      && ["Filters", "Link Editor", "Sync Status Details Progress", "Sync Status Details Attention"]
-        .contains(screen)
+      && [
+        "Filters", "Link Editor", "Sync Status Details Progress", "Sync Status Details Attention",
+        "Choose Spam and Trash Folders", "Spam and Trash Folders",
+      ].contains(screen)
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
       return "system popover"
