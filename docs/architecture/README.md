@@ -92,6 +92,9 @@ These directories remain whole sources; use their original filenames.
 - [Architecture decision records](../adr/README.md): an index of every ADR, with duplicate numbers disambiguated; accepted replacement decisions and earlier privacy, identity, transport and delivery decisions.
 - [Code documentation and architecture patterns](../../.patterns/README.md).
 - [Technical research](../research/expo-react-native-rewrite.md).
+- [Siri AI Developer Preview assessment](../research/siri-ai.md): sourced API,
+  privacy and availability findings, confirmed search-and-open requirements,
+  proposed later workflows and deferred native qualification.
 - [DeBERTa v3 email categorization assessment](../research/deberta-v3-email-classification.md):
   sourced model sizes and proposed evaluation inputs for the approved spike,
   without an adoption decision or native qualification evidence.
