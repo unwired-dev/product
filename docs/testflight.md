@@ -105,6 +105,7 @@ scripts/testflight.zsh ios|macos|both
   inspect the archived bundle, source map, native test markers and Info.plist,
     including the configured Gmail push topic
   write <host>-inventory.json # privacy, permission and entitlement declarations
+  write <host>-licences.json  # declared licences of bundled npm packages
   xcodebuild -exportArchive # cloud-managed distribution signing, direct upload
   wait for processing and record the commit in TestFlight What to Test notes
 ```
@@ -178,6 +179,23 @@ is not the App Store Connect App Privacy answers
 ([#1949](https://github.com/unwired-dev/product/issues/1949)). The JSON holds
 only archive declarations, so CI uploads it with `status.txt`.
 
+Each host also writes `<host>-licences.json` from the archive's JavaScript source
+map before export; a failed licence inventory refuses the upload. The Xcode
+archive only supplies that source map; the Node script reads the packages and
+owns the inventory. Run it from
+the repository root, where Expo's Metro server root lists bundle sources, with
+`node scripts/licence-inventory.mjs <main.jsbundle.map>`. The JSON lists each
+third-party npm package with sources in the bundle: name, version, the `license`
+its `package.json` declares (`null` when that is missing or not a string) and
+the `LICENSE`, `LICENCE`, `COPYING` or `NOTICE` files it ships. Packages without
+a declared licence are listed under `undeclared`, and packages without a
+licence or notice file under `withoutLicenceFile`. Workspace sources are not
+listed, and an unreadable source map or `package.json` fails the command. The
+inventory records declarations. It does not decide licence compatibility,
+produce the notices the build owes, or cover native code from CocoaPods and
+Swift packages ([#1949](https://github.com/unwired-dev/product/issues/1949)).
+CI uploads it with `status.txt`.
+
 The notes helper checks processing at most 40 times, 30 seconds apart, and updates or creates
 the English notes for that exact platform, version and build number. A processing
 or notes failure makes the script fail even if the binary upload succeeded.
@@ -192,7 +210,7 @@ The helper uses Ruby's standard OpenSSL and HTTP libraries. It never prints
 signed API tokens or response bodies.
 
 Run the credential-free runner and API-contract checks with
-`mise exec -- node --test scripts/testflight.test.mjs scripts/archive-inventory.test.mjs`. Runner archive checks
+`mise exec -- node --test scripts/testflight.test.mjs scripts/archive-inventory.test.mjs scripts/licence-inventory.test.mjs`. Runner archive checks
 require macOS and substitute build/upload commands; these are not native build
 or live App Store Connect evidence.
 

@@ -160,6 +160,10 @@ upload() {
   # Record the archive's privacy, permission and entitlement declarations (#1958).
   node "$tools/archive-inventory.mjs" "$archive" > "$artifacts/$host-inventory.json" 2> "$artifacts/$host-inventory.log" ||
     report "$artifacts/$host-inventory.log"
+  # Record the declared licences of the npm packages in its bundle (#1960).
+  # Expo lists bundle sources from the Metro server root, the checkout.
+  (builtin cd -q "$root" && node "$tools/licence-inventory.mjs" "$map") > "$artifacts/$host-licences.json" 2> "$artifacts/$host-licences.log" ||
+    report "$artifacts/$host-licences.log"
   print -r -- "Inventoried: $host" >> "$artifacts/status.txt"
   xcodebuild -exportArchive -archivePath "$archive" -exportPath "$artifacts/$host-export" \
     -exportOptionsPlist "$artifacts/ExportOptions.plist" "${authentication[@]}" \
