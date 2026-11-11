@@ -10,6 +10,7 @@ import type {
   DraftsState,
   PickedFile,
   PickSource,
+  Recipient,
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
@@ -40,6 +41,7 @@ import {
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
 import {
+  acceptRecipient,
   addRecipients,
   draftOf,
   entryOf,
@@ -47,6 +49,7 @@ import {
   recipientLabel,
   draftSummary,
   profileOf,
+  recipientSuggestions,
   sendingMailboxes,
   sendingStateOf,
   unsendableAssets,
@@ -54,6 +57,7 @@ import {
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
+import { inboxMessages } from '@private-email/mail-core/mailboxes';
 import {
   applyText,
   blockKindAt,
@@ -148,6 +152,7 @@ import {
   MailAssistanceProfileContext,
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
+import { useAllMailboxes } from './mailbox-state.ts';
 import {
   useComposerNavigation,
   useDrafts,
@@ -375,6 +380,32 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingVertical: 0,
   },
+  // Recipient Suggestions open upward over the message, as the fields sit above the keyboard.
+  suggestions: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 0,
+    right: 0,
+    padding: 6,
+  },
+  suggestionSection: {
+    ...textStyles.footnote,
+    fontWeight: '600',
+    paddingHorizontal: spacing.s + 2,
+    paddingVertical: spacing.xs,
+  },
+  suggestion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    minHeight: 44,
+    paddingHorizontal: spacing.s + 2,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
+  suggestionText: { flex: 1 },
+  suggestionName: { ...textStyles.body },
+  suggestionAddress: { ...textStyles.footnote },
   // The whole 44pt row height removes the recipient; its chip stays compact.
   token: { minHeight: 44, justifyContent: 'center' },
   tokenFill: {
@@ -433,6 +464,11 @@ export const layoutStyles = {
       paddingVertical: (compactFieldHeight - 20) / 2,
     },
     fieldNotice: { paddingLeft: fieldLabelWidth + 10 },
+    suggestions: {},
+    suggestionSection: {},
+    suggestion: {},
+    suggestionName: {},
+    suggestionAddress: {},
     input: {
       fontSize: 16.25,
       lineHeight: 20,
@@ -470,6 +506,24 @@ export const layoutStyles = {
     },
     fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
     input: { ...typography.ipadList.body, minHeight: padFieldHeight },
+    // The Mac's suggestions at 1.15, beside the label column, narrowing with a docked reply.
+    suggestions: {
+      left: padLabelWidth + spacing.s * ipadListScale,
+      maxWidth: 340 * ipadListScale,
+      padding: 6 * ipadListScale,
+    },
+    suggestionSection: {
+      ...typography.ipadList.subheadline,
+      fontWeight: '600',
+      paddingHorizontal: 10 * ipadListScale,
+      paddingVertical: spacing.xs * ipadListScale,
+    },
+    suggestion: {
+      minHeight: 40 * ipadListScale,
+      paddingHorizontal: 10 * ipadListScale,
+    },
+    suggestionName: { ...typography.ipadList.body },
+    suggestionAddress: { ...typography.ipadList.subheadline },
     token: { minHeight: padFieldHeight },
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
@@ -834,7 +888,34 @@ export function Recipients({
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
+  // Recipient Suggestions show while the field is being typed in.
+  const [entering, setEntering] = useState(false);
+  const account = use(AccountContext);
+  const held = useAllMailboxes();
   const name = t(`drafts.fields.${field}`);
+  // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's;
+  // its own addresses are not suggested.
+  const suggestions = useMemo(() => {
+    if (!entering || !editable) {
+      return [];
+    }
+    const connections = account?.mailboxes ?? [];
+    const profile = profileOf(draft.connection, connections);
+    return recipientSuggestions(draft, field, {
+      correspondents: inboxMessages(
+        held.filter((mailbox) => mailbox.profile === profile),
+        { profile },
+      ).map(({ message }) => message),
+      // Including connections awaiting authorization, which hold no mail here.
+      excluded: connections.flatMap((mailbox) =>
+        mailbox.profile === profile ? [mailbox.address] : [],
+      ),
+    });
+  }, [entering, editable, draft, field, account, held]);
+  const accept = (recipient: Recipient) => {
+    onChange(acceptRecipient(getDraft(), field, recipient), false, field);
+    setNotice(undefined);
+  };
   const add = (value: string, all: boolean, typing = false) => {
     if (!editable) {
       return;
@@ -852,6 +933,84 @@ export function Recipients({
   };
   return (
     <View>
+      {suggestions.length === 0 ? null : (
+        <GlassPanel
+          open
+          origin="bottom left"
+          style={[styles.suggestions, sized.suggestions]}>
+          <View accessibilityLabel={t('drafts.suggestions.title')}>
+            <Text
+              style={[
+                styles.suggestionSection,
+                sized.suggestionSection,
+                { color: colors.textSecondary },
+              ]}>
+              {t('drafts.suggestions.recent')}
+            </Text>
+            {suggestions.map((recipient, index) => {
+              // Return accepts the first suggestion, so it shows highlighted.
+              const chosen = index === 0;
+              const primary = chosen ? colors.accentOnFill : colors.textPrimary;
+              const secondary = chosen
+                ? colors.accentOnFill
+                : colors.textSecondary;
+              return (
+                <Pressable
+                  key={recipient.address}
+                  accessibilityLabel={
+                    recipient.name === undefined
+                      ? recipient.address
+                      : t('drafts.suggestions.named', {
+                          name: recipient.name,
+                          address: recipient.address,
+                        })
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: chosen }}
+                  onPress={() => {
+                    accept(recipient);
+                  }}
+                  style={({ pressed }) => [
+                    styles.suggestion,
+                    sized.suggestion,
+                    pressed
+                      ? { backgroundColor: colors.accentSelectionSubtle }
+                      : null,
+                    chosen ? { backgroundColor: colors.accentFill } : null,
+                  ]}>
+                  <SFSymbol
+                    name="person.fill"
+                    color={secondary}
+                    size={size === 'regular' ? 11 * ipadListScale : 13}
+                  />
+                  <View style={styles.suggestionText}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.suggestionName,
+                        sized.suggestionName,
+                        { color: primary },
+                      ]}>
+                      {recipient.name ?? recipient.address}
+                    </Text>
+                    {recipient.name === undefined ? null : (
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.suggestionAddress,
+                          sized.suggestionAddress,
+                          { color: secondary },
+                        ]}>
+                        {recipient.address}
+                      </Text>
+                    )}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </GlassPanel>
+      )}
       <View
         style={[
           styles.field,
@@ -928,9 +1087,11 @@ export function Recipients({
             submitBehavior="submit"
             inputMode="email"
             onBlur={() => {
+              setEntering(false);
               add(entryOf(getDraft(), field), true);
             }}
             onChangeText={(value) => {
+              setEntering(true);
               const text = entryOf(getDraft(), field);
               caret.current =
                 selection.current.end + value.length - text.length;
@@ -948,7 +1109,12 @@ export function Recipients({
               selection.current = next;
             }}
             onSubmitEditing={() => {
-              add(entryOf(getDraft(), field), true);
+              const [suggestion] = suggestions;
+              if (suggestion === undefined) {
+                add(entryOf(getDraft(), field), true);
+              } else {
+                accept(suggestion);
+              }
             }}
             placeholder={t('drafts.recipientPlaceholder')}
             placeholderTextColor={colors.textSecondary}

@@ -1129,6 +1129,101 @@ describe('composing Drafts', () => {
     }
   });
 
+  it('suggests recent correspondents of the Draft’s Profile and accepts one by Return or tap', async () => {
+    expect.hasAssertions();
+    const registration = account({
+      ...connected(['alex@example.invalid', 'other@example.invalid']),
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+        {
+          id: 'pending-connection',
+          address: 'pending@example.invalid',
+          state: 'authorization',
+        },
+      ]),
+    });
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Pending <pending@example.invalid>' });
+    personal.deliver({ from: 'Kim Lee <kim@example.invalid>' });
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Anders Berg <anders@example.invalid>' });
+    personal.deliver({ from: 'Alex <alex@example.invalid>' });
+    const work = createSyntheticGmail({ address: 'other@example.invalid' });
+    work.deliver({ from: 'Andrew Work <andrew@work.invalid>' });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+        mailboxes={createMailboxes(
+          syntheticConnections({ [alex]: personal, [other]: work }),
+          registration,
+        )}
+      />,
+    );
+    await press('New Message');
+    const to = screen.getByLabelText('To');
+    // The Profile's own addresses, even one awaiting authorization, are never suggested.
+    await fireEvent.changeText(to, 'al');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+    await fireEvent.changeText(to, 'pe');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+    await fireEvent.changeText(to, 'an');
+    // Newest first, and Return takes the highlighted first; the Profile's own address and the
+    // work Profile's correspondent never appear.
+    await expect(
+      screen.findByRole('button', {
+        name: 'Anders Berg, anders@example.invalid',
+      }),
+    ).resolves.toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true }),
+    );
+    expect(screen.queryByText('Andrew Work')).toBeNull();
+    await fireEvent(to, 'submitEditing');
+    expect(
+      screen.getByRole('button', {
+        name: 'To: Anders Berg <anders@example.invalid>',
+      }),
+    ).toBeOnTheScreen();
+    expect(to).toHaveProp('value', '');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+
+    // A tap accepts a suggestion; one already in the Draft is not suggested again.
+    await press('Show Cc and Bcc');
+    const cc = screen.getByLabelText('Cc');
+    await fireEvent.changeText(cc, 'an');
+    expect(
+      screen.queryByRole('button', {
+        name: 'Anders Berg, anders@example.invalid',
+      }),
+    ).toBeNull();
+    await press('Ana Kovač, ana@example.invalid');
+    expect(
+      screen.getByRole('button', {
+        name: 'Cc: Ana Kovač <ana@example.invalid>',
+      }),
+    ).toBeOnTheScreen();
+
+    // Typing on updates them, and leaving the field hides them.
+    const bcc = screen.getByLabelText('Bcc');
+    await fireEvent.changeText(bcc, 'k');
+    expect(
+      screen.getByRole('button', { name: 'Kim Lee, kim@example.invalid' }),
+    ).toBeOnTheScreen();
+    await fireEvent.changeText(bcc, 'kx');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+    await fireEvent.changeText(bcc, 'k');
+    await fireEvent(bcc, 'blur');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+  });
+
   it('stores edits made while retrying a refused Save Draft', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
