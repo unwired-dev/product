@@ -908,6 +908,7 @@ describe('mail profiles', () => {
       [a, work, 'pink'],
       [b, work],
     ]);
+    expect(displayColored(sync, 'pink')).not.toHaveProperty('position');
     expect(arrangement(await flow.arrangeMailboxes(work, []))).toStrictEqual([
       [a, work, 'pink'],
       [b, work],
