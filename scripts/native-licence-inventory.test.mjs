@@ -23,13 +23,27 @@ const specifier = (title, licence) =>
 
 // An installed Pods folder with a remote pod CocoaPods acknowledged, path pods
 // with string, object and missing podspec licences, and a remote pod without
-// licence text; resolved Swift packages pinned by version and by revision.
+// licence text; path pods whose npm package root, own directory or neither
+// ships a licence, and a podspec-sourced pod in a licensed package; resolved
+// Swift packages pinned by version and by revision.
 function fixture() {
   mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
   const directory = mkdtempSync(
     path.join(root, 'scratchpad/native-licence-inventory-'),
   );
-  const pods = path.join(directory, 'Pods');
+  write(path.join(directory, 'package.json'), '{}');
+  write(path.join(directory, 'node_modules/react-native/package.json'), '{}');
+  write(path.join(directory, 'node_modules/react-native/LICENSE'));
+  write(
+    path.join(
+      directory,
+      'node_modules/react-native/ReactCommon/yoga/Yoga.podspec',
+    ),
+  );
+  write(path.join(directory, 'node_modules/expo-font/package.json'), '{}');
+  write(path.join(directory, 'node_modules/expo-font/ios/LICENSE.md'));
+  write(path.join(directory, 'ios/build/generated/ios/ReactCodegen.podspec'));
+  const pods = path.join(directory, 'ios/Pods');
   write(
     path.join(pods, 'Manifest.lock'),
     [
@@ -37,14 +51,29 @@ function fixture() {
       '  - AppAuth (3.0.0):',
       '    - AppAuth/Core (= 3.0.0)',
       '  - AppAuth/Core (3.0.0)',
+      '  - DoubleConversion (1.1.6)',
+      '  - ExpoFont (58.0.11)',
       '  - "GoogleUtilities/NSData+zlib (8.1.4)":',
       '    - GoogleUtilities/Environment',
       '  - React-Core (0.81.9)',
       '  - RCT-Folly (2024.11.18.00)',
+      '  - ReactCodegen (0.81.9)',
       '  - Yoga (0.0.0)',
       '',
       'DEPENDENCIES:',
       '  - "React-Core (from `../node_modules/react-native/`)"',
+      '',
+      'EXTERNAL SOURCES:',
+      '  DoubleConversion:',
+      '    :podspec: "../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec"',
+      '  ExpoFont:',
+      '    :path: "../node_modules/expo-font/ios"',
+      '  React-Core:',
+      '    :path: "../node_modules/react-native/"',
+      '  ReactCodegen:',
+      '    :path: build/generated/ios',
+      '  Yoga:',
+      '    :path: "../node_modules/react-native/ReactCommon/yoga"',
       '',
       'COCOAPODS: 1.17.0',
       '',
@@ -67,7 +96,10 @@ function fixture() {
       path.join(pods, 'Local Podspecs', `${name}.podspec.json`),
       JSON.stringify({ name, ...spec }),
     );
+  podspec('DoubleConversion', { license: 'BSD' });
+  podspec('ExpoFont', { license: 'MIT' });
   podspec('React-Core', { license: 'MIT' });
+  podspec('ReactCodegen', { license: 'MIT' });
   podspec('RCT-Folly', { license: { type: 'Apache License, Version 2.0' } });
   podspec('Yoga', {});
   const packages = path.join(directory, 'SourcePackages');
@@ -127,6 +159,18 @@ test(
             licenceText: true,
           },
           {
+            name: 'DoubleConversion',
+            version: '1.1.6',
+            licence: 'BSD',
+            licenceText: false,
+          },
+          {
+            name: 'ExpoFont',
+            version: '58.0.11',
+            licence: 'MIT',
+            licenceText: true,
+          },
+          {
             name: 'GoogleUtilities',
             version: '8.1.4',
             licence: null,
@@ -142,9 +186,15 @@ test(
             name: 'React-Core',
             version: '0.81.9',
             licence: 'MIT',
+            licenceText: true,
+          },
+          {
+            name: 'ReactCodegen',
+            version: '0.81.9',
+            licence: 'MIT',
             licenceText: false,
           },
-          { name: 'Yoga', version: '0.0.0', licence: null, licenceText: false },
+          { name: 'Yoga', version: '0.0.0', licence: null, licenceText: true },
         ],
         swiftPackages: [
           {
@@ -164,12 +214,24 @@ test(
         ],
         undeclared: ['GoogleUtilities@8.1.4', 'Yoga@0.0.0'],
         withoutLicenceText: [
+          'DoubleConversion@1.1.6',
           'GoogleUtilities@8.1.4',
-          'React-Core@0.81.9',
-          'Yoga@0.0.0',
+          'ReactCodegen@0.81.9',
           `sentry-cocoa@${'b'.repeat(40)}`,
         ],
       });
+
+      rmSync(path.join(directory, 'node_modules/expo-font'), {
+        recursive: true,
+      });
+      const missingPath = inventory(pods, packages);
+      assert.equal(missingPath.status, 1);
+      assert.match(
+        missingPath.stderr,
+        /missing pod path .*node_modules\/expo-font\/ios/u,
+      );
+      assert.equal(missingPath.stdout, '');
+      write(path.join(directory, 'node_modules/expo-font/ios/LICENSE.md'));
 
       rmSync(path.join(packages, 'checkouts/swift-nio'), { recursive: true });
       const missing = inventory(pods, packages);
