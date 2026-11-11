@@ -67,6 +67,16 @@ const stateOf = (value: RegistrationRecord) => {
 
 // The Mail Profile owning one incarnation of a connection: its synchronized owner, unless that
 // Profile was removed, and otherwise the Default Profile.
+// The version of an incarnation's ownership, or 0 while no ownership names it. Every move raises it.
+const ownershipVersion = (
+  state: ProfileState,
+  record: string | undefined,
+  epoch: string | undefined,
+) =>
+  state.owners.find(
+    (candidate) => candidate.record === record && candidate.epoch === epoch,
+  )?.version ?? 0;
+
 const ownerOf = (
   state: ProfileState,
   record: string | undefined,
@@ -194,7 +204,8 @@ export const connectionDisplay = (value: RegistrationRecord) => {
     );
     if (
       display?.position !== undefined &&
-      display.profile === ownerOf(state, record, epoch)
+      display.profile === ownerOf(state, record, epoch) &&
+      display.ownership === ownershipVersion(state, record, epoch)
     ) {
       positions.set(id, display.position);
     }
@@ -485,6 +496,7 @@ type Display = Readonly<{
   epoch: string;
   profile?: string;
   position?: number;
+  ownership?: number;
   color?: string;
 }>;
 
@@ -493,9 +505,15 @@ const displayOf = (state: ProfileState, record: string, epoch: string) =>
   state.display?.find((item) => item.record === record && item.epoch === epoch);
 // Where a display record arranges its connection, and its stored Color, without absent keys.
 const placeOf = (display: Omit<Display, 'record' | 'epoch'> | undefined) =>
-  display?.profile === undefined || display.position === undefined
+  display?.profile === undefined ||
+  display.position === undefined ||
+  display.ownership === undefined
     ? {}
-    : { profile: display.profile, position: display.position };
+    : {
+        profile: display.profile,
+        position: display.position,
+        ownership: display.ownership,
+      };
 const colorOf = (display: Omit<Display, 'record' | 'epoch'> | undefined) =>
   display?.color === undefined ? {} : { color: display.color };
 const sameDisplay = (
@@ -504,6 +522,7 @@ const sameDisplay = (
 ) =>
   current.profile === next.profile &&
   current.position === next.position &&
+  current.ownership === next.ownership &&
   current.color === next.color;
 
 // Whether the Profile owns a live connection, one that may still be live, or none.
@@ -986,7 +1005,8 @@ export function createMailProfileProgram<E>(
   const commitDisplay = (state: ProfileState, displays: readonly Display[]) => {
     const writes = displays.flatMap(({ record, epoch, ...next }): Write[] => {
       const current = state.display?.find((item) => item.record === record);
-      return current?.epoch === epoch && sameDisplay(current, next)
+      // An incarnation without a record is unarranged and uncolored.
+      return sameDisplay(current?.epoch === epoch ? current : {}, next)
         ? []
         : [
             {
@@ -1041,7 +1061,13 @@ export function createMailProfileProgram<E>(
         return {
           record,
           epoch,
-          ...(position === -1 ? {} : { profile, position }),
+          ...(position === -1
+            ? {}
+            : {
+                profile,
+                position,
+                ownership: ownershipVersion(state, record, epoch),
+              }),
           ...colorOf(displayOf(state, record, epoch)),
         };
       }),

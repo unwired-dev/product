@@ -156,9 +156,9 @@ registration store already offers these operations:
   lists each Profile's arranged connections first, then the rest in the order they
   were added, and gives a connection the Profile Color key it was given. Each
   incarnation keeps one record of both, with its position counted only within the
-  Profile that owned it when arranged, so a connection moved to another Profile is
-  unarranged there and keeps its Color. A connection added again starts unarranged
-  and without a Color. Positions from another Profile and Color keys this client does
+  ownership it was arranged under, so a connection moved to another Profile, or
+  away and back, is unarranged and keeps its Color. A connection added again
+  starts unarranged and without a Color. Positions from another Profile and Color keys this client does
   not know are ignored. An edit commits through compare-and-set, and one that does
   not commit changes nothing: the store reports it as `orderFailure` with the
   Profile, or `colorFailure` with the connection. Settings does not offer these yet

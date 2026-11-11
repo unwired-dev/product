@@ -873,7 +873,15 @@ describe('mail profiles', () => {
     await flow.colorMailbox(ids.a, 'pink');
     await flow.arrangeMailboxes(work, [ids.c, ids.b]);
     await flow.moveMailbox(ids.a, work);
-    await flow.arrangeMailboxes(work, [ids.c, ids.a, ids.b]);
+    await flow.arrangeMailboxes(work, [ids.b, ids.c, ids.a]);
+    expect(arrangement(await flow.restore())).toStrictEqual([
+      [b, work],
+      [c, work],
+      [a, work, 'pink'],
+    ]);
+    // Moved away and back, a connection is unarranged in the Profile it left.
+    await flow.moveMailbox(ids.b, defaultProfile);
+    await flow.moveMailbox(ids.b, work);
     expect(arrangement(await flow.restore())).toStrictEqual([
       [c, work],
       [a, work, 'pink'],

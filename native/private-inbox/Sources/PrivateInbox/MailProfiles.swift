@@ -44,7 +44,8 @@ struct MailboxFoldersRecord: Codable, Equatable {
 }
 
 // Where one incarnation of a Mailbox Connection sits among the connections of the Mail Profile that
-// owned it when arranged, and its display Color key, kept as given like a Profile's Color.
+// owned it when arranged, with its ownership's version then, and its display Color key, kept as
+// given like a Profile's Color.
 struct MailboxDisplayRecord: Codable, Equatable {
   static let schemaVersion = 1
   let record: String
@@ -52,6 +53,7 @@ struct MailboxDisplayRecord: Codable, Equatable {
   let version: Int
   let profile: String?
   let position: Int?
+  let ownership: Int?
   let color: String?
 }
 
@@ -95,17 +97,19 @@ extension RegistrationStore {
         else { return nil }
         let profile = value["profile"] as? String
         let position = (value["position"] as? Double).flatMap { Int(exactly: $0) }
+        let ownership = (value["ownership"] as? Double).flatMap { Int(exactly: $0) }
         let color = value["color"] as? String
-        // A position belongs to the Profile it was arranged in.
+        // A position belongs to the Profile and the ownership version it was arranged under.
         guard profile.map({ !$0.isEmpty && $0.count <= 200 }) ?? (value["profile"] == nil),
           position.map({ $0 >= 0 }) ?? (value["position"] == nil),
-          (profile == nil) == (position == nil),
+          ownership.map({ $0 >= 0 }) ?? (value["ownership"] == nil),
+          (profile == nil) == (position == nil), (profile == nil) == (ownership == nil),
           color.map({ !$0.isEmpty }) ?? (value["color"] == nil)
         else { return nil }
         self = .display(
           MailboxDisplayRecord(
             record: record, epoch: epoch, version: version, profile: profile, position: position,
-            color: color))
+            ownership: ownership, color: color))
       } else if kind == "profile" {
         guard let id = value["id"] as? String, !id.isEmpty, id.count <= 200 else { return nil }
         let name = value["name"] as? String

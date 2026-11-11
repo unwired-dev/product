@@ -722,7 +722,7 @@ extension PrivateInboxTests {
     let mailbox = try ring.identifier("mailbox", "gmail:alex@example.invalid")
     let display: [String: Any] = [
       "kind": "display", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "profile": "work",
-      "position": 0.0, "color": "teal",
+      "position": 0.0, "ownership": 0.0, "color": "teal",
     ]
     let sealed = try store.sealProfileRecord(display)
     #expect(
@@ -741,7 +741,8 @@ extension PrivateInboxTests {
     ])
     let open = try #require(opened[0] as? [String: Any])
     #expect(open["kind"] as? String == "display" && open["profile"] as? String == "work")
-    #expect(open["position"] as? Int == 0 && open["color"] as? String == "teal")
+    #expect(open["position"] as? Int == 0 && open["ownership"] as? Int == 0)
+    #expect(open["color"] as? String == "teal")
     #expect(opened.dropFirst().allSatisfy { $0 is NSNull })
     let colored = try store.openProfileRecords([
       try store.sealProfileRecord([
@@ -751,10 +752,17 @@ extension PrivateInboxTests {
     let color = try #require(colored[0] as? [String: Any])
     #expect(color["color"] as? String == "pink" && color["position"] == nil)
     for malformed: [String: Any] in [
-      ["kind": "display", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "position": 0.0],
+      [
+        "kind": "display", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "position": 0.0,
+        "ownership": 0.0,
+      ],
       [
         "kind": "display", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "profile": "work",
-        "position": -1.0,
+        "position": 0.0,
+      ],
+      [
+        "kind": "display", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "profile": "work",
+        "position": -1.0, "ownership": 0.0,
       ],
       ["kind": "display", "record": mailbox, "epoch": "epoch-1", "version": 1.0, "color": ""],
       ["kind": "display", "record": "draft.other", "epoch": "epoch-1", "version": 1.0],

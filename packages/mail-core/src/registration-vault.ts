@@ -39,10 +39,14 @@ const SetupReasonSchema = Schema.Literals([
 export type SetupReason = typeof SetupReasonSchema.Type;
 
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
-// A connection's display arrangement: a position only within the Profile it was arranged in.
+// A connection's display arrangement: a position only within the Profile it was arranged in, while
+// its ownership keeps the version it had then, so moving away and back unarranges it.
 const arrangement = {
   profile: Schema.optionalKey(Schema.NonEmptyString),
   position: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  ownership: Schema.optionalKey(
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   ),
   color: Schema.optionalKey(Schema.NonEmptyString),
