@@ -110,6 +110,25 @@ still buffered whole stay until those reads are streamed. A downloaded attachmen
 remains until the store evicts it or its owner is removed, and Storage settings
 can clear the store. This follows launch.
 
+**13. A self-hosted mail server may use a pinned certificate
+([#2005](https://github.com/unwired-dev/product/issues/2005)).** Unlike the
+decisions above, this one accepts a security cost for compatibility. When the
+certificate of an IMAP or SMTP endpoint the person entered by hand fails
+validation, they may accept that exact certificate as the endpoint's pinned
+certificate, after a warning that shows its SHA-256 fingerprint to compare. A
+connection has at most one pinned certificate for each of its IMAP and SMTP
+endpoints. Every later connection to the endpoint requires exactly that
+certificate and counts as **Secure Mail Transport**. A different certificate
+fails closed before authentication and offers to replace the pinned certificate,
+showing both fingerprints. Each endpoint's fingerprint joins the reviewed
+non-secret connection definition of
+[ADR 0010](0010-device-local-mailbox-authorization.md) and synchronizes through
+Private Sync, so the person's other Trusted Devices require the same certificate
+without an unauthenticated first contact of their own. Catalogued or
+DNS-discovered endpoints, Gmail and Microsoft never offer a pinned certificate.
+TLS 1.2 stays the minimum and no credential is sent before TLS is established.
+This follows launch.
+
 ## Supersession and retained scope
 
 This ADR supersedes only the clauses named here.
@@ -146,6 +165,14 @@ This ADR supersedes only the clauses named here.
 - [ADR 0030](0030-gate-incoming-attachment-downloads.md): the 25 MB limit on one
   attachment download. Explicit download, integrity checks, file protection, the
   evicting store and the 40 MB bounds on buffered reads stand.
+- [ADR 0017](0017-require-secure-mail-transport.md) and
+  [ADR 0028](0028-restore-tls-1-2-minimum.md): "valid server identity", "rejects
+  certificate failures" and "no invalid-certificate override", for a pinned
+  certificate on an IMAP or SMTP endpoint the person entered by hand. The TLS 1.2
+  minimum, TLS before authentication, the STARTTLS rules and system validation
+  of every other connection stand. The **Secure Mail Transport** definition now
+  includes a connection to a pinned certificate, so the password rule of
+  [ADR 0010](0010-device-local-mailbox-authorization.md) applies to it unchanged.
 
 Decisions 5, 6, 7 and 10 replace behavior that the feature guides describe and
 no ADR decided. So do the account page opening before the Inbox while a Recovery
@@ -170,6 +197,11 @@ design of its own
   choose it. People who decline keep today's guarantee and today's risk of losing
   everything with the key. After a Device Revocation the copy is gone until the
   person turns it on again.
+- Accepting a pinned certificate, and every replacement after a certificate
+  change, is not authenticated: an attacker on the network at that moment could
+  have their own certificate accepted, and Private Sync carries it to every
+  Trusted Device. A self-hosted server that renews its certificate, even to a
+  publicly valid one, needs its pinned certificate replaced.
 - An allowed sender is matched by its From address, which can be forged; a forged
   message from an allowed address loads its remote images.
 - Sender and subject appear in notifications unless the person or the system

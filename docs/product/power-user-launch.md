@@ -216,15 +216,15 @@ Accepted follow-ups after launch:
   that switch; Private Cloud keeps its separate opt-in
   ([#2003](https://github.com/unwired-dev/product/issues/2003)).
 - Automatic IMAP and SMTP settings for common providers ([#2004](https://github.com/unwired-dev/product/issues/2004)).
+- A pinned certificate for each IMAP or SMTP endpoint of a self-hosted mail
+  server the person entered by hand, after a fingerprint warning ([#2005](https://github.com/unwired-dev/product/issues/2005)).
 - Plain interface wording and errors that name a cause or next step
   ([#2006](https://github.com/unwired-dev/product/issues/2006)).
 - Swipe actions ([#1725](https://github.com/unwired-dev/product/issues/1725)), unread and starred filters ([#1701](https://github.com/unwired-dev/product/issues/1701)), appearance
   and density ([#1727](https://github.com/unwired-dev/product/issues/1727)) and reply from a notification ([#1672](https://github.com/unwired-dev/product/issues/1672)).
 
 Not decided: letting a device read its own mail before it is approved
-([#2010](https://github.com/unwired-dev/product/issues/2010)), and pinning one
-certificate for a self-hosted mail server
-([#2005](https://github.com/unwired-dev/product/issues/2005)).
+([#2010](https://github.com/unwired-dev/product/issues/2010)).
 
 ## Power-user workflows
 
