@@ -1085,13 +1085,11 @@ describe('entering Draft recipients', () => {
     const typing = (text: string, typed = draft) =>
       addRecipients(typed, { field: 'cc', text }).draft;
     const suggested = (typed: Draft, limit?: number) =>
-      recipientSuggestions(
-        typed,
-        'cc',
+      recipientSuggestions(typed, 'cc', {
         correspondents,
-        ['ME@example.com'],
+        excluded: ['ME@example.com'],
         limit,
-      );
+      });
 
     // A name, a word of it or the address may start with the entry; each address appears once,
     // under its newest name, and the Draft's own address never appears.

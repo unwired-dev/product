@@ -754,7 +754,7 @@ export function Recipients({
   const [focused, setFocused] = useState<string>();
   // Recipient Suggestions show while the field is being typed in, until Escape dismisses the
   // entry they were shown for.
-  const [typing, setTyping] = useState(false);
+  const [entering, setEntering] = useState(false);
   const [dismissed, setDismissed] = useState<string>();
   const [highlighted, setHighlighted] = useState(0);
   const account = use(AccountContext);
@@ -764,19 +764,19 @@ export function Recipients({
   // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's;
   // its own addresses are not suggested.
   const suggestions = useMemo(() => {
-    if (!typing || !editable || entry === dismissed) {
+    if (!entering || !editable || entry === dismissed) {
       return [];
     }
     const profile = profileOf(draft.connection, account?.mailboxes ?? []);
     const own = held.filter((mailbox) => mailbox.profile === profile);
-    return recipientSuggestions(
-      draft,
-      field,
-      inboxMessages(own, { profile }).map(({ message }) => message),
-      own.flatMap(({ address }) => address ?? []),
-    );
-  }, [typing, editable, entry, dismissed, draft, field, account, held]);
-  const current = Math.min(highlighted, suggestions.length - 1);
+    return recipientSuggestions(draft, field, {
+      correspondents: inboxMessages(own, { profile }).map(
+        ({ message }) => message,
+      ),
+      excluded: own.flatMap(({ address }) => address ?? []),
+    });
+  }, [entering, editable, entry, dismissed, draft, field, account, held]);
+  const active = Math.min(highlighted, suggestions.length - 1);
   const accept = (recipient: Recipient) => {
     onChange(acceptRecipient(getDraft(), field, recipient), false, field);
     setNotice(undefined);
@@ -821,7 +821,7 @@ export function Recipients({
             {t('drafts.suggestions.recent')}
           </Text>
           {suggestions.map((recipient, index) => {
-            const chosen = index === current;
+            const chosen = index === active;
             const primary = chosen ? colors.accentOnFill : colors.textPrimary;
             const secondary = chosen
               ? colors.accentOnFill
@@ -957,11 +957,11 @@ export function Recipients({
               suggestions.length === 0 ? undefined : suggestionKeys
             }
             onBlur={() => {
-              setTyping(false);
+              setEntering(false);
               add(entryOf(getDraft(), field), true);
             }}
             onChangeText={(value) => {
-              setTyping(true);
+              setEntering(true);
               setHighlighted(0);
               const text = entryOf(getDraft(), field);
               caret.current =
@@ -981,11 +981,11 @@ export function Recipients({
             }}
             onKeyDown={({ nativeEvent }) => {
               if (nativeEvent.key === 'ArrowDown') {
-                setHighlighted(Math.min(current + 1, suggestions.length - 1));
+                setHighlighted(Math.min(active + 1, suggestions.length - 1));
               } else if (nativeEvent.key === 'ArrowUp') {
-                setHighlighted(Math.max(current - 1, 0));
+                setHighlighted(Math.max(active - 1, 0));
               } else if (nativeEvent.key === 'Tab') {
-                const suggestion = suggestions[current];
+                const suggestion = suggestions[active];
                 if (suggestion !== undefined) {
                   accept(suggestion);
                 }
@@ -998,7 +998,7 @@ export function Recipients({
               }
             }}
             onSubmitEditing={() => {
-              const suggestion = suggestions[current];
+              const suggestion = suggestions[active];
               if (suggestion === undefined) {
                 add(entryOf(getDraft(), field), true);
               } else {

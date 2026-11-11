@@ -300,20 +300,42 @@ export function addRecipients(
   };
 }
 
+// A correspondent as a recipient, named unless the name only repeats the address.
+const correspondentOf = ({
+  sender,
+  address,
+}: Readonly<{ sender: string; address: string }>): Recipient => {
+  const name = sender.trim();
+  return name === '' || name.toLowerCase() === address.toLowerCase()
+    ? { address }
+    : { name, address };
+};
+
+const startsWith =
+  (query: string) =>
+  ({ name = '', address }: Recipient) =>
+    [address, name, ...name.split(/\s+/u)].some((word) =>
+      word.toLowerCase().startsWith(query),
+    );
+
 // Up to `limit` Recipient Suggestions for the field's unfinished entry from recent correspondents,
 // given newest first: each address once, under its newest name, when the address, the name or a
 // word of it starts with the entry. Addresses already in the Draft or `excluded` are left out.
 export function recipientSuggestions(
   draft: Draft,
   field: RecipientField,
-  correspondents: Iterable<Readonly<{ sender: string; address: string }>>,
-  excluded: Iterable<string> = [],
-  limit = 5,
+  {
+    correspondents,
+    excluded = [],
+    limit = 5,
+  }: Readonly<{
+    correspondents: Iterable<Readonly<{ sender: string; address: string }>>;
+    excluded?: Iterable<string>;
+    limit?: number;
+  }>,
 ): readonly Recipient[] {
   const query = entriesOf(entryOf(draft, field)).rest.trim().toLowerCase();
-  if (query === '') {
-    return [];
-  }
+  const matches = startsWith(query);
   const seen = new Set(
     [
       ...[...draft.to, ...draft.cc, ...draft.bcc].map(({ address }) => address),
@@ -321,21 +343,16 @@ export function recipientSuggestions(
     ].map((address) => address.toLowerCase()),
   );
   const found: Recipient[] = [];
-  for (const { sender, address } of correspondents) {
-    const key = address.toLowerCase();
-    if (seen.has(key) || !addressPattern.test(address)) {
-      continue;
+  for (const correspondent of correspondents) {
+    if (query === '' || found.length === limit) {
+      break;
     }
-    seen.add(key);
-    const name = sender.trim();
-    const named = name !== '' && name.toLowerCase() !== key;
-    const words = named
-      ? [key, name.toLowerCase(), ...name.toLowerCase().split(/\s+/u)]
-      : [key];
-    if (words.some((word) => word.startsWith(query))) {
-      found.push(named ? { name, address } : { address });
-      if (found.length === limit) {
-        break;
+    const key = correspondent.address.toLowerCase();
+    if (!seen.has(key) && addressPattern.test(correspondent.address)) {
+      seen.add(key);
+      const recipient = correspondentOf(correspondent);
+      if (matches(recipient)) {
+        found.push(recipient);
       }
     }
   }
