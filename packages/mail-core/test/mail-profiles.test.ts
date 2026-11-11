@@ -1170,7 +1170,7 @@ describe('mail profiles', () => {
       },
     });
     // A connection saved before SMTP was required receives only.
-    for (const connection of device.record?.connections ?? []) {
+    for (const connection of device.record!.connections) {
       delete connection.smtp;
     }
     const before = new Map(records());

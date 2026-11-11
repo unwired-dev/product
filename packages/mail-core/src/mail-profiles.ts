@@ -216,6 +216,17 @@ export const connectionDisplay = (value: RegistrationRecord) => {
   return { positions, colors };
 };
 
+type SendingIdentity = Partial<
+  Readonly<Record<'record' | 'epoch' | 'address', string>>
+>;
+const sameIdentity = (
+  current: SendingIdentity | undefined,
+  next: SendingIdentity | undefined,
+) =>
+  current?.record === next?.record &&
+  current?.epoch === next?.epoch &&
+  current?.address === next?.address;
+
 // The connections whose primary address is the Default Sending Identity of the Mail Profile that
 // owns them now. A default naming a removed or re-added incarnation, a connection now in another
 // Profile or another address marks none, so no other identity stands in for it. Unreadable
@@ -236,9 +247,8 @@ export const sendingDefaults = (value: RegistrationRecord) => {
       const identity = state.sending?.find(
         ({ profile }) => profile === owner,
       )?.identity;
-      return identity?.record === record &&
-        identity?.epoch === epoch &&
-        identity?.address === address
+      return identity !== undefined &&
+        sameIdentity(identity, { record, epoch, address })
         ? [id]
         : [];
     }),
@@ -437,18 +447,27 @@ const sameChoice = (current: ChosenFolders, next: ChosenFolders) =>
   current.junk === next.junk && current.trash === next.trash;
 
 // Convex's row revision cannot make an older authenticated record newer than one already read.
+const knownVersion = (state: ProfileState, record: ProfileRecord) => {
+  if (record.kind === 'profile') {
+    return state.profiles.find(({ id }) => id === record.id)?.version;
+  }
+  if (record.kind === 'sending') {
+    return state.sending?.find(({ profile }) => profile === record.profile)
+      ?.version;
+  }
+  return connectionRecords(state, record.kind).find(
+    (known) => known.record === record.record,
+  )?.version;
+};
 const olderRecord = (state: ProfileState, record: ProfileRecord) => {
-  const version =
-    record.kind === 'profile'
-      ? state.profiles.find(({ id }) => id === record.id)?.version
-      : record.kind === 'sending'
-        ? state.sending?.find(({ profile }) => profile === record.profile)
-            ?.version
-        : connectionRecords(state, record.kind).find(
-            (known) => known.record === record.record,
-          )?.version;
+  const version = knownVersion(state, record);
   return version !== undefined && record.version < version;
 };
+
+// A connection this device can send from: neither receive-only nor needing authorization.
+const sendable = (mailbox: RegistrationRecord['mailboxes'][number]) =>
+  !mailbox.authorizationNeeded &&
+  (mailbox.provider !== 'imap' || mailbox.smtp !== undefined);
 
 const named = (name: string) => {
   const trimmed = name.trim();
@@ -1157,6 +1176,25 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
+  // The primary address of a live connection the Profile owns and this device can send from.
+  const sendingIdentity = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    state: ProfileState,
+    { profile, connection }: Readonly<{ profile: string; connection: string }>,
+  ) {
+    const mailbox = value.mailboxes.find(({ id }) => id === connection);
+    const { record, epoch } = yield* incarnationOf(value, connection);
+    if (
+      mailbox === undefined ||
+      !sendable(mailbox) ||
+      ownerOf(state, record, epoch) !== profile
+    ) {
+      return yield* failWith('unavailable');
+    }
+    yield* stillLive([{ record, epoch }]);
+    return { record, epoch, address: mailbox.address };
+  });
+
   // Makes the primary address of one of this device's connections the Default Sending Identity of
   // the Mail Profile that owns it, or with no connection clears that Profile's default. A
   // connection this device cannot send from, receive-only or needing authorization, is refused.
@@ -1169,29 +1207,12 @@ export function createMailProfileProgram<E>(
     if (!readable || !receives(state, profile)) {
       return yield* failWith('unavailable');
     }
-    let identity:
-      | Readonly<{ record: string; epoch: string; address: string }>
-      | undefined;
-    if (connection !== undefined) {
-      const mailbox = value.mailboxes.find(({ id }) => id === connection);
-      const { record, epoch } = yield* incarnationOf(value, connection);
-      if (
-        mailbox === undefined ||
-        mailbox.authorizationNeeded ||
-        (mailbox.provider === 'imap' && mailbox.smtp === undefined) ||
-        ownerOf(state, record, epoch) !== profile
-      ) {
-        return yield* failWith('unavailable');
-      }
-      yield* stillLive([{ record, epoch }]);
-      identity = { record, epoch, address: mailbox.address };
-    }
+    const identity =
+      connection === undefined
+        ? undefined
+        : yield* sendingIdentity(value, state, { profile, connection });
     const current = state.sending?.find((item) => item.profile === profile);
-    if (
-      current?.identity?.record === identity?.record &&
-      current?.identity?.epoch === identity?.epoch &&
-      current?.identity?.address === identity?.address
-    ) {
+    if (sameIdentity(current?.identity, identity)) {
       return;
     }
     yield* commit(state, [
