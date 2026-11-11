@@ -1121,6 +1121,12 @@ describe('entering Draft recipients', () => {
       acceptRecipient(typing('an'), 'cc', { address: 'andrea@example.com' })
         .entries,
     ).toBeUndefined();
+    // An address the Draft gained meanwhile is not added twice.
+    expect(
+      acceptRecipient(typing('ma', withMaya), 'to', {
+        address: 'MAYA@example.com',
+      }).to,
+    ).toStrictEqual([]);
   });
 
   it('summarizes recipients by their To, Cc and Bcc roles', () => {

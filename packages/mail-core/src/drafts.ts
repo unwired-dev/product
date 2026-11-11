@@ -327,7 +327,7 @@ export function recipientSuggestions(
   {
     correspondents,
     excluded = [],
-    limit = 5,
+    limit = 3,
   }: Readonly<{
     correspondents: Iterable<Readonly<{ sender: string; address: string }>>;
     excluded?: Iterable<string>;
@@ -359,8 +359,8 @@ export function recipientSuggestions(
   return found;
 }
 
-// The Draft with an accepted suggestion in place of the field's unfinished entry; invalid entries
-// typed before it stay for correction.
+// The Draft with an accepted suggestion in place of the field's unfinished entry, unless the
+// Draft already has its address; invalid entries typed before it stay for correction.
 export function acceptRecipient(
   draft: Draft,
   field: RecipientField,
@@ -371,8 +371,12 @@ export function acceptRecipient(
     .map((entry) => entry.trim())
     .filter((entry) => entry !== '')
     .join(', ');
+  const address = recipient.address.toLowerCase();
+  const present = [...draft.to, ...draft.cc, ...draft.bcc].some(
+    (each) => each.address.toLowerCase() === address,
+  );
   return withEntry(
-    { ...draft, [field]: [...draft[field], recipient] },
+    present ? draft : { ...draft, [field]: [...draft[field], recipient] },
     field,
     kept,
   );

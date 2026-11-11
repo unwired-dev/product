@@ -300,7 +300,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: '100%',
     left: fieldLabelWidth,
-    width: 340,
+    right: 0,
+    maxWidth: 340,
     padding: 6,
     borderRadius: radius.card + 2,
     borderCurve: 'continuous',
@@ -720,12 +721,19 @@ function SendingNotice({ draft }: { readonly draft: Draft }) {
   );
 }
 
-// The keys a recipient field handles while it shows Recipient Suggestions.
-const suggestionKeys = [
-  { key: 'ArrowUp' },
-  { key: 'ArrowDown' },
-  { key: 'Tab' },
-];
+// The keys a recipient field handles while it shows Recipient Suggestions, without modifiers, so
+// Shift-Tab still moves back and modified arrows still move the caret. Escape is listed so it
+// dismisses the suggestions without ending editing.
+const plainKey = {
+  shiftKey: false,
+  altKey: false,
+  ctrlKey: false,
+  metaKey: false,
+};
+const suggestionKeys = ['ArrowUp', 'ArrowDown', 'Tab', 'Escape'].map((key) => ({
+  key,
+  ...plainKey,
+}));
 
 export function Recipients({
   draft,
@@ -752,10 +760,12 @@ export function Recipients({
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
   const [focused, setFocused] = useState<string>();
-  // Recipient Suggestions show while the field is being typed in, until Escape dismisses the
-  // entry they were shown for.
+  // Recipient Suggestions show while the field is being typed in, until Escape dismisses them;
+  // typing again shows them again.
   const [entering, setEntering] = useState(false);
-  const [dismissed, setDismissed] = useState<string>();
+  const [dismissed, setDismissed] = useState(false);
+  // Escape ends editing in AppKit too; that end keeps the unfinished entry as typed.
+  const escaped = useRef(false);
   const [highlighted, setHighlighted] = useState(0);
   const account = use(AccountContext);
   const held = useAllMailboxes();
@@ -764,7 +774,7 @@ export function Recipients({
   // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's;
   // its own addresses are not suggested.
   const suggestions = useMemo(() => {
-    if (!entering || !editable || entry === dismissed) {
+    if (!entering || !editable || dismissed) {
       return [];
     }
     const profile = profileOf(draft.connection, account?.mailboxes ?? []);
@@ -958,10 +968,15 @@ export function Recipients({
             }
             onBlur={() => {
               setEntering(false);
+              if (escaped.current) {
+                escaped.current = false;
+                return;
+              }
               add(entryOf(getDraft(), field), true);
             }}
             onChangeText={(value) => {
               setEntering(true);
+              setDismissed(false);
               setHighlighted(0);
               const text = entryOf(getDraft(), field);
               caret.current =
@@ -980,10 +995,21 @@ export function Recipients({
               selection.current = next;
             }}
             onKeyDown={({ nativeEvent }) => {
+              const last = suggestions.length - 1;
+              if (
+                nativeEvent.shiftKey ||
+                nativeEvent.altKey ||
+                nativeEvent.ctrlKey ||
+                nativeEvent.metaKey
+              ) {
+                return;
+              }
               if (nativeEvent.key === 'ArrowDown') {
-                setHighlighted(Math.min(active + 1, suggestions.length - 1));
+                setHighlighted((index) => Math.min(index + 1, last));
               } else if (nativeEvent.key === 'ArrowUp') {
-                setHighlighted(Math.max(active - 1, 0));
+                setHighlighted((index) =>
+                  Math.max(Math.min(index, last) - 1, 0),
+                );
               } else if (nativeEvent.key === 'Tab') {
                 const suggestion = suggestions[active];
                 if (suggestion !== undefined) {
@@ -993,8 +1019,9 @@ export function Recipients({
             }}
             // AppKit reports Escape in a text input as a key press.
             onKeyPress={({ nativeEvent }) => {
-              if (nativeEvent.key === 'Escape') {
-                setDismissed(entry);
+              if (nativeEvent.key === 'Escape' && suggestions.length > 0) {
+                escaped.current = true;
+                setDismissed(true);
               }
             }}
             onSubmitEditing={() => {

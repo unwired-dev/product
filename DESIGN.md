@@ -646,8 +646,7 @@ form accessories, keyboards, status bar).
   attachments. Keep reasons for blocked Send visible. No client shows save status;
   saving follows [Draft saving and asset availability](docs/drafts.md#saving).
 - **Compose recipients and sender:** Recipient Suggestions appear beneath the
-  active To/Cc/Bcc field, or above it on Mac, where the fields follow the body
-  (Figma `Compose+ — Recipient Suggestions`); recipients are removable tokens. Entry, validation and
+  active To/Cc/Bcc field; recipients are removable tokens. Entry, validation and
   From follow the
   [recipient and sender requirements](docs/product/messages-and-delivery.md#sending-identities-and-recipient-entry)
   and [Draft sender contract](docs/drafts.md#composing).

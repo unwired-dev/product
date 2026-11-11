@@ -152,7 +152,7 @@ transport and known native exit gaps.
   Text still being typed in a recipient field is saved with the Draft, so an
   interruption or relaunch restores it in that field.
 - On the Mac, typing in To, Cc or Bcc opens **Recipient Suggestions** above the
-  field: up to five recent correspondents whose address, name or a word of the
+  field: up to three recent correspondents whose address, name or a word of the
   name starts with the unfinished entry, newest first. They come only from the
   mail held on this device for the Draft's Mail Profile, and leave out that
   Profile's own addresses and anyone already in the Draft. Up and Down Arrow move
