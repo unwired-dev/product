@@ -1,7 +1,11 @@
 import type { ReactNode, RefObject } from 'react';
 
 import { composeCommand } from '@private-email/mail-core/commands';
-import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
+import {
+  newMessageSender,
+  profileOf,
+  sendingMailboxes,
+} from '@private-email/mail-core/drafts';
 import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
@@ -97,14 +101,15 @@ function NewMessageButton({
   if (account === undefined || state.kind === 'closed') {
     return null;
   }
-  // The unified Inbox sends from the window's Profile.
-  const senders = sendingMailboxes(
-    account.mailboxes,
-    scope === undefined ? windowProfile : profileOf(scope, account.mailboxes),
-  );
-  // One shown mailbox sends only from itself; every mailbox sends from the first usable one.
+  // One shown mailbox sends only from itself; the unified Inbox sends from the window Profile's
+  // Default Sending Identity, or its first usable mailbox.
   const sender =
-    scope === undefined ? senders[0] : senders.find(({ id }) => id === scope);
+    scope === undefined
+      ? newMessageSender(account.mailboxes, windowProfile)
+      : sendingMailboxes(
+          account.mailboxes,
+          profileOf(scope, account.mailboxes),
+        ).find(({ id }) => id === scope);
   const disabled =
     state.kind !== 'ready' || sender === undefined || creatingShown;
   const compose = async () => {
