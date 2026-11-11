@@ -19,6 +19,17 @@ const build = {
   platform: 'ios',
 };
 const none = { libraries: [], imports: [], bundled: [] };
+const gmailScope = 'https://www.googleapis.com/auth/gmail.modify';
+const googleAuthorization = {
+  status: 'owner-verified',
+  verified: '2026-10-28',
+  scopes: [
+    gmailScope,
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'openid',
+  ],
+};
 const manifest = (manifestPath, overrides = {}) => ({
   path: manifestPath,
   tracking: false,
@@ -28,6 +39,7 @@ const manifest = (manifestPath, overrides = {}) => ({
   ...overrides,
 });
 // The app and two frameworks: one ships cryptography, one has no manifest.
+// They name fewer Google scopes than the verified authorization.
 const inventory = (overrides = {}) => ({
   build,
   encryption: { usesNonExemptEncryption: false, exportComplianceCode: null },
@@ -59,12 +71,17 @@ const inventory = (overrides = {}) => ({
   requiredReasonApis: {},
   permissions: {},
   code: [
-    { path: '.', cryptography: none },
+    { path: '.', cryptography: none, googleScopes: [gmailScope] },
     {
       path: 'Frameworks/Crypto.framework',
       cryptography: { ...none, imports: ['_CCCrypt'] },
+      googleScopes: [],
     },
-    { path: 'Frameworks/Plain.framework', cryptography: none },
+    {
+      path: 'Frameworks/Plain.framework',
+      cryptography: none,
+      googleScopes: ['https://www.googleapis.com/auth/userinfo.email'],
+    },
   ],
   withoutPrivacyManifest: ['Frameworks/Plain.framework'],
   ...overrides,
@@ -117,6 +134,7 @@ const findings = (options) => {
 test('an archive without findings still lists every owner submission and claims no compliance', () => {
   assert.deepEqual(findings(), {
     build,
+    googleAuthorization,
     findings: [],
     ownerSubmissions: [
       { kind: 'export-compliance', evidence: ['Frameworks/Crypto.framework'] },
@@ -192,6 +210,26 @@ test('inventory gaps become findings', () => {
       },
     ],
   );
+});
+
+test('a Google scope outside the verified authorization needs revalidation', () => {
+  const added = [
+    'https://mail.google.com/',
+    'https://www.googleapis.com/auth/calendar',
+  ];
+  const archive = inventory();
+  archive.code[2].googleScopes = [added[1], gmailScope];
+  archive.code[1].googleScopes = [added[0], added[1]];
+  const record = findings({ archive });
+  assert.deepEqual(record.googleAuthorization, googleAuthorization);
+  assert.deepEqual(
+    record.findings,
+    added.map((subject) => ({ kind: 'unverified-google-scope', subject })),
+  );
+  assert.deepEqual(record.ownerSubmissions.at(-1), {
+    kind: 'google-revalidation',
+    evidence: added,
+  });
 });
 
 test('an unreadable inventory fails', () => {

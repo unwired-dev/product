@@ -288,6 +288,11 @@ data before submission. This documentation slice does not qualify either.
 The owner confirmed #668 complete on 2026-10-28. The checklist below remains the
 production configuration and revalidation procedure for future authorization,
 scope, client or data-flow changes, rather than an outstanding task list for #668.
+Each TestFlight archive's [findings record](testflight.md#what-the-script-does)
+keeps this status and asks for revalidation only when the shipped code names a
+Google scope outside the four above
+([#1977](https://github.com/unwired-dev/product/issues/1977)). Archives cannot
+show data-flow changes; review those against this checklist.
 
 1. Resolve the push-history retention conflict and decide the security-assessment
    route above using the resulting data flows.

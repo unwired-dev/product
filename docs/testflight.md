@@ -195,6 +195,11 @@ defined symbols cannot show bundled libraries. An unreadable executable fails
 the command. These are name checks. They miss cryptography reached through
 other APIs, such as URLSession's TLS, or compiled in without these names, such
 as libsodium, so an empty list does not show that code has none.
+Each `code` entry's `googleScopes` lists the Google OAuth scopes its executable
+names (`https://www.googleapis.com/auth/…` and `https://mail.google.com/`), such
+as `RegistrationStore.gmailScope` and the profile scopes in GoogleSignIn. Like
+the cryptography lists, this is a name check: a scope built at run time is
+missed.
 
 Both hosts set `ITSAppUsesNonExemptEncryption` to `false`
 (`apps/mobile/app.config.ts` and `apps/macos/macos/UnwiredMail/Info.plist`),
@@ -253,8 +258,19 @@ repeats the archive's build identity. Its `findings` list npm packages, pods
 and Swift packages without a declared licence (`undeclared-licence`) or licence
 text (`missing-licence-text`), each subject prefixed `npm`, `pod` or `swift`, an app without its own privacy manifest
 (`missing-app-privacy-manifest`), each manifest that declares tracking,
-tracking domains or a data type used for tracking (`tracking-declared`) and a missing
-`ITSAppUsesNonExemptEncryption` (`missing-encryption-declaration`).
+tracking domains or a data type used for tracking (`tracking-declared`), a missing
+`ITSAppUsesNonExemptEncryption` (`missing-encryption-declaration`) and each
+Google scope the code names outside the verified authorization
+(`unverified-google-scope`).
+`googleAuthorization` repeats the recorded
+[Google production authorization](google-registration.md#production-authorization):
+owner-verified on 2026-10-28 for `openid`, `userinfo.email`, `userinfo.profile`
+and `gmail.modify` ([#1977](https://github.com/unwired-dev/product/issues/1977)).
+An archive naming those scopes, or fewer, keeps that status and adds no
+submission. An added scope also adds a `google-revalidation` submission listing
+it. An archive cannot show changed data flows, so those follow the
+[revalidation checklist](google-registration.md#remaining-owner-actions) and
+never reopen the approval from this record.
 `ownerSubmissions` always lists the export compliance determination, with the
 code that ships cryptography as evidence; the [App Privacy answers](app-privacy.md),
 with the collected data types the manifests declare; and the third-party

@@ -1,7 +1,8 @@
 // Print what an archived app declares: privacy manifests, required-reason APIs,
-// permission strings, signed entitlements, its encryption export declaration
-// and the cryptography its code ships. This records declarations; it does not
-// decide compliance, export exemptions or App Privacy answers (#1958, #1964).
+// permission strings, signed entitlements, its encryption export declaration,
+// the cryptography its code ships and the Google OAuth scopes it names. This
+// records declarations; it does not decide compliance, export exemptions or
+// App Privacy answers (#1958, #1964).
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -122,7 +123,7 @@ const matching = (values, pattern) =>
 // Linked cryptography libraries, imported CommonCrypto and SecKey functions,
 // and strings that mark a bundled OpenSSL or BoringSSL, such as swift-nio-ssl's.
 // Archives are stripped, so their defined symbols cannot show it.
-const cryptography = (file) => ({
+const cryptography = (file, strings) => ({
   libraries: matching(
     lines('otool', ['-L', file])
       .filter((line) => line.startsWith('\t'))
@@ -131,10 +132,23 @@ const cryptography = (file) => ({
   ),
   imports: matching(lines('nm', ['-u', '-j', file]), /^_(?:CC|SecKey)/u),
   bundled: matching(
-    lines('strings', ['-a', file]),
+    strings,
     /CRYPTOGAMS by <appro@openssl\.org>|OPENSSL_internal|^OpenSSL \d/u,
   ),
 });
+// Google OAuth scopes the executable names, compared with the verified Google
+// authorization in the findings record (#1977). Scopes built at run time are missed.
+const googleScopes = (strings) =>
+  [
+    ...new Set(
+      strings.flatMap(
+        (value) =>
+          value.match(
+            /https:\/\/(?:www\.googleapis\.com\/auth\/[\w.-]+|mail\.google\.com\/)/gu,
+          ) ?? [],
+      ),
+    ),
+  ].toSorted();
 
 if (!argv.at(2) || !existsSync(argv.at(2))) {
   fail('usage: archive-inventory.mjs <path.xcarchive|path.app>');
@@ -232,16 +246,21 @@ const executable = (entry) => {
     plist(Executable, path.join(bundle, file)).CFBundleExecutable,
   );
 };
-const code = ['.', ...embedded].map((entry) => ({
-  path: entry,
-  privacyManifest: manifests.some((manifest) =>
-    entry === '.'
-      ? manifest.path === appManifest
-      : owner(manifest.path) === entry,
-  ),
-  entitlements: entitlements(path.join(app, entry)),
-  cryptography: cryptography(executable(entry)),
-}));
+const code = ['.', ...embedded].map((entry) => {
+  const file = executable(entry);
+  const strings = lines('strings', ['-a', file]);
+  return {
+    path: entry,
+    privacyManifest: manifests.some((manifest) =>
+      entry === '.'
+        ? manifest.path === appManifest
+        : owner(manifest.path) === entry,
+    ),
+    entitlements: entitlements(path.join(app, entry)),
+    cryptography: cryptography(file, strings),
+    googleScopes: googleScopes(strings),
+  };
+});
 
 stdout.write(
   `${JSON.stringify(
