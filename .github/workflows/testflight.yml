@@ -94,9 +94,46 @@ jobs:
           printf 'certificate=' >> "$GITHUB_OUTPUT"
           ruby scripts/testflight-certificates.rb >> "$GITHUB_OUTPUT"
 
+  # Source-vetted CLI only. This job must not receive POSTHOG_CLI_API_KEY.
+  posthog-cli:
+    name: Build pinned PostHog CLI
+    needs: convex
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: xcode-27
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: zsh -e -o pipefail {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Restore pinned PostHog CLI
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unwired-posthog-cli
+          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
+      - name: Build pinned PostHog CLI from source
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: zsh scripts/build-posthog-cli.zsh "$HOME/.cache/unwired-posthog-cli/posthog-cli"
+      - name: Require PostHog CLI 0.18.10
+        run: |
+          version=$("$HOME/.cache/unwired-posthog-cli/posthog-cli" --version)
+          print -r -- "$version"
+          [[ "$version" == *' 0.18.10'* ]]
+      - name: Save pinned PostHog CLI
+        if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unwired-posthog-cli
+          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
+
   upload:
     name: Upload ${{ matrix.host }}
-    needs: certificates
+    needs: [certificates, posthog-cli]
     if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false
@@ -185,3 +222,30 @@ jobs:
             artifacts/testflight/**/*-findings.json
           if-no-files-found: warn
           retention-days: 7
+      - name: Restore pinned PostHog CLI
+        id: posthog-cli-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unwired-posthog-cli
+          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
+      - name: Build pinned PostHog CLI
+        if: steps.posthog-cli-cache.outputs.cache-hit != 'true'
+        run: zsh artifacts/testflight/signing-tools/scripts/build-posthog-cli.zsh "$HOME/.cache/unwired-posthog-cli/posthog-cli"
+      - name: Save pinned PostHog CLI
+        if: steps.posthog-cli-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unwired-posthog-cli
+          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
+      - name: Upload Hermes source maps and dSYMs
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_CLI_PROJECT_ID }}
+          POSTHOG_CLI_HOST: ${{ vars.POSTHOG_CLI_HOST }}
+          HOST: ${{ matrix.host }}
+        run: |
+          node artifacts/testflight/signing-tools/scripts/upload-release-symbols.mjs \
+            --platform "$HOST" \
+            --evidence-path artifacts/current-testflight-evidence \
+            --cli "$HOME/.cache/unwired-posthog-cli/posthog-cli"

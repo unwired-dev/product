@@ -58,6 +58,8 @@ jobs:
       platform: both
       ref: ${{ needs.plan.outputs.tag }}
     # Named deploy-key mapping is resolved by the convex-production environment.
+    # Hermes and dSYM upload reads POSTHOG_CLI_* from the testflight environment
+    # inside the called workflow. Those values are not workflow_call secrets.
     secrets:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_URL: ${{ secrets.CONVEX_URL }}

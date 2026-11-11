@@ -100,7 +100,7 @@ the retained raw logs as private; do not attach them to a public issue or run.
 scripts/testflight.zsh ios|macos|both
   refuse a selected Mock Mail Session scenario or a missing Gmail push topic
   generate the native project and install Pods
-  xcodebuild archive        # Release, automatic signing through the API key
+  xcodebuild archive        # Release, automatic signing through the API key, dSYM
   in CI, refuse an archive not signed by the prepared identity
   inspect the archived bundle, source map, native test markers and Info.plist,
     including the configured Gmail push topic
@@ -154,12 +154,36 @@ the workflow fails rather than revoking another identity automatically.
 
 Release hosts embed the production JavaScript bundle. The mobile archive
 produces a source map and runs `verify:bundle` against that map. The Mac archive
-phase verifies its bundle; the script confirms that the archived bundle and its
-source map match those outputs. Both checks reject mock modules. The archive
+phase verifies its Metro bundle, compiles that bundle to Hermes bytecode and a
+composed map, then the script confirms the archived bundle and map match those
+compiled outputs. Both checks reject mock modules. The archive
 inspection also checks backend configuration, version, build number and source
 commit, and rejects known native Mock Mail Session and external test markers.
-This checks the trusted build's packaged boundaries, not arbitrary malicious
+It also refuses an archive whose native error-reporting qualification flag is
+not off. This checks the trusted build's packaged boundaries, not arbitrary malicious
 changes to the checked-out build script.
+
+## Release symbols
+
+CI builds PostHog CLI 0.18.10 from the revision in
+[Release symbols](telemetry.md#release-symbols), or restores that cached binary,
+before either host archives. After each signed host upload, it sends that
+archive's Hermes map and dSYM to PostHog Cloud EU.
+iPhone and iPad share the iOS archive. The Mac bundle phase compiles the
+verified Metro bundle with the pod's Hermes compiler and copies that bytecode
+and composed map into the archive before signing. `scripts/reporting-artifacts.mjs`
+checks the bytecode, the composed map, the bundle id `dev.unwired.mail`, and the
+matching dSYM, then the workflow runs the manifest's upload commands. Those
+commands do not pass `--force`.
+
+`POSTHOG_CLI_API_KEY` is present only in that upload step, from the `testflight`
+environment secret. `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST` are
+environment variables. A missing key, a missing project id, or a host other than
+`https://eu.posthog.com` fails the job. The key is not passed to the archive,
+the CLI build, app bundles, or the retained status artifacts. A local
+`scripts/testflight.zsh` run does not upload symbols. A synthetic JavaScript
+error and a native crash from the signed build still have to be read back from
+PostHog before collection is enabled (#1050).
 
 Before export, each host writes `<host>-inventory.json` to the evidence
 directory and adds `Inventoried: <host>` to `status.txt`; a failed inventory

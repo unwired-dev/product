@@ -138,9 +138,7 @@ bundle.shell_script = <<~SH
   cd "$SRCROOT/.."
   pnpm build
   pnpm verify:bundle
-  if [ -n "$SOURCEMAP_FILE" ]; then cp dist/main.jsbundle.map "$SOURCEMAP_FILE"; fi
-  mkdir -p "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
-  cp dist/main.jsbundle "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/main.jsbundle"
+  /bin/sh scripts/compile-hermes-bundle.sh
 SH
 bundle.always_out_of_date = '1'
 project.save

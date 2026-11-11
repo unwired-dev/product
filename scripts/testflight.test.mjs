@@ -213,7 +213,8 @@ if (command === 'xcodebuild') {
   const app = path.join(value('-archivePath'), 'Products/Applications/UnwiredMail.app');
   const info = path.join(app, host === 'ios' ? 'Info.plist' : 'Contents/Info.plist');
   fs.mkdirSync(path.dirname(info), { recursive: true });
-  const fields = { CFBundleVersion: process.env.UNWIRED_BUILD_NUMBER, CFBundleShortVersionString: '0.1.0', CFBundleIdentifier: 'dev.unwired.mail', CFBundleExecutable: 'UnwiredMail', UnwiredCommit: process.env.UNWIRED_COMMIT, UnwiredConvexURL: process.env.UNWIRED_CONVEX_URL, GIDClientID: process.env.UNWIRED_GOOGLE_CLIENT_ID, UnwiredGmailTopic: process.env.UNWIRED_GMAIL_PUBSUB_TOPIC };
+  const fields = { CFBundleVersion: process.env.UNWIRED_BUILD_NUMBER, CFBundleShortVersionString: '0.1.0', CFBundleIdentifier: 'dev.unwired.mail', CFBundleExecutable: 'UnwiredMail', UnwiredCommit: process.env.UNWIRED_COMMIT, UnwiredConvexURL: process.env.UNWIRED_CONVEX_URL, GIDClientID: process.env.UNWIRED_GOOGLE_CLIENT_ID, UnwiredGmailTopic: process.env.UNWIRED_GMAIL_PUBSUB_TOPIC, UnwiredNativeErrorReportingQualified: 'false' };
+  if (scenario === 'qualified-reporting') fields.UnwiredNativeErrorReportingQualified = 'true';
   if (scenario === 'mock-plist') fields.UnwiredMockScenario = 'open-read-relaunch';
   if (scenario === 'wrong-backend') fields.UnwiredConvexURL = 'https://wrong.convex.cloud';
   if (scenario === 'missing-topic') delete fields.UnwiredGmailTopic;
@@ -282,6 +283,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
   ['wrong-number', 'ios', 1],
   ['missing-map', 'ios', 1],
   ['stale-mac-bundle', 'macos', 1],
+  ['qualified-reporting', 'ios', 1],
 ]) {
   test(
     `TestFlight runner protects release boundary: ${scenario}, ${platform}${workflowRevision ? ', older build ref' : ''}`,
@@ -363,6 +365,12 @@ for (const [scenario, platform, expected, workflowRevision] of [
           assert.equal(
             result.stderr.trim(),
             `Refusing to upload ${platform}: unexpected archive configuration`,
+          );
+        }
+        if (scenario === 'qualified-reporting') {
+          assert.equal(
+            result.stderr.trim(),
+            `Refusing to upload ${platform}: native error reporting stays unqualified`,
           );
         }
         if (expected === 1 && signedScenarios.has(scenario)) {

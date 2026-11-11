@@ -272,9 +272,10 @@ for [push wake routes](gmail-inbox.md#push-wake-routes), so their profile needs 
 Push Notifications capability. Debug connects to Metro as a network client. The bundle ID is `dev.unwired.mail`, shared with the
 iPhone/iPad host, and the version comes from `apps/macos/package.json`. Both
 hosts build their icon from `native/app-icon/UnwiredMail.icon`. All
-configurations target macOS 27. Release embeds `main.jsbundle`; it never falls
-back to Metro. Distribution signing and App Store archives remain
-unqualified.
+configurations target macOS 27. Release verifies the Metro bundle, then
+compiles it with the hermes-engine `hermesc` and embeds that Hermes bytecode
+and composed source map. Debug still loads from Metro. Distribution signing
+and App Store archives remain unqualified.
 
 For development, run `mise exec -- pnpm dev` from `apps/macos` to start Metro.
 In another terminal in the same directory, build Debug. `native:build` loads the

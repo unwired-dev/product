@@ -103,7 +103,8 @@ upload() {
   xcodebuild archive -workspace "$workspace" -scheme UnwiredMail -configuration Release \
     -destination "$destination" -archivePath "$archive" \
     -derivedDataPath "$artifacts/$host-DerivedData" "${authentication[@]}" \
-    CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" SOURCEMAP_FILE="$map" "${@:5}" > "$artifacts/$host-archive.log" 2>&1 ||
+    CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" SOURCEMAP_FILE="$map" \
+    DEBUG_INFORMATION_FORMAT=dwarf-with-dsym "${@:5}" > "$artifacts/$host-archive.log" 2>&1 ||
     report "$artifacts/$host-archive.log"
   # Inspect the trusted archive before distribution, including its packaged code.
   local app=("$archive"/Products/Applications/*.app(N))
@@ -132,6 +133,10 @@ upload() {
        "$(/usr/libexec/PlistBuddy -c 'Print :GIDClientID' "$app[1]/$info" 2>/dev/null)" != "$UNWIRED_GOOGLE_CLIENT_ID" ||
        "$(/usr/libexec/PlistBuddy -c 'Print :UnwiredGmailTopic' "$app[1]/$info" 2>/dev/null)" != "$UNWIRED_GMAIL_PUBSUB_TOPIC" ]]; then
     print -u2 "Refusing to upload $host: unexpected archive configuration"
+    exit 1
+  fi
+  if [[ "$(/usr/libexec/PlistBuddy -c 'Print :UnwiredNativeErrorReportingQualified' "$app[1]/$info" 2>/dev/null)" != false ]]; then
+    print -u2 "Refusing to upload $host: native error reporting stays unqualified"
     exit 1
   fi
   local resources="$app[1]" executable="$app[1]/UnwiredMail"
@@ -200,4 +205,5 @@ if [[ "$platform" != ios ]]; then
   pods pnpm --dir "$root" --filter @private-email/macos native:pods
   upload macos "$root/apps/macos/macos/UnwiredMail.xcworkspace" 'generic/platform=macOS' Contents/Info.plist ARCHS=arm64
 fi
+print -r -- "$artifacts" > "$root/artifacts/current-testflight-evidence"
 print "TestFlight evidence: $artifacts"

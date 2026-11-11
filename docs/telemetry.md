@@ -341,8 +341,7 @@ protected release check. The tool never invokes vendor commands automatically.
 Use PostHog CLI 0.18.10 from revision
 e519ba6304903b31e5e3d74c6d1a5fe9a96c745e. Published CLI binaries contain their
 own telemetry, so build the pinned source in Release with POSTHOG_API_TOKEN absent
-and a fresh target directory. This source-vetted recipe has not been executed in
-the implementation session:
+and a fresh target directory. `scripts/build-posthog-cli.zsh` is that recipe:
 
 ```sh
 cli_source=$(mktemp -d)/posthog
@@ -363,3 +362,15 @@ POSTHOG_CLI_HOST=https://eu.posthog.com only in the protected upload environment
 Keep these credentials out of app bundles. Do not force replacement of a
 conflicting release's symbols. Confirm a synthetic JS error and native crash
 resolve to the expected source before rollout.
+
+The TestFlight workflow builds this CLI on the macOS runner, caches the binary
+by that revision, and runs the manifest commands after each signed iOS and Mac
+upload. iPhone and iPad share the iOS archive. `POSTHOG_CLI_API_KEY` is the
+`testflight` environment secret; the project id and host are that environment's
+variables. A missing key, a missing project id, or a host other than
+`https://eu.posthog.com` fails the job. The Hermes command keeps
+`--release-mode symbol-set` and does not pass `--force`. The Mac archive
+compiles its verified Metro bundle with the hermes-engine compiler before it is
+signed, so the uploaded map matches the bytecode in the app. Reading a synthetic
+JavaScript error and a native crash back to source remains a protected check
+under #1050.
