@@ -39,8 +39,20 @@ const SetupReasonSchema = Schema.Literals([
 export type SetupReason = typeof SetupReasonSchema.Type;
 
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
-// A Mail Profile definition, a connection's ownership, its New Mail Notification policy or its chosen
-// Spam and Trash folders as native code seals and opens it.
+// A connection's display arrangement: a position only within the Profile it was arranged in, while
+// its ownership keeps the version it had then, so moving away and back unarranges it.
+const arrangement = {
+  profile: Schema.optionalKey(Schema.NonEmptyString),
+  position: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  ownership: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  color: Schema.optionalKey(Schema.NonEmptyString),
+};
+// A Mail Profile definition, a connection's ownership, its New Mail Notification policy, its chosen
+// Spam and Trash folders or its display order and Color as native code seals and opens it.
 export const ProfileRecordSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal('profile'),
@@ -79,6 +91,15 @@ export const ProfileRecordSchema = Schema.Union([
     version: Version,
     junk: Schema.optionalKey(Schema.NonEmptyString),
     trash: Schema.optionalKey(Schema.NonEmptyString),
+  }),
+  // Where one incarnation of a connection sits among the connections of the Profile that owned it
+  // when arranged, and its display Color key, kept as stored like a Profile's.
+  Schema.Struct({
+    kind: Schema.Literal('display'),
+    record: Schema.NonEmptyString,
+    epoch: Schema.NonEmptyString,
+    version: Version,
+    ...arrangement,
   }),
 ]);
 export type ProfileRecord = typeof ProfileRecordSchema.Type;
@@ -140,6 +161,18 @@ export const ProfileStateSchema = Schema.Struct({
         epoch: Schema.NonEmptyString,
         junk: Schema.optionalKey(Schema.NonEmptyString),
         trash: Schema.optionalKey(Schema.NonEmptyString),
+        version: Version,
+        updatedAt: Schema.Finite,
+      }),
+    ),
+  ),
+  // Each connection's synchronized display order and Color, by its descriptor record.
+  display: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        record: Schema.NonEmptyString,
+        epoch: Schema.NonEmptyString,
+        ...arrangement,
         version: Version,
         updatedAt: Schema.Finite,
       }),

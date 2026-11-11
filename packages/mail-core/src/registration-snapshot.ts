@@ -68,6 +68,7 @@ export const ProfileIconSchema = Schema.Literals([
   'paintbrush',
   'star',
 ]);
+export type ProfileColor = typeof ProfileColorSchema.Type;
 export type ProfileStyle = Readonly<{
   color?: typeof ProfileColorSchema.Type;
   icon?: typeof ProfileIconSchema.Type;
@@ -116,7 +117,8 @@ const ChosenFoldersSchema = Schema.Struct({
 });
 export type ChosenFolders = typeof ChosenFoldersSchema.Type;
 
-// This device's Mailbox Connections in the order they were added. 'cached' opens only the saved
+// This device's Mailbox Connections: each Mail Profile's arranged connections in their order, then
+// the rest in the order they were added. 'cached' opens only the saved
 // Inbox until its provider verifies again; 'authorization' needs it authorized again first.
 const MailboxesSchema = Schema.fromJsonString(
   Schema.Array(
@@ -144,6 +146,8 @@ const MailboxesSchema = Schema.fromJsonString(
       // The folders chosen in Product Sync as this IMAP incarnation's Spam and Trash; a role its
       // server marks on one folder stays that folder's.
       folders: Schema.optionalKey(ChosenFoldersSchema),
+      // The display Color chosen in Product Sync for this incarnation.
+      color: Schema.optionalKey(ProfileColorSchema),
     }).check(Schema.makeFilter(endpointMatchesProvider)),
   ).check(
     Schema.makeFilter(

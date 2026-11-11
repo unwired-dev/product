@@ -149,6 +149,22 @@ registration store already offers these operations:
   and reports `profile-changed`. A name for the target chosen on this device stays
   pending and is published afterwards. The connection's identity, authorization,
   cache, Drafts and Outbox stay in place.
+- **Order and Color**
+  ([#1986](https://github.com/unwired-dev/product/issues/1986)) need Private Sync.
+  Arranging a Profile's connections takes an order naming every connection it owns
+  and no other; an empty order resets them to the order they were added. The snapshot
+  lists each Profile's arranged connections first, then the rest in the order they
+  were added, and gives a connection the Profile Color key it was given. Each
+  incarnation keeps one record of both, with its position counted only within the
+  ownership it was arranged under, so a connection moved to another Profile, or
+  away and back, is unarranged and keeps its Color. A connection added again
+  starts unarranged and without a Color. Positions from another Profile and Color
+  keys this client does not know are ignored. An edit naming a connection another
+  device has since removed or added again is refused as `profile-changed`. An edit
+  commits through compare-and-set, and one that does not commit changes nothing:
+  the store reports it as `orderFailure` with the Profile, or `colorFailure` with
+  the connection. Settings does not offer these yet
+  ([#1669](https://github.com/unwired-dev/product/issues/1669)).
 - **Older clients** are fenced out before the first Profile publishes. Creating a Profile
   is refused with an upgrade-required reason while another Trusted Device runs a client
   that can't keep Profiles apart. Once Profiles exist, such clients can't use Private

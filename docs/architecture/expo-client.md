@@ -58,7 +58,7 @@ menu dismissal beneath while control children stay inside interactive glass.
 Remove the patch when the supported upstream version preserves that hit-testing
 contract. A JavaScript component mock cannot validate this native behavior.
 
-The pinned `@expo/ui@58.0.27` patch keeps `BottomSheet` children mounted after
+The pinned `@expo/ui@58.0.28` patch keeps `BottomSheet` children mounted after
 their first presentation. On an interactive swipe, SwiftUI reports dismissal
 when the swipe commits, while the sheet still slides away. Unmounting the React
 children then leaves the bare sheet covering the Inbox floating bar. SwiftUI

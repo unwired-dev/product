@@ -1,5 +1,7 @@
+import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
 import type { ImapSetup } from './imap-setup.ts';
@@ -9,6 +11,7 @@ import type { Code, RegistrationRejected } from './registration-rejection.ts';
 import type {
   ChosenFolders,
   MailGrantProvider,
+  ProfileColor,
   ProfileStyle,
   RegistrationSnapshot,
   SignInProvider,
@@ -22,6 +25,7 @@ import type {
 import { imapFallback } from './imap-setup.ts';
 import {
   chosenFolders,
+  connectionDisplay,
   notifyingConnections,
   profileList,
   profileOwners,
@@ -113,7 +117,22 @@ const mailboxState = (mailbox: RegistrationRecord['mailboxes'][number]) => {
     ? ('cached' as const)
     : ('connected' as const);
 };
-// JSON text listing this device's connections in the order they were added. A connection listed
+// Arranged connections first by position, then, as the sort is stable, the rest in the order they
+// were added. Positions count only within their Profile, which every list reading them filters by.
+const arranged = (
+  mailboxes: RegistrationRecord['mailboxes'],
+  positions: ReadonlyMap<string, number>,
+) =>
+  Arr.sort(
+    mailboxes,
+    Order.mapInput(
+      Order.Number,
+      ({ id }: RegistrationRecord['mailboxes'][number]) =>
+        positions.get(id) ?? Infinity,
+    ),
+  );
+
+// JSON text listing this device's connections in each Profile's arranged order. A connection listed
 // without a Profile belongs to the Default Profile.
 const mailboxList = (value: RegistrationRecord) => {
   if (value.product?.pending === true || value.mailboxes.length === 0) {
@@ -122,8 +141,9 @@ const mailboxList = (value: RegistrationRecord) => {
   const owners = profileOwners(value);
   const notifying = notifyingConnections(value);
   const chosen = chosenFolders(value);
+  const { positions, colors } = connectionDisplay(value);
   return JSON.stringify(
-    value.mailboxes.map((mailbox) => {
+    arranged(value.mailboxes, positions).map((mailbox) => {
       const profile = owners.get(mailbox.id);
       const folders =
         mailbox.provider === 'imap' ? chosen.get(mailbox.id) : undefined;
@@ -140,6 +160,8 @@ const mailboxList = (value: RegistrationRecord) => {
         ...(folders === undefined || Object.keys(folders).length === 0
           ? {}
           : { folders }),
+        // JSON text leaves out a connection without a Color.
+        color: colors.get(mailbox.id),
       };
     }),
   );
@@ -1013,6 +1035,28 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           Effect.andThen(saved),
           Effect.flatMap((value) =>
             productSyncFlow.chooseFolders(value, connection, folders),
+          ),
+          Effect.andThen(current),
+        ),
+      ),
+    // Arranging a Profile's connections, or resetting them with no order, needs Product Sync.
+    arrangeMailboxes: (profile: string, order: readonly string[]) =>
+      program(
+        session.pipe(
+          Effect.andThen(saved),
+          Effect.flatMap((value) =>
+            productSyncFlow.arrangeMailboxes(value, profile, order),
+          ),
+          Effect.andThen(current),
+        ),
+      ),
+    // Choosing or clearing a connection's display Color needs Product Sync.
+    colorMailbox: (connection: string, color: ProfileColor | undefined) =>
+      program(
+        session.pipe(
+          Effect.andThen(saved),
+          Effect.flatMap((value) =>
+            productSyncFlow.colorMailbox(value, connection, color),
           ),
           Effect.andThen(current),
         ),
