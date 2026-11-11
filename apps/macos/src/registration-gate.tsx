@@ -15,7 +15,6 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
-  mailboxesOf,
   profilesOf,
   registrationScreen,
 } from '@private-email/mail-core/registration';
@@ -237,19 +236,7 @@ function RegistrationGateContent({
         await store.createProfile(name);
         return store.getSnapshot().profileFailure;
       },
-      chooseFolders: async (connection: string, folders: ChosenFolders) => {
-        await store.chooseFolders(connection, folders);
-        const state = store.getSnapshot();
-        const saved = mailboxesOf(state.snapshot).find(
-          ({ id }) => id === connection,
-        )?.folders;
-        return (
-          state.foldersFailure !== connection &&
-          saved !== undefined &&
-          saved.junk === folders.junk &&
-          saved.trash === folders.trash
-        );
-      },
+      chooseFolders: store.chooseFolders,
     }),
     [store, screen.mailboxes, choices, profiles],
   );

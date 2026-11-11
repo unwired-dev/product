@@ -794,12 +794,23 @@ export function createRegistration(vault: NativeRegistrationVault) {
         request(native.notifyMailbox(connection, enabled)),
       ),
     // Chooses the folders an IMAP connection uses as Spam and Trash where its server marks none.
-    chooseFolders: (connection: string, folders: ChosenFolders) =>
-      changeSetting(
+    // Resolves whether the connection now holds them.
+    chooseFolders: async (connection: string, folders: ChosenFolders) => {
+      await changeSetting(
         'foldersFailure',
         connection,
         request(native.chooseFolders(connection, folders)),
-      ),
+      );
+      const saved = mailboxesOf(state.snapshot).find(
+        ({ id }) => id === connection,
+      )?.folders;
+      return (
+        state.foldersFailure !== connection &&
+        saved !== undefined &&
+        saved.junk === folders.junk &&
+        saved.trash === folders.trash
+      );
+    },
     link: (provider: SignInProvider) =>
       execute(
         request(native.link(provider)).pipe(

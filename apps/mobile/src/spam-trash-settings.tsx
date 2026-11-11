@@ -15,7 +15,7 @@ import { folderSummary } from '@private-email/mail-core/mailboxes';
 import { Pressable } from 'react-native';
 
 import { SFSymbol } from './design.tsx';
-import { FolderChoice, saveFolders } from './folder-choice.tsx';
+import { FolderChoice } from './folder-choice.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-state.ts';
 import { settingsColumns, SettingsGroup, SettingsRow } from './settings.tsx';
@@ -50,7 +50,6 @@ export function SpamTrashFolders({
   if (rows.length === 0) {
     return null;
   }
-  const save = saveFolders(store);
   return (
     <SettingsGroup
       title={t('mailboxes.folders.settings.title')}
@@ -81,7 +80,7 @@ export function SpamTrashFolders({
             folders={state.folders}
             marked={state.marked}
             saved={mailbox.folders}
-            onSave={(chosen) => save(mailbox.id, chosen)}>
+            onSave={(chosen) => store.chooseFolders(mailbox.id, chosen)}>
             {(open) =>
               settingsColumns ? (
                 row(

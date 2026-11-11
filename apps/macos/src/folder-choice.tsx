@@ -149,8 +149,7 @@ function FolderSheet({
   const save = async () => {
     setSaving(true);
     setFailed(false);
-    // A rejected save is a failed save; the previous choice stays in use.
-    const done = await onSave(choice.chosen).catch(() => false);
+    const done = await onSave(choice.chosen);
     // This window may already show a replacement sheet after Cancel.
     if (!mounted.current) {
       return;
