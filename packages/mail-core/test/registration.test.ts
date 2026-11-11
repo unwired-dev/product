@@ -160,6 +160,45 @@ describe('product registration', () => {
     expect(store.getSnapshot().failed).toBe(false);
   });
 
+  it('resolves whether an IMAP connection now holds the chosen Spam and Trash folders', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-success');
+    let read = synthetic.vault.registration;
+    const store = createRegistration({
+      ...synthetic.vault,
+      registration: () => read(),
+    });
+    await store.register('google');
+    await store.connectImap({
+      address: 'imap@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'imap',
+      password: synthetic.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 587,
+        security: 'starttls',
+        username: 'imap',
+      },
+    });
+    const [id = ''] = mailboxesOf(store.getSnapshot().snapshot).map(
+      (mailbox) => mailbox.id,
+    );
+    await expect(
+      store.chooseFolders(id, { junk: 'Junk', trash: 'Bin' }),
+    ).resolves.toBe(true);
+    // One folder cannot be both, so the choice is refused.
+    await expect(
+      store.chooseFolders(id, { junk: 'Bin', trash: 'Bin' }),
+    ).resolves.toBe(false);
+    // A save that settles without a refusal but without the choice, such as while locked, did not save.
+    read = locked;
+    await expect(
+      store.chooseFolders(id, { junk: 'Junk', trash: 'Trash' }),
+    ).resolves.toBe(false);
+  });
+
   it('fakes only canonical Mock Mail Session scenarios besides test-only success', () => {
     expect.assertions(1);
     expect(scenarios.build).toStrictEqual(

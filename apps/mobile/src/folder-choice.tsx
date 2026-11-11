@@ -1,8 +1,5 @@
 import type { ImapFolder } from '@private-email/mail-core/imap-inbox';
-import type {
-  ChosenFolders,
-  Registration,
-} from '@private-email/mail-core/registration';
+import type { ChosenFolders } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
 import {
@@ -26,7 +23,6 @@ import {
   folderChoice,
   startingPicks,
 } from '@private-email/mail-core/mailboxes';
-import { mailboxesOf } from '@private-email/mail-core/registration';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -63,23 +59,6 @@ const styles = StyleSheet.create({
   note: { ...textStyles.subheadline, flex: 1 },
   choose: { alignSelf: 'flex-start' },
 });
-
-// Saves an IMAP connection's Spam and Trash folders; resolves whether the connection now holds them.
-export const saveFolders =
-  (store: Registration) =>
-  async (connection: string, folders: ChosenFolders) => {
-    await store.chooseFolders(connection, folders);
-    const state = store.getSnapshot();
-    const saved = mailboxesOf(state.snapshot).find(
-      ({ id }) => id === connection,
-    )?.folders;
-    return (
-      state.foldersFailure !== connection &&
-      saved !== undefined &&
-      saved.junk === folders.junk &&
-      saved.trash === folders.trash
-    );
-  };
 
 // A sheet where the person picks the folders that hold Spam and Trash for the roles an IMAP
 // connection's server marks no folder with. `children` opens it: Choose Folders… under the

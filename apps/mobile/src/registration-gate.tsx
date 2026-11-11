@@ -51,7 +51,6 @@ import {
   ErrorReportingDestination,
   ErrorReportingSettings,
 } from './error-reporting.tsx';
-import { saveFolders } from './folder-choice.tsx';
 import { LanguageSelector } from './language-selector.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -216,7 +215,7 @@ function RegistrationGateContent({
         await store.createProfile(name);
         return store.getSnapshot().profileFailure;
       },
-      chooseFolders: saveFolders(store),
+      chooseFolders: store.chooseFolders,
     }),
     [store, screen.mailboxes, choices, profiles],
   );
