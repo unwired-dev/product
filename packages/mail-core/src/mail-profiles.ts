@@ -278,6 +278,15 @@ const readProfile = (
   };
 };
 
+// A connection's list with its entry replaced by the one just read.
+const replacing = <Entry extends Readonly<{ record: string }>>(
+  entries: readonly Entry[] | undefined,
+  entry: Entry,
+) => [
+  ...(entries ?? []).filter(({ record }) => record !== entry.record),
+  entry,
+];
+
 const withRecord = (
   state: ProfileState,
   record: ProfileRecord,
@@ -304,42 +313,27 @@ const withRecord = (
     const { kind: _, ...choice } = record;
     return {
       ...state,
-      folders: [
-        ...(state.folders ?? []).filter(
-          ({ record: known }) => known !== record.record,
-        ),
-        { ...choice, updatedAt },
-      ],
+      folders: replacing(state.folders, { ...choice, updatedAt }),
     };
   }
   if (record.kind === 'display') {
     const { kind: _, ...display } = record;
     return {
       ...state,
-      display: [
-        ...(state.display ?? []).filter(
-          ({ record: known }) => known !== record.record,
-        ),
-        { ...display, updatedAt },
-      ],
+      display: replacing(state.display, { ...display, updatedAt }),
     };
   }
   if (record.kind === 'notifications') {
     const { kind: _, ...policy } = record;
     return {
       ...state,
-      notifications: [
-        ...(state.notifications ?? []).filter(
-          ({ record: known }) => known !== record.record,
-        ),
-        {
-          ...policy,
-          updatedAt,
-          ...(payloadIdentifier === undefined
-            ? {}
-            : { identifier: payloadIdentifier }),
-        },
-      ],
+      notifications: replacing(state.notifications, {
+        ...policy,
+        updatedAt,
+        ...(payloadIdentifier === undefined
+          ? {}
+          : { identifier: payloadIdentifier }),
+      }),
     };
   }
   const owner: Owner = {
@@ -351,10 +345,7 @@ const withRecord = (
   };
   return {
     ...state,
-    owners: [
-      ...state.owners.filter(({ record: known }) => known !== record.record),
-      owner,
-    ],
+    owners: replacing(state.owners, owner),
   };
 };
 

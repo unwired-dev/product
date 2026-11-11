@@ -145,7 +145,6 @@ const mailboxList = (value: RegistrationRecord) => {
   return JSON.stringify(
     arranged(value.mailboxes, positions).map((mailbox) => {
       const profile = owners.get(mailbox.id);
-      const color = colors.get(mailbox.id);
       const folders =
         mailbox.provider === 'imap' ? chosen.get(mailbox.id) : undefined;
       return {
@@ -161,7 +160,8 @@ const mailboxList = (value: RegistrationRecord) => {
         ...(folders === undefined || Object.keys(folders).length === 0
           ? {}
           : { folders }),
-        ...(color === undefined ? {} : { color }),
+        // JSON text leaves out a connection without a Color.
+        color: colors.get(mailbox.id),
       };
     }),
   );
