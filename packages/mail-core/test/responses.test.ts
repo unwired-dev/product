@@ -534,6 +534,17 @@ describe('replying to and forwarding a received message', () => {
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     expect(draftOf(reopened.getSnapshot(), forward.id)).toStrictEqual(settled);
+    for (const [asset, bytes] of [
+      [notes, [...Buffer.from(notesText)]],
+      [pdf, report],
+      [image, logo],
+    ] as const) {
+      const complete = completed(asset);
+      await expect(reopened.readAsset(complete)).resolves.toStrictEqual({
+        kind: 'ready',
+        uri: `data:${complete.type};base64,${Buffer.from(bytes).toString('base64')}`,
+      });
+    }
   });
 
   it('forwards an attachment already downloading by awaiting that download', async () => {
@@ -583,7 +594,7 @@ describe('replying to and forwarding a received message', () => {
       content: {
         text: 'Two versions',
         attachments: [
-          { filename: 'notes.txt', mimeType: 'text/plain', bytes: revised },
+          { filename: 'notes.txt', mimeType: 'text/markdown', bytes: revised },
         ],
       },
     });
@@ -602,18 +613,19 @@ describe('replying to and forwarding a received message', () => {
       draft(forward.id).attachments,
       'forwarded attachments',
     );
-    expect(attached.map(({ name, state }) => ({ name, state }))).toStrictEqual([
-      { name: 'notes.txt', state: 'complete' },
-      { name: 'notes.txt', state: 'complete' },
+    expect(
+      attached.map(({ name, type, state }) => ({ name, type, state })),
+    ).toStrictEqual([
+      { name: 'notes.txt', type: 'text/plain', state: 'complete' },
+      { name: 'notes.txt', type: 'text/markdown', state: 'complete' },
     ]);
-    for (const [asset, bytes] of [
-      [attached[0], [...Buffer.from(notesText)]],
-      [attached[1], revised],
+    for (const [asset, type, bytes] of [
+      [attached[0], 'text/plain', [...Buffer.from(notesText)]],
+      [attached[1], 'text/markdown', revised],
     ] as const) {
-      const complete = completed(asset);
-      await expect(drafts.readAsset(complete)).resolves.toStrictEqual({
+      await expect(drafts.readAsset(completed(asset))).resolves.toStrictEqual({
         kind: 'ready',
-        uri: `data:${complete.type};base64,${Buffer.from(bytes).toString('base64')}`,
+        uri: `data:${type};base64,${Buffer.from(bytes).toString('base64')}`,
       });
     }
   });
@@ -637,6 +649,10 @@ describe('replying to and forwarding a received message', () => {
         registration.replace(
           connected([alex, { ...work, state: 'authorization' }]),
         );
+      },
+      // The reader switches to another mailbox, releasing the opened message.
+      ({ close }) => {
+        close();
       },
       // Another Product Account signs in.
       ({ registration }) => {
