@@ -4,6 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -316,6 +317,44 @@ function plist(file, key) {
   return result.stdout.trim();
 }
 
+function archiveSucceeded() {
+  return process.env.ARCHIVE_STEP_OUTCOME === 'success';
+}
+
+function missingEvidence(pointer) {
+  if (existsSync(pointer)) {
+    return false;
+  }
+  if (archiveSucceeded()) {
+    throw new Error('Symbol upload cannot find the uploaded archive.');
+  }
+  return true;
+}
+
+function ignoreUnuploaded(error) {
+  if (archiveSucceeded()) {
+    throw error;
+  }
+  if (
+    error instanceof Error &&
+    error.message.startsWith('Refusing to upload symbols:')
+  ) {
+    return null;
+  }
+  throw error;
+}
+
+function uploadedEvidence(pointer, platform, repoRoot) {
+  if (missingEvidence(pointer)) {
+    return null;
+  }
+  try {
+    return evidenceDirectory(pointer, platform, repoRoot);
+  } catch (error) {
+    return ignoreUnuploaded(error);
+  }
+}
+
 function evidenceDirectory(pointer, platform, repoRoot) {
   const recorded = readFileSync(pointer, 'utf8').trim();
   const evidence = realpathSync(recorded);
@@ -514,13 +553,8 @@ function uploadPrepared(cli, commands, key) {
   }
 }
 
-function uploadArchive(values, key) {
+function uploadArchive(values, key, evidence) {
   requireCliVersion(values.cli);
-  const evidence = evidenceDirectory(
-    values['evidence-path'],
-    values.platform,
-    process.cwd(),
-  );
   const inputs = archiveInputs(evidence, values.platform);
   const parent = mkdtempSync(path.join(tmpdir(), 'unwired-symbols-'));
   const output = path.join(parent, 'prepared');
@@ -544,17 +578,29 @@ function uploadArchive(values, key) {
   }
 }
 
+function openEvidence(values) {
+  requirePaths(values);
+  if (!supportedPlatform(values.platform)) {
+    throw new Error('Symbol upload platform must be ios or macos.');
+  }
+  return uploadedEvidence(
+    values['evidence-path'],
+    values.platform,
+    process.cwd(),
+  );
+}
+
 function main() {
   const values = readOptions();
   if (!values) {
     return;
   }
-  const key = requireCredentials();
-  requirePaths(values);
-  if (!supportedPlatform(values.platform)) {
-    throw new Error('Symbol upload platform must be ios or macos.');
+  const evidence = openEvidence(values);
+  if (!evidence) {
+    process.stdout.write('No uploaded archive; symbol upload not attempted.\n');
+    return;
   }
-  uploadArchive(values, key);
+  uploadArchive(values, requireCredentials(), evidence);
 }
 
 const invoked =

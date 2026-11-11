@@ -122,7 +122,7 @@ jobs:
         run: |
           version=$("$HOME/.cache/unwired-posthog-cli/posthog-cli" --version)
           print -r -- "$version"
-          [[ "$version" == *' 0.18.10'* ]]
+          [[ "$version" =~ '(^|[[:space:]])0\.18\.10($|[[:space:]])' ]]
       - name: Save pinned PostHog CLI
         if: steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
@@ -188,6 +188,7 @@ jobs:
       - name: Check native signing import without credentials
         run: ruby artifacts/testflight/signing-tools/scripts/testflight-signing.test.rb --native
       - name: Archive and upload
+        id: archive
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -210,6 +211,37 @@ jobs:
           trap 'rm -f "$ASC_KEY_PATH"; trap - EXIT; exit 143' TERM
           export TESTFLIGHT_SOURCE_ROOT="$PWD"
           zsh artifacts/testflight/signing-tools/scripts/testflight-signing.zsh zsh artifacts/testflight/signing-tools/scripts/testflight.zsh "$HOST"
+      # Notes can fail after the build is already on App Store Connect. Still upload symbols.
+      - name: Restore pinned PostHog CLI
+        if: ${{ !cancelled() }}
+        id: posthog-cli-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unwired-posthog-cli
+          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
+      - name: Build pinned PostHog CLI
+        if: ${{ !cancelled() && steps.posthog-cli-cache.outputs.cache-hit != 'true' }}
+        run: zsh artifacts/testflight/signing-tools/scripts/build-posthog-cli.zsh "$HOME/.cache/unwired-posthog-cli/posthog-cli"
+      - name: Save pinned PostHog CLI
+        if: ${{ !cancelled() && steps.posthog-cli-cache.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unwired-posthog-cli
+          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
+      - name: Upload Hermes source maps and dSYMs
+        if: ${{ !cancelled() }}
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_CLI_PROJECT_ID }}
+          POSTHOG_CLI_HOST: ${{ vars.POSTHOG_CLI_HOST }}
+          ARCHIVE_STEP_OUTCOME: ${{ steps.archive.outcome }}
+          HOST: ${{ matrix.host }}
+        run: |
+          node artifacts/testflight/signing-tools/scripts/upload-release-symbols.mjs \
+            --platform "$HOST" \
+            --evidence-path "$RUNNER_TEMP/current-testflight-evidence" \
+            --cli "$HOME/.cache/unwired-posthog-cli/posthog-cli"
       - name: Upload build status
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -222,30 +254,3 @@ jobs:
             artifacts/testflight/**/*-findings.json
           if-no-files-found: warn
           retention-days: 7
-      - name: Restore pinned PostHog CLI
-        id: posthog-cli-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/unwired-posthog-cli
-          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
-      - name: Build pinned PostHog CLI
-        if: steps.posthog-cli-cache.outputs.cache-hit != 'true'
-        run: zsh artifacts/testflight/signing-tools/scripts/build-posthog-cli.zsh "$HOME/.cache/unwired-posthog-cli/posthog-cli"
-      - name: Save pinned PostHog CLI
-        if: steps.posthog-cli-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/unwired-posthog-cli
-          key: posthog-cli-0.18.10-e519ba6304903b31e5e3d74c6d1a5fe9a96c745e-${{ runner.os }}-${{ runner.arch }}
-      - name: Upload Hermes source maps and dSYMs
-        env:
-          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
-          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_CLI_PROJECT_ID }}
-          POSTHOG_CLI_HOST: ${{ vars.POSTHOG_CLI_HOST }}
-          HOST: ${{ matrix.host }}
-        run: |
-          node artifacts/testflight/signing-tools/scripts/upload-release-symbols.mjs \
-            --platform "$HOST" \
-            --evidence-path artifacts/current-testflight-evidence \
-            --cli "$HOME/.cache/unwired-posthog-cli/posthog-cli"

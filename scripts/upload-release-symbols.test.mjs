@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -101,32 +107,73 @@ test('symbol upload fails closed without a key, project id, or EU host', () => {
     }),
     null,
   );
-  const result = spawnSync(
-    process.execPath,
-    [
-      script,
-      '--platform',
-      'ios',
-      '--evidence-path',
-      'missing',
-      '--cli',
-      '/tmp/posthog-cli',
-    ],
-    {
-      cwd: root,
-      encoding: 'utf8',
-      env: {
-        PATH: process.env.PATH,
-        POSTHOG_CLI_API_KEY: key,
-        POSTHOG_CLI_PROJECT_ID: '344845',
-        POSTHOG_CLI_HOST: 'https://us.i.posthog.com',
-      },
-    },
+  const directory = mkdtempSync(path.join(tmpdir(), 'symbol-evidence-'));
+  mkdirSync(path.join(root, 'artifacts/testflight'), { recursive: true });
+  const repoEvidence = mkdtempSync(
+    path.join(root, 'artifacts/testflight/symbol-evidence-'),
   );
-  assert.equal(result.status, 1);
-  assert.equal(result.stdout.includes(key), false);
-  assert.equal(result.stderr.includes(key), false);
-  assert.match(result.stderr, /eu\.posthog\.com/u);
+  try {
+    writeFileSync(path.join(repoEvidence, 'status.txt'), 'Uploaded: ios\n');
+    const pointer = path.join(directory, 'pointer');
+    writeFileSync(pointer, `${repoEvidence}\n`);
+    const result = spawnSync(
+      process.execPath,
+      [
+        script,
+        '--platform',
+        'ios',
+        '--evidence-path',
+        pointer,
+        '--cli',
+        '/tmp/posthog-cli',
+      ],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          ARCHIVE_STEP_OUTCOME: 'success',
+          POSTHOG_CLI_API_KEY: key,
+          POSTHOG_CLI_PROJECT_ID: '344845',
+          POSTHOG_CLI_HOST: 'https://us.i.posthog.com',
+        },
+      },
+    );
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout.includes(key), false);
+    assert.equal(result.stderr.includes(key), false);
+    assert.match(result.stderr, /eu\.posthog\.com/u);
+    const skipped = spawnSync(
+      process.execPath,
+      [
+        script,
+        '--platform',
+        'ios',
+        '--evidence-path',
+        path.join(directory, 'absent'),
+        '--cli',
+        '/tmp/posthog-cli',
+      ],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          ARCHIVE_STEP_OUTCOME: 'failure',
+          POSTHOG_CLI_API_KEY: key,
+          POSTHOG_CLI_PROJECT_ID: '344845',
+          POSTHOG_CLI_HOST: 'https://us.i.posthog.com',
+        },
+      },
+    );
+    assert.equal(skipped.status, 0, skipped.stderr);
+    assert.match(skipped.stdout, /not attempted/u);
+    assert.equal(skipped.stdout.includes(key), false);
+    assert.equal(skipped.stderr.includes(key), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(repoEvidence, { recursive: true, force: true });
+  }
 });
 
 test('symbol upload keeps the manifest commands and drops compile-time telemetry', () => {
@@ -224,6 +271,11 @@ test('TestFlight keeps the symbol key out of the archive and the CLI build', () 
     /POSTHOG_CLI_PROJECT_ID: \$\{\{ vars\.POSTHOG_CLI_PROJECT_ID \}\}/u,
   );
   assert.match(symbol, /POSTHOG_CLI_HOST: \$\{\{ vars\.POSTHOG_CLI_HOST \}\}/u);
+  assert.match(
+    symbol,
+    /ARCHIVE_STEP_OUTCOME: \$\{\{ steps\.archive\.outcome \}\}/u,
+  );
+  assert.match(symbol, /if: \$\{\{ !cancelled\(\) \}\}/u);
   assert.match(uploadJob, /\["ios","macos"\]/u);
   assert.match(release, /POSTHOG_CLI_\*/u);
   assert.doesNotMatch(

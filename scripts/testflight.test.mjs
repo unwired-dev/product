@@ -349,7 +349,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
           const script = workflow
             .split('      - name: Archive and upload\n')[1]
             .split('        run: |\n')[1]
-            .split('      - name: Upload build status\n')[0]
+            .split('\n      - ')[0]
             .replaceAll(/^ {10}/gmu, '');
           env.RUNNER_TEMP = directory;
           env.HOST = platform;

@@ -9,6 +9,10 @@ if [[ "${UNWIRED_TESTFLIGHT_ENV_LOADED:-}" != 1 ]]; then
 fi
 # The API key is read from its file, never inherited by project build phases.
 unset UNWIRED_TESTFLIGHT_ENV_LOADED ASC_PRIVATE_KEY
+# A previous job on this runner must not supply this job's symbol archive.
+if [[ -n ${RUNNER_TEMP:-} ]]; then
+  rm -f "$RUNNER_TEMP/current-testflight-evidence"
+fi
 export UNWIRED_ERROR_REPORTING_CHANNEL=testflight
 platform=${1:-}
 if [[ "$platform" != ios && "$platform" != macos && "$platform" != both ]]; then
@@ -186,6 +190,10 @@ upload() {
     -exportOptionsPlist "$artifacts/ExportOptions.plist" "${authentication[@]}" \
     > "$artifacts/$host-upload.log" 2>&1 || report "$artifacts/$host-upload.log"
   print -r -- "Uploaded: $host" >> "$artifacts/status.txt"
+  # Symbol upload reads this even when the following notes update fails.
+  if [[ -n ${RUNNER_TEMP:-} ]]; then
+    print -r -- "$artifacts" > "$RUNNER_TEMP/current-testflight-evidence"
+  fi
   ruby "$root/scripts/testflight-notes.rb" "$host" "$version" "$UNWIRED_BUILD_NUMBER" "$UNWIRED_COMMIT" > "$artifacts/$host-notes.log" 2>&1 || report "$artifacts/$host-notes.log"
   print -r -- "Test notes updated: $host" >> "$artifacts/status.txt"
   print "Uploaded $host $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app[1]/$info") ($UNWIRED_BUILD_NUMBER) from $UNWIRED_COMMIT"
@@ -205,5 +213,4 @@ if [[ "$platform" != ios ]]; then
   pods pnpm --dir "$root" --filter @private-email/macos native:pods
   upload macos "$root/apps/macos/macos/UnwiredMail.xcworkspace" 'generic/platform=macOS' Contents/Info.plist ARCHS=arm64
 fi
-print -r -- "$artifacts" > "$root/artifacts/current-testflight-evidence"
 print "TestFlight evidence: $artifacts"

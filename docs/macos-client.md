@@ -273,9 +273,10 @@ Push Notifications capability. Debug connects to Metro as a network client. The 
 iPhone/iPad host, and the version comes from `apps/macos/package.json`. Both
 hosts build their icon from `native/app-icon/UnwiredMail.icon`. All
 configurations target macOS 27. Release verifies the Metro bundle, then
-compiles it with the hermes-engine `hermesc` and embeds that Hermes bytecode
-and composed source map. Debug still loads from Metro. Distribution signing
-and App Store archives remain unqualified.
+compiles it with the hermes-engine `hermesc` and embeds that Hermes bytecode.
+The composed source map stays with the archive build, not inside the app.
+Debug still loads from Metro. Distribution signing and App Store archives
+remain unqualified.
 
 For development, run `mise exec -- pnpm dev` from `apps/macos` to start Metro.
 In another terminal in the same directory, build Debug. `native:build` loads the

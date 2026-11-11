@@ -21,7 +21,7 @@ env -u POSTHOG_API_TOKEN -u POSTHOG_CLI_API_KEY \
   cargo build --release --locked --manifest-path "$cli_source/cli/Cargo.toml"
 built=$cli_source/cli-target/release/posthog-cli
 version=$("$built" --version)
-if [[ $version != *" $expected"* && $version != "$expected" ]]; then
+if [[ ! $version =~ '(^|[[:space:]])0\.18\.10($|[[:space:]])' ]]; then
   print -u2 "Expected posthog-cli $expected from $revision, got: $version"
   exit 1
 fi

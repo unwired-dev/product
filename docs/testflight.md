@@ -170,8 +170,10 @@ CI builds PostHog CLI 0.18.10 from the revision in
 before either host archives. After each signed host upload, it sends that
 archive's Hermes map and dSYM to PostHog Cloud EU.
 iPhone and iPad share the iOS archive. The Mac bundle phase compiles the
-verified Metro bundle with the pod's Hermes compiler and copies that bytecode
-and composed map into the archive before signing. `scripts/reporting-artifacts.mjs`
+verified Metro bundle with the pod's Hermes compiler and embeds that bytecode
+in the app before signing. The composed map is the build's `SOURCEMAP_FILE`,
+`<host>-sources/main.jsbundle.map`, checked against that bytecode.
+`scripts/reporting-artifacts.mjs`
 checks the bytecode, the composed map, the bundle id `dev.unwired.mail`, and the
 matching dSYM, then the workflow runs the manifest's upload commands. Those
 commands do not pass `--force`.
