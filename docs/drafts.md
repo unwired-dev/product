@@ -157,8 +157,10 @@ transport and known native exit gaps.
   mail held on this device for the Draft's Mail Profile, and leave out that
   Profile's own addresses and anyone already in the Draft. Up and Down Arrow move
   the highlight; Return, Tab or a click adds the suggestion as one named
-  recipient. Escape dismisses them until the entry changes. Apple Contacts
-  suggestions, and suggestions on iPhone and iPad, are later slices.
+  recipient. Escape dismisses them until the entry changes. On iPhone and iPad
+  the same suggestions open above the field; Return adds the first, a tap adds
+  any, and leaving the field hides them. Apple Contacts suggestions, and hardware
+  keyboard Up, Down and Tab on iPad, are later slices.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The format bar applies marks to
