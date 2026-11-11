@@ -42,6 +42,10 @@ implemented.
 
 ## Provider submission and Draft lifetime
 
+The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) add crash recovery for unsaved composer edits, a To-first field order,
+read state on open and conversation grouping in the list. [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records them; the
+notes here describe the current behavior until each issue ships.
+
 The Draft storage and Private Sync rules in this section describe the current
 product-owned Draft implementation. The [2026-10-24 launch requirements](power-user-launch.md#confirmed-scope-additions-from-2026-10-24)
 replace Draft content and asset transport throughout these notes with canonical

@@ -713,6 +713,10 @@ These frames predate the requirements or implementation they show:
 - **Compose:** the reference mockups still show a 60% inline composer. The Mac
   New Message frame's Remind Me to Send bell waits for #658, and the overflow
   keeps Discard reachable.
+- **Compose field order:** the frames and the Layout section put the body first.
+  [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
+  changes the order to To, Cc and Bcc, Subject, body, attachments; the frames are
+  redrawn under #1994.
 - **Message Row:** the reference mockups show a two-line preview.
 - **Profile Menu:** the reference frames' trailing counts are not drawn; the
   system menu puts each Profile's unread count in its subtitle.

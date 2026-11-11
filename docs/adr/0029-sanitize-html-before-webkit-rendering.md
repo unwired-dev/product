@@ -4,6 +4,18 @@ status: accepted
 
 # Sanitize message HTML before isolated WebKit rendering
 
+## Amendment — 2026-11-11
+
+[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the removal of every author `style` block and of every sender
+background below. The sanitizer admits a responsive subset of author styles, and a
+link-only table cell keeps its background when the app verifies its contrast
+([#1355](https://github.com/unwired-dev/product/issues/1355)). It also opens links
+that link inspection does not flag without a confirmation and adds a per-sender
+remote-image choice
+([#1995](https://github.com/unwired-dev/product/issues/1995)). Image admission,
+remote-content consent as the default, link inspection and WebKit isolation remain
+required.
+
 ## Amendment — 2026-10-21
 
 The product owner's requirement in

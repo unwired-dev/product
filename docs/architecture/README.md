@@ -67,12 +67,13 @@ release scopes; a moved passage is not a new requirement or proof of qualificati
 - [Device-local Background Message Summaries for planned Catch Up](../adr/0068-allow-device-local-background-message-summaries.md)
 - [Per-device sealed rotation and atomic recovery activation](../adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md)
 - [Opt-in PostHog EU telemetry, free-plan limits and partial backend coverage](../adr/0071-use-opt-in-posthog-eu-telemetry-on-the-free-plan.md)
+- [Setup, recovery, notification, search and reader friction removed where privacy does not need it](../adr/0077-remove-friction-that-privacy-does-not-require.md)
 - [Interview decisions and research](../research/expo-react-native-rewrite.md)
 - [Platform qualification and deferred native evidence](../qualification/expo-react-native-client.md)
 - [Complete ticket and dependency coverage](../qualification/expo-rewrite-ticket-coverage.md)
 
 Applicable privacy, encryption, identity-isolation, transport and delivery
-guarantees in the earlier [ADRs](../adr/) still apply. ADR 0059 through 0075 take
+guarantees in the earlier [ADRs](../adr/) still apply. ADR 0059 through 0077 take
 precedence where they explicitly replace prototype architecture or release scope.
 Earlier provider support, Profile features, Apple-only login, and cross-device
 scheduled delivery are not implicit first-release requirements.

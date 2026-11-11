@@ -4,6 +4,13 @@ status: accepted
 
 # Expand the Apple launch to power-user mail
 
+## Usability amendment — 2026-11-11
+
+[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) replaces the explicit online search below with automatic provider search when
+online, and adds its other accepted decisions to the launch target. The
+[launch specification](../product/power-user-launch.md#confirmed-usability-decisions-from-2026-11-11)
+lists them.
+
 ## Private Cloud Mail Assistance amendment — 2026-10-28
 
 [ADR 0075](0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)

@@ -87,8 +87,8 @@ checks without a Gmail grant.
   quitting the app.
 - Keep mail fresh within platform execution limits and provide dependable,
   private new-mail notifications.
-- Include per-connection notification switches, generic notification content by
-  default, optional sender/subject previews, quiet hours and sender/rule-based
+- Include per-connection notification switches, sender and subject previews by
+  default with a switch for generic content, quiet hours and sender/rule-based
   filtering. These controls must work without AI categorization.
 
 Existing work includes delivery recovery
@@ -170,6 +170,59 @@ concurrent and offline edits, remote sending and deletion, migration, interrupte
 Draft/Outbox transitions, larger Microsoft sends, and invitation responses with
 and without optional calendar addition and later organizer changes.
 
+## Confirmed usability decisions from 2026-11-11
+
+The owner accepted these after the usability review in [#1987](https://github.com/unwired-dev/product/issues/1987).
+[ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records
+them and what they supersede. They describe the target behavior, not current
+implementation or passing qualification; the feature guides keep describing what
+the clients do until each issue ships.
+
+Launch requirements:
+
+- A new device can connect and use its own mailboxes before it is approved, and a
+  Trusted Device approves it by scanning a QR code ([#1988](https://github.com/unwired-dev/product/issues/1988)).
+- Unsaved composer edits survive a crash or the app ending, and the next launch
+  offers to restore them ([#1989](https://github.com/unwired-dev/product/issues/1989)).
+- First run lands on the Inbox. The Recovery Key is asked for later, and the
+  person may keep a copy in iCloud Keychain ([#1990](https://github.com/unwired-dev/product/issues/1990)).
+- Setup offers new-mail notifications once ([#1991](https://github.com/unwired-dev/product/issues/1991)).
+- Opening a message marks it read, with a preference for when ([#1992](https://github.com/unwired-dev/product/issues/1992)).
+- On the Mac, Command-N starts a new message, Command-P prints, Command-K opens
+  the Command Palette and Command-Z undoes the last organizing action
+  ([#1993](https://github.com/unwired-dev/product/issues/1993)).
+- The composer orders its fields To, Cc and Bcc, Subject, body, attachments
+  ([#1994](https://github.com/unwired-dev/product/issues/1994)).
+- Only links that link inspection flags ask for confirmation, and remote images
+  can be allowed for one sender ([#1995](https://github.com/unwired-dev/product/issues/1995)).
+- The message list groups conversations by default, with a preference for single
+  messages ([#846](https://github.com/unwired-dev/product/issues/846)).
+- Messages keep the sender's responsive layout ([#1355](https://github.com/unwired-dev/product/issues/1355)).
+- Lists, reader and composer are verified at the largest Dynamic Type sizes
+  ([#2007](https://github.com/unwired-dev/product/issues/2007)).
+
+Signatures and templates ([#850](https://github.com/unwired-dev/product/issues/850)), quiet hours ([#853](https://github.com/unwired-dev/product/issues/853)), unsubscribe
+([#654](https://github.com/unwired-dev/product/issues/654)), block sender ([#655](https://github.com/unwired-dev/product/issues/655)) and Send Reminder ([#658](https://github.com/unwired-dev/product/issues/658)) are built against
+the Default Profile and no longer wait for multiple Profiles ([#647](https://github.com/unwired-dev/product/issues/647)).
+[#922](https://github.com/unwired-dev/product/issues/922) verifies their separation between Profiles.
+
+Accepted follow-ups after launch:
+
+- Connect every mailbox on a newly trusted device in one step ([#2000](https://github.com/unwired-dev/product/issues/2000)).
+- Keep downloaded attachments until evicted and lift the 25 MiB download limit
+  ([#2001](https://github.com/unwired-dev/product/issues/2001)).
+- Warn before quitting with unsent mail ([#2002](https://github.com/unwired-dev/product/issues/2002)).
+- One Mail Assistance choice during setup, with Translation outside that switch
+  ([#2003](https://github.com/unwired-dev/product/issues/2003)).
+- Automatic IMAP and SMTP settings for common providers ([#2004](https://github.com/unwired-dev/product/issues/2004)).
+- Plain interface wording and errors that name a cause or next step
+  ([#2006](https://github.com/unwired-dev/product/issues/2006)).
+- Swipe actions ([#1725](https://github.com/unwired-dev/product/issues/1725)), unread and starred filters ([#1701](https://github.com/unwired-dev/product/issues/1701)), appearance
+  and density ([#1727](https://github.com/unwired-dev/product/issues/1727)) and reply from a notification ([#1672](https://github.com/unwired-dev/product/issues/1672)).
+
+Not decided: pinning one certificate for a self-hosted mail server
+([#2005](https://github.com/unwired-dev/product/issues/2005)).
+
 ## Power-user workflows
 
 - Keyboard navigation and shortcuts, bulk actions and undo.
@@ -197,9 +250,9 @@ AI categorization follows the everyday reliability work.
 - Make the whole synchronized metadata history searchable offline and make
   incomplete synchronization visible.
 - Search downloaded message bodies offline, distinguish partial body coverage
-  from complete metadata coverage, and offer an explicit online search for the
-  remainder. No matches in downloaded content must not imply no matching mail
-  exists at the provider.
+  from complete metadata coverage, and search the provider automatically for the
+  remainder when online. No matches in downloaded content must not imply no
+  matching mail exists at the provider.
 - Use a configurable cache for ordinary downloaded message bodies.
 - Provide Keep Offline for selected conversations or folders, with optional
   attachments. Retain explicitly downloaded content independently of ordinary
