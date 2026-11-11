@@ -6,6 +6,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import tls from 'node:tls';
 
+import { listenOnLoopback } from './loopback.mjs';
+
 const [directory] = process.argv.slice(2);
 assert.ok(directory, 'Expected the runner-owned fixture directory');
 const file = (name) => path.join(directory, name);
@@ -536,7 +538,7 @@ const server = tls.createServer(
 server.on('tlsClientError', (_error, socket) => {
   socket.destroy();
 });
-server.listen(0, '127.0.0.1', () => {
+listenOnLoopback(server, () => {
   writeFileSync(file('port'), String(server.address().port));
 });
 process.on('SIGTERM', () => {
