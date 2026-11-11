@@ -791,6 +791,41 @@ describe('mail profiles', () => {
     });
   });
 
+  it("keeps a re-added incarnation's display when the re-add lands after this device checked", async () => {
+    expect.hasAssertions();
+    const { flow, sync, put, mailboxId } = await connected();
+    const id = await mailboxId();
+    // The re-add lands between the descriptor check and the write: the write commits under the
+    // old epoch, which the new incarnation reads as no record.
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      put({ epoch: 'another-incarnation' });
+    };
+    await flow.colorMailbox(id, 'pink');
+    expect(displayColored(sync, 'pink').epoch).not.toBe('another-incarnation');
+
+    // The re-add and the new incarnation's Color land first: the stale compare-and-set loses.
+    const other = await connected();
+    other.sync.beforePut = () => {
+      other.sync.beforePut = undefined;
+      other.put({ epoch: 'another-incarnation' });
+      storeProfile(other.sync, account, {
+        kind: 'display',
+        record: other.record(),
+        epoch: 'another-incarnation',
+        version: 1,
+        color: 'teal',
+      });
+    };
+    await expect(
+      other.flow.colorMailbox(await other.mailboxId(), 'green'),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    expect(displayColored(other.sync, 'teal')).toMatchObject({
+      epoch: 'another-incarnation',
+      version: 1,
+    });
+  });
+
   it('arranges and colors connections per Profile only through Product Sync, for one incarnation', async () => {
     expect.hasAssertions();
     const { flow, relaunch, sync, records, google } = await connected();
