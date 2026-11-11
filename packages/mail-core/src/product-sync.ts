@@ -16,6 +16,7 @@ import type {
 import type {
   ChosenFolders,
   MailProvider,
+  ProfileColor,
   PrivateSyncStateSchema,
   ProfileStyle,
 } from './registration-snapshot.ts';
@@ -928,5 +929,15 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       connection: string,
       folders: ChosenFolders,
     ) => rotating(() => profiles.chooseFolders(value, connection, folders)),
+    arrangeMailboxes: (
+      value: RegistrationRecord,
+      profile: string,
+      order: readonly string[],
+    ) => rotating(() => profiles.arrange(value, profile, order)),
+    colorMailbox: (
+      value: RegistrationRecord,
+      connection: string,
+      color: ProfileColor | undefined,
+    ) => rotating(() => profiles.colorConnection(value, connection, color)),
   };
 }

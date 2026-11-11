@@ -76,7 +76,7 @@ const choiceOf = (sync: ReturnType<typeof setup>['sync']) => {
 // Every stored record of one kind as ciphertext this device can no longer open.
 const forgetKeys = (
   sync: ReturnType<typeof setup>['sync'],
-  kind: 'notifications' | 'folders',
+  kind: 'notifications' | 'folders' | 'display',
 ) => {
   for (const [ciphertext, { record }] of sync.sealedProfiles) {
     if (record.kind === kind) {
@@ -128,6 +128,24 @@ const unreadableProfile = (sync: ReturnType<typeof setup>['sync']) => {
 };
 const owners = (snapshot: unknown) =>
   mailboxesOf(decode(snapshot)).map(({ profile }) => profile);
+// Each listed connection's address, Profile and display Color, in the order the snapshot lists them.
+const arrangement = (snapshot: unknown) =>
+  mailboxesOf(decode(snapshot)).map(({ address, profile, color }) =>
+    color === undefined ? [address, profile] : [address, profile, color],
+  );
+// The only stored display record holding this Color key.
+const displayColored = (
+  sync: ReturnType<typeof setup>['sync'],
+  color: string,
+) => {
+  const display = storedProfiles(sync, account).find(
+    (item) => item.kind === 'display' && item.color === color,
+  );
+  if (display?.kind !== 'display') {
+    throw new Error('No display record');
+  }
+  return display;
+};
 
 // A native request whose caller loses the reply before Convex receives the first publication.
 const delayPublication = (vault: NativeRegistrationVault) => {
@@ -743,6 +761,165 @@ describe('mail profiles', () => {
     expect(store.getSnapshot()).toMatchObject({ notificationFailure: id });
     expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
     expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('arranges and colors connections per Profile only through Product Sync, for one incarnation', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, sync, records, google } = await connected();
+    const added = async (address: string) => {
+      google.subject = `synthetic-${address}`;
+      google.addresses[google.subject] = address;
+      const snapshot = await flow.addMailbox('gmail', false);
+      return mailboxesOf(decode(snapshot)).find(
+        (item) => item.address === address,
+      )!.id;
+    };
+    const [first] = mailboxesOf(decode(await flow.restore()));
+    const a = first!.address;
+    const b = 'b@example.invalid';
+    const c = 'c@example.invalid';
+    const ids = { a: first!.id, b: await added(b), c: await added(c) };
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    await flow.moveMailbox(ids.c, work);
+    // Until arranged, connections stay in the order they were added and without a Color.
+    expect(arrangement(await flow.restore())).toStrictEqual([
+      [a, defaultProfile],
+      [b, defaultProfile],
+      [c, work],
+    ]);
+
+    const arranged = await flow.arrangeMailboxes(defaultProfile, [
+      ids.b,
+      ids.a,
+    ]);
+    expect(arrangement(arranged)).toStrictEqual([
+      [b, defaultProfile],
+      [a, defaultProfile],
+      [c, work],
+    ]);
+    const colored = await flow.colorMailbox(ids.a, 'teal');
+    expect(arrangement(colored)).toStrictEqual([
+      [b, defaultProfile],
+      [a, defaultProfile, 'teal'],
+      [c, work],
+    ]);
+    await expect(relaunch().restore()).resolves.toStrictEqual(colored);
+
+    // An order must place every connection of the Profile and no other, and one that does not
+    // commit leaves the stored order.
+    const before = new Map(records());
+    for (const order of [[ids.a], [ids.b, ids.a, ids.c], [ids.a, ids.a]]) {
+      await expect(
+        flow.arrangeMailboxes(defaultProfile, order),
+      ).rejects.toMatchObject({ code: 'unavailable' });
+    }
+    sync.offline = true;
+    await expect(
+      flow.arrangeMailboxes(defaultProfile, [ids.a, ids.b]),
+    ).rejects.toBeDefined();
+    await expect(flow.colorMailbox(ids.b, 'pink')).rejects.toBeDefined();
+    sync.offline = false;
+    expect(records()).toStrictEqual(before);
+    expect(arrangement(await flow.restore())).toStrictEqual(
+      arrangement(colored),
+    );
+
+    // Another device recolors first: this write changes nothing and reports the conflict, and the
+    // other device's Color is adopted.
+    const colorOfA = displayColored(sync, 'teal');
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, { ...colorOfA, version: 3, color: 'green' });
+    };
+    await expect(flow.colorMailbox(ids.a, 'pink')).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    expect(arrangement(await flow.refreshPrivateSync())).toStrictEqual([
+      [b, defaultProfile],
+      [a, defaultProfile, 'green'],
+      [c, work],
+    ]);
+
+    // An unknown Color key, and a position arranged in another Profile, neither recolor nor
+    // reorder a connection.
+    storeProfile(sync, account, {
+      ...colorOfA,
+      version: 4,
+      color: 'ultraviolet',
+    });
+    await flow.moveMailbox(ids.b, work);
+    expect(arrangement(await flow.refreshPrivateSync())).toStrictEqual([
+      [a, defaultProfile],
+      [b, work],
+      [c, work],
+    ]);
+    expect(displayColored(sync, 'ultraviolet')).toMatchObject({
+      profile: defaultProfile,
+    });
+
+    // Unreadable ciphertext cannot authorize overwriting the last confirmed arrangement.
+    const sealed = new Map(sync.sealedProfiles);
+    forgetKeys(sync, 'display');
+    const unreadable = new Map(records());
+    await expect(
+      flow.arrangeMailboxes(work, [ids.c, ids.b]),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(records()).toStrictEqual(unreadable);
+    for (const [ciphertext, sealedRecord] of sealed) {
+      sync.sealedProfiles.set(ciphertext, sealedRecord);
+    }
+
+    // Resetting returns a Profile's connections to the order they were added and keeps Colors.
+    await flow.colorMailbox(ids.a, 'pink');
+    await flow.arrangeMailboxes(work, [ids.c, ids.b]);
+    await flow.moveMailbox(ids.a, work);
+    await flow.arrangeMailboxes(work, [ids.c, ids.a, ids.b]);
+    expect(arrangement(await flow.restore())).toStrictEqual([
+      [c, work],
+      [a, work, 'pink'],
+      [b, work],
+    ]);
+    expect(arrangement(await flow.arrangeMailboxes(work, []))).toStrictEqual([
+      [a, work, 'pink'],
+      [b, work],
+      [c, work],
+    ]);
+    await flow.colorMailbox(ids.a, undefined);
+
+    // Removed and connected again, the connection starts unarranged and without a Color.
+    await flow.colorMailbox(ids.b, 'indigo');
+    await flow.arrangeMailboxes(work, [ids.c, ids.b, ids.a]);
+    await flow.removeMailbox(ids.b);
+    google.subject = `synthetic-${b}`;
+    await flow.addMailbox('gmail', false);
+    expect(arrangement(await flow.restore())).toStrictEqual([
+      [c, work],
+      [a, work],
+      [b, defaultProfile],
+    ]);
+    // Convex holds only opaque identifiers and ciphertext.
+    expect(JSON.stringify([...records().values()])).not.toMatch(
+      /teal|pink|indigo/u,
+    );
+  });
+
+  it('reports a refused arrangement on its Profile and a refused Color on its connection', async () => {
+    expect.hasAssertions();
+    const { sync, vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    const store = createRegistration(vault);
+    await store.restore();
+    sync.offline = true;
+    // Product Sync is unreachable: each refusal is logged and kept on what it was for.
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    await store.arrangeMailboxes(defaultProfile, [id]);
+    expect(store.getSnapshot()).toMatchObject({ orderFailure: defaultProfile });
+    await store.colorMailbox(id, 'teal');
+    expect(store.getSnapshot()).toMatchObject({ colorFailure: id });
+    expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
+    sync.offline = false;
+    await store.resetMailboxOrder(defaultProfile);
+    expect(store.getSnapshot()).not.toHaveProperty('orderFailure');
   });
 
   it('removes only a Profile that owns no live connection', async () => {

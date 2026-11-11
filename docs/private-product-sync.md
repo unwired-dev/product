@@ -253,7 +253,9 @@ their unchanged format. Each connection's [New Mail Notifications](new-mail-noti
 switch synchronizes the same way, as a sealed `mailbox-notifications.` record bound to
 the connection's incarnation and written only through compare-and-set. An IMAP
 connection's chosen Spam and Trash folders synchronize as a sealed `mailbox-folders.`
-record in the same way, so their names reach Convex only as ciphertext.
+record in the same way, so their names reach Convex only as ciphertext. A connection's
+place among its Profile's connections and its display Color synchronize as a sealed
+`mailbox-display.` record in the same way.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

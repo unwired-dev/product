@@ -2,7 +2,11 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
 import type { StoredPayload } from './registration-replies.ts';
-import type { ChosenFolders, ProfileStyle } from './registration-snapshot.ts';
+import type {
+  ChosenFolders,
+  ProfileColor,
+  ProfileStyle,
+} from './registration-snapshot.ts';
 import type {
   NativeRegistrationVault,
   ProfileRecord,
@@ -172,6 +176,35 @@ export const chosenFolders = (value: RegistrationRecord) => {
   );
 };
 
+// The display position and Color synchronized for the current incarnation of each of this device's
+// connections. A position counts only within the Profile that owns the connection now. Unreadable
+// Profile state or keys leave every connection unarranged and uncolored.
+export const connectionDisplay = (value: RegistrationRecord) => {
+  const state = value.profiles;
+  const vault = stateOf(value);
+  const positions = new Map<string, number>();
+  const colors = new Map<string, ProfileColor>();
+  if (state === undefined || state === 'unreadable' || vault === undefined) {
+    return { positions, colors };
+  }
+  for (const { id, epoch } of value.mailboxes) {
+    const record = vault.mailboxes.find((mailbox) => mailbox.id === id)?.record;
+    const display = state.display?.find(
+      (item) => item.record === record && item.epoch === epoch,
+    );
+    if (
+      display?.position !== undefined &&
+      display.profile === ownerOf(state, record, epoch)
+    ) {
+      positions.set(id, display.position);
+    }
+    if (isColor(display?.color)) {
+      colors.set(id, display.color);
+    }
+  }
+  return { positions, colors };
+};
+
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier, name and style this client knows, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
@@ -268,6 +301,18 @@ const withRecord = (
       ],
     };
   }
+  if (record.kind === 'display') {
+    const { kind: _, ...display } = record;
+    return {
+      ...state,
+      display: [
+        ...(state.display ?? []).filter(
+          ({ record: known }) => known !== record.record,
+        ),
+        { ...display, updatedAt },
+      ],
+    };
+  }
   if (record.kind === 'notifications') {
     const { kind: _, ...policy } = record;
     return {
@@ -327,12 +372,13 @@ const withoutUnreadablePolicy = (
 // The records of one connection-bound kind this state knows.
 const connectionRecords = (
   state: ProfileState,
-  kind: 'mailbox' | 'notifications' | 'folders',
+  kind: 'mailbox' | 'notifications' | 'folders' | 'display',
 ): ReadonlyArray<Readonly<{ record: string; version: number }>> =>
   ({
     mailbox: state.owners,
     notifications: state.notifications ?? [],
     folders: state.folders ?? [],
+    display: state.display ?? [],
   })[kind];
 
 // Only an IMAP connection chooses folders, and one folder cannot be both Spam and Trash.
@@ -433,6 +479,32 @@ const wrote = (
     )
   );
 };
+
+type Display = Readonly<{
+  record: string;
+  epoch: string;
+  profile?: string;
+  position?: number;
+  color?: string;
+}>;
+
+// The display record of one incarnation of a connection, or none for a new incarnation.
+const displayOf = (state: ProfileState, record: string, epoch: string) =>
+  state.display?.find((item) => item.record === record && item.epoch === epoch);
+// Where a display record arranges its connection, and its stored Color, without absent keys.
+const placeOf = (display: Omit<Display, 'record' | 'epoch'> | undefined) =>
+  display?.profile === undefined || display.position === undefined
+    ? {}
+    : { profile: display.profile, position: display.position };
+const colorOf = (display: Omit<Display, 'record' | 'epoch'> | undefined) =>
+  display?.color === undefined ? {} : { color: display.color };
+const sameDisplay = (
+  current: Omit<Display, 'record' | 'epoch'>,
+  next: Omit<Display, 'record' | 'epoch'>,
+) =>
+  current.profile === next.profile &&
+  current.position === next.position &&
+  current.color === next.color;
 
 // Whether the Profile owns a live connection, one that may still be live, or none.
 const ownership = (
@@ -555,6 +627,7 @@ export function createMailProfileProgram<E>(
       'mailbox-profile.',
       'mailbox-notifications.',
       'mailbox-folders.',
+      'mailbox-display.',
     ]) {
       yield* list(prefix, read);
     }
@@ -908,6 +981,94 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
+  // Rewrites each incarnation's display record that changes. The change needs Product Sync: one
+  // that does not commit leaves every stored record.
+  const commitDisplay = (state: ProfileState, displays: readonly Display[]) => {
+    const writes = displays.flatMap(({ record, epoch, ...next }): Write[] => {
+      const current = state.display?.find((item) => item.record === record);
+      return current?.epoch === epoch && sameDisplay(current, next)
+        ? []
+        : [
+            {
+              record: {
+                kind: 'display',
+                record,
+                epoch,
+                version: (current?.version ?? 0) + 1,
+                ...next,
+              },
+              expectedUpdatedAt: current?.updatedAt,
+            },
+          ];
+    });
+    return writes.length === 0 ? Effect.void : commit(state, writes);
+  };
+
+  // Arranges every connection of one Mail Profile in `order`, or with no order returns them to the
+  // order they were added. Other Profiles' connections and every Color stay as they are.
+  const arrange = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    profile: string,
+    order: readonly string[],
+  ) {
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    const records = new Map(
+      stateOf(value)?.mailboxes.map(({ id, record }) => [id, record]),
+    );
+    const owned = value.mailboxes.filter(
+      ({ id, epoch }) => ownerOf(state, records.get(id), epoch) === profile,
+    );
+    // Every connection a display record names has a record and an epoch.
+    const incarnations = owned.flatMap(({ id, epoch }) => {
+      const record = records.get(id);
+      return record === undefined || epoch === undefined
+        ? []
+        : [{ id, record, epoch }];
+    });
+    const complete =
+      order.length === owned.length &&
+      owned.every(({ id }) => order.includes(id));
+    if ((order.length > 0 && !complete) || incarnations.length < owned.length) {
+      return yield* failWith('unavailable');
+    }
+    yield* commitDisplay(
+      state,
+      incarnations.map(({ id, record, epoch }) => {
+        const position = order.indexOf(id);
+        return {
+          record,
+          epoch,
+          ...(position === -1 ? {} : { profile, position }),
+          ...colorOf(displayOf(state, record, epoch)),
+        };
+      }),
+    );
+  });
+
+  // Gives the current incarnation of one of this device's connections a display Color, or none.
+  const colorConnection = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+    color: ProfileColor | undefined,
+  ) {
+    const { record, epoch } = yield* incarnationOf(value, connection);
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    yield* commitDisplay(state, [
+      {
+        record,
+        epoch,
+        ...placeOf(displayOf(state, record, epoch)),
+        ...(color === undefined ? {} : { color }),
+      },
+    ]);
+  });
+
   return {
     synchronize,
     create,
@@ -917,5 +1078,7 @@ export function createMailProfileProgram<E>(
     move,
     notify,
     chooseFolders,
+    arrange,
+    colorConnection,
   };
 }
