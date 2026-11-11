@@ -993,26 +993,32 @@ export function createMailProfileProgram<E>(
 
   // Rewrites each incarnation's display record that changes. The change needs Product Sync: one
   // that does not commit leaves every stored record.
+  // Once any record changes, every record is written, so an edit made concurrently on another
+  // device conflicts with this one instead of combining with it.
   const commitDisplay = (state: ProfileState, displays: readonly Display[]) => {
-    const writes = displays.flatMap(({ record, epoch, ...next }): Write[] => {
+    const writes = displays.map(({ record, epoch, ...next }) => {
       const current = state.display?.find((item) => item.record === record);
-      // An incarnation without a record is unarranged and uncolored.
-      return sameDisplay(current?.epoch === epoch ? current : {}, next)
-        ? []
-        : [
-            {
-              record: {
-                kind: 'display',
-                record,
-                epoch,
-                version: (current?.version ?? 0) + 1,
-                ...next,
-              },
-              expectedUpdatedAt: current?.updatedAt,
-            },
-          ];
+      return {
+        // An incarnation without a record is unarranged and uncolored.
+        changed: !sameDisplay(current?.epoch === epoch ? current : {}, next),
+        write: {
+          record: {
+            kind: 'display' as const,
+            record,
+            epoch,
+            version: (current?.version ?? 0) + 1,
+            ...next,
+          },
+          expectedUpdatedAt: current?.updatedAt,
+        },
+      };
     });
-    return writes.length === 0 ? Effect.void : commit(state, writes);
+    return writes.some(({ changed }) => changed)
+      ? commit(
+          state,
+          writes.map(({ write }) => write),
+        )
+      : Effect.void;
   };
 
   // Arranges every connection of one Mail Profile in `order`, or with no order returns them to the

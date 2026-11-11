@@ -887,6 +887,27 @@ describe('mail profiles', () => {
       [a, work, 'pink'],
       [b, work],
     ]);
+    // Another device unarranges a connection that this arrangement leaves in place: the
+    // arrangement still conflicts, so the two never combine into an order neither chose.
+    const pink = displayColored(sync, 'pink');
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, {
+        kind: 'display',
+        record: pink.record,
+        epoch: pink.epoch,
+        version: pink.version + 1,
+        color: 'pink',
+      });
+    };
+    await expect(
+      flow.arrangeMailboxes(work, [ids.c, ids.b, ids.a]),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    expect(arrangement(await flow.refreshPrivateSync())).toStrictEqual([
+      [c, work],
+      [a, work, 'pink'],
+      [b, work],
+    ]);
     expect(arrangement(await flow.arrangeMailboxes(work, []))).toStrictEqual([
       [a, work, 'pink'],
       [b, work],
