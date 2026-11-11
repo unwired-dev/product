@@ -124,4 +124,30 @@ describe('the Mail Template model', () => {
     ]);
     expect(edit.selection).toStrictEqual({ start: 12, end: 12 });
   });
+
+  it('keeps list items when the caret is in a marker or on an empty item', () => {
+    expect.hasAssertions();
+    const list: SemanticDocument = [
+      { kind: 'bulleted', spans: [{ text: 'ab' }] },
+      { kind: 'bulleted', spans: [] },
+    ];
+    const joined = applyTemplate(
+      { subject: '', body: list },
+      // Between "•" and its space.
+      { start: 1, end: 1 },
+      { ...template, body: line('XY') },
+    ).edit;
+    expect(joined.document).toStrictEqual([
+      { kind: 'bulleted', spans: [{ text: 'XYab' }] },
+      list[1],
+    ]);
+    expect(
+      applyTemplate(
+        { subject: '', body: list },
+        // On the empty item.
+        { start: 7, end: 7 },
+        { ...template, body: line('XY') },
+      ).edit.document,
+    ).toStrictEqual([list[0], { kind: 'bulleted', spans: [{ text: 'XY' }] }]);
+  });
 });

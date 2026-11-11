@@ -1132,28 +1132,25 @@ export function insertImage(
 }
 
 // Inserts `inserted` after the selection as one edit, keeping the selected text, and leaves the
-// caret after it. A single paragraph joins the line at the caret; other blocks keep their kinds,
-// replacing an empty line or splitting the line around them.
+// caret after it. Blocks replace an empty paragraph at the caret. Otherwise a single paragraph joins
+// the line at the caret, and other blocks keep their kinds, splitting the line around them. A caret
+// inside a list marker belongs to the item.
 export function insertDocument(
   document: SemanticDocument,
   selection: Selection,
   inserted: SemanticDocument,
 ): Edit {
-  const at = Math.max(selection.start, selection.end);
-  const { lines, line, column } = splice(
-    document,
-    { start: at, end: at, inserted: '' },
-    undefined,
-  );
+  const lines = document;
+  const at = locate(lines, Math.max(selection.start, selection.end));
+  const { line } = at;
+  const column = Math.max(0, at.column - at.marker);
   const current = lines[line] ?? emptyDocument[0];
   const head = sliceSpans(current.spans, 0, column);
   const tail = sliceSpans(current.spans, column);
   const [only, ...more] = inserted;
-  if (
-    more.length === 0 &&
-    only.kind === 'paragraph' &&
-    lengthOf(current.spans) > 0
-  ) {
+  const emptyParagraph =
+    current.kind === 'paragraph' && lengthOf(current.spans) === 0;
+  if (more.length === 0 && only.kind === 'paragraph' && !emptyParagraph) {
     const result = lines.map((each, index) =>
       index === line
         ? { ...each, spans: joinSpans(head, only.spans, tail) }

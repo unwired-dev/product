@@ -338,9 +338,11 @@ of [#850](https://github.com/unwired-dev/product/issues/850)). A blank name or a
 body with an Inline Image is refused; a template holds no recipients, attachments,
 signatures or placeholders. Applying one to a Draft is one edit that one Undo
 reverts. Its body goes after the selection, which stays, with the caret after the
-template. A one-paragraph template joins the line at the caret; other templates
-keep their block kinds, replacing an empty line or splitting the line around
-them. Marks, links and alignment stay as the template has them. The template's
+template. On an empty paragraph, the template's blocks replace it. Elsewhere a
+one-paragraph template joins the line at the caret, and other templates split the
+line around their blocks; a caret inside a list marker belongs to that item.
+Marks and links stay as the template has them, and the blocks it adds keep their
+kinds and alignment. The template's
 subject fills only a Draft without one. A new Draft from a template is the same
 on an empty Draft. Storing templates and the composers' Templates control follow
 in later #850 slices.
