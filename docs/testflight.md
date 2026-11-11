@@ -244,7 +244,9 @@ records declarations only. CI uploads it with `status.txt`.
 
 Each host then writes `<host>-findings.json` from those three inventories and
 adds `Findings: <host>; <n> unresolved, <n> owner submissions` to `status.txt`
-([#1971](https://github.com/unwired-dev/product/issues/1971)). Run it with
+([#1971](https://github.com/unwired-dev/product/issues/1971)). The archive
+build only produces the inventories; the Node script derives the findings from
+them and owns the record. Run it with
 `node scripts/archive-findings.mjs <inventory.json> <licences.json> <native-licences.json>`;
 an unreadable inventory fails the command and refuses the upload. The record
 repeats the archive's build identity. Its `findings` list npm packages, pods
