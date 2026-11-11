@@ -5,7 +5,7 @@ import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 import * as Struct from 'effect/Struct';
 
-import type { GmailLabel } from './gmail-actions.ts';
+import type { GmailAction, GmailLabel } from './gmail-actions.ts';
 import type {
   GmailMessage,
   GraphFolderHistory,
@@ -18,9 +18,17 @@ import type {
 import type { GmailInvalidPage, NativeGraphMailbox } from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
 import type { FolderRoles, GraphAttachmentInfo } from './microsoft-graph.ts';
+import type { OutgoingSend } from './outgoing-message.ts';
+import type {
+  ProviderPayload,
+  ProviderReader,
+  ReaderViews,
+  ViewEntry,
+} from './provider-reader.ts';
 
 import { foldDue, foldStep, recorded } from './gmail-history.ts';
 import {
+  graphSegmentNames,
   historyFolders,
   historyPage as historyPageSize,
   keptFolders,
@@ -35,6 +43,8 @@ import {
   cacheLimit,
   merge,
   newestFirst,
+  sameGraphHistory,
+  sameGraphViews,
   sameMailbox,
 } from './mailbox-document.ts';
 import {
@@ -83,12 +93,6 @@ import {
   listedMessage,
   wellKnownFolders,
 } from './microsoft-graph.ts';
-
-export type ProviderPayload = GmailPart &
-  Readonly<{
-    attachmentsPending?: boolean;
-    authentication?: boolean;
-  }>;
 
 const folderMessage = (
   message: Parameters<typeof listedMessage>[0],
@@ -178,7 +182,10 @@ const listingLink = (link: string) =>
       );
 
 // Graph's synchronization and body reads share the store's cache and presentation boundaries.
-export function createGraphReader(native: NativeGraphMailbox) {
+export function createGraphReader(
+  native: NativeGraphMailbox,
+  views: ReaderViews,
+) {
   // Checkpoints that saved the link of an empty delta round; their folder is current. Documents and
   // views derived from one keep it.
   const quiet = new WeakSet<GraphCheckpoint>();
@@ -475,7 +482,7 @@ export function createGraphReader(native: NativeGraphMailbox) {
   });
 
   // A document that saved a quiet round's link is current until the next synchronization.
-  const advance = (
+  const advanceInbox = (
     scope: MailboxScope,
     document: MailboxDocument | undefined,
     step: number,
@@ -690,6 +697,73 @@ export function createGraphReader(native: NativeGraphMailbox) {
       next: page['@odata.nextLink'],
     };
   });
+
+  // The next step of a Microsoft folder's own round. A folder Graph cannot read now, such as a
+  // removed one, keeps its saved messages until the next synchronization.
+  const readFolder = (scope: MailboxScope, entry: ViewEntry) => {
+    const failed = Effect.sync(() => {
+      views.failed.add(entry.label);
+    }).pipe(Effect.as(Option.none()));
+    return advanceView(scope, entry).pipe(
+      Effect.catchTags({
+        GmailNotFound: () => failed,
+        SyncFailure: (failure) =>
+          failure.kind === 'retry' ? failed : Effect.fail(failure),
+      }),
+    );
+  };
+
+  // After a current Microsoft Inbox, a requested folder becomes the most recently opened and each
+  // folder takes the next step of its own round.
+  const advanceFolders = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    document: MailboxDocument | undefined,
+    step: number,
+  ) {
+    if (document === undefined) {
+      return Option.none<MailboxDocument>();
+    }
+    const opened = views.opened(document);
+    if (opened !== undefined) {
+      return Option.some(opened);
+    }
+    const readable = (document.views ?? []).filter(
+      ({ label }) => !views.failed.has(label),
+    );
+    for (const entry of readable) {
+      const next = yield* readFolder(scope, entry);
+      // Folder work left after the round's page budget waits for the next synchronization, as the
+      // Inbox's does; the progress already committed stays.
+      if (Option.isSome(next) && step >= 200) {
+        return yield* new SyncFailure({
+          kind: 'retry',
+          cause: 'delta',
+          diagnostic: 'delta page limit',
+        });
+      }
+      if (Option.isSome(next)) {
+        return Option.some<MailboxDocument>({
+          ...document,
+          views: (document.views ?? []).map((view) =>
+            view === entry ? { ...view, ...next.value } : view,
+          ),
+        });
+      }
+    }
+    return Option.none<MailboxDocument>();
+  });
+
+  // The Inbox's round first, then each folder's.
+  const advance = (
+    scope: MailboxScope,
+    document: MailboxDocument | undefined,
+    step: number,
+  ) =>
+    advanceInbox(scope, document, step).pipe(
+      Effect.filterOrElse(Option.isSome, () =>
+        advanceFolders(scope, document, step),
+      ),
+    );
 
   // Sent Items' evidence for a message whose handoff had no answer: sent only when exactly one copy
   // carries its Message-ID. Microsoft files the copy after accepting the message, so a copy that
@@ -1024,19 +1098,83 @@ export function createGraphReader(native: NativeGraphMailbox) {
       : Option.some({ history: updated(folders), written: [] });
   });
 
+  const unavailableActions = () => graphUnavailableActions(known?.roles);
+
   return {
     advance,
-    advanceView,
-    history,
+    // A Microsoft folder is unfinished until its own delta round is current.
+    unfinished: (entry: ViewEntry) =>
+      entry.checkpoint?.kind !== 'graph-current',
     // The new Inbox mail the delta page that produced `document` brought; listings bring none.
     arrivals: (document: MailboxDocument) => arrivals.get(document) ?? [],
-    partData,
-    fullMessage,
+    history: <E>(
+      scope: MailboxScope,
+      document: MailboxDocument,
+      options: Parameters<typeof history<E>>[2],
+    ) =>
+      document.checkpoint.kind === 'graph-current'
+        ? history(scope, document, options).pipe(
+            Effect.map(
+              Option.map(({ history: graphHistory, written }) => ({
+                document: { ...document, graphHistory },
+                written,
+                keep: graphSegmentNames(graphHistory),
+              })),
+            ),
+          )
+        : Effect.succeedNone,
+    sameProgress: (base: MailboxDocument, saved: MailboxDocument) =>
+      sameGraphViews(base.views ?? [], saved.views ?? []) &&
+      sameGraphHistory(base.graphHistory, saved.graphHistory),
+    // Graph serves only attachments separately; its body parts are inline, as Gmail's small ones.
+    partData: (scope: MailboxScope, id: string, part: GmailPart) => {
+      const attachmentId = part.body?.attachmentId;
+      return attachmentId === undefined
+        ? Effect.succeed({ data: part.body?.data ?? '', size: part.body?.size })
+        : partData(scope, id, attachmentId);
+    },
+    // Graph reads inline images only for a full read, as Gmail returns part data only then.
+    fullMessage: (scope: MailboxScope, id: string) => fullMessage(scope, id),
+    // The preflight already read the whole Graph message.
+    prefetched: (
+      _scope: MailboxScope,
+      _id: string,
+      preflight: ProviderPayload,
+    ) => Effect.succeed(preflight),
+    invitations: false,
     labels,
     readLabels,
     modify,
+    // Microsoft mail offers only the actions Graph can make.
+    offers: (action: GmailAction) =>
+      graphChange(action) !== undefined &&
+      !unavailableActions().includes(action.kind),
+    // Archive moves a message to Archive, which its labels then show.
+    applied: (read: readonly string[], action: GmailAction) =>
+      action.kind !== 'archive' || read.includes('ARCHIVE'),
+    unavailableActions,
     search,
-    sentCopy,
-    unavailableActions: () => graphUnavailableActions(known?.roles),
-  } as const;
+    sentCopy: (
+      scope: MailboxScope,
+      { messageId }: Readonly<{ messageId: string | undefined }>,
+    ) =>
+      messageId === undefined
+        ? Effect.succeed({ kind: 'unknown' } as const)
+        : sentCopy(scope, messageId),
+    // Microsoft threads a reply by its headers; Graph has no thread to join.
+    send: (message: OutgoingSend, scope: MailboxScope) =>
+      native.graphSend(
+        message.draft === undefined
+          ? { segments: message.segments }
+          : { draft: message.draft },
+        scope,
+      ),
+    sendRefusalRejectsGrant: true,
+    prepare: (
+      draft: Parameters<NativeGraphMailbox['graphPrepare']>[0],
+      scope: MailboxScope,
+    ) => native.graphPrepare(draft, scope),
+    discard: (messageId: string, scope: MailboxScope) =>
+      native.graphDiscard(messageId, scope),
+  } satisfies ProviderReader;
 }

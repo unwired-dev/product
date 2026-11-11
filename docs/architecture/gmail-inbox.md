@@ -34,6 +34,12 @@ revision conflict, mailbox invalidation and ordinary unavailability.
 
 ## Synchronization and cache
 
+The [Inbox store](../domain/privacy-and-sync.md#language) in `inbox-store.ts` reads
+Gmail through the Gmail [Provider reader](../domain/privacy-and-sync.md#language),
+`gmail-reader.ts`, which owns the REST requests, listing, history, label, search,
+send and sent-copy reads below. The store keeps the cache, its views and their
+publication for both Gmail and Microsoft mail.
+
 The first listing captures the profile history ID before reading Inbox pages.
 Each page commits its applied messages and a backfill checkpoint containing that
 history ID, next page token and seen IDs in one encrypted document. Metadata reads
