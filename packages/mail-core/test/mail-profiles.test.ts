@@ -1133,6 +1133,11 @@ describe('mail profiles', () => {
     expect(sendingDefaults(await flow.restore())).toStrictEqual([a]);
     // Convex holds only opaque identifiers and ciphertext.
     expect(JSON.stringify([...records().values()])).not.toContain(b);
+
+    // Cleared, the Profile has no Default Sending Identity after relaunch either.
+    await flow.chooseSendingDefault(defaultProfile, undefined);
+    expect(sendingOf(sync, defaultProfile)).not.toHaveProperty('identity');
+    expect(sendingDefaults(await relaunch().restore())).toStrictEqual([]);
   });
 
   it('refuses a Default Sending Identity on a connection that needs authorization', async () => {
@@ -1143,6 +1148,34 @@ describe('mail profiles', () => {
     const before = new Map(records());
     await expect(
       flow.chooseSendingDefault(defaultProfile, id),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(records()).toStrictEqual(before);
+  });
+
+  it('refuses a Default Sending Identity on a receive-only IMAP connection', async () => {
+    expect.hasAssertions();
+    const { flow, device, imap: server, mailboxId, records } = setup();
+    await flow.signIn('google');
+    await flow.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: server.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    // A connection saved before SMTP was required receives only.
+    for (const connection of device.record?.connections ?? []) {
+      delete connection.smtp;
+    }
+    const before = new Map(records());
+    await expect(
+      flow.chooseSendingDefault(defaultProfile, await mailboxId()),
     ).rejects.toMatchObject({ code: 'unavailable' });
     expect(records()).toStrictEqual(before);
   });
