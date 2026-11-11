@@ -37,6 +37,7 @@ const Inventory = Schema.Struct({
         imports: Strings,
         bundled: Strings,
       }),
+      googleScopes: Strings,
     }),
   ),
   withoutPrivacyManifest: Strings,
@@ -84,6 +85,24 @@ const pods = new Set(
   native.pods.map(({ name, version }) => `${name}@${version}`),
 );
 const nativeKind = (id) => `${pods.has(id) ? 'pod' : 'swift'} ${id}`;
+// The owner verified Google production authorization for these scopes
+// (docs/google-registration.md#production-authorization). Only a scope the
+// archive names outside them needs Google's revalidation; fewer reopen nothing (#1977).
+const googleAuthorization = {
+  status: 'owner-verified',
+  verified: '2026-10-28',
+  scopes: [
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'openid',
+  ],
+};
+const addedScopes = [
+  ...new Set(inventory.code.flatMap((code) => code.googleScopes)),
+]
+  .filter((scope) => !googleAuthorization.scopes.includes(scope))
+  .toSorted();
 const findings = [
   ...each('undeclared-licence', [
     ...licences.undeclared.map((id) => `npm ${id}`),
@@ -115,6 +134,7 @@ const findings = [
       ? ['ITSAppUsesNonExemptEncryption']
       : [],
   ),
+  ...each('unverified-google-scope', addedScopes),
 ];
 
 // Each submission names the evidence it rests on. An empty cryptography list
@@ -144,8 +164,11 @@ const ownerSubmissions = [
       path.basename(file),
     ),
   },
+  ...(addedScopes.length > 0
+    ? [{ kind: 'google-revalidation', evidence: addedScopes }]
+    : []),
 ];
 
 stdout.write(
-  `${JSON.stringify({ build: inventory.build, findings, ownerSubmissions }, null, 2)}\n`,
+  `${JSON.stringify({ build: inventory.build, googleAuthorization, findings, ownerSubmissions }, null, 2)}\n`,
 );
