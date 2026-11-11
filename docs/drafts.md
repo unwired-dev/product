@@ -332,6 +332,19 @@ numbered lists restart around it as around any other block. Drafts do not store
 tables yet; Draft storage and editing tables in the composers follow in later
 #1268 slices.
 
+A [Mail Template](domain/messages-and-delivery.md) has a name, a subject and a
+body ([#2022](https://github.com/unwired-dev/product/issues/2022), a first slice
+of [#850](https://github.com/unwired-dev/product/issues/850)). A blank name or a
+body with an Inline Image is refused; a template holds no recipients, attachments,
+signatures or placeholders. Applying one to a Draft is one edit that one Undo
+reverts. Its body goes after the selection, which stays, with the caret after the
+template. A one-paragraph template joins the line at the caret; other templates
+keep their block kinds, replacing an empty line or splitting the line around
+them. Marks, links and alignment stay as the template has them. The template's
+subject fills only a Draft without one. A new Draft from a template is the same
+on an empty Draft. Storing templates and the composers' Templates control follow
+in later #850 slices.
+
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
 
