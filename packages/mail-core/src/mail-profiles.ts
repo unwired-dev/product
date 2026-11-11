@@ -445,6 +445,35 @@ const withoutUnreadablePolicy = (
       }
     : state;
 
+// Its identifier does not say which Profile a Default Sending Identity record belongs to, so one that
+// no longer opens here clears every Profile's identity until a readable record confirms it. Keeps
+// each version floor and row revision.
+const withoutUnreadableSending = (
+  state: ProfileState,
+  identifier: string | undefined,
+): ProfileState =>
+  identifier?.startsWith('profile-sending.') === true &&
+  state.sending !== undefined
+    ? {
+        ...state,
+        sending: state.sending.map(({ profile, version, updatedAt }) => ({
+          profile,
+          version,
+          updatedAt,
+        })),
+      }
+    : state;
+
+// What a record that no longer opens here turns off.
+const withoutUnreadable = (
+  state: ProfileState,
+  identifier: string | undefined,
+) =>
+  withoutUnreadableSending(
+    withoutUnreadablePolicy(state, identifier),
+    identifier,
+  );
+
 // The records of one connection-bound kind this state knows.
 const connectionRecords = (
   state: ProfileState,
@@ -529,7 +558,7 @@ const merged = (
   for (const [index, record] of opened.entries()) {
     const stored = records[index];
     if (record === null) {
-      next = withoutUnreadablePolicy(next, stored?.payloadIdentifier);
+      next = withoutUnreadable(next, stored?.payloadIdentifier);
     } else {
       replayed ||= olderRecord(next, record);
       next = olderRecord(next, record)

@@ -1107,9 +1107,15 @@ describe('mail profiles', () => {
       flow.chooseSendingDefault(work, undefined),
     ).rejects.toMatchObject({ code: 'unavailable' });
     expect(records()).toStrictEqual(unreadable);
+    // A default this device cannot open marks no connection, not the one it last read.
+    expect(sendingDefaults(await flow.restore())).toStrictEqual([]);
     for (const [ciphertext, sealedRecord] of sealed) {
       sync.sealedProfiles.set(ciphertext, sealedRecord);
     }
+    expect(sendingDefaults(await flow.refreshPrivateSync())).toStrictEqual([
+      a,
+      b,
+    ]);
 
     // A default naming another address, or a connection that moved to another Profile, marks no
     // connection: no other identity stands in for it.

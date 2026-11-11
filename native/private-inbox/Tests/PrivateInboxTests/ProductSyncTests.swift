@@ -903,6 +903,13 @@ extension PrivateInboxTests {
         try JSONEncoder().encode(
           MailboxProfileRecord(record: mailbox, epoch: "epoch-1", version: 2, profile: "work"))
       ),
+      (
+        try ring.identifier("profile-sending", "home"),
+        try JSONEncoder().encode(
+          ProfileSendingRecord(
+            profile: "work", version: 1,
+            identity: .init(record: mailbox, epoch: "epoch-1", address: "alex@example.invalid")))
+      ),
     ]
     for (identifier, plaintext) in mismatched {
       let payload = try ring.seal(
