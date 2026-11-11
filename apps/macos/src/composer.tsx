@@ -784,8 +784,8 @@ export function Recipients({
         { profile },
       ).map(({ message }) => message),
       // Including connections awaiting authorization, which hold no mail here.
-      excluded: connections.flatMap(({ id, address }) =>
-        profileOf(id, connections) === profile ? [address] : [],
+      excluded: connections.flatMap((mailbox) =>
+        mailbox.profile === profile ? [mailbox.address] : [],
       ),
     });
   }, [entering, editable, dismissed, draft, field, account, held]);
