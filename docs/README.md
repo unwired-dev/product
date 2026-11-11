@@ -37,6 +37,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Gmail delegation spike: no supported path for the native grant](gmail-delegation-spike.md)
 - [Microsoft mailbox import fidelity spike: IMAP APPEND awaits live proof](microsoft-import-fidelity-spike.md)
 - [Browser mail client and extension evaluation: no-go](browser-client-evaluation.md)
+- [Assistant inside Gmail and Outlook evaluation: no-go](provider-assistant-evaluation.md)
 - [Sending Drafts through the Outbox](outbox.md)
 - [Responding to Gmail meeting invitations on Mac, iPhone and iPad](invitation-responses.md)
 - [New Mail Notifications](new-mail-notifications.md)
