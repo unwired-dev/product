@@ -481,6 +481,24 @@ export const sendingMailboxes = (
       (mailbox.provider !== 'imap' || mailbox.smtp !== undefined),
   );
 
+// The connection a new message in `profile` starts from: `preferred` when it can send, otherwise
+// the Profile's Default Sending Identity, even one that cannot send on this device, since no other
+// identity silently stands in for it; without a default, the first connection that can send.
+export const newMessageSender = (
+  mailboxes: readonly MailboxConnection[],
+  profile: string,
+  preferred?: string,
+) => {
+  const senders = sendingMailboxes(mailboxes, profile);
+  return (
+    senders.find(({ id }) => id === preferred) ??
+    mailboxes.find(
+      (mailbox) => mailbox.profile === profile && mailbox.sendingDefault,
+    ) ??
+    senders[0]
+  );
+};
+
 // Files and images ------------------------------------------------------------------------------
 
 // The largest file a Draft accepts, as for received attachments.
@@ -2341,8 +2359,8 @@ export function createDrafts(
       return saved;
     },
     // Starts a Draft sending from `mailbox`; resolves its identifier, or undefined when Draft
-    // storage is not open, the mailbox cannot send for the current Product Account, or that
-    // account changes before creation finishes.
+    // storage is not open, the mailbox cannot send for the current Product Account and is not its
+    // Profile's Default Sending Identity, or that account changes before creation finishes.
     // `finish`, when supplied, completes an open editor within the request's account fence.
     create: async (
       mailbox: Pick<MailboxConnection, 'id' | 'address'>,
@@ -2358,12 +2376,12 @@ export function createDrafts(
         return undefined;
       }
       // The sender may have been chosen before an earlier composer finished saving; it must still
-      // be one this Product Account can send from now.
+      // be one this Product Account can send from now, or its Profile's Default Sending Identity.
       const listed = mailboxesOf(registration.getSnapshot().snapshot);
-      const usable = sendingMailboxes(
-        listed,
-        profileOf(mailbox.id, listed),
-      ).some(
+      const usable = [
+        ...sendingMailboxes(listed, profileOf(mailbox.id, listed)),
+        ...listed.filter(({ sendingDefault }) => sendingDefault),
+      ].some(
         ({ id, address }) => id === mailbox.id && address === mailbox.address,
       );
       if (!usable) {

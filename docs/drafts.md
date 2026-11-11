@@ -53,7 +53,10 @@ transport and known native exit gaps.
 ## Composing
 
 - **New Message**, at the trailing edge of the Inbox's floating bar, starts a Draft from the
-  mailbox the Inbox shows, or the first usable mailbox under **All inboxes**. It opens the composer in
+  mailbox the Inbox shows. Under **All inboxes** it starts from the window Profile's
+  **Default Sending Identity**, or its first usable mailbox when the Profile has none. A
+  default that cannot send on this device still starts the Draft, whose From pop-up
+  explains why Send is blocked, rather than another identity standing in. It opens the composer in
   the detail column: a route of its own on iPhone and a bottom-anchored overlay
   over the reader in a Mac window, docked across the reader's full width at its bottom edge, at
   70% of the window's height (420 to 720pt). On regular-width iPad a new message opens as a card
@@ -436,7 +439,7 @@ controls:
   as usual. The app reads only files the person chose or dropped.
 - **Received attachments:** a Downloaded Attachment in the reader offers **Attach
   to New Message**. It starts a Draft from the reader's mailbox when that mailbox
-  can send, otherwise the first one in the same Mail Profile that can, and copies the downloaded bytes
+  can send, otherwise from that Mail Profile's sender for New Message, and copies the downloaded bytes
   through that mailbox's current generation. The Draft keeps only its copy of the
   bytes: no mailbox, generation, file name or Gmail authorization of the source.
 

@@ -716,6 +716,37 @@ describe('composing Drafts', () => {
     },
   );
 
+  it('creates a Draft from the Profile’s Default Sending Identity, even one that cannot send', async () => {
+    expect.hasAssertions();
+    const registration = account({
+      ...connected(['alex@example.invalid', 'other@example.invalid']),
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'authorization',
+          sendingDefault: true,
+        },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', {
+        name: 'other@example.invalid, cannot send',
+      }),
+    ).resolves.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
+  });
+
   it('lists only the window Profile’s Drafts', async () => {
     expect.hasAssertions();
     const registration = account({

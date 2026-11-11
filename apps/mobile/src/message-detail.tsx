@@ -12,6 +12,7 @@ import {
 } from '@private-email/mail-core/commands';
 import { messageContextMenu } from '@private-email/mail-core/context-menu';
 import {
+  newMessageSender,
   profileOf,
   recipientsOf,
   sendingMailboxes,
@@ -1009,16 +1010,14 @@ function MailboxMessage({
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
-  // A new message sends from the reader's mailbox when it can, or the first one in its Mail
-  // Profile that can, as the Inbox's New Message does.
+  // A new message sends from the reader's mailbox when it can, otherwise as the Inbox's New
+  // Message does in its Mail Profile.
   const mailboxes = account?.mailboxes ?? [];
-  const senders = sendingMailboxes(
+  const sender = newMessageSender(
     mailboxes,
     profileOf(mailbox?.id, mailboxes),
+    mailbox?.id,
   );
-  const sender =
-    senders.find(({ id: candidate }) => candidate === mailbox?.id) ??
-    senders[0];
 
   if (state.kind === 'loading') {
     return <ReaderLoading />;
