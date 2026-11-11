@@ -68,8 +68,13 @@ jobs:
       - name: Check changeset validation, release planning and auto-merge contracts
         run: node --test scripts/check-changesets.test.mjs scripts/release.test.mjs scripts/auto-merge.test.mjs
 
+      # Homebrew's bottles come from ghcr.io, so an Ubuntu archive outage cannot fail this (#2009).
       - name: Install native runner contract shell
-        run: sudo apt-get update && sudo apt-get install -y zsh
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          /home/linuxbrew/.linuxbrew/bin/brew install zsh
+          sudo ln -sf /home/linuxbrew/.linuxbrew/bin/zsh /usr/bin/zsh
 
       - name: Check isolated Mock Mail Session runners
         run: pnpm test:native-runner
