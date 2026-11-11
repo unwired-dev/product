@@ -83,8 +83,8 @@ A **Mailbox Connection** that provides the product's complete reading, organizat
 _Avoid_: Legacy POP3 Connection, receive-only connection
 
 **Secure Mail Transport**:
-Encrypted provider communication using TLS 1.2 or newer with valid server identity before any mailbox authentication occurs.
-_Avoid_: Plaintext mail access, invalid-certificate exception
+Encrypted provider communication using TLS 1.2 or newer with valid server identity, or with the exact pinned certificate a person accepted for an endpoint they entered by hand ([ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md)), before any mailbox authentication occurs.
+_Avoid_: Plaintext mail access, unpinned invalid-certificate exception
 
 **Mailbox Service Discovery**:
 Device-side discovery of provider endpoints through email-service DNS records or a bundled reviewed catalog, with user-reviewed manual configuration as fallback.

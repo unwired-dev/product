@@ -51,6 +51,7 @@ implemented.
 
 - IMAP, SMTP, POP3, and Exchange Web Services require **Secure Mail Transport**
 - **Secure Mail Transport** prefers implicit TLS, permits STARTTLS only before authentication, and has no invalid-certificate override
+- The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) add one exception once its issue ships: a person may accept one exact pinned certificate for an IMAP or SMTP endpoint they entered by hand, and that connection counts as **Secure Mail Transport**; [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records it
 - **Mailbox Service Discovery** happens on the device and never uploads an email address or server configuration to the product backend
 - A user reviews discovered endpoints before connection and may enter host, port, username, and security settings manually when discovery fails
 - Exchange Online and Microsoft 365 use Microsoft Graph, while an **On-Premises Exchange Connection** uses Exchange Web Services
