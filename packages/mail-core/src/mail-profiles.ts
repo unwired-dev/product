@@ -217,7 +217,7 @@ export const connectionDisplay = (value: RegistrationRecord) => {
 };
 
 type SendingIdentity = Partial<
-  Readonly<Record<'record' | 'epoch' | 'address', string>>
+  Readonly<Record<'record' | 'epoch' | 'address', string | undefined>>
 >;
 const sameIdentity = (
   current: SendingIdentity | undefined,
@@ -226,6 +226,29 @@ const sameIdentity = (
   current?.record === next?.record &&
   current?.epoch === next?.epoch &&
   current?.address === next?.address;
+
+// The write that makes `identity` a Profile's Default Sending Identity, or none when it already is.
+const sendingWrite = (
+  state: ProfileState,
+  profile: string,
+  identity:
+    | Readonly<{ record: string; epoch: string; address: string }>
+    | undefined,
+) => {
+  const current = state.sending?.find((item) => item.profile === profile);
+  if (sameIdentity(current?.identity, identity)) {
+    return undefined;
+  }
+  return {
+    record: {
+      kind: 'sending' as const,
+      profile,
+      version: (current?.version ?? 0) + 1,
+      ...(identity === undefined ? {} : { identity }),
+    },
+    expectedUpdatedAt: current?.updatedAt,
+  };
+};
 
 // The connections whose primary address is the Default Sending Identity of the Mail Profile that
 // owns them now. A default naming a removed or re-added incarnation, a connection now in another
@@ -1211,21 +1234,10 @@ export function createMailProfileProgram<E>(
       connection === undefined
         ? undefined
         : yield* sendingIdentity(value, state, { profile, connection });
-    const current = state.sending?.find((item) => item.profile === profile);
-    if (sameIdentity(current?.identity, identity)) {
-      return;
+    const write = sendingWrite(state, profile, identity);
+    if (write !== undefined) {
+      yield* commit(state, [write]);
     }
-    yield* commit(state, [
-      {
-        record: {
-          kind: 'sending',
-          profile,
-          version: (current?.version ?? 0) + 1,
-          ...(identity === undefined ? {} : { identity }),
-        },
-        expectedUpdatedAt: current?.updatedAt,
-      },
-    ]);
   });
 
   return {

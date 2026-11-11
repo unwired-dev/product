@@ -144,6 +144,10 @@ const mailboxList = (value: RegistrationRecord) => {
   const chosen = chosenFolders(value);
   const { positions, colors } = connectionDisplay(value);
   const sending = sendingDefaults(value);
+  const marks = (id: string) => ({
+    ...(notifying.has(id) ? { notifications: true } : {}),
+    ...(sending.has(id) ? { sendingDefault: true } : {}),
+  });
   return JSON.stringify(
     arranged(value.mailboxes, positions).map((mailbox) => {
       const profile = owners.get(mailbox.id);
@@ -158,8 +162,7 @@ const mailboxList = (value: RegistrationRecord) => {
         ...(mailbox.smtp === undefined ? {} : { smtp: mailbox.smtp }),
         state: mailboxState(mailbox),
         ...(profile === undefined ? {} : { profile }),
-        ...(notifying.has(mailbox.id) ? { notifications: true } : {}),
-        ...(sending.has(mailbox.id) ? { sendingDefault: true } : {}),
+        ...marks(mailbox.id),
         ...(folders === undefined || Object.keys(folders).length === 0
           ? {}
           : { folders }),
