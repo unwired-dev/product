@@ -1,4 +1,4 @@
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
   EarlierResponse,
   Invitation,
@@ -13,11 +13,9 @@ import {
   invitationOf,
   invitationResponses,
   createInvitationFormats,
-  invitationBlockedBy,
+  invitationResponding,
   invitationChoiceKeys,
-  invitationStatus,
   invitationRepeats,
-  invitationScope,
   invitationWas,
   invitationWhen,
   organizerName,
@@ -381,32 +379,13 @@ function Responding({
   });
   const formats = useFormats();
   const name = organizerName(invitation.details);
-  const blocked =
-    recorded.kind === 'unanswered' ||
-    recorded.kind === 'sent' ||
-    recorded.kind === 'refused'
-      ? invitationBlockedBy(sync)
-      : undefined;
-  const shown = invitationStatus(
-    blocked === undefined ? recorded : { kind: blocked, choice: 'accepted' },
-    {
-      t,
-      name,
-      address: invitation.address,
-      provider,
-      time: formats.time,
-      scope: invitationScope(t, formats, invitation.details),
-      alsoInvited: others,
-      earlier: earlier?.choice,
-    },
-  );
-  const copy = (choice: InvitationChoice) => ({
-    subject: t(`invitation.${choice}Subject`, {
-      summary: invitation.details.summary ?? t('invitation.untitled'),
-    }),
-    text: t(`invitation.${choice}Text`, {
-      address: invitation.address,
-    }),
+  const { blocked, status: shown } = invitationResponding(t, formats, {
+    invitation,
+    state: recorded,
+    sync,
+    provider,
+    others,
+    earlier,
   });
   const respondAgain = async (choice: InvitationChoice) => {
     if (!current()) {
@@ -423,7 +402,7 @@ function Responding({
     });
     asked.current = question;
     if ((await question.answer) === 0 && current()) {
-      await responses.respondAgain(invitation, choice, copy(choice));
+      await responses.respondAgain(invitation, choice, t);
     }
   };
   const signIn = async (
@@ -532,7 +511,7 @@ function Responding({
           disabled={recorded.kind === 'sending' || blocked === 'offline'}
           onPress={() => {
             if (current()) {
-              void responses.respond(invitation, choice, copy(choice));
+              void responses.respond(invitation, choice, t);
             }
           }}
         />

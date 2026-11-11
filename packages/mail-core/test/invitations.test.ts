@@ -1,4 +1,4 @@
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
   InvitationChoice,
   ResponseState,
@@ -6,14 +6,14 @@ import type {
 import type { BodyDocument } from '@private-email/mail-core/message-body';
 
 import { english } from '@private-email/localization';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   alsoInvited,
   createInvitationFormats,
-  invitationBlockedBy,
   invitationOf,
   invitationRepeats,
   invitationReply,
+  invitationResponding,
   invitationResponses,
   invitationScope,
   invitationStatus,
@@ -23,7 +23,6 @@ import {
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 
 const me = 'alex@example.invalid';
-const copy = { subject: 'Accepted: Q4 roadmap review', text: 'Accepted.' };
 
 const calendar = (event: readonly string[], method = 'REQUEST') =>
   [
@@ -67,15 +66,17 @@ const offered = (text: string) => {
   return offer;
 };
 
-// The decoded calendar reply of a sent message.
-const replyOf = (send: Readonly<{ raw: string }> | undefined) => {
-  const raw = send?.raw ?? '';
-  const match =
-    /Content-Type: text\/calendar; method=REPLY; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n(?<data>[A-Za-z0-9+/=\r\n]+?)\r\n(?:\r\n|--)/u.exec(
-      raw,
-    );
-  return Buffer.from(match?.groups?.data ?? '', 'base64').toString('utf8');
-};
+// The decoded MIME part of a sent message with the given content type.
+const partOf =
+  (type: string) => (send: Readonly<{ raw: string }> | undefined) => {
+    const match = new RegExp(
+      `Content-Type: ${type}; charset=UTF-8\\r\\nContent-Transfer-Encoding: base64\\r\\n\\r\\n(?<data>[A-Za-z0-9+/=\\r\\n]+?)\\r\\n(?:\\r\\n|--)`,
+      'u',
+    ).exec(send?.raw ?? '');
+    return Buffer.from(match?.groups?.data ?? '', 'base64').toString('utf8');
+  };
+const replyOf = partOf('text/calendar; method=REPLY');
+const textOf = partOf('text/plain');
 
 // A Gmail mailbox whose separately stored attachments cannot be fetched.
 const withoutAttachments = (
@@ -115,7 +116,7 @@ async function invited(
       ],
     },
   });
-  const inbox = createGmailInbox(native(gmail.native));
+  const inbox = createInboxStore(native(gmail.native));
   await inbox.load();
   const close = inbox.retainMessage(id);
   return {
@@ -144,7 +145,7 @@ async function relaunched(
   gmail: ReturnType<typeof createSyntheticGmail>,
   id: string,
 ) {
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   const close = inbox.retainMessage(id);
   await inbox.readMessage(id);
@@ -769,8 +770,8 @@ describe('meeting invitations', () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();
 
-    const first = responses.respond(invitation, 'accepted', copy);
-    const repeated = responses.respond(invitation, 'accepted', copy);
+    const first = responses.respond(invitation, 'accepted', english);
+    const repeated = responses.respond(invitation, 'accepted', english);
 
     expect(responses.state(invitation)).toStrictEqual({
       kind: 'sending',
@@ -788,6 +789,9 @@ describe('meeting invitations', () => {
     expect(sent?.raw).toContain('To: "Fischer, Lena" <lena@northwind.example>');
     expect(sent?.raw).toContain('In-Reply-To: <invite-1@northwind.example>');
     expect(sent?.raw).toContain('Subject: Re: Invitation: Q4 roadmap review');
+    expect(textOf(sent)).toContain(
+      'alex@example.invalid accepted this invitation.',
+    );
     expect(replyOf(sent)).toContain(
       'ATTENDEE;CN=Alex;PARTSTAT=ACCEPTED:mailto:Alex@example.invalid',
     );
@@ -797,8 +801,8 @@ describe('meeting invitations', () => {
       at: Date.UTC(2026, 10, 2, 9, 52),
     });
 
-    await responses.respond(invitation, 'accepted', copy);
-    await responses.respond(invitation, 'declined', copy);
+    await responses.respond(invitation, 'accepted', english);
+    await responses.respond(invitation, 'declined', english);
 
     expect(gmail.sends).toHaveLength(2);
     expect(replyOf(gmail.sends[1])).toContain('PARTSTAT=DECLINED');
@@ -806,15 +810,35 @@ describe('meeting invitations', () => {
     close();
   });
 
+  it('names the meeting in the subject when the invitation message is gone', async () => {
+    expect.hasAssertions();
+    const { gmail, invitation, responses, close } = await invited();
+
+    await responses.respond(
+      { ...invitation, message: 'removed-message' },
+      'tentative',
+      english,
+    );
+
+    expect(gmail.sends[0]?.raw).toContain(
+      'Subject: Tentatively accepted: Q4 roadmap review, final',
+    );
+    expect(textOf(gmail.sends[0])).toContain(
+      'alex@example.invalid tentatively accepted this invitation.',
+    );
+
+    close();
+  });
+
   it('asks again for a revised meeting after answering the earlier one', async () => {
     expect.hasAssertions();
     const { gmail, invitation, responses, close } = await invited();
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     const revised = { ...invitation, sequence: invitation.sequence + 1 };
 
     expect(responses.state(revised)).toStrictEqual({ kind: 'unanswered' });
 
-    await responses.respond(revised, 'accepted', copy);
+    await responses.respond(revised, 'accepted', english);
 
     expect(gmail.sends).toHaveLength(2);
     expect(replyOf(gmail.sends[1])).toContain('SEQUENCE:3');
@@ -825,15 +849,15 @@ describe('meeting invitations', () => {
   it('sends nothing from an older revision once a newer one was answered', async () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     const revised = { ...invitation, sequence: invitation.sequence + 1 };
-    await responses.respond(revised, 'declined', copy);
+    await responses.respond(revised, 'declined', english);
 
     expect(responses.state(invitation)).toStrictEqual({ kind: 'older' });
     expect(responses.earlier(invitation)).toBeUndefined();
 
-    await responses.respond(invitation, 'tentative', copy);
-    await responses.respondAgain(invitation, 'tentative', copy);
+    await responses.respond(invitation, 'tentative', english);
+    await responses.respondAgain(invitation, 'tentative', english);
 
     expect(gmail.sends).toHaveLength(2);
 
@@ -883,8 +907,8 @@ describe('meeting invitations', () => {
 
     expect(responses.latest(invitation)).toBeUndefined();
 
-    await responses.respond(invitation, 'accepted', copy);
-    await responses.respond(revised, 'declined', copy);
+    await responses.respond(invitation, 'accepted', english);
+    await responses.respond(revised, 'declined', english);
 
     expect(responses.latest(invitation)).toBe(newer);
     expect(responses.latest(revised)).toBeUndefined();
@@ -935,7 +959,7 @@ describe('meeting invitations', () => {
         return reply;
       },
     };
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const found = inbox.findMessage(id);
     await answered.promise;
@@ -1009,7 +1033,7 @@ describe('meeting invitations', () => {
       details: { ...invitation.details, recurrence: at },
     });
     const friday = meetingOn(Date.UTC(2026, 10, 13, 13));
-    await responses.respond(friday, 'declined', copy);
+    await responses.respond(friday, 'declined', english);
 
     expect(replyOf(gmail.sends[0])).toContain('RECURRENCE-ID:20261113T130000Z');
     expect(responses.state(invitation)).toStrictEqual({ kind: 'unanswered' });
@@ -1017,7 +1041,7 @@ describe('meeting invitations', () => {
       responses.state(meetingOn(Date.UTC(2026, 10, 20, 13))),
     ).toStrictEqual({ kind: 'unanswered' });
 
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     close();
     const later = await relaunched(gmail, id);
 
@@ -1052,7 +1076,7 @@ describe('meeting invitations', () => {
         end: later(end),
       },
     };
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
 
     expect(responses.earlier(moved)).toMatchObject({
       choice: 'accepted',
@@ -1064,7 +1088,7 @@ describe('meeting invitations', () => {
 
     close();
     const relaunch = await relaunched(gmail, id);
-    await relaunch.responses.respond(moved, 'declined', copy);
+    await relaunch.responses.respond(moved, 'declined', english);
 
     expect(relaunch.responses.earlier(moved)).toMatchObject({
       choice: 'accepted',
@@ -1150,14 +1174,14 @@ describe('meeting invitations', () => {
     const { gmail, invitation, responses, close } = await invited();
     gmail.failSend({ lost: true });
 
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
 
     expect(responses.state(invitation)).toMatchObject({
       kind: 'unknown',
       choice: 'accepted',
     });
 
-    await responses.respond(invitation, 'declined', copy);
+    await responses.respond(invitation, 'declined', english);
 
     expect(gmail.sends).toHaveLength(1);
 
@@ -1176,13 +1200,13 @@ describe('meeting invitations', () => {
     const { gmail, invitation, responses, close } = await invited();
     gmail.failSend({ code: 'delivery-unknown' });
 
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     await responses.check(invitation);
 
     expect(responses.state(invitation)).toMatchObject({ kind: 'unknown' });
     expect(gmail.sends).toHaveLength(0);
 
-    await responses.respondAgain(invitation, 'accepted', copy);
+    await responses.respondAgain(invitation, 'accepted', english);
 
     expect(gmail.sends).toHaveLength(1);
     expect(responses.state(invitation)).toMatchObject({ kind: 'sent' });
@@ -1194,7 +1218,7 @@ describe('meeting invitations', () => {
   it('restores a confirmed response after relaunch without sending it again', async () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();
-    await responses.respond(invitation, 'tentative', copy);
+    await responses.respond(invitation, 'tentative', english);
     close();
 
     const later = await relaunched(gmail, id);
@@ -1205,7 +1229,7 @@ describe('meeting invitations', () => {
       at: Date.UTC(2026, 10, 2, 9, 52),
     });
 
-    await later.responses.respond(invitation, 'tentative', copy);
+    await later.responses.respond(invitation, 'tentative', english);
 
     expect(gmail.sends).toHaveLength(1);
 
@@ -1216,7 +1240,7 @@ describe('meeting invitations', () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();
     gmail.failSend({ lost: true });
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     close();
 
     const later = await relaunched(gmail, id);
@@ -1226,7 +1250,7 @@ describe('meeting invitations', () => {
       choice: 'accepted',
     });
 
-    await later.responses.respond(invitation, 'accepted', copy);
+    await later.responses.respond(invitation, 'accepted', english);
 
     expect(gmail.sends).toHaveLength(1);
 
@@ -1259,7 +1283,7 @@ describe('meeting invitations', () => {
         },
       }),
     );
-    void responses.respond(invitation, 'declined', copy);
+    void responses.respond(invitation, 'declined', english);
     await sending.promise;
     close();
 
@@ -1278,7 +1302,7 @@ describe('meeting invitations', () => {
     const { gmail, invitation, responses, close } = await invited();
     gmail.failCommit('storage-unavailable');
 
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
 
     expect(gmail.sends).toHaveLength(0);
     expect(responses.state(invitation)).toStrictEqual({
@@ -1293,11 +1317,11 @@ describe('meeting invitations', () => {
     expect.hasAssertions();
     const { gmail, invitation, responses, close } = await invited();
     gmail.failSend({ code: 'delivery-unknown' });
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     const unknown = responses.state(invitation);
     gmail.failCommit('storage-unavailable');
 
-    await responses.respondAgain(invitation, 'declined', copy);
+    await responses.respondAgain(invitation, 'declined', english);
 
     expect(gmail.sends).toHaveLength(0);
     expect(responses.state(invitation)).toStrictEqual(unknown);
@@ -1319,7 +1343,7 @@ describe('meeting invitations', () => {
       }),
     );
     refuseConfirmation = () => gmail.failCommit('unavailable');
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     close();
 
     const later = await relaunched(gmail, id);
@@ -1355,12 +1379,12 @@ describe('meeting invitations', () => {
         },
       }),
     );
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     gmail.failSend({ status: 400 }, { status: 400 });
     held = 2;
-    const declining = responses.respond(invitation, 'declined', copy);
+    const declining = responses.respond(invitation, 'declined', english);
     await restoring.promise;
-    const retrying = responses.respond(invitation, 'tentative', copy);
+    const retrying = responses.respond(invitation, 'tentative', english);
     proceed.resolve(undefined);
     await Promise.all([declining, retrying]);
     close();
@@ -1380,7 +1404,7 @@ describe('meeting invitations', () => {
     expect.hasAssertions();
     const { gmail, id, inbox, invitation, responses, close } = await invited();
     gmail.failSend({ lost: true });
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     for (let index = 0; index < 200; index += 1) {
       const revision = { uid: `other-${index}`, sequence: 0 };
       await inbox.recordResponse(revision, {
@@ -1421,7 +1445,7 @@ describe('meeting invitations', () => {
         },
       }),
     );
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     hold = true;
     const loading = inbox.load();
     await reading.promise;
@@ -1450,7 +1474,7 @@ describe('meeting invitations', () => {
       const { gmail, inbox, invitation, responses, close } = await invited();
       gmail.failOpen(code);
 
-      await responses.respond(invitation, 'accepted', copy);
+      await responses.respond(invitation, 'accepted', english);
 
       expect(inbox.getSnapshot()).toMatchObject(expected);
       expect(gmail.sends).toHaveLength(0);
@@ -1462,7 +1486,7 @@ describe('meeting invitations', () => {
   it('removes recorded responses with the mailbox', async () => {
     expect.hasAssertions();
     const { gmail, id, invitation, responses, close } = await invited();
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
     close();
     gmail.reselect(me);
 
@@ -1487,7 +1511,7 @@ describe('meeting invitations', () => {
       const { gmail, id, invitation, responses, close } = await invited();
       gmail.failSend(failure);
 
-      await responses.respond(invitation, 'declined', copy);
+      await responses.respond(invitation, 'declined', english);
 
       expect(gmail.sends).toHaveLength(0);
       expect(responses.state(invitation)).toStrictEqual({
@@ -1511,9 +1535,9 @@ describe('meeting invitations', () => {
     expect.hasAssertions();
     const { gmail, invitation, responses, close } = await invited();
     gmail.failSend({ code: 'mailbox-revoked' });
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
 
-    await responses.respond(invitation, 'declined', copy);
+    await responses.respond(invitation, 'declined', english);
 
     expect(gmail.sends).toHaveLength(0);
     expect(responses.state(invitation)).toStrictEqual({
@@ -1528,10 +1552,10 @@ describe('meeting invitations', () => {
     expect.hasAssertions();
     const { gmail, invitation, responses, close } = await invited();
     gmail.failSend({ status: 401 });
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
 
     responses.signedIn(invitation);
-    await responses.respond(invitation, 'accepted', copy);
+    await responses.respond(invitation, 'accepted', english);
 
     expect(gmail.sends).toHaveLength(1);
     expect(responses.state(invitation)).toMatchObject({ kind: 'sent' });
@@ -1562,7 +1586,7 @@ describe('meeting invitations', () => {
           ],
         },
       });
-      const inbox = createGmailInbox(withoutAttachments(gmail.native, failure));
+      const inbox = createInboxStore(withoutAttachments(gmail.native, failure));
       await inbox.load();
       const close = inbox.retainMessage(id);
       await inbox.readMessage(id);
@@ -1594,7 +1618,7 @@ describe('meeting invitations', () => {
         ],
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const close = inbox.retainMessage(id);
     await inbox.readMessage(id);
@@ -1626,7 +1650,7 @@ describe('meeting invitations', () => {
       },
     });
     const native = { ...withoutAttachments(gmail.native, 503) };
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const first = inbox.retainMessage(id);
     await inbox.readMessage(id);
@@ -1673,7 +1697,7 @@ describe('meeting invitations', () => {
     });
     const failing = withoutAttachments(gmail.native, 503);
     const native = { ...gmail.native };
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     native.gmailRequest = failing.gmailRequest;
     await inbox.load();
     const first = inbox.retainMessage(id);
@@ -1712,7 +1736,7 @@ describe('meeting invitations', () => {
         },
       });
       const native = { ...withoutAttachments(gmail.native, 503) };
-      const inbox = createGmailInbox(native);
+      const inbox = createInboxStore(native);
       await inbox.load();
       const close = inbox.retainMessage(id);
       await inbox.readMessage(id);
@@ -1736,8 +1760,8 @@ describe('meeting invitations', () => {
     const otherReader = invitationResponses(inbox);
 
     await Promise.all([
-      responses.respond(invitation, 'accepted', copy),
-      otherReader.respond(invitation, 'declined', copy),
+      responses.respond(invitation, 'accepted', english),
+      otherReader.respond(invitation, 'declined', english),
     ]);
 
     expect(gmail.sends).toHaveLength(1);
@@ -2068,11 +2092,35 @@ describe('meeting invitations', () => {
         title: 'Not answered yet',
         detail: 'Your response applies only to Fri, Nov 13.',
       });
+    });
+
+    it('blocks only a response that could be sent while offline or signed out', () => {
+      expect.hasAssertions();
+      const invitation = offered(calendar(meeting));
+      const responding = (state: ResponseState, sync: string) =>
+        invitationResponding(english, formats, {
+          invitation,
+          state,
+          sync,
+          provider: 'Gmail',
+          others: 0,
+          earlier: undefined,
+        });
+
       expect([
-        invitationBlockedBy('retry'),
-        invitationBlockedBy('authentication'),
-        invitationBlockedBy('idle'),
-      ]).toStrictEqual(['offline', 'authentication', undefined]);
+        responding({ kind: 'unanswered' }, 'retry'),
+        responding({ kind: 'refused', choice: 'declined' }, 'authentication'),
+        responding({ kind: 'sending', choice: 'accepted' }, 'retry'),
+        responding({ kind: 'unanswered' }, 'idle'),
+      ]).toMatchObject([
+        { blocked: 'offline', status: { title: 'You’re offline' } },
+        {
+          blocked: 'authentication',
+          status: { title: 'Gmail needs you to sign in again' },
+        },
+        { blocked: undefined, status: { title: 'Sending your response…' } },
+        { blocked: undefined, status: { title: 'Not answered yet' } },
+      ]);
     });
 
     it('says which address responds when the Profile is invited at several', () => {

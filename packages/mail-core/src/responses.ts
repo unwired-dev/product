@@ -8,8 +8,8 @@ import type {
   PickedFile,
   Recipient,
 } from './drafts.ts';
-import type { GmailInbox, GmailMessage } from './gmail-inbox.ts';
 import type { ImapInbox } from './imap-inbox.ts';
+import type { GmailInbox, GmailMessage } from './inbox-store.ts';
 import type { BodyDocument, BodySpan } from './message-body.ts';
 import type { MailboxConnection } from './registration-snapshot.ts';
 import type { Asset, Block, SemanticDocument } from './semantic-document.ts';

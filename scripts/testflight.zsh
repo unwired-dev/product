@@ -169,6 +169,14 @@ upload() {
   node "$tools/native-licence-inventory.mjs" "${workspace:h}/Pods" "$artifacts/$host-DerivedData/SourcePackages" > "$artifacts/$host-native-licences.json" 2> "$artifacts/$host-native-licences.log" ||
     report "$artifacts/$host-native-licences.log"
   print -r -- "Inventoried: $host" >> "$artifacts/status.txt"
+  # Record what the inventories leave unresolved and the owner submissions the
+  # archive still needs (#1971). Findings do not refuse the upload (#669).
+  node "$tools/archive-findings.mjs" "$artifacts/$host-inventory.json" "$artifacts/$host-licences.json" "$artifacts/$host-native-licences.json" > "$artifacts/$host-findings.json" 2> "$artifacts/$host-findings.log" ||
+    report "$artifacts/$host-findings.log"
+  local counts
+  counts=$(node -p 'const { findings, ownerSubmissions } = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); `${findings.length} unresolved, ${ownerSubmissions.length} owner submissions`' "$artifacts/$host-findings.json") ||
+    report "$artifacts/$host-findings.json"
+  print -r -- "Findings: $host; $counts" >> "$artifacts/status.txt"
   xcodebuild -exportArchive -archivePath "$archive" -exportPath "$artifacts/$host-export" \
     -exportOptionsPlist "$artifacts/ExportOptions.plist" "${authentication[@]}" \
     > "$artifacts/$host-upload.log" 2>&1 || report "$artifacts/$host-upload.log"

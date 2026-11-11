@@ -30,6 +30,14 @@ _Avoid_: Completed mailbox synchronization, full initial sync
 Resumable background synchronization of the complete provider-visible message history as **Durable Message Metadata** after **Initial Mailbox Availability**.
 _Avoid_: Blocking initial sync, historical categorization
 
+**Inbox store**:
+The client module that keeps one Gmail or Microsoft **Mailbox Connection**'s encrypted mailbox document current and publishes its Inbox, views, bodies and organizing state to the hosts. It reads the provider only through that connection's **Provider reader**.
+_Avoid_: Gmail inbox, Gmail store
+
+**Provider reader**:
+The per-provider adapter an **Inbox store** reads, organizes, searches and sends through: one for Gmail and one for Microsoft Graph.
+_Avoid_: Graph inbox, provider branch
+
 **Mailbox Sync Status**:
 The visible per-connection state of authorization, synchronization, last success, offline operation, backfill, or failure.
 _Avoid_: Blocking loading state, hidden sync error

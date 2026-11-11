@@ -4,11 +4,11 @@ import * as DateTime from 'effect/DateTime';
 import * as Option from 'effect/Option';
 
 import type { Draft, Recipient } from './draft-model.ts';
-import type { GmailInbox, SendOutcome } from './gmail-inbox.ts';
+import type { GmailInbox, SendOutcome } from './inbox-store.ts';
 import type { InvitationResponse } from './mailbox-document.ts';
 import type { BodyDocument } from './message-body.ts';
 
-import { listedMessage } from './gmail-inbox.ts';
+import { listedMessage } from './inbox-store.ts';
 import { boundaryOf, outgoingMessage } from './outgoing-message.ts';
 
 // The response a person chooses for a meeting invitation, as its iCalendar participation status.
@@ -765,8 +765,6 @@ export type ResponseState =
     }>;
 
 // The plain text a response carries beside its calendar reply, in the person's language.
-export type ResponseCopy = Readonly<{ subject: string; text: string }>;
-
 type ResponseInbox = Pick<
   GmailInbox,
   | 'send'
@@ -873,16 +871,16 @@ const replySubject = (subject: string) =>
   /^\s*re:/iu.test(subject) ? subject : `Re: ${subject}`;
 
 // The response message: a reply to the invitation, from the invited mailbox to the organizer,
-// carrying the calendar reply beside its text.
+// carrying the calendar reply beside its text in the person's language.
 const responseMessage = (
   invitation: Invitation,
   {
     choice,
-    copy,
+    t,
     received,
   }: Readonly<{
     choice: InvitationChoice;
-    copy: ResponseCopy;
+    t: Translate;
     received: string | undefined;
   }>,
   at: number,
@@ -897,8 +895,24 @@ const responseMessage = (
     cc: [],
     bcc: [],
     // Gmail keeps a reply in the invitation's conversation only when its subject matches.
-    subject: received === undefined ? copy.subject : replySubject(received),
-    body: [{ kind: 'paragraph', spans: [{ text: copy.text }] }],
+    subject:
+      received === undefined
+        ? t(`invitation.${choice}Subject`, {
+            summary: invitation.details.summary ?? t('invitation.untitled'),
+          })
+        : replySubject(received),
+    body: [
+      {
+        kind: 'paragraph',
+        spans: [
+          {
+            text: t(`invitation.${choice}Text`, {
+              address: invitation.address,
+            }),
+          },
+        ],
+      },
+    ],
     response: {
       kind: 'reply',
       message: invitation.message,
@@ -1040,7 +1054,7 @@ function createInvitationResponses(
   };
   const send = async (
     invitation: Invitation,
-    chosen: Readonly<{ choice: InvitationChoice; copy: ResponseCopy }>,
+    chosen: Readonly<{ choice: InvitationChoice; t: Translate }>,
     again: boolean,
   ) => {
     const current = stateOf(invitation);
@@ -1116,18 +1130,15 @@ function createInvitationResponses(
         await inbox.findMessage(message).catch(() => undefined);
       }
     },
-    // Sends `choice` to the organizer, unless a response is under way or its delivery is unknown.
-    respond: (
-      invitation: Invitation,
-      choice: InvitationChoice,
-      copy: ResponseCopy,
-    ) => send(invitation, { choice, copy }, false),
+    // Sends `choice` to the organizer in `t`'s language, unless a response is under way or its delivery is unknown.
+    respond: (invitation: Invitation, choice: InvitationChoice, t: Translate) =>
+      send(invitation, { choice, t }, false),
     // Sends `choice` after the person confirms that an unknown delivery may already have arrived.
     respondAgain: (
       invitation: Invitation,
       choice: InvitationChoice,
-      copy: ResponseCopy,
-    ) => send(invitation, { choice, copy }, true),
+      t: Translate,
+    ) => send(invitation, { choice, t }, true),
     // Lets the person respond again once the mailbox is signed in after Gmail refused authorization.
     signedIn: (invitation: Invitation) => {
       if (stateOf(invitation).kind === 'authentication') {
@@ -1355,7 +1366,7 @@ export const invitationWas = (
   });
 
 // An offline device or a refused sign-in, which the mailbox's sync names before anything is sent.
-export const invitationBlockedBy = (sync: string | undefined) => {
+const blockedBy = (sync: string | undefined) => {
   if (sync === 'retry') {
     return 'offline';
   }
@@ -1496,3 +1507,50 @@ export const invitationStatus = <K extends Kind>(
   state: Extract<ResponseState, { readonly kind: K }>,
   context: StatusContext,
 ): InvitationStatus => statuses[state.kind](state, context);
+
+// The Responding row of an invitation card, and whether an offline device or a refused sign-in
+// blocks a response that could otherwise be sent.
+export const invitationResponding = (
+  t: Translate,
+  formats: InvitationFormats,
+  {
+    invitation,
+    state,
+    sync,
+    provider,
+    others,
+    earlier,
+  }: Readonly<{
+    invitation: Invitation;
+    state: ResponseState;
+    // The mailbox's sync state.
+    sync: string | undefined;
+    provider: string;
+    // How many of the Profile's other addresses the invitation also names.
+    others: number;
+    earlier: EarlierResponse | undefined;
+  }>,
+) => {
+  const blocked =
+    state.kind === 'unanswered' ||
+    state.kind === 'sent' ||
+    state.kind === 'refused'
+      ? blockedBy(sync)
+      : undefined;
+  return {
+    blocked,
+    status: invitationStatus(
+      blocked === undefined ? state : { kind: blocked, choice: 'accepted' },
+      {
+        t,
+        name: organizerName(invitation.details),
+        address: invitation.address,
+        provider,
+        time: formats.time,
+        scope: invitationScope(t, formats, invitation.details),
+        alsoInvited: others,
+        earlier: earlier?.choice,
+      },
+    ),
+  };
+};

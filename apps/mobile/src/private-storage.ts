@@ -1,5 +1,5 @@
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
   NativeInboxStorage,
   PersistentInbox,

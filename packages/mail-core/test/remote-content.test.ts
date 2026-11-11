@@ -1,4 +1,4 @@
-import { createBodyLoads, createGmailInbox } from '../src/gmail-inbox.ts';
+import { createBodyLoads, createInboxStore } from '../src/inbox-store.ts';
 import {
   createRemoteContentSettings,
   remoteContentPolicy,
@@ -30,7 +30,7 @@ describe('remote message content', () => {
     const other = gmail.deliver({
       content: { html: `<img src="${photo}" alt="Shared">` },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
 
     const first = await open(inbox, id);
@@ -102,7 +102,7 @@ describe('remote message content', () => {
         html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const reader = await open(inbox, id);
     try {
@@ -137,7 +137,7 @@ describe('remote message content', () => {
         html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const reader = await open(inbox, id);
     try {
@@ -173,7 +173,7 @@ describe('remote message content', () => {
     });
     let readCache = gmail.native.openRemoteContent;
     const probes: string[] = [];
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       openRemoteContent: (scope, resource) => readCache(scope, resource),
     });
@@ -224,7 +224,7 @@ describe('remote message content', () => {
         html: `<img src="${flaky}" alt="Flaky"><img src="${refused}" alt="Refused">`,
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const reader = await open(inbox, id);
     try {
@@ -269,8 +269,8 @@ describe('remote message content', () => {
     const bId = second.deliver({
       content: { html: `<img src="${photo}"><img src="${later}">` },
     });
-    const a = createGmailInbox(first.native, { shared, connection: 'a' });
-    const b = createGmailInbox(second.native, { shared, connection: 'b' });
+    const a = createInboxStore(first.native, { shared, connection: 'a' });
+    const b = createInboxStore(second.native, { shared, connection: 'b' });
     await Promise.all([a.load(), b.load()]);
     const aReader = await open(a, aId);
     const bReader = await open(b, bId);
@@ -306,7 +306,7 @@ describe('remote message content', () => {
         html: urls.map((url) => `<img src="${url}">`.repeat(4)).join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native, { shared, connection: 'a' });
+    const inbox = createInboxStore(gmail.native, { shared, connection: 'a' });
     await inbox.load();
     const reader = await open(inbox, id);
     let withdrawal: Promise<void> | undefined = undefined;
@@ -344,7 +344,7 @@ describe('remote message content', () => {
           html: otherUrls.map((url) => `<img src="${url}">`).join(''),
         },
       });
-      const otherInbox = createGmailInbox(other.native, {
+      const otherInbox = createInboxStore(other.native, {
         shared,
         connection: 'b',
       });
@@ -386,7 +386,7 @@ describe('remote message content', () => {
     const id = gmail.deliver({
       content: { html: `<p>Hello</p><img src="${photo}" alt="Photo">` },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const windows = [
       await open(inbox, id),
@@ -423,7 +423,7 @@ describe('remote message content', () => {
       content: { html: `<p>Target</p>${image}${image}` },
     });
     const other = gmail.deliver({ content: { html: `<p>Other</p>${image}` } });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const seed = await open(inbox, id);
     try {
@@ -488,7 +488,7 @@ describe('remote message content', () => {
         html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const a = await open(inbox, id);
     const b = await open(inbox, id);
@@ -549,8 +549,8 @@ describe('remote message content', () => {
     const a1 = deliver(first, 'a1');
     const a2 = deliver(first, 'a2');
     const b1 = deliver(second, 'b1');
-    const inboxA = createGmailInbox(first.native, { shared });
-    const inboxB = createGmailInbox(second.native, { shared });
+    const inboxA = createInboxStore(first.native, { shared });
+    const inboxB = createInboxStore(second.native, { shared });
     await Promise.all([inboxA.load(), inboxB.load()]);
     await Promise.all([open(inboxA, a1), open(inboxA, a2), open(inboxB, b1)]);
 
@@ -600,7 +600,7 @@ describe('remote message content', () => {
         html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const first = await open(inbox, id);
     const loads: Array<Promise<void>> = [];
@@ -654,7 +654,7 @@ describe('remote message content', () => {
     });
     const fetch = vi.spyOn(gmail.native, 'fetchRemoteContent');
     const cancel = vi.spyOn(gmail.native, 'cancelRemoteContent');
-    const inbox = createGmailInbox(gmail.native, { shared });
+    const inbox = createInboxStore(gmail.native, { shared });
     await inbox.load();
     const reader = await open(inbox, id);
     try {
@@ -713,7 +713,7 @@ describe('remote message content', () => {
         html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const a = await open(inbox, id);
     const b = await open(inbox, id);
@@ -765,11 +765,11 @@ describe('remote message content', () => {
     const firstId = first.deliver({
       content: { html: `<img src="${photo}" alt="Photo">` },
     });
-    const inboxA = createGmailInbox(first.native, {
+    const inboxA = createInboxStore(first.native, {
       shared,
       connection: 'connection-a',
     });
-    const inboxB = createGmailInbox(second.native, {
+    const inboxB = createInboxStore(second.native, {
       shared,
       connection: 'connection-b',
     });

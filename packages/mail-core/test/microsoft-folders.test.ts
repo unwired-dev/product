@@ -1,11 +1,11 @@
 import type {
   GmailInboxState,
   GmailView,
-} from '@private-email/mail-core/gmail-inbox';
+} from '@private-email/mail-core/inbox-store';
 
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   gmailViewName,
   mailboxSidebar,
@@ -14,7 +14,7 @@ import { defaultProfile } from '@private-email/mail-core/registration';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
 type Graph = ReturnType<typeof createSyntheticGraph>;
-type Inbox = ReturnType<typeof createGmailInbox>;
+type Inbox = ReturnType<typeof createInboxStore>;
 
 const ready = (state: GmailInboxState) => {
   if (state.kind !== 'ready') {
@@ -45,7 +45,7 @@ const first = <A>(messages: readonly A[]): A => {
 };
 
 const opened = async (native: Graph['native']) => {
-  const inbox = createGmailInbox(native, { provider: 'microsoft-graph' });
+  const inbox = createInboxStore(native, { provider: 'microsoft-graph' });
   await inbox.load();
   return inbox;
 };

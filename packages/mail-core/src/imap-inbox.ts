@@ -16,13 +16,6 @@ import * as Semaphore from 'effect/Semaphore';
 import type { AttachmentFailure } from './attachment-downloads.ts';
 import type { DeliveryProblem } from './draft-model.ts';
 import type {
-  HistoryProgress,
-  HistoryWrite,
-  NativeGmailMailbox,
-  OutgoingSend,
-  SendOutcome,
-} from './gmail-inbox.ts';
-import type {
   Envelope,
   FolderCache,
   FolderRead,
@@ -34,6 +27,13 @@ import type {
   ImapMessage,
   ImapPending,
 } from './imap-model.ts';
+import type {
+  HistoryProgress,
+  HistoryWrite,
+  NativeGmailMailbox,
+  OutgoingSend,
+  SendOutcome,
+} from './inbox-store.ts';
 import type {
   BodyDocument,
   GmailPart,
@@ -53,12 +53,6 @@ import {
   runLogged,
 } from './diagnostics.ts';
 import { segmentName } from './gmail-history.ts';
-import {
-  createBodyLoads,
-  downloadFailure,
-  reportArrivals,
-  sendRejection,
-} from './gmail-inbox.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import {
   imapRoleFolder,
@@ -106,6 +100,12 @@ import {
   window,
   withFlag,
 } from './imap-model.ts';
+import {
+  createBodyLoads,
+  downloadFailure,
+  reportArrivals,
+  sendRejection,
+} from './inbox-store.ts';
 import { inlineImageLimits } from './inline-images.ts';
 import { SyncFailure } from './mailbox-read.ts';
 import {

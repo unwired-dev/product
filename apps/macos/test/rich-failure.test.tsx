@@ -1,4 +1,4 @@
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { act, render, screen } from '@testing-library/react-native';
 
@@ -37,7 +37,7 @@ describe('rich message failure', () => {
       },
     });
     const allow = refuseImages(gmail);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const app = await render(
       <MessageBody

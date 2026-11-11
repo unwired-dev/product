@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib';
 
-import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
+import type { GmailInbox, MessageBodyState } from '../src/inbox-store.ts';
 
 const ascii = (text: string) => [...Buffer.from(text, 'latin1')];
 const u32 = (value: number) => {

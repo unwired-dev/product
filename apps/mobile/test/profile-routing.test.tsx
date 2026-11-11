@@ -22,7 +22,7 @@ import {
   runWhenOffered,
 } from '@private-email/mail-core/commands';
 import { createDrafts } from '@private-email/mail-core/drafts';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import {
   defaultProfile,
@@ -247,7 +247,7 @@ function showMail(profile: string) {
     subject: 'River plan',
     content: { text: 'Synthetic river body.' },
   });
-  const original = singleMailbox(createGmailInbox(gmail.native), 'garden');
+  const original = singleMailbox(createInboxStore(gmail.native), 'garden');
   let previous: ReturnType<typeof original.getSnapshot> | undefined = undefined;
   let snapshot: ReturnType<MailboxList['getSnapshot']> = [];
   const mailboxes: MailboxList = {
@@ -418,7 +418,7 @@ describe('profile-scoped mobile routes', () => {
     const travel = gmail.createLabel('Travel');
     const id = gmail.deliver({ subject: 'Flight to Zagreb' });
     gmail.setLabel(id, travel, true);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.openView(travel);
     jest.replaceProperty(

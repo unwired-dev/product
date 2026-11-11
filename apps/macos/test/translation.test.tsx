@@ -1,6 +1,6 @@
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
@@ -75,7 +75,7 @@ async function openReader(translation: NativeTranslation) {
     subject: 'Lunch',
     content: { text: 'Lunch at noon on Tuesday?' },
   });
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   const reader = (id: string, owner = inbox) => (
     <TranslationContext value={translation}>
@@ -95,7 +95,7 @@ async function openReader(translation: NativeTranslation) {
     showLunch: () => app.rerender(reader(lunch)),
     // The same message in another account's mailbox store.
     switchAccount: async () => {
-      const other = createGmailInbox(gmail.native);
+      const other = createInboxStore(gmail.native);
       await other.load();
       return app.rerender(reader(venue, other));
     },

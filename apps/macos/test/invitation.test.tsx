@@ -1,6 +1,6 @@
 import type { MailProvider } from '@private-email/mail-core/registration';
 
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
@@ -74,7 +74,7 @@ async function opened(
       ],
     },
   });
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   // The messages the reader's window opened in its place.
   const shown: string[] = [];

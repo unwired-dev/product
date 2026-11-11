@@ -1,6 +1,6 @@
 import { createLocalization, english } from '@private-email/localization';
 import { menuState } from '@private-email/mail-core/context-menu';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   createProfileChoices,
   profileMenu,
@@ -133,7 +133,7 @@ describe('window Profiles', () => {
       for (const subject of ['First', 'Second', 'Third'].slice(0, count)) {
         gmail.deliver({ subject });
       }
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       return inbox.getSnapshot();
     };

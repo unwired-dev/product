@@ -10,6 +10,14 @@ export type MessageSegment =
   | Readonly<{ text: string }>
   | Readonly<{ asset: Readonly<{ id: string; digest: string }> }>;
 
+// A message handed to its provider to send.
+export type OutgoingSend = Readonly<{
+  segments: readonly MessageSegment[];
+  threadId?: string;
+  // The Outlook draft a Microsoft message too large for one Graph request was kept as.
+  draft?: string;
+}>;
+
 export type OutgoingMessage = Readonly<{
   segments: readonly MessageSegment[];
   // The exact size of the assembled message in bytes, assets included.

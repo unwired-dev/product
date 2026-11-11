@@ -3,13 +3,53 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { GraphChange } from './microsoft-graph.ts';
-import type { DraftFile, MessageSegment } from './outgoing-message.ts';
+import type {
+  DraftFile,
+  MessageSegment,
+  OutgoingSend,
+} from './outgoing-message.ts';
 
 import {
   decodeDiagnostic,
   rejectionCode,
   rejectionDiagnostic,
 } from './diagnostics.ts';
+
+// The native Registration module's Gmail requests. Native code attaches the Gmail credential.
+export interface NativeGmailRequests {
+  // Resolves `{ status, body }` for a read of `gmail/v1/users/me/<path>`.
+  readonly gmailRequest: (
+    path: string,
+    query: ReadonlyArray<readonly [string, string]>,
+    mailbox: Readonly<{
+      address: string;
+      generation: string;
+      signal?: Readonly<AbortSignal>;
+    }>,
+  ) => Promise<unknown>;
+  // Resolves `{ status, body }` for Gmail's modify of one message's labels.
+  readonly gmailModify: (
+    change: Readonly<{
+      message: string;
+      add: readonly string[];
+      remove: readonly string[];
+    }>,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Resolves `{ status, body }` for Gmail's creation of a user label named `name`.
+  readonly gmailCreateLabel: (
+    name: string,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+  // Sends one message through Gmail's messages.send upload, inserting each asset segment's
+  // verified bytes, and joins `threadId` when given. Resolves `{ status, body }` once Gmail
+  // answers. Rejects with 'delivery-unknown' when the request may have reached Gmail without an
+  // answer; any other rejection means it never left this device.
+  readonly gmailSend: (
+    message: OutgoingSend,
+    mailbox: Readonly<{ address: string; generation: string }>,
+  ) => Promise<unknown>;
+}
 
 export interface NativeGraphMailbox {
   // Deletes only Drafts-folder messages with this frozen Message-ID. A 204 status/body reply

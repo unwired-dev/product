@@ -1,4 +1,4 @@
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
   EarlierResponse,
   Invitation,
@@ -34,11 +34,9 @@ import {
   invitationOf,
   invitationResponses,
   createInvitationFormats,
-  invitationBlockedBy,
+  invitationResponding,
   invitationChoiceKeys,
-  invitationStatus,
   invitationRepeats,
-  invitationScope,
   invitationWas,
   invitationWhen,
   organizerName,
@@ -504,25 +502,14 @@ function Responding({
   });
   const formats = useFormats();
   const name = organizerName(invitation.details);
-  const blocked =
-    recorded.kind === 'unanswered' ||
-    recorded.kind === 'sent' ||
-    recorded.kind === 'refused'
-      ? invitationBlockedBy(sync)
-      : undefined;
-  const shown = invitationStatus(
-    blocked === undefined ? recorded : { kind: blocked, choice: 'accepted' },
-    {
-      t,
-      name,
-      address: invitation.address,
-      provider,
-      time: formats.time,
-      scope: invitationScope(t, formats, invitation.details),
-      alsoInvited: others,
-      earlier: earlier?.choice,
-    },
-  );
+  const { blocked, status: shown } = invitationResponding(t, formats, {
+    invitation,
+    state: recorded,
+    sync,
+    provider,
+    others,
+    earlier,
+  });
   // iOS ignores live regions, so VoiceOver hears the status when it changes, not when it opens.
   const spoken = `${shown.title}. ${shown.detail}`;
   const previousSpoken = useRef(spoken);
@@ -534,14 +521,6 @@ function Responding({
       });
     }
   }, [spoken]);
-  const copy = (choice: InvitationChoice) => ({
-    subject: t(`invitation.${choice}Subject`, {
-      summary: invitation.details.summary ?? t('invitation.untitled'),
-    }),
-    text: t(`invitation.${choice}Text`, {
-      address: invitation.address,
-    }),
-  });
   // One sign-in at a time: a second tap while the mailbox reloads starts nothing.
   const signingIn = useRef(false);
   const signIn = async (
@@ -653,11 +632,7 @@ function Responding({
                 onPress={() => {
                   setAsking(undefined);
                   if (asking !== undefined && current()) {
-                    void responses.respondAgain(
-                      invitation,
-                      asking,
-                      copy(asking),
-                    );
+                    void responses.respondAgain(invitation, asking, t);
                   }
                 }}
               />
@@ -698,7 +673,7 @@ function Responding({
             off={recorded.kind === 'sending' || blocked === 'offline'}
             onPress={() => {
               if (current()) {
-                void responses.respond(invitation, choice, copy(choice));
+                void responses.respond(invitation, choice, t);
               }
             }}
           />

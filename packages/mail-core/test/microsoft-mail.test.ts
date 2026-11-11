@@ -1,10 +1,10 @@
 import { english } from '@private-email/localization';
 
-import type { GmailInboxState, MessageBodyState } from '../src/gmail-inbox.ts';
+import type { GmailInboxState, MessageBodyState } from '../src/inbox-store.ts';
 
 import { sendingMailboxes } from '../src/drafts.ts';
 import { quickActions } from '../src/gmail-actions.ts';
-import { createGmailInbox, threadMessages } from '../src/gmail-inbox.ts';
+import { createInboxStore, threadMessages } from '../src/inbox-store.ts';
 import {
   createGmailSearch,
   createMailboxes,
@@ -40,7 +40,7 @@ const rich = (state: MessageBodyState | undefined) => {
 };
 
 const microsoftInbox = (graph: ReturnType<typeof createSyntheticGraph>) =>
-  createGmailInbox(graph.native, { provider: 'microsoft-graph' });
+  createInboxStore(graph.native, { provider: 'microsoft-graph' });
 
 // The Graph reads by kind: Inbox lists, delta rounds from the start, and delta links.
 const interceptGraph = (
@@ -166,7 +166,7 @@ describe('reading Microsoft mail through Graph', () => {
         };
       },
     };
-    const inbox = createGmailInbox(native, { provider: 'microsoft-graph' });
+    const inbox = createInboxStore(native, { provider: 'microsoft-graph' });
     await inbox.load();
     const state = ready(inbox.getSnapshot());
     const [newest, earlier] = pair(state.messages);
@@ -178,7 +178,7 @@ describe('reading Microsoft mail through Graph', () => {
       expect(threadMessages(state, message.id)).toStrictEqual([message]);
     }
     // An older cache may already contain blank identities; offline reopening must isolate them too.
-    const reopened = createGmailInbox(
+    const reopened = createInboxStore(
       {
         ...native,
         openMailbox: async () => {
@@ -214,7 +214,7 @@ describe('reading Microsoft mail through Graph', () => {
     const requested: string[] = [];
     const state = { pages: 0, repeated: true, requested };
     const native = repeatingDelta(graph, state, link);
-    const inbox = createGmailInbox(native, { provider: 'microsoft-graph' });
+    const inbox = createInboxStore(native, { provider: 'microsoft-graph' });
     await inbox.load();
     expect(state.pages).toBeLessThanOrEqual(200);
     expect(ready(inbox.getSnapshot())).toMatchObject({
@@ -224,7 +224,7 @@ describe('reading Microsoft mail through Graph', () => {
     expect(graph.commits.at(-1)).toContain(link);
     const completed = state.requested.length;
     state.repeated = false;
-    const resumed = createGmailInbox(native, { provider: 'microsoft-graph' });
+    const resumed = createInboxStore(native, { provider: 'microsoft-graph' });
     await resumed.load();
     expect(state.requested[completed]).toBe(link);
     expect(ready(resumed.getSnapshot())).toMatchObject({
@@ -399,7 +399,7 @@ describe('reading Microsoft mail through Graph', () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ messages: 2 });
     let delta: readonly unknown[] | undefined = undefined;
-    const inbox = createGmailInbox(
+    const inbox = createInboxStore(
       interceptGraph(graph, (url) => {
         const reply = deltaReply(url, delta);
         delta = undefined;
@@ -556,7 +556,7 @@ describe('reading Microsoft mail through Graph', () => {
         },
       ],
     });
-    const inbox = createGmailInbox(interceptGraph(graph, unavailableImage), {
+    const inbox = createInboxStore(interceptGraph(graph, unavailableImage), {
       provider: 'microsoft-graph',
     });
     await inbox.load();
@@ -585,7 +585,7 @@ describe('reading Microsoft mail through Graph', () => {
             { name: 'notes.txt', contentType: 'text/plain', bytes: [65] },
           ],
         });
-        const inbox = createGmailInbox(
+        const inbox = createInboxStore(
           interceptGraph(graph, (url) => unavailableMetadata(url, status)),
           { provider: 'microsoft-graph' },
         );
@@ -651,7 +651,7 @@ describe('reading Microsoft mail through Graph', () => {
           { name: 'notes.txt', contentType: 'text/plain', bytes: [65] },
         ],
       });
-      const inbox = createGmailInbox(interceptGraph(graph, reply), {
+      const inbox = createInboxStore(interceptGraph(graph, reply), {
         provider: 'microsoft-graph',
       });
       await inbox.load();

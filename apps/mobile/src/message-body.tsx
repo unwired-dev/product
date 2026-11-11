@@ -3,7 +3,7 @@ import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type {
   GmailInbox,
   ReceivedAttachment,
-} from '@private-email/mail-core/gmail-inbox';
+} from '@private-email/mail-core/inbox-store';
 import type {
   BodyLink,
   MessagePresentation,

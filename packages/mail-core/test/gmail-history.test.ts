@@ -1,13 +1,13 @@
 import { setImmediate } from 'node:timers/promises';
 
-import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
 import {
   allMail,
   gmailAction,
   gmailArchive,
 } from '@private-email/mail-core/gmail-actions';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import * as Schema from 'effect/Schema';
 
@@ -15,12 +15,12 @@ import { withNativeHistory } from './native-history-store.ts';
 
 const createGmail = () => withNativeHistory(createSyntheticGmail());
 
-type Inbox = ReturnType<typeof createGmailInbox>;
+type Inbox = ReturnType<typeof createInboxStore>;
 type Gmail = ReturnType<typeof createSyntheticGmail>;
 
 // Stop background work before the signed storage process's earlier-registered teardown closes it.
-const createInbox = (...args: Parameters<typeof createGmailInbox>) => {
-  const inbox = createGmailInbox(...args);
+const createInbox = (...args: Parameters<typeof createInboxStore>) => {
+  const inbox = createInboxStore(...args);
   onTestFinished(() => inbox.forget());
   return inbox;
 };

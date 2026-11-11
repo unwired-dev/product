@@ -3,8 +3,8 @@ import { ok } from 'node:assert/strict';
 import type { TurboModule } from 'react-native';
 
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
@@ -43,7 +43,7 @@ const commandEvents = () => {
 const renderGmailInbox = async () => {
   const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
   gmail.deliver({ subject: 'Saved mail remains available' });
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await render(
     <InboxProvider mailboxes={singleMailbox(inbox, 'work-mailbox')}>
       <Inbox
@@ -67,7 +67,7 @@ describe('message list', () => {
     const message = gmail.deliver({ subject: 'Flight to Zagreb' });
     gmail.setLabel(message, travel, true);
     gmail.setLabel(message, 'SENT', true);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     const mailboxes = singleMailbox(inbox, 'work-mailbox');
     const show = (view: MailboxView) => (
       <InboxProvider mailboxes={mailboxes}>
@@ -122,7 +122,7 @@ describe('message list', () => {
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Leaving' });
     const other = gmail.deliver({ subject: 'Selected directly' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     const mailboxes = singleMailbox(inbox, 'work-mailbox');
     const show = (selected: Selection | undefined) => (
       <InboxProvider mailboxes={mailboxes}>
@@ -331,7 +331,7 @@ describe('message list', () => {
     }
     // Gmail stops answering partway through the history download.
     gmail.failPage('200', { code: 'unavailable' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     try {
       await render(
         <InboxProvider mailboxes={singleMailbox(inbox, 'work-mailbox')}>

@@ -1,4 +1,4 @@
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
@@ -180,7 +180,7 @@ describe('thread view', () => {
       .spyOn(ScrollView.prototype, 'scrollTo')
       .mockReturnValue(undefined);
     const { native, middle } = threadMailbox();
-    const store = createGmailInbox(native);
+    const store = createInboxStore(native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
         <WindowBarContext value={createWindowBar()}>
@@ -278,7 +278,7 @@ describe('thread view', () => {
   it('keeps a link confirmation while another message of the thread toggles its quoted text', async () => {
     expect.hasAssertions();
     const { native, middle } = threadMailbox();
-    const store = createGmailInbox(native);
+    const store = createInboxStore(native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
         <ThreadView
@@ -323,7 +323,7 @@ describe('thread view', () => {
     expect.hasAssertions();
     const { gmail, ids, started, answer } = longThread();
     const senders = ids.map((_, index) => `Sender ${index}`);
-    const store = createGmailInbox(gmail.native);
+    const store = createInboxStore(gmail.native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
         <ThreadView
@@ -380,7 +380,7 @@ describe('thread view', () => {
   it('ranks a newly visible body ahead of the opened message after dragging away', async () => {
     expect.hasAssertions();
     const { gmail, ids, started, answer } = longThread();
-    const store = createGmailInbox(gmail.native);
+    const store = createInboxStore(gmail.native);
     await store.load();
     const held = ids.slice(0, 2).map((id) => store.readMessage(id));
     await waitFor(() => {
@@ -418,7 +418,7 @@ describe('thread view', () => {
   it('counts one message when opening it alone from a cached thread on iPhone', async () => {
     expect.hasAssertions();
     const { native, middle } = threadMailbox();
-    const store = createGmailInbox(native);
+    const store = createInboxStore(native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
         <MessageDetail
@@ -440,7 +440,7 @@ describe('thread view', () => {
   it('opens the Command Palette from the thread header beside its system Back', async () => {
     expect.hasAssertions();
     const { native, middle } = threadMailbox();
-    const store = createGmailInbox(native);
+    const store = createInboxStore(native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
         <CommandPaletteProvider>
@@ -474,7 +474,7 @@ describe('thread view', () => {
   it('shows the message as unavailable when it is not cached', async () => {
     expect.hasAssertions();
     const { native } = threadMailbox();
-    const store = createGmailInbox(native);
+    const store = createInboxStore(native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
         <ThreadView
@@ -495,7 +495,7 @@ describe('thread view', () => {
     Dimensions.set({ window: { ...window, width: 844, height: 390 } });
     try {
       const { native, middle } = threadMailbox();
-      const store = createGmailInbox(native);
+      const store = createInboxStore(native);
       await render(
         <InboxProvider mailboxes={singleMailbox(store, alex)}>
           <ThreadView

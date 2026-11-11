@@ -1,7 +1,7 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { ReactNode } from 'react';
 
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
@@ -100,7 +100,7 @@ async function openReader(assistance: NativeAssistance) {
     subject: 'Lunch',
     content: { text: 'Lunch at noon on Tuesday?' },
   });
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   const reader = (id: string, subject: string) => (
     <AssistanceContext value={assistance}>
