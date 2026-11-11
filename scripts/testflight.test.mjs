@@ -361,17 +361,12 @@ for (const [scenario, platform, expected, workflowRevision] of [
           encoding: 'utf8',
         });
         assert.equal(result.status, expected, result.stdout + result.stderr);
-        if (scenario === 'missing-topic') {
-          assert.equal(
-            result.stderr.trim(),
-            `Refusing to upload ${platform}: unexpected archive configuration`,
-          );
-        }
-        if (scenario === 'qualified-reporting') {
-          assert.equal(
-            result.stderr.trim(),
-            `Refusing to upload ${platform}: native error reporting stays unqualified`,
-          );
+        const refusal = {
+          'missing-topic': `Refusing to upload ${platform}: unexpected archive configuration`,
+          'qualified-reporting': `Refusing to upload ${platform}: native error reporting stays unqualified`,
+        }[scenario];
+        if (refusal) {
+          assert.equal(result.stderr.trim(), refusal);
         }
         if (expected === 1 && signedScenarios.has(scenario)) {
           assert.equal(
@@ -734,15 +729,20 @@ test('Certificate preflight uses the workflow revision and removes both private 
   );
   const certificates = workflow
     .split('\n  certificates:\n')[1]
-    ?.split('\n  upload:\n')[0];
+    ?.split(/\n {2}[a-z0-9-]+:\n/u)[0];
   assert.ok(certificates, 'Missing certificate preflight');
   assert.match(
     certificates,
     /ref: \$\{\{ github\.sha \}\}/u,
     'Older build refs must not supply signing code',
   );
-  const [, script] = certificates.split('        run: |\n');
+  const [, rawScript] = certificates.split('        run: |\n');
+  const script = rawScript
+    ?.split('\n')
+    .filter((line) => line === '' || line.startsWith('          '))
+    .join('\n');
   assert.ok(script, 'Missing certificate preflight command');
+  assert.doesNotMatch(script, /posthog-cli/u);
   mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
   for (const [scenario, expected] of [
     ['success', 0],
