@@ -27,15 +27,21 @@ main benefit, which is mail in a browser on a machine without the app.
 Not run. The bounded sign-in, read and sign-out prototype is blocked before any
 mailbox is touched:
 
+- **Sign-in.** Convex accepts Google Product Sign-In only for the native client
+  IDs in `GOOGLE_PRODUCT_CLIENT_IDS`
+  ([configure the hosts](google-registration.md#configure-the-hosts)). A browser
+  would need its own registered client before it could sign in.
 - **Google.** The hosts register one native iOS OAuth client and configure no web
   client, client secret or web redirect
-  ([native credentials](google-registration.md#native-credentials-and-verification)).
+  ([what the hosts request](google-registration.md#what-the-hosts-request)).
   A browser cannot finish Google consent for the product's client. A web client is
   an owner action in Google Cloud, and Google verifies each client submitted.
   Gmail's provider test account is also blocked
   ([#1528](https://github.com/unwired-dev/product/issues/1528)).
-- **Microsoft.** There is no Entra test tenant for a single-page application
-  registration ([#633](https://github.com/unwired-dev/product/issues/633)).
+- **Microsoft.** Protected Microsoft qualification access is still outstanding
+  ([#1104](https://github.com/unwired-dev/product/issues/1104)). Even with it, a
+  browser would need a single-page application registration, which does not
+  exist.
 - **Production mail is excluded** by the issue and
   [ADR 0032](adr/0032-use-only-synthetic-mail-in-test-environments.md).
 
@@ -52,17 +58,23 @@ do not change the decision.
   have a short lifetime." When a token expires before the session ends, the app
   calls `requestAccessToken()` again "from a user-driven event such as a button
   press", and "only the dialog UX is supported". There is no background refresh
-  like the hosts' device-held grant. The
+  like the hosts' device-held grant. Google calls the
   [implicit flow](https://developers.google.com/identity/protocols/oauth2/javascript-implicit-flow)
-  returns no refresh token either, and Google calls it insecure for single-page
-  apps. A new web client would also need verification of its own. Push wakes would
-  need a relay change, because the relay verifies one `GMAIL_OAUTH_CLIENT_ID`.
+  insecure for browser-based single-page apps. The
+  [code model](https://developers.google.com/identity/oauth2/web/guides/use-code-model)
+  is the only Google browser route that issues refresh tokens, and it requires
+  that "On your backend server, you exchange an authorization code for refresh
+  tokens and access tokens". The backend would then hold provider tokens, which
+  ADR 0002 forbids. A new web client would also need verification of its own.
+  Push wakes would need a relay change, because the relay verifies one
+  `GMAIL_OAUTH_CLIENT_ID`.
 - **Microsoft.** Refresh tokens issued to a `spa` redirect "expire after 24
-  hours". Apps must then rerun interactive authorization in a top-level frame
+  hours". Apps must then rerun authorization in a top-level frame. Users usually
+  see only "a reload of your application"
   ([Microsoft identity platform](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)).
 - **IMAP.** Ordinary web apps "cannot establish raw TCP or UDP connections".
-  Direct Sockets is "restricted to Isolated Web Apps", which are Chrome apps the
-  user installs explicitly
+  Direct Sockets is "restricted to Isolated Web Apps", meaning "trusted,
+  explicitly installed applications"
   ([Direct Sockets](https://developer.chrome.com/docs/iwa/direct-sockets)). Any
   other route to IMAP and SMTP from a browser needs a server relay that sees
   readable mail and credentials. That contradicts
@@ -80,27 +92,29 @@ do not change the decision.
 - **Tokens enter JavaScript.** The hosts keep refresh credentials and access tokens
   out of JavaScript and Convex
   ([native credentials](google-registration.md#native-credentials-and-verification),
-  [Microsoft credentials](microsoft-mail.md#credentials)), in a ThisDeviceOnly
-  Keychain item ([ADR 0010](adr/0010-device-local-mailbox-authorization.md)).
-  Browser storage has no equivalent of that item. A browser client would hold
-  tokens, the cache key and its Trusted Device key where any script running in
-  its origin can read them.
+  [Microsoft credentials](microsoft-mail.md#credentials)), in ThisDeviceOnly
+  Keychain items ([Google architecture](architecture/google-registration.md),
+  [ADR 0010](adr/0010-device-local-mailbox-authorization.md)). Browser storage has
+  no equivalent. A browser client would hold tokens, the cache key and its Trusted
+  Device key where any script running in its origin can read them.
 - **Storage can disappear.** Safari deletes "all cookies created in JavaScript and
   all other script-writeable storage", including IndexedDB and service worker
   registrations, "after 7 days of no user interaction with the website". Home
   screen web apps are exempt
   ([WebKit tracking prevention](https://webkit.org/tracking-prevention/)). A
-  Trusted Device key lost this way leaves a Pending Device that must be
-  re-approved.
-- **Every browser is a device.** Private Sync's cryptography is portable: the
-  TypeScript `@noble` libraries already seal approvals in
-  `packages/mail-core/src/testing/enrollment-approval.ts`. But each browser
-  profile would become a Trusted Device, admitted with an Enrollment Code or the
-  Recovery Key and counted against the three-device limit
+  browser that loses its keys this way starts again as a new Pending Device. Its
+  old Trusted Device record stays until another Trusted Device removes it.
+- **Every browser is a device.** Each browser profile would become a Trusted
+  Device, admitted with an Enrollment Code or the Recovery Key
   ([ADR 0066](adr/0066-admit-devices-only-through-authorized-enrollment.md),
-  [approving a new device](private-product-sync.md#approving-a-new-device)).
-  Each key rotation would also seal to it
+  [approving a new device](private-product-sync.md#approving-a-new-device)), and
+  every key rotation would also seal to it
   ([ADR 0070](adr/0070-seal-key-rotations-to-each-remaining-trusted-device.md)).
+  The TypeScript `@noble` libraries can do the cryptography; they already seal
+  approvals in the synthetic test layer
+  `packages/mail-core/src/testing/enrollment-approval.ts`. But ADR 0067 kept
+  encryption in native code because otherwise "key material would sit in the
+  JavaScript heap". A browser client would have to reverse that decision.
 - **Extension code is fixed.** Manifest V3 requires that "all of your extension's
   logic must be part of the extension package", with no remotely hosted code
   ([Chrome extension security](https://developer.chrome.com/docs/extensions/develop/migrate/improve-security)).
@@ -121,15 +135,16 @@ whatever it already decrypted until its storage is cleared.
 
 Apps reach PCC only through the Foundation Models framework
 (`PrivateCloudComputeLanguageModel`). It runs on Apple Intelligence devices with
-a managed entitlement and a per-user daily limit
+a per-user daily limit, and apps need an entitlement
 ([WWDC26 session 319](https://developer.apple.com/videos/play/wwdc2026/319/),
 [What's new in Foundation Models](https://developer.apple.com/videos/play/wwdc2026/241/)).
 No source describes a web or REST API.
 [ADR 0075](adr/0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)
-keeps PCC in native sessions with no backend inference service. A browser client
-would therefore have no
-[Private Cloud Mail Assistance](product/private-cloud-mail-assistance.md), and
-routing it through a server would break both ADRs.
+keeps PCC in native sessions with no backend inference service, and it records
+the managed-entitlement prerequisite. A browser client would therefore have no
+[Private Cloud Mail Assistance](product/private-cloud-mail-assistance.md).
+Routing it through a server would put readable mail there, which breaks ADR 0002
+and ADR 0075.
 
 ## Safari companion: not proposed
 
@@ -146,11 +161,6 @@ would therefore need a new vault channel that hands sanitized content to the
 extension and keeps tokens in the vault. The extension's pages would display
 readable mail inside Safari, next to other extensions.
 
-If the owner wants this shape, a new issue approves its value first. The slices
-would be:
-
-1. Spike a vault channel from the extension handler that returns sanitized
-   synthetic messages and never returns tokens.
-2. Design the Light and Dark extension surfaces in Figma and get design approval.
-3. Ship a read-only Inbox view to the Mac host and qualify it with Mock Mail
-   Sessions.
+Because the decision is no-go, this evaluation proposes no delivery slices. If
+the owner wants this shape, a new issue first approves its value, then scopes
+the vault channel, design approval and qualification.
