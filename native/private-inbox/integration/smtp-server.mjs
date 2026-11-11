@@ -7,6 +7,8 @@ import net from 'node:net';
 import path from 'node:path';
 import tls from 'node:tls';
 
+import { listenOnLoopback } from './loopback.mjs';
+
 const [directory] = process.argv.slice(2);
 assert.ok(directory, 'Expected the runner-owned fixture directory');
 const file = (name) => path.join(directory, name);
@@ -195,7 +197,7 @@ const didListen = () => {
   }
 };
 for (const server of servers) {
-  server.listen(0, '127.0.0.1', didListen);
+  listenOnLoopback(server, didListen);
 }
 process.on('SIGTERM', () => {
   const remaining = sockets.size;
