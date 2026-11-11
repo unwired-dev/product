@@ -68,7 +68,7 @@ so the requirements rule it out.
   cannot use this route without a camera session, so the requirements exclude it.
 - **Availability belongs to the system.** "The system dynamically controls the
   availability of these accessories … can be toggled at any time"; apps observe
-  it with `onAvailabilityChange(perform:)` ([talk]) or the read-only `available`
+  it with `onAvailabilityChange(perform:)` ([talk]) or the read-only `isAvailable`
   property of `UISceneAccessoryRegistration`. An Apple DTS answer in the
   [iPhone Duo Group Lab thread][lab] states that non-camera apps can use the
   outer display while unfolded "only via the system-controlled scene accessory
