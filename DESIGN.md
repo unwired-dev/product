@@ -717,6 +717,9 @@ These frames predate the requirements or implementation they show:
   [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
   changes the order to To, Cc and Bcc, Subject, body, attachments; the frames
   will be redrawn and approved under #1994 before the change is built.
+- **Command Palette key cap:** the frames and the Layout section show ⌘P.
+  [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
+  moves the palette to ⌘K under #1993.
 - **Message Row:** the reference mockups show a two-line preview.
 - **Profile Menu:** the reference frames' trailing counts are not drawn; the
   system menu puts each Profile's unread count in its subtitle.

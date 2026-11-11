@@ -70,6 +70,9 @@ needs a stated reason and the narrowest scope.
   device-local. The backend stores and relays only opaque ciphertext and the
   metadata its owning decision allows. Logs and diagnostics carry allow-listed
   fields only: no mail content, tokens or account identifiers.
+  [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) lets
+  the person keep a copy of the Recovery Key in iCloud Keychain, which never
+  reaches the backend; a change that implements it follows that ADR.
 - **Data loss**: durable adoption comes before cleanup, and crash or
   uncertain-write recovery comes before destructive cleanup or new keys. Synced
   Drafts and records keep conflicts and tombstones. An encrypted-data reset or
@@ -80,10 +83,9 @@ needs a stated reason and the narrowest scope.
   and hostname checks. Notifications show generic content unless previews are
   explicitly turned on.
   [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md)
-  changes three of these rules as its issues ship: previews become the
-  notification default, remote images can be allowed for one sender, and the
-  Recovery Key may have a copy in iCloud Keychain. A change that implements one
-  of them follows that ADR.
+  changes two of these rules as its issues ship: previews become the
+  notification default, and remote images can be allowed for one sender. A
+  change that implements one of them follows that ADR.
 - **Delivery**: the Outbox sends only from the originating device, after the
   Convex ownership claim and the Undo Send window. Offline queueing does not
   authorize provider submission, and an uncertain provider outcome never

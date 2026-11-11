@@ -10,7 +10,8 @@ status: accepted
 background below. The sanitizer admits a responsive subset of author styles, and a
 link-only table cell keeps its background when the app verifies its contrast
 ([#1355](https://github.com/unwired-dev/product/issues/1355)). It also adds a
-remote-image choice for one sender beside consent for one message
+remote-image choice for one sender beside one-message consent, the device policy
+and the per-connection override
 ([#1995](https://github.com/unwired-dev/product/issues/1995)). Image admission,
 remote-content consent as the default, link inspection and WebKit isolation remain
 required.

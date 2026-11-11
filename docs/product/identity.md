@@ -36,11 +36,12 @@ implemented.
 
 ## Account identity for Private Sync
 
-The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) change two rules in this section once their issues ship: a **Pending
-Device** may authorize its own mailboxes and read and organize their mail before
-it is admitted, and the **Recovery Key** may have a copy in iCloud Keychain that
-a **Device Revocation** deletes. [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records both. The rules
-below describe the current behavior.
+The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) change two rules in this section once their issues ship: a
+**Trusted Device** approves a **Pending Device** by scanning its **Enrollment
+Code** and is notified of the request, and the **Recovery Key** may have a copy
+in iCloud Keychain that a **Device Revocation** deletes.
+[ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records
+both. The rules below describe the current behavior.
 
 - A **Product Account** identifies the user for **Private Sync**
 - **Product Sign-In** admits only the device that creates the account's keys. Every later device, on every account, signs in as a **Pending Device**: it reaches the Product Account but not its Private Sync keys, account operations, push routing or **Mailbox Authorization**

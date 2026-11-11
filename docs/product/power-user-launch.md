@@ -49,9 +49,7 @@ qualification may progress before distribution of the intermediate Gmail beta.
 
 ## First mailbox after Product Sign-In
 
-After Google or Apple Product Sign-In and any required device enrollment (or
-before it, once [#1988](https://github.com/unwired-dev/product/issues/1988) lets
-a Pending Device read its own mailboxes),
+After Google or Apple Product Sign-In and any required device enrollment,
 offer the Mail Provider choices independently: Gmail, iCloud Mail, Fastmail,
 manual IMAP/SMTP, and Microsoft mail. A person can choose a non-Gmail first
 Mailbox Connection without granting Gmail access or linking another Product
@@ -182,9 +180,8 @@ the clients do until each issue ships.
 
 Launch requirements:
 
-- A new device can connect its own mailboxes and read and organize their mail
-  before it is approved; sending waits for approval. A Trusted Device approves it
-  by scanning a QR code ([#1988](https://github.com/unwired-dev/product/issues/1988)).
+- A Trusted Device approves a new device by scanning a QR code, and is notified
+  when one is waiting ([#1988](https://github.com/unwired-dev/product/issues/1988)).
 - Unsaved composer edits survive a crash or the app ending, and the next launch
   offers to restore them ([#1989](https://github.com/unwired-dev/product/issues/1989)).
 - First run lands on the Inbox. The Recovery Key is asked for later, and the
@@ -224,7 +221,9 @@ Accepted follow-ups after launch:
 - Swipe actions ([#1725](https://github.com/unwired-dev/product/issues/1725)), unread and starred filters ([#1701](https://github.com/unwired-dev/product/issues/1701)), appearance
   and density ([#1727](https://github.com/unwired-dev/product/issues/1727)) and reply from a notification ([#1672](https://github.com/unwired-dev/product/issues/1672)).
 
-Not decided: pinning one certificate for a self-hosted mail server
+Not decided: letting a device read its own mail before it is approved
+([#2010](https://github.com/unwired-dev/product/issues/2010)), and pinning one
+certificate for a self-hosted mail server
 ([#2005](https://github.com/unwired-dev/product/issues/2005)).
 
 ## Power-user workflows
