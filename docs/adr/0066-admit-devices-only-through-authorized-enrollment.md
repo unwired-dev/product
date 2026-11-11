@@ -13,6 +13,10 @@ status: accepted
 > limits and tombstone protections stand. The corresponding pending-rotation
 > rationale and consequences below describe historical context.
 
+> [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) shows the Enrollment Code as a QR code as well, and sends Trusted Devices a
+> push without content when a device asks for approval, superseding "no push is
+> sent" below. Every restriction on a Pending Device below stands.
+
 A device becomes a **Trusted Device** only when an existing Trusted Device approves
 it or the **Recovery Key** unlocks it. **Product Sign-In** alone admits nobody
 except the device that creates a Product Account's keys. This replaces the

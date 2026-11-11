@@ -28,6 +28,10 @@ implemented.
 
 ## Prototype composer presentation
 
+The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) add crash recovery for unsaved composer edits and a To-first field order.
+[ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records them; the notes here describe the current behavior until each issue
+ships.
+
 - On regular-width layouts, composing starts as a bottom-anchored, nonmodal overlay contained by the detail column; expanding that composer takes over the entire app surface while preserving the same editor and Draft state; on the Mac, expanding instead saves the Draft and moves it into its own New Message window, closing the overlay with no way back
 - While that composer is not expanded, the sidebar and Thread list remain interactive, the part of the detail column under the composer does not (on the Mac, the reader's toolbar and uncovered content above it stay interactive), and changing Thread selection updates the reader behind the composer without dismissing or resetting its Draft; closing reveals the latest selection
 - The regular-width composer spans the detail column, with 12-point outer insets on iPad and docked edge to edge at the bottom of the reading pane on the Mac, and uses 70 percent of available height clamped from 420 through 720 points; it has only overlay and full-app states (on the Mac, overlay and New Message window), not freeform drag resizing
@@ -143,6 +147,10 @@ rules below do not establish that this target is implemented.
 - Editing an eligible Outbox message creates a new **Outgoing Delivery Attempt** rather than mutating an attempt already in flight
 
 ## Thread identity and reader behavior
+
+The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) mark a message read when it is opened and group conversations in the
+message list by default. [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records them; the notes here describe the current
+behavior until each issue ships.
 
 - A **Thread** groups related messages without being the categorization target
 - A **Thread** never spans multiple **Mailbox Connections**, including when shown in a **Unified Mailbox**

@@ -4,6 +4,15 @@ status: accepted
 
 # Present composing inside the mail shell
 
+## Crash recovery amendment, 2026-11-11
+
+[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the Mac saving amendment's acceptance below that edits are lost if
+the app ends before they are stored, and the same consequence of the iPhone and
+iPad amendment. An open composer journals its unsaved
+edits to an encrypted device-local recovery record and offers them after an
+unexpected end ([#1989](https://github.com/unwired-dev/product/issues/1989)). The
+explicit Save and Close contract below is unchanged.
+
 ## Mac save decision amendment, 2026-10-30
 
 The owner-approved [#991 design](https://github.com/unwired-dev/product/issues/991)

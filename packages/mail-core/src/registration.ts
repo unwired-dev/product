@@ -12,6 +12,7 @@ import type {
   MailboxConnection,
   MailGrantProvider,
   PrivateSync,
+  ProfileColor,
   ProfileStyle,
   RegistrationSnapshot,
   SignInProvider,
@@ -54,6 +55,7 @@ export type {
   MailProfile,
   MailProvider,
   PrivateSync,
+  ProfileColor,
   ProfileStyle,
   RegistrationSnapshot,
   SignInProvider,
@@ -137,6 +139,10 @@ export type RegistrationState = Readonly<{
   notificationFailure?: string;
   // The IMAP connection whose Spam and Trash folders could not be chosen; its choice is unchanged.
   foldersFailure?: string;
+  // The Mail Profile whose connections could not be arranged or reset; their order is unchanged.
+  orderFailure?: string;
+  // The connection whose display Color could not be changed; its Color is unchanged.
+  colorFailure?: string;
   // Why removal failed, or could not be confirmed after saved state became unreadable.
   mailboxRemovalFailure?: MailboxRemovalFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
@@ -251,7 +257,13 @@ class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
 class SettingRefused extends Schema.TaggedError<SettingRefused>()(
   'SettingRefused',
   {
-    setting: Schema.Literals(['notificationFailure', 'foldersFailure']),
+    setting: Schema.Literals([
+      'notificationFailure',
+      'foldersFailure',
+      'orderFailure',
+      'colorFailure',
+    ]),
+    // The connection, or for its order the Mail Profile, the setting belongs to.
     connection: Schema.String,
     snapshot: RegistrationSnapshotSchema,
   },
@@ -811,6 +823,27 @@ export function createRegistration(vault: NativeRegistrationVault) {
         saved.trash === folders.trash
       );
     },
+    // Arranges every connection of one Mail Profile in `order`.
+    arrangeMailboxes: (profile: string, order: readonly string[]) =>
+      changeSetting(
+        'orderFailure',
+        profile,
+        request(native.arrangeMailboxes(profile, order)),
+      ),
+    // Returns one Mail Profile's connections to the order they were added.
+    resetMailboxOrder: (profile: string) =>
+      changeSetting(
+        'orderFailure',
+        profile,
+        request(native.arrangeMailboxes(profile, [])),
+      ),
+    // Gives a connection a display Color, or none.
+    colorMailbox: (connection: string, color: ProfileColor | undefined) =>
+      changeSetting(
+        'colorFailure',
+        connection,
+        request(native.colorMailbox(connection, color)),
+      ),
     link: (provider: SignInProvider) =>
       execute(
         request(native.link(provider)).pipe(

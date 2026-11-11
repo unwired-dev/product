@@ -4,6 +4,15 @@ status: accepted
 
 # Notify for new Inbox mail without categorization
 
+## Setup prompt and preview default amendment — 2026-11-11
+
+[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes generic content as the default and previews as opt-in below. Setup
+offers notifications once when the first mailbox connects, and Show Sender and
+Subject defaults to on
+([#1991](https://github.com/unwired-dev/product/issues/1991)). Device evaluation,
+per-connection switches and the exclusion of historical synchronization remain in
+force.
+
 ## Launch scope amendment — 2026-10-11
 
 The power-user Apple launch adds quiet hours and explicit sender/rule-based
