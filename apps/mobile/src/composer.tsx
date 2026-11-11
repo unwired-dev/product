@@ -506,12 +506,10 @@ export const layoutStyles = {
     },
     fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
     input: { ...typography.ipadList.body, minHeight: padFieldHeight },
-    // The Mac's suggestions at 1.15, beside the label column.
+    // The Mac's suggestions at 1.15, beside the label column, narrowing with a docked reply.
     suggestions: {
       left: padLabelWidth + spacing.s * ipadListScale,
-      right: undefined,
-      width: 340 * ipadListScale,
-      maxWidth: '100%',
+      maxWidth: 340 * ipadListScale,
       padding: 6 * ipadListScale,
     },
     suggestionSection: {
