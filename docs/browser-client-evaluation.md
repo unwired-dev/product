@@ -17,7 +17,9 @@ of these boundaries. The owner can reopen this evaluation through a new issue th
 accepts specific trade-offs from [Boundaries](#boundaries).
 
 A Safari web extension bundled with the Mac host is the only shape that keeps
-tokens, keys and PCC in the native vault. It still requires
+tokens and keys in the native vault and PCC requests in native Foundation Models
+sessions. As in the Mac host, PCC requests still send the authorized context
+from the device to Apple's Private Cloud Compute. It still requires
 [an owner decision](#safari-companion-not-proposed) and is not proposed here: it
 renders only what the Mac host can already show, and it does not provide SH-012's
 main benefit, which is mail in a browser on a machine without the app.
@@ -76,10 +78,14 @@ do not change the decision.
   Direct Sockets is "restricted to Isolated Web Apps", meaning "trusted,
   explicitly installed applications"
   ([Direct Sockets](https://developer.chrome.com/docs/iwa/direct-sockets)). Any
-  other route to IMAP and SMTP from a browser needs a server relay that sees
-  readable mail and credentials. That contradicts
-  [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md), and
-  the issue rules it out.
+  other route to IMAP and SMTP from a browser goes through a server relay. A relay
+  that terminates TLS sees readable mail and credentials, which contradicts
+  [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md) and the
+  issue. A WebSocket-to-TCP relay could instead forward TLS unopened, but then
+  browser JavaScript must implement TLS and verify the mail server itself. ADR 0067
+  gives the credentialed IMAP session and verified TLS to a qualified native
+  adapter, with passwords in native custody, so that route would also need a new
+  decision and a review of the relay's trust boundary.
 - **Chrome extension.** `chrome.identity.getAuthToken` returns a Google access
   token for an account in the Chrome profile. Other providers use
   `launchWebAuthFlow` through a `https://<app-id>.chromiumapp.org/` redirect
@@ -95,8 +101,11 @@ do not change the decision.
   [Microsoft credentials](microsoft-mail.md#credentials)), in ThisDeviceOnly
   Keychain items ([Google architecture](architecture/google-registration.md),
   [ADR 0010](adr/0010-device-local-mailbox-authorization.md)). Browser storage has
-  no equivalent. A browser client would hold tokens, the cache key and its Trusted
-  Device key where any script running in its origin can read them.
+  no equivalent. Bearer tokens must be readable by the page that sends them, so
+  any script running in the origin can read them. Web Crypto can keep a
+  non-extractable key whose bytes scripts cannot read, but any script that reaches
+  the key handle can still use it to decrypt. Neither meets the native custody
+  ADR 0067 requires for tokens and key material.
 - **Storage can disappear.** Safari deletes "all cookies created in JavaScript and
   all other script-writeable storage", including IndexedDB and service worker
   registrations, "after 7 days of no user interaction with the website". Home
