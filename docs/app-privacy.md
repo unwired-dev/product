@@ -41,7 +41,8 @@ Microsoft Graph and IMAP/SMTP servers directly
 Mail assistance uses on-device Foundation Models
 (`native/private-inbox/bridge/UnwiredAssistance.swift`). The iPhone and iPad app
 requests Contacts access only to suggest recipients while composing; contacts
-are read on the device and never leave it, so they are not collected
+are read on the device and never leave it, so they are not collected. A
+suggestion the person accepts becomes an ordinary recipient of the Draft
 ([Drafts](drafts.md#composing)). The apps request no calendar, location, photos,
 camera or microphone permission and contain no advertising SDK, advertising
 identifier or App Tracking Transparency prompt.
