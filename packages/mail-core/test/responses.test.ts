@@ -670,6 +670,15 @@ describe('replying to and forwarding a received message', () => {
         await saveHeld.promise;
         return save(...args);
       };
+      // A Draft published and then removed would still flash in the Drafts list.
+      const published = new Set<string>();
+      const unsubscribe = drafts.subscribe(() => {
+        const state = drafts.getSnapshot();
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Narrows the public store snapshot.
+        for (const { id } of state.kind === 'ready' ? state.drafts : []) {
+          published.add(id);
+        }
+      });
       const reading = { open: true };
       const forwarding = startResponse({ navigation, drafts, inbox }, english, {
         kind: 'forward',
@@ -682,7 +691,8 @@ describe('replying to and forwarding a received message', () => {
       interrupt(opened, reading);
       saveHeld.resolve(undefined);
       await expect(forwarding).resolves.toBeUndefined();
-      expect(drafts.getSnapshot()).not.toHaveProperty('drafts.0');
+      unsubscribe();
+      expect([...published]).toStrictEqual([]);
     }
   });
 
