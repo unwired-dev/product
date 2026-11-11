@@ -24,7 +24,8 @@ const specifier = (title, licence) =>
 // An installed Pods folder with a remote pod CocoaPods acknowledged, path pods
 // with string, object and missing podspec licences, and a remote pod without
 // licence text; path pods whose npm package root, own directory or neither
-// ships a licence, and a podspec-sourced pod in a licensed package; resolved
+// ships a licence (a LICENSE folder is not one), and a podspec-sourced pod in a
+// licensed package that also names it as a path; resolved
 // Swift packages pinned by version and by revision.
 function fixture() {
   mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
@@ -43,6 +44,7 @@ function fixture() {
   write(path.join(directory, 'node_modules/expo-font/package.json'), '{}');
   write(path.join(directory, 'node_modules/expo-font/ios/LICENSE.md'));
   write(path.join(directory, 'ios/build/generated/ios/ReactCodegen.podspec'));
+  mkdirSync(path.join(directory, 'ios/build/generated/ios/LICENSE'));
   const pods = path.join(directory, 'ios/Pods');
   write(
     path.join(pods, 'Manifest.lock'),
@@ -65,13 +67,14 @@ function fixture() {
       '',
       'EXTERNAL SOURCES:',
       '  DoubleConversion:',
+      '    :path: "../node_modules/react-native"',
       '    :podspec: "../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec"',
       '  ExpoFont:',
       '    :path: "../node_modules/expo-font/ios"',
       '  React-Core:',
       '    :path: "../node_modules/react-native/"',
       '  ReactCodegen:',
-      '    :path: build/generated/ios',
+      "    :path: 'build/generated/ios'",
       '  Yoga:',
       '    :path: "../node_modules/react-native/ReactCommon/yoga"',
       '',

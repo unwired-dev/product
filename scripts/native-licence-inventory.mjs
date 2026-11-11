@@ -90,14 +90,15 @@ const installed = new Map(
     ).matchAll(/^ {2}- "?(?<name>[^/ "]+)[^ "]* \((?<version>[^)]+)\)/gmu),
   ].map(({ groups }) => [groups.name, groups.version]),
 );
-// Pods installed from a local path, relative to the Podfile beside Pods.
+// Pods installed from a local path alone, relative to the Podfile beside Pods.
+// CocoaPods prefers another source key, such as :podspec:, over :path:.
 const localPaths = new Map(
   [
     ...(
       /^EXTERNAL SOURCES:\n(?<section>(?:[ ].*\n)*)/mu.exec(manifest)?.groups
         .section ?? ''
     ).matchAll(
-      /^ {2}"?(?<name>[^":]+)"?:\n {4}:path: "?(?<path>[^"\n]+)"?$/gmu,
+      /^ {2}"?(?<name>[^":]+)"?:\n {4}:path: (?<q>["']?)(?<path>.+)\k<q>$(?!\n {4})/gmu,
     ),
   ].map(({ groups }) => {
     const local = path.resolve(path.dirname(pods), groups.path);
@@ -132,7 +133,9 @@ const isLicenceFile = (file) =>
 // CocoaPods looks for licence text only beside the podspec, so a path pod also
 // has it when a directory up to its npm package root ships a licence file.
 const shipsLicence = (directory) =>
-  readdirSync(directory).some(isLicenceFile) ||
+  readdirSync(directory, { withFileTypes: true }).some(
+    (entry) => entry.isFile() && isLicenceFile(entry.name),
+  ) ||
   (!existsSync(path.join(directory, 'package.json')) &&
     path.dirname(directory) !== directory &&
     shipsLicence(path.dirname(directory)));
