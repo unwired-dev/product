@@ -1141,9 +1141,15 @@ describe('composing Drafts', () => {
           state: 'connected',
           profile: 'work',
         },
+        {
+          id: 'pending-connection',
+          address: 'pending@example.invalid',
+          state: 'authorization',
+        },
       ]),
     });
     const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Pending <pending@example.invalid>' });
     personal.deliver({ from: 'Kim Lee <kim@example.invalid>' });
     personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
     personal.deliver({ from: 'Anders Berg <anders@example.invalid>' });
@@ -1163,6 +1169,11 @@ describe('composing Drafts', () => {
     );
     await press('New Message');
     const to = screen.getByLabelText('To');
+    // The Profile's own addresses, even one awaiting authorization, are never suggested.
+    await fireEvent.changeText(to, 'al');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+    await fireEvent.changeText(to, 'pe');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
     await fireEvent.changeText(to, 'an');
     // Newest first, and Return takes the highlighted first; the Profile's own address and the
     // work Profile's correspondent never appear.

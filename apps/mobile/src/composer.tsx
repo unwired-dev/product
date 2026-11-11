@@ -899,13 +899,17 @@ export function Recipients({
     if (!entering || !editable) {
       return [];
     }
-    const profile = profileOf(draft.connection, account?.mailboxes ?? []);
-    const own = held.filter((mailbox) => mailbox.profile === profile);
+    const connections = account?.mailboxes ?? [];
+    const profile = profileOf(draft.connection, connections);
     return recipientSuggestions(draft, field, {
-      correspondents: inboxMessages(own, { profile }).map(
-        ({ message }) => message,
+      correspondents: inboxMessages(
+        held.filter((mailbox) => mailbox.profile === profile),
+        { profile },
+      ).map(({ message }) => message),
+      // Including connections awaiting authorization, which hold no mail here.
+      excluded: connections.flatMap((mailbox) =>
+        mailbox.profile === profile ? [mailbox.address] : [],
       ),
-      excluded: own.flatMap(({ address }) => address ?? []),
     });
   }, [entering, editable, draft, field, account, held]);
   const accept = (recipient: Recipient) => {
