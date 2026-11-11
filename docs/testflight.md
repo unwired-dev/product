@@ -238,7 +238,11 @@ the inventory. Run it on macOS with
 `node scripts/native-licence-inventory.mjs <Pods> <SourcePackages>`. Each pod
 in the `Manifest.lock` `PODS` section is listed with its version, the licence
 CocoaPods acknowledged or a path or Git pod's podspec declares (`null` when
-neither does) and whether CocoaPods found its licence text. Swift packages
+neither does) and whether it has licence text: CocoaPods found it, or the pod
+is installed from a local `:path:` whose folder, or a parent folder up to the
+one with the npm package's `package.json`, holds a `LICENSE`, `LICENCE`,
+`COPYING` or `NOTICE` file. Pods from a `:podspec:`, Git or remote source rely
+on CocoaPods alone, and a missing `:path:` folder fails the command. Swift packages
 declare no licence, so each resolved package lists its identity, location,
 version or revision and the `LICENSE`, `LICENCE`, `COPYING` or `NOTICE` files
 its checkout ships. `undeclared` lists pods without a declared licence, and

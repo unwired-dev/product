@@ -81,13 +81,31 @@ const packages = path.resolve(argv.at(3));
 
 // Root pods and their versions, from the installed lockfile's PODS section.
 const lock = path.join(pods, 'Manifest.lock');
+const manifest = read(lock);
 const installed = new Map(
   [
     ...(
-      /^PODS:\n(?<section>(?:[ ].*\n)*)/mu.exec(read(lock))?.groups.section ??
+      /^PODS:\n(?<section>(?:[ ].*\n)*)/mu.exec(manifest)?.groups.section ??
       fail(`unreadable ${lock}: no PODS section`)
     ).matchAll(/^ {2}- "?(?<name>[^/ "]+)[^ "]* \((?<version>[^)]+)\)/gmu),
   ].map(({ groups }) => [groups.name, groups.version]),
+);
+// Pods installed from a local path alone, relative to the Podfile beside Pods.
+// CocoaPods prefers another source key, such as :podspec:, over :path:.
+const localPaths = new Map(
+  [
+    ...(
+      /^EXTERNAL SOURCES:\n(?<section>(?:[ ].*\n)*)/mu.exec(manifest)?.groups
+        .section ?? ''
+    ).matchAll(
+      /^ {2}"?(?<name>[^":]+)"?:\n {4}:path: (?<q>["']?)(?<path>.+)\k<q>$(?!\n {4})/gmu,
+    ),
+  ].map(({ groups }) => {
+    const local = path.resolve(path.dirname(pods), groups.path);
+    return existsSync(local)
+      ? [groups.name, local]
+      : fail(`missing pod path ${local}`);
+  }),
 );
 // CocoaPods acknowledges the pods whose licence text it found.
 const acknowledged = new Map(
@@ -110,6 +128,20 @@ const podspecLicence = (name) => {
 };
 const declared = (name) =>
   acknowledged.get(name) ?? podspecLicence(name) ?? null;
+const isLicenceFile = (file) =>
+  /^(?:licen[cs]e|copying|notice)(?:$|[.-])/iu.test(file);
+// CocoaPods looks for licence text only beside the podspec, so a path pod also
+// has it when a directory up to its npm package root ships a licence file.
+const shipsLicence = (directory) =>
+  readdirSync(directory, { withFileTypes: true }).some(
+    (entry) => entry.isFile() && isLicenceFile(entry.name),
+  ) ||
+  (!existsSync(path.join(directory, 'package.json')) &&
+    path.dirname(directory) !== directory &&
+    shipsLicence(path.dirname(directory)));
+const hasLicenceText = (name) =>
+  acknowledged.has(name) ||
+  (localPaths.has(name) && shipsLicence(localPaths.get(name)));
 
 // Order by name, then version, in code units, independent of the locale.
 const order = (a, b) => (a < b ? -1 : Number(a > b));
@@ -118,7 +150,7 @@ const podList = [...installed]
     name,
     version,
     licence: declared(name),
-    licenceText: acknowledged.has(name),
+    licenceText: hasLicenceText(name),
   }))
   .toSorted((a, b) => order(a.name, b.name));
 
@@ -135,11 +167,7 @@ const swiftList = decode(WorkspaceState, stateFile, read(stateFile))
       location: packageRef.location,
       version: state.checkoutState.version ?? null,
       revision: state.checkoutState.revision,
-      licenceFiles: readdirSync(checkout)
-        .filter((file) =>
-          /^(?:licen[cs]e|copying|notice)(?:$|[.-])/iu.test(file),
-        )
-        .toSorted(),
+      licenceFiles: readdirSync(checkout).filter(isLicenceFile).toSorted(),
     };
   })
   .toSorted((a, b) => order(a.identity, b.identity));
