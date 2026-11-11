@@ -49,6 +49,8 @@ export const createRegistrationFlow = (
       Effect.runPromise(flow.arrangeMailboxes(profile, order)),
     colorMailbox: (connection, color) =>
       Effect.runPromise(flow.colorMailbox(connection, color)),
+    chooseSendingDefault: (profile, connection) =>
+      Effect.runPromise(flow.chooseSendingDefault(profile, connection)),
     link: (provider) => Effect.runPromise(flow.link(provider)),
     confirmRecoveryKey: (entry) =>
       Effect.runPromise(flow.confirmRecoveryKey(entry)),

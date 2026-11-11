@@ -148,6 +148,8 @@ const MailboxesSchema = Schema.fromJsonString(
       folders: Schema.optionalKey(ChosenFoldersSchema),
       // The display Color chosen in Product Sync for this incarnation.
       color: Schema.optionalKey(ProfileColorSchema),
+      // Its primary address is its Mail Profile's Default Sending Identity in Product Sync.
+      sendingDefault: Schema.optionalKey(Schema.Literal(true)),
     }).check(Schema.makeFilter(endpointMatchesProvider)),
   ).check(
     Schema.makeFilter(

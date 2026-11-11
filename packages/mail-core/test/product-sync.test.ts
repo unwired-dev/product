@@ -342,8 +342,8 @@ describe('product sync', () => {
       { cursor: '200', numItems: 100 },
     ]);
     // Plus one empty page each of Profile definitions, connection ownership, notification
-    // policies, chosen folders and display records.
-    expect(sync.listedPages).toBe(8);
+    // policies, chosen folders, display records and Default Sending Identities.
+    expect(sync.listedPages).toBe(9);
   });
 
   // Replaces ProductSyncTests.writesSealedAtAnOvertakenEpochAreSealedAgainAfterAdoptingIt.

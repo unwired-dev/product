@@ -216,6 +216,68 @@ export const connectionDisplay = (value: RegistrationRecord) => {
   return { positions, colors };
 };
 
+type SendingIdentity = Partial<
+  Readonly<Record<'record' | 'epoch' | 'address', string | undefined>>
+>;
+const sameIdentity = (
+  current: SendingIdentity | undefined,
+  next: SendingIdentity | undefined,
+) =>
+  current?.record === next?.record &&
+  current?.epoch === next?.epoch &&
+  current?.address === next?.address;
+
+// The write that makes `identity` a Profile's Default Sending Identity, or none when it already is.
+const sendingWrite = (
+  state: ProfileState,
+  profile: string,
+  identity:
+    | Readonly<{ record: string; epoch: string; address: string }>
+    | undefined,
+) => {
+  const current = state.sending?.find((item) => item.profile === profile);
+  if (sameIdentity(current?.identity, identity)) {
+    return undefined;
+  }
+  return {
+    record: {
+      kind: 'sending' as const,
+      profile,
+      version: (current?.version ?? 0) + 1,
+      ...(identity === undefined ? {} : { identity }),
+    },
+    expectedUpdatedAt: current?.updatedAt,
+  };
+};
+
+// The connections whose primary address is the Default Sending Identity of the Mail Profile that
+// owns them now. A default naming a removed or re-added incarnation, a connection now in another
+// Profile or another address marks none, so no other identity stands in for it. Unreadable
+// Profile state or keys mark none.
+export const sendingDefaults = (value: RegistrationRecord) => {
+  const state = value.profiles;
+  const vault = stateOf(value);
+  if (state === undefined || state === 'unreadable' || vault === undefined) {
+    return new Set<string>();
+  }
+  const records = new Map(
+    vault.mailboxes.map(({ id, record }) => [id, record]),
+  );
+  return new Set(
+    value.mailboxes.flatMap(({ id, epoch, address }) => {
+      const record = records.get(id);
+      const owner = ownerOf(state, record, epoch);
+      const identity = state.sending?.find(
+        ({ profile }) => profile === owner,
+      )?.identity;
+      return identity !== undefined &&
+        sameIdentity(identity, { record, epoch, address })
+        ? [id]
+        : [];
+    }),
+  );
+};
+
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier, name and style this client knows, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
@@ -323,6 +385,18 @@ const withRecord = (
       display: replacing(state.display, { ...display, updatedAt }),
     };
   }
+  if (record.kind === 'sending') {
+    const { kind: _, ...sending } = record;
+    return {
+      ...state,
+      sending: [
+        ...(state.sending ?? []).filter(
+          ({ profile }) => profile !== record.profile,
+        ),
+        { ...sending, updatedAt },
+      ],
+    };
+  }
   if (record.kind === 'notifications') {
     const { kind: _, ...policy } = record;
     return {
@@ -371,6 +445,35 @@ const withoutUnreadablePolicy = (
       }
     : state;
 
+// Its identifier does not say which Profile a Default Sending Identity record belongs to, so one that
+// no longer opens here clears every Profile's identity until a readable record confirms it. Keeps
+// each version floor and row revision.
+const withoutUnreadableSending = (
+  state: ProfileState,
+  identifier: string | undefined,
+): ProfileState =>
+  identifier?.startsWith('profile-sending.') === true &&
+  state.sending !== undefined
+    ? {
+        ...state,
+        sending: state.sending.map(({ profile, version, updatedAt }) => ({
+          profile,
+          version,
+          updatedAt,
+        })),
+      }
+    : state;
+
+// What a record that no longer opens here turns off.
+const withoutUnreadable = (
+  state: ProfileState,
+  identifier: string | undefined,
+) =>
+  withoutUnreadableSending(
+    withoutUnreadablePolicy(state, identifier),
+    identifier,
+  );
+
 // The records of one connection-bound kind this state knows.
 const connectionRecords = (
   state: ProfileState,
@@ -396,15 +499,27 @@ const sameChoice = (current: ChosenFolders, next: ChosenFolders) =>
   current.junk === next.junk && current.trash === next.trash;
 
 // Convex's row revision cannot make an older authenticated record newer than one already read.
+const knownVersion = (state: ProfileState, record: ProfileRecord) => {
+  if (record.kind === 'profile') {
+    return state.profiles.find(({ id }) => id === record.id)?.version;
+  }
+  if (record.kind === 'sending') {
+    return state.sending?.find(({ profile }) => profile === record.profile)
+      ?.version;
+  }
+  return connectionRecords(state, record.kind).find(
+    (known) => known.record === record.record,
+  )?.version;
+};
 const olderRecord = (state: ProfileState, record: ProfileRecord) => {
-  const version =
-    record.kind === 'profile'
-      ? state.profiles.find(({ id }) => id === record.id)?.version
-      : connectionRecords(state, record.kind).find(
-          (known) => known.record === record.record,
-        )?.version;
+  const version = knownVersion(state, record);
   return version !== undefined && record.version < version;
 };
+
+// A connection this device can send from: neither receive-only nor needing authorization.
+const sendable = (mailbox: RegistrationRecord['mailboxes'][number]) =>
+  !mailbox.authorizationNeeded &&
+  (mailbox.provider !== 'imap' || mailbox.smtp !== undefined);
 
 const named = (name: string) => {
   const trimmed = name.trim();
@@ -443,7 +558,7 @@ const merged = (
   for (const [index, record] of opened.entries()) {
     const stored = records[index];
     if (record === null) {
-      next = withoutUnreadablePolicy(next, stored?.payloadIdentifier);
+      next = withoutUnreadable(next, stored?.payloadIdentifier);
     } else {
       replayed ||= olderRecord(next, record);
       next = olderRecord(next, record)
@@ -638,6 +753,7 @@ export function createMailProfileProgram<E>(
       'mailbox-notifications.',
       'mailbox-folders.',
       'mailbox-display.',
+      'profile-sending.',
     ]) {
       yield* list(prefix, read);
     }
@@ -1112,6 +1228,47 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
+  // The primary address of a live connection the Profile owns and this device can send from.
+  const sendingIdentity = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    state: ProfileState,
+    { profile, connection }: Readonly<{ profile: string; connection: string }>,
+  ) {
+    const mailbox = value.mailboxes.find(({ id }) => id === connection);
+    const { record, epoch } = yield* incarnationOf(value, connection);
+    if (
+      mailbox === undefined ||
+      !sendable(mailbox) ||
+      ownerOf(state, record, epoch) !== profile
+    ) {
+      return yield* failWith('unavailable');
+    }
+    yield* stillLive([{ record, epoch }]);
+    return { record, epoch, address: mailbox.address };
+  });
+
+  // Makes the primary address of one of this device's connections the Default Sending Identity of
+  // the Mail Profile that owns it, or with no connection clears that Profile's default. A
+  // connection this device cannot send from, receive-only or needing authorization, is refused.
+  const chooseSending = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    profile: string,
+    connection: string | undefined,
+  ) {
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable || !receives(state, profile)) {
+      return yield* failWith('unavailable');
+    }
+    const identity =
+      connection === undefined
+        ? undefined
+        : yield* sendingIdentity(value, state, { profile, connection });
+    const write = sendingWrite(state, profile, identity);
+    if (write !== undefined) {
+      yield* commit(state, [write]);
+    }
+  });
+
   return {
     synchronize,
     create,
@@ -1123,5 +1280,6 @@ export function createMailProfileProgram<E>(
     chooseFolders,
     arrange,
     colorConnection,
+    chooseSending,
   };
 }

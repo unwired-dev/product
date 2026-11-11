@@ -228,25 +228,32 @@ export function mailboxRecord(
   return record;
 }
 
+// The kind and name a Profile record's identifier is derived from.
+function recordName(record: ProfileRecord) {
+  if (record.kind === 'profile') {
+    return ['profile', record.id] as const;
+  }
+  if (record.kind === 'sending') {
+    return ['profile-sending', record.profile] as const;
+  }
+  const kinds = {
+    mailbox: 'mailbox-profile',
+    notifications: 'mailbox-notifications',
+    folders: 'mailbox-folders',
+    display: 'mailbox-display',
+  } as const;
+  return [kinds[record.kind], record.record] as const;
+}
+
 // The opaque identifier a ring stores a Mail Profile's definition, a connection's ownership, its
-// notification policy, its chosen folders or its display record under.
+// notification policy, its chosen folders, its display record or a Profile's Default Sending Identity
+// under.
 function profileIdentifier(
   sync: SyntheticProductSync,
   ring: string,
   record: ProfileRecord,
 ) {
-  const [kind, name] =
-    record.kind === 'profile'
-      ? ['profile', record.id]
-      : [
-          {
-            mailbox: 'mailbox-profile',
-            notifications: 'mailbox-notifications',
-            folders: 'mailbox-folders',
-            display: 'mailbox-display',
-          }[record.kind],
-          record.record,
-        ];
+  const [kind, name] = recordName(record);
   const key = `${ring}\n${kind}\n${name}`;
   const known = sync.identifiers.get(key);
   if (known !== undefined) {

@@ -76,7 +76,7 @@ const choiceOf = (sync: ReturnType<typeof setup>['sync']) => {
 // Every stored record of one kind as ciphertext this device can no longer open.
 const forgetKeys = (
   sync: ReturnType<typeof setup>['sync'],
-  kind: 'notifications' | 'folders' | 'display',
+  kind: 'notifications' | 'folders' | 'display' | 'sending',
 ) => {
   for (const [ciphertext, { record }] of sync.sealedProfiles) {
     if (record.kind === kind) {
@@ -145,6 +145,21 @@ const displayColored = (
     throw new Error('No display record');
   }
   return display;
+};
+// The addresses the snapshot marks as their Mail Profile's Default Sending Identity.
+const sendingDefaults = (snapshot: unknown) =>
+  mailboxesOf(decode(snapshot)).flatMap(({ address, sendingDefault }) =>
+    sendingDefault === true ? [address] : [],
+  );
+// The stored Default Sending Identity record of one Mail Profile.
+const sendingOf = (sync: ReturnType<typeof setup>['sync'], profile: string) => {
+  const sending = storedProfiles(sync, account).find(
+    (item) => item.kind === 'sending' && item.profile === profile,
+  );
+  if (sending?.kind !== 'sending') {
+    throw new Error('No Default Sending Identity');
+  }
+  return sending;
 };
 
 // A native request whose caller loses the reply before Convex receives the first publication.
@@ -1009,10 +1024,166 @@ describe('mail profiles', () => {
     expect(store.getSnapshot()).toMatchObject({ orderFailure: defaultProfile });
     await store.colorMailbox(id, 'teal');
     expect(store.getSnapshot()).toMatchObject({ colorFailure: id });
+    await store.chooseSendingDefault(defaultProfile, id);
+    expect(store.getSnapshot()).toMatchObject({
+      sendingFailure: defaultProfile,
+    });
     expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
     sync.offline = false;
     await store.resetMailboxOrder(defaultProfile);
     expect(store.getSnapshot()).not.toHaveProperty('orderFailure');
+  });
+
+  it('chooses each Profile’s Default Sending Identity only through Product Sync, for one incarnation', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, sync, records, google } = await connected();
+    const [first] = mailboxesOf(decode(await flow.restore()));
+    const a = first!.address;
+    const b = 'b@example.invalid';
+    google.subject = `synthetic-${b}`;
+    google.addresses[google.subject] = b;
+    const ids = {
+      a: first!.id,
+      b: mailboxesOf(decode(await flow.addMailbox('gmail', false))).find(
+        ({ address }) => address === b,
+      )!.id,
+    };
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    await flow.moveMailbox(ids.b, work);
+    // Until chosen, no Profile has a Default Sending Identity.
+    expect(sendingDefaults(await flow.restore())).toStrictEqual([]);
+
+    await flow.chooseSendingDefault(defaultProfile, ids.a);
+    const chosen = await flow.chooseSendingDefault(work, ids.b);
+    expect(sendingDefaults(chosen)).toStrictEqual([a, b]);
+    expect(sendingOf(sync, work)).toStrictEqual({
+      kind: 'sending',
+      profile: work,
+      version: 1,
+      identity: {
+        record: expect.any(String),
+        epoch: expect.any(String),
+        address: b,
+      },
+    });
+    await expect(relaunch().restore()).resolves.toStrictEqual(chosen);
+
+    // A connection another Profile owns is refused, and a choice that does not commit leaves the
+    // stored one.
+    const before = new Map(records());
+    await expect(flow.chooseSendingDefault(work, ids.a)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    sync.offline = true;
+    await expect(
+      flow.chooseSendingDefault(defaultProfile, undefined),
+    ).rejects.toBeDefined();
+    sync.offline = false;
+    expect(records()).toStrictEqual(before);
+    expect(sendingDefaults(await flow.restore())).toStrictEqual([a, b]);
+
+    // Another device clears it first: this write changes nothing and reports the conflict, and
+    // the other device's choice is adopted.
+    const workSending = sendingOf(sync, work);
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, {
+        kind: 'sending',
+        profile: work,
+        version: workSending.version + 1,
+      });
+    };
+    await expect(
+      flow.chooseSendingDefault(work, undefined),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    expect(sendingDefaults(await flow.refreshPrivateSync())).toStrictEqual([a]);
+    await flow.chooseSendingDefault(work, ids.b);
+
+    // Unreadable ciphertext cannot authorize overwriting the last confirmed choice.
+    const sealed = new Map(sync.sealedProfiles);
+    forgetKeys(sync, 'sending');
+    const unreadable = new Map(records());
+    await expect(
+      flow.chooseSendingDefault(work, undefined),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(records()).toStrictEqual(unreadable);
+    // A default this device cannot open marks no connection, not the one it last read.
+    expect(sendingDefaults(await flow.restore())).toStrictEqual([]);
+    for (const [ciphertext, sealedRecord] of sealed) {
+      sync.sealedProfiles.set(ciphertext, sealedRecord);
+    }
+    expect(sendingDefaults(await flow.refreshPrivateSync())).toStrictEqual([
+      a,
+      b,
+    ]);
+
+    // A default naming another address, or a connection that moved to another Profile, marks no
+    // connection: no other identity stands in for it.
+    const current = sendingOf(sync, work);
+    storeProfile(sync, account, {
+      ...current,
+      version: current.version + 1,
+      identity: { ...current.identity!, address: 'alias@example.invalid' },
+    });
+    expect(sendingDefaults(await flow.refreshPrivateSync())).toStrictEqual([a]);
+    await flow.chooseSendingDefault(work, ids.b);
+    await flow.moveMailbox(ids.a, work);
+    expect(sendingDefaults(await flow.restore())).toStrictEqual([b]);
+    await flow.moveMailbox(ids.a, defaultProfile);
+    expect(sendingDefaults(await flow.restore())).toStrictEqual([a, b]);
+
+    // Removed and connected again, the connection is no Profile's Default Sending Identity.
+    await flow.removeMailbox(ids.b);
+    google.subject = `synthetic-${b}`;
+    await flow.addMailbox('gmail', false);
+    expect(sendingDefaults(await flow.restore())).toStrictEqual([a]);
+    // Convex holds only opaque identifiers and ciphertext.
+    expect(JSON.stringify([...records().values()])).not.toContain(b);
+
+    // Cleared, the Profile has no Default Sending Identity after relaunch either.
+    await flow.chooseSendingDefault(defaultProfile, undefined);
+    expect(sendingOf(sync, defaultProfile)).not.toHaveProperty('identity');
+    expect(sendingDefaults(await relaunch().restore())).toStrictEqual([]);
+  });
+
+  it('refuses a Default Sending Identity on a connection that needs authorization', async () => {
+    expect.hasAssertions();
+    const { flow, vault, records, mailboxId } = await connected();
+    const id = await mailboxId();
+    await vault.markMailbox(id, 'authorization');
+    const before = new Map(records());
+    await expect(
+      flow.chooseSendingDefault(defaultProfile, id),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(records()).toStrictEqual(before);
+  });
+
+  it('refuses a Default Sending Identity on a receive-only IMAP connection', async () => {
+    expect.hasAssertions();
+    const { flow, device, imap: server, mailboxId, records } = setup();
+    await flow.signIn('google');
+    await flow.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: server.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    // A connection saved before SMTP was required receives only.
+    for (const connection of device.record!.connections) {
+      delete connection.smtp;
+    }
+    const before = new Map(records());
+    await expect(
+      flow.chooseSendingDefault(defaultProfile, await mailboxId()),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(records()).toStrictEqual(before);
   });
 
   it('removes only a Profile that owns no live connection', async () => {

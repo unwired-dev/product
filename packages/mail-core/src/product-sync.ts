@@ -939,5 +939,10 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       connection: string,
       color: ProfileColor | undefined,
     ) => rotating(() => profiles.colorConnection(value, connection, color)),
+    chooseSendingDefault: (
+      value: RegistrationRecord,
+      profile: string,
+      connection: string | undefined,
+    ) => rotating(() => profiles.chooseSending(value, profile, connection)),
   };
 }

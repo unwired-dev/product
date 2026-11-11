@@ -165,6 +165,20 @@ registration store already offers these operations:
   the store reports it as `orderFailure` with the Profile, or `colorFailure` with
   the connection. Settings does not offer these yet
   ([#1669](https://github.com/unwired-dev/product/issues/1669)).
+- **Default Sending Identity**
+  ([#2018](https://github.com/unwired-dev/product/issues/2018)) needs Private Sync.
+  Choosing one names a connection the Profile owns, and its primary address, which
+  Unwired treats as a provider-confirmed Sending Identity; clearing it names none. A
+  connection that needs authorization, or an IMAP connection without SMTP, is
+  refused, as is one another Profile owns. Each Profile keeps one record, and the
+  snapshot marks a connection `sendingDefault` while that record names its current
+  incarnation, owner and address. A default whose connection was removed, added
+  again, moved to another Profile or given another address marks nothing, so no
+  other identity stands in for it; a Profile without one keeps today's choice of its
+  first connection that can send. An edit commits through compare-and-set, and one
+  that does not commit changes nothing: the store reports it as `sendingFailure`
+  with the Profile. Settings and the composer's From pop-up do not offer it yet
+  ([#850](https://github.com/unwired-dev/product/issues/850)).
 - **Older clients** are fenced out before the first Profile publishes. Creating a Profile
   is refused with an upgrade-required reason while another Trusted Device runs a client
   that can't keep Profiles apart. Once Profiles exist, such clients can't use Private
