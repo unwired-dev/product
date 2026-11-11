@@ -95,6 +95,9 @@ These directories remain whole sources; use their original filenames.
 - [Siri AI Developer Preview assessment](../research/siri-ai.md): sourced API,
   privacy and availability findings, confirmed search-and-open requirements,
   proposed later workflows and deferred native qualification.
+- [iPhone Duo simultaneous display feasibility](../research/iphone-duo-simultaneous-displays.md):
+  sourced unsupported verdict for non-camera mail on the outer display while
+  open, with limitations and a revisit condition.
 - [DeBERTa v3 email categorization assessment](../research/deberta-v3-email-classification.md):
   sourced model sizes and proposed evaluation inputs for the approved spike,
   without an adoption decision or native qualification evidence.

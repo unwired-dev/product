@@ -20,7 +20,8 @@ implemented features, UI design approval, or passing qualification.
   APIs. This feasibility issue does not block the optimized Duo release. Its
   implementation requires a supported non-camera API and a later agreement on
   the workflow and privacy rules. Do not start a camera session to expose mail
-  on the outer display.
+  on the outer display. The [2026-11-11 feasibility verdict](../research/iphone-duo-simultaneous-displays.md)
+  found no such API and names the revisit condition.
 - Preserve the existing provider, Profile, Draft, Outbox, privacy, and assistance
   requirements. This work adds no provider, sign-in, or assistance scope.
 
