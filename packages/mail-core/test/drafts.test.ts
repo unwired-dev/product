@@ -13,12 +13,14 @@ import type {
 
 import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
+  acceptRecipient,
   addRecipients,
   assetsOf,
   createDrafts,
   draftSummary,
   isEmptyDraft,
   prepareFiles,
+  recipientSuggestions,
   recipientSummary,
   draftOf,
   draftsOf,
@@ -1066,6 +1068,61 @@ describe('entering Draft recipients', () => {
     expect(duplicate.notice).toBe('duplicate');
     expect(duplicate.text).toBe('');
     expect(duplicate.draft.bcc).toStrictEqual([]);
+  });
+
+  it('suggests recent correspondents for the entry and accepts one in its place', () => {
+    expect.hasAssertions();
+    // Newest first, as the Inbox lists them.
+    const correspondents = [
+      { sender: 'Ana Kovač', address: 'ana.kovac@example.com' },
+      { sender: 'me@example.com', address: 'me@example.com' },
+      { sender: 'andrea@example.com', address: 'andrea@example.com' },
+      { sender: 'Old Name', address: 'ANA.KOVAC@example.com' },
+      { sender: 'Oliver Anders', address: 'oliver@example.com' },
+      { sender: 'Maya Chen', address: 'maya@example.com' },
+      { sender: 'Broken', address: 'not an address' },
+    ];
+    const typing = (text: string, typed = draft) =>
+      addRecipients(typed, { field: 'cc', text }).draft;
+    const suggested = (typed: Draft, limit?: number) =>
+      recipientSuggestions(
+        typed,
+        'cc',
+        correspondents,
+        ['ME@example.com'],
+        limit,
+      );
+
+    // A name, a word of it or the address may start with the entry; each address appears once,
+    // under its newest name, and the Draft's own address never appears.
+    expect(suggested(typing('an'))).toStrictEqual([
+      { name: 'Ana Kovač', address: 'ana.kovac@example.com' },
+      { address: 'andrea@example.com' },
+      { name: 'Oliver Anders', address: 'oliver@example.com' },
+    ]);
+    expect(suggested(typing('ana k'))).toStrictEqual([
+      { name: 'Ana Kovač', address: 'ana.kovac@example.com' },
+    ]);
+    expect(suggested(typing('an'), 1)).toHaveLength(1);
+    expect(suggested(typing(''))).toStrictEqual([]);
+    // Only the unfinished entry is matched, and recipients already added are not suggested.
+    const withMaya = typing('maya@example.com, an');
+    expect(withMaya.cc).toStrictEqual([{ address: 'maya@example.com' }]);
+    expect(suggested(typing('ma', withMaya))).toStrictEqual([]);
+
+    // Accepting replaces the unfinished entry; invalid text before it stays for correction.
+    const accepted = acceptRecipient(typing('nope, an'), 'cc', {
+      name: 'Ana Kovač',
+      address: 'ana.kovac@example.com',
+    });
+    expect(accepted.cc).toStrictEqual([
+      { name: 'Ana Kovač', address: 'ana.kovac@example.com' },
+    ]);
+    expect(accepted.entries).toStrictEqual({ cc: 'nope' });
+    expect(
+      acceptRecipient(typing('an'), 'cc', { address: 'andrea@example.com' })
+        .entries,
+    ).toBeUndefined();
   });
 
   it('summarizes recipients by their To, Cc and Bcc roles', () => {

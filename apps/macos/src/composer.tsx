@@ -10,6 +10,7 @@ import type {
   Draft,
   PickedFile,
   PickSource,
+  Recipient,
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
@@ -50,6 +51,7 @@ import {
 } from '@private-email/mail-core/assistance';
 import { draftCommands } from '@private-email/mail-core/commands';
 import {
+  acceptRecipient,
   addRecipients,
   draftOf,
   entryOf,
@@ -59,12 +61,14 @@ import {
   profileOf,
   sendingMailboxes,
   pickLimit,
+  recipientSuggestions,
   sendingStateOf,
   unsendableAssets,
   prepareFiles,
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
+import { inboxMessages } from '@private-email/mail-core/mailboxes';
 import {
   applyText,
   blockKindAt,
@@ -135,6 +139,7 @@ import {
   Notice as Banner,
   Button,
   ContextMenu,
+  Glass,
   Popover,
   SFSymbol,
   ToolbarButton,
@@ -146,6 +151,7 @@ import {
   MailAssistanceProfileContext,
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
+import { useAllMailboxes } from './mailbox-list.ts';
 import {
   useComposerNavigation,
   useDrafts,
@@ -289,6 +295,32 @@ const styles = StyleSheet.create({
     minHeight: 28,
     paddingVertical: 6,
   },
+  // Recipient Suggestions open upward over the message, as the fields sit beneath it.
+  suggestions: {
+    position: 'absolute',
+    bottom: '100%',
+    left: fieldLabelWidth,
+    width: 340,
+    padding: 6,
+    borderRadius: radius.card + 2,
+    borderCurve: 'continuous',
+  },
+  suggestionSection: {
+    ...textStyles.subheadlineEmphasized,
+    paddingHorizontal: spacing.s + 2,
+    paddingVertical: spacing.xs,
+  },
+  suggestion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    minHeight: 40,
+    paddingHorizontal: spacing.s + 2,
+    borderRadius: radius.control,
+    borderCurve: 'continuous',
+  },
+  suggestionName: { ...textStyles.body },
+  suggestionAddress: { ...textStyles.subheadline },
   // The whole 28pt row height removes the recipient; its chip stays compact.
   token: { minHeight: 28, justifyContent: 'center' },
   tokenFill: {
@@ -688,6 +720,13 @@ function SendingNotice({ draft }: { readonly draft: Draft }) {
   );
 }
 
+// The keys a recipient field handles while it shows Recipient Suggestions.
+const suggestionKeys = [
+  { key: 'ArrowUp' },
+  { key: 'ArrowDown' },
+  { key: 'Tab' },
+];
+
 export function Recipients({
   draft,
   getDraft,
@@ -713,7 +752,36 @@ export function Recipients({
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
   const [focused, setFocused] = useState<string>();
+  // Recipient Suggestions show while the field is being typed in, until Escape dismisses the
+  // entry they were shown for.
+  const [typing, setTyping] = useState(false);
+  const [dismissed, setDismissed] = useState<string>();
+  const [highlighted, setHighlighted] = useState(0);
+  const account = use(AccountContext);
+  const held = useAllMailboxes();
   const name = t(`drafts.fields.${field}`);
+  const entry = entryOf(draft, field);
+  // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's;
+  // its own addresses are not suggested.
+  const suggestions = useMemo(() => {
+    if (!typing || !editable || entry === dismissed) {
+      return [];
+    }
+    const profile = profileOf(draft.connection, account?.mailboxes ?? []);
+    const own = held.filter((mailbox) => mailbox.profile === profile);
+    return recipientSuggestions(
+      draft,
+      field,
+      inboxMessages(own, { profile }).map(({ message }) => message),
+      own.flatMap(({ address }) => address ?? []),
+    );
+  }, [typing, editable, entry, dismissed, draft, field, account, held]);
+  const current = Math.min(highlighted, suggestions.length - 1);
+  const accept = (recipient: Recipient) => {
+    onChange(acceptRecipient(getDraft(), field, recipient), false, field);
+    setNotice(undefined);
+    setHighlighted(0);
+  };
   const add = (value: string, all: boolean, typing = false) => {
     if (!editable) {
       return;
@@ -731,6 +799,82 @@ export function Recipients({
   };
   return (
     <View>
+      {suggestions.length === 0 ? null : (
+        <View
+          accessibilityLabel={t('drafts.suggestions.title')}
+          style={[
+            styles.suggestions,
+            { boxShadow: colors.macMenuGlassShadow },
+          ]}>
+          {/* React Native's legacy view interop mounts a nested native view without its offset,
+              so the glass sits in a plain view. */}
+          <View
+            collapsable={false}
+            style={StyleSheet.absoluteFill}>
+            <Glass
+              cornerRadius={radius.card + 2}
+              panel
+            />
+          </View>
+          <Text
+            style={[styles.suggestionSection, { color: colors.textSecondary }]}>
+            {t('drafts.suggestions.recent')}
+          </Text>
+          {suggestions.map((recipient, index) => {
+            const chosen = index === current;
+            const primary = chosen ? colors.accentOnFill : colors.textPrimary;
+            const secondary = chosen
+              ? colors.accentOnFill
+              : colors.textSecondary;
+            return (
+              <Pressable
+                key={recipient.address}
+                accessibilityLabel={
+                  recipient.name === undefined
+                    ? recipient.address
+                    : t('drafts.suggestions.named', {
+                        name: recipient.name,
+                        address: recipient.address,
+                      })
+                }
+                accessibilityRole="button"
+                accessibilityState={{ selected: chosen }}
+                // The field keeps focus, so typing continues after a click.
+                focusable={false}
+                onPress={() => {
+                  accept(recipient);
+                }}
+                style={({ pressed }) => [
+                  styles.suggestion,
+                  pressed
+                    ? { backgroundColor: colors.accentSelectionSubtle }
+                    : null,
+                  chosen ? { backgroundColor: colors.accentFill } : null,
+                ]}>
+                <SFSymbol
+                  name="person.fill"
+                  color={secondary}
+                  size={11}
+                />
+                <View style={styles.grow}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.suggestionName, { color: primary }]}>
+                    {recipient.name ?? recipient.address}
+                  </Text>
+                  {recipient.name === undefined ? null : (
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.suggestionAddress, { color: secondary }]}>
+                      {recipient.address}
+                    </Text>
+                  )}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
       <View style={[styles.field, { borderTopColor: colors.separator }]}>
         <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
           {`${name}:`}
@@ -807,10 +951,18 @@ export function Recipients({
             autoCorrect={false}
             submitBehavior="submit"
             inputMode="email"
+            // Up and Down move through Recipient Suggestions and Tab accepts one; otherwise they
+            // move as usual.
+            keyDownEvents={
+              suggestions.length === 0 ? undefined : suggestionKeys
+            }
             onBlur={() => {
+              setTyping(false);
               add(entryOf(getDraft(), field), true);
             }}
             onChangeText={(value) => {
+              setTyping(true);
+              setHighlighted(0);
               const text = entryOf(getDraft(), field);
               caret.current =
                 selection.current.end + value.length - text.length;
@@ -827,8 +979,31 @@ export function Recipients({
               caret.current = undefined;
               selection.current = next;
             }}
+            onKeyDown={({ nativeEvent }) => {
+              if (nativeEvent.key === 'ArrowDown') {
+                setHighlighted(Math.min(current + 1, suggestions.length - 1));
+              } else if (nativeEvent.key === 'ArrowUp') {
+                setHighlighted(Math.max(current - 1, 0));
+              } else if (nativeEvent.key === 'Tab') {
+                const suggestion = suggestions[current];
+                if (suggestion !== undefined) {
+                  accept(suggestion);
+                }
+              }
+            }}
+            // AppKit reports Escape in a text input as a key press.
+            onKeyPress={({ nativeEvent }) => {
+              if (nativeEvent.key === 'Escape') {
+                setDismissed(entry);
+              }
+            }}
             onSubmitEditing={() => {
-              add(entryOf(getDraft(), field), true);
+              const suggestion = suggestions[current];
+              if (suggestion === undefined) {
+                add(entryOf(getDraft(), field), true);
+              } else {
+                accept(suggestion);
+              }
             }}
             placeholder={t('drafts.recipientPlaceholder')}
             placeholderTextColor={colors.textSecondary}

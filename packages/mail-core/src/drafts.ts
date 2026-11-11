@@ -300,6 +300,67 @@ export function addRecipients(
   };
 }
 
+// Up to `limit` Recipient Suggestions for the field's unfinished entry from recent correspondents,
+// given newest first: each address once, under its newest name, when the address, the name or a
+// word of it starts with the entry. Addresses already in the Draft or `excluded` are left out.
+export function recipientSuggestions(
+  draft: Draft,
+  field: RecipientField,
+  correspondents: Iterable<Readonly<{ sender: string; address: string }>>,
+  excluded: Iterable<string> = [],
+  limit = 5,
+): readonly Recipient[] {
+  const query = entriesOf(entryOf(draft, field)).rest.trim().toLowerCase();
+  if (query === '') {
+    return [];
+  }
+  const seen = new Set(
+    [
+      ...[...draft.to, ...draft.cc, ...draft.bcc].map(({ address }) => address),
+      ...excluded,
+    ].map((address) => address.toLowerCase()),
+  );
+  const found: Recipient[] = [];
+  for (const { sender, address } of correspondents) {
+    const key = address.toLowerCase();
+    if (seen.has(key) || !addressPattern.test(address)) {
+      continue;
+    }
+    seen.add(key);
+    const name = sender.trim();
+    const named = name !== '' && name.toLowerCase() !== key;
+    const words = named
+      ? [key, name.toLowerCase(), ...name.toLowerCase().split(/\s+/u)]
+      : [key];
+    if (words.some((word) => word.startsWith(query))) {
+      found.push(named ? { name, address } : { address });
+      if (found.length === limit) {
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+// The Draft with an accepted suggestion in place of the field's unfinished entry; invalid entries
+// typed before it stay for correction.
+export function acceptRecipient(
+  draft: Draft,
+  field: RecipientField,
+  recipient: Recipient,
+): Draft {
+  const { entries } = entriesOf(entryOf(draft, field));
+  const kept = entries
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+    .join(', ');
+  return withEntry(
+    { ...draft, [field]: [...draft[field], recipient] },
+    field,
+    kept,
+  );
+}
+
 // Sending identity ------------------------------------------------------------------------------
 
 // The Draft's sending connection on this device: usable, waiting for Gmail or Microsoft

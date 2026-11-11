@@ -1046,6 +1046,11 @@
       "invalid": "Enter a valid email address.",
       "duplicate": "Already added"
     },
+    "suggestions": {
+      "title": "Recipient suggestions",
+      "recent": "Recent",
+      "named": "{{name}}, {{address}}"
+    },
     "sending": {
       "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
       "authorization_microsoft": "This mailbox needs Microsoft access again before it can send. Allow access or choose another mailbox.",
