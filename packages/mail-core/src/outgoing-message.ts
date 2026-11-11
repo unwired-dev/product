@@ -451,17 +451,16 @@ export function outgoingMessage(
     calendar?: string;
   }>,
 ): OutgoingMessage {
-  const body = [
-    ...draft.body,
-    ...(draft.signature ?? []),
-    ...(draft.quoted ?? []),
-  ];
+  // Written apart, so a list or quote ending the body never continues into the signature.
+  const parts = [draft.body, draft.signature, draft.quoted].filter(
+    (part) => part !== undefined,
+  );
   const images = withoutFiles ? [] : inlineImages(draft);
   const alternative = multipart('alternative', `=_${boundary}_a`, [
-    textPart('text/plain', plainOf(body)),
+    textPart('text/plain', parts.map(plainOf).join(crlf)),
     textPart(
       'text/html',
-      `<!DOCTYPE html><html><body>${htmlOf(body)}</body></html>`,
+      `<!DOCTYPE html><html><body>${parts.map(htmlOf).join('')}</body></html>`,
     ),
     ...(calendar === undefined
       ? []

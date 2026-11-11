@@ -136,8 +136,9 @@ describe('building an outgoing message', () => {
       assemble(
         build(
           draft({
+            body: [{ kind: 'numbered', spans: [{ text: 'Agenda' }] }],
             signature: [
-              { kind: 'paragraph', spans: [{ text: 'Alex', marks: ['bold'] }] },
+              { kind: 'numbered', spans: [{ text: 'Alex', marks: ['bold'] }] },
             ],
             quoted: [{ kind: 'quote', spans: [{ text: 'Earlier' }] }],
           }),
@@ -145,11 +146,12 @@ describe('building an outgoing message', () => {
       ),
     );
 
+    // A list ending the body and one starting the signature stay separate lists.
     expect(parsed.html).toBe(
-      '<!DOCTYPE html><html><body><p>Hi</p><p><strong>Alex</strong></p>' +
+      '<!DOCTYPE html><html><body><ol><li>Agenda</li></ol><ol><li><strong>Alex</strong></li></ol>' +
         '<blockquote><p>Earlier</p></blockquote></body></html>',
     );
-    expect(parsed.text).toBe('Hi\nAlex\n> Earlier');
+    expect(parsed.text).toBe('1. Agenda\n1. Alex\n> Earlier');
   });
 
   it('links each linked run once and names its destination in the plain-text alternative', async () => {
