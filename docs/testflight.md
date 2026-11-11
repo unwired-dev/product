@@ -107,6 +107,7 @@ scripts/testflight.zsh ios|macos|both
   write <host>-inventory.json # privacy, permission, entitlement and encryption declarations, shipped cryptography
   write <host>-licences.json  # declared licences of bundled npm packages
   write <host>-native-licences.json # licences of CocoaPods and Swift packages
+  write <host>-findings.json  # unresolved findings and owner submissions still needed
   xcodebuild -exportArchive # cloud-managed distribution signing, direct upload
   wait for processing and record the commit in TestFlight What to Test notes
 ```
@@ -241,6 +242,28 @@ without a licence file. An unreadable lockfile, acknowledgements, podspec or pac
 state, or a missing checkout, fails the command. Like the npm inventory, it
 records declarations only. CI uploads it with `status.txt`.
 
+Each host then writes `<host>-findings.json` from those three inventories and
+adds `Findings: <host>; <n> unresolved, <n> owner submissions` to `status.txt`
+([#1971](https://github.com/unwired-dev/product/issues/1971)). The archive
+build only produces the inventories; the Node script derives the findings from
+them and owns the record. Run it with
+`node scripts/archive-findings.mjs <inventory.json> <licences.json> <native-licences.json>`;
+an unreadable inventory fails the command and refuses the upload. The record
+repeats the archive's build identity. Its `findings` list npm packages, pods
+and Swift packages without a declared licence (`undeclared-licence`) or licence
+text (`missing-licence-text`), each subject prefixed `npm`, `pod` or `swift`, an app without its own privacy manifest
+(`missing-app-privacy-manifest`), each manifest that declares tracking,
+tracking domains or a data type used for tracking (`tracking-declared`) and a missing
+`ITSAppUsesNonExemptEncryption` (`missing-encryption-declaration`).
+`ownerSubmissions` always lists the export compliance determination, with the
+code that ships cryptography as evidence; the [App Privacy answers](app-privacy.md),
+with the collected data types the manifests declare; and the third-party
+licence notices, with the licence inventories. Findings do not refuse a
+TestFlight upload; store release gating stays with
+[#669](https://github.com/unwired-dev/product/issues/669). The record never
+states that the archive is compliant: with no findings, the submissions remain
+for the owner and legal review. CI uploads it with `status.txt`.
+
 The notes helper checks processing at most 40 times, 30 seconds apart, and updates or creates
 the English notes for that exact platform, version and build number. A processing
 or notes failure makes the script fail even if the binary upload succeeded.
@@ -255,7 +278,7 @@ The helper uses Ruby's standard OpenSSL and HTTP libraries. It never prints
 signed API tokens or response bodies.
 
 Run the credential-free runner and API-contract checks with
-`mise exec -- node --test scripts/testflight.test.mjs scripts/archive-inventory.test.mjs scripts/licence-inventory.test.mjs scripts/native-licence-inventory.test.mjs`. Runner archive checks
+`mise exec -- node --test scripts/testflight.test.mjs scripts/archive-inventory.test.mjs scripts/archive-findings.test.mjs scripts/licence-inventory.test.mjs scripts/native-licence-inventory.test.mjs`. Runner archive checks
 require macOS and substitute build/upload commands; these are not native build
 or live App Store Connect evidence.
 
