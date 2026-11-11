@@ -431,10 +431,12 @@ export const draftFiles = (draft: Draft): readonly DraftFile[] =>
 
 // The documents a Draft's text is written from, in order. A signature is written apart, so a list
 // or quote ending the body never continues into it.
-const partsOf = ({ body, signature, quoted = [] }: Draft) =>
-  signature === undefined
-    ? [[...body, ...quoted]]
-    : [body, [...signature, ...quoted]];
+const partsOf = ({ body, signature, quoted }: Draft) => {
+  const after = quoted ?? [];
+  return signature === undefined
+    ? [[...body, ...after]]
+    : [body, [...signature, ...after]];
+};
 
 // The message sent for a Draft: its recipients, subject and reply headers, the formatted body with a
 // plain-text alternative, inline images by Content-ID and attachments, and a Message-ID when the
