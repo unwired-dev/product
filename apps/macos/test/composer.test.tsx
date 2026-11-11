@@ -4819,6 +4819,21 @@ describe('adding files and images to a Draft', () => {
       screen.getByRole('button', { name: 'Open invoice.pdf' }),
     ).toBeOnTheScreen();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    // A Default Sending Identity that cannot send here still starts the Draft, as New Message does.
+    await screen.rerender(
+      shown(
+        senders.map((mailbox) => ({
+          ...mailbox,
+          state: 'authorization',
+          sendingDefault: true,
+        })),
+      ),
+    );
+    await expect(
+      screen.findByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).resolves.toBeOnTheScreen();
     await screen.rerender(shown(senders));
     await expect(
       screen.findByRole('button', {

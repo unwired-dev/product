@@ -263,7 +263,11 @@ function AttachToNewMessage({
   // message.
   const mailboxes = account?.mailboxes ?? [];
   const canSend =
-    sendingMailboxes(mailboxes, profileOf(mailbox?.id, mailboxes)).length > 0;
+    newMessageSender(
+      mailboxes,
+      profileOf(mailbox?.id, mailboxes),
+      mailbox?.id,
+    ) !== undefined;
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
