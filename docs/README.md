@@ -36,6 +36,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Custom Category model benchmark for English and Czech (spike #829)](../tools/system-category-benchmark/CUSTOM.md)
 - [Gmail delegation spike: no supported path for the native grant](gmail-delegation-spike.md)
 - [Microsoft mailbox import fidelity spike: IMAP APPEND awaits live proof](microsoft-import-fidelity-spike.md)
+- [Browser mail client and extension evaluation: no-go](browser-client-evaluation.md)
 - [Sending Drafts through the Outbox](outbox.md)
 - [Responding to Gmail meeting invitations on Mac, iPhone and iPad](invitation-responses.md)
 - [New Mail Notifications](new-mail-notifications.md)
