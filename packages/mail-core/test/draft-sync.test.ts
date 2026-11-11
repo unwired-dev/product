@@ -303,16 +303,6 @@ describe('synchronizing Drafts through Product Sync', () => {
 
     // A newer record whose signature holds an inline image does not open here.
     const identifier = `draft.${id}`;
-    const opened = JSON.parse(
-      present(
-        server.open(
-          present(server.get('account-a', identifier), 'the record').sealed,
-          'account-a',
-          identifier,
-        ),
-        'the opened record',
-      ),
-    ) as { version: number; draft: string };
     const image = {
       id: 'image0001',
       name: 'logo.png',
@@ -332,7 +322,8 @@ describe('synchronizing Drafts through Product Sync', () => {
         identifier,
         JSON.stringify({
           id,
-          version: opened.version + 1,
+          // Newer than any version this test wrote.
+          version: 100,
           draft: JSON.stringify(pictured),
         }),
       ),
