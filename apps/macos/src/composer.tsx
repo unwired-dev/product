@@ -770,7 +770,6 @@ export function Recipients({
   const account = use(AccountContext);
   const held = useAllMailboxes();
   const name = t(`drafts.fields.${field}`);
-  const entry = entryOf(draft, field);
   // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's;
   // its own addresses are not suggested.
   const suggestions = useMemo(() => {
@@ -785,7 +784,7 @@ export function Recipients({
       ),
       excluded: own.flatMap(({ address }) => address ?? []),
     });
-  }, [entering, editable, entry, dismissed, draft, field, account, held]);
+  }, [entering, editable, dismissed, draft, field, account, held]);
   const active = Math.min(highlighted, suggestions.length - 1);
   const accept = (recipient: Recipient) => {
     onChange(acceptRecipient(getDraft(), field, recipient), false, field);
