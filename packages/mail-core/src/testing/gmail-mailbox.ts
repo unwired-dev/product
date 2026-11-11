@@ -7,7 +7,7 @@ import type {
   HistoryWrite,
   NativeGmailMailbox,
   OutgoingSend,
-} from '../gmail-inbox.ts';
+} from '../inbox-store.ts';
 
 import { base64Lines } from '../outgoing-message.ts';
 import { createSyntheticRemoteContent } from './remote-content.ts';

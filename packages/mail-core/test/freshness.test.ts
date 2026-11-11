@@ -1,7 +1,7 @@
 import * as Effect from 'effect/Effect';
 
 import type { NativeWakes } from '../src/freshness.ts';
-import type { GmailInboxState } from '../src/gmail-inbox.ts';
+import type { GmailInboxState } from '../src/inbox-store.ts';
 import type { Mailboxes } from '../src/mailboxes.ts';
 import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 

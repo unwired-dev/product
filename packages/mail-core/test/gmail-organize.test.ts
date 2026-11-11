@@ -3,7 +3,7 @@ import { setImmediate } from 'node:timers/promises';
 import { english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
-import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
+import type { GmailInboxState, GmailMessage } from '../src/inbox-store.ts';
 
 import {
   gmailAction,
@@ -11,7 +11,7 @@ import {
   quickActions,
   restoreAfter,
 } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const parseJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -31,11 +31,11 @@ const unsavedNotice = (state: GmailInboxState) => {
   return outcome;
 };
 
-const shown = (inbox: ReturnType<typeof createGmailInbox>, id: string) =>
+const shown = (inbox: ReturnType<typeof createInboxStore>, id: string) =>
   ready(inbox.getSnapshot()).messages.find((message) => message.id === id);
 
 const message = (
-  inbox: ReturnType<typeof createGmailInbox>,
+  inbox: ReturnType<typeof createInboxStore>,
   id: string,
 ): GmailMessage => {
   const found = shown(inbox, id);
@@ -80,7 +80,7 @@ const holdingPages = (
 
 // Resolves when the Inbox publishes a state matching the predicate.
 const until = (
-  inbox: ReturnType<typeof createGmailInbox>,
+  inbox: ReturnType<typeof createInboxStore>,
   matches: (state: GmailInboxState) => boolean,
 ) => {
   const reached = Promise.withResolvers<undefined>();
@@ -292,7 +292,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const oldLabel = gmail.createLabel('First mailbox label');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
       { id: oldLabel, name: 'First mailbox label' },
@@ -308,7 +308,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const deleted = gmail.createLabel('Deleted label');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -333,7 +333,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const travel = gmail.createLabel('Travel');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -372,7 +372,7 @@ describe('organizing Gmail mail', () => {
     const entered = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
     let hold = false;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       gmailRequest: async (path, query, scope) => {
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold the post-creation history read.
@@ -412,7 +412,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const removed = vi.fn<() => void>();
-    const inbox = createGmailInbox(gmail.native, { removed });
+    const inbox = createInboxStore(gmail.native, { removed });
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -442,7 +442,7 @@ describe('organizing Gmail mail', () => {
     const gmail = createSyntheticGmail({ messages: 1 });
     const deleted = gmail.createLabel('Deleted');
     const held = holdingCommit(gmail.native);
-    const inbox = createGmailInbox(held.native);
+    const inbox = createInboxStore(held.native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -483,7 +483,7 @@ describe('organizing Gmail mail', () => {
   it('refuses label creation for a message from the previous mailbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const previous = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -496,7 +496,7 @@ describe('organizing Gmail mail', () => {
     await expect(inbox.createLabel(previous, 'Previous owner')).resolves.toBe(
       false,
     );
-    const reopened = createGmailInbox(gmail.native);
+    const reopened = createInboxStore(gmail.native);
     await reopened.load();
     expect(ready(reopened.getSnapshot()).labels).toStrictEqual([]);
     expect(gmail.modifies).toStrictEqual([]);
@@ -511,7 +511,7 @@ describe('organizing Gmail mail', () => {
     const creationEntered = Promise.withResolvers<undefined>();
     const creationRelease = Promise.withResolvers<undefined>();
     let holdCatalog = true;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       gmailRequest: async (...args) => {
         const reply = await gmail.native.gmailRequest(...args);
@@ -564,7 +564,7 @@ describe('organizing Gmail mail', () => {
       content: { text: 'Held readable body' },
     });
     const held = holdingBodyAndRemoval(gmail, id);
-    const inbox = createGmailInbox(held.native);
+    const inbox = createInboxStore(held.native);
     await inbox.load();
     const source = message(inbox, id);
     const reading = inbox.readMessage(id);
@@ -592,7 +592,7 @@ describe('organizing Gmail mail', () => {
       gmail.deliver({ subject: `Unread ${index}` });
     }
     const travel = gmail.createLabel('Travel');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     expect(ready(inbox.getSnapshot()).labels).toStrictEqual([
       { id: travel, name: 'Travel' },
@@ -625,7 +625,7 @@ describe('organizing Gmail mail', () => {
     expect(gmail.labelsOf(read)).toContain('UNREAD');
 
     // A relaunch sends the saved change once and Gmail's answer replaces it.
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(ready(relaunched.getSnapshot())).toMatchObject({
       sync: 'current',
@@ -666,7 +666,7 @@ describe('organizing Gmail mail', () => {
       action: gmailAction.spam,
     });
     // Nothing waits, and a relaunch shows the same Inbox from history alone.
-    const again = createGmailInbox(gmail.native);
+    const again = createInboxStore(gmail.native);
     await again.load();
     expect(
       ready(again.getSnapshot()).messages.map(({ id }) => id),
@@ -677,7 +677,7 @@ describe('organizing Gmail mail', () => {
   it('restores a trashed message after Gmail confirmed it and history removed it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 3 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const [, trashed = ''] = ready(inbox.getSnapshot()).messages.map(
       ({ id }) => id,
@@ -708,7 +708,7 @@ describe('organizing Gmail mail', () => {
     await restoring;
     expect(gmail.labelsOf(trashed)).toStrictEqual(['INBOX']);
     expect(shown(inbox, trashed)).toMatchObject({ unread: false });
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(shown(relaunched, trashed)).toBeDefined();
   });
@@ -717,7 +717,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 3 });
     const receipts = gmail.createLabel('Receipts');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const [first = '', second = '', third = ''] = ready(
       inbox.getSnapshot(),
@@ -792,7 +792,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
     const family = gmail.createLabel('Family');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const [first = '', second = ''] = ready(inbox.getSnapshot()).messages.map(
       ({ id }) => id,
@@ -826,7 +826,7 @@ describe('organizing Gmail mail', () => {
   it('never sends a change to another mailbox or saves one before Gmail access verifies', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const [first = ''] = ready(inbox.getSnapshot()).messages.map(
       ({ id }) => id,
@@ -859,7 +859,7 @@ describe('organizing Gmail mail', () => {
 
     // The saved Inbox opened offline cannot record a change.
     const snapshot = await gmail.native.openMailbox();
-    const offline = createGmailInbox({
+    const offline = createInboxStore({
       ...gmail.native,
       openMailbox: () =>
         Promise.resolve({ ...snapshot, availability: 'retry' }),
@@ -882,7 +882,7 @@ describe('organizing Gmail mail', () => {
     const release = Promise.withResolvers<undefined>();
     const saved = Promise.withResolvers<undefined>();
     let hold = false;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       gmailRequest: async (path, query, scope) => {
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold exactly one provider read.
@@ -927,7 +927,7 @@ describe('organizing Gmail mail', () => {
     await Promise.all([syncing, organizing]);
     unsubscribe();
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'loading' });
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(ready(relaunched.getSnapshot())).toMatchObject({
       pending: 0,
@@ -941,7 +941,7 @@ describe('organizing Gmail mail', () => {
     const gmail = createSyntheticGmail({ messages: 160 });
     // The second, third and fourth listing pages each wait for one tap to be saved first.
     const { native, holds } = holdingPages(gmail.native, ['50', '100', '150']);
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     // Earlier taps were sent before the listing reached its next page, so one change waits.
     const durable = () => until(inbox, oneDurableChange);
     // The storage failure screen must never appear, even if a later synchronization recovers.
@@ -989,7 +989,7 @@ describe('organizing Gmail mail', () => {
       expect.hasAssertions();
       const gmail = createSyntheticGmail({ messages: 1 });
       const held = holdingCommit(gmail.native);
-      const inbox = createGmailInbox(held.native);
+      const inbox = createInboxStore(held.native);
       await inbox.load();
       const target = required(
         ready(inbox.getSnapshot()).messages[0],
@@ -1016,7 +1016,7 @@ describe('organizing Gmail mail', () => {
         saving: 0,
         sync: 'current',
       });
-      await createGmailInbox(gmail.native).load();
+      await createInboxStore(gmail.native).load();
       expect(gmail.modifies).toHaveLength(2);
     },
   );
@@ -1028,14 +1028,14 @@ describe('organizing Gmail mail', () => {
       address: 'second@example.invalid',
       messages: 1,
     });
-    await createGmailInbox(second.native).load();
+    await createInboxStore(second.native).load();
     const entered = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
     let current = first;
     let writes = 0;
     let armed = false;
     let reopening = false;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...first.native,
       openMailbox: async () => {
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Reselection happens while the conflict reopens its cache.
@@ -1093,7 +1093,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const label = gmail.createLabel('Travel');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -1118,7 +1118,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     let loseReply = false;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       commitMailbox: async (scope, revision, document) => {
         const result = await gmail.native.commitMailbox(
@@ -1150,14 +1150,14 @@ describe('organizing Gmail mail', () => {
       1,
     );
     expect(ready(inbox.getSnapshot())).toMatchObject({ pending: 1, saving: 0 });
-    await createGmailInbox(gmail.native).load();
+    await createInboxStore(gmail.native).load();
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
   });
 
   it('retains ordered intents after five attempts until explicit retry or discard', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -1175,7 +1175,7 @@ describe('organizing Gmail mail', () => {
       pending: 1,
       blocked: true,
     });
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(gmail.modifies).toHaveLength(5);
     expect(ready(relaunched.getSnapshot())).toMatchObject({
@@ -1214,7 +1214,7 @@ describe('organizing Gmail mail', () => {
     const label = gmail.createLabel('Travel');
     let failHistory = false;
     const removed = vi.fn<() => void>();
-    const inbox = createGmailInbox(
+    const inbox = createInboxStore(
       {
         ...gmail.native,
         gmailRequest: async (path, query, scope) => {
@@ -1257,7 +1257,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const removed = vi.fn<() => void>();
-    const inbox = createGmailInbox(gmail.native, { removed });
+    const inbox = createInboxStore(gmail.native, { removed });
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -1270,7 +1270,7 @@ describe('organizing Gmail mail', () => {
     expect(removed.mock.calls).toStrictEqual([[]]);
     expect(gmail.modifies).toStrictEqual([]);
     // A synchronization opening the cache of a removed device hands over the same way.
-    const relaunched = createGmailInbox(gmail.native, { removed });
+    const relaunched = createInboxStore(gmail.native, { removed });
     gmail.failOpen('mailbox-revoked');
     await relaunched.load();
     expect(relaunched.getSnapshot()).toStrictEqual({ kind: 'loading' });
@@ -1282,7 +1282,7 @@ describe('organizing Gmail mail', () => {
     const gmail = createSyntheticGmail({ messages: 1 });
     const label = gmail.createLabel('Receipts');
     const { native, interruptRead } = interruptingNextRead(gmail.native);
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -1306,7 +1306,7 @@ describe('organizing Gmail mail', () => {
     });
     expect(message(inbox, target.id).labels).not.toContain(label);
     // A relaunch sends only the star.
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(ready(relaunched.getSnapshot()).pending).toBe(0);
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
@@ -1326,7 +1326,7 @@ describe('organizing Gmail mail', () => {
       let holdSettlement = false;
       const entered = Promise.withResolvers<undefined>();
       const released = Promise.withResolvers<undefined>();
-      const inbox = createGmailInbox({
+      const inbox = createInboxStore({
         ...native,
         gmailRequest: async (...args) => {
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Hold one old owner's already-completed read across mailbox reselection.
@@ -1391,7 +1391,7 @@ describe('organizing Gmail mail', () => {
     const label = gmail.createLabel('Receipts');
     const { native, interruptRead } = interruptingNextRead(gmail.native);
     let loseReply = false;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...native,
       commitMailbox: async (...args) => {
         const reply = await native.commitMailbox(...args);
@@ -1430,7 +1430,7 @@ describe('organizing Gmail mail', () => {
   it('never resends a change another store instance settled while this one prepared it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const first = createGmailInbox(gmail.native);
+    const first = createInboxStore(gmail.native);
     await first.load();
     const target = required(
       ready(first.getSnapshot()).messages[0],
@@ -1442,7 +1442,7 @@ describe('organizing Gmail mail', () => {
     expect(ready(first.getSnapshot()).pending).toBe(1);
     // A second store instance prepares to send it again, and its preparation commit waits.
     const { native, hold } = holdingNextCommit(gmail.native);
-    const second = createGmailInbox(native);
+    const second = createInboxStore(native);
     const resending = second.load();
     await hold.entered.promise;
     // Meanwhile the first instance sends the star and settles it.
@@ -1464,7 +1464,7 @@ describe('organizing Gmail mail', () => {
     const gmail = createSyntheticGmail({ messages: 1 });
     const losingWrite = holdingModify(gmail.native);
     const preparation = holdingCommit(losingWrite.native);
-    const first = createGmailInbox(preparation.native);
+    const first = createInboxStore(preparation.native);
     await first.load();
     const target = required(
       ready(first.getSnapshot()).messages[0],
@@ -1475,7 +1475,7 @@ describe('organizing Gmail mail', () => {
     await preparation.entered.promise;
 
     const winningWrite = holdingModify(gmail.native);
-    const second = createGmailInbox(winningWrite.native);
+    const second = createInboxStore(winningWrite.native);
     const winning = second.load();
     await winningWrite.entered.promise;
     preparation.release.resolve(undefined);
@@ -1501,7 +1501,7 @@ describe('organizing Gmail mail', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const gmail = createSyntheticGmail({ messages: 1 });
     const held = holdingModify(gmail.native);
-    const first = createGmailInbox(held.native);
+    const first = createInboxStore(held.native);
     let organizing = Promise.resolve<unknown>(undefined);
     try {
       await first.load();
@@ -1511,7 +1511,7 @@ describe('organizing Gmail mail', () => {
       );
       organizing = first.organize(target, gmailAction.star);
       await held.entered.promise;
-      const second = createGmailInbox(gmail.native);
+      const second = createInboxStore(gmail.native);
       await second.load();
       await second.organize(message(second, target.id), gmailAction.unstar);
       held.release.resolve(undefined);
@@ -1535,8 +1535,8 @@ describe('organizing Gmail mail', () => {
   it('retries another live store’s completed failure immediately', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const first = createGmailInbox(gmail.native);
-    const second = createGmailInbox(gmail.native);
+    const first = createInboxStore(gmail.native);
+    const second = createInboxStore(gmail.native);
     await first.load();
     await second.load();
     const target = required(
@@ -1565,7 +1565,7 @@ describe('organizing Gmail mail', () => {
     const observed = Promise.withResolvers<undefined>();
     const releaseRead = Promise.withResolvers<undefined>();
     let holdRead = false;
-    const first = createGmailInbox({
+    const first = createInboxStore({
       ...gmail.native,
       gmailRequest: async (
         ...args: Parameters<typeof gmail.native.gmailRequest>
@@ -1593,7 +1593,7 @@ describe('organizing Gmail mail', () => {
     await observed.promise;
     gmail.setLabel(target.id, 'STARRED', false);
     const held = holdingModify(gmail.native);
-    const second = createGmailInbox(held.native);
+    const second = createInboxStore(held.native);
     const sending = second.load();
     try {
       await held.entered.promise;
@@ -1619,7 +1619,7 @@ describe('organizing Gmail mail', () => {
   it('does not let Retry or Discard overtake an active fifth attempt', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const first = createGmailInbox(gmail.native);
+    const first = createInboxStore(gmail.native);
     await first.load();
     const target = required(
       ready(first.getSnapshot()).messages[0],
@@ -1632,7 +1632,7 @@ describe('organizing Gmail mail', () => {
       await first.load();
     }
     const held = holdingModify(gmail.native);
-    const second = createGmailInbox(held.native);
+    const second = createInboxStore(held.native);
     const sending = second.load();
     try {
       await held.entered.promise;
@@ -1659,7 +1659,7 @@ describe('organizing Gmail mail', () => {
   it('keeps later intent another store saves while this one settles a refused head', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
-    const first = createGmailInbox(gmail.native);
+    const first = createInboxStore(gmail.native);
     await first.load();
     // Background backfill commits would shift which write the held store pauses.
     await vi.waitFor(() => {
@@ -1678,7 +1678,7 @@ describe('organizing Gmail mail', () => {
 
     const held = holdingCommit(gmail.native);
     held.arm(2); // Prepare succeeds; saving the provider refusal waits before CAS.
-    const second = createGmailInbox(held.native);
+    const second = createInboxStore(held.native);
     gmail.failModify({ status: 400 });
     const refusing = second.load();
     await held.entered.promise;
@@ -1715,7 +1715,7 @@ describe('organizing Gmail mail', () => {
     const { native, becomeCacheOnly, verify } = switchingToCacheOnly(
       gmail.native,
     );
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -1765,7 +1765,7 @@ describe('organizing Gmail mail', () => {
     const { native, becomeCacheOnly, verify } = switchingToCacheOnly(
       gmail.native,
     );
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const target = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -1795,7 +1795,7 @@ describe('organizing Gmail mail', () => {
     expect(gmail.commits).toHaveLength(commits);
     expect(gmail.modifies).toHaveLength(modifies);
     // The durable Star survives a cache-only restart, then resumes without the unsaved Archive.
-    const reopened = createGmailInbox(native);
+    const reopened = createInboxStore(native);
     await reopened.load();
     expect(ready(reopened.getSnapshot()).pending).toBe(1);
     verify();
@@ -1810,7 +1810,7 @@ describe('organizing Gmail mail', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     const { native, becomeCacheOnly } = switchingToCacheOnly(gmail.native);
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const former = required(
       ready(inbox.getSnapshot()).messages[0],
@@ -1818,7 +1818,7 @@ describe('organizing Gmail mail', () => {
     );
     gmail.reselect('another@example.invalid');
     const other = gmail.deliver({ subject: 'Another mailbox message' });
-    await createGmailInbox(gmail.native).load();
+    await createInboxStore(gmail.native).load();
     becomeCacheOnly();
     const modifies = gmail.modifies.length;
     await inbox.organize(former, gmailAction.star);
@@ -1881,7 +1881,7 @@ describe('organizing Gmail mail', () => {
       }),
     };
     let current = firstNative;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...firstNative,
       openMailbox: () => current.openMailbox(),
       commitMailbox: (...args) => current.commitMailbox(...args),
@@ -1918,7 +1918,7 @@ describe('organizing Gmail mail', () => {
     let current = first;
     let owner = 'first-owner';
     let generation = 'first-generation';
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...first.native,
       openMailbox: async () => ({
         ...(await current.native.openMailbox()),
@@ -1977,7 +1977,7 @@ describe('organizing Gmail mail', () => {
   it('keeps legacy pending intent without inventing labels that permit another move', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const earlier = createGmailInbox(gmail.native);
+    const earlier = createInboxStore(gmail.native);
     await earlier.load();
     const original = required(
       ready(earlier.getSnapshot()).messages[0],
@@ -2003,7 +2003,7 @@ describe('organizing Gmail mail', () => {
       }),
     );
     const { native, hold } = holdingNextCommit(gmail.native);
-    const upgraded = createGmailInbox(native);
+    const upgraded = createInboxStore(native);
     const upgrading = upgraded.load();
     await hold.entered.promise;
     const projected = message(upgraded, original.id);
@@ -2038,7 +2038,7 @@ describe('organizing Gmail mail', () => {
   it('lists a cache saved before labels were kept again, keeping its messages visible', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 3 });
-    const earlier = createGmailInbox(gmail.native);
+    const earlier = createInboxStore(gmail.native);
     await earlier.load();
     const [newest = ''] = ready(earlier.getSnapshot()).messages.map(
       ({ id }) => id,
@@ -2058,7 +2058,7 @@ describe('organizing Gmail mail', () => {
     // The listing that reads the labels waits, with the saved messages shown meanwhile.
     const { native, holds } = holdingPages(gmail.native, ['']);
     const [listingHold] = holds;
-    const upgraded = createGmailInbox(native);
+    const upgraded = createInboxStore(native);
     const listings = gmail.requests.filter(
       ({ path }) => path === 'messages',
     ).length;

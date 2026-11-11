@@ -4,7 +4,7 @@ import type { Registration } from '@private-email/mail-core/registration';
 import type { RegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
 
 import { english } from '@private-email/localization';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createNotifications } from '@private-email/mail-core/notifications';
 import {
@@ -962,7 +962,7 @@ describe('product registration', () => {
   it('opens saved Gmail mail offline and verifies registration before retrying', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
-    await createGmailInbox(gmail.native).load();
+    await createInboxStore(gmail.native).load();
     const other = createSyntheticGmail({
       address: 'other@example.invalid',
       messages: 0,

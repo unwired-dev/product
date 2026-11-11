@@ -1,10 +1,10 @@
 import type { Translate } from '@private-email/localization';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
-import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type {
   ImapAction,
   ImapInbox,
 } from '@private-email/mail-core/imap-inbox';
+import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import type { ReactNode, Ref } from 'react';
 
@@ -21,15 +21,15 @@ import {
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
 import {
-  listedMessage,
-  viewMessage,
-} from '@private-email/mail-core/gmail-inbox';
-import {
   imapActionCopy,
   imapMoveTargets,
   imapQuickActions,
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import {
+  listedMessage,
+  viewMessage,
+} from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
 import { palette, radius, spacing } from '@private-email/mail-core/theme';
 import {

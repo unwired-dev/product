@@ -1,10 +1,10 @@
 import { ok } from 'node:assert/strict';
 
-import type { NativeGmailMailbox } from '@private-email/mail-core/gmail-inbox';
+import type { NativeGmailMailbox } from '@private-email/mail-core/inbox-store';
 
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   createMailboxes,
   singleMailbox,
@@ -900,7 +900,7 @@ describe('preview Inbox', () => {
 });
 
 // The connected Inbox and reader, as the app composes them, over a controlled Gmail mailbox.
-function connectedMessage(store: ReturnType<typeof createGmailInbox>) {
+function connectedMessage(store: ReturnType<typeof createInboxStore>) {
   const state = store.getSnapshot();
   if (state.kind !== 'ready' || state.messages[0] === undefined) {
     throw new Error('Expected connected mail');
@@ -1691,7 +1691,7 @@ describe('connected Gmail Inbox', () => {
       subject: 'Saturday, by the river?',
     });
     // The legacy cache stays readable while its missing labels are fetched again.
-    await createGmailInbox(gmail.native).load();
+    await createInboxStore(gmail.native).load();
     await gmail.native.commitMailbox(
       { address: 'alex@example.invalid', generation: '0' },
       gmail.commits.length,
@@ -2508,7 +2508,7 @@ describe('connected Gmail Inbox', () => {
         html: '<p>See <a href="https://example.invalid/plan">the plan</a>.</p><img src="https://example.invalid/pixel.gif">',
       },
     });
-    const store = createGmailInbox(gmail.native);
+    const store = createInboxStore(gmail.native);
     const mailboxes = singleMailbox(store, alex);
     function Journey() {
       const [selected, setSelected] = useState<Selection>();
@@ -2702,7 +2702,7 @@ describe('connected Gmail Inbox', () => {
         html: '<p>Sign in at <a href="https://PHISH.invalid:443">https://bank.invalid</a></p>',
       },
     });
-    const store = createGmailInbox(gmail.native);
+    const store = createInboxStore(gmail.native);
     await render(
       <InboxProvider mailboxes={singleMailbox(store, alex)}>
         <MessageDetail

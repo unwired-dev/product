@@ -1,7 +1,7 @@
-import type { GmailInboxState, GmailView } from '../src/gmail-inbox.ts';
+import type { GmailInboxState, GmailView } from '../src/inbox-store.ts';
 
 import { allMail, gmailAction } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 // The views a mailbox keeps besides its Inbox.
@@ -17,7 +17,7 @@ const ready = (state: GmailInboxState) => {
 };
 
 const view = (
-  inbox: ReturnType<typeof createGmailInbox>,
+  inbox: ReturnType<typeof createInboxStore>,
   label: string,
 ): GmailView => {
   const found = ready(inbox.getSnapshot()).views?.find(
@@ -161,7 +161,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     gmail.archive(hotel);
     gmail.setLabel(offer, 'SPAM', true);
     gmail.setLabel(offer, 'INBOX', false);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     expect(ids(ready(inbox.getSnapshot()).messages)).toStrictEqual([
       lunch,
@@ -196,7 +196,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     gmail.setLabel(flight, 'TRASH', true);
     gmail.setLabel(flight, 'INBOX', false);
     const listed = viewListings(gmail).length;
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(ids(view(relaunched, travel).messages)).toStrictEqual([
       lunch,
@@ -243,7 +243,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     const archive = gmail.createLabel('Archive 2026');
     const receipt = gmail.deliver({ subject: 'Your receipt' });
     gmail.setLabel(receipt, receipts, true);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.openView(receipts);
     await inbox.organize(
@@ -279,14 +279,14 @@ describe('browsing Gmail views other than the Inbox', () => {
     const arrived = (messages: ReadonlyArray<{ id: string }>) => {
       arrivals.push(...messages.map(({ id }) => id));
     };
-    const inbox = createGmailInbox(native, { arrived });
+    const inbox = createInboxStore(native, { arrived });
     await inbox.load();
     await inbox.openView(travel);
     expect(view(inbox, travel).status).toBe('failed');
     expect(ids(view(inbox, travel).messages)).toContain(interrupted.arrived());
     expect(arrivals).toStrictEqual([interrupted.arrived()]);
 
-    const relaunched = createGmailInbox(native, { arrived });
+    const relaunched = createInboxStore(native, { arrived });
     await relaunched.load();
     expect(view(relaunched, travel).status).toBe('current');
     expect(ids(view(relaunched, travel).messages)).toContain(
@@ -305,7 +305,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     const travel = gmail.createLabel('Travel');
     const id = gmail.deliver({ subject: 'Flight' });
     gmail.setLabel(id, travel, true);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.openView(travel);
     const moving = inbox.organize(
@@ -338,7 +338,7 @@ describe('browsing Gmail views other than the Inbox', () => {
       receipt: first(receiptIds),
     });
     const { native } = interrupted;
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     await inbox.openView(receipts);
     interrupted.interrupt();
@@ -349,7 +349,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     inbox.forget();
 
     interrupted.resume();
-    const relaunched = createGmailInbox(native);
+    const relaunched = createInboxStore(native);
     await relaunched.load();
     expect(view(relaunched, travel).status).toBe('current');
     expect(view(relaunched, receipts).status).toBe('current');
@@ -371,7 +371,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     const flight = gmail.deliver({ subject: 'Flight' });
     gmail.setLabel(flight, travel, true);
     let failing = false;
-    const inbox = createGmailInbox(failingViews(gmail.native, () => failing));
+    const inbox = createInboxStore(failingViews(gmail.native, () => failing));
     await inbox.load();
     failing = true;
     await inbox.openView(projects);
@@ -415,7 +415,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     const labels = Array.from({ length: cachedViews + 1 }, (_, index) =>
       gmail.createLabel(`Window ${index}`),
     );
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const releases = labels.map((label) => inbox.retainView(label));
     try {
@@ -450,7 +450,7 @@ describe('browsing Gmail views other than the Inbox', () => {
       { length: cachedViews + 1 },
       (_, index) => gmail.createLabel(`Label ${index}`),
     );
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const release = inbox.retainView(removed);
     await inbox.openView(removed);
@@ -477,7 +477,7 @@ describe('browsing Gmail views other than the Inbox', () => {
       gmail.archive(id);
       return id;
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.openView(receipts);
     const selected = first(view(inbox, receipts).messages);
@@ -495,7 +495,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     const messages = Array.from({ length: cacheLimit + 1 }, () =>
       gmail.deliver(),
     );
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const selected = first(ready(inbox.getSnapshot()).messages);
     gmail.remove(selected.id);
@@ -517,7 +517,7 @@ describe('browsing Gmail views other than the Inbox', () => {
       return id;
     });
     let historyFails = false;
-    const inbox = createGmailInbox(
+    const inbox = createInboxStore(
       failingHistory(gmail.native, () => historyFails),
     );
     await inbox.load();
@@ -539,7 +539,7 @@ describe('browsing Gmail views other than the Inbox', () => {
     gmail.setLabel(receipt, 'TRASH', true);
     gmail.setLabel(receipt, 'INBOX', false);
     let historyFails = false;
-    const inbox = createGmailInbox(
+    const inbox = createInboxStore(
       failingHistory(gmail.native, () => historyFails),
     );
     await inbox.load();
@@ -558,7 +558,7 @@ describe('browsing Gmail views other than the Inbox', () => {
   it('keeps a bounded number of views and lists a full view again when one of its messages leaves', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 201 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const labels = Array.from({ length: cachedViews + 1 }, (_, index) =>
       gmail.createLabel(`Label ${index}`),

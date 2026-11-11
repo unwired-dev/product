@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
-import type { NativeGmailMailbox } from '@private-email/mail-core/gmail-inbox';
+import type { NativeGmailMailbox } from '@private-email/mail-core/inbox-store';
 
 import * as Config from 'effect/Config';
 import * as Effect from 'effect/Effect';

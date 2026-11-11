@@ -17,7 +17,7 @@ import type {
 } from './attachment-downloads.ts';
 import type { DeliveryProblem } from './draft-model.ts';
 import type { GmailAction, GmailLabel } from './gmail-actions.ts';
-import type { ProviderPayload } from './graph-inbox.ts';
+import type { ProviderPayload } from './graph-reader.ts';
 import type {
   Cache,
   GmailMessage,
@@ -79,7 +79,7 @@ import {
   storedBodies,
 } from './gmail-history.ts';
 import { graphProgress, graphSegmentNames } from './graph-history.ts';
-import { createGraphReader } from './graph-inbox.ts';
+import { createGraphReader } from './graph-reader.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { decodedSize, inlineImageLimits } from './inline-images.ts';
 import {
@@ -1330,7 +1330,7 @@ const requireAttachments = (payload: ProviderPayload) =>
       )
     : Effect.succeed(payload);
 
-export function createGmailInbox(
+export function createInboxStore(
   native: NativeGmailMailbox,
   {
     removed,
@@ -5190,4 +5190,4 @@ export function createGmailInbox(
   };
 }
 
-export type GmailInbox = ReturnType<typeof createGmailInbox>;
+export type GmailInbox = ReturnType<typeof createInboxStore>;

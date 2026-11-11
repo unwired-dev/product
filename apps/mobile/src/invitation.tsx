@@ -1,4 +1,4 @@
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
   EarlierResponse,
   Invitation,

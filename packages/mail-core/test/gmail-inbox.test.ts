@@ -1,8 +1,8 @@
 import { inspect } from 'node:util';
 
-import type { GmailInboxState } from '../src/gmail-inbox.ts';
+import type { GmailInboxState } from '../src/inbox-store.ts';
 
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const ready = (state: GmailInboxState) => {
@@ -26,7 +26,7 @@ describe('synchronizing a Gmail Inbox', () => {
       snippet:
         'Bring the &quot;quiet&quot; layout &amp; your notes &#8212; it&#39;s ready',
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     const published: GmailInboxState[] = [];
     inbox.subscribe(() => {
       published.push(inbox.getSnapshot());
@@ -74,7 +74,7 @@ describe('synchronizing a Gmail Inbox', () => {
     gmail.markRead(read);
     gmail.remove(removed);
 
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     const opening = relaunched.load();
     await opening;
     const updated = ready(relaunched.getSnapshot());
@@ -101,7 +101,7 @@ describe('synchronizing a Gmail Inbox', () => {
     const gmail = createSyntheticGmail({ messages: 0 });
     gmail.deliver({ from: 'oliver@example.invalid' });
     gmail.deliver({ from: '"Chen, Maya" <maya@example.invalid>' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     const nativeExec = RegExp.prototype.exec;
     const spy = vi
       .spyOn(RegExp.prototype, 'exec')
@@ -130,7 +130,7 @@ describe('synchronizing a Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 300 });
     let disappeared = false;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       gmailRequest: (path, query, mailbox) => {
         // oxlint-disable-next-line vitest/no-conditional-in-test -- The provider race occurs only at the first metadata read.
@@ -144,7 +144,7 @@ describe('synchronizing a Gmail Inbox', () => {
     await inbox.load();
     expect(ready(inbox.getSnapshot())).toMatchObject({ sync: 'current' });
     expect(ready(inbox.getSnapshot()).messages).toHaveLength(200);
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(ready(relaunched.getSnapshot()).messages).toHaveLength(200);
   });
@@ -152,7 +152,7 @@ describe('synchronizing a Gmail Inbox', () => {
   it('refills an unchanged newer entry when an older arrival masks a removal', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 201 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const [{ id: newest } = { id: '' }] = ready(inbox.getSnapshot()).messages;
     gmail.remove(newest);
@@ -167,7 +167,7 @@ describe('synchronizing a Gmail Inbox', () => {
   it('resumes an interrupted listing from its committed checkpoint without duplicates', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 120 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     // The connection drops on the second page, after the first was committed.
     gmail.failPage('50', { code: 'unavailable' });
     await inbox.load();
@@ -199,11 +199,11 @@ describe('synchronizing a Gmail Inbox', () => {
     );
 
     const expired = createSyntheticGmail({ messages: 120 });
-    const interrupted = createGmailInbox(expired.native);
+    const interrupted = createInboxStore(expired.native);
     expired.failPage('50', { code: 'unavailable' });
     await interrupted.load();
     expired.failPage('50', { status: 400 });
-    const relaunched = createGmailInbox(expired.native);
+    const relaunched = createInboxStore(expired.native);
     await relaunched.load();
     expect(ready(relaunched.getSnapshot()).sync).toBe('current');
     expect(ready(relaunched.getSnapshot()).messages).toHaveLength(120);
@@ -213,7 +213,7 @@ describe('synchronizing a Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 3 });
     const arrivals: string[][] = [];
-    const inbox = createGmailInbox(gmail.native, {
+    const inbox = createInboxStore(gmail.native, {
       arrived: (messages) => {
         arrivals.push(messages.map(({ subject }) => subject));
       },
@@ -260,7 +260,7 @@ describe('synchronizing a Gmail Inbox', () => {
     vi.spyOn(console, 'error').mockImplementation((...logged) => {
       failures.push(logged);
     });
-    const inbox = createGmailInbox(gmail.native, {
+    const inbox = createInboxStore(gmail.native, {
       arrived: () => Promise.reject(new Error('Posting failed')),
     });
     try {
@@ -282,7 +282,7 @@ describe('synchronizing a Gmail Inbox', () => {
   it('lists again after Gmail expires the history, keeping cached mail visible', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 4 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const [, ...kept] = ready(inbox.getSnapshot()).messages;
     const [left = ''] = ready(inbox.getSnapshot()).messages.map(({ id }) => id);
@@ -324,7 +324,7 @@ describe('synchronizing a Gmail Inbox', () => {
       subject: 'sealed-subject',
       snippet: 'sealed-snippet',
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const cached = ready(inbox.getSnapshot()).messages;
     expect(cached).toHaveLength(1);
@@ -390,7 +390,7 @@ describe('synchronizing a Gmail Inbox', () => {
     await inbox.load();
     expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
     // Without a connected mailbox, nothing is cached or shown.
-    const disconnected = createGmailInbox(gmail.native);
+    const disconnected = createInboxStore(gmail.native);
     gmail.failOpen('gmail-unavailable');
     await disconnected.load();
     expect(disconnected.getSnapshot()).toStrictEqual({
@@ -441,7 +441,7 @@ describe('synchronizing a Gmail Inbox', () => {
   it('replaces stale bounded entries with the actual Inbox after history expires', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 400 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const stale = ready(inbox.getSnapshot()).messages;
     expect(stale).toHaveLength(200);
@@ -459,7 +459,7 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(new Set(actual.messages.map(({ id }) => id)).size).toBe(200);
     // Removing a cached entry must admit an unchanged older Inbox entry.
     const larger = createSyntheticGmail({ messages: 201 });
-    const bounded = createGmailInbox(larger.native);
+    const bounded = createInboxStore(larger.native);
     await bounded.load();
     const [removed = ''] = ready(bounded.getSnapshot()).messages.map(
       ({ id }) => id,
@@ -492,7 +492,7 @@ describe('synchronizing a Gmail Inbox', () => {
         0,
         malformedDocument,
       );
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       expect(inbox.getSnapshot()).toStrictEqual({ kind: 'failed' });
       expect(gmail.requests).toHaveLength(0);
@@ -504,7 +504,7 @@ describe('synchronizing a Gmail Inbox', () => {
   it('rejects a stale synchronization commit after same-address mailbox reselection', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       commitMailbox: (mailbox, revision, document) => {
         gmail.reselect(mailbox.address);
@@ -523,7 +523,7 @@ describe('synchronizing a Gmail Inbox', () => {
       revision: 0,
       document: null,
     });
-    const replacement = createGmailInbox(gmail.native);
+    const replacement = createInboxStore(gmail.native);
     await replacement.load();
     expect(
       ready(replacement.getSnapshot()).messages.map(({ subject }) => subject),
@@ -539,7 +539,7 @@ describe('synchronizing a Gmail Inbox', () => {
     const start = Date.parse('2026-10-27T09:41:00Z');
     vi.setSystemTime(start);
     const gmail = createSyntheticGmail({ messages: 1 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     expect(ready(inbox.getSnapshot()).synchronizedAt).toBe(
       '2026-10-27T09:41:00.000Z',
@@ -550,7 +550,7 @@ describe('synchronizing a Gmail Inbox', () => {
       '2026-10-27T09:41:59.000Z',
     );
     const cached = await gmail.native.openMailbox();
-    const relaunched = createGmailInbox({
+    const relaunched = createInboxStore({
       ...gmail.native,
       openMailbox: () => Promise.resolve({ ...cached, availability: 'retry' }),
     });
@@ -570,13 +570,13 @@ describe('synchronizing a Gmail Inbox', () => {
   it('opens a cache-only mailbox without using unverified provider access', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 2 });
-    const live = createGmailInbox(gmail.native);
+    const live = createInboxStore(gmail.native);
     await live.load();
     const { messages: cached, synchronizedAt } = ready(live.getSnapshot());
     gmail.requests.length = 0;
     const commits = [...gmail.commits];
     const snapshot = await gmail.native.openMailbox();
-    const offline = createGmailInbox({
+    const offline = createInboxStore({
       ...gmail.native,
       openMailbox: () =>
         Promise.resolve({ ...snapshot, availability: 'retry' }),
@@ -604,7 +604,7 @@ describe('synchronizing a Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
     let reselect = () => undefined;
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       gmailRequest: (path, query, mailbox) => {
         reselect();
@@ -642,8 +642,8 @@ describe('synchronizing a Gmail Inbox', () => {
   it('reconciles competing stores and never shows another mailbox cache', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 60 });
-    const first = createGmailInbox(gmail.native);
-    const second = createGmailInbox(gmail.native);
+    const first = createInboxStore(gmail.native);
+    const second = createInboxStore(gmail.native);
     await Promise.all([first.load(), second.load()]);
     gmail.deliver({ subject: 'After both' });
     await Promise.all([first.load(), second.load()]);
@@ -666,7 +666,7 @@ describe('synchronizing a Gmail Inbox', () => {
   it('restarts a synchronization a foreground restore invalidated, keeping the Inbox visible', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 60 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const cached = ready(inbox.getSnapshot()).messages;
     gmail.deliver({ subject: 'Arrived during foreground verification' });

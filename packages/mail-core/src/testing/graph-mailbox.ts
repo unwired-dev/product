@@ -3,7 +3,7 @@ import * as Arr from 'effect/Array';
 import * as Base64 from 'effect/encoding/Base64';
 import * as Order from 'effect/Order';
 
-import type { NativeGmailMailbox } from '../gmail-inbox.ts';
+import type { NativeGmailMailbox } from '../inbox-store.ts';
 import type { GraphChange } from '../microsoft-graph.ts';
 import type { DraftFile } from '../outgoing-message.ts';
 

@@ -1,7 +1,7 @@
 import type { Message } from '@private-email/mail-core';
 import type { Command, CommandTarget } from '@private-email/mail-core/commands';
-import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
+import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 import type { ReactNode } from 'react';
 
 import { messageDay } from '@private-email/localization';

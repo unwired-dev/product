@@ -1,13 +1,13 @@
-import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 import * as Schema from 'effect/Schema';
 
 import { withNativeHistory } from './native-history-store.ts';
 
 type Graph = ReturnType<typeof createSyntheticGraph>;
-type Inbox = ReturnType<typeof createGmailInbox>;
+type Inbox = ReturnType<typeof createInboxStore>;
 
 const createGraph = (folderPageSize?: number) =>
   withNativeHistory(
@@ -19,7 +19,7 @@ const createGraph = (folderPageSize?: number) =>
 
 // Stop background work before the signed storage process's earlier-registered teardown closes it.
 const createInbox = (native: Graph['native']) => {
-  const inbox = createGmailInbox(native, { provider: 'microsoft-graph' });
+  const inbox = createInboxStore(native, { provider: 'microsoft-graph' });
   onTestFinished(() => inbox.forget());
   return inbox;
 };

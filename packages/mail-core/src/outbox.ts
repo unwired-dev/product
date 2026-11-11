@@ -6,7 +6,7 @@ import * as Semaphore from 'effect/Semaphore';
 
 import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { AssetPreview, Drafts } from './drafts.ts';
-import type { SendOutcome } from './gmail-inbox.ts';
+import type { SendOutcome } from './inbox-store.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
 import type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
 import type { MailProvider } from './registration-snapshot.ts';

@@ -2,8 +2,8 @@ import type { RegistrationSnapshot } from '@private-email/mail-core/registration
 import type { Platform } from 'react-native';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { mailboxesOf } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
@@ -69,7 +69,7 @@ function Reader({
   drafts,
   message,
 }: {
-  readonly inbox: ReturnType<typeof createGmailInbox>;
+  readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly message: string;
 }) {
@@ -195,7 +195,7 @@ describe('iPad reader', () => {
         subject: 'iPad plans',
         content: { text: 'Shall we meet on Friday?' },
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       try {
         await render(
           <AccountContext

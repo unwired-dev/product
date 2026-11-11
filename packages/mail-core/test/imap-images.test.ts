@@ -3,8 +3,8 @@ import { deflateSync } from 'node:zlib';
 
 import type { ImapInbox } from '../src/imap-inbox.ts';
 
-import { createBodyLoads, createGmailInbox } from '../src/gmail-inbox.ts';
 import { createImapInbox } from '../src/imap-inbox.ts';
+import { createBodyLoads, createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 
@@ -159,7 +159,7 @@ describe('imap reader image and lifetime boundaries', () => {
     const gmailId = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
     gmail.native.openMessageBody = (_scope, id) =>
       Promise.resolve(cached(id, 1));
-    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    const gmailInbox = createInboxStore(gmail.native, { shared });
     await gmailInbox.load();
     const closeGmail = gmailInbox.retainMessage(gmailId);
     await gmailInbox.readMessage(gmailId);
@@ -206,7 +206,7 @@ describe('imap reader image and lifetime boundaries', () => {
     const gmailId = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
     gmail.native.openMessageBody = (_scope, id) =>
       Promise.resolve(cached(id, 1));
-    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    const gmailInbox = createInboxStore(gmail.native, { shared });
     await gmailInbox.load();
     const closeGmail = gmailInbox.retainMessage(gmailId);
     await gmailInbox.readMessage(gmailId);
@@ -242,7 +242,7 @@ describe('imap reader image and lifetime boundaries', () => {
     const newer = gmail.deliver({ at: Date.UTC(2020, 0, 2) });
     gmail.native.openMessageBody = (_scope, id) =>
       Promise.resolve(cached(id, 1));
-    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    const gmailInbox = createInboxStore(gmail.native, { shared });
     await gmailInbox.load();
     const gmailRich = (id: string, reader?: symbol) => {
       const state = gmailInbox.messageBody(id, reader);
@@ -321,7 +321,7 @@ describe('imap reader image and lifetime boundaries', () => {
       const second = gmail.deliver({});
       gmail.native.openMessageBody = (_scope, id) =>
         Promise.resolve(cached(id, 1));
-      const gmailInbox = createGmailInbox(gmail.native, { shared });
+      const gmailInbox = createInboxStore(gmail.native, { shared });
       await gmailInbox.load();
       const closeFirst = gmailInbox.retainMessage(first);
       const closeSecond = gmailInbox.retainMessage(second);
@@ -382,7 +382,7 @@ describe('imap reader image and lifetime boundaries', () => {
       gmail.serveRemote(photo, { data: image });
       gmail.native.openMessageBody = (_scope, id) =>
         Promise.resolve(gmailBody(id));
-      const gmailInbox = createGmailInbox(gmail.native, { shared });
+      const gmailInbox = createInboxStore(gmail.native, { shared });
       await gmailInbox.load();
       const imap = createSyntheticImap();
       imap.deliver('INBOX', { subject: 'Photo' });
@@ -426,7 +426,7 @@ describe('imap reader image and lifetime boundaries', () => {
     const gmailId = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
     gmail.native.openMessageBody = (_scope, id) =>
       Promise.resolve(cached(id, 1));
-    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    const gmailInbox = createInboxStore(gmail.native, { shared });
     await gmailInbox.load();
     const closeGmail = gmailInbox.retainMessage(gmailId);
     await gmailInbox.readMessage(gmailId);

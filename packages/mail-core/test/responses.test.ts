@@ -17,7 +17,7 @@ import {
   threadOf,
   withSender,
 } from '../src/drafts.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { attachmentLimit } from '../src/message-body.ts';
 import { defaultProfile } from '../src/registration.ts';
 import { respond, startResponse } from '../src/responses.ts';
@@ -149,7 +149,7 @@ async function reader(
     headers,
     ...delivered,
   });
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   const close = inbox.retainMessage(id);
   await inbox.readMessage(id);

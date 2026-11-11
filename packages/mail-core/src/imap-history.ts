@@ -1,10 +1,10 @@
-import type { HistoryProgress } from './gmail-inbox.ts';
 import type {
   HistoryRead,
   ImapDocument,
   ImapFolderHistory,
   ImapMessage,
 } from './imap-model.ts';
+import type { HistoryProgress } from './inbox-store.ts';
 
 import { inboxFolder, listedMessage } from './imap-model.ts';
 

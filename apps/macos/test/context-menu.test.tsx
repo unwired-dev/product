@@ -1,4 +1,4 @@
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { act, fireEvent, render } from '@testing-library/react-native';
@@ -109,7 +109,7 @@ describe('context menu event ownership', () => {
     const id = gmail.deliver({
       content: { html: '<a href="https://example.invalid/plan">the plan</a>' },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const app = await render(
       <MessageBody

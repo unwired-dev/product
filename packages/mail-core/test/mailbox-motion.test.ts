@@ -1,12 +1,12 @@
 import { ok } from 'node:assert/strict';
 
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
 import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type { ShownRows } from '@private-email/mail-core/mailboxes';
 
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   advanceRowMotion,
   motionIdentityOf,
@@ -93,7 +93,7 @@ describe('organizing row continuity', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ subject: 'Read elsewhere' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const motion = observe(inbox);
     try {
@@ -114,7 +114,7 @@ describe('organizing row continuity', () => {
     const gmail = createSyntheticGmail();
     const at = Date.UTC(2026, 9, 24, 9);
     const id = gmail.deliver({ subject: 'Repeated notification', at });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const motion = observe(inbox);
     try {
@@ -149,7 +149,7 @@ describe('organizing row continuity', () => {
   it('returns a blocked Gmail change discarded after relaunch, with no notice to name it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 1 });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const target = firstMessage(inbox);
     gmail.failModify(
@@ -163,7 +163,7 @@ describe('organizing row continuity', () => {
     } finally {
       inbox.forget();
     }
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     const motion = observe(relaunched);
     try {
@@ -185,7 +185,7 @@ describe('organizing row continuity', () => {
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ subject: 'Confirmed removal' });
     gmail.deliver({ subject: 'Blocked removal' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const motion = observe(inbox);
     try {

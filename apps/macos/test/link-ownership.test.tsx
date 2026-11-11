@@ -1,5 +1,5 @@
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -34,7 +34,7 @@ function CommitProbe({ inspect }: { readonly inspect: () => void }) {
 }
 
 const oldHref = 'https://phish.invalid/private?ticket=synthetic-secret';
-const view = (store: ReturnType<typeof createGmailInbox>, id: string) => (
+const view = (store: ReturnType<typeof createInboxStore>, id: string) => (
   <LinkConfirmationProvider
     inbox={store}
     id={id}>
@@ -62,7 +62,7 @@ const linkMailbox = (
   }
   const native = createSyntheticGmail({ address });
   return {
-    store: createGmailInbox(native.native),
+    store: createInboxStore(native.native),
     deliver: (html: string) => native.deliver({ content: { html } }),
   };
 };
@@ -109,7 +109,7 @@ describe('queued message link privacy', () => {
       const id = gmail.deliver({
         content: { html: `<a href="${oldHref}">${text}</a>` },
       });
-      const store = createGmailInbox(gmail.native);
+      const store = createInboxStore(gmail.native);
       await store.load();
       const app = await render(view(store, id));
       try {
@@ -139,7 +139,7 @@ describe('queued message link privacy', () => {
     const id = gmail.deliver({
       content: { html: `<a href="${href}">https://bank.invalid</a>` },
     });
-    const store = createGmailInbox(gmail.native);
+    const store = createInboxStore(gmail.native);
     await store.load();
     const app = await render(view(store, id));
     try {
@@ -170,7 +170,7 @@ describe('queued message link privacy', () => {
     const id = gmail.deliver({
       content: { html: `<a href="${oldHref}">https://bank.invalid</a>` },
     });
-    const store = createGmailInbox(gmail.native);
+    const store = createInboxStore(gmail.native);
     await store.load();
     await render(view(store, id));
     try {
@@ -205,7 +205,7 @@ describe('queued message link privacy', () => {
         at: Date.UTC(2020, 0, 1),
         content: { html: '<p>Another message</p>' },
       });
-      const store = createGmailInbox(gmail.native);
+      const store = createInboxStore(gmail.native);
       const other = createSyntheticGmail({
         address: 'another@example.invalid',
       });
@@ -213,7 +213,7 @@ describe('queued message link privacy', () => {
         at: Date.UTC(2020, 0, 1),
         content: { html: '<p>Another owner</p>' },
       });
-      const otherStore = createGmailInbox(other.native);
+      const otherStore = createInboxStore(other.native);
       await store.load();
       await otherStore.load();
       const app = await render(view(store, id));

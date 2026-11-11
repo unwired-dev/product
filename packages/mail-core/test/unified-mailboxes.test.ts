@@ -6,11 +6,11 @@ import {
   gmailArchive,
   leavesView,
 } from '@private-email/mail-core/gmail-actions';
-import {
-  createGmailInbox,
-  viewMessage,
-} from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import {
+  createInboxStore,
+  viewMessage,
+} from '@private-email/mail-core/inbox-store';
 import {
   mailboxSidebar,
   notIncludedDetail,
@@ -42,8 +42,8 @@ async function connections() {
   // A server's All folder may hold Junk, Trash and mail found nowhere else.
   bare.addFolder('All Mail', ['all']);
 
-  const gmailInbox = createGmailInbox(gmail.native);
-  const graphInbox = createGmailInbox(graph.native, {
+  const gmailInbox = createInboxStore(gmail.native);
+  const graphInbox = createInboxStore(graph.native, {
     provider: 'microsoft-graph',
   });
   const imapInbox = createImapInbox(imap.native);
@@ -403,7 +403,7 @@ describe('unified mailboxes across connections', () => {
       const id = gmail.deliver({ subject: 'Saved receipt' });
       gmail.archive(id);
       gmail.setLabel(id, kept, true);
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       const list = await opened(
         [{ id: 'gmail', provider: 'gmail', inbox }],
@@ -430,7 +430,7 @@ describe('unified mailboxes across connections', () => {
     const graph = createSyntheticGraph();
     const destination = graph.createFolder('Receipts');
     const id = graph.deliver({ subject: 'Sent receipt', folder: 'sentitems' });
-    const inbox = createGmailInbox(graph.native, {
+    const inbox = createInboxStore(graph.native, {
       provider: 'microsoft-graph',
     });
     await inbox.load();

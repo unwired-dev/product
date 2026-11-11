@@ -2,9 +2,9 @@ import type {
   GmailInbox,
   MessageBodyState,
   NativeGmailMailbox,
-} from '../src/gmail-inbox.ts';
+} from '../src/inbox-store.ts';
 
-import { createBodyLoads, createGmailInbox } from '../src/gmail-inbox.ts';
+import { createBodyLoads, createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
 const bodyRequests = (gmail: ReturnType<typeof createSyntheticGmail>) =>
@@ -127,7 +127,7 @@ describe('reading Gmail message bodies', () => {
         ].join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
 
     const opened = await read(inbox, id);
@@ -175,7 +175,7 @@ describe('reading Gmail message bodies', () => {
     expect(bodyRequests(gmail)).toHaveLength(1);
 
     // After a relaunch without Gmail, the cached body opens and nothing is fetched.
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     gmail.fail({ code: 'unavailable' });
     await relaunched.load();
     expect(relaunched.getSnapshot()).toMatchObject({ sync: 'retry' });
@@ -193,7 +193,7 @@ describe('reading Gmail message bodies', () => {
         separate: true,
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     // The Mac host's decoder polyfill knows only UTF-8; Latin-1 must not depend on it.
     vi.stubGlobal('TextDecoder', Utf8OnlyDecoder);
@@ -236,7 +236,7 @@ describe('reading Gmail message bodies', () => {
     const iso = gmail.deliver({
       content: { html: `<p>${czech}</p>`, charset: 'iso-8859-2' },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     // Hosts may only know UTF-8: native Expo and the Mac host's decoder polyfill.
     vi.stubGlobal('TextDecoder', Utf8OnlyDecoder);
@@ -291,7 +291,7 @@ describe('reading Gmail message bodies', () => {
         text: 'OK.\n\nOld reply',
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const text = (state: MessageBodyState | undefined) =>
       ready(state)
@@ -333,7 +333,7 @@ describe('reading Gmail message bodies', () => {
     const gmail = createSyntheticGmail();
     const kept = gmail.deliver({ subject: 'Kept' });
     const removed = gmail.deliver({ subject: 'Removed in Gmail' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
 
     gmail.fail({ code: 'unavailable' });
@@ -376,7 +376,7 @@ describe('reading Gmail message bodies', () => {
     });
 
     gmail.failBodyOpen('locked');
-    const locked = createGmailInbox(gmail.native);
+    const locked = createInboxStore(gmail.native);
     await locked.load();
     await expect(read(locked, kept)).resolves.toStrictEqual({
       kind: 'unavailable',
@@ -389,7 +389,7 @@ describe('reading Gmail message bodies', () => {
     const gmail = createSyntheticGmail();
     const first = gmail.deliver();
     const ids = [first, gmail.deliver(), gmail.deliver()];
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     // Historical Metadata Backfill reads in the background; only body downloads are measured.
     await vi.waitFor(() => {
@@ -442,12 +442,12 @@ describe('reading Gmail message bodies', () => {
     const second = reply();
     const newest = reply();
     const thread = [newest, second, third, kept, fifth, oldest];
-    const inbox = createGmailInbox(gmail.native, { shared });
+    const inbox = createInboxStore(gmail.native, { shared });
     await inbox.load();
     const { started, answer } = controlledBodies(gmail);
     const other = createSyntheticGmail({ address: 'sam@example.invalid' });
     const elsewhere = [other.deliver(), other.deliver()];
-    const otherInbox = createGmailInbox(other.native, { shared });
+    const otherInbox = createInboxStore(other.native, { shared });
     await otherInbox.load();
     const otherGmail = controlledBodies(other);
 
@@ -513,7 +513,7 @@ describe('reading Gmail message bodies', () => {
         gmail.deliver(),
         gmail.deliver(),
       ];
-      const inbox = createGmailInbox(gmail.native, { shared });
+      const inbox = createInboxStore(gmail.native, { shared });
       await inbox.load();
       return { inbox, ids, ...controlledBodies(gmail) };
     };
@@ -571,7 +571,7 @@ describe('reading Gmail message bodies', () => {
     const second = gmail.deliver();
     const old = [first, second, gmail.deliver(), gmail.deliver()];
     const current = gmail.deliver();
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const { started, answer } = controlledBodies(gmail);
     const release = inbox.rankBodies(old);
@@ -600,7 +600,7 @@ describe('reading Gmail message bodies', () => {
     const gmail = createSyntheticGmail();
     const archived = gmail.deliver({ subject: 'Archived later' });
     const other = gmail.deliver({ subject: 'Other' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await read(inbox, archived);
     await read(inbox, other);
@@ -615,7 +615,7 @@ describe('reading Gmail message bodies', () => {
       archived,
       { document: otherDocument, tier: 'opened', protectedIds: [] },
     );
-    const reopened = createGmailInbox(gmail.native);
+    const reopened = createInboxStore(gmail.native);
     await reopened.load();
     expect(readyBody(await read(reopened, archived)).paragraphs).toContainEqual(
       [{ text: 'Synthetic body.' }],
@@ -628,7 +628,7 @@ describe('reading Gmail message bodies', () => {
     expect([...gmail.cachedBodies().keys()]).toStrictEqual([other]);
 
     // Only listed messages are read.
-    const fresh = createGmailInbox(gmail.native);
+    const fresh = createInboxStore(gmail.native);
     await fresh.load();
     await fresh.readMessage(archived);
     expect(fresh.messageBody(archived)).toBeUndefined();
@@ -656,7 +656,7 @@ describe('reading Gmail message bodies', () => {
     const id = gmail.deliver({ content: { text: 'Complete café.' } });
     let openBody: NativeGmailMailbox['openMessageBody'] = () =>
       Promise.resolve({ wrongField: 'malformed' });
-    const inbox = createGmailInbox({
+    const inbox = createInboxStore({
       ...gmail.native,
       gmailRequest: (...args) => gmail.native.gmailRequest(...args),
       openMessageBody: (...args) => openBody(...args),
@@ -700,7 +700,7 @@ describe('reading Gmail message bodies', () => {
     const gmail = createSyntheticGmail();
     const extension = gmail.deliver();
     const signed = gmail.deliver();
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const part = (mimeType: string, text: string) => ({
       mimeType,
@@ -762,7 +762,7 @@ describe('reading Gmail message bodies', () => {
     const gmail = createSyntheticGmail();
     const shallow = gmail.deliver();
     const deep = gmail.deliver();
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     substituteFull(
       gmail,
@@ -842,7 +842,7 @@ describe('reading Gmail message bodies', () => {
         },
       ]),
     );
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     substituteFull(gmail, (path) => {
       const id = path.slice('messages/'.length);
@@ -873,7 +873,7 @@ describe('reading Gmail message bodies', () => {
         html: '<script>hidden()</script>',
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const part = (mimeType: string, text: string) => ({
       mimeType,
@@ -915,7 +915,7 @@ describe('reading Gmail message bodies', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver();
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const started = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
@@ -940,7 +940,7 @@ describe('reading Gmail message bodies', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const ids = Array.from({ length: 24 }, () => gmail.deliver());
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const first = String(ids[0]);
     const release = inbox.retainMessage(first);

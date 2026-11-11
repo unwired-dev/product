@@ -1,5 +1,5 @@
-import type { NativeGmailMailbox } from '../gmail-inbox.ts';
 import type { NativeImapMailbox } from '../imap-inbox.ts';
+import type { NativeGmailMailbox } from '../inbox-store.ts';
 import type { NativeGmailMailboxes } from '../mailboxes.ts';
 
 const missing = () =>

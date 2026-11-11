@@ -1,7 +1,7 @@
-import type { GmailInboxState, GmailMessage } from '../src/gmail-inbox.ts';
+import type { GmailInboxState, GmailMessage } from '../src/inbox-store.ts';
 
 import { gmailAction, restoreAfter } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { createGmailSearch, createMailboxes } from '../src/mailboxes.ts';
 import { createRegistration, defaultProfile } from '../src/registration.ts';
 import {
@@ -13,7 +13,7 @@ import { createRegistrationScenario } from '../src/testing/registration-scenario
 import { syntheticMailboxes } from '../src/testing/registration-vault.ts';
 
 type Graph = ReturnType<typeof createSyntheticGraph>;
-type Inbox = ReturnType<typeof createGmailInbox>;
+type Inbox = ReturnType<typeof createInboxStore>;
 
 const ready = (state: GmailInboxState) => {
   if (state.kind !== 'ready') {
@@ -47,7 +47,7 @@ const ids = (inbox: Inbox) =>
   ready(inbox.getSnapshot()).messages.map(({ id }) => id);
 
 const microsoftInbox = (graph: Graph) =>
-  createGmailInbox(graph.native, { provider: 'microsoft-graph' });
+  createInboxStore(graph.native, { provider: 'microsoft-graph' });
 
 const opened = async (graph: Graph) => {
   const inbox = microsoftInbox(graph);
@@ -237,7 +237,7 @@ describe('organizing Microsoft mail through Graph', () => {
     async ({ fields }) => {
       expect.hasAssertions();
       const graph = createSyntheticGraph({ messages: 1 });
-      const inbox = createGmailInbox(
+      const inbox = createInboxStore(
         {
           ...graph.native,
           graphModify: ({ message: id }) =>
