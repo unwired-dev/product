@@ -1,6 +1,6 @@
 import * as Effect from 'effect/Effect';
 
-import type { NativeGmailMailbox } from '../gmail-inbox.ts';
+import type { NativeGmailMailbox } from '../inbox-store.ts';
 
 const ignore = () => undefined;
 

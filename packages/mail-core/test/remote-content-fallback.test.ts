@@ -1,6 +1,6 @@
-import type { MessageBodyState } from '../src/gmail-inbox.ts';
+import type { MessageBodyState } from '../src/inbox-store.ts';
 
-import { createBodyLoads, createGmailInbox } from '../src/gmail-inbox.ts';
+import { createBodyLoads, createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 import { open, png, remote, waitForFetches } from './remote-content-fixture.ts';
 
@@ -24,7 +24,7 @@ describe('remote content after rich rendering fails', () => {
     const id = gmail.deliver({
       content: { html: `<img src="${photo}"><img src="${later}">` },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const release = inbox.retainMessage(id);
     const healthy = await open(inbox, id);
@@ -67,7 +67,7 @@ describe('remote content after rich rendering fails', () => {
     const second = gmail.deliver({
       content: { html: `<img src="${later}"><img src="${last}">` },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const failed = await open(inbox, first);
     const healthy = await open(inbox, first);
@@ -126,7 +126,7 @@ describe('remote content after rich rendering fails', () => {
     const id = gmail.deliver({
       content: { html: `<img src="${photo}"><img src="${later}">` },
     });
-    const inbox = createGmailInbox(gmail.native, { shared });
+    const inbox = createInboxStore(gmail.native, { shared });
     await inbox.load();
     const seed = await open(inbox, id);
     try {
@@ -189,7 +189,7 @@ describe('remote content after rich rendering fails', () => {
       const id = gmail.deliver({
         content: { html: `<p>Hello</p><img src="${photo}" alt="Photo">` },
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       const release = inbox.retainMessage(id, reader);
       await inbox.readMessage(id);

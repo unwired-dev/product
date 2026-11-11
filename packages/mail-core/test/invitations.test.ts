@@ -1,4 +1,4 @@
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
   InvitationChoice,
   ResponseState,
@@ -6,7 +6,7 @@ import type {
 import type { BodyDocument } from '@private-email/mail-core/message-body';
 
 import { english } from '@private-email/localization';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   alsoInvited,
   createInvitationFormats,
@@ -116,7 +116,7 @@ async function invited(
       ],
     },
   });
-  const inbox = createGmailInbox(native(gmail.native));
+  const inbox = createInboxStore(native(gmail.native));
   await inbox.load();
   const close = inbox.retainMessage(id);
   return {
@@ -145,7 +145,7 @@ async function relaunched(
   gmail: ReturnType<typeof createSyntheticGmail>,
   id: string,
 ) {
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   const close = inbox.retainMessage(id);
   await inbox.readMessage(id);
@@ -959,7 +959,7 @@ describe('meeting invitations', () => {
         return reply;
       },
     };
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const found = inbox.findMessage(id);
     await answered.promise;
@@ -1586,7 +1586,7 @@ describe('meeting invitations', () => {
           ],
         },
       });
-      const inbox = createGmailInbox(withoutAttachments(gmail.native, failure));
+      const inbox = createInboxStore(withoutAttachments(gmail.native, failure));
       await inbox.load();
       const close = inbox.retainMessage(id);
       await inbox.readMessage(id);
@@ -1618,7 +1618,7 @@ describe('meeting invitations', () => {
         ],
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const close = inbox.retainMessage(id);
     await inbox.readMessage(id);
@@ -1650,7 +1650,7 @@ describe('meeting invitations', () => {
       },
     });
     const native = { ...withoutAttachments(gmail.native, 503) };
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     await inbox.load();
     const first = inbox.retainMessage(id);
     await inbox.readMessage(id);
@@ -1697,7 +1697,7 @@ describe('meeting invitations', () => {
     });
     const failing = withoutAttachments(gmail.native, 503);
     const native = { ...gmail.native };
-    const inbox = createGmailInbox(native);
+    const inbox = createInboxStore(native);
     native.gmailRequest = failing.gmailRequest;
     await inbox.load();
     const first = inbox.retainMessage(id);
@@ -1736,7 +1736,7 @@ describe('meeting invitations', () => {
         },
       });
       const native = { ...withoutAttachments(gmail.native, 503) };
-      const inbox = createGmailInbox(native);
+      const inbox = createInboxStore(native);
       await inbox.load();
       const close = inbox.retainMessage(id);
       await inbox.readMessage(id);

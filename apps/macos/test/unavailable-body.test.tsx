@@ -1,5 +1,5 @@
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { fireEvent, render, screen } from '@testing-library/react-native';
@@ -70,7 +70,7 @@ describe('unavailable message body', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ subject: 'Not downloaded yet' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     gmail.fail({ code: 'unavailable' }, { code: 'unavailable' });
     const app = await render(

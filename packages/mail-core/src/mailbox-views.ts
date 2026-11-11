@@ -4,17 +4,17 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 
 import type {
-  GmailInbox,
-  GmailInboxState,
-  GmailMessage,
-  HistoryProgress,
-} from './gmail-inbox.ts';
-import type {
   ImapFolderView,
   ImapInbox,
   ImapInboxState,
 } from './imap-inbox.ts';
 import type { ImapFolder } from './imap-model.ts';
+import type {
+  GmailInbox,
+  GmailInboxState,
+  GmailMessage,
+  HistoryProgress,
+} from './inbox-store.ts';
 import type { InboxState, PersistentInbox } from './persistent-inbox.ts';
 import type {
   MailboxConnection,

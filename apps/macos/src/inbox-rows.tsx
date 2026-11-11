@@ -1,6 +1,6 @@
 import type { Message } from '@private-email/mail-core';
-import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
+import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 
 import { messageDay } from '@private-email/localization';
 import { rowContextMenu } from '@private-email/mail-core/context-menu';

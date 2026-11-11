@@ -17,14 +17,14 @@ import {
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
 import {
-  listedMessage,
-  viewMessage,
-} from '@private-email/mail-core/gmail-inbox';
-import {
   imapMoveTargets,
   imapQuickActions,
 } from '@private-email/mail-core/imap-actions';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
+import {
+  listedMessage,
+  viewMessage,
+} from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
 import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {

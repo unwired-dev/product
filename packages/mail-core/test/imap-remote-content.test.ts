@@ -1,7 +1,7 @@
 import type { ImapInbox } from '../src/imap-inbox.ts';
 
-import { createBodyLoads, createGmailInbox } from '../src/gmail-inbox.ts';
 import { createImapInbox } from '../src/imap-inbox.ts';
+import { createBodyLoads, createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 import { open, png, waitForFetches } from './remote-content-fixture.ts';
@@ -198,7 +198,7 @@ describe('imap remote message content', () => {
     }
     const gmailId = gmail.deliver({ content: { html: html([large]) } });
     imap.deliver('INBOX', { subject: 'Pair', raw: raw('Pair', html(pair)) });
-    const gmailInbox = createGmailInbox(gmail.native, { shared });
+    const gmailInbox = createInboxStore(gmail.native, { shared });
     const imapInbox = createImapInbox(imap.native, {
       shared,
       connection: 'imap-1',

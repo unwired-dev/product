@@ -1,7 +1,7 @@
-import type { GmailInbox } from '../src/gmail-inbox.ts';
+import type { GmailInbox } from '../src/inbox-store.ts';
 
 import { gmailAction } from '../src/gmail-actions.ts';
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import {
   attachmentLimit,
   receivedAttachments,
@@ -69,7 +69,7 @@ async function opened(
 ) {
   const gmail = createSyntheticGmail();
   const id = gmail.deliver(attachments);
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   const close = inbox.retainMessage(id);
   await inbox.readMessage(id);
@@ -83,7 +83,7 @@ describe('received attachments', () => {
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ subject: 'Archived attachment' });
     gmail.setLabel(id, 'INBOX', false);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.searchGmail?.('Archived attachment');
     const close = inbox.retainMessage(id);

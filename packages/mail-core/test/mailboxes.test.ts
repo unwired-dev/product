@@ -1,7 +1,7 @@
 import * as Effect from 'effect/Effect';
 
-import type { GmailInboxState } from '../src/gmail-inbox.ts';
 import type { ImapInboxState } from '../src/imap-inbox.ts';
+import type { GmailInboxState } from '../src/inbox-store.ts';
 import type { Mailbox, NativeGmailMailboxes } from '../src/mailboxes.ts';
 import type { MailboxConnection } from '../src/registration.ts';
 

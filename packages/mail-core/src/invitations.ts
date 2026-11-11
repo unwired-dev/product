@@ -4,11 +4,11 @@ import * as DateTime from 'effect/DateTime';
 import * as Option from 'effect/Option';
 
 import type { Draft, Recipient } from './draft-model.ts';
-import type { GmailInbox, SendOutcome } from './gmail-inbox.ts';
+import type { GmailInbox, SendOutcome } from './inbox-store.ts';
 import type { InvitationResponse } from './mailbox-document.ts';
 import type { BodyDocument } from './message-body.ts';
 
-import { listedMessage } from './gmail-inbox.ts';
+import { listedMessage } from './inbox-store.ts';
 import { boundaryOf, outgoingMessage } from './outgoing-message.ts';
 
 // The response a person chooses for a meeting invitation, as its iCalendar participation status.

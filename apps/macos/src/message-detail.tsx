@@ -9,7 +9,7 @@ import {
 } from '@private-email/mail-core/commands';
 import { messageContextMenu } from '@private-email/mail-core/context-menu';
 import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
-import { listedMessage } from '@private-email/mail-core/gmail-inbox';
+import { listedMessage } from '@private-email/mail-core/inbox-store';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
 import Clipboard from '@react-native-clipboard/clipboard';

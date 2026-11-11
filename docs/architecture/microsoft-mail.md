@@ -62,14 +62,17 @@ Credentials never cross the bridge; only status/body do.
 
 ## Synchronization and identity
 
-`graph-inbox.ts` owns Graph synchronization, attachment metadata, body reads,
-folder discovery, organizing response interpretation and online search.
-The host-facing Inbox store delegates those operations while retaining cache
-publication, reader lifetime, prefetch and presentation admission. Both providers
-use the same `mailbox-document.ts` cache schemas/reconciliation and
-`mailbox-read.ts` request decoding/failures; the exported store interface and
-persisted version remains 1 with optional folder-limit metadata. Hosts consume a
-nonpersisted unavailable-action list derived from discovered folder roles.
+`graph-reader.ts` is the Microsoft [Provider reader](../domain/privacy-and-sync.md#language):
+it owns Graph synchronization, attachment metadata, body reads, folder discovery,
+organizing response interpretation, online search and sending. The host-facing
+[Inbox store](../domain/privacy-and-sync.md#language) (`inbox-store.ts`) delegates
+those operations to the reader it was created with, typed by `provider-reader.ts`,
+while retaining cache publication, reader lifetime, prefetch and presentation
+admission. Both providers use the same `mailbox-document.ts` cache
+schemas/reconciliation and `mailbox-read.ts` request decoding/failures; the
+exported store interface and persisted version remains 1 with optional
+folder-limit metadata. Hosts consume a nonpersisted unavailable-action list
+derived from discovered folder roles.
 
 Initial lists follow [`@odata.nextLink`](https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0)
 until the newest 200 messages or all available messages are retained, with a

@@ -1,8 +1,8 @@
 import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createRemoteContentSettings } from '@private-email/mail-core/remote-content';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
@@ -82,7 +82,7 @@ async function openReader(
   const id = gmail.deliver({
     content: { html },
   });
-  const inbox = createGmailInbox(gmail.native);
+  const inbox = createInboxStore(gmail.native);
   await inbox.load();
   const app = await render(
     <RemoteContentContext value={settings}>
@@ -223,7 +223,7 @@ describe('remote message content in the reader', () => {
       gmail.serveRemote(source, { data: photo });
       gmail.serveRemote(later, { data: photo });
       const id = gmail.deliver({ content: { html } });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       return { gmail, inbox, id };
     };

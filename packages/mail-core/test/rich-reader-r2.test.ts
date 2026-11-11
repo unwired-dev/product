@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 
 import * as Schema from 'effect/Schema';
 
-import type { GmailInbox } from '../src/gmail-inbox.ts';
+import type { GmailInbox } from '../src/inbox-store.ts';
 import type { GmailPart } from '../src/message-body.ts';
 
-import { createGmailInbox } from '../src/gmail-inbox.ts';
 import { sanitizeHtml } from '../src/html-sanitizer.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
 import {
   contentIdsOf,
@@ -151,7 +151,7 @@ describe('rich-reader review regressions', () => {
           imagePart('styled-image', '<styled>'),
         ],
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       expect(observed.images).toStrictEqual([]);
       await inbox.readMessage(id);
@@ -201,7 +201,7 @@ describe('rich-reader review regressions', () => {
         id,
         textPart('text/html', `<a href="${href}">${label}</a>`),
       );
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       await inbox.readMessage(id);
       const body = inbox.messageBody(id);
@@ -240,7 +240,7 @@ describe('rich-reader review regressions', () => {
         id,
         textPart('text/html', `<a href="${href}">Continue</a>`),
       );
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       await inbox.readMessage(id);
       const body = inbox.messageBody(id);
@@ -287,7 +287,7 @@ describe('rich-reader review regressions', () => {
     const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
     const html = `<p>Other renderable content</p>${absent.join('')}${shown.map(([href, child]) => `<a href="${href}">${child}</a>`).join('')}`;
     substitutePayload(gmail, id, textPart('text/html', html));
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.readMessage(id);
     const body = inbox.messageBody(id);
@@ -336,7 +336,7 @@ describe('rich-reader review regressions', () => {
         { name: 'cOnTeNt-TyPe', value: '(comment) TEXT/HTML; charset=UTF-8' },
       ],
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await vi.waitFor(() => {
       expect(gmail.cachedBodies().has(id)).toBe(true);
@@ -368,7 +368,7 @@ describe('rich-reader review regressions', () => {
         ),
       ],
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await expect(inbox.readMessage(id)).resolves.toBeUndefined();
     expect(inbox.messageBody(id)).toStrictEqual({
@@ -392,7 +392,7 @@ describe('rich-reader review regressions', () => {
         html: '<p>Rich body</p><img src="https://images.example.invalid/photo.png">',
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.readMessage(id);
     expect(inbox.messageBody(id)).toMatchObject({
@@ -508,7 +508,7 @@ describe('rich-reader review regressions', () => {
       ],
     };
     const observed = substitutePayload(gmail, id, payload);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.readMessage(id);
     expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
@@ -593,7 +593,7 @@ describe('rich-reader review regressions', () => {
         content: { text: 'Recent', single: true },
       });
       const observed = substitutePayload(gmail, id, payload);
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       await vi.waitFor(() => {
         expect(gmail.bodyCommits).toHaveLength(1);
@@ -1065,7 +1065,7 @@ describe('rich-reader review regressions', () => {
         imagePart('shown-part', 'shown'),
       ],
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.readMessage(id);
     expect(observed.images).toStrictEqual(['shown-part']);
@@ -1892,7 +1892,7 @@ describe('rich-reader review regressions', () => {
           imagePart('image', '<logo>'),
         ],
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       await inbox.readMessage(id);
       expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
@@ -1948,7 +1948,7 @@ describe('rich-reader review regressions', () => {
         headers: [{ name: 'Content-Type', value: contentType }],
         body: { size: bytes.length, data: bytes.toString('base64url') },
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       await inbox.readMessage(id);
       expect(inbox.messageBody(id)).toMatchObject({
@@ -1958,7 +1958,7 @@ describe('rich-reader review regressions', () => {
       expect(parseJson(String(gmail.cachedBodies().get(id)))).toMatchObject({
         html: decoded,
       });
-      const reopened = createGmailInbox(gmail.native);
+      const reopened = createInboxStore(gmail.native);
       await reopened.load();
       await reopened.readMessage(id);
       expect(reopened.messageBody(id)).toMatchObject({
@@ -1991,7 +1991,7 @@ describe('rich-reader review regressions', () => {
           imagePart('image', contentId),
         ],
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       await inbox.readMessage(id);
       expect(inbox.messageBody(id)).toMatchObject({ kind: 'ready' });
@@ -2109,7 +2109,7 @@ describe('rich-reader review regressions', () => {
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
     substitutePayload(gmail, id, textPart('text/plain', content));
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.readMessage(id);
     expect(inbox.messageBody(id)).toMatchObject({
@@ -2162,7 +2162,7 @@ describe('rich-reader review regressions', () => {
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ at: Date.UTC(2020, 0, 1) });
     substitutePayload(gmail, id, textPart('text/html', html));
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await inbox.readMessage(id);
     expect(inbox.messageBody(id)).toMatchObject({

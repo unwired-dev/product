@@ -1,5 +1,5 @@
 import type { CommandTarget } from '@private-email/mail-core/commands';
-import type { GmailInbox } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ResponseKind } from '@private-email/mail-core/responses';
 import type { Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
@@ -16,8 +16,8 @@ import {
   recipientsOf,
   sendingMailboxes,
 } from '@private-email/mail-core/drafts';
-import { listedMessage } from '@private-email/mail-core/gmail-inbox';
-import { threadMessages } from '@private-email/mail-core/gmail-inbox';
+import { listedMessage } from '@private-email/mail-core/inbox-store';
+import { threadMessages } from '@private-email/mail-core/inbox-store';
 import { startResponse } from '@private-email/mail-core/responses';
 import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
 import {

@@ -1,5 +1,5 @@
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
@@ -68,7 +68,7 @@ describe('received attachments in the reader', () => {
         ],
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const app = await render(
       <GmailMessageBody
@@ -156,7 +156,7 @@ describe('received attachments in the reader', () => {
         })),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const app = await render(
       <GmailMessageBody
@@ -235,7 +235,7 @@ describe('received attachments in the reader', () => {
     const gmail = createSyntheticGmail();
     const first = gmail.deliver({ content: { text: 'First.' } });
     const second = gmail.deliver({ content: { text: 'Second.' } });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const app = await render(
       <GmailMessageBody
@@ -272,7 +272,7 @@ describe('received attachments in the reader', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ content: { text: 'Notes attached.' } });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const app = await render(
       <GmailMessageBody
@@ -328,7 +328,7 @@ describe('received attachments in the reader', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ content: { text: 'Notes attached.' } });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const app = await render(
       <GmailMessageBody

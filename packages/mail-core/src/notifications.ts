@@ -4,9 +4,9 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
-import type { GmailInbox } from './gmail-inbox.ts';
 import type { ImapInbox } from './imap-inbox.ts';
 import type { ImapAction } from './imap-model.ts';
+import type { GmailInbox } from './inbox-store.ts';
 import type { GmailMessage } from './mailbox-message.ts';
 import type {
   MailGrantProvider,
@@ -15,8 +15,8 @@ import type {
 
 import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { gmailAction } from './gmail-actions.ts';
-import { listedMessage } from './gmail-inbox.ts';
 import { imapRoleFolder } from './imap-actions.ts';
+import { listedMessage } from './inbox-store.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
 import { createSubscribable } from './subscribable.ts';
 

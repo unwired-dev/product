@@ -1,10 +1,10 @@
-import type { GmailInboxState } from '@private-email/mail-core/gmail-inbox';
+import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
 import {
   gmailAction,
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
 const ready = (state: GmailInboxState) => {
@@ -15,7 +15,7 @@ const ready = (state: GmailInboxState) => {
 };
 
 const microsoftInbox = (graph: ReturnType<typeof createSyntheticGraph>) =>
-  createGmailInbox(graph.native, { provider: 'microsoft-graph' });
+  createInboxStore(graph.native, { provider: 'microsoft-graph' });
 
 const pair = <A>(values: readonly A[]): readonly [A, A] => {
   const [first, second] = values;
@@ -86,7 +86,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
     const round = splitRound(graph);
     const arrivals: string[][] = [];
     const committed: boolean[] = [];
-    const inbox = createGmailInbox(round.native, {
+    const inbox = createInboxStore(round.native, {
       provider: 'microsoft-graph',
       arrived: (messages) => {
         committed.push(
@@ -176,7 +176,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
           arrivals.push(messages.map(({ subject }) => subject));
         },
       };
-      const inbox = createGmailInbox(native, options);
+      const inbox = createInboxStore(native, options);
       await inbox.load();
       vi.setSystemTime(at(10));
       round.split([
@@ -187,7 +187,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
 
       graph.deliver({ subject: 'During interruption', at: at(11) });
       vi.setSystemTime(at(12));
-      const relaunched = createGmailInbox(native, options);
+      const relaunched = createInboxStore(native, options);
       await relaunched.load();
       // The old round's empty final page ends that synchronization; the next one reads later mail.
       await relaunched.load();
@@ -215,7 +215,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
       );
       const round = splitRound(graph);
       const arrivals: string[][] = [];
-      const inbox = createGmailInbox(round.native, {
+      const inbox = createInboxStore(round.native, {
         provider: 'microsoft-graph',
         arrived: (messages) => {
           arrivals.push(messages.map(({ subject }) => subject));
@@ -275,7 +275,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
         arrivals.push(messages.map(({ id }) => id));
       },
     };
-    const inbox = createGmailInbox(native, options);
+    const inbox = createInboxStore(native, options);
     await inbox.load();
     const [firstMessage] = pair(ready(inbox.getSnapshot()).messages);
     const removed = firstMessage.id;
@@ -291,7 +291,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
       ready(inbox.getSnapshot()).messages.some(({ id }) => id === delivered),
     ).toBe(false);
     expect(arrivals).toStrictEqual([]);
-    const relaunched = createGmailInbox(native, options);
+    const relaunched = createInboxStore(native, options);
     await relaunched.load();
     await relaunched.load();
     expect(arrivals).toStrictEqual([[delivered]]);
@@ -308,7 +308,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
     );
     const round = splitRound(graph);
     const arrivals: string[][] = [];
-    const inbox = createGmailInbox(round.native, {
+    const inbox = createInboxStore(round.native, {
       provider: 'microsoft-graph',
       arrived: (messages) => {
         arrivals.push(messages.map(({ id }) => id));
@@ -346,7 +346,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
       graph.deliver({ subject: `Listed ${index}`, at: at(0) + index * 1000 });
     }
     const arrivals: string[][] = [];
-    const inbox = createGmailInbox(graph.native, {
+    const inbox = createInboxStore(graph.native, {
       provider: 'microsoft-graph',
       arrived: (messages) => {
         arrivals.push(messages.map(({ subject }) => subject));
@@ -399,7 +399,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
       },
     };
     const archive = async (interrupt = false) => {
-      const inbox = createGmailInbox(native, options);
+      const inbox = createInboxStore(native, options);
       await inbox.load();
       const [message] = pair(ready(inbox.getSnapshot()).messages);
       unavailable = interrupt;
@@ -422,7 +422,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
     graph.restore(dropped);
     graph.deliver({ subject: 'Actual arrival', at: Date.UTC(2026, 9, 2) });
     unavailable = false;
-    await createGmailInbox(native, options).load();
+    await createInboxStore(native, options).load();
     expect(arrivals).toStrictEqual([['Actual arrival']]);
   });
 
@@ -458,8 +458,8 @@ describe('new Inbox notifications for Microsoft mail', () => {
         arrivals.push(messages.map(({ id }) => id));
       },
     };
-    const first = createGmailInbox(native, options);
-    const second = createGmailInbox(native, options);
+    const first = createInboxStore(native, options);
+    const second = createInboxStore(native, options);
     await Promise.all([first.load(), second.load()]);
     expect(arrivals).toStrictEqual([[delivered]]);
     expect([
@@ -477,7 +477,7 @@ describe('new Inbox notifications for Microsoft mail', () => {
     }
     const round = splitRound(graph);
     const arrivals: string[][] = [];
-    const inbox = createGmailInbox(round.native, {
+    const inbox = createInboxStore(round.native, {
       provider: 'microsoft-graph',
       arrived: (messages) => {
         arrivals.push(messages.map(({ id }) => id));
@@ -529,8 +529,8 @@ describe('new Inbox notifications for Microsoft mail', () => {
         arrivals.push(messages.map(({ id }) => id));
       },
     };
-    const slow = createGmailInbox(native, options);
-    const fast = createGmailInbox(fastRound.native, options);
+    const slow = createInboxStore(native, options);
+    const fast = createInboxStore(fastRound.native, options);
     const loading = slow.load();
     await held.promise;
     await fast.load();

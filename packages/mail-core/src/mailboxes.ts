@@ -4,15 +4,6 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type {
-  GmailInbox,
-  GmailInboxState,
-  GmailMessage,
-  GmailSearchPage,
-  HistoryWrite,
-  NativeGmailMailbox,
-  RemoteResource,
-} from './gmail-inbox.ts';
-import type {
   ImapFolder,
   ImapInbox,
   ImapInboxState,
@@ -20,6 +11,15 @@ import type {
   ImapSearchPage,
   NativeImapMailbox,
 } from './imap-inbox.ts';
+import type {
+  GmailInbox,
+  GmailInboxState,
+  GmailMessage,
+  GmailSearchPage,
+  HistoryWrite,
+  NativeGmailMailbox,
+  RemoteResource,
+} from './inbox-store.ts';
 import type { ArrivedMessage, NotificationMailbox } from './notifications.ts';
 import type {
   MailboxConnection,
@@ -30,9 +30,9 @@ import type {
 import type { Registration } from './registration.ts';
 
 import { logNote } from './diagnostics.ts';
-import { createBodyLoads, createGmailInbox } from './gmail-inbox.ts';
 import { searchedFolders } from './imap-actions.ts';
 import { createImapInbox } from './imap-inbox.ts';
+import { createBodyLoads, createInboxStore } from './inbox-store.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
 import { newestFirst } from './mailbox-views.ts';
 import {
@@ -639,7 +639,7 @@ export function createMailboxes(
             }
           : {
               provider,
-              inbox: createGmailInbox(bound(native, id), {
+              inbox: createInboxStore(bound(native, id), {
                 removed,
                 arrived: report,
                 shared,

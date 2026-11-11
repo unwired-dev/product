@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react';
 
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { fireEvent, screen } from '@testing-library/react-native';
@@ -59,7 +59,7 @@ async function openSpike() {
   jest.replaceProperty(
     jest.requireMock('../src/private-storage.ts'),
     'mailboxes',
-    singleMailbox(createGmailInbox(gmail.native), 'garden'),
+    singleMailbox(createInboxStore(gmail.native), 'garden'),
   );
   try {
     await renderRouter({

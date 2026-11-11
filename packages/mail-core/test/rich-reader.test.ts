@@ -9,9 +9,9 @@ import {
 import { palette } from '@private-email/mail-core/theme';
 import * as Schema from 'effect/Schema';
 
-import type { GmailInbox, MessageBodyState } from '../src/gmail-inbox.ts';
+import type { GmailInbox, MessageBodyState } from '../src/inbox-store.ts';
 
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { inspectImage } from '../src/inline-images.ts';
 import { inspectLink, linkWarnings } from '../src/link-inspection.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
@@ -327,7 +327,7 @@ describe('the isolated rich reader', () => {
         ].join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const opened = await read(inbox, id);
     const { document, links } = rich(opened);
@@ -378,7 +378,7 @@ describe('the isolated rich reader', () => {
           '<a href="https://example.invalid/shop"><span style="display:inline-block;padding:8px">Shop now</span></a>',
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const { document, links } = rich(await read(inbox, id));
     expect(document).toContain(
@@ -417,7 +417,7 @@ describe('the isolated rich reader', () => {
         ].join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const { document, links } = rich(await read(inbox, id));
     expect(links).toStrictEqual([
@@ -463,7 +463,7 @@ describe('the isolated rich reader', () => {
         })),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const opened = await read(inbox, id);
     expect(rich(opened).document).not.toContain('Pixel');
@@ -513,7 +513,7 @@ describe('the isolated rich reader', () => {
         html: '<p><img src="https://sender.invalid/poster.png" alt="" width="400"></p>',
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     // Prefetch records an exclusion marker instead of caching the attachment-like part.
     await vi.waitFor(() => {
@@ -555,7 +555,7 @@ describe('the isolated rich reader', () => {
     const gmail = createSyntheticGmail();
     const archived = gmail.deliver({ subject: 'Archived' });
     const kept = gmail.deliver({ subject: 'Kept' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await read(inbox, archived);
     await read(inbox, kept);
@@ -572,7 +572,7 @@ describe('the isolated rich reader', () => {
       ...(await open()),
       availability: 'retry',
     });
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     await relaunched.load();
     expect(gmail.cachedBodies().has(archived)).toBe(true);
     gmail.native.openMailbox = open;
@@ -587,8 +587,8 @@ describe('the isolated rich reader', () => {
     const gmail = createSyntheticGmail();
     const at = Date.now() - 31 * 24 * 60 * 60 * 1000;
     gmail.deliver({ at });
-    const earlier = createGmailInbox(gmail.native);
-    const newer = createGmailInbox(gmail.native);
+    const earlier = createInboxStore(gmail.native);
+    const newer = createInboxStore(gmail.native);
     await earlier.load();
     await newer.load();
     const history = holdNextHistory(gmail);
@@ -662,7 +662,7 @@ describe('the isolated rich reader', () => {
         ],
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const opened = await read(inbox, id);
     const { document, links } = rich(opened);
@@ -747,7 +747,7 @@ describe('the isolated rich reader', () => {
         image(4),
       ],
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const { document } = rich(await read(inbox, id));
     expect(document).toContain('aria-label="mixed"');
@@ -825,7 +825,7 @@ describe('the isolated rich reader', () => {
         leaf('text/html', '<p>Report payload</p>'),
       ],
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const { document } = rich(await read(inbox, signed));
     expect(document).toContain('aria-label="signature"');
@@ -868,7 +868,7 @@ describe('the isolated rich reader', () => {
         ].join(''),
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const opened = await read(inbox, id);
     const { document, links } = rich(opened);
@@ -929,7 +929,7 @@ describe('the isolated rich reader', () => {
         ],
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const { document } = rich(await read(inbox, id));
     expect(document.match(/src="data:image\/png;base64,/gu)).toHaveLength(1);
@@ -948,7 +948,7 @@ describe('the isolated rich reader', () => {
     ]);
 
     // A relaunch without Gmail shows the admitted image from the encrypted cache.
-    const relaunched = createGmailInbox(gmail.native);
+    const relaunched = createInboxStore(gmail.native);
     gmail.fail({ code: 'unavailable' });
     await relaunched.load();
     expect(rich(await read(relaunched, id)).document).toBe(document);
@@ -968,7 +968,7 @@ describe('the isolated rich reader', () => {
         protectedIds: [],
       },
     );
-    const online = createGmailInbox(gmail.native);
+    const online = createInboxStore(gmail.native);
     await online.load();
     expect(rich(await read(online, id)).document).toContain(
       'src="data:image/png;base64,',
@@ -994,13 +994,13 @@ describe('the isolated rich reader', () => {
       });
       const request = gmail.native.gmailRequest;
       const imageReply = answerImages(gmail);
-      const first = createGmailInbox(gmail.native);
+      const first = createInboxStore(gmail.native);
       await first.load();
       expect(rich(await read(first, id)).document).toContain('Cached mail');
       const cached = gmail.cachedBodies().get(id);
       expect(parseJson(String(cached))).not.toHaveProperty('images');
 
-      const reopened = createGmailInbox(gmail.native);
+      const reopened = createInboxStore(gmail.native);
       await reopened.load();
       imageReply.status = 401;
       const refuse = {
@@ -1070,7 +1070,7 @@ describe('the isolated rich reader', () => {
       size: imageBytes,
       data: 'AAAA',
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const opened = await read(inbox, id);
     expect(rich(opened).document).not.toContain('data:image');
@@ -1112,13 +1112,13 @@ describe('the isolated rich reader', () => {
       });
       const imageReply = answerImages(gmail);
       Object.assign(imageReply, reply);
-      const first = createGmailInbox(gmail.native);
+      const first = createInboxStore(gmail.native);
       await first.load();
       expect(rich(await read(first, id)).document).toContain('Cached text');
       expect(first.getSnapshot()).toMatchObject({ sync: 'current' });
       const cached = gmail.cachedBodies().get(id);
 
-      const reopened = createGmailInbox(gmail.native);
+      const reopened = createInboxStore(gmail.native);
       await reopened.load();
       const setup = {
         MIME: () => answerBodies(gmail, new Map([[id, reply]])),
@@ -1146,7 +1146,7 @@ describe('the isolated rich reader', () => {
       const second = gmail.deliver({ content });
       const third = gmail.deliver({ content });
       const refusing = refuseGrant(gmail);
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       const close = inbox.retainMessage(closed, reader);
       refusing.attachments = true;
@@ -1201,7 +1201,7 @@ describe('the isolated rich reader', () => {
       }),
     );
     const [first = '', second = '', third = ''] = ids;
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const releaseFirst = inbox.retainMessage(first);
     inbox.retainMessage(second);
@@ -1233,7 +1233,7 @@ describe('the isolated rich reader', () => {
     };
     const first = gmail.deliver({ content });
     const second = gmail.deliver({ content });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const firstReader = Symbol('first');
     const duplicateReader = Symbol('duplicate');
@@ -1309,7 +1309,7 @@ describe('the isolated rich reader', () => {
         entered.resolve(undefined);
         return delayed.promise;
       });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const closeOldReader = inbox.retainMessage(first);
     const oldRead = inbox.readMessage(first);
@@ -1360,7 +1360,7 @@ describe('the isolated rich reader', () => {
       content: { text: 'Trashed', single: true },
     });
     gmail.label(trashed, 'TRASH');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await vi.waitFor(() => {
       expect(gmail.bodyCommits).toHaveLength(3);
@@ -1448,7 +1448,7 @@ describe('the isolated rich reader', () => {
       at: now - 40 * day,
       content: { text: 'Older', single: true },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await vi.waitFor(() => {
       expect(gmail.bodyCommits).toHaveLength(2);
@@ -1498,7 +1498,7 @@ describe('the isolated rich reader', () => {
         [refused, { status: 401, body: '{}' }],
       ]),
     );
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     expect(inbox.getSnapshot()).toMatchObject({ sync: 'current' });
     await expect(read(inbox, quota)).resolves.toMatchObject({
@@ -1524,7 +1524,7 @@ describe('the isolated rich reader', () => {
         at: Date.UTC(2020, 0, 1),
         content: { text: 'Refused' },
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       const history = holdNextHistory(gmail, reply);
       const syncing = inbox.load();
@@ -1571,7 +1571,7 @@ describe('the isolated rich reader', () => {
         content: { text: 'On demand', single: true, disposition },
       }),
     );
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await vi.waitFor(() => {
       expect(gmail.bodyCommits).toHaveLength(malformed.length);
@@ -1627,7 +1627,7 @@ describe('the isolated rich reader', () => {
         headers: [{ name, value: values[name] }],
         body: { size: 9, data: Buffer.from('On demand').toString('base64url') },
       });
-      const inbox = createGmailInbox(gmail.native);
+      const inbox = createInboxStore(gmail.native);
       await inbox.load();
       await vi.waitFor(() => {
         expect(parseJson(String(gmail.cachedBodies().get(id)))).toStrictEqual({
@@ -1669,7 +1669,7 @@ describe('the isolated rich reader', () => {
       headers: [{ name: 'X-Padding', value: overBudget }],
       body: { size: 9, data: Buffer.from('On demand').toString('base64url') },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await vi.waitFor(() => {
       expect(gmail.bodyCommits).toHaveLength(3);
@@ -1724,7 +1724,7 @@ describe('the isolated rich reader', () => {
       },
     });
     const refusing = refuseGrant(gmail);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     // An opened body keeps its text while its image download meets the rejection.
     refusing.attachments = true;
@@ -1755,7 +1755,7 @@ describe('the isolated rich reader', () => {
     await inbox.load();
     await read(inbox, unresolved);
     refusing.attachments = false;
-    const fresh = createGmailInbox(gmail.native);
+    const fresh = createInboxStore(gmail.native);
     await fresh.load();
     refusing.full = true;
     const cached = rich(await read(fresh, unresolved));
@@ -1774,7 +1774,7 @@ describe('the isolated rich reader', () => {
       }),
     );
     const observed = observeBodyLoads(gmail);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     const opening = inbox.load();
     await Promise.all([opening, inbox.readMessage(String(ids[3]))]);
     await vi.waitFor(() => {
@@ -1812,7 +1812,7 @@ describe('the isolated rich reader', () => {
         ],
       },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     inbox.retainMessage(first);
     inbox.retainMessage(second);
@@ -1854,7 +1854,7 @@ describe('the isolated rich reader', () => {
     };
     // oxlint-enable vitest/no-conditional-in-test
     gmail.native.gmailRequest = holdFullRead;
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await start.promise;
     const release = inbox.retainMessage(id);
@@ -1881,7 +1881,7 @@ describe('the isolated rich reader', () => {
       at: Date.UTC(2020, 0, 1),
       content: { text: 'Closed mail', single: true },
     });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const close = inbox.retainMessage(id);
     // Synchronous publication precedes registration of the pending read's promise.
@@ -1943,7 +1943,7 @@ describe('the isolated rich reader', () => {
       content: { text: 'Previous mailbox', single: true },
     });
     const preflight = holdFirstPreflight(gmail);
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     await preflight.reached;
 
@@ -1964,7 +1964,7 @@ describe('the isolated rich reader', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 60 });
     const page = holdListPage(gmail, '50');
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     const synchronizing = inbox.load();
     await page.reached;
     const [first = ''] = listedIds(inbox);

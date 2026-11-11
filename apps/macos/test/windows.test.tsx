@@ -4,8 +4,8 @@ import type { ReactNode } from 'react';
 import type { AppStateStatus, TurboModule } from 'react-native';
 
 import { createDrafts } from '@private-email/mail-core/drafts';
-import { createGmailInbox } from '@private-email/mail-core/gmail-inbox';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   createMailboxes,
   singleMailbox,
@@ -1035,7 +1035,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       const travel = gmail.createLabel('Travel');
       const flight = gmail.deliver({ subject: 'Flight to Zagreb' });
       gmail.setLabel(flight, travel, true);
-      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
       const app = await render(
         <Windows
           first
@@ -1080,7 +1080,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const receipt = gmail.deliver({ subject: 'Old receipt' });
     gmail.setLabel(receipt, 'TRASH', true);
     gmail.setLabel(receipt, 'INBOX', false);
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
     const app = await render(
       <Windows
         first
@@ -1306,7 +1306,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const gmail = createSyntheticGmail();
     const elsewhere = gmail.deliver({ subject: 'Archived elsewhere' });
     gmail.deliver({ subject: 'Lunch on Friday' });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     showMailboxes(singleMailbox(inbox, alex));
     const app = await render(
       <Windows
@@ -1411,7 +1411,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     gmail.setLabel(flight, travel, true);
     gmail.archive(flight);
     gmail.deliver({ subject: 'Lunch on Friday' });
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
     const app = await render(
       <Windows
         first
@@ -1479,7 +1479,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         html: '<a href="https://example.invalid/other">other plan</a>',
       },
     });
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
     const app = await render(
       <Windows
         first
@@ -1550,7 +1550,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       snippet: 'Coffee first',
     });
     // Both windows can read the legacy cache while its missing labels are fetched again.
-    await createGmailInbox(gmail.native).load();
+    await createInboxStore(gmail.native).load();
     await gmail.native.commitMailbox(
       { address: 'alex@example.invalid', generation: '0' },
       gmail.commits.length,
@@ -2046,7 +2046,7 @@ describe('mac windows of different Mail Profiles', () => {
   it('shows each Profile’s monogram in the Profile Switcher and Profile Menu', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
     const app = await render(
       <WithWork>
         <InboxWindow windowId="primary" />
@@ -2079,7 +2079,7 @@ describe('mac windows of different Mail Profiles', () => {
       subject: 'Garden plan',
       content: { text: 'Synthetic garden body.' },
     });
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
     const app = await render(
       <WithWork>
         <InboxWindow windowId="same" />
@@ -2135,7 +2135,7 @@ describe('mac windows of different Mail Profiles', () => {
     try {
       const gmail = createSyntheticGmail();
       gmail.deliver({ subject: 'Garden plan' });
-      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
       const app = await render(
         <WithWork>
           <Windows
@@ -2182,7 +2182,7 @@ describe('mac windows of different Mail Profiles', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Garden plan' });
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
     const app = await render(
       <WithWork>
         <InboxWindow windowId="account" />
@@ -2222,7 +2222,7 @@ describe('mac windows of different Mail Profiles', () => {
     try {
       const gmail = createSyntheticGmail();
       gmail.deliver({ subject: 'Garden plan' });
-      showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+      showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
       const app = await render(
         <WithWork>
           <View>
@@ -2268,7 +2268,7 @@ describe('mac windows of different Mail Profiles', () => {
       'registration',
       store,
     );
-    const inbox = createGmailInbox(createSyntheticGmail().native);
+    const inbox = createInboxStore(createSyntheticGmail().native);
     showMailboxes(singleMailbox(inbox, alex));
     const read = jest.spyOn(vault, 'registration');
     const prompt = jest.spyOn(Alert, 'promptMacOS').mockReturnValue(undefined);
@@ -2327,7 +2327,7 @@ describe('mac windows of different Mail Profiles', () => {
       'registration',
       store,
     );
-    const inbox = createGmailInbox(createSyntheticGmail().native);
+    const inbox = createInboxStore(createSyntheticGmail().native);
     showMailboxes(singleMailbox(inbox, alex));
     const nativeRegistration = TurboModuleRegistry.getEnforcing<
       TurboModule & {
@@ -2470,7 +2470,7 @@ describe('mac windows of different Mail Profiles', () => {
       'registration',
       store,
     );
-    const inbox = createGmailInbox(createSyntheticGmail().native);
+    const inbox = createInboxStore(createSyntheticGmail().native);
     showMailboxes(singleMailbox(inbox, alex));
     try {
       const app = await render(
@@ -2526,7 +2526,7 @@ describe('mac windows of different Mail Profiles', () => {
       'registration',
       store,
     );
-    const inbox = createGmailInbox(createSyntheticGmail().native);
+    const inbox = createInboxStore(createSyntheticGmail().native);
     showMailboxes(singleMailbox(inbox, alex));
     try {
       const app = await render(
@@ -2628,7 +2628,7 @@ describe('mac windows of different Mail Profiles', () => {
       'registration',
       store,
     );
-    const inbox = createGmailInbox(createSyntheticGmail().native);
+    const inbox = createInboxStore(createSyntheticGmail().native);
     showMailboxes(singleMailbox(inbox, alex));
     const styleOf = () =>
       profilesOf(store.getSnapshot().snapshot)
@@ -2722,7 +2722,7 @@ describe('mac windows of different Mail Profiles', () => {
       'registration',
       store,
     );
-    const inbox = createGmailInbox(createSyntheticGmail().native);
+    const inbox = createInboxStore(createSyntheticGmail().native);
     showMailboxes(singleMailbox(inbox, alex));
     const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
     try {
@@ -2891,7 +2891,7 @@ describe('mac windows of different Mail Profiles', () => {
       Promise.resolve('failed' as const),
     );
     try {
-      const inbox = createGmailInbox(createSyntheticGmail().native);
+      const inbox = createInboxStore(createSyntheticGmail().native);
       showMailboxes(singleMailbox(inbox, alex));
       const app = await render(
         <AccountContext
@@ -2947,7 +2947,7 @@ describe('mac windows of different Mail Profiles', () => {
       content: { text: 'Synthetic body.' },
     });
     // A Mailbox Connection listed before Profiles belongs to the Default Profile.
-    showMailboxes(singleMailbox(createGmailInbox(gmail.native), alex));
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
     const app = await render(
       <WithWork>
         <View>

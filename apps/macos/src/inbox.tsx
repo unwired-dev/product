@@ -1,8 +1,8 @@
 import type { Translate } from '@private-email/localization';
 import type { Message } from '@private-email/mail-core';
 import type { Draft } from '@private-email/mail-core/drafts';
-import type { GmailMessage } from '@private-email/mail-core/gmail-inbox';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
+import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ComponentProps, ContextType, ReactNode, RefObject } from 'react';

@@ -1,4 +1,4 @@
-import { createGmailInbox } from '../src/gmail-inbox.ts';
+import { createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 import { open, png, waitForFetches } from './remote-content-fixture.ts';
 
@@ -31,7 +31,7 @@ describe('remote message content ownership', () => {
       },
     });
     const small = gmail.deliver({ content: { html: html([photo]) } });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const window = await open(inbox, id);
     try {
@@ -71,7 +71,7 @@ describe('remote message content ownership', () => {
       gmail.serveRemote(url, { data: png(4096, 4096) });
     }
     const kept = gmail.deliver({ content: { html: html(pair) } });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const window = await open(inbox, removed);
     const loads: Array<Promise<void>> = [];
@@ -111,7 +111,7 @@ describe('remote message content ownership', () => {
       gmail.serveRemote(url, { data: png(2, 2) });
     }
     const id = gmail.deliver({ content: { html: html(urls) } });
-    const inbox = createGmailInbox(gmail.native);
+    const inbox = createInboxStore(gmail.native);
     await inbox.load();
     const loads: Array<Promise<void>> = [];
     try {
