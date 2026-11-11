@@ -1343,6 +1343,11 @@ describe('composing Drafts', () => {
           name: 'To: Andrea Novak <andrea@northwind.invalid>',
         }),
       ).toBeOnTheScreen();
+      // Each field asks and reads once, however much is typed.
+      expect(appleContacts).toMatchObject({
+        requests: requests + 2,
+        reads: 1,
+      });
     } finally {
       Object.assign(appleContacts, { granted: false, contacts: [], reads: 0 });
     }
