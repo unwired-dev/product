@@ -763,6 +763,34 @@ describe('mail profiles', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  it('never edits the display of a connection another device removed and added again', async () => {
+    expect.hasAssertions();
+    const { flow, sync, put, record, mailboxId } = await connected();
+    const id = await mailboxId();
+    // Another device removes and adds the connection again, then colors the new incarnation.
+    put({ epoch: 'another-incarnation' });
+    storeProfile(sync, account, {
+      kind: 'display',
+      record: record(),
+      epoch: 'another-incarnation',
+      version: 1,
+      color: 'teal',
+    });
+    await expect(flow.colorMailbox(id, 'pink')).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    await expect(
+      flow.arrangeMailboxes(defaultProfile, [id]),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    await expect(
+      flow.arrangeMailboxes(defaultProfile, []),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    expect(displayColored(sync, 'teal')).toMatchObject({
+      epoch: 'another-incarnation',
+      version: 1,
+    });
+  });
+
   it('arranges and colors connections per Profile only through Product Sync, for one incarnation', async () => {
     expect.hasAssertions();
     const { flow, relaunch, sync, records, google } = await connected();

@@ -991,6 +991,24 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
+  // Refuses a display edit for an incarnation Product Sync no longer holds live: another device
+  // removed the connection or added it again since this device last synchronized, so the edit
+  // would overwrite the current incarnation's record. One that lands between this read and the
+  // write is stored under the old epoch, which the current incarnation reads as no record.
+  const stillLive = Effect.fnUntraced(function* (
+    incarnations: ReadonlyArray<Readonly<{ record: string; epoch: string }>>,
+  ) {
+    const { epochs } = yield* descriptorEpochs;
+    if (incarnations.some(({ record }) => !epochs.has(record))) {
+      return yield* failWith('unavailable');
+    }
+    if (
+      incarnations.some(({ record, epoch }) => epochs.get(record) !== epoch)
+    ) {
+      return yield* failWith('profile-changed');
+    }
+  });
+
   // Rewrites each incarnation's display record that changes. The change needs Product Sync: one
   // that does not commit leaves every stored record.
   // Once any record changes, every record is written, so an edit made concurrently on another
@@ -1051,6 +1069,7 @@ export function createMailProfileProgram<E>(
     if ((order.length > 0 && !complete) || incarnations.length < owned.length) {
       return yield* failWith('unavailable');
     }
+    yield* stillLive(incarnations);
     yield* commitDisplay(
       state,
       incarnations.map(({ id, record, epoch }) => {
@@ -1082,6 +1101,7 @@ export function createMailProfileProgram<E>(
     if (!readable) {
       return yield* failWith('unavailable');
     }
+    yield* stillLive([{ record, epoch }]);
     yield* commitDisplay(state, [
       {
         record,

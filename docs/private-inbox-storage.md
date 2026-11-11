@@ -158,10 +158,12 @@ registration store already offers these operations:
   incarnation keeps one record of both, with its position counted only within the
   ownership it was arranged under, so a connection moved to another Profile, or
   away and back, is unarranged and keeps its Color. A connection added again
-  starts unarranged and without a Color. Positions from another Profile and Color keys this client does
-  not know are ignored. An edit commits through compare-and-set, and one that does
-  not commit changes nothing: the store reports it as `orderFailure` with the
-  Profile, or `colorFailure` with the connection. Settings does not offer these yet
+  starts unarranged and without a Color. Positions from another Profile and Color
+  keys this client does not know are ignored. An edit naming a connection another
+  device has since removed or added again is refused as `profile-changed`. An edit
+  commits through compare-and-set, and one that does not commit changes nothing:
+  the store reports it as `orderFailure` with the Profile, or `colorFailure` with
+  the connection. Settings does not offer these yet
   ([#1669](https://github.com/unwired-dev/product/issues/1669)).
 - **Older clients** are fenced out before the first Profile publishes. Creating a Profile
   is refused with an upgrade-required reason while another Trusted Device runs a client
