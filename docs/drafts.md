@@ -337,8 +337,8 @@ A Draft can carry a signature
 Document kept apart from the authored body and the quoted correspondence, so
 Compose Assistance never reads it. It holds no Inline Image; a stored Draft whose
 signature has one is refused. Outgoing HTML and plain text place it after the
-authored body and before the quoted correspondence, each written apart, so a
-list or quote ending the body never continues into the signature. A Draft holding only a
+authored body and before the quoted correspondence, written apart from the body,
+so a list or quote ending the body never continues into the signature. A Draft holding only a
 signature is still empty. Draft storage and Product Sync keep it with the Draft.
 Signatures per Sending Identity, choosing one and showing it in the composers
 follow in later [#850](https://github.com/unwired-dev/product/issues/850) slices.

@@ -451,10 +451,12 @@ export function outgoingMessage(
     calendar?: string;
   }>,
 ): OutgoingMessage {
-  // Written apart, so a list or quote ending the body never continues into the signature.
-  const parts = [draft.body, draft.signature, draft.quoted].filter(
-    (part) => part !== undefined,
-  );
+  // A signature is written apart, so a list or quote ending the body never continues into it.
+  const tail = [...(draft.signature ?? []), ...(draft.quoted ?? [])];
+  const parts =
+    draft.signature === undefined
+      ? [[...draft.body, ...tail]]
+      : [draft.body, tail];
   const images = withoutFiles ? [] : inlineImages(draft);
   const alternative = multipart('alternative', `=_${boundary}_a`, [
     textPart('text/plain', parts.map(plainOf).join(crlf)),
