@@ -573,11 +573,14 @@ reopening, **Undo** and **Discard** work as for any Draft.
   files and appear under **Inline images**. Their positions and repeated occurrences
   are kept; repeated occurrences use the same copied bytes. An attachment too large to download, or one
   that could not be downloaded, is listed as **Not added** and is never sent.
-  Replies carry no attachments.
+  Attachments that share a filename are each forwarded with their own bytes. A
+  forward reopened from storage, for example after relaunch, keeps its attachments,
+  Inline Images and **Not added** files. Replies carry no attachments.
 
 Preparation belongs to the initiating reader, Product Account and navigation.
-Closing that reader, changing accounts or choosing another destination while the
-attachments download prevents the response Draft from being created. Queued
+Closing that reader, changing accounts, the receiving mailbox losing its
+authorization or choosing another destination while the attachments download
+prevents the response Draft from being created. Queued
 presses start only one response.
 If another editor completes the new Draft while its first save is pending, that
 editor's content is preserved and response preparation stops.
@@ -746,9 +749,9 @@ Mail Profile's address, threading
 headers, quoted text apart from the body, and a save and reopen. They also check a
 sender change, messages this mailbox sent, malformed headers, and forwarded text,
 inline images and attachments read back byte for byte. Failed oversized and damaged
-attachments, refusal for a mailbox awaiting authorization or an unrelated sending
-mailbox, and reader closure, account replacement or navigation during preparation
-are covered too, including a sender change by another editor during the first save.
+attachments, attachments sharing a filename, refusal for a mailbox awaiting
+authorization or an unrelated sending mailbox, and reader closure, account
+replacement, authorization loss or navigation during preparation are covered too, including a sender change by another editor during the first save.
 Header regressions cover comments, quoted groups, reply ancestry
 and oversized values; inline-image regressions preserve positions and repetitions.
 Both hosts' component journeys ignore queued response presses and callbacks from

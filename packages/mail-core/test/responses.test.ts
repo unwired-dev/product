@@ -576,6 +576,100 @@ describe('replying to and forwarding a received message', () => {
     expect(files).toHaveLength(1);
   });
 
+  it('forwards attachments that share a filename as separate files', async () => {
+    expect.hasAssertions();
+    const revised = [...Buffer.from('Revised notes.\n')];
+    const { start, draft, storage, gmail, drafts } = await reader({
+      content: {
+        text: 'Two versions',
+        attachments: [
+          { filename: 'notes.txt', mimeType: 'text/plain', bytes: revised },
+        ],
+      },
+    });
+    storage.holdImports();
+    const forward = draft(await start('forward'));
+    for (const [file, { bytes }] of gmail.savedFiles) {
+      storage.addFile(file, String.fromCodePoint(...bytes));
+    }
+    storage.releaseImports();
+    await vi.waitFor(() => {
+      expect(
+        assetsOf(draft(forward.id)).every(({ state }) => state !== 'importing'),
+      ).toBe(true);
+    });
+    const attached = present(
+      draft(forward.id).attachments,
+      'forwarded attachments',
+    );
+    expect(attached.map(({ name, state }) => ({ name, state }))).toStrictEqual([
+      { name: 'notes.txt', state: 'complete' },
+      { name: 'notes.txt', state: 'complete' },
+    ]);
+    for (const [asset, bytes] of [
+      [attached[0], [...Buffer.from(notesText)]],
+      [attached[1], revised],
+    ] as const) {
+      const complete = completed(asset);
+      await expect(drafts.readAsset(complete)).resolves.toStrictEqual({
+        kind: 'ready',
+        uri: `data:${complete.type};base64,${Buffer.from(bytes).toString('base64')}`,
+      });
+    }
+  });
+
+  it('starts no forward when its reader, destination, sender or account changes while attachments download', async () => {
+    expect.hasAssertions();
+    type Opened = Awaited<ReturnType<typeof reader>>;
+    const interruptions: ReadonlyArray<
+      (opened: Opened, reading: { open: boolean }) => void
+    > = [
+      // The reader closes.
+      (_, reading) => {
+        reading.open = false;
+      },
+      // Another destination is chosen.
+      ({ navigation }) => {
+        void navigation.leave();
+      },
+      // The receiving mailbox loses its Gmail authorization on this device.
+      ({ registration }) => {
+        registration.replace(
+          connected([alex, { ...work, state: 'authorization' }]),
+        );
+      },
+      // Another Product Account signs in.
+      ({ registration }) => {
+        registration.replace({ ...connected(), productAccountId: 'account-b' });
+      },
+    ];
+    for (const interrupt of interruptions) {
+      const opened = await reader();
+      const { gmail, navigation, drafts, inbox, message } = opened;
+      const save = gmail.native.saveAttachment;
+      const saving = Promise.withResolvers<undefined>();
+      const saveHeld = Promise.withResolvers<undefined>();
+      gmail.native.saveAttachment = async (...args) => {
+        saving.resolve(undefined);
+        await saveHeld.promise;
+        return save(...args);
+      };
+      const reading = { open: true };
+      const forwarding = startResponse({ navigation, drafts, inbox }, english, {
+        kind: 'forward',
+        mailbox: work,
+        message,
+        received: 'Sep 1, 2026',
+        current: () => reading.open,
+      });
+      await saving.promise;
+      interrupt(opened, reading);
+      saveHeld.resolve(undefined);
+      await expect(forwarding).resolves.toBeUndefined();
+      expect(drafts.getSnapshot()).not.toHaveProperty('drafts.0');
+    }
+  });
+
   it('never answers from another mailbox, and needs the opened message first', async () => {
     expect.hasAssertions();
     // The receiving mailbox waits for Gmail authorization on this device, so it cannot send.
