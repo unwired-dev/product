@@ -75,6 +75,7 @@ function fixture(scenario, { dotenv = false } = {}) {
     'archive-inventory.mjs',
     'licence-inventory.mjs',
     'native-licence-inventory.mjs',
+    'archive-findings.mjs',
   ]) {
     cpSync(
       path.join(root, 'scripts', name),
@@ -309,6 +310,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
             'archive-inventory.mjs',
             'licence-inventory.mjs',
             'native-licence-inventory.mjs',
+            'archive-findings.mjs',
           ]) {
             cpSync(path.join(root, 'scripts', name), path.join(tools, name));
           }
@@ -333,6 +335,10 @@ for (const [scenario, platform, expected, workflowRevision] of [
           writeFileSync(
             path.join(checkout, 'scripts/native-licence-inventory.mjs'),
             'process.exit(96);\n',
+          );
+          writeFileSync(
+            path.join(checkout, 'scripts/archive-findings.mjs'),
+            'process.exit(97);\n',
           );
           const workflow = readFileSync(
             path.join(root, '.github/workflows/testflight.yml'),
@@ -445,7 +451,31 @@ for (const [scenario, platform, expected, workflowRevision] of [
               ],
               ['AppAuth Apache-2.0', 'swift-log LICENSE.txt'],
             );
+            const findings = decodeJson(
+              readFileSync(path.join(run, `${host}-findings.json`), 'utf8'),
+            );
+            assert.deepEqual(findings.build, build);
+            // The fixture's npm packages ship no licence file and its
+            // Info.plist declares no encryption use.
+            assert.deepEqual(
+              findings.findings.map(
+                ({ kind, subject }) => `${kind} ${subject}`,
+              ),
+              [
+                'missing-licence-text npm react@1.0.0',
+                'missing-licence-text npm react-native@1.0.0',
+                'missing-encryption-declaration ITSAppUsesNonExemptEncryption',
+              ],
+            );
           }
+          assert.deepEqual(
+            readFileSync(path.join(run, 'status.txt'), 'utf8')
+              .split('\n')
+              .filter((line) => line.startsWith('Findings:')),
+            hosts.map(
+              (host) => `Findings: ${host}; 3 unresolved, 3 owner submissions`,
+            ),
+          );
           assert.ok(
             readFileSync(path.join(directory, 'notes'), 'utf8').includes(
               `${number} ${sha}`,

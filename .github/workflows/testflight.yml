@@ -182,5 +182,6 @@ jobs:
             artifacts/testflight/**/status.txt
             artifacts/testflight/**/*-inventory.json
             artifacts/testflight/**/*-licences.json
+            artifacts/testflight/**/*-findings.json
           if-no-files-found: warn
           retention-days: 7
