@@ -177,7 +177,10 @@ registration store already offers these operations:
   other identity stands in for it; a Profile without one keeps today's choice of its
   first connection that can send. An edit commits through compare-and-set, and one
   that does not commit changes nothing: the store reports it as `sendingFailure`
-  with the Profile. Settings and the composer's From pop-up do not offer it yet
+  with the Profile. New Message under All inboxes starts from it
+  ([#2020](https://github.com/unwired-dev/product/issues/2020)), even when it cannot
+  send on this device; see [Drafts](drafts.md#composing). Settings and the
+  composer's From pop-up do not offer choosing it yet
   ([#850](https://github.com/unwired-dev/product/issues/850)).
 - **Older clients** are fenced out before the first Profile publishes. Creating a Profile
   is refused with an upgrade-required reason while another Trusted Device runs a client

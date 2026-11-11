@@ -601,6 +601,37 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'New Message' })).toBeDisabled();
   }, 15_000);
 
+  it('creates a unified Inbox Draft from the Profile’s Default Sending Identity, even one that cannot send', async () => {
+    expect.hasAssertions();
+    const registration = account({
+      ...connected(['alex@example.invalid', 'other@example.invalid']),
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'authorization',
+          sendingDefault: true,
+        },
+      ]),
+    });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await expect(
+      screen.findByRole('button', {
+        name: 'other@example.invalid, cannot send',
+      }),
+    ).resolves.toBeOnTheScreen();
+    expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
+  }, 15_000);
+
   it('lists only the window Profile’s Drafts', async () => {
     expect.hasAssertions();
     const registration = account({
@@ -4788,6 +4819,21 @@ describe('adding files and images to a Draft', () => {
       screen.getByRole('button', { name: 'Open invoice.pdf' }),
     ).toBeOnTheScreen();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    // A Default Sending Identity that cannot send here still starts the Draft, as New Message does.
+    await screen.rerender(
+      shown(
+        senders.map((mailbox) => ({
+          ...mailbox,
+          state: 'authorization',
+          sendingDefault: true,
+        })),
+      ),
+    );
+    await expect(
+      screen.findByRole('button', {
+        name: 'Attach invoice.pdf to a new message',
+      }),
+    ).resolves.toBeOnTheScreen();
     await screen.rerender(shown(senders));
     await expect(
       screen.findByRole('button', {

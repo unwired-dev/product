@@ -8,7 +8,11 @@ import {
   responseCommands,
 } from '@private-email/mail-core/commands';
 import { messageContextMenu } from '@private-email/mail-core/context-menu';
-import { profileOf, sendingMailboxes } from '@private-email/mail-core/drafts';
+import {
+  newMessageSender,
+  profileOf,
+  sendingMailboxes,
+} from '@private-email/mail-core/drafts';
 import { listedMessage } from '@private-email/mail-core/inbox-store';
 import { startResponse } from '@private-email/mail-core/responses';
 import { spacing } from '@private-email/mail-core/theme';
@@ -187,7 +191,11 @@ function AttachToNewMessage({
   // message.
   const mailboxes = account?.mailboxes ?? [];
   const canSend =
-    sendingMailboxes(mailboxes, profileOf(mailbox?.id, mailboxes)).length > 0;
+    newMessageSender(
+      mailboxes,
+      profileOf(mailbox?.id, mailboxes),
+      mailbox?.id,
+    ) !== undefined;
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {

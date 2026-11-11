@@ -24,6 +24,7 @@ import {
   recipientSummary,
   draftOf,
   draftsOf,
+  newMessageSender,
   profileOf,
   sendingMailboxes,
   sendingStateOf,
@@ -70,6 +71,7 @@ const connected = (
       state?: 'authorization';
       // Only a test lists a connection in another Mail Profile; native entries carry none.
       profile?: string;
+      sendingDefault?: true;
     }>
   > = [alex, other],
 ): RegistrationSnapshot => ({
@@ -77,12 +79,15 @@ const connected = (
   productAccountId,
   signInProvider: 'google',
   mailboxes: JSON.stringify(
-    mailboxes.map(({ id, address, state = 'connected', profile }) => ({
-      id,
-      address,
-      state,
-      ...(profile === undefined ? {} : { profile }),
-    })),
+    mailboxes.map(
+      ({ id, address, state = 'connected', profile, sendingDefault }) => ({
+        id,
+        address,
+        state,
+        ...(profile === undefined ? {} : { profile }),
+        ...(sendingDefault === undefined ? {} : { sendingDefault }),
+      }),
+    ),
   ),
 });
 
@@ -1540,6 +1545,65 @@ describe('storing Drafts', () => {
       await reopened.load();
       expect(ready(reopened.getSnapshot()).drafts).toStrictEqual([]);
     }
+  });
+
+  it("starts a new message from its Profile's Default Sending Identity, even one that cannot send here", async () => {
+    expect.hasAssertions();
+    const third = { id: 'connection-third', address: 'third@example.invalid' };
+    const personal = {
+      id: 'connection-personal',
+      address: 'personal@example.invalid',
+      profile: 'personal',
+      sendingDefault: true,
+    } as const;
+    const sender = (
+      mailboxes: Parameters<typeof connected>[1],
+      preferred?: string,
+    ) =>
+      newMessageSender(
+        mailboxesOf(connected('account-a', mailboxes)),
+        defaultProfile,
+        preferred,
+      )?.id;
+    // Without a default, the first connection that can send; another Profile's default never counts.
+    expect(sender([alex, other, personal])).toBe(alex.id);
+    // The default, unless the new message starts from a mailbox that can send itself.
+    expect(sender([alex, { ...other, sendingDefault: true }])).toBe(other.id);
+    expect(sender([alex, { ...other, sendingDefault: true }], alex.id)).toBe(
+      alex.id,
+    );
+    expect(
+      sender(
+        [
+          { ...alex, state: 'authorization' },
+          other,
+          { ...third, sendingDefault: true },
+        ],
+        alex.id,
+      ),
+    ).toBe(third.id);
+    // A default that cannot send here is still the sender, never another identity in its place.
+    const blocked = [
+      alex,
+      { ...other, state: 'authorization', sendingDefault: true },
+    ] as const;
+    expect(sender(blocked)).toBe(other.id);
+    expect(sender(blocked, alex.id)).toBe(alex.id);
+
+    // Its Draft starts, and the composer explains why it cannot send.
+    const session = account(connected('account-a', blocked));
+    const drafts = createDrafts(
+      createSyntheticDrafts(session.productAccount).native,
+      session.registration,
+    );
+    await drafts.load();
+    const id = present(
+      await createComposerNavigation().create(drafts, other),
+      'a Draft from the Default Sending Identity',
+    );
+    const draft = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    expect(draft.connection).toBe(other.id);
+    expect(sendingStateOf(draft, session.mailboxes())).toBe('authorization');
   });
 
   it('does not start a stale New Message when replacement Drafts are still opening', async () => {
