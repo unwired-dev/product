@@ -4,6 +4,12 @@ status: accepted
 
 # Separate product identity from registration mailbox authorization
 
+## Recovery amendment — 2026-11-11
+
+[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) adds an optional iCloud Keychain copy of the Recovery Key as a second
+fallback when no Trusted Device remains. The user-held Recovery Key and the
+separation of identity from mailbox permission below remain in force.
+
 ## Launch scope amendment — 2026-10-11
 
 The power-user Apple launch replaces the Gmail-only mailbox setup scope below.

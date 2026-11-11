@@ -1,5 +1,14 @@
 # Local metadata search and provider full-text search
 
+## Automatic provider search amendment — 2026-11-11
+
+[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes provider search only on an explicit request. When the device is
+online a query also goes to the provider automatically, and its results are
+labeled apart from the saved ones
+([#847](https://github.com/unwired-dev/product/issues/847)). Offline body search,
+visible coverage and the prohibition on backend-readable mail indexing remain in
+force.
+
 ## Launch scope amendment — 2026-10-11
 
 The power-user Apple launch adds offline search of downloaded bodies with visible
