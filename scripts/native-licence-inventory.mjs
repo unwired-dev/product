@@ -99,10 +99,12 @@ const localPaths = new Map(
     ).matchAll(
       /^ {2}"?(?<name>[^":]+)"?:\n {4}:path: "?(?<path>[^"\n]+)"?$/gmu,
     ),
-  ].map(({ groups }) => [
-    groups.name,
-    path.resolve(path.dirname(pods), groups.path),
-  ]),
+  ].map(({ groups }) => {
+    const local = path.resolve(path.dirname(pods), groups.path);
+    return existsSync(local)
+      ? [groups.name, local]
+      : fail(`missing pod path ${local}`);
+  }),
 );
 // CocoaPods acknowledges the pods whose licence text it found.
 const acknowledged = new Map(
@@ -134,13 +136,9 @@ const shipsLicence = (directory) =>
   (!existsSync(path.join(directory, 'package.json')) &&
     path.dirname(directory) !== directory &&
     shipsLicence(path.dirname(directory)));
-const hasLicenceText = (name) => {
-  const local = localPaths.get(name);
-  if (local !== undefined && !existsSync(local)) {
-    return fail(`missing pod path ${local}`);
-  }
-  return acknowledged.has(name) || (local !== undefined && shipsLicence(local));
-};
+const hasLicenceText = (name) =>
+  acknowledged.has(name) ||
+  (localPaths.has(name) && shipsLicence(localPaths.get(name)));
 
 // Order by name, then version, in code units, independent of the locale.
 const order = (a, b) => (a < b ? -1 : Number(a > b));
