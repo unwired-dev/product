@@ -1103,6 +1103,9 @@ describe('entering Draft recipients', () => {
     ]);
     expect(suggested(typing('an'), 1)).toHaveLength(1);
     expect(suggested(typing(''))).toStrictEqual([]);
+    // Invalid addresses and the Draft's own address are never suggested.
+    expect(suggested(typing('bro'))).toStrictEqual([]);
+    expect(suggested(typing('me'))).toStrictEqual([]);
     // Only the unfinished entry is matched, and recipients already added are not suggested.
     const withMaya = typing('maya@example.com, an');
     expect(withMaya.cc).toStrictEqual([{ address: 'maya@example.com' }]);
