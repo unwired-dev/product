@@ -300,6 +300,88 @@ export function addRecipients(
   };
 }
 
+// A correspondent as a recipient, named unless the name only repeats the address.
+const correspondentOf = ({
+  sender,
+  address,
+}: Readonly<{ sender: string; address: string }>): Recipient => {
+  const name = sender.trim();
+  return name === '' || name.toLowerCase() === address.toLowerCase()
+    ? { address }
+    : { name, address };
+};
+
+const startsWith =
+  (query: string) =>
+  ({ name = '', address }: Recipient) =>
+    [address, name, ...name.split(/\s+/u)].some((word) =>
+      word.toLowerCase().startsWith(query),
+    );
+
+// Up to `limit` Recipient Suggestions for the field's unfinished entry from recent correspondents,
+// given newest first: each address once, under its newest name, when the address, the name or a
+// word of it starts with the entry. Addresses already in the Draft or `excluded` are left out.
+export function recipientSuggestions(
+  draft: Draft,
+  field: RecipientField,
+  {
+    correspondents,
+    excluded = [],
+    limit = 3,
+  }: Readonly<{
+    correspondents: Iterable<Readonly<{ sender: string; address: string }>>;
+    excluded?: Iterable<string>;
+    limit?: number;
+  }>,
+): readonly Recipient[] {
+  const query = entriesOf(entryOf(draft, field)).rest.trim().toLowerCase();
+  const matches = startsWith(query);
+  const seen = new Set(
+    [
+      ...[...draft.to, ...draft.cc, ...draft.bcc].map(({ address }) => address),
+      ...excluded,
+    ].map((address) => address.toLowerCase()),
+  );
+  const found: Recipient[] = [];
+  for (const correspondent of correspondents) {
+    if (query === '' || found.length === limit) {
+      break;
+    }
+    const key = correspondent.address.toLowerCase();
+    if (!seen.has(key) && addressPattern.test(correspondent.address)) {
+      seen.add(key);
+      const recipient = correspondentOf(correspondent);
+      if (matches(recipient)) {
+        found.push(recipient);
+      }
+    }
+  }
+  return found;
+}
+
+// The Draft with an accepted suggestion in place of the field's unfinished entry, unless the
+// Draft already has its address; invalid entries typed before it stay for correction.
+export function acceptRecipient(
+  draft: Draft,
+  field: RecipientField,
+  recipient: Recipient,
+): Draft {
+  const { entries } = entriesOf(entryOf(draft, field));
+  const kept = entries
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+    .join(', ');
+  const address = recipient.address.toLowerCase();
+  const present = [...draft.to, ...draft.cc, ...draft.bcc].some(
+    (each) => each.address.toLowerCase() === address,
+  );
+  return withEntry(
+    present ? draft : { ...draft, [field]: [...draft[field], recipient] },
+    field,
+    kept,
+  );
+}
+
 // Sending identity ------------------------------------------------------------------------------
 
 // The Draft's sending connection on this device: usable, waiting for Gmail or Microsoft

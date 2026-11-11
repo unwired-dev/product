@@ -151,6 +151,14 @@ transport and known native exit gaps.
   or Bcc is shown or holds a recipient, both stay shown for that Draft.
   Text still being typed in a recipient field is saved with the Draft, so an
   interruption or relaunch restores it in that field.
+- On the Mac, typing in To, Cc or Bcc opens **Recipient Suggestions** above the
+  field: up to three recent correspondents whose address, name or a word of the
+  name starts with the unfinished entry, newest first. They come only from the
+  mail held on this device for the Draft's Mail Profile, and leave out that
+  Profile's own addresses and anyone already in the Draft. Up and Down Arrow move
+  the highlight; Return, Tab or a click adds the suggestion as one named
+  recipient. Escape dismisses them until the entry changes. Apple Contacts
+  suggestions, and suggestions on iPhone and iPad, are later slices.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The format bar applies marks to
@@ -198,8 +206,8 @@ selection as its text and an empty, focused Link field, and **Apply** links the
 text as one Undo step. While a Mac Link Editor has focus, the body draws the text it
 links as an inactive selection. The control is unavailable otherwise, including for a
 caret away from a link or a selection that is partly linked. The Tiptap
-evaluation editor's Link control behaves the same way. The Slash Command Menu and
-recipient suggestions are later slices.
+evaluation editor's Link control behaves the same way. The Slash Command Menu is a
+later slice.
 
 Each block can also be centered, right-aligned or justified; a block without an
 alignment is start-aligned, and a Draft holding any other alignment is not saved

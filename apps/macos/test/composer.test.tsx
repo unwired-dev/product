@@ -1583,6 +1583,135 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('To')).toHaveProp('value', '');
   });
 
+  it('suggests recent correspondents of the Draft’s Profile and accepts one by key', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account({
+      ...initial,
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          state: 'connected',
+          profile: 'work',
+        },
+        {
+          id: 'pending-connection',
+          address: 'pending@example.invalid',
+          state: 'authorization',
+        },
+      ]),
+    });
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Pending <pending@example.invalid>' });
+    personal.deliver({ from: 'Lena Ott <lena@example.invalid>' });
+    personal.deliver({ from: 'Kim Lee <kim@example.invalid>' });
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Anders Berg <anders@example.invalid>' });
+    personal.deliver({ from: 'Alex <alex@example.invalid>' });
+    const work = createSyntheticGmail({ address: 'other@example.invalid' });
+    work.deliver({ from: 'Andrew Work <andrew@work.invalid>' });
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+        mailboxes={createMailboxes(
+          syntheticConnections({ [alex]: personal, [other]: work }),
+          registration,
+        )}
+      />,
+    );
+    await press('New Message');
+    const to = screen.getByLabelText('To');
+    // The Profile's own addresses, even one awaiting authorization, are never suggested.
+    await fireEvent.changeText(to, 'al');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+    await fireEvent.changeText(to, 'pe');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+    await fireEvent.changeText(to, 'an');
+    // Newest first; the Profile's own address and the work Profile's correspondent never appear.
+    const anders = await screen.findByRole('button', {
+      name: 'Anders Berg, anders@example.invalid',
+    });
+    expect(anders).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true }),
+    );
+    expect(screen.queryByText('Andrew Work')).toBeNull();
+    expect(to.props.keyDownEvents).toContainEqual(
+      expect.objectContaining({ key: 'ArrowDown', shiftKey: false }),
+    );
+    await fireEvent(to, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+    await fireEvent(to, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
+    await fireEvent(to, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+    // Shift-Tab moves focus as usual instead of accepting.
+    await fireEvent(to, 'keyDown', {
+      nativeEvent: { key: 'Tab', shiftKey: true },
+    });
+    expect(
+      screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+    ).toHaveProp(
+      'accessibilityState',
+      expect.objectContaining({ selected: true }),
+    );
+    await fireEvent(to, 'submitEditing');
+    expect(
+      screen.getByRole('button', {
+        name: 'To: Ana Kovač <ana@example.invalid>',
+      }),
+    ).toBeOnTheScreen();
+    expect(to).toHaveProp('value', '');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+
+    // Escape dismisses them until the entry changes; Tab accepts the highlighted one.
+    await press('Show Cc and Bcc');
+    const cc = screen.getByLabelText('Cc');
+    await fireEvent.changeText(cc, 'an');
+    // A recipient already in the Draft is not suggested again.
+    expect(
+      screen.queryByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', {
+        name: 'Anders Berg, anders@example.invalid',
+      }),
+    ).toBeOnTheScreen();
+    // AppKit ends editing after Escape; the unfinished entry stays as typed.
+    await fireEvent(cc, 'keyPress', { nativeEvent: { key: 'Escape' } });
+    await fireEvent(cc, 'blur');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+    expect(cc).toHaveProp('value', 'an');
+    expect(screen.queryByText('Enter a valid email address.')).toBeNull();
+    await fireEvent.changeText(cc, 'and');
+    await fireEvent(cc, 'keyDown', { nativeEvent: { key: 'Tab' } });
+    expect(
+      screen.getByRole('button', {
+        name: 'Cc: Anders Berg <anders@example.invalid>',
+      }),
+    ).toBeOnTheScreen();
+
+    // A click accepts a suggestion; leaving the field hides them.
+    const bcc = screen.getByLabelText('Bcc');
+    await fireEvent.changeText(bcc, 'k');
+    await press('Kim Lee, kim@example.invalid');
+    expect(
+      screen.getByRole('button', {
+        name: 'Bcc: Kim Lee <kim@example.invalid>',
+      }),
+    ).toBeOnTheScreen();
+    await fireEvent.changeText(bcc, 'le');
+    expect(
+      screen.getByRole('button', { name: 'Lena Ott, lena@example.invalid' }),
+    ).toBeOnTheScreen();
+    await fireEvent(bcc, 'blur');
+    expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+  });
+
   it('undoes recipient corrections without erasing earlier typing', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
