@@ -332,6 +332,16 @@ numbered lists restart around it as around any other block. Drafts do not store
 tables yet; Draft storage and editing tables in the composers follow in later
 #1268 slices.
 
+A Draft can carry a signature
+([#2024](https://github.com/unwired-dev/product/issues/2024)): a Semantic Message
+Document kept apart from the authored body and the quoted correspondence, so
+Compose Assistance never reads it. It holds no Inline Image; a stored Draft whose
+signature has one is refused. Outgoing HTML and plain text place it after the
+authored body and before the quoted correspondence. A Draft holding only a
+signature is still empty. Draft storage and Product Sync keep it with the Draft.
+Signatures per Sending Identity, choosing one and showing it in the composers
+follow in later [#850](https://github.com/unwired-dev/product/issues/850) slices.
+
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
 

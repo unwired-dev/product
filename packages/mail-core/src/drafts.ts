@@ -577,6 +577,7 @@ const VerificationSchema = Schema.Struct({
   uri: Schema.optionalKey(Schema.NonEmptyString),
 });
 
+// A signature alone is not content.
 export const isEmptyDraft = (draft: Draft) =>
   (draft.attachments?.length ?? 0) === 0 &&
   draft.quoted === undefined &&

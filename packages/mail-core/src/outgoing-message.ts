@@ -451,7 +451,11 @@ export function outgoingMessage(
     calendar?: string;
   }>,
 ): OutgoingMessage {
-  const body = [...draft.body, ...(draft.quoted ?? [])];
+  const body = [
+    ...draft.body,
+    ...(draft.signature ?? []),
+    ...(draft.quoted ?? []),
+  ];
   const images = withoutFiles ? [] : inlineImages(draft);
   const alternative = multipart('alternative', `=_${boundary}_a`, [
     textPart('text/plain', plainOf(body)),

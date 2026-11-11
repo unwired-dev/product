@@ -279,6 +279,29 @@ describe('synchronizing Drafts through Product Sync', () => {
     }
   });
 
+  it('keeps a signature apart from the body through a relaunch and on another device', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a new Draft');
+    const signed = {
+      ...write(phone.draft(id), 'Hello'),
+      signature: [
+        { kind: 'paragraph', spans: [{ text: 'Alex', marks: ['bold'] }] },
+      ],
+    } satisfies Draft;
+    await phone.drafts.update(signed, phone.draft(id));
+    await phone.relaunch();
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    expect(phone.draft(id)).toStrictEqual({
+      ...signed,
+      updatedAt: phone.draft(id).updatedAt,
+    });
+    expect(mac.draft(id)).toStrictEqual(phone.draft(id));
+  });
+
   it('preserves edits made on two devices as separate Drafts, and the editor follows its own copy', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

@@ -12,6 +12,7 @@ import type {
 } from '../src/semantic-document.ts';
 
 import { createComposerNavigation } from '../src/composer-navigation.ts';
+import { DraftSchema } from '../src/draft-model.ts';
 import {
   acceptRecipient,
   addRecipients,
@@ -1261,6 +1262,25 @@ describe('entering Draft recipients', () => {
         }),
       ).toBe(text.trim() === '');
     }
+  });
+
+  it('treats a Draft holding only a signature as empty and refuses a signature with an inline image', () => {
+    expect.hasAssertions();
+    const signature = typed(emptyDocument, 'Alex');
+    expect(isEmptyDraft({ ...draft, signature })).toBe(true);
+    expect(Schema.is(DraftSchema)({ ...draft, signature })).toBe(true);
+    const image = {
+      id: 'image0001',
+      name: 'logo.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    expect(
+      Schema.is(DraftSchema)({
+        ...draft,
+        signature: insertImage(signature, { start: 4, end: 4 }, image).document,
+      }),
+    ).toBe(false);
   });
 
   it('parses named recipients when regular expression results carry no named groups, as on Hermes', () => {
