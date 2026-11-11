@@ -22,6 +22,42 @@ export type { GmailMessage } from './mailbox-message.ts';
 // The newest messages each view keeps in this document; Gmail's older mail is kept in history
 // segments, which commits only write when they change.
 export const cacheLimit = 200;
+export const pageSize = 50;
+
+// The document with `change` applied to the Inbox's messages and to every other view's.
+export const everyView = (
+  document: MailboxDocument,
+  change: (
+    view: string,
+    messages: readonly GmailMessage[],
+  ) => readonly GmailMessage[],
+): MailboxDocument => ({
+  ...document,
+  messages: change('INBOX', document.messages),
+  ...(document.views === undefined
+    ? {}
+    : {
+        views: document.views.map((entry) => ({
+          ...entry,
+          messages: change(entry.label, entry.messages),
+        })),
+      }),
+});
+
+// The later of two Gmail history IDs already considered for notifications, as a document field:
+// a view listing can rewind the checkpoint, never this boundary.
+export const latestNotificationHistory = (
+  ...ids: ReadonlyArray<string | undefined>
+): Pick<MailboxDocument, 'notificationHistoryId'> => {
+  const known = ids.filter((id) => id !== undefined);
+  return known.length === 0
+    ? {}
+    : {
+        notificationHistoryId: known.reduce((later, id) =>
+          BigInt(id) > BigInt(later) ? id : later,
+        ),
+      };
+};
 // The ordinary Gmail view budget; active windows protect their views, growing it when needed.
 export const cachedViews = 8;
 export const GmailId = Schema.String.check(Schema.isPattern(/^[0-9A-Za-z]+$/u));

@@ -76,12 +76,7 @@ import {
   segmentName,
   storedBodies,
 } from './gmail-history.ts';
-import {
-  createGmailReader,
-  everyView,
-  latestNotificationHistory,
-  pageSize,
-} from './gmail-reader.ts';
+import { createGmailReader } from './gmail-reader.ts';
 import { graphProgress } from './graph-history.ts';
 import { createGraphReader } from './graph-reader.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
@@ -94,9 +89,12 @@ import {
   decodeSegment,
   encodeDocument,
   encodeSegment,
+  everyView,
   GmailId,
+  latestNotificationHistory,
   merge,
   newestFirst,
+  pageSize,
   sameCheckpoint,
   sameHistory,
   sameMailbox,
@@ -144,7 +142,7 @@ export type HistoryWrite = Readonly<{
 }>;
 
 // The native Registration module's mailbox operations. Native code attaches the Gmail credential
-// and keeps the cache encrypted; this module chooses the Gmail requests and owns the cached document.
+// and keeps the cache encrypted; the Gmail reader chooses the Gmail requests and this module owns the cached document.
 export interface NativeGmailMailbox
   extends
     NativeAttachments,

@@ -13,8 +13,11 @@ import type {
   MailboxScope,
   PendingAction,
 } from './mailbox-document.ts';
-import type { GmailInvalidPage, NativeGmailRequests } from './mailbox-read.ts';
-import type { GmailNotFound } from './mailbox-read.ts';
+import type {
+  GmailInvalidPage,
+  GmailNotFound,
+  NativeGmailRequests,
+} from './mailbox-read.ts';
 import type { GmailPart } from './message-body.ts';
 import type { OutgoingSend } from './outgoing-message.ts';
 import type {
@@ -45,10 +48,13 @@ import {
 } from './gmail-history.ts';
 import {
   cacheLimit,
+  everyView,
   GmailId,
   HistoryId,
+  latestNotificationHistory,
   merge,
   newestFirst,
+  pageSize,
 } from './mailbox-document.ts';
 import { providerRead, providerWrite, SyncFailure } from './mailbox-read.ts';
 import {
@@ -56,8 +62,6 @@ import {
   decodeFullMessage,
   unescapeHtml,
 } from './message-body.ts';
-
-export const pageSize = 50;
 
 // The newest Sent messages read for a message whose handoff had no answer.
 const sentPageSize = 20;
@@ -150,41 +154,6 @@ const sender = (from: string) => {
   const address = (bracketed ?? from).trim();
   const name = named?.trim() ?? '';
   return { sender: name === '' ? address : name, address };
-};
-
-// The document with `change` applied to the Inbox's messages and to every other view's.
-export const everyView = (
-  document: MailboxDocument,
-  change: (
-    view: string,
-    messages: readonly GmailMessage[],
-  ) => readonly GmailMessage[],
-): MailboxDocument => ({
-  ...document,
-  messages: change('INBOX', document.messages),
-  ...(document.views === undefined
-    ? {}
-    : {
-        views: document.views.map((entry) => ({
-          ...entry,
-          messages: change(entry.label, entry.messages),
-        })),
-      }),
-});
-
-// The later of two Gmail history IDs already considered for notifications, as a document field:
-// a view listing can rewind the checkpoint, never this boundary.
-export const latestNotificationHistory = (
-  ...ids: ReadonlyArray<string | undefined>
-): Pick<MailboxDocument, 'notificationHistoryId'> => {
-  const known = ids.filter((id) => id !== undefined);
-  return known.length === 0
-    ? {}
-    : {
-        notificationHistoryId: known.reduce((later, id) =>
-          BigInt(id) > BigInt(later) ? id : later,
-        ),
-      };
 };
 
 // The messages a listing page leaves cached, and whether the listing continues.
