@@ -57,6 +57,20 @@ struct MailboxDisplayRecord: Codable, Equatable {
   let color: String?
 }
 
+// A Mail Profile's Default Sending Identity: the primary address of one incarnation of a Mailbox
+// Connection, or none once cleared. The address travels only inside this sealed record.
+struct ProfileSendingRecord: Codable, Equatable {
+  static let schemaVersion = 1
+  struct Identity: Codable, Equatable {
+    let record: String
+    let epoch: String
+    let address: String
+  }
+  let profile: String
+  let version: Int
+  let identity: Identity?
+}
+
 // Mail Profile definitions and connection ownership in Product Sync. TypeScript reads, merges and
 // writes them; native code seals and opens each record under an identifier bound to its Profile or
 // connection, and keeps TypeScript's Profile state in the account's device-only vault.
@@ -67,6 +81,7 @@ extension RegistrationStore {
     case notifications(MailboxNotificationsRecord)
     case folders(MailboxFoldersRecord)
     case display(MailboxDisplayRecord)
+    case sending(ProfileSendingRecord)
 
     init?(_ value: [String: Any]) {
       guard let kind = value["kind"] as? String,
@@ -110,6 +125,20 @@ extension RegistrationStore {
           MailboxDisplayRecord(
             record: record, epoch: epoch, version: version, profile: profile, position: position,
             ownership: ownership, color: color))
+      } else if kind == "sending" {
+        guard let profile = value["profile"] as? String, !profile.isEmpty, profile.count <= 200
+        else { return nil }
+        var identity: ProfileSendingRecord.Identity?
+        if let chosen = value["identity"] as? [String: Any] {
+          guard let record = chosen["record"] as? String, record.hasPrefix("mailbox."),
+            let epoch = chosen["epoch"] as? String, !epoch.isEmpty,
+            let address = chosen["address"] as? String, !address.isEmpty
+          else { return nil }
+          identity = ProfileSendingRecord.Identity(record: record, epoch: epoch, address: address)
+        } else if value["identity"] != nil {
+          return nil
+        }
+        self = .sending(ProfileSendingRecord(profile: profile, version: version, identity: identity))
       } else if kind == "profile" {
         guard let id = value["id"] as? String, !id.isEmpty, id.count <= 200 else { return nil }
         let name = value["name"] as? String
@@ -142,6 +171,7 @@ extension RegistrationStore {
         return try ring.identifier("mailbox-notifications", value.record)
       case .folders(let value): return try ring.identifier("mailbox-folders", value.record)
       case .display(let value): return try ring.identifier("mailbox-display", value.record)
+      case .sending(let value): return try ring.identifier("profile-sending", value.profile)
       }
     }
 
@@ -152,6 +182,7 @@ extension RegistrationStore {
       case .notifications: MailboxNotificationsRecord.schemaVersion
       case .folders: MailboxFoldersRecord.schemaVersion
       case .display: MailboxDisplayRecord.schemaVersion
+      case .sending: ProfileSendingRecord.schemaVersion
       }
     }
 
@@ -162,6 +193,7 @@ extension RegistrationStore {
       case .notifications(let value): return try JSONEncoder().encode(value)
       case .folders(let value): return try JSONEncoder().encode(value)
       case .display(let value): return try JSONEncoder().encode(value)
+      case .sending(let value): return try JSONEncoder().encode(value)
       }
     }
 
@@ -174,6 +206,7 @@ extension RegistrationStore {
       case .notifications: object["kind"] = "notifications"
       case .folders: object["kind"] = "folders"
       case .display: object["kind"] = "display"
+      case .sending: object["kind"] = "sending"
       }
       return object
     }
@@ -247,6 +280,14 @@ extension RegistrationStore {
           let value = try? JSONDecoder().decode(MailboxDisplayRecord.self, from: plaintext)
         else { return nil }
         opened = .display(value)
+      } else if identifier.hasPrefix("profile-sending.") {
+        guard
+          let plaintext = try? vault.ring.open(
+            record: sealed, account: vault.productAccountId, identifier: identifier,
+            schemaVersion: ProfileSendingRecord.schemaVersion),
+          let value = try? JSONDecoder().decode(ProfileSendingRecord.self, from: plaintext)
+        else { return nil }
+        opened = .sending(value)
       } else {
         return nil
       }

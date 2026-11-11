@@ -29,6 +29,7 @@ import {
   notifyingConnections,
   profileList,
   profileOwners,
+  sendingDefaults,
 } from './mail-profiles.ts';
 import {
   createMailboxVerification,
@@ -142,6 +143,7 @@ const mailboxList = (value: RegistrationRecord) => {
   const notifying = notifyingConnections(value);
   const chosen = chosenFolders(value);
   const { positions, colors } = connectionDisplay(value);
+  const sending = sendingDefaults(value);
   return JSON.stringify(
     arranged(value.mailboxes, positions).map((mailbox) => {
       const profile = owners.get(mailbox.id);
@@ -157,6 +159,7 @@ const mailboxList = (value: RegistrationRecord) => {
         state: mailboxState(mailbox),
         ...(profile === undefined ? {} : { profile }),
         ...(notifying.has(mailbox.id) ? { notifications: true } : {}),
+        ...(sending.has(mailbox.id) ? { sendingDefault: true } : {}),
         ...(folders === undefined || Object.keys(folders).length === 0
           ? {}
           : { folders }),
@@ -1057,6 +1060,17 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           Effect.andThen(saved),
           Effect.flatMap((value) =>
             productSyncFlow.colorMailbox(value, connection, color),
+          ),
+          Effect.andThen(current),
+        ),
+      ),
+    // Choosing or clearing a Mail Profile's Default Sending Identity needs Product Sync.
+    chooseSendingDefault: (profile: string, connection: string | undefined) =>
+      program(
+        session.pipe(
+          Effect.andThen(saved),
+          Effect.flatMap((value) =>
+            productSyncFlow.chooseSendingDefault(value, profile, connection),
           ),
           Effect.andThen(current),
         ),

@@ -771,6 +771,68 @@ extension PrivateInboxTests {
     }
   }
 
+  @Test @MainActor func defaultSendingIdentityOpensOnlyUnderItsProfilesIdentifier() async throws {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    let store = backend.store(keys: keys, google: google)
+    _ = try await store.signInIdentity(.google, hint: false)
+    try store.saveIdentity(replacing: true)
+    try await store.connectIdentity(.establish)
+    _ = try store.createKeyRing()
+    try store.recordInitialization(true)
+    let ring = try #require(try store.loadVault(account)).ring
+
+    let mailbox = try ring.identifier("mailbox", "gmail:alex@example.invalid")
+    let sending: [String: Any] = [
+      "kind": "sending", "profile": "work", "version": 1.0,
+      "identity": ["record": mailbox, "epoch": "epoch-1", "address": "alex@example.invalid"],
+    ]
+    let sealed = try store.sealProfileRecord(sending)
+    #expect(
+      sealed["payloadIdentifier"] as? String == (try ring.identifier("profile-sending", "work")))
+    let opened = try store.openProfileRecords([
+      sealed,
+      // Served as the Profile's definition, or for another Profile, it opens nowhere.
+      [
+        "payloadIdentifier": try ring.identifier("profile", "work"),
+        "encryptedPayload": sealed["encryptedPayload"] as Any,
+      ],
+      [
+        "payloadIdentifier": try ring.identifier("profile-sending", "home"),
+        "encryptedPayload": sealed["encryptedPayload"] as Any,
+      ],
+    ])
+    let open = try #require(opened[0] as? [String: Any])
+    let identity = try #require(open["identity"] as? [String: Any])
+    #expect(open["kind"] as? String == "sending" && open["profile"] as? String == "work")
+    #expect(identity["record"] as? String == mailbox && identity["epoch"] as? String == "epoch-1")
+    #expect(identity["address"] as? String == "alex@example.invalid")
+    #expect(opened.dropFirst().allSatisfy { $0 is NSNull })
+    let cleared = try store.openProfileRecords([
+      try store.sealProfileRecord(["kind": "sending", "profile": "work", "version": 2.0])
+    ])
+    let none = try #require(cleared[0] as? [String: Any])
+    #expect(none["version"] as? Int == 2 && none["identity"] == nil)
+    for malformed: [String: Any] in [
+      ["kind": "sending", "profile": "", "version": 1.0],
+      ["kind": "sending", "profile": "work", "version": 1.0, "identity": "alex@example.invalid"],
+      [
+        "kind": "sending", "profile": "work", "version": 1.0,
+        "identity": ["record": mailbox, "epoch": "epoch-1", "address": ""],
+      ],
+      [
+        "kind": "sending", "profile": "work", "version": 1.0,
+        "identity": ["record": "draft.other", "epoch": "epoch-1", "address": "alex@example.invalid"],
+      ],
+    ] {
+      #expect(throws: RegistrationError.unavailable) { try store.sealProfileRecord(malformed) }
+    }
+  }
+
   @Test @MainActor func profileRecordsOpenOnlyUnderTheirOwnIdentifier() async throws {
     let keys = device()
     let account = "account-synthetic-product-subject"

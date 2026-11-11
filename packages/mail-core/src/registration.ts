@@ -143,6 +143,8 @@ export type RegistrationState = Readonly<{
   orderFailure?: string;
   // The connection whose display Color could not be changed; its Color is unchanged.
   colorFailure?: string;
+  // The Mail Profile whose Default Sending Identity could not be changed; it is unchanged.
+  sendingFailure?: string;
   // Why removal failed, or could not be confirmed after saved state became unreadable.
   mailboxRemovalFailure?: MailboxRemovalFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
@@ -262,8 +264,10 @@ class SettingRefused extends Schema.TaggedError<SettingRefused>()(
       'foldersFailure',
       'orderFailure',
       'colorFailure',
+      'sendingFailure',
     ]),
-    // The connection, or for its order the Mail Profile, the setting belongs to.
+    // The connection, or for its order or Default Sending Identity the Mail Profile, the setting
+    // belongs to.
     connection: Schema.String,
     snapshot: RegistrationSnapshotSchema,
   },
@@ -843,6 +847,14 @@ export function createRegistration(vault: NativeRegistrationVault) {
         'colorFailure',
         connection,
         request(native.colorMailbox(connection, color)),
+      ),
+    // Makes a connection's primary address its Mail Profile's Default Sending Identity, or with
+    // no connection clears it.
+    chooseSendingDefault: (profile: string, connection: string | undefined) =>
+      changeSetting(
+        'sendingFailure',
+        profile,
+        request(native.chooseSendingDefault(profile, connection)),
       ),
     link: (provider: SignInProvider) =>
       execute(
