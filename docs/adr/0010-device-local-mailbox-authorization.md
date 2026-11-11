@@ -1,5 +1,10 @@
 # Keep mailbox authorization device-local
 
+> [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) lets a Pending Device add a Mailbox Connection and read and organize its
+> mail before admission. That connection is device-local until admission, which
+> reconciles it with the synchronized definitions and tombstones under the
+> generation rules below. Device-local credentials remain in force.
+
 Product Sync synchronizes the non-secret definition of each Mailbox Connection and the Default Sending Connection, but provider passwords, app passwords, OAuth refresh tokens, and equivalent credentials remain in the current trusted device's Keychain. A device that receives a definition without local credentials presents authorization-required state and exposes no provider-reading, push, action, or sending capabilities. It retains a synchronized Default Sending Connection even when that connection is unavailable locally and requires authorization or explicit sender selection instead of substituting another identity.
 
 Mailbox Authorization prefers OAuth for known providers and may use passwords or app-specific passwords only over Secure Mail Transport; client-certificate and enterprise SSO authentication are deferred. Every device must obtain its own authorization, accepting additional setup friction to prevent provider credentials from entering backend or cross-device sync and to preserve the existing device-held credential boundary.

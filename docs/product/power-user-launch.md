@@ -49,7 +49,9 @@ qualification may progress before distribution of the intermediate Gmail beta.
 
 ## First mailbox after Product Sign-In
 
-After Google or Apple Product Sign-In and any required device enrollment,
+After Google or Apple Product Sign-In and any required device enrollment (or
+before it, once [#1988](https://github.com/unwired-dev/product/issues/1988) lets
+a Pending Device read its own mailboxes),
 offer the Mail Provider choices independently: Gmail, iCloud Mail, Fastmail,
 manual IMAP/SMTP, and Microsoft mail. A person can choose a non-Gmail first
 Mailbox Connection without granting Gmail access or linking another Product
@@ -180,12 +182,13 @@ the clients do until each issue ships.
 
 Launch requirements:
 
-- A new device can connect and use its own mailboxes before it is approved, and a
-  Trusted Device approves it by scanning a QR code ([#1988](https://github.com/unwired-dev/product/issues/1988)).
+- A new device can connect its own mailboxes and read and organize their mail
+  before it is approved; sending waits for approval. A Trusted Device approves it
+  by scanning a QR code ([#1988](https://github.com/unwired-dev/product/issues/1988)).
 - Unsaved composer edits survive a crash or the app ending, and the next launch
   offers to restore them ([#1989](https://github.com/unwired-dev/product/issues/1989)).
 - First run lands on the Inbox. The Recovery Key is asked for later, and the
-  person may keep a copy in iCloud Keychain ([#1990](https://github.com/unwired-dev/product/issues/1990)).
+  person may keep a copy in iCloud Keychain, which a Device Revocation deletes ([#1990](https://github.com/unwired-dev/product/issues/1990)).
 - Setup offers new-mail notifications once ([#1991](https://github.com/unwired-dev/product/issues/1991)).
 - Opening a message marks it read, with a preference for when ([#1992](https://github.com/unwired-dev/product/issues/1992)).
 - On the Mac, Command-N starts a new message, Command-P prints, Command-K opens
@@ -212,7 +215,8 @@ Accepted follow-ups after launch:
 - Keep downloaded attachments until evicted and lift the 25 MiB download limit
   ([#2001](https://github.com/unwired-dev/product/issues/2001)).
 - Warn before quitting with unsent mail ([#2002](https://github.com/unwired-dev/product/issues/2002)).
-- One Mail Assistance choice during setup, with Translation outside that switch
+- One on-device Mail Assistance choice during setup, with Translation outside
+  that switch; Private Cloud keeps its separate opt-in
   ([#2003](https://github.com/unwired-dev/product/issues/2003)).
 - Automatic IMAP and SMTP settings for common providers ([#2004](https://github.com/unwired-dev/product/issues/2004)).
 - Plain interface wording and errors that name a cause or next step

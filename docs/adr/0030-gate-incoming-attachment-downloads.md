@@ -6,10 +6,12 @@ status: accepted
 
 ## Download limit amendment, 2026-11-11
 
-[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the 25 MB download limit below with the provider's own message-size
-limit and keeps downloaded attachments until the store evicts them
+[ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the 25 MB limit on one attachment download below with the
+provider's own message-size limit for streamed transfers, and keeps downloaded
+attachments until the store evicts them
 ([#2001](https://github.com/unwired-dev/product/issues/2001)). Explicit download,
-integrity checks, file protection and device-local storage remain in force.
+integrity checks, file protection, device-local storage and the 40 MB bounds on
+reads that are buffered whole remain in force.
 
 ## Invitation launch amendment, 2026-10-24
 

@@ -79,6 +79,11 @@ needs a stated reason and the narrowest scope.
   credential-free path. Connections require TLS 1.2 or later with certificate
   and hostname checks. Notifications show generic content unless previews are
   explicitly turned on.
+  [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md)
+  changes three of these rules as its issues ship: previews become the
+  notification default, remote images can be allowed for one sender, and the
+  Recovery Key may have a copy in iCloud Keychain. A change that implements one
+  of them follows that ADR.
 - **Delivery**: the Outbox sends only from the originating device, after the
   Convex ownership claim and the Undo Send window. Offline queueing does not
   authorize provider submission, and an uncertain provider outcome never

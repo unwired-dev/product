@@ -7,9 +7,10 @@ status: accepted
 ## Usability amendment — 2026-11-11
 
 [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) replaces the explicit online search below with automatic provider search when
-online, and adds its other accepted decisions to the launch target. The
+online, and the generic-by-default and optional-preview notification controls
+with previews by default. The
 [launch specification](../product/power-user-launch.md#confirmed-usability-decisions-from-2026-11-11)
-lists them.
+lists the launch requirements it adds and the follow-ups after launch.
 
 ## Private Cloud Mail Assistance amendment — 2026-10-28
 

@@ -9,8 +9,8 @@
 
 > [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) adds an optional second recovery path: a copy of the Recovery Key in iCloud
 > Keychain that the person chooses when setting up recovery and that never reaches
-> the backend. It also moves Recovery Key confirmation after the first Inbox.
-> Backend-blind key custody and the Recovery Key itself remain in force.
+> the backend. A Device Revocation deletes the copy. Backend-blind key custody and
+> the Recovery Key itself remain in force.
 
 An unacknowledged publication of the opaque Recovery Key wrapper leaves the corresponding Recovery Key and its exact encrypted wrapper identity in the device-only local Keychain and blocks sign-out across app launches until that matching key presentation is explicitly acknowledged. A rejected or superseded wrapper cannot make its preserved key appear current, and interactive sheet dismissal does not acknowledge the key.
 

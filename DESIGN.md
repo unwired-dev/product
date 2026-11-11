@@ -715,8 +715,8 @@ These frames predate the requirements or implementation they show:
   keeps Discard reachable.
 - **Compose field order:** the frames and the Layout section put the body first.
   [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
-  changes the order to To, Cc and Bcc, Subject, body, attachments; the frames are
-  redrawn under #1994.
+  changes the order to To, Cc and Bcc, Subject, body, attachments; the frames
+  will be redrawn and approved under #1994 before the change is built.
 - **Message Row:** the reference mockups show a two-line preview.
 - **Profile Menu:** the reference frames' trailing counts are not drawn; the
   system menu puts each Profile's unread count in its subtitle.
