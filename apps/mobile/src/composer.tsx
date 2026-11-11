@@ -93,6 +93,7 @@ import {
 } from '@private-email/mail-core/translation';
 import {
   createContext,
+  Fragment,
   memo,
   use,
   useCallback,
@@ -134,6 +135,7 @@ import {
   useGeneratePrompt,
   useLinkEditor,
 } from './composer-controls.tsx';
+import { useContactAddresses } from './contacts.ts';
 import {
   Notice as Banner,
   Button,
@@ -892,26 +894,36 @@ export function Recipients({
   const [entering, setEntering] = useState(false);
   const account = use(AccountContext);
   const held = useAllMailboxes();
+  const contacts = useContactAddresses(entering && editable);
   const name = t(`drafts.fields.${field}`);
-  // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's;
-  // its own addresses are not suggested.
+  // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's,
+  // then Apple Contacts not already suggested; its own addresses are not suggested.
   const suggestions = useMemo(() => {
     if (!entering || !editable) {
-      return [];
+      return { recent: [], contacts: [] };
     }
     const connections = account?.mailboxes ?? [];
     const profile = profileOf(draft.connection, connections);
-    return recipientSuggestions(draft, field, {
+    // Including connections awaiting authorization, which hold no mail here.
+    const excluded = connections.flatMap((mailbox) =>
+      mailbox.profile === profile ? [mailbox.address] : [],
+    );
+    const recent = recipientSuggestions(draft, field, {
       correspondents: inboxMessages(
         held.filter((mailbox) => mailbox.profile === profile),
         { profile },
       ).map(({ message }) => message),
-      // Including connections awaiting authorization, which hold no mail here.
-      excluded: connections.flatMap((mailbox) =>
-        mailbox.profile === profile ? [mailbox.address] : [],
-      ),
+      excluded,
     });
-  }, [entering, editable, draft, field, account, held]);
+    return {
+      recent,
+      contacts: recipientSuggestions(draft, field, {
+        correspondents: contacts,
+        excluded: [...excluded, ...recent.map(({ address }) => address)],
+      }),
+    };
+  }, [entering, editable, draft, field, account, held, contacts]);
+  const [first] = [...suggestions.recent, ...suggestions.contacts];
   const accept = (recipient: Recipient) => {
     onChange(acceptRecipient(getDraft(), field, recipient), false, field);
     setNotice(undefined);
@@ -933,81 +945,91 @@ export function Recipients({
   };
   return (
     <View>
-      {suggestions.length === 0 ? null : (
+      {first === undefined ? null : (
         <GlassPanel
           open
           origin="bottom left"
           style={[styles.suggestions, sized.suggestions]}>
           <View accessibilityLabel={t('drafts.suggestions.title')}>
-            <Text
-              style={[
-                styles.suggestionSection,
-                sized.suggestionSection,
-                { color: colors.textSecondary },
-              ]}>
-              {t('drafts.suggestions.recent')}
-            </Text>
-            {suggestions.map((recipient, index) => {
-              // Return accepts the first suggestion, so it shows highlighted.
-              const chosen = index === 0;
-              const primary = chosen ? colors.accentOnFill : colors.textPrimary;
-              const secondary = chosen
-                ? colors.accentOnFill
-                : colors.textSecondary;
-              return (
-                <Pressable
-                  key={recipient.address}
-                  accessibilityLabel={
-                    recipient.name === undefined
-                      ? recipient.address
-                      : t('drafts.suggestions.named', {
-                          name: recipient.name,
-                          address: recipient.address,
-                        })
-                  }
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: chosen }}
-                  onPress={() => {
-                    accept(recipient);
-                  }}
-                  style={({ pressed }) => [
-                    styles.suggestion,
-                    sized.suggestion,
-                    pressed
-                      ? { backgroundColor: colors.accentSelectionSubtle }
-                      : null,
-                    chosen ? { backgroundColor: colors.accentFill } : null,
-                  ]}>
-                  <SFSymbol
-                    name="person.fill"
-                    color={secondary}
-                    size={size === 'regular' ? 11 * ipadListScale : 13}
-                  />
-                  <View style={styles.suggestionText}>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.suggestionName,
-                        sized.suggestionName,
-                        { color: primary },
-                      ]}>
-                      {recipient.name ?? recipient.address}
-                    </Text>
-                    {recipient.name === undefined ? null : (
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.suggestionAddress,
-                          sized.suggestionAddress,
-                          { color: secondary },
+            {(['recent', 'contacts'] as const).map((section) =>
+              suggestions[section].length === 0 ? null : (
+                <Fragment key={section}>
+                  <Text
+                    style={[
+                      styles.suggestionSection,
+                      sized.suggestionSection,
+                      { color: colors.textSecondary },
+                    ]}>
+                    {t(`drafts.suggestions.${section}`)}
+                  </Text>
+                  {suggestions[section].map((recipient) => {
+                    // Return accepts the first suggestion, so it shows highlighted.
+                    const chosen = recipient === first;
+                    const primary = chosen
+                      ? colors.accentOnFill
+                      : colors.textPrimary;
+                    const secondary = chosen
+                      ? colors.accentOnFill
+                      : colors.textSecondary;
+                    return (
+                      <Pressable
+                        key={recipient.address}
+                        accessibilityLabel={
+                          recipient.name === undefined
+                            ? recipient.address
+                            : t('drafts.suggestions.named', {
+                                name: recipient.name,
+                                address: recipient.address,
+                              })
+                        }
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: chosen }}
+                        onPress={() => {
+                          accept(recipient);
+                        }}
+                        style={({ pressed }) => [
+                          styles.suggestion,
+                          sized.suggestion,
+                          pressed
+                            ? { backgroundColor: colors.accentSelectionSubtle }
+                            : null,
+                          chosen
+                            ? { backgroundColor: colors.accentFill }
+                            : null,
                         ]}>
-                        {recipient.address}
-                      </Text>
-                    )}
-                  </View>
-                </Pressable>
-              );
-            })}
+                        <SFSymbol
+                          name="person.fill"
+                          color={secondary}
+                          size={size === 'regular' ? 11 * ipadListScale : 13}
+                        />
+                        <View style={styles.suggestionText}>
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.suggestionName,
+                              sized.suggestionName,
+                              { color: primary },
+                            ]}>
+                            {recipient.name ?? recipient.address}
+                          </Text>
+                          {recipient.name === undefined ? null : (
+                            <Text
+                              numberOfLines={1}
+                              style={[
+                                styles.suggestionAddress,
+                                sized.suggestionAddress,
+                                { color: secondary },
+                              ]}>
+                              {recipient.address}
+                            </Text>
+                          )}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </Fragment>
+              ),
+            )}
           </View>
         </GlassPanel>
       )}
@@ -1109,11 +1131,10 @@ export function Recipients({
               selection.current = next;
             }}
             onSubmitEditing={() => {
-              const [suggestion] = suggestions;
-              if (suggestion === undefined) {
+              if (first === undefined) {
                 add(entryOf(getDraft(), field), true);
               } else {
-                accept(suggestion);
+                accept(first);
               }
             }}
             placeholder={t('drafts.recipientPlaceholder')}

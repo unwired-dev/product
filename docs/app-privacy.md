@@ -39,9 +39,12 @@ summaries, translation and rewrites run on the device. Each device talks to Gmai
 Microsoft Graph and IMAP/SMTP servers directly
 ([ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)).
 Mail assistance uses on-device Foundation Models
-(`native/private-inbox/bridge/UnwiredAssistance.swift`). The apps request no
-contacts, calendar, location, photos, camera or microphone permission and contain
-no advertising SDK, advertising identifier or App Tracking Transparency prompt.
+(`native/private-inbox/bridge/UnwiredAssistance.swift`). The iPhone and iPad app
+requests Contacts access only to suggest recipients while composing; contacts
+are read on the device and never leave it, so they are not collected
+([Drafts](drafts.md#composing)). The apps request no calendar, location, photos,
+camera or microphone permission and contain no advertising SDK, advertising
+identifier or App Tracking Transparency prompt.
 
 [Private Sync](private-product-sync.md#keys-and-envelopes) stores mailbox
 descriptions (provider and address), Drafts and their files and photos
