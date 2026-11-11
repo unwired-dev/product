@@ -534,6 +534,17 @@ describe('replying to and forwarding a received message', () => {
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     expect(draftOf(reopened.getSnapshot(), forward.id)).toStrictEqual(settled);
+    for (const [asset, bytes] of [
+      [notes, [...Buffer.from(notesText)]],
+      [pdf, report],
+      [image, logo],
+    ] as const) {
+      const complete = completed(asset);
+      await expect(reopened.readAsset(complete)).resolves.toStrictEqual({
+        kind: 'ready',
+        uri: `data:${complete.type};base64,${Buffer.from(bytes).toString('base64')}`,
+      });
+    }
   });
 
   it('forwards an attachment already downloading by awaiting that download', async () => {
@@ -574,6 +585,115 @@ describe('replying to and forwarding a received message', () => {
       gmail.requests.filter(({ path }) => path.includes('/attachments/')),
     ).toHaveLength(1);
     expect(files).toHaveLength(1);
+  });
+
+  it('forwards attachments that share a filename as separate files', async () => {
+    expect.hasAssertions();
+    const revised = [...Buffer.from('Revised notes.\n')];
+    const { start, draft, storage, gmail, drafts } = await reader({
+      content: {
+        text: 'Two versions',
+        attachments: [
+          { filename: 'notes.txt', mimeType: 'text/markdown', bytes: revised },
+        ],
+      },
+    });
+    storage.holdImports();
+    const forward = draft(await start('forward'));
+    for (const [file, { bytes }] of gmail.savedFiles) {
+      storage.addFile(file, String.fromCodePoint(...bytes));
+    }
+    storage.releaseImports();
+    await vi.waitFor(() => {
+      expect(
+        assetsOf(draft(forward.id)).every(({ state }) => state !== 'importing'),
+      ).toBe(true);
+    });
+    const attached = present(
+      draft(forward.id).attachments,
+      'forwarded attachments',
+    );
+    expect(
+      attached.map(({ name, type, state }) => ({ name, type, state })),
+    ).toStrictEqual([
+      { name: 'notes.txt', type: 'text/plain', state: 'complete' },
+      { name: 'notes.txt', type: 'text/markdown', state: 'complete' },
+    ]);
+    for (const [asset, type, bytes] of [
+      [attached[0], 'text/plain', [...Buffer.from(notesText)]],
+      [attached[1], 'text/markdown', revised],
+    ] as const) {
+      await expect(drafts.readAsset(completed(asset))).resolves.toStrictEqual({
+        kind: 'ready',
+        uri: `data:${type};base64,${Buffer.from(bytes).toString('base64')}`,
+      });
+    }
+  });
+
+  it('starts no forward when its reader, destination, sender or account changes while attachments download', async () => {
+    expect.hasAssertions();
+    type Opened = Awaited<ReturnType<typeof reader>>;
+    const interruptions: ReadonlyArray<
+      (opened: Opened, reading: { open: boolean }) => void
+    > = [
+      // The reader closes.
+      (_, reading) => {
+        reading.open = false;
+      },
+      // Another destination is chosen.
+      ({ navigation }) => {
+        void navigation.leave();
+      },
+      // The receiving mailbox loses its Gmail authorization on this device.
+      ({ registration }) => {
+        registration.replace(
+          connected([alex, { ...work, state: 'authorization' }]),
+        );
+      },
+      // The reader switches to another mailbox, releasing the opened message.
+      ({ close }) => {
+        close();
+      },
+      // Another Product Account signs in.
+      ({ registration }) => {
+        registration.replace({ ...connected(), productAccountId: 'account-b' });
+      },
+    ];
+    for (const interrupt of interruptions) {
+      const opened = await reader();
+      const { gmail, navigation, drafts, inbox, message } = opened;
+      const save = gmail.native.saveAttachment;
+      const saving = Promise.withResolvers<undefined>();
+      const saveHeld = Promise.withResolvers<undefined>();
+      gmail.native.saveAttachment = async (...args) => {
+        saving.resolve(undefined);
+        await saveHeld.promise;
+        return save(...args);
+      };
+      // A Draft published and then removed would still flash in the Drafts list.
+      const published = new Set<string>();
+      const unsubscribe = drafts.subscribe(() => {
+        const state = drafts.getSnapshot();
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Narrows the public store snapshot.
+        for (const { id } of state.kind === 'ready' ? state.drafts : []) {
+          published.add(id);
+        }
+      });
+      const reading = { open: true };
+      const forwarding = startResponse({ navigation, drafts, inbox }, english, {
+        kind: 'forward',
+        mailbox: work,
+        message,
+        received: 'Sep 1, 2026',
+        current: () => reading.open,
+      });
+      await saving.promise;
+      interrupt(opened, reading);
+      saveHeld.resolve(undefined);
+      await expect(forwarding).resolves.toBeUndefined();
+      unsubscribe();
+      expect([...published]).toStrictEqual([]);
+    }
   });
 
   it('never answers from another mailbox, and needs the opened message first', async () => {
