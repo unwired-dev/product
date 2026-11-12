@@ -1351,6 +1351,38 @@ describe('mail profiles', () => {
     expect(records()).toStrictEqual(before);
   });
 
+  it('stores a signature chosen during foreground verification once it finishes', async () => {
+    expect.hasAssertions();
+    const { vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    let beforeRead: (() => Promise<void>) | undefined = undefined;
+    const store = createRegistration({
+      ...vault,
+      registration: async () => {
+        const hook = beforeRead;
+        beforeRead = undefined;
+        await hook?.();
+        return vault.registration();
+      },
+    });
+    await store.restore();
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    beforeRead = async () => {
+      entered.resolve(undefined);
+      await release.promise;
+    };
+    const resuming = store.resume();
+    await entered.promise;
+    const choosing = store.chooseSignature(id, signed('Alex'));
+    release.resolve(undefined);
+    await Promise.all([resuming, choosing]);
+    expect(signatures(store.getSnapshot().snapshot)).toStrictEqual([
+      [expect.any(String), ['Alex']],
+    ]);
+    expect(store.getSnapshot().signatureFailure).toBeUndefined();
+  });
+
   it('refuses a signature on a receive-only IMAP connection', async () => {
     expect.hasAssertions();
     const { flow, device, imap: server, mailboxId, records } = setup();

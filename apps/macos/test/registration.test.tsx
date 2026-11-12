@@ -1561,6 +1561,7 @@ describe('product registration', () => {
         selected: ['Email Accounts'],
         headers: [
           'Accounts',
+          'Composing',
           'Automation',
           'Application',
           'Email Accounts',
