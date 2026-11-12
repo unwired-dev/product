@@ -151,7 +151,8 @@ function SignatureEditor({
     if (at.start === at.end) {
       setTyping(toggled(typing ?? marksAt(document, at), mark));
     } else {
-      change(toggleMark(document, at, mark));
+      // Rendering the marks collapses the body's selection; keep it for the next control.
+      change(toggleMark(document, at, mark), { ...at });
     }
   };
   const active = typing ?? marksAt(document, selection);

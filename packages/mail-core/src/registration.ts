@@ -566,39 +566,41 @@ export function createRegistration(vault: NativeRegistrationVault) {
     );
   // Editing completion and prompt submission may arrive during foreground verification.
   // Keep the intent until admitted, but never apply it to a replacement Product Account.
+  const admitted = (operation: Parameters<typeof execute>[0]) => {
+    const previous = state.snapshot;
+    const owner =
+      previous.kind === 'signed-out' ? undefined : previous.productAccountId;
+    return Effect.suspend(() => {
+      const current = state.snapshot;
+      const currentOwner =
+        current.kind === 'signed-out' ? undefined : current.productAccountId;
+      return currentOwner === owner ? operation : Effect.succeed(current);
+    });
+  };
   // A refusal, such as another device's write first, is reported on the connection's row.
   const changeSetting = (
     setting: SettingRefused['setting'],
     connection: string,
     change: ReturnType<typeof request>,
-  ) =>
-    execute(
-      change.pipe(
-        Effect.catchTags({
-          ProfileRefused: () => settingRefusal(setting, connection),
-          RegistrationFailed: (error) =>
-            Effect.logError('Registration failed:', error.diagnostic).pipe(
-              Effect.andThen(settingRefusal(setting, connection)),
-            ),
-        }),
-      ),
-      (snapshot) => ({ ...settled(snapshot), [setting]: connection }),
-    );
-  const changeProfile = (operation: Parameters<typeof execute>[0]) => {
-    const previous = state.snapshot;
-    const owner =
-      previous.kind === 'signed-out' ? undefined : previous.productAccountId;
-    return execute(
-      Effect.suspend(() => {
-        const current = state.snapshot;
-        const currentOwner =
-          current.kind === 'signed-out' ? undefined : current.productAccountId;
-        return currentOwner === owner ? operation : Effect.succeed(current);
+    { queued = false }: Readonly<{ queued?: boolean }> = {},
+  ) => {
+    const operation = change.pipe(
+      Effect.catchTags({
+        ProfileRefused: () => settingRefusal(setting, connection),
+        RegistrationFailed: (error) =>
+          Effect.logError('Registration failed:', error.diagnostic).pipe(
+            Effect.andThen(settingRefusal(setting, connection)),
+          ),
       }),
-      profileRefusal,
-      { queued: true },
+    );
+    return execute(
+      queued ? admitted(operation) : operation,
+      (snapshot) => ({ ...settled(snapshot), [setting]: connection }),
+      { queued },
     );
   };
+  const changeProfile = (operation: Parameters<typeof execute>[0]) =>
+    execute(admitted(operation), profileRefusal, { queued: true });
   const restoredAccount = request(native.restore()).pipe(
     Effect.map((snapshot) =>
       snapshot.kind === 'signed-out' &&
@@ -869,6 +871,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
         'signatureFailure',
         connection,
         request(native.chooseSignature(connection, signature)),
+        // Leaving the editor during foreground verification still stores the signature.
+        { queued: true },
       ),
     link: (provider: SignInProvider) =>
       execute(
