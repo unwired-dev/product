@@ -3392,8 +3392,26 @@ describe('product registration', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Delete' }));
     });
     expect(within(editor()).getByText('Alex')).toBeVisible();
-    await leave();
+    // After a refused format change, leaving without an edit keeps a signature stored meanwhile.
+    await fireEvent(editor(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Italic' }));
+    });
     synthetic.backend.offline = false;
+    const meanwhile = [
+      { kind: 'paragraph', spans: [{ text: 'Alex Meanwhile' }] },
+    ] as const;
+    await act(async () => {
+      await store.chooseSignature(
+        mailboxesOf(store.getSnapshot().snapshot)[0]!.id,
+        meanwhile,
+      );
+    });
+    await leave();
+    expect(signatures()[0]).toStrictEqual(['alex@example.invalid', meanwhile]);
+    expect(within(editor()).getByText('Alex Meanwhile')).toBeVisible();
 
     // Emptying the editor clears the signature, and so does Delete.
     await type('');

@@ -128,10 +128,14 @@ function SignatureEditor({
     mailboxesOf(store.getSnapshot().snapshot).find(
       (mailbox) => mailbox.id === id,
     )?.signature;
+  // The document when editing began, or the last one stored or shown as stored. Leaving without
+  // an edit stores nothing, so a signature another device stored meanwhile is kept and shows here.
+  const editing = useRef(document);
   // Shows the stored signature in place of different text. A Link Editor open on the replaced
   // text would apply to other characters, so it closes, as when another device stores one.
   const restore = () => {
     const next = storedNow() ?? emptyDocument;
+    editing.current = next;
     if (stored(next) !== stored(documentNow.current)) {
       show(next);
       showLinkEditor(false);
@@ -151,9 +155,6 @@ function SignatureEditor({
       restore();
     }
   };
-  // The document when editing began. Leaving without an edit stores nothing, so a signature
-  // another device stored meanwhile is kept and shows here.
-  const editing = useRef(document);
   const leave = () => {
     if (stored(documentNow.current) === stored(editing.current)) {
       restore();
@@ -304,8 +305,7 @@ function SignatureEditor({
         accessibilityState={{ disabled: busy || signature === undefined }}
         disabled={busy || signature === undefined}
         onPress={() => {
-          show(emptyDocument);
-          void commit(emptyDocument);
+          change(emptyDocument);
         }}
         style={({ pressed }) =>
           pressed && { backgroundColor: colors.accentSelectionSubtle }
