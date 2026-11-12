@@ -258,7 +258,9 @@ place among its Profile's connections and its display Color synchronize as a sea
 `mailbox-display.` record in the same way. A Mail Profile's Default Sending Identity
 synchronizes as a sealed `profile-sending.` record bound to the Profile, naming the
 chosen connection's incarnation and its address, written only through compare-and-set,
-so the address reaches Convex only as ciphertext.
+so the address reaches Convex only as ciphertext. A Sending Identity's signature
+synchronizes as a sealed `mailbox-signature.` record bound to the connection, naming its
+incarnation and address and holding the signature document, in the same way.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

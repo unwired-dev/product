@@ -236,6 +236,9 @@ function recordName(record: ProfileRecord) {
   if (record.kind === 'sending') {
     return ['profile-sending', record.profile] as const;
   }
+  if (record.kind === 'signature') {
+    return ['mailbox-signature', record.record] as const;
+  }
   const kinds = {
     mailbox: 'mailbox-profile',
     notifications: 'mailbox-notifications',
@@ -246,8 +249,8 @@ function recordName(record: ProfileRecord) {
 }
 
 // The opaque identifier a ring stores a Mail Profile's definition, a connection's ownership, its
-// notification policy, its chosen folders, its display record or a Profile's Default Sending Identity
-// under.
+// notification policy, its chosen folders, its display record, a Profile's Default Sending Identity
+// or a Sending Identity's signature under.
 function profileIdentifier(
   sync: SyntheticProductSync,
   ring: string,

@@ -18,6 +18,7 @@ import type {
   SignInProvider,
 } from './registration-snapshot.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
+import type { SemanticDocument } from './semantic-document.ts';
 
 import {
   decodeDiagnostic,
@@ -145,6 +146,8 @@ export type RegistrationState = Readonly<{
   colorFailure?: string;
   // The Mail Profile whose Default Sending Identity could not be changed; it is unchanged.
   sendingFailure?: string;
+  // The connection whose signature could not be changed; it is unchanged.
+  signatureFailure?: string;
   // Why removal failed, or could not be confirmed after saved state became unreadable.
   mailboxRemovalFailure?: MailboxRemovalFailure;
   recoveryKeyFailure?: RecoveryKeyFailure;
@@ -265,6 +268,7 @@ class SettingRefused extends Schema.TaggedError<SettingRefused>()(
       'orderFailure',
       'colorFailure',
       'sendingFailure',
+      'signatureFailure',
     ]),
     // The connection, or for its order or Default Sending Identity the Mail Profile, the setting
     // belongs to.
@@ -855,6 +859,16 @@ export function createRegistration(vault: NativeRegistrationVault) {
         'sendingFailure',
         profile,
         request(native.chooseSendingDefault(profile, connection)),
+      ),
+    // Gives a connection's primary address a signature, or with none clears it.
+    chooseSignature: (
+      connection: string,
+      signature: SemanticDocument | undefined,
+    ) =>
+      changeSetting(
+        'signatureFailure',
+        connection,
+        request(native.chooseSignature(connection, signature)),
       ),
     link: (provider: SignInProvider) =>
       execute(

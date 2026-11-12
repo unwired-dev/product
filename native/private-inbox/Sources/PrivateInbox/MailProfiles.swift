@@ -71,6 +71,18 @@ struct ProfileSendingRecord: Codable, Equatable {
   let identity: Identity?
 }
 
+// The signature of one incarnation of a Mailbox Connection's primary address, as Semantic Message
+// Document JSON text TypeScript validates, or none once cleared. The address and signature travel
+// only inside this sealed record.
+struct MailboxSignatureRecord: Codable, Equatable {
+  static let schemaVersion = 1
+  let record: String
+  let epoch: String
+  let address: String
+  let version: Int
+  let signature: String?
+}
+
 // Mail Profile definitions and connection ownership in Product Sync. TypeScript reads, merges and
 // writes them; native code seals and opens each record under an identifier bound to its Profile or
 // connection, and keeps TypeScript's Profile state in the account's device-only vault.
@@ -82,6 +94,7 @@ extension RegistrationStore {
     case folders(MailboxFoldersRecord)
     case display(MailboxDisplayRecord)
     case sending(ProfileSendingRecord)
+    case signature(MailboxSignatureRecord)
 
     init?(_ value: [String: Any]) {
       guard let kind = value["kind"] as? String,
@@ -139,6 +152,16 @@ extension RegistrationStore {
           return nil
         }
         self = .sending(ProfileSendingRecord(profile: profile, version: version, identity: identity))
+      } else if kind == "signature" {
+        guard let record = value["record"] as? String, record.hasPrefix("mailbox."),
+          let epoch = value["epoch"] as? String, !epoch.isEmpty,
+          let address = value["address"] as? String, !address.isEmpty
+        else { return nil }
+        let signature = value["signature"] as? String
+        guard signature.map({ !$0.isEmpty }) ?? (value["signature"] == nil) else { return nil }
+        self = .signature(
+          MailboxSignatureRecord(
+            record: record, epoch: epoch, address: address, version: version, signature: signature))
       } else if kind == "profile" {
         guard let id = value["id"] as? String, !id.isEmpty, id.count <= 200 else { return nil }
         let name = value["name"] as? String
@@ -172,6 +195,7 @@ extension RegistrationStore {
       case .folders(let value): return try ring.identifier("mailbox-folders", value.record)
       case .display(let value): return try ring.identifier("mailbox-display", value.record)
       case .sending(let value): return try ring.identifier("profile-sending", value.profile)
+      case .signature(let value): return try ring.identifier("mailbox-signature", value.record)
       }
     }
 
@@ -183,6 +207,7 @@ extension RegistrationStore {
       case .folders: MailboxFoldersRecord.schemaVersion
       case .display: MailboxDisplayRecord.schemaVersion
       case .sending: ProfileSendingRecord.schemaVersion
+      case .signature: MailboxSignatureRecord.schemaVersion
       }
     }
 
@@ -194,6 +219,7 @@ extension RegistrationStore {
       case .folders(let value): return try JSONEncoder().encode(value)
       case .display(let value): return try JSONEncoder().encode(value)
       case .sending(let value): return try JSONEncoder().encode(value)
+      case .signature(let value): return try JSONEncoder().encode(value)
       }
     }
 
@@ -207,6 +233,7 @@ extension RegistrationStore {
       case .folders: object["kind"] = "folders"
       case .display: object["kind"] = "display"
       case .sending: object["kind"] = "sending"
+      case .signature: object["kind"] = "signature"
       }
       return object
     }
@@ -288,6 +315,14 @@ extension RegistrationStore {
           let value = try? JSONDecoder().decode(ProfileSendingRecord.self, from: plaintext)
         else { return nil }
         opened = .sending(value)
+      } else if identifier.hasPrefix("mailbox-signature.") {
+        guard
+          let plaintext = try? vault.ring.open(
+            record: sealed, account: vault.productAccountId, identifier: identifier,
+            schemaVersion: MailboxSignatureRecord.schemaVersion),
+          let value = try? JSONDecoder().decode(MailboxSignatureRecord.self, from: plaintext)
+        else { return nil }
+        opened = .signature(value)
       } else {
         return nil
       }

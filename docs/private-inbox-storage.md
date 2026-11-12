@@ -182,6 +182,20 @@ registration store already offers these operations:
   send on this device; see [Drafts](drafts.md#composing). Settings and the
   composer's From pop-up do not offer choosing it yet
   ([#850](https://github.com/unwired-dev/product/issues/850)).
+- **Signatures**
+  ([#2037](https://github.com/unwired-dev/product/issues/2037)) need Private Sync.
+  A connection's primary address, its Sending Identity, can have one signature: a
+  document without an Inline Image, like a [Draft's](drafts.md#composing).
+  Setting or clearing it is refused for an IMAP connection without SMTP, which has
+  no Sending Identity. Each incarnation keeps one record naming its address, and the
+  snapshot gives a connection its `signature` while that record names its current
+  incarnation and address. A connection removed, added again or given another
+  address has none, so no other identity's signature stands in. An edit naming a
+  connection another device has since removed or added again is refused as
+  `profile-changed`. An edit commits through compare-and-set, and one that does not
+  commit changes nothing: the store reports it as `signatureFailure` with the
+  connection. Settings and the composers do not use it yet
+  ([#850](https://github.com/unwired-dev/product/issues/850)).
 - **Older clients** are fenced out before the first Profile publishes. Creating a Profile
   is refused with an upgrade-required reason while another Trusted Device runs a client
   that can't keep Profiles apart. Once Profiles exist, such clients can't use Private

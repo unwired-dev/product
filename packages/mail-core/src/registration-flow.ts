@@ -21,6 +21,7 @@ import type {
   RegistrationRecord,
   SetupReason,
 } from './registration-vault.ts';
+import type { SemanticDocument } from './semantic-document.ts';
 
 import { imapFallback } from './imap-setup.ts';
 import {
@@ -28,6 +29,7 @@ import {
   connectionDisplay,
   notifyingConnections,
   profileList,
+  identitySignatures,
   profileOwners,
   sendingDefaults,
 } from './mail-profiles.ts';
@@ -144,10 +146,15 @@ const mailboxList = (value: RegistrationRecord) => {
   const chosen = chosenFolders(value);
   const { positions, colors } = connectionDisplay(value);
   const sending = sendingDefaults(value);
-  const marks = (id: string) => ({
-    ...(notifying.has(id) ? { notifications: true } : {}),
-    ...(sending.has(id) ? { sendingDefault: true } : {}),
-  });
+  const signatures = identitySignatures(value);
+  const marks = (id: string) => {
+    const signature = signatures.get(id);
+    return {
+      ...(notifying.has(id) ? { notifications: true } : {}),
+      ...(sending.has(id) ? { sendingDefault: true } : {}),
+      ...(signature === undefined ? {} : { signature }),
+    };
+  };
   return JSON.stringify(
     arranged(value.mailboxes, positions).map((mailbox) => {
       const profile = owners.get(mailbox.id);
@@ -1074,6 +1081,20 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           Effect.andThen(saved),
           Effect.flatMap((value) =>
             productSyncFlow.chooseSendingDefault(value, profile, connection),
+          ),
+          Effect.andThen(current),
+        ),
+      ),
+    // Giving a Sending Identity a signature, or clearing it, needs Product Sync.
+    chooseSignature: (
+      connection: string,
+      signature: SemanticDocument | undefined,
+    ) =>
+      program(
+        session.pipe(
+          Effect.andThen(saved),
+          Effect.flatMap((value) =>
+            productSyncFlow.chooseSignature(value, connection, signature),
           ),
           Effect.andThen(current),
         ),

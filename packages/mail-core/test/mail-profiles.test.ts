@@ -12,6 +12,7 @@ import {
   RegistrationSnapshotSchema,
   unavailableProfile,
 } from '../src/registration.ts';
+import { SemanticDocumentSchema } from '../src/semantic-document.ts';
 import {
   createSyntheticVault,
   storeProfile,
@@ -76,7 +77,7 @@ const choiceOf = (sync: ReturnType<typeof setup>['sync']) => {
 // Every stored record of one kind as ciphertext this device can no longer open.
 const forgetKeys = (
   sync: ReturnType<typeof setup>['sync'],
-  kind: 'notifications' | 'folders' | 'display' | 'sending',
+  kind: 'notifications' | 'folders' | 'display' | 'sending' | 'signature',
 ) => {
   for (const [ciphertext, { record }] of sync.sealedProfiles) {
     if (record.kind === kind) {
@@ -161,6 +162,29 @@ const sendingOf = (sync: ReturnType<typeof setup>['sync'], profile: string) => {
   }
   return sending;
 };
+// Each listed connection's address and signature text.
+const signatures = (snapshot: unknown) =>
+  mailboxesOf(decode(snapshot)).map(({ address, signature }) => [
+    address,
+    signature?.map(({ spans }) => spans.map(({ text }) => text).join('')),
+  ]);
+// The stored signature record of one connection.
+const signatureOf = (
+  sync: ReturnType<typeof setup>['sync'],
+  address: string,
+) => {
+  const signature = storedProfiles(sync, account).find(
+    (item) => item.kind === 'signature' && item.address === address,
+  );
+  if (signature?.kind !== 'signature') {
+    throw new Error('No signature');
+  }
+  return signature;
+};
+const document = Schema.decodeUnknownSync(SemanticDocumentSchema);
+// A signature with one paragraph per line.
+const signed = (...lines: readonly string[]) =>
+  document(lines.map((text) => ({ kind: 'paragraph', spans: [{ text }] })));
 
 // A native request whose caller loses the reply before Convex receives the first publication.
 const delayPublication = (vault: NativeRegistrationVault) => {
@@ -1028,6 +1052,8 @@ describe('mail profiles', () => {
     expect(store.getSnapshot()).toMatchObject({
       sendingFailure: defaultProfile,
     });
+    await store.chooseSignature(id, signed('Alex'));
+    expect(store.getSnapshot()).toMatchObject({ signatureFailure: id });
     expect(store.getSnapshot()).not.toHaveProperty('profileFailure');
     sync.offline = false;
     await store.resetMailboxOrder(defaultProfile);
@@ -1182,6 +1208,173 @@ describe('mail profiles', () => {
     const before = new Map(records());
     await expect(
       flow.chooseSendingDefault(defaultProfile, await mailboxId()),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(records()).toStrictEqual(before);
+  });
+
+  it('gives each Sending Identity its signature only through Product Sync, for one incarnation', async () => {
+    expect.hasAssertions();
+    const { flow, relaunch, sync, records, google } = await connected();
+    const [first] = mailboxesOf(decode(await flow.restore()));
+    const a = first!.address;
+    const b = 'b@example.invalid';
+    google.subject = `synthetic-${b}`;
+    google.addresses[google.subject] = b;
+    const ids = {
+      a: first!.id,
+      b: mailboxesOf(decode(await flow.addMailbox('gmail', false))).find(
+        ({ address }) => address === b,
+      )!.id,
+    };
+    // Until chosen, no connection has a signature.
+    expect(signatures(await flow.restore())).toStrictEqual([
+      [a, undefined],
+      [b, undefined],
+    ]);
+
+    await flow.chooseSignature(ids.a, signed('Alex', 'Example Ltd'));
+    const chosen = await flow.chooseSignature(ids.b, signed('Bea'));
+    expect(signatures(chosen)).toStrictEqual([
+      [a, ['Alex', 'Example Ltd']],
+      [b, ['Bea']],
+    ]);
+    expect(signatureOf(sync, b)).toStrictEqual({
+      kind: 'signature',
+      record: expect.any(String),
+      epoch: expect.any(String),
+      address: b,
+      version: 1,
+      signature: JSON.stringify(signed('Bea')),
+    });
+    await expect(relaunch().restore()).resolves.toStrictEqual(chosen);
+
+    // A signature with an Inline Image is refused, and an edit that does not commit leaves the
+    // stored one.
+    const before = new Map(records());
+    const image = document([
+      {
+        kind: 'paragraph',
+        spans: [
+          {
+            text: '\uFFFC',
+            image: {
+              id: 'logo0001',
+              name: 'logo.png',
+              type: 'image/png',
+              state: 'importing',
+            },
+          },
+        ],
+      },
+    ]);
+    await expect(flow.chooseSignature(ids.a, image)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    sync.offline = true;
+    await expect(flow.chooseSignature(ids.a, undefined)).rejects.toBeDefined();
+    sync.offline = false;
+    expect(records()).toStrictEqual(before);
+
+    // Another device writes first: this edit changes nothing and reports the conflict, and the
+    // other device's signature is adopted.
+    const stored = signatureOf(sync, b);
+    sync.beforePut = () => {
+      sync.beforePut = undefined;
+      storeProfile(sync, account, {
+        ...stored,
+        version: stored.version + 1,
+        signature: JSON.stringify(signed('Bea B.')),
+      });
+    };
+    await expect(flow.chooseSignature(ids.b, undefined)).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    expect(signatures(await flow.refreshPrivateSync())).toStrictEqual([
+      [a, ['Alex', 'Example Ltd']],
+      [b, ['Bea B.']],
+    ]);
+
+    // Unreadable ciphertext cannot authorize overwriting the last confirmed signature.
+    const sealed = new Map(sync.sealedProfiles);
+    forgetKeys(sync, 'signature');
+    const unreadable = new Map(records());
+    await expect(flow.chooseSignature(ids.b, undefined)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    expect(records()).toStrictEqual(unreadable);
+    for (const [ciphertext, sealedRecord] of sealed) {
+      sync.sealedProfiles.set(ciphertext, sealedRecord);
+    }
+
+    // Removed and connected again, the connection has no signature.
+    await flow.removeMailbox(ids.b);
+    google.subject = `synthetic-${b}`;
+    await flow.addMailbox('gmail', false);
+    expect(signatures(await flow.restore())).toStrictEqual([
+      [a, ['Alex', 'Example Ltd']],
+      [b, undefined],
+    ]);
+
+    // A signature naming another address gives none: no other identity's stands in.
+    await flow.chooseSignature(ids.b, signed('Bea'));
+    const current = signatureOf(sync, b);
+    storeProfile(sync, account, {
+      ...current,
+      version: current.version + 1,
+      address: 'alias@example.invalid',
+    });
+    expect(signatures(await flow.refreshPrivateSync())).toStrictEqual([
+      [a, ['Alex', 'Example Ltd']],
+      [b, undefined],
+    ]);
+    // Convex holds only opaque identifiers and ciphertext.
+    expect(JSON.stringify([...records().values()])).not.toMatch(/Bea|Alex/u);
+
+    // Cleared, the connection has no signature after relaunch either.
+    await flow.chooseSignature(ids.a, undefined);
+    expect(signatureOf(sync, a)).not.toHaveProperty('signature');
+    expect(signatures(await relaunch().restore())).toStrictEqual([
+      [a, undefined],
+      [b, undefined],
+    ]);
+  });
+
+  it('never writes the signature of a connection another device removed and added again', async () => {
+    expect.hasAssertions();
+    const { flow, put, records, mailboxId } = await connected();
+    const id = await mailboxId();
+    put({ epoch: 'another-incarnation' });
+    const before = new Map(records());
+    await expect(
+      flow.chooseSignature(id, signed('Alex')),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    expect(records()).toStrictEqual(before);
+  });
+
+  it('refuses a signature on a receive-only IMAP connection', async () => {
+    expect.hasAssertions();
+    const { flow, device, imap: server, mailboxId, records } = setup();
+    await flow.signIn('google');
+    await flow.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: server.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    // A connection saved before SMTP was required receives only.
+    for (const connection of device.record!.connections) {
+      delete connection.smtp;
+    }
+    const before = new Map(records());
+    await expect(
+      flow.chooseSignature(await mailboxId(), signed('Alex')),
     ).rejects.toMatchObject({ code: 'unavailable' });
     expect(records()).toStrictEqual(before);
   });

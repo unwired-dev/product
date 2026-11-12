@@ -14,6 +14,11 @@ const RecipientSchema = Schema.Struct({
 });
 export type Recipient = typeof RecipientSchema.Type;
 
+// A sender's signature: a document with no inline image.
+export const SignatureSchema = SemanticDocumentSchema.check(
+  Schema.makeFilter((document) => imagesOf(document).length === 0),
+);
+
 // What a reply or forward answers: the received message and, for a reply, the RFC 5322 threading
 // headers the sent reply carries and the provider thread of the mailbox that received it; IMAP has
 // no thread to join. A forward starts a conversation of its own.
@@ -68,11 +73,7 @@ export const DraftSchema = Schema.Struct({
   quoted: Schema.optionalKey(SemanticDocumentSchema),
   // The sender's signature, kept apart from the authored body and sent between it and the quoted
   // correspondence. It holds no inline image.
-  signature: Schema.optionalKey(
-    SemanticDocumentSchema.check(
-      Schema.makeFilter((document) => imagesOf(document).length === 0),
-    ),
-  ),
+  signature: Schema.optionalKey(SignatureSchema),
   // Milliseconds since 1970 of the last edit.
   updatedAt: Schema.Finite,
 });

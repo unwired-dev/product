@@ -1,4 +1,5 @@
 import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { StoredPayload } from './registration-replies.ts';
@@ -13,7 +14,9 @@ import type {
   ProfileState,
   RegistrationRecord,
 } from './registration-vault.ts';
+import type { SemanticDocument } from './semantic-document.ts';
 
+import { SignatureSchema } from './draft-model.ts';
 import { failWith, nativeSteps } from './registration-native.ts';
 import { RegistrationRejected } from './registration-rejection.ts';
 import { EncryptedPayload } from './registration-replies.ts';
@@ -40,6 +43,10 @@ const Sealed = Schema.Struct({
 const emptyState: ProfileState = { profiles: [], owners: [] };
 const isColor = Schema.is(ProfileColorSchema);
 const isIcon = Schema.is(ProfileIconSchema);
+// A signature as the JSON text its record stores.
+const SignatureTextSchema = Schema.fromJsonString(SignatureSchema);
+const decodeSignature = Schema.decodeUnknownOption(SignatureTextSchema);
+const encodeSignature = Schema.encodeOption(SignatureTextSchema);
 
 // A Profile's style as a record or state entry carries it, without absent keys.
 const styleOf = ({
@@ -165,26 +172,36 @@ export const notifyingConnections = (value: RegistrationRecord) => {
   );
 };
 
-// The Spam and Trash folders chosen in Product Sync for the current incarnation of each of this
-// device's connections that has a choice. Unreadable Profile state or keys leave every choice out.
-export const chosenFolders = (value: RegistrationRecord) => {
+// Each of this device's connections with the entry stored for its current incarnation. Unreadable
+// Profile state or keys give none.
+const currentEntries = <
+  Entry extends Readonly<{ record: string; epoch: string }>,
+>(
+  value: RegistrationRecord,
+  entriesOf: (state: ProfileState) => readonly Entry[] | undefined,
+) => {
   const state = value.profiles;
   const vault = stateOf(value);
   if (state === undefined || state === 'unreadable' || vault === undefined) {
-    return new Map<string, ChosenFolders>();
+    return [];
   }
-  return new Map(
-    value.mailboxes.flatMap(({ id, epoch }) => {
-      const record = vault.mailboxes.find(
-        (mailbox) => mailbox.id === id,
-      )?.record;
-      const choice = state.folders?.find(
-        (folders) => folders.record === record && folders.epoch === epoch,
-      );
-      return choice === undefined ? [] : [[id, chosenOf(choice)] as const];
-    }),
-  );
+  return value.mailboxes.flatMap((mailbox) => {
+    const record = vault.mailboxes.find(({ id }) => id === mailbox.id)?.record;
+    const entry = entriesOf(state)?.find(
+      (item) => item.record === record && item.epoch === mailbox.epoch,
+    );
+    return entry === undefined ? [] : [[mailbox, entry] as const];
+  });
 };
+
+// The Spam and Trash folders chosen in Product Sync for the current incarnation of each of this
+// device's connections that has a choice. Unreadable Profile state or keys leave every choice out.
+export const chosenFolders = (value: RegistrationRecord) =>
+  new Map(
+    currentEntries(value, ({ folders }) => folders).map(
+      ([{ id }, choice]) => [id, chosenOf(choice)] as const,
+    ),
+  );
 
 // The display position and Color synchronized for the current incarnation of each of this device's
 // connections. A position counts only within the Profile that owns the connection now. Unreadable
@@ -278,6 +295,21 @@ export const sendingDefaults = (value: RegistrationRecord) => {
   );
 };
 
+// The synchronized signature of each of this device's connections whose record names its current
+// incarnation and primary address. Unreadable Profile state or keys give none.
+export const identitySignatures = (value: RegistrationRecord) =>
+  new Map(
+    currentEntries(value, ({ signatures }) => signatures).flatMap(
+      ([{ id, address }, entry]) => {
+        const signature =
+          entry.address === address && entry.signature !== undefined
+            ? decodeSignature(entry.signature)
+            : Option.none();
+        return Option.isSome(signature) ? [[id, signature.value] as const] : [];
+      },
+    ),
+  );
+
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier, name and style this client knows, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
@@ -349,28 +381,17 @@ const replacing = <Entry extends Readonly<{ record: string }>>(
   entry,
 ];
 
-const withRecord = (
+type Read = Readonly<{
+  updatedAt: number;
+  payloadIdentifier?: string | undefined;
+}>;
+
+// The state with a record bound to one connection replaced by the one just read.
+const withConnectionRecord = (
   state: ProfileState,
-  record: ProfileRecord,
-  {
-    updatedAt,
-    payloadIdentifier,
-  }: Readonly<{
-    updatedAt: number;
-    payloadIdentifier?: string | undefined;
-  }>,
+  record: Exclude<ProfileRecord, Readonly<{ kind: 'profile' | 'sending' }>>,
+  { updatedAt, payloadIdentifier }: Read,
 ): ProfileState => {
-  if (record.kind === 'profile') {
-    const known = state.profiles.find(({ id }) => id === record.id);
-    const profile = readProfile(known, record, updatedAt);
-    return {
-      ...state,
-      profiles:
-        known === undefined
-          ? [...state.profiles, profile]
-          : state.profiles.map((item) => (item === known ? profile : item)),
-    };
-  }
   if (record.kind === 'folders') {
     const { kind: _, ...choice } = record;
     return {
@@ -385,16 +406,11 @@ const withRecord = (
       display: replacing(state.display, { ...display, updatedAt }),
     };
   }
-  if (record.kind === 'sending') {
-    const { kind: _, ...sending } = record;
+  if (record.kind === 'signature') {
+    const { kind: _, ...signature } = record;
     return {
       ...state,
-      sending: [
-        ...(state.sending ?? []).filter(
-          ({ profile }) => profile !== record.profile,
-        ),
-        { ...sending, updatedAt },
-      ],
+      signatures: replacing(state.signatures, { ...signature, updatedAt }),
     };
   }
   if (record.kind === 'notifications') {
@@ -421,6 +437,38 @@ const withRecord = (
     ...state,
     owners: replacing(state.owners, owner),
   };
+};
+
+const withRecord = (
+  state: ProfileState,
+  record: ProfileRecord,
+  read: Read,
+): ProfileState => {
+  const { updatedAt } = read;
+  if (record.kind === 'profile') {
+    const known = state.profiles.find(({ id }) => id === record.id);
+    const profile = readProfile(known, record, updatedAt);
+    return {
+      ...state,
+      profiles:
+        known === undefined
+          ? [...state.profiles, profile]
+          : state.profiles.map((item) => (item === known ? profile : item)),
+    };
+  }
+  if (record.kind === 'sending') {
+    const { kind: _, ...sending } = record;
+    return {
+      ...state,
+      sending: [
+        ...(state.sending ?? []).filter(
+          ({ profile }) => profile !== record.profile,
+        ),
+        { ...sending, updatedAt },
+      ],
+    };
+  }
+  return withConnectionRecord(state, record, read);
 };
 
 // Unmapped older policies also turn off when a notification record no longer opens here.
@@ -477,13 +525,14 @@ const withoutUnreadable = (
 // The records of one connection-bound kind this state knows.
 const connectionRecords = (
   state: ProfileState,
-  kind: 'mailbox' | 'notifications' | 'folders' | 'display',
+  kind: 'mailbox' | 'notifications' | 'folders' | 'display' | 'signature',
 ): ReadonlyArray<Readonly<{ record: string; version: number }>> =>
   ({
     mailbox: state.owners,
     notifications: state.notifications ?? [],
     folders: state.folders ?? [],
     display: state.display ?? [],
+    signature: state.signatures ?? [],
   })[kind];
 
 // Only an IMAP connection chooses folders, and one folder cannot be both Spam and Trash.
@@ -514,6 +563,38 @@ const knownVersion = (state: ProfileState, record: ProfileRecord) => {
 const olderRecord = (state: ProfileState, record: ProfileRecord) => {
   const version = knownVersion(state, record);
   return version !== undefined && record.version < version;
+};
+
+// A connection with a Sending Identity: any but a receive-only IMAP connection.
+const hasIdentity = (mailbox: RegistrationRecord['mailboxes'][number]) =>
+  mailbox.provider !== 'imap' || mailbox.smtp !== undefined;
+
+type Signature = Readonly<{
+  epoch: string;
+  address: string;
+  signature?: string;
+}>;
+const sameSignature = (current: Signature, next: Signature) =>
+  current.epoch === next.epoch &&
+  current.address === next.address &&
+  current.signature === next.signature;
+
+// The address and stored text a connection's signature record holds, or none once cleared.
+// Undefined for a connection without a Sending Identity or a document that holds an Inline Image.
+const signatureOf = (
+  value: RegistrationRecord,
+  connection: string,
+  document: SemanticDocument | undefined,
+) => {
+  const mailbox = value.mailboxes.find(({ id }) => id === connection);
+  const text =
+    document === undefined ? Option.some(undefined) : encodeSignature(document);
+  return mailbox === undefined || !hasIdentity(mailbox) || Option.isNone(text)
+    ? undefined
+    : {
+        address: mailbox.address,
+        ...(text.value === undefined ? {} : { signature: text.value }),
+      };
 };
 
 // A connection this device can send from: neither receive-only nor needing authorization.
@@ -754,6 +835,7 @@ export function createMailProfileProgram<E>(
       'mailbox-folders.',
       'mailbox-display.',
       'profile-sending.',
+      'mailbox-signature.',
     ]) {
       yield* list(prefix, read);
     }
@@ -1074,6 +1156,20 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
+  // The current incarnation of one of this device's connections and the refreshed Profile state,
+  // which must be readable to authorize a write.
+  const readableIncarnation = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+  ) {
+    const incarnation = yield* incarnationOf(value, connection);
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    return { ...incarnation, state };
+  });
+
   // Chooses the folders the current incarnation of one of this device's IMAP connections uses as
   // Spam and Trash. The choice needs Product Sync: one that does not commit leaves the stored one.
   const chooseFolders = Effect.fnUntraced(function* (
@@ -1084,11 +1180,10 @@ export function createMailProfileProgram<E>(
     if (!choosable(value, connection, folders)) {
       return yield* failWith('unavailable');
     }
-    const { record, epoch } = yield* incarnationOf(value, connection);
-    const { state, readable } = yield* refreshed(yield* known);
-    if (!readable) {
-      return yield* failWith('unavailable');
-    }
+    const { record, epoch, state } = yield* readableIncarnation(
+      value,
+      connection,
+    );
     const current = state.folders?.find((choice) => choice.record === record);
     if (current?.epoch === epoch && sameChoice(current, folders)) {
       return;
@@ -1212,11 +1307,10 @@ export function createMailProfileProgram<E>(
     connection: string,
     color: ProfileColor | undefined,
   ) {
-    const { record, epoch } = yield* incarnationOf(value, connection);
-    const { state, readable } = yield* refreshed(yield* known);
-    if (!readable) {
-      return yield* failWith('unavailable');
-    }
+    const { record, epoch, state } = yield* readableIncarnation(
+      value,
+      connection,
+    );
     yield* stillLive([{ record, epoch }]);
     yield* commitDisplay(state, [
       {
@@ -1269,6 +1363,39 @@ export function createMailProfileProgram<E>(
     }
   });
 
+  // Gives the primary address of one of this device's connections a signature, or with none clears
+  // it. A receive-only connection has no Sending Identity, and a signature holds no Inline Image.
+  const chooseSignature = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+    document: SemanticDocument | undefined,
+  ) {
+    const signature = signatureOf(value, connection, document);
+    if (signature === undefined) {
+      return yield* failWith('unavailable');
+    }
+    const { record, epoch, state } = yield* readableIncarnation(
+      value,
+      connection,
+    );
+    yield* stillLive([{ record, epoch }]);
+    const next = { record, epoch, ...signature };
+    const current = state.signatures?.find((item) => item.record === record);
+    if (current !== undefined && sameSignature(current, next)) {
+      return;
+    }
+    yield* commit(state, [
+      {
+        record: {
+          kind: 'signature',
+          ...next,
+          version: (current?.version ?? 0) + 1,
+        },
+        expectedUpdatedAt: current?.updatedAt,
+      },
+    ]);
+  });
+
   return {
     synchronize,
     create,
@@ -1281,5 +1408,6 @@ export function createMailProfileProgram<E>(
     arrange,
     colorConnection,
     chooseSending,
+    chooseSignature,
   };
 }
