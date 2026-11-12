@@ -1184,6 +1184,21 @@
       },
       "retryLabel": "Check {{name}} again"
     },
+    "templates": {
+      "menu": "Templates",
+      "insert": "Insert Template",
+      "subject": "Subject: {{subject}}",
+      "bodyOnly": "No subject · body only",
+      "newFromMessage": "New Template from This Message…",
+      "nameTitle": "New Template",
+      "nameDetail": "Saves this message’s subject and body, without recipients or files, as a template for this Mail Profile.",
+      "name": "Template name",
+      "save": "Save Template",
+      "notSaved": "Template not saved",
+      "notSavedDetail": "This device could not store the template. Try again.",
+      "needsName": "Give the template a name, then try again.",
+      "hasImages": "Templates can’t hold inline images. Remove them from the message, then try again."
+    },
     "response": {
       "wrote": "On {{date}}, {{sender}} wrote:",
       "forwarded": "---------- Forwarded message ---------",
