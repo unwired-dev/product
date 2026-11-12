@@ -499,6 +499,17 @@ by a preserved conflict copy or the editor's Undo history. An asset is refused o
 Store's 100 MB. Asset removal needs no key, and account purge removes every asset
 with the document. Interrupted imports are cleaned on the next save after relaunch.
 
+A **composer recovery record** holds one open composer's Draft as it last showed
+it, so the next launch can offer edits the app ended without storing. Each record
+is its own file, named by a digest of the Draft's identifier, encrypted with the
+same device-only key and sealed to its file name; it names its Product Account,
+and it is excluded from backups. Records are never uploaded and never enter the Drafts
+document or Product Sync. Writing and reading need protected data; removing one
+needs no key, so storing, sending or discarding while the device is locked still
+removes it. A save keeps the Draft Assets a record names until the record is
+removed. Opening the records removes another account's and any that does not open,
+and every account purge removes them all.
+
 Picked files on iPhone and iPad are protected temporary copies removed after
 successful or failed import, an abandoned picker result, or the next launch.
 Cleanup recognizes only the picker-owned UUID folder beneath its exact temporary

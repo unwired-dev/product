@@ -397,6 +397,11 @@ export function createHost(
         native().importDraftAsset(owner, id, source),
       readDraftAsset: (owner, asset) => native().readDraftAsset(owner, asset),
       discardDraftAsset: (owner, id) => native().discardDraftAsset(owner, id),
+      openComposerRecovery: () => native().openComposerRecovery(),
+      writeComposerRecovery: (owner, id, record) =>
+        native().writeComposerRecovery(owner, id, record),
+      removeComposerRecovery: (owner, id) =>
+        native().removeComposerRecovery(owner, id),
       pickDraftFiles: (source) => native().pickDraftFiles(source),
       discardPickedDraftFiles: (uris) => native().discardPickedDraftFiles(uris),
     },

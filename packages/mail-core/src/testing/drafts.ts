@@ -225,6 +225,11 @@ export function createSyntheticDrafts(
   >();
   // Imported in this process and not yet kept by a stored document.
   const pending = new Set<string>();
+  // Composer recovery records by Draft identifier; they survive a relaunch.
+  const records = new Map<
+    string,
+    Readonly<{ owner: string; document: string; assets: readonly string[] }>
+  >();
   // Files the person can pick or drop, and Downloaded Attachments, by URI or file name.
   const files = new Map<string, string>();
   const picks: Array<
@@ -251,8 +256,13 @@ export function createSyntheticDrafts(
     return files.get(source.kind === 'received' ? source.file : source.uri);
   };
   // Once a document is stored, bytes it does not keep go, except uncommitted imports.
-  const collect = (keep: readonly string[]) => {
-    const kept = new Set(keep);
+  const collect = (owner: string, keep: readonly string[]) => {
+    const kept = new Set([
+      ...keep,
+      ...[...records.values()].flatMap((record) =>
+        record.owner === owner ? record.assets : [],
+      ),
+    ]);
     for (const id of assets.keys()) {
       if (kept.has(id)) {
         pending.delete(id);
@@ -290,7 +300,7 @@ export function createSyntheticDrafts(
         return rejection('conflict');
       }
       stored = { owner, revision: expectedRevision + 1, document };
-      collect(keep);
+      collect(owner, keep);
       return { owner, revision: expectedRevision + 1 };
     },
     importDraftAsset: async (owner, id, source) => {
@@ -338,6 +348,39 @@ export function createSyntheticDrafts(
       return Promise.resolve(
         preview ? { uri: `data:${type};base64,${btoa(asset.bytes)}` } : {},
       );
+    },
+    openComposerRecovery: () => {
+      const owner = account();
+      if (owner === undefined) {
+        return rejection('unavailable');
+      }
+      if (locked) {
+        return rejection('locked');
+      }
+      for (const [id, record] of records) {
+        if (record.owner !== owner) {
+          records.delete(id);
+        }
+      }
+      return Promise.resolve({
+        owner,
+        records: [...records].map(([id, { document }]) => ({ id, document })),
+      });
+    },
+    writeComposerRecovery: async (owner, id, record) => {
+      await waitWhile(() => held);
+      if (locked) {
+        return rejection('locked');
+      }
+      if (owner !== account()) {
+        return rejection('mailbox-invalidated');
+      }
+      records.set(id, { owner, ...record });
+      return { owner };
+    },
+    removeComposerRecovery: (_owner, id) => {
+      records.delete(id);
+      return Promise.resolve({});
     },
     discardDraftAsset: (_owner, id) => {
       assets.delete(id);
@@ -491,6 +534,8 @@ export function createSyntheticDrafts(
     sync,
     delivery,
     stored: () => stored,
+    // Composer recovery records as native storage holds them, by Draft identifier.
+    recoveryRecords: () => new Map(records),
     // An asset's verified bytes for `owner`, as native code reads them to send; undefined when
     // missing, damaged or another account's.
     bytesOf: (owner: string, id: string, digest: string) => {
@@ -546,7 +591,7 @@ export function createSyntheticDrafts(
     },
     // Picked copies the store discarded rather than adding.
     discardedPicks: () => [...discardedPicks],
-    // Holds commits until `release`, so edits can arrive while a save is in flight.
+    // Holds commits and record writes until `release`, so edits can arrive while one is in flight.
     hold: () => {
       held = [];
     },

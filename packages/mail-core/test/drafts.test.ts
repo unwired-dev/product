@@ -3273,3 +3273,180 @@ describe('adding files and images to Drafts', () => {
   });
   /* oxlint-enable vitest/max-expects */
 });
+
+describe('keeping composer recovery records', () => {
+  /* oxlint-disable vitest/max-expects -- One journey proves a record's lifecycle end to end. */
+  it('keeps records apart from the Drafts, with their assets, through locking, relaunch and an account change', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const relaunch = async () => {
+      storage.relaunch();
+      const store = createDrafts(storage.native, session.registration);
+      await store.load();
+      return store;
+    };
+    let drafts = await relaunch();
+    const id = present(await drafts.create(alex), "the Draft's identifier");
+    const created = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    storage.addFile('file:///plan.pdf', 'plan bytes');
+    const attachment = drafts.prepare({
+      name: 'plan.pdf',
+      type: 'application/pdf',
+    });
+    await drafts.update({ ...created, attachments: [attachment] }, created);
+    await drafts.importAsset(attachment, {
+      kind: 'file',
+      uri: 'file:///plan.pdf',
+    });
+    const saved = present(draftOf(drafts.getSnapshot(), id), 'the saved Draft');
+
+    // A record holds the composer's unsaved edit; the Drafts and their document do not.
+    const unsaved = {
+      ...saved,
+      subject: 'Unsaved plan',
+      body: typed(emptyDocument, 'Unsaved notes'),
+    };
+    await expect(drafts.journal(unsaved)).resolves.toBe(true);
+    expect(draftOf(drafts.getSnapshot(), id)?.subject).toBe('');
+    expect(storage.stored()?.document).not.toContain('Unsaved');
+
+    // After relaunches, a save that dropped the attachment keeps its bytes while the record
+    // names them.
+    drafts = await relaunch();
+    await expect(drafts.recovered()).resolves.toStrictEqual([unsaved]);
+    const reopened = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    const dropped = { ...reopened, attachments: [] };
+    await drafts.update(dropped, reopened);
+    drafts = await relaunch();
+    await drafts.update({ ...dropped, subject: 'Plan' }, dropped);
+    expect(storage.assets()).toStrictEqual([attachment.id]);
+
+    // While locked, records are neither read nor written, and the stored one is kept; the next
+    // write stores both.
+    storage.setLocked(true);
+    await expect(drafts.recovered()).resolves.toStrictEqual([]);
+    const later = { ...unsaved, subject: 'Unsaved plan, later' };
+    await expect(drafts.journal(later)).resolves.toBe(false);
+    expect(storage.recoveryRecords().get(id)?.document).toContain(
+      'Unsaved plan"',
+    );
+    storage.setLocked(false);
+    const second = { ...later, id: 'second-draft', attachments: [] };
+    await expect(drafts.journal(second)).resolves.toBe(true);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([
+      id,
+      'second-draft',
+    ]);
+    expect(storage.recoveryRecords().get(id)?.document).toContain('later');
+
+    // Removing a record works while locked, and the next save then drops the bytes.
+    storage.setLocked(true);
+    await expect(drafts.forget(id)).resolves.toBe(true);
+    storage.setLocked(false);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([
+      'second-draft',
+    ]);
+    await drafts.update(
+      { ...dropped, subject: 'Plan review' },
+      { ...dropped, subject: 'Plan' },
+    );
+    expect(storage.assets()).toStrictEqual([]);
+
+    // Another Product Account reads none of them, and opening its Drafts removes them.
+    session.change(connected('account-b'));
+    await expect(drafts.recovered()).resolves.toStrictEqual([]);
+    expect(storage.recoveryRecords().size).toBe(0);
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  // A Draft whose next save `hold` keeps in flight, so record calls queue behind it.
+  const savingDraft = async () => {
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), "the Draft's identifier");
+    const draft = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    storage.hold();
+    const saving = drafts.update({ ...draft, subject: 'Saved' }, draft);
+    return { storage, drafts, draft, saving };
+  };
+
+  it('stores the edit journaled after a forget while an earlier record waited for a save', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    const second = { ...draft, subject: 'Second' };
+
+    const writing = drafts.journal({ ...draft, subject: 'First' });
+    const forgetting = drafts.forget(draft.id);
+    const journaling = drafts.journal(second);
+    storage.release();
+
+    await expect(
+      Promise.all([saving, writing, forgetting, journaling]),
+    ).resolves.toStrictEqual([true, true, true, true]);
+    await expect(drafts.recovered()).resolves.toStrictEqual([second]);
+  });
+
+  it('keeps a record journaled after a forget even when it reaches storage first', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    const latest = { ...draft, subject: 'Latest' };
+
+    // A journal called as the save ends can take the storage permit ahead of the queued forget.
+    const queued = [
+      drafts.journal({ ...draft, subject: 'First' }),
+      drafts.forget(draft.id),
+    ];
+    storage.release();
+    await saving;
+    await expect(drafts.journal(latest)).resolves.toBe(true);
+
+    await expect(Promise.all(queued)).resolves.toStrictEqual([true, true]);
+    await expect(drafts.recovered()).resolves.toStrictEqual([latest]);
+  });
+
+  it('omits a record stored under another Draft id', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    storage.release();
+    await saving;
+    await drafts.journal(draft);
+    const { owner, document } = present(
+      storage.recoveryRecords().get(draft.id),
+      'the record',
+    );
+
+    await storage.native.writeComposerRecovery(owner, 'another-draft', {
+      document,
+      assets: [],
+    });
+    await expect(drafts.recovered()).resolves.toStrictEqual([draft]);
+  });
+
+  it('removes the older record for a forget whose later journal storage refused', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    storage.release();
+    await saving;
+    await drafts.journal({ ...draft, subject: 'Older' });
+    const later = { ...draft, subject: 'Later' };
+
+    storage.hold();
+    const resaving = drafts.update({ ...draft, subject: 'Saved again' }, draft);
+    storage.setLocked(true);
+    const forgetting = drafts.forget(draft.id);
+    const journaling = drafts.journal(later);
+    storage.release();
+    await expect(
+      Promise.all([resaving, forgetting, journaling]),
+    ).resolves.toStrictEqual([false, true, false]);
+    expect(storage.recoveryRecords().size).toBe(0);
+
+    // The refused record stays pending and lands with the next write once storage opens.
+    storage.setLocked(false);
+    await expect(drafts.journal(later)).resolves.toBe(true);
+    await expect(drafts.recovered()).resolves.toStrictEqual([later]);
+  });
+});

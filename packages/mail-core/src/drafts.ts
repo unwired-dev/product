@@ -115,6 +115,15 @@ const CommittedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
 });
+const RecoveryOpenedSchema = Schema.Struct({
+  owner: Schema.NonEmptyString,
+  records: Schema.Array(
+    Schema.Struct({ id: Schema.String, document: Schema.String }),
+  ),
+});
+const RecordedSchema = Schema.Struct({ owner: Schema.NonEmptyString });
+const RecoveryRecordSchema = Schema.fromJsonString(DraftSchema);
+const recoveredDraft = Schema.decodeUnknownOption(RecoveryRecordSchema);
 
 // Recipients ------------------------------------------------------------------------------------
 
@@ -930,6 +939,22 @@ export interface NativeDrafts {
   ) => Promise<unknown>;
   // Deletes bytes that no committed Draft names, such as a cancelled import's.
   readonly discardDraftAsset: (owner: string, id: string) => Promise<unknown>;
+  // Composer recovery records: an open composer's Draft as it last showed it, kept on this device
+  // only, apart from the Drafts document and Product Sync. Resolves `{ owner, records: [{ id,
+  // document }] }`; native code removes another account's records.
+  readonly openComposerRecovery: () => Promise<unknown>;
+  // Replaces Draft `id`'s record and resolves `{ owner }`. Commits keep the bytes of the `assets`
+  // a record names while it exists.
+  readonly writeComposerRecovery: (
+    owner: string,
+    id: string,
+    record: Readonly<{ document: string; assets: readonly string[] }>,
+  ) => Promise<unknown>;
+  // Removes Draft `id`'s record; needs no key, so it also runs while the device is locked.
+  readonly removeComposerRecovery: (
+    owner: string,
+    id: string,
+  ) => Promise<unknown>;
   // Resolves `[{ uri, name, type }]`, or `{ name, type, oversized: 'true' }` without a uri
   // for a representation over the per-file limit; empty when the person chose none.
   readonly pickDraftFiles: (source: PickSource) => Promise<unknown>;
@@ -1060,6 +1085,16 @@ export function createDrafts(
   let cleanup: readonly DeliveryCleanup[] = [];
   // Edits in memory that storage does not hold yet.
   let dirty = false;
+  // Composer recovery records storage refused, as while locked, which the next record write retries.
+  const unrecorded = new Map<string, Draft>();
+  // The latest journal or forget call per Draft id; storage's semaphore does not keep call order.
+  const recordCalls = new Map<string, number>();
+  let recordCall = 0;
+  const callRecord = (id: string) => {
+    recordCall += 1;
+    recordCalls.set(id, recordCall);
+    return recordCall;
+  };
   let state: DraftsState = { kind: 'closed' };
   let started = false;
   // Every open editor by the version it edits, saved or not, so a version that synchronization
@@ -2089,6 +2124,107 @@ export function createDrafts(
     return true;
   };
 
+  const writeRecord = Effect.fnUntraced(function* (
+    account: string,
+    draft: Draft,
+  ) {
+    const document = yield* Schema.encodeEffect(RecoveryRecordSchema)(
+      draft,
+    ).pipe(Effect.mapError(malformed));
+    const assets = assetsOf(draft).flatMap((asset) =>
+      asset.state === 'complete' ? [asset.id] : [],
+    );
+    const recorded = yield* native(
+      () =>
+        storage.writeComposerRecovery(account, draft.id, { document, assets }),
+      RecordedSchema,
+    );
+    if (recorded.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    if (unrecorded.get(draft.id) === draft) {
+      unrecorded.delete(draft.id);
+    }
+  });
+
+  // Writes every record storage has not taken yet, oldest first; one refused stays for the next.
+  // `pending` is the call's snapshot: an entry replaced or forgotten meanwhile belongs to a later call.
+  const journaling = (current: number, pending: readonly Draft[]) =>
+    Effect.gen(function* () {
+      const account = owner;
+      let stored = true;
+      for (const draft of pending) {
+        if (!live(current) || account === undefined) {
+          return false;
+        }
+        if (unrecorded.get(draft.id) === draft) {
+          const written = yield* writeRecord(account, draft).pipe(
+            Effect.as(true),
+            Effect.catchTag('DraftStorageFailure', (error) =>
+              report(error).pipe(Effect.as(false)),
+            ),
+          );
+          stored &&= written;
+        }
+      }
+      return stored;
+    }).pipe(semaphore.withPermit);
+
+  // The account's records; none while storage is locked, which keeps them for a later read.
+  const recovering = (current: number) =>
+    Effect.gen(function* () {
+      const account = owner;
+      if (account === undefined) {
+        return [];
+      }
+      const opened = yield* native(
+        storage.openComposerRecovery,
+        RecoveryOpenedSchema,
+      );
+      if (opened.owner !== account) {
+        return yield* ownerMismatch();
+      }
+      return live(current)
+        ? opened.records.flatMap(({ id, document }) => {
+            const draft = Option.getOrUndefined(recoveredDraft(document));
+            return draft?.id === id ? [draft] : [];
+          })
+        : [];
+    }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(Effect.as<readonly Draft[]>([])),
+      ),
+    );
+
+  // A journal called after this forget owns the record once storage holds it, even when its pass
+  // ran first; while it is pending, removing the older record leaves it for that journal to write.
+  const forgetting = (current: number, id: string, call: number) =>
+    Effect.gen(function* () {
+      const account = owner;
+      if (!live(current) || account === undefined) {
+        return false;
+      }
+      const latest = recordCalls.get(id) === call;
+      if (!latest && !unrecorded.has(id)) {
+        return true;
+      }
+      yield* Effect.tryPromise({
+        try: () => storage.removeComposerRecovery(account, id),
+        catch: failureOf,
+      });
+      if (recordCalls.get(id) === call) {
+        recordCalls.delete(id);
+      }
+      return true;
+    }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(Effect.as(false)),
+      ),
+      semaphore.withPermit,
+    );
+
   const follow = () => {
     const next = ownerOf(registration.getSnapshot().snapshot);
     if (next === owner) {
@@ -2104,6 +2240,8 @@ export function createDrafts(
     sent = [];
     cleanup = [];
     dirty = false;
+    unrecorded.clear();
+    recordCalls.clear();
     editors.clear();
     known.clear();
     held.clear();
@@ -2345,6 +2483,23 @@ export function createDrafts(
         await runLogged(opening(generation, owner));
         void background();
       }
+    },
+    // The composer recovery records this account left on this device.
+    recovered: () => runLogged(recovering(generation)),
+    // Keeps `draft` as its composer shows it in a recovery record on this device, without changing
+    // the Drafts; a record refused earlier is written first. Resolves whether every record is stored,
+    // leaving one replaced meanwhile to the call that replaced it.
+    journal: (draft: Draft) => {
+      callRecord(draft.id);
+      unrecorded.delete(draft.id);
+      unrecorded.set(draft.id, draft);
+      return runLogged(journaling(generation, [...unrecorded.values()]));
+    },
+    // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did
+    // or a later `journal` took the record over.
+    forget: (id: string) => {
+      unrecorded.delete(id);
+      return runLogged(forgetting(generation, id, callRecord(id)));
     },
     // Merges Product Sync into this device's Drafts and publishes this device's changes;
     // resolves once no pass is running, rejecting unexpected defects to the caller.

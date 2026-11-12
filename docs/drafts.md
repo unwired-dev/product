@@ -659,6 +659,16 @@ discarding the Draft removes it, and after a relaunch the first save removes any
 asset no Draft uses. If removing unused bytes fails after the document is stored,
 the save still succeeds and a later save retries that cleanup.
 
+**Composer recovery records** ([ADR 0077](adr/0077-remove-friction-that-privacy-does-not-require.md),
+decision 2) keep an open composer's unsaved Draft on this device apart from the
+Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
+and `recovered` reads the account's records on demand. A record that storage
+refuses, as while locked, stays in memory and is written with the next
+record. Writing a record never changes what **Drafts** lists or synchronizes, and
+a save keeps the files and images a record names. The composers do not write
+records yet, so the Durability rule above still holds
+([#1989](https://github.com/unwired-dev/product/issues/1989)).
+
 ## Verification
 
 ```sh

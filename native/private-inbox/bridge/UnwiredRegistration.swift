@@ -1677,6 +1677,41 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(openComposerRecovery:rejecter:)
+  func openComposerRecovery(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openComposerRecovery", resolve, reject: reject) {
+      try await $0.openComposerRecovery()
+    }
+  }
+
+  // `record` carries the Draft's document and the assets it names.
+  @objc(writeComposerRecovery:id:record:resolver:rejecter:)
+  func writeComposerRecovery(
+    _ owner: String, id: String, record: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("writeComposerRecovery", resolve, reject: reject) {
+      guard let document = record["document"] as? String,
+        let assets = record["assets"] as? [String]
+      else { throw RegistrationError.unavailable }
+      return try await $0.writeComposerRecovery(
+        owner: owner, id: id, document: document, assets: assets)
+    }
+  }
+
+  @objc(removeComposerRecovery:id:resolver:rejecter:)
+  func removeComposerRecovery(
+    _ owner: String, id: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("removeComposerRecovery", resolve, reject: reject) {
+      try await $0.removeComposerRecovery(id: id)
+      return [:]
+    }
+  }
+
   @objc(importDraftAsset:id:source:resolver:rejecter:)
   func importDraftAsset(
     _ owner: String, id: String, source: [String: Any],
