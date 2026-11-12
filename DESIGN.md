@@ -369,6 +369,8 @@ styles) so the file stays editable.
   orientations: Body 14.95/18.4, Subheadline 12.65/16.1 and Title 3 Emphasized
   17.25/23. Row insets, unread indicators and dividers use the same scale;
   interactive controls retain at least 44pt touch targets.
+- **iPad reader:** the Reading pane recipe at the same 1.15×: Reading Body
+  17.25/25.3 and Reading Subject 23/28.75.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
   long-form reading) and Reading Subject 20/25 bold for the Thread subject. These
   reference sizes respect the [reader's accessibility sizing](docs/gmail-inbox.md#presentation-accessibility-and-fallback).
@@ -484,12 +486,20 @@ styles) so the file stays editable.
   iPad; the Mac asks in an alert sheet. iPhone moves the format bar into a floating Liquid Glass
   pill (Aa and paperclip) with a separate Writing tools button above the keyboard;
   Aa replaces the keyboard with the glass Format panel.
-- **Settings:** the Mac reference is a 900×720 independent window, opened with
+- **Settings:** the Mac reference is a 900×732 independent window, opened with
   `Command-,`, with a glass sidebar grouped as Accounts, Mail, Composing,
   Automation and Application, and grouped forms on the right. iPad uses an in-app
-  two-column workspace; iPhone pushes one column into the existing navigation
+  two-column workspace whose sidebar starts with a 44pt glass back button that
+  returns to mail; iPhone pushes one column into the existing navigation
   stack. Detail failures follow the
   [Settings requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
+- **Modal placement:** alerts and sheets are centred in the Mac window and on the
+  iPad screen. iPhone alerts are centred, and partial-height sheets attach to the
+  screen edges. A backdrop covers the whole window or screen. Popovers have no
+  arrow.
+- **Dates and times:** the system formatter writes them in the interface
+  language's conventions, and one language never mixes formats. The English
+  reference frames write `13 Oct`, `Tue 13 Oct, 8:00` and `Today, 18:00`.
 - **Spacing scale:** 4, 8, 12, 16, 20pt. Hit targets are at least 28pt on the Mac
   and 44pt on iPhone.
 
@@ -519,8 +529,8 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
-- iPad popovers, such as Filters, are system popovers and keep the iOS corner radius
-  and arrow.
+- iPad popovers, such as Filters, are system popovers and keep the iOS corner
+  radius. They are drawn without an arrow.
 - iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
   centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 29.095pt.
   iPhone's Profile Switcher above the Mailboxes groups uses `radius.profileSwitcher`,
@@ -714,10 +724,6 @@ These frames predate the requirements or implementation they show:
 - **Compose:** the reference mockups still show a 60% inline composer. The Mac
   New Message frame's Remind Me to Send bell waits for #658, and the overflow
   keeps Discard reachable.
-- **Compose field order:** the frames and the Layout section put the body first.
-  [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
-  changes the order to To, Cc and Bcc, Subject, body, attachments; the frames
-  will be redrawn and approved under #1994 before the change is built.
 - **Command Palette key cap:** the frames and the Layout section show ⌘P.
   [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
   moves the palette to ⌘K under #1993.
