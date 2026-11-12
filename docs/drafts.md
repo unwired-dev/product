@@ -66,7 +66,8 @@ transport and known native exit gaps.
   **Reply All** or **Forward**, with Expand and Discard in its header and From and
   **Send** beneath its fields. A docked iPad software keyboard raises either above
   it. On iPad, **Expand** takes the composer over the whole window with the same
-  Draft and **Collapse** returns it. On the Mac, the overlay
+  Draft and **Collapse** returns it; a Writing tools text tool expands it the same
+  way ([Draft rewrites](draft-assistance.md#behavior)). On the Mac, the overlay
   stays beneath the window's [command bar](command-palette.md#entry-points), and
   **Expand** saves the Draft, then moves it into its own **New Message** window and
   closes the overlay; there is no way back into the Inbox window. A failed save

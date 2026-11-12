@@ -47,11 +47,14 @@ function NavigationProbe({
 export function App({
   drafts,
   onNavigation,
+  onExpand,
 }: {
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly onNavigation?: (
     navigation: ReturnType<typeof useComposerNavigation>,
   ) => void;
+  // The window-level Expand, as a regular-width iPad window offers it.
+  readonly onExpand?: () => void;
 }) {
   const mailboxes = useMemo(
     () =>
@@ -87,6 +90,7 @@ export function App({
         {composing === undefined ? null : (
           <DraftComposer
             id={composing}
+            onExpand={onExpand}
             onClose={() => {
               setComposing(undefined);
             }}
