@@ -123,9 +123,10 @@ in Figma. Implementing existing frames needs no new approval.
    file, add or update the frames for every affected screen and state on the
    `macOS · …`, `iPadOS · …` and `iOS · …` pages, in Light and Dark, with
    DESIGN.md's tokens, the file's components and SF Symbols. Put proposals
-   awaiting approval on the platform's Review pages, copying any approved frame
+   awaiting approval on the platform's Review page, copying any approved frame
    they change so the approved design stays in place, and move approved
-   sections to its Approved issue work page.
+   sections to the page of their product area, named like
+   "#1673 Send and Archive · approved 2026-11-11".
 2. Ask the user to review: link each changed frame, say what changed and why,
    and list open questions.
 3. Write design-dependent code only after the user approves; other work can

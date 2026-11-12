@@ -5,7 +5,12 @@ import type {
   Mark,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
-import type { ColorValue, NativeSyntheticEvent, ViewProps } from 'react-native';
+import type {
+  ColorValue,
+  NativeSyntheticEvent,
+  TextStyle,
+  ViewProps,
+} from 'react-native';
 
 import { vettedHref } from '@private-email/mail-core/link-inspection';
 import { isLinkText } from '@private-email/mail-core/semantic-document';
@@ -78,6 +83,47 @@ const styles = StyleSheet.create({
   inlineSizing: { paddingLeft: 3, paddingRight: 24 },
   inlineSymbolSizing: { paddingLeft: 25, paddingRight: 17 },
 });
+
+export const kindStyles: Record<BlockKind, TextStyle> = {
+  paragraph: {},
+  heading1: { fontSize: 26, lineHeight: 34, fontWeight: '700' },
+  heading2: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  heading3: { fontSize: 19, lineHeight: 28, fontWeight: '600' },
+  bulleted: {},
+  numbered: {},
+  quote: { fontStyle: 'italic' },
+  code: { fontFamily: 'Menlo' },
+};
+
+const decorations = {
+  underline: 'underline',
+  strikethrough: 'line-through',
+  both: 'underline line-through',
+} as const;
+
+// Linked text shows underlined, as the Link Editor frames draw it.
+export const markStyle = (
+  marks: readonly Mark[] = [],
+  linked = false,
+): TextStyle => {
+  const underline = linked || marks.includes('underline');
+  const strikethrough = marks.includes('strikethrough');
+  let decoration: (typeof decorations)[keyof typeof decorations] | undefined =
+    undefined;
+  if (underline && strikethrough) {
+    decoration = decorations.both;
+  } else if (underline) {
+    decoration = decorations.underline;
+  } else if (strikethrough) {
+    decoration = decorations.strikethrough;
+  }
+  return {
+    ...(marks.includes('bold') ? { fontWeight: '700' } : {}),
+    ...(marks.includes('italic') ? { fontStyle: 'italic' } : {}),
+    ...(marks.includes('code') ? { fontFamily: 'Menlo' } : {}),
+    ...(decoration === undefined ? {} : { textDecorationLine: decoration }),
+  };
+};
 
 type MarkName = `drafts.marks.${Mark}`;
 const markControls: ReadonlyArray<readonly [Mark, MarkName]> = [

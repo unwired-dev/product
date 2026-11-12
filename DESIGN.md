@@ -697,7 +697,8 @@ form accessories, keyboards, status bar).
 
 These frames predate the requirements or implementation they show:
 
-- **Sidebar:** the unified Archive frames on each platform's New features page
+- **Sidebar:** the unified Archive frames in each platform's "Features ·
+  Unified Mailboxes and backfill" section, on its Mailboxes and Inbox page,
   show the secondary mailboxes under Favorites and a connection without that
   role; other mockups omit them. The iPhone Mailboxes frames' **Edit** beside
   Account has no feature behind it yet.
