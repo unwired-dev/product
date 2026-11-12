@@ -1,7 +1,7 @@
 import * as Schema from 'effect/Schema';
 
 import { vettedHref } from './link-inspection.ts';
-import { palette } from './theme.ts';
+import { channelsOf, luminanceOf, palette } from './theme.ts';
 
 export type { History } from './editor-history.ts';
 export { historyOf, record, redo, undo } from './editor-history.ts';
@@ -302,18 +302,6 @@ export function displayOf(document: SemanticDocument) {
       .join('\n'),
   };
 }
-
-const channelsOf = (color: string) =>
-  [1, 3, 5].map((at) => Number.parseInt(color.slice(at, at + 2), 16));
-
-// WCAG relative luminance of 8-bit sRGB channels.
-const luminanceOf = (channels: readonly number[]) => {
-  const [red = 0, green = 0, blue = 0] = channels.map((channel) => {
-    const value = channel / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-};
 
 const darkSurface = luminanceOf(channelsOf(palette.dark.surfaceContent));
 
@@ -1125,6 +1113,53 @@ export function insertImage(
       : each,
   );
   const offset = offsetOf(result, line, column + 1);
+  return {
+    document: documentOf(result),
+    selection: { start: offset, end: offset },
+  };
+}
+
+// Inserts `inserted` after the selection as one edit, keeping the selected text, and leaves the
+// caret after it. Blocks replace an empty paragraph at the caret. Otherwise a single paragraph joins
+// the line at the caret, and other blocks keep their kinds, splitting the line around them. A caret
+// inside a list marker belongs to the item.
+export function insertDocument(
+  document: SemanticDocument,
+  selection: Selection,
+  inserted: SemanticDocument,
+): Edit {
+  const lines = document;
+  const at = locate(lines, Math.max(selection.start, selection.end));
+  const { line } = at;
+  const column = Math.max(0, at.column - at.marker);
+  const current = lines[line] ?? emptyDocument[0];
+  const head = sliceSpans(current.spans, 0, column);
+  const tail = sliceSpans(current.spans, column);
+  const [only, ...more] = inserted;
+  const emptyParagraph =
+    current.kind === 'paragraph' && lengthOf(current.spans) === 0;
+  if (more.length === 0 && only.kind === 'paragraph' && !emptyParagraph) {
+    const result = lines.map((each, index) =>
+      index === line
+        ? { ...each, spans: joinSpans(head, only.spans, tail) }
+        : each,
+    );
+    const offset = offsetOf(result, line, column + lengthOf(only.spans));
+    return {
+      document: documentOf(result),
+      selection: { start: offset, end: offset },
+    };
+  }
+  const before = head.length === 0 ? [] : [{ ...current, spans: head }];
+  const result = [
+    ...lines.slice(0, line),
+    ...before,
+    ...inserted,
+    ...(tail.length === 0 ? [] : [{ ...current, spans: tail }]),
+    ...lines.slice(line + 1),
+  ];
+  const last = line + before.length + more.length;
+  const offset = offsetOf(result, last, lengthOf(result[last]?.spans ?? []));
   return {
     document: documentOf(result),
     selection: { start: offset, end: offset },

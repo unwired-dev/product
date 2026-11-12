@@ -669,7 +669,8 @@ The existing reviewed rich-rendering contract admits these passive elements:
 formatting and table reading order. Active or unsupported elements cannot become
 executable output. Remove scripts, event handlers, forms and their controls,
 frames, embedded objects, author metadata including refresh, `base`, SVG and
-MathML, external stylesheets and author `style` blocks.
+MathML, external stylesheets and author `style` blocks; only the responsive subset
+below survives, restated as app CSS.
 
 The passive attribute boundary is:
 
@@ -741,6 +742,25 @@ and values are checked. Remove `url()` values, `@import`, executable expressions
 external fonts, clipping and other unapproved declarations. Remove sender-defined
 foreground and background colors, including legacy color/background attributes.
 The app controls both colors together so stripped backgrounds cannot hide text.
+One exception keeps buttons recognizable: a visible `td` or `th` whose only content is one
+link without images keeps its opaque hex `background-color`, `background` or
+`bgcolor`, and the app paints the label black or white, whichever contrasts more,
+so it reaches at least 4.5:1. That holds only inside the cell, so app CSS placed
+after every restated media rule resets indent, letter spacing, line height and
+size limits on the cell, and margins, vertical alignment and sizes on everything in it; the cell
+then grows to hold its label at every width. Gradients, images and other
+backgrounds stay removed.
+Author `style` blocks for screen contribute only `@media` rules whose queries are
+`max-width` in pixels and whose selectors are element names, classes or both. Their
+declarations pass the same property, value and bound checks as inline styles, minus
+`display`, `visibility` and `text-decoration`, so they never hide content, change
+colors, backgrounds, link decoration or position. The sanitizer resolves the
+cascade itself, for at most 256 rules, 512 selectors and the three widest
+breakpoints, and restates each element's narrower style on an app-generated class, named by the
+element's place in the parsed document so a remote image loaded later never takes another element's, inside the app's own `@media (max-width)` rule; a value its bounds remove returns
+to the browser's default. If a narrower
+pass would show or inspect different content, such as a link or hidden text, every
+width keeps the base layout.
 Image width and height preserve literal lengths, percentages and supported sizing
 keywords, including `auto`, subject to the reader's sizing bounds below.
 Unvalidated sizing functions and invalid values are discarded; discarded
@@ -1021,7 +1041,11 @@ height. Invalid or failed measurement uses the retained readable-text fallback.
 Normal-height documents stay pinned to the top of WebKit and use the
 reader's outer vertical scroll; horizontal overflow cannot introduce a second
 vertical scroll. Desktop-width tables and blocked image placeholders narrow to
-the column. Content that still needs more width, such as unwrappable text,
+the column. Text wraps with `overflow-wrap: break-word`, so a narrow table cell
+never splits a word such as a button label. URL-like runs of printable ASCII
+longer than 24 characters, containing `/`, `?`, `&` or `=`, may break after each
+punctuation character and at least every 24 characters, so they do not widen a
+table past the column; other words, scripts and emoji never split. Content that still needs more width, such as unwrappable text,
 scrolls horizontally inside WebKit instead of being clipped. On the Mac, horizontal
 mouse-wheel or trackpad scrolling moves the message sideways while vertical
 scrolling still moves the reader. Only a document

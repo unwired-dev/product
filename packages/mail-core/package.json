@@ -43,6 +43,7 @@
     "./testing/categorization-spike": "./src/testing/categorization-spike.ts",
     "./drafts": "./src/drafts.ts",
     "./semantic-document": "./src/semantic-document.ts",
+    "./mail-templates": "./src/mail-templates.ts",
     "./testing/drafts": "./src/testing/drafts.ts",
     "./composer-navigation": "./src/composer-navigation.ts",
     "./responses": "./src/responses.ts",
