@@ -711,6 +711,40 @@ describe('synchronized Mail Templates', () => {
     await expect(phone.templates('work')).resolves.toStrictEqual([]);
   });
 
+  it("keeps another device's identical edit over a removal made meanwhile", async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const { store: mac, sync } = storage(server);
+    const phone = storage(server).store;
+    await mac.save('work', invoice);
+    await mac.synchronize();
+    await phone.synchronize();
+    const push = sync!.pushMailTemplate;
+    // The Mac's edit waits in flight while the phone commits the same edit first.
+    const sending = Promise.withResolvers<undefined>();
+    const released = Promise.withResolvers<undefined>();
+    vi.spyOn(sync!, 'pushMailTemplate').mockImplementationOnce(
+      async (owner, record) => {
+        sending.resolve(undefined);
+        await released.promise;
+        return push(owner, record);
+      },
+    );
+    const edited = { ...invoice, subject: 'Edited' };
+    await mac.save('work', edited);
+    await sending.promise;
+    await phone.save('work', edited);
+    await phone.synchronize();
+    await expect(mac.remove('work', 'invoice')).resolves.toBe(true);
+    released.resolve(undefined);
+    await mac.synchronize();
+    await phone.synchronize();
+
+    const kept = [{ ...edited, profile: 'work', pending: false }];
+    await expect(mac.templates('work')).resolves.toStrictEqual(kept);
+    await expect(phone.templates('work')).resolves.toStrictEqual(kept);
+  });
+
   it('keeps a template stored with a longer identifier on this device', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

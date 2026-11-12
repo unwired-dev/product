@@ -395,7 +395,8 @@ changed the same template first, its version keeps the id and this device's edit
 stays as a conflict copy, a new template marked `conflict` that publishes like any
 other. An edit wins over a removal on either side. A record that does not open
 here, names another template or is older than the one already read changes
-nothing, and a write whose reply was lost is recognized when it is read back. Like
+nothing, and a write whose reply was lost is recognized when it is read back by
+the random write identifier sealed in its record. Like
 Draft synchronization, a pass that finds this device removed reports it, and one
 refused for an older key epoch adopts the newer epoch and passes again. `save`
 refuses a template identifier longer than 200 characters, and conflict copies stay

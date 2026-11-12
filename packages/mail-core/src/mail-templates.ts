@@ -57,18 +57,20 @@ export type StoredMailTemplate = typeof StoredMailTemplateSchema.Type;
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 const NullableTemplate = Schema.NullOr(StoredMailTemplateSchema);
 // A template's Product Sync record as this device last read or wrote it: the record's write count,
-// its Convex revision and the template, null once removed.
+// its Convex revision, the template, null once removed, and the random identifier of the write
+// that made it.
 const SyncedSchema = Schema.Struct({
   id: Schema.NonEmptyString,
   version: Version,
   updatedAt: Schema.Finite,
   template: NullableTemplate,
+  write: Schema.NonEmptyString,
 });
 type Synced = typeof SyncedSchema.Type;
 const SentSchema = Schema.Struct({
   id: Schema.NonEmptyString,
   version: Version,
-  template: NullableTemplate,
+  write: Schema.NonEmptyString,
 });
 type Sent = typeof SentSchema.Type;
 const StoredDocumentSchema = Schema.Struct({
@@ -103,8 +105,12 @@ const PulledSchema = Schema.Struct({
   ),
   unreadable: Schema.Array(Schema.NonEmptyString),
 });
-const TemplateJsonSchema = Schema.fromJsonString(StoredMailTemplateSchema);
-const decodeTemplate = Schema.decodeUnknownOption(TemplateJsonSchema);
+// What a record seals: the template, null once removed, and its write's identifier, so this device
+// tells its own writes from another device's identical one.
+const RecordJsonSchema = Schema.fromJsonString(
+  Schema.Struct({ template: NullableTemplate, write: Schema.NonEmptyString }),
+);
+const decodeRecord = Schema.decodeUnknownOption(RecordJsonSchema);
 const isStored = Schema.is(StoredMailTemplateSchema);
 // Native code accepts a Product Sync record identifier of at most 200 characters.
 const publishable = (id: string) => id.length <= 200;
@@ -131,14 +137,14 @@ export interface NativeMailTemplates {
 // device holds no keys or Product Sign-In session.
 export interface NativeMailTemplateSync {
   // Resolves `{ owner, records: [{ id, version, updatedAt, template }], unreadable }`, `template`
-  // being the template's JSON or null once removed. `unreadable` names the templates of `known`
-  // whose record exists but does not open here.
+  // being the JSON the record seals. `unreadable` names the templates of `known` whose record
+  // exists but does not open here.
   readonly pullMailTemplates: (
     owner: string,
     known: readonly string[],
   ) => Promise<unknown>;
-  // Writes template `id`'s record, or a sealed tombstone when `template` is null, only while it is
-  // still at `expectedUpdatedAt` (absent: while there is none). Resolves
+  // Writes template `id`'s record, sealing `template` (the template or its removal, as JSON), only
+  // while it is still at `expectedUpdatedAt` (absent: while there is none). Resolves
   // `{ owner, committed, updatedAt? }`.
   readonly pushMailTemplate: (
     owner: string,
@@ -232,6 +238,15 @@ const pendingOf = ({ templates, synced }: Templates) => {
   });
 };
 
+// A random identifier for one write, as Draft assets are named.
+const writeId = () => {
+  let id = '';
+  while (id.length < 24) {
+    id += Math.random().toString(36).slice(2);
+  }
+  return id.slice(0, 24);
+};
+
 // The first conflict copy identifier for `id` that no template or record uses, short enough for
 // native code to publish.
 const copyId = (id: string, used: ReadonlySet<string>) => {
@@ -248,7 +263,7 @@ const unsettled = (sent: readonly Sent[], known: Readonly<Synced>) =>
   sent.filter(({ id, version }) => id !== known.id || version > known.version);
 
 // Takes one record newer than the one this device read. This device's own write read back, as
-// after a lost reply, changes no template. A template without a change to publish takes the
+// after a lost reply, changes no template; another device's identical write is not its own. A template without a change to publish takes the
 // record; a pending removal yields to an edit, a pending edit outlives a removal, and a pending
 // edit of a template another device changed first stays as a conflict copy, the record keeping
 // the id.
@@ -268,10 +283,7 @@ const adoptRecord = (
   const base = bases.get(record.id);
   const local = live.get(record.id) ?? null;
   const own = [...sent].some(
-    ({ id, version, template }) =>
-      id === record.id &&
-      version === record.version &&
-      sameTemplate(template, record.template),
+    ({ id, write }) => id === record.id && write === record.write,
   );
   bases.set(record.id, record);
   for (const item of sent) {
@@ -322,16 +334,15 @@ const adopt = (document: Templates, records: readonly Synced[]) => {
 const readable = (pulled: typeof PulledSchema.Type) => {
   const unreadable = new Set(pulled.unreadable);
   const records = pulled.records.flatMap(({ template: json, ...record }) => {
-    const template =
-      json === null ? null : Option.getOrUndefined(decodeTemplate(json));
+    const sealed = Option.getOrUndefined(decodeRecord(json ?? ''));
     if (
-      template === undefined ||
-      (template !== null && template.id !== record.id)
+      sealed === undefined ||
+      (sealed.template !== null && sealed.template.id !== record.id)
     ) {
       unreadable.add(record.id);
       return [];
     }
-    return [{ ...record, template }];
+    return [{ ...record, ...sealed }];
   });
   return { records, unreadable };
 };
@@ -440,15 +451,14 @@ export function createMailTemplates(
         base?.version ?? 0,
         ...sent.filter((item) => item.id === id).map((item) => item.version),
       ) + 1;
-    const json =
-      template === null
-        ? null
-        : yield* Schema.encodeEffect(TemplateJsonSchema)(template).pipe(
-            Effect.mapError(malformed),
-          );
+    const write = writeId();
+    const json = yield* Schema.encodeEffect(RecordJsonSchema)({
+      template,
+      write,
+    }).pipe(Effect.mapError(malformed));
     yield* changed(account, (stored) => ({
       ...stored,
-      sent: [...(stored.sent ?? []), { id, version, template }],
+      sent: [...(stored.sent ?? []), { id, version, write }],
     }));
     const pushed: typeof PushedSchema.Type = yield* native(
       () =>
@@ -466,7 +476,13 @@ export function createMailTemplates(
     if (!pushed.committed) {
       return true;
     }
-    const written = { id, version, updatedAt: pushed.updatedAt, template };
+    const written = {
+      id,
+      version,
+      updatedAt: pushed.updatedAt,
+      template,
+      write,
+    };
     yield* changed(account, (stored) => settled(stored, written));
     return false;
   });
