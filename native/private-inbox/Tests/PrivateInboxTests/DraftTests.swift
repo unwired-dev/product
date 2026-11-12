@@ -489,6 +489,38 @@ struct DraftTests {
     #expect(!session.exists("send-reminders.enc"))
   }
 
+  // Send Reminders share the Outgoing Content Store's limit with the Drafts and their assets: a
+  // reminder that does not fit is refused, and reminders leave less space for saves.
+  @Test @MainActor func sendRemindersCountTowardTheOutgoingContentLimit() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let cache = session.cache
+    let owner = try await session.owner()
+    _ = try cache.importDraftAsset(owner: owner, id: "filler001", bytes: session.bytes)
+    _ = try cache.commitDrafts(
+      owner: owner, expectedRevision: 0, document: "{}", keep: ["filler001"])
+    let handle = try FileHandle(
+      forWritingTo: session.directory.appendingPathComponent("draft-assets/filler001"))
+    try handle.truncate(atOffset: UInt64(PrivateInboxStore.outgoingContentLimit - 10_000))
+    try handle.close()
+    func reminders(_ revision: Int, _ count: Int) throws -> Int {
+      try cache.commitSendReminderDocument(
+        owner: owner, expectedRevision: revision,
+        document: String(repeating: "x", count: count))
+    }
+
+    // Replacing the document counts only the new one.
+    #expect(try reminders(0, 5_000) == 1)
+    #expect(try reminders(1, 8_000) == 2)
+    #expect(throws: PrivateInboxError.unavailable) { _ = try reminders(2, 20_000) }
+    // The Drafts document no longer fits beside the reminders.
+    #expect(throws: PrivateInboxError.unavailable) {
+      _ = try cache.commitDrafts(
+        owner: owner, expectedRevision: 1, document: String(repeating: "x", count: 3_000),
+        keep: ["filler001"])
+    }
+  }
+
   // Bytes come only from a picker's copy, pasted data or a current Downloaded Attachment; any other
   // path JavaScript names is refused, and only the picker's own folders are ever removed.
   @Test @MainActor func draftAssetsImportOnlyFromGrantedSources() async throws {

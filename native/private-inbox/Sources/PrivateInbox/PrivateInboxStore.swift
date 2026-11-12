@@ -421,8 +421,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
       let plaintext = try JSONEncoder().encode(next)
-      // Escaping counts, with the AES-GCM nonce and tag.
-      guard plaintext.count + 28 <= Self.outgoingContentLimit else {
+      // Escaping counts, with the AES-GCM nonce and tag. Send Reminders share the Outgoing Content
+      // Store's limit.
+      let shared = file == "send-reminders.enc" ? try outgoingContentSize(replacing: file) : 0
+      guard plaintext.count + 28 + shared <= Self.outgoingContentLimit else {
         throw PrivateInboxError.unavailable
       }
       try write(
@@ -534,13 +536,15 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   // The bytes the Outgoing Content Store's files take on disk, except `replacing`, the file a write
-  // replaces: the Drafts document, Draft assets and composer recovery records.
+  // replaces: the Drafts and Send Reminders documents, Draft assets and composer recovery records.
   private func outgoingContentSize(replacing: String) throws -> Int {
-    let drafts = (try? FileManager.default.attributesOfItem(
-      atPath: directory.appendingPathComponent("drafts.enc").path)[.size] as? Int) ?? 0
-    return try ["draft-assets", "composer-recovery"].flatMap { folder in
+    let documents = ["drafts.enc", "send-reminders.enc"].map { name in
+      (name, (try? FileManager.default.attributesOfItem(
+        atPath: directory.appendingPathComponent(name).path)[.size] as? Int) ?? 0)
+    }
+    return try (documents + ["draft-assets", "composer-recovery"].flatMap { folder in
       try files(in: folder).map { ("\(folder)/\($0.id)", $0.size) }
-    }.reduce(replacing == "drafts.enc" ? 0 : drafts) { $1.0 == replacing ? $0 : $0 + $1.1 }
+    }).reduce(0) { $1.0 == replacing ? $0 : $0 + $1.1 }
   }
 
   private func files(in name: String) throws -> [(id: String, url: URL, size: Int)] {

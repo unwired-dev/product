@@ -763,8 +763,9 @@ removes it, and `reminders` lists only one Profile's. An instant that is not a
 whole number of milliseconds or a time zone the platform does not know is never
 stored, and another Profile's reminder for the same Draft is never replaced or
 removed. Setting and cancelling need no network or Product Sign-In; like Mail
-Templates, a write storage refuses changes nothing and resolves `false`, and a
-listing storage cannot read resolves `undefined`. Reminders are not synchronized,
+Templates, a write storage refuses, also when the reminders would not fit in the
+Outgoing Content Store they share with the Drafts, changes nothing and resolves
+`false`, and a listing storage cannot read resolves `undefined`. Reminders are not synchronized,
 schedule no notification and appear nowhere yet; later #658 slices add those and
 remove a reminder when its Draft is sent or discarded.
 
