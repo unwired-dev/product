@@ -1,6 +1,8 @@
 import { ok } from 'node:assert/strict';
 
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type { Draft } from '@private-email/mail-core/drafts';
+import type { NativeMailTemplates } from '@private-email/mail-core/mail-templates';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
@@ -8,9 +10,16 @@ import type { TextStyle, TurboModule, useColorScheme } from 'react-native';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
+import { createMailTemplates } from '@private-email/mail-core/mail-templates';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import { mailboxesOf } from '@private-email/mail-core/registration';
-import { imagesOf } from '@private-email/mail-core/semantic-document';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import {
+  imageCharacter,
+  imagesOf,
+} from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
@@ -109,6 +118,34 @@ function account(initial: RegistrationSnapshot) {
       }
     },
   };
+}
+
+// Mail Template storage on this device for `registration`'s account; `refusing` makes a write fail
+// as locked storage does.
+function templateStorage(registration: ReturnType<typeof account>) {
+  const state = {
+    revision: 0,
+    document: null as string | null,
+    refusing: false,
+  };
+  const native: NativeMailTemplates = {
+    openMailTemplates: () =>
+      Promise.resolve({
+        owner: 'synthetic-product-account',
+        revision: state.revision,
+        document: state.document,
+      }),
+    commitMailTemplates: (owner, expectedRevision, document) => {
+      if (state.refusing || expectedRevision !== state.revision) {
+        return Promise.reject(
+          Object.assign(new Error('locked'), { code: 'locked' }),
+        );
+      }
+      Object.assign(state, { revision: expectedRevision + 1, document });
+      return Promise.resolve({ owner, revision: state.revision });
+    },
+  };
+  return { state, store: createMailTemplates(native, registration) };
 }
 
 // A successful save shows no status, so wait for the store to finish saving instead.
@@ -279,10 +316,12 @@ function App({
   onRebind = ignore,
   initialDraft,
   profile,
+  mailTemplates,
 }: {
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
+  readonly mailTemplates?: ReturnType<typeof createMailTemplates>;
   readonly openAccount?: (destination?: string) => void;
   readonly onRebind?: (id: string) => void;
   readonly initialDraft?: string;
@@ -326,7 +365,8 @@ function App({
         }}>
         <InboxProvider
           drafts={drafts}
-          mailboxes={mailboxes}>
+          mailboxes={mailboxes}
+          mailTemplates={mailTemplates}>
           <ProfileScope profile={profile}>
             <Mailboxes
               view={view}
@@ -404,6 +444,67 @@ const shownFormatting = (body: ReturnType<typeof screen.getByLabelText>) =>
 const saveAndClose = async () => {
   await press('Close');
   await answer('Save');
+};
+
+// Opens a Draft from alex's mailbox with the content `edit` gives it, beside Mail Template storage
+// holding what `seed` saves.
+async function composeWithTemplates(
+  edit: (draft: Draft) => Draft,
+  seed?: (store: ReturnType<typeof createMailTemplates>) => Promise<void>,
+) {
+  const registration = account(connected(['alex@example.invalid']));
+  const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+  const drafts = createDrafts(storage.native, registration);
+  await drafts.load();
+  const templates = templateStorage(registration);
+  await seed?.(templates.store);
+  const created = await drafts.create({
+    id: alex,
+    address: 'alex@example.invalid',
+  });
+  ok(created);
+  const id: string = created;
+  const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+  ok(draft);
+  await drafts.update(edit(draft), draft);
+  await render(
+    <App
+      drafts={drafts}
+      registration={registration}
+      initialDraft={id}
+      mailTemplates={templates.store}
+    />,
+  );
+  await screen.findByLabelText('Message body');
+  // The composer reads its templates after it opens.
+  await act(async () => {
+    await templates.store.templates(defaultProfile);
+  });
+  return templates;
+}
+
+// Chooses New Template from This Message… and Save Template with `name`.
+const saveAsTemplate = async (name: string) => {
+  await press('Templates');
+  await chooseMenuItem('New Template from This Message…');
+  expect(sheetShown()).toMatchObject({
+    title: 'New Template',
+    buttons: ['Save Template', 'Cancel'],
+    field: 'Template name',
+  });
+  await act(async () => {
+    chooseSheetButton('Save Template', name);
+  });
+};
+
+// Dismisses the sheet saying the template was not saved because of `detail`.
+const templateNotSaved = async (detail: string) => {
+  await waitFor(() => {
+    expect(sheetShown()).toMatchObject({ title: 'Template not saved', detail });
+  });
+  await act(async () => {
+    chooseSheetButton('OK');
+  });
 };
 
 // Chooses `title` in the format bar's Writing tools menu, or `language` in its Translate To
@@ -2308,6 +2409,163 @@ describe('composing Drafts', () => {
       draftsOf(drafts.getSnapshot()).find((each) => each.id === id)?.body[0]
         ?.spans[1],
     ).toStrictEqual({ text: 'the lease', marks: ['bold'], link: lease });
+  });
+
+  it('inserts a template of the Draft’s Profile at the caret as one Undo step', async () => {
+    expect.hasAssertions();
+    const lease = {
+      id: 'lease',
+      name: 'Lease confirmation',
+      subject: 'Lease signing on Thursday',
+      body: [
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'Thursday works', marks: ['bold'] }],
+        },
+      ],
+    } as const;
+    await composeWithTemplates(
+      (draft) => ({
+        ...draft,
+        body: [{ kind: 'paragraph', spans: [{ text: 'Hi Tomáš, ' }] }],
+      }),
+      async (store) => {
+        await store.save(defaultProfile, lease);
+        await store.save(defaultProfile, {
+          ...lease,
+          id: 'address',
+          name: 'Shipping address',
+          subject: '',
+        });
+        await store.save('work', { ...lease, id: 'work', name: 'Work' });
+      },
+    );
+    await fireEvent(screen.getByLabelText('Message body'), 'selectionChange', {
+      nativeEvent: { selection: { start: 10, end: 10 } },
+    });
+    // Only the Draft's Profile's templates are offered, each with its subject.
+    await press('Templates');
+    expect(menuSections()).toStrictEqual([
+      {
+        items: [
+          { id: 'heading', title: 'Insert Template', disabled: true },
+          {
+            id: 'template-lease',
+            title: 'Lease confirmation',
+            subtitle: 'Subject: Lease signing on Thursday',
+          },
+          {
+            id: 'template-address',
+            title: 'Shipping address',
+            subtitle: 'No subject · body only',
+          },
+        ],
+      },
+      { items: [{ id: 'save', title: 'New Template from This Message…' }] },
+    ]);
+    await chooseMenuItem('Lease confirmation');
+    expect(shownBody()).toStrictEqual([
+      [{ text: 'Hi Tomáš, ' }, { text: 'Thursday works', marks: ['bold'] }],
+    ]);
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Lease signing on Thursday',
+    );
+    // An authored subject stays.
+    await press('Templates');
+    await chooseMenuItem('Shipping address');
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Lease signing on Thursday',
+    );
+    await press('Undo');
+    await press('Undo');
+    expect(shownBody()).toStrictEqual([[{ text: 'Hi Tomáš, ' }]]);
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+  });
+
+  it('saves a Draft as a new template and stores nothing it refuses', async () => {
+    expect.hasAssertions();
+    const body = [
+      { kind: 'paragraph', spans: [{ text: 'Rent is due', marks: ['bold'] }] },
+    ] as const;
+    const templates = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Rent reminder',
+      to: [{ address: 'tomas@example.invalid' }],
+      body,
+    }));
+
+    // A blank name and a write storage refuses store nothing.
+    await saveAsTemplate('  ');
+    await templateNotSaved('Give the template a name, then try again.');
+    templates.state.refusing = true;
+    await saveAsTemplate('Rent');
+    await templateNotSaved(
+      'This device could not store the template. Try again.',
+    );
+    await expect(
+      templates.store.templates(defaultProfile),
+    ).resolves.toStrictEqual([]);
+
+    templates.state.refusing = false;
+    await saveAsTemplate(' Rent ');
+    await waitFor(async () => {
+      await expect(
+        templates.store.templates(defaultProfile),
+      ).resolves.toStrictEqual([
+        {
+          id: expect.any(String),
+          profile: defaultProfile,
+          name: 'Rent',
+          subject: 'Rent reminder',
+          body,
+        },
+      ]);
+    });
+    await press('Templates');
+    expect(menuItems()).toContainEqual({
+      id: expect.stringMatching(/^template-/u),
+      title: 'Rent',
+      subtitle: 'Subject: Rent reminder',
+    });
+    await dismissMenu();
+    // The Draft itself is unchanged.
+    expect(shownBody()).toStrictEqual([
+      [{ text: 'Rent is due', marks: ['bold'] }],
+    ]);
+  });
+
+  it('refuses to save a Draft with an Inline Image as a template', async () => {
+    expect.hasAssertions();
+    const templates = await composeWithTemplates((draft) => ({
+      ...draft,
+      body: [
+        {
+          kind: 'paragraph',
+          spans: [
+            { text: 'See ' },
+            {
+              text: imageCharacter,
+              image: {
+                id: 'photo',
+                name: 'photo.png',
+                type: 'image/png',
+                state: 'cancelled',
+              },
+            },
+          ],
+        },
+      ],
+    }));
+    await press('Templates');
+    await chooseMenuItem('New Template from This Message…');
+    await templateNotSaved(
+      'Templates can’t hold inline images. Remove them from the message, then try again.',
+    );
+    await expect(
+      templates.store.templates(defaultProfile),
+    ).resolves.toStrictEqual([]);
   });
 
   it('keeps a stale editor on its own conflicting copy', async () => {

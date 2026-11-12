@@ -14,6 +14,10 @@ import type {
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
+import type {
+  MailTemplate,
+  StoredMailTemplate,
+} from '@private-email/mail-core/mail-templates';
 import type { SendCheck, SendRefusal } from '@private-email/mail-core/outbox';
 import type {
   MailboxConnection,
@@ -68,6 +72,7 @@ import {
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
+import { applyTemplate } from '@private-email/mail-core/mail-templates';
 import { inboxMessages } from '@private-email/mail-core/mailboxes';
 import {
   applyText,
@@ -134,9 +139,11 @@ import {
   FormatBar,
   LinkEditor,
   PopUp,
+  TemplatesMenu,
 } from './composer-controls.tsx';
 import { useContactAddresses } from './contacts.ts';
 import {
+  askForText,
   askInSheet,
   Notice as Banner,
   Button,
@@ -159,6 +166,7 @@ import {
   useDrafts,
   useDraftStore,
   useLeaveComposer,
+  useMailTemplates,
   useOutbox,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
@@ -1978,6 +1986,15 @@ export function ComposerNotices({
 // in place of its header and bottom row.
 export type Toolbar = (from: ReactNode, actions: ReactNode) => ReactNode;
 
+// A new Mail Template's identifier: random lowercase letters and digits.
+const templateId = () => {
+  let id = '';
+  while (id.length < 24) {
+    id += Math.random().toString(36).slice(2);
+  }
+  return id.slice(0, 24);
+};
+
 function Editor({
   initial,
   onClose,
@@ -2458,6 +2475,100 @@ function Editor({
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
+  };
+  // The Draft's Mail Profile's templates, read again after this editor saves one.
+  const mailTemplates = useMailTemplates();
+  const account = use(AccountContext);
+  const templateProfile = profileOf(
+    history.present.connection,
+    account?.mailboxes ?? [],
+  );
+  const [templates, setTemplates] = useState<{
+    readonly profile: string;
+    readonly list: readonly StoredMailTemplate[];
+  }>();
+  const [templatesSaved, setTemplatesSaved] = useState(0);
+  useEffect(() => {
+    let current = true;
+    const read = async () => {
+      const list = await mailTemplates
+        .templates(templateProfile)
+        .catch(() => undefined);
+      if (current && list !== undefined) {
+        setTemplates({ profile: templateProfile, list });
+      }
+    };
+    void read();
+    return () => {
+      current = false;
+    };
+  }, [mailTemplates, templateProfile, templatesSaved]);
+  const insertTemplate = (template: MailTemplate) => {
+    if (pausedNow.current) {
+      return;
+    }
+    const latest = authored.current;
+    const { subject, edit } = applyTemplate(
+      latest,
+      selectionNow.current,
+      template,
+    );
+    change({ ...latest, subject, body: edit.document });
+    placeTyping(undefined);
+    selectionNow.current = edit.selection ?? selectionNow.current;
+    setPlaced(edit.selection);
+  };
+  // Saves the Draft's subject and body, as they are when chosen, as a new template under the name
+  // asked for; the Draft itself does not change.
+  const templateQuestion = useRef<{ readonly retire: () => void }>(undefined);
+  useLayoutEffect(
+    () => () => {
+      templateQuestion.current?.retire();
+    },
+    [],
+  );
+  const templateNotSaved = (detail: string) => {
+    templateQuestion.current = askInSheet(root.current, {
+      title: t('drafts.templates.notSaved'),
+      detail,
+      buttons: [t('common.ok')],
+    });
+  };
+  const saveTemplate = async () => {
+    const { subject, body } = authored.current;
+    const profile = templateProfile;
+    templateQuestion.current?.retire();
+    if (imagesOf(body).length > 0) {
+      templateNotSaved(t('drafts.templates.hasImages'));
+      return;
+    }
+    const question = askForText(root.current, {
+      title: t('drafts.templates.nameTitle'),
+      detail: t('drafts.templates.nameDetail'),
+      buttons: [t('drafts.templates.save'), t('common.cancel')],
+      field: t('drafts.templates.name'),
+    });
+    templateQuestion.current = question;
+    const choice = await question.answer;
+    if (choice?.index !== 0 || !lifetime.current.mounted) {
+      return;
+    }
+    const name = choice.text.trim();
+    if (name === '') {
+      templateNotSaved(t('drafts.templates.needsName'));
+      return;
+    }
+    const saved = await mailTemplates
+      .save(profile, { id: templateId(), name, subject, body })
+      .catch(() => false);
+    if (!lifetime.current.mounted) {
+      return;
+    }
+    if (saved) {
+      setTemplatesSaved((count) => count + 1);
+    } else {
+      templateNotSaved(t('drafts.templates.notSavedDetail'));
+    }
   };
   // Entries still being typed become recipients as one undoable correction; invalid text stays
   // in its field. Returns the finished Draft.
@@ -2983,6 +3094,19 @@ function Editor({
           label={t('drafts.assets.insertImagePanel')}
           onPress={() => {
             void choose('photos', true);
+          }}
+        />
+        <TemplatesMenu
+          disabled={paused}
+          templates={
+            templates?.profile === templateProfile ? templates.list : []
+          }
+          onInsert={(template) => {
+            fromControl();
+            insertTemplate(template);
+          }}
+          onSave={() => {
+            void saveTemplate();
           }}
         />
       </FormatBar>

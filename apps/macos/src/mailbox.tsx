@@ -33,10 +33,14 @@ import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
   drafts as defaultDrafts,
+  mailTemplates as defaultMailTemplates,
   outbox as defaultOutbox,
 } from './registration.ts';
 
+export type MailTemplates = typeof defaultMailTemplates;
+
 const DraftsContext = createContext<Drafts>(defaultDrafts);
+const MailTemplatesContext = createContext(defaultMailTemplates);
 const OutboxContext = createContext<Outbox>(defaultOutbox);
 // The Mail Profile whose mail the hooks below read.
 const ProfileContext = createContext(defaultProfile);
@@ -79,11 +83,13 @@ export function InboxProvider({
   children,
   mailboxes = defaultMailboxes,
   drafts = defaultDrafts,
+  mailTemplates = defaultMailTemplates,
   outbox = defaultOutbox,
 }: {
   readonly children: ReactNode;
   readonly mailboxes?: MailboxList;
   readonly drafts?: Drafts;
+  readonly mailTemplates?: MailTemplates;
   // Sends the Drafts admitted to `drafts`' Outbox.
   readonly outbox?: Outbox;
 }) {
@@ -124,14 +130,20 @@ export function InboxProvider({
   return (
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>
-        <OutboxContext value={outbox}>
-          <ComposerNavigationContext value={navigation}>
-            {children}
-          </ComposerNavigationContext>
-        </OutboxContext>
+        <MailTemplatesContext value={mailTemplates}>
+          <OutboxContext value={outbox}>
+            <ComposerNavigationContext value={navigation}>
+              {children}
+            </ComposerNavigationContext>
+          </OutboxContext>
+        </MailTemplatesContext>
       </DraftsContext>
     </MailboxesContext>
   );
+}
+
+export function useMailTemplates() {
+  return use(MailTemplatesContext);
 }
 
 export function useOutbox() {

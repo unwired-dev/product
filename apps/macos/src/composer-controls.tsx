@@ -1,3 +1,4 @@
+import type { StoredMailTemplate } from '@private-email/mail-core/mail-templates';
 import type {
   BlockKind,
   Link,
@@ -380,6 +381,62 @@ export function FormatBar({
       />
       {children}
     </View>
+  );
+}
+
+// The format bar's Templates pull-down: the Draft's Mail Profile's templates to insert, then saving
+// the Draft as a new one.
+export function TemplatesMenu({
+  templates,
+  disabled,
+  onInsert,
+  onSave,
+}: {
+  readonly templates: readonly StoredMailTemplate[];
+  readonly disabled: boolean;
+  readonly onInsert: (template: StoredMailTemplate) => void;
+  readonly onSave: () => void;
+}) {
+  const { t } = useLocalization();
+  return (
+    <PopUp
+      accessibilityLabel={t('drafts.templates.menu')}
+      icon="doc.on.doc"
+      disabled={disabled}
+      sections={[
+        {
+          items: [
+            {
+              key: 'heading',
+              title: t('drafts.templates.insert'),
+              disabled: true,
+            },
+            ...templates.map((template) => ({
+              key: `template-${template.id}`,
+              title: template.name,
+              subtitle:
+                template.subject === ''
+                  ? t('drafts.templates.bodyOnly')
+                  : t('drafts.templates.subject', {
+                      subject: template.subject,
+                    }),
+              run: () => {
+                onInsert(template);
+              },
+            })),
+          ],
+        },
+        {
+          items: [
+            {
+              key: 'save',
+              title: t('drafts.templates.newFromMessage'),
+              run: onSave,
+            },
+          ],
+        },
+      ]}
+    />
   );
 }
 
