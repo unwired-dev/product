@@ -59,6 +59,7 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
+import { appleContacts } from './contacts.ts';
 import { targetChoice, translateInto } from './translation-menu.tsx';
 import {
   addFilesChoice,
@@ -1253,6 +1254,103 @@ describe('composing Drafts', () => {
     await fireEvent.changeText(bcc, 'k');
     await fireEvent(bcc, 'blur');
     expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+  });
+
+  it('suggests Apple Contacts after recent correspondents only once access is granted', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    appleContacts.contacts = [
+      {
+        id: 'ana',
+        fullName: 'Ana Kovač',
+        emails: [{ id: 'ana-home', address: 'ana@example.invalid' }],
+      },
+      {
+        id: 'andrea',
+        fullName: 'Andrea Novak',
+        emails: [
+          { id: 'andrea-work', address: 'andrea@northwind.invalid' },
+          { id: 'andrea-home', address: 'andrea@home.invalid' },
+        ],
+      },
+      {
+        id: 'alex',
+        fullName: 'Alex',
+        emails: [{ id: 'alex-home', address: 'alex@example.invalid' }],
+      },
+      { id: 'blank', fullName: null, emails: [{ id: 'blank-home' }] },
+    ];
+    const show = async () => {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+          mailboxes={createMailboxes(
+            syntheticConnections({ [alex]: personal }),
+            registration,
+          )}
+        />,
+      );
+      await press('New Message');
+      return screen.getByLabelText('To');
+    };
+    try {
+      // Without access, only recent correspondents are suggested.
+      const { requests } = appleContacts;
+      let to = await show();
+      await fireEvent.changeText(to, 'an');
+      await expect(
+        screen.findByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).resolves.toBeOnTheScreen();
+      expect(appleContacts).toMatchObject({
+        requests: requests + 1,
+        reads: 0,
+      });
+      expect(screen.queryByText('Contacts')).toBeNull();
+      await screen.unmount();
+
+      // With access, matching contacts follow under their own heading, each address once and
+      // never the Profile's own; the first recent correspondent stays highlighted for Return.
+      appleContacts.granted = true;
+      to = await show();
+      await fireEvent.changeText(to, 'an');
+      await expect(screen.findByText('Contacts')).resolves.toBeOnTheScreen();
+      expect(
+        screen.getAllByRole('button', { name: /^Ana Kovač, /u }),
+      ).toHaveLength(1);
+      expect(
+        screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).toHaveProp(
+        'accessibilityState',
+        expect.objectContaining({ selected: true }),
+      );
+      expect(
+        screen.getByRole('button', {
+          name: 'Andrea Novak, andrea@home.invalid',
+        }),
+      ).toBeOnTheScreen();
+      await fireEvent.changeText(to, 'al');
+      expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+
+      // A contact is accepted like a correspondent, as one named recipient.
+      await fireEvent.changeText(to, 'andrea');
+      await press('Andrea Novak, andrea@northwind.invalid');
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Andrea Novak <andrea@northwind.invalid>',
+        }),
+      ).toBeOnTheScreen();
+      // Each field asks and reads once, however much is typed.
+      expect(appleContacts).toMatchObject({
+        requests: requests + 2,
+        reads: 1,
+      });
+    } finally {
+      Object.assign(appleContacts, { granted: false, contacts: [], reads: 0 });
+    }
   });
 
   it('stores edits made while retrying a refused Save Draft', async () => {
