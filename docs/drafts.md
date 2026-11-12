@@ -384,7 +384,7 @@ changes nothing and resolves `false`; a listing storage cannot read resolves
 
 Templates synchronize with the account's other Trusted Devices through Private Sync
 ([#2043](https://github.com/unwired-dev/product/issues/2043)), one sealed record per
-template as [Private Product Sync](private-product-sync.md) describes. The local
+template as [Private Sync guide](private-product-sync.md) describes. The local
 document stays what `templates` reads: each template keeps the record it was made
 from, and one that differs from it is pending until its write commits, which
 `templates` reports. Each saved change, and each mailbox screen opening or the app
