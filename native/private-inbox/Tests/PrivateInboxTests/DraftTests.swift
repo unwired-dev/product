@@ -434,6 +434,61 @@ struct DraftTests {
     #expect(!session.exists("mail-templates.enc"))
   }
 
+  // Send Reminders are kept like Mail Templates, in their own sealed file that neither the Drafts
+  // nor the Mail Templates document opens as.
+  @Test @MainActor func sendRemindersStayEncryptedWithTheirProductAccount() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache) = (session.store, session.cache)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openSendReminders()
+    }
+    let owner = try await session.owner()
+    let opened = try await store.openSendReminders()
+    #expect(opened["owner"] as? String == owner && opened["revision"] as? Int == 0)
+    #expect(opened["document"] is NSNull)
+    let document = #"{"reminders":[{"draft":"private-draft-id","profile":"work"}]}"#
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitSendReminders(
+        owner: "another-account", expectedRevision: 0, document: document)
+    }
+    let committed = try await store.commitSendReminders(
+      owner: owner, expectedRevision: 0, document: document)
+    #expect(committed["revision"] as? Int == 1)
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.commitSendReminders(owner: owner, expectedRevision: 0, document: "{}")
+    }
+    let file = session.directory.appendingPathComponent("send-reminders.enc")
+    let ciphertext = try Data(contentsOf: file)
+    #expect(ciphertext.range(of: Data("private-draft-id".utf8)) == nil)
+    #expect(try cache.openMailTemplateDocument(owner: owner).document == nil)
+
+    let tmp = session.directory.appendingPathComponent("tmp")
+    let relaunched = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { true })
+    #expect(try relaunched.openSendReminderDocument(owner: owner) == (1, document))
+    #expect(try relaunched.openSendReminderDocument(owner: "another-account") == (1, nil))
+    let locked = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { false })
+    #expect(throws: PrivateInboxError.locked) {
+      _ = try locked.commitSendReminderDocument(owner: owner, expectedRevision: 1, document: "{}")
+    }
+
+    // The Mail Templates document served in its place does not open.
+    _ = try cache.commitMailTemplateDocument(owner: owner, expectedRevision: 0, document: document)
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.copyItem(
+      at: session.directory.appendingPathComponent("mail-templates.enc"), to: file)
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try relaunched.openSendReminderDocument(owner: owner)
+    }
+
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("send-reminders.enc"))
+  }
+
   // Bytes come only from a picker's copy, pasted data or a current Downloaded Attachment; any other
   // path JavaScript names is refused, and only the picker's own folders are ever removed.
   @Test @MainActor func draftAssetsImportOnlyFromGrantedSources() async throws {

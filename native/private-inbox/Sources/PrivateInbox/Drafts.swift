@@ -68,6 +68,23 @@ extension RegistrationStore {
     return ["owner": owner, "revision": revision]
   }
 
+  // Send Reminders stay on this device until Product Sync carries them.
+  func openSendReminders() async throws -> [String: Any] {
+    let (owner, opened) = try await draftWork { try $0.openSendReminderDocument(owner: $1) }
+    return ["owner": owner, "revision": opened.revision, "document": opened.document ?? NSNull()]
+  }
+
+  func commitSendReminders(owner: String, expectedRevision: Int, document: String) async throws
+    -> [String: Any]
+  {
+    let (_, revision) = try await draftWork { store, current in
+      guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
+      return try store.commitSendReminderDocument(
+        owner: owner, expectedRevision: expectedRevision, document: document)
+    }
+    return ["owner": owner, "revision": revision]
+  }
+
   // Composer recovery records stay on this device: they are never uploaded or synchronized.
   func openComposerRecovery() async throws -> [String: Any] {
     let (owner, records) = try await draftWork { try $0.openComposerRecovery(owner: $1) }

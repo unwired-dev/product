@@ -540,6 +540,13 @@ and are published by compare-and-set
 ([#2043](https://github.com/unwired-dev/product/issues/2043)); see the
 [Draft guide](drafts.md).
 
+The account's **Send Reminders**
+([#2074](https://github.com/unwired-dev/product/issues/2074)) are kept like its
+Mail Templates, in their own sealed document that neither the Drafts nor the Mail
+Templates document opens as. TypeScript checks each reminder's Draft, Profile,
+instant and time zone. Another account reads none, and every account purge
+removes it. They are not synchronized yet.
+
 Picked files on iPhone and iPad are protected temporary copies removed after
 successful or failed import, an abandoned picker result, or the next launch.
 Cleanup recognizes only the picker-owned UUID folder beneath its exact temporary

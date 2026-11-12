@@ -20,6 +20,7 @@ import type { NativeNotifications } from './notifications.ts';
 import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
+import type { NativeSendReminders } from './send-reminders.ts';
 
 import { rejectionCode } from './diagnostics.ts';
 import { createDrafts } from './drafts.ts';
@@ -34,6 +35,7 @@ import {
 import { createOutbox } from './outbox.ts';
 import { createRegistration } from './registration.ts';
 import { createRemoteContentSettings } from './remote-content.ts';
+import { createSendReminders } from './send-reminders.ts';
 
 const decodeReportingResponse = Schema.decodeUnknownOption(
   Schema.Struct({
@@ -68,6 +70,7 @@ export interface NativeHostModule
     NativeDraftSync,
     NativeMailTemplates,
     NativeMailTemplateSync,
+    NativeSendReminders,
     NativeDeliveryClaim,
     NativeWakes,
     NativeRemoteContent,
@@ -448,6 +451,16 @@ export function createHost(
     },
   );
 
+  // Each Draft's Send Reminder, stored encrypted on this device.
+  const sendReminders = createSendReminders(
+    {
+      openSendReminders: () => native().openSendReminders(),
+      commitSendReminders: (owner, expectedRevision, document) =>
+        native().commitSendReminders(owner, expectedRevision, document),
+    },
+    registration,
+  );
+
   // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no
   // other Trusted Device sends the same Draft, and is handed to Gmail once.
   const outbox = createOutbox({
@@ -479,6 +492,7 @@ export function createHost(
     gmailMailboxes,
     drafts,
     mailTemplates,
+    sendReminders,
     outbox,
     wakes,
     freshness,

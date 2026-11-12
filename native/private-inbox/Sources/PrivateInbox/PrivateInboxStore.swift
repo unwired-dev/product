@@ -69,6 +69,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
   private let draftsAssociatedData = Data("dev.unwired.private-inbox.drafts.v1".utf8)
   private let mailTemplatesAssociatedData = Data("dev.unwired.private-inbox.mail-templates.v1".utf8)
+  private let sendRemindersAssociatedData = Data(
+    "dev.unwired.private-inbox.send-reminders.v1".utf8)
   static let outgoingContentLimit = 100 * 1024 * 1024
   static let draftAssetLimit = 25 * 1024 * 1024
   // Draft assets imported by this process that no stored Draft document keeps yet: commits never
@@ -299,7 +301,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     if let existing = try keychain.read("encryption-key") { return existing }
     for name in [
       "inbox.enc", "drafts.enc", "draft-assets", "composer-recovery", "mail-templates.enc",
-      "mailbox.enc", "mailboxes", "bodies",
+      "send-reminders.enc", "mailbox.enc", "mailboxes", "bodies",
     ] {
       guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
       else { throw PrivateInboxError.unavailable }
@@ -376,17 +378,46 @@ public final class PrivateInboxStore: @unchecked Sendable {
   // The Product Account's Mail Templates, kept like its Drafts: another account's read as none and
   // its first commit replaces them.
   func openMailTemplateDocument(owner: String) throws -> (revision: Int, document: String?) {
-    try transaction {
-      let stored = try readOwned("mail-templates.enc", authenticating: mailTemplatesAssociatedData)
-      return (stored?.revision ?? 0, stored.flatMap { $0.owner == owner ? $0.document : nil })
-    }
+    try openDocument(
+      "mail-templates.enc", authenticating: mailTemplatesAssociatedData, owner: owner)
   }
 
   func commitMailTemplateDocument(owner: String, expectedRevision: Int, document: String) throws
     -> Int
   {
+    try commitDocument(
+      "mail-templates.enc", authenticating: mailTemplatesAssociatedData, owner: owner,
+      expectedRevision: expectedRevision, document: document)
+  }
+
+  // The Product Account's Send Reminders, kept like its Mail Templates.
+  func openSendReminderDocument(owner: String) throws -> (revision: Int, document: String?) {
+    try openDocument(
+      "send-reminders.enc", authenticating: sendRemindersAssociatedData, owner: owner)
+  }
+
+  func commitSendReminderDocument(owner: String, expectedRevision: Int, document: String) throws
+    -> Int
+  {
+    try commitDocument(
+      "send-reminders.enc", authenticating: sendRemindersAssociatedData, owner: owner,
+      expectedRevision: expectedRevision, document: document)
+  }
+
+  private func openDocument(_ file: String, authenticating: Data, owner: String) throws -> (
+    revision: Int, document: String?
+  ) {
     try transaction {
-      let stored = try readOwned("mail-templates.enc", authenticating: mailTemplatesAssociatedData)
+      let stored = try readOwned(file, authenticating: authenticating)
+      return (stored?.revision ?? 0, stored.flatMap { $0.owner == owner ? $0.document : nil })
+    }
+  }
+
+  private func commitDocument(
+    _ file: String, authenticating: Data, owner: String, expectedRevision: Int, document: String
+  ) throws -> Int {
+    try transaction {
+      let stored = try readOwned(file, authenticating: authenticating)
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
       let plaintext = try JSONEncoder().encode(next)
@@ -395,8 +426,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
         throw PrivateInboxError.unavailable
       }
       try write(
-        plaintext, file: "mail-templates.enc",
-        key: try writingKey(replacing: stored != nil), authenticating: mailTemplatesAssociatedData)
+        plaintext, file: file, key: try writingKey(replacing: stored != nil),
+        authenticating: authenticating)
       return next.revision
     }
   }
@@ -622,14 +653,14 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   // Every connection's cache, bodies and Downloaded Attachments, including the cache written
-  // before connections, and the account's Drafts, their assets, its composer recovery records and
-  // its Mail Templates: everything an account purge removes from this store.
+  // before connections, and the account's Drafts, their assets, its composer recovery records, its
+  // Mail Templates and Send Reminders: everything an account purge removes from this store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
       try removeURLs(
         [
           "mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets", "composer-recovery",
-          "mail-templates.enc",
+          "mail-templates.enc", "send-reminders.enc",
         ].map { directory.appendingPathComponent($0) } + [attachments])
     }
   }
