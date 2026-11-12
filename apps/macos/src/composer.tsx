@@ -14,6 +14,10 @@ import type {
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
+import type {
+  MailTemplate,
+  StoredMailTemplate,
+} from '@private-email/mail-core/mail-templates';
 import type { SendCheck, SendRefusal } from '@private-email/mail-core/outbox';
 import type {
   MailboxConnection,
@@ -68,6 +72,7 @@ import {
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
+import { applyTemplate } from '@private-email/mail-core/mail-templates';
 import { inboxMessages } from '@private-email/mail-core/mailboxes';
 import {
   applyText,
@@ -134,9 +139,11 @@ import {
   FormatBar,
   LinkEditor,
   PopUp,
+  TemplatesMenu,
 } from './composer-controls.tsx';
 import { useContactAddresses } from './contacts.ts';
 import {
+  askForText,
   askInSheet,
   Notice as Banner,
   Button,
@@ -159,6 +166,7 @@ import {
   useDrafts,
   useDraftStore,
   useLeaveComposer,
+  useMailTemplates,
   useOutbox,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
@@ -1978,6 +1986,125 @@ export function ComposerNotices({
 // in place of its header and bottom row.
 export type Toolbar = (from: ReactNode, actions: ReactNode) => ReactNode;
 
+// A new Mail Template's identifier: random lowercase letters and digits.
+const templateId = () => {
+  let id = '';
+  while (id.length < 24) {
+    id += Math.random().toString(36).slice(2);
+  }
+  return id.slice(0, 24);
+};
+
+// The format bar's Templates control: the Mail Profile's templates for the Draft from `connection`,
+// read when it opens and after it saves one, and saving the Draft as `getDraft` gives it, when
+// chosen, as a new template under the name asked for. The Draft itself does not change.
+function DraftTemplates({
+  connection,
+  disabled,
+  getDraft,
+  onInsert,
+}: {
+  readonly connection: string;
+  readonly disabled: boolean;
+  readonly getDraft: () => Draft;
+  readonly onInsert: (template: StoredMailTemplate) => void;
+}) {
+  const { t } = useLocalization();
+  const store = useMailTemplates();
+  const profile = profileOf(connection, use(AccountContext)?.mailboxes ?? []);
+  const [templates, setTemplates] = useState<{
+    readonly profile: string;
+    readonly list: readonly StoredMailTemplate[];
+  }>();
+  // Only the latest read shows, and none once unmounted.
+  const reads = useRef(0);
+  const anchor = useRef<View>(null);
+  const question = useRef<{ readonly retire: () => void }>(undefined);
+  useLayoutEffect(
+    () => () => {
+      reads.current += 1;
+      question.current?.retire();
+    },
+    [],
+  );
+  const read = useCallback(
+    async (owner: string) => {
+      reads.current += 1;
+      const at = reads.current;
+      const list = await store.templates(owner).catch(() => undefined);
+      if (at === reads.current && list !== undefined) {
+        setTemplates({ profile: owner, list });
+      }
+    },
+    [store],
+  );
+  useEffect(() => {
+    void read(profile);
+  }, [read, profile]);
+  // The Draft can move to another Profile while a save is pending; its list is the one to refresh.
+  const profileNow = useRef(profile);
+  useLayoutEffect(() => {
+    profileNow.current = profile;
+  });
+  const notSaved = (detail: string) => {
+    question.current = askInSheet(anchor.current, {
+      title: t('drafts.templates.notSaved'),
+      detail,
+      buttons: [t('common.ok')],
+    });
+  };
+  const save = async () => {
+    const { subject, body } = getDraft();
+    const owner = profile;
+    question.current?.retire();
+    if (imagesOf(body).length > 0) {
+      notSaved(t('drafts.templates.hasImages'));
+      return;
+    }
+    const naming = askForText(anchor.current, {
+      title: t('drafts.templates.nameTitle'),
+      detail: t('drafts.templates.nameDetail'),
+      buttons: [t('drafts.templates.save'), t('common.cancel')],
+      field: t('drafts.templates.name'),
+    });
+    question.current = naming;
+    const choice = await naming.answer;
+    if (choice?.index !== 0) {
+      return;
+    }
+    const name = choice.text.trim();
+    if (name === '') {
+      notSaved(t('drafts.templates.needsName'));
+      return;
+    }
+    const saved = await store
+      .save(owner, { id: templateId(), name, subject, body })
+      .catch(() => false);
+    if (anchor.current === null) {
+      return;
+    }
+    if (saved) {
+      void read(profileNow.current);
+    } else {
+      notSaved(t('drafts.templates.notSavedDetail'));
+    }
+  };
+  return (
+    <View
+      ref={anchor}
+      collapsable={false}>
+      <TemplatesMenu
+        disabled={disabled}
+        templates={templates?.profile === profile ? templates.list : []}
+        onInsert={onInsert}
+        onSave={() => {
+          void save();
+        }}
+      />
+    </View>
+  );
+}
+
 // How long after an edit its composer recovery record is written: the most typing that ending the
 // app can lose (ADR 0077).
 const journalDelay = 2000;
@@ -2543,6 +2670,21 @@ function Editor({
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
   };
+  const insertTemplate = (template: MailTemplate) => {
+    if (pausedNow.current) {
+      return;
+    }
+    const latest = authored.current;
+    const applied = applyTemplate(latest, selectionNow.current, template);
+    change({
+      ...latest,
+      subject: applied.subject,
+      body: applied.edit.document,
+    });
+    placeTyping(undefined);
+    selectionNow.current = applied.edit.selection ?? selectionNow.current;
+    setPlaced(applied.edit.selection);
+  };
   // Entries still being typed become recipients as one undoable correction; invalid text stays
   // in its field. Returns the finished Draft.
   const finishEntries = useCallback(() => {
@@ -3077,6 +3219,15 @@ function Editor({
           label={t('drafts.assets.insertImagePanel')}
           onPress={() => {
             void choose('photos', true);
+          }}
+        />
+        <DraftTemplates
+          connection={draft.connection}
+          disabled={paused}
+          getDraft={getDraft}
+          onInsert={(template) => {
+            fromControl();
+            insertTemplate(template);
           }}
         />
       </FormatBar>

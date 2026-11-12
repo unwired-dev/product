@@ -481,16 +481,20 @@ describe('the Tiptap evaluation composer', () => {
     ]);
   });
 
-  it('keeps the format bar with Writing tools on iPad', async () => {
+  it('keeps the format bar with Writing tools on iPad and expands for a text tool', async () => {
     expect.hasAssertions();
     injectedScripts.length = 0;
     const mock = createMockMailSession('open-read-relaunch');
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const expand = jest.fn<undefined, []>();
     await render(
       <ComposerLayoutContext
         value={{ size: 'regular', avoidKeyboard: false, top: 0 }}>
         <AssistanceContext value={mock.assistance}>
-          <App drafts={createDrafts(storage.native, registration)} />
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            onExpand={expand}
+          />
         </AssistanceContext>
       </ComposerLayoutContext>,
     );
@@ -500,8 +504,11 @@ describe('the Tiptap evaluation composer', () => {
     await press('Italic');
     expect(lastCommand()).toBe(commandScript({ type: 'mark', mark: 'italic' }));
     await press('Writing tools');
+    expect(expand).not.toHaveBeenCalled();
     await press('Rewrite the message body');
     expect(lastCommand()).toBe(commandScript({ type: 'blur' }));
+    // A text tool's review takes the whole window.
+    expect(expand).toHaveBeenCalledWith();
   });
 
   // iPhone keeps the Link control in the Format panel; iPad keeps it in the format bar.

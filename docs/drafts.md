@@ -66,7 +66,8 @@ transport and known native exit gaps.
   **Reply All** or **Forward**, with Expand and Discard in its header and From and
   **Send** beneath its fields. A docked iPad software keyboard raises either above
   it. On iPad, **Expand** takes the composer over the whole window with the same
-  Draft and **Collapse** returns it. On the Mac, the overlay
+  Draft and **Collapse** returns it; a Writing tools text tool expands it the same
+  way ([Draft rewrites](draft-assistance.md#behavior)). On the Mac, the overlay
   stays beneath the window's [command bar](command-palette.md#entry-points), and
   **Expand** saves the Draft, then moves it into its own **New Message** window and
   closes the overlay; there is no way back into the Inbox window. A failed save
@@ -380,7 +381,7 @@ another Profile owns is never replaced or removed. Each call acts for the Produc
 Account signed in when it was made. A write storage refuses, as while locked,
 after another account signed in or from a revision another write moved on,
 changes nothing and resolves `false`; a listing storage cannot read resolves
-`undefined`. The composers' Templates control follows in a later #850 slice.
+`undefined`.
 
 Templates synchronize with the account's other Trusted Devices through Private Sync
 ([#2043](https://github.com/unwired-dev/product/issues/2043)), one sealed record per
@@ -404,6 +405,29 @@ within that limit; a template stored earlier with a longer identifier stays pend
 on this device. Every write carries a version above any earlier write of the same
 template that may still land, and each such write is remembered until a newer record
 is known, so an edit that lands late is never taken for another device's.
+
+The Mac composer's format bar ends with the Templates pull-down
+([#2045](https://github.com/unwired-dev/product/issues/2045)). Under its Insert
+Template heading it lists the Draft's Mail Profile's templates, never another
+Profile's, each with its subject or "No subject · body only". Choosing one applies
+it by the rules above. New Template from This Message… asks for a name in a sheet
+and saves the Draft's subject and body, without recipients or files, as a new
+template of the Draft's Profile; the Draft does not change. A blank name, a body
+with an Inline Image or a write storage refuses saves nothing, and a sheet says
+why. The composer reads the templates when it opens and after it saves one.
+
+On iPhone the Add files menu ends with Insert Template…, and on iPad the format
+bar ends with the Templates button
+([#2047](https://github.com/unwired-dev/product/issues/2047)). Either opens a menu
+of the Draft's Mail Profile's templates, never another Profile's, each with
+"Subject: …" or "No subject · body only", then New Template from This Message….
+Choosing a template applies it by the rules above. New Template from This
+Message… asks for a name in the system text prompt and saves the Draft's subject
+and body, without recipients or files, as a new template of the Draft's Profile;
+the Draft does not change. A blank name, a body with an Inline Image or a write
+storage refuses saves nothing, and an alert says why. The composer reads the
+templates when it opens and after it saves one. Manage Templates… and the Settings
+pane follow in later #850 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
@@ -705,7 +729,10 @@ Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` reads the account's records on demand. A record that storage
 refuses, as while locked, stays in memory and is written with the next
 record. Writing a record never changes what **Drafts** lists or synchronizes, and
-a save keeps the files and images a record names. `journal` writes nothing for a
+a save keeps the files and images a record names. Records count toward the
+Outgoing Content Store's 100 MB, so a record refused for space also waits in
+memory, and a nearly full store refuses a save or attachment sooner while records
+are kept ([#2054](https://github.com/unwired-dev/product/issues/2054)). `journal` writes nothing for a
 Draft this account's session never listed, so an editor opened before a Product
 Account change cannot write under the new account.
 

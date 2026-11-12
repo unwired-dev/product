@@ -1,6 +1,8 @@
 import { ok } from 'node:assert/strict';
 
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
+import type { Draft } from '@private-email/mail-core/drafts';
+import type { NativeMailTemplates } from '@private-email/mail-core/mail-templates';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
@@ -8,9 +10,16 @@ import type { StyleProp, TextStyle, useColorScheme } from 'react-native';
 
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
+import { createMailTemplates } from '@private-email/mail-core/mail-templates';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
-import { mailboxesOf } from '@private-email/mail-core/registration';
-import { imagesOf } from '@private-email/mail-core/semantic-document';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import {
+  imageCharacter,
+  imagesOf,
+} from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
@@ -32,6 +41,7 @@ import * as Schema from 'effect/Schema';
 import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
+  Alert,
   AppState,
   DeviceEventEmitter,
   Dimensions,
@@ -242,6 +252,8 @@ function App({
   profile,
   composeFrom = 'inbox',
   nativeToolbar = false,
+  mailTemplates,
+  expandable = false,
 }: {
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
@@ -253,6 +265,9 @@ function App({
   readonly profile?: string;
   readonly composeFrom?: 'inbox' | 'mailboxes' | 'both';
   readonly nativeToolbar?: boolean;
+  readonly mailTemplates?: ReturnType<typeof createMailTemplates>;
+  // Offers the window-level Expand, as a regular-width iPad window does.
+  readonly expandable?: boolean;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -274,6 +289,7 @@ function App({
     [registration, providedMailboxes],
   );
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
+  const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<Selection>();
   const [view, setView] = useState<MailboxView>({});
   const compose = (id: string) => {
@@ -295,7 +311,8 @@ function App({
         }}>
         <InboxProvider
           drafts={drafts}
-          mailboxes={mailboxes}>
+          mailboxes={mailboxes}
+          mailTemplates={mailTemplates}>
           <ProfileScope profile={profile}>
             <Mailboxes
               {...(composeFrom === 'inbox' ? {} : { onCompose: compose })}
@@ -315,6 +332,14 @@ function App({
             {composing === undefined ? null : (
               <DraftComposer
                 id={composing}
+                expanded={expanded}
+                onExpand={
+                  expandable
+                    ? () => {
+                        setExpanded((current) => !current);
+                      }
+                    : undefined
+                }
                 onClose={() => {
                   setComposing(undefined);
                 }}
@@ -412,6 +437,151 @@ const closeFormat = async () => {
   if (screen.queryByRole('button', { name: 'Close Format' }) !== null) {
     await press('Close Format');
   }
+};
+
+// Mail Template storage on this device for `registration`'s account; `refusing` makes a write fail
+// as locked storage does.
+function templateStorage(registration: ReturnType<typeof account>) {
+  const state = {
+    revision: 0,
+    document: null as string | null,
+    refusing: false,
+  };
+  const native: NativeMailTemplates = {
+    openMailTemplates: () =>
+      Promise.resolve({
+        owner: 'synthetic-product-account',
+        revision: state.revision,
+        document: state.document,
+      }),
+    commitMailTemplates: (owner, expectedRevision, document) => {
+      if (state.refusing || expectedRevision !== state.revision) {
+        return Promise.reject(
+          Object.assign(new Error('locked'), { code: 'locked' }),
+        );
+      }
+      Object.assign(state, { revision: expectedRevision + 1, document });
+      return Promise.resolve({ owner, revision: state.revision });
+    },
+  };
+  return { state, store: createMailTemplates(native, registration) };
+}
+
+interface TemplateItem {
+  readonly id: string;
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly disabled?: boolean;
+  readonly sections?: ReadonlyArray<{
+    readonly items: readonly TemplateItem[];
+  }>;
+}
+const isTemplateMenu = (
+  props: unknown,
+): props is {
+  readonly sections: ReadonlyArray<{ readonly items: readonly TemplateItem[] }>;
+  readonly onSelect: (event: { nativeEvent: { id: string } }) => void;
+} =>
+  Predicate.hasProperty(props, 'sections') &&
+  Predicate.hasProperty(props, 'onSelect');
+
+// The Templates menu as the system receives it: the iPad format bar's Templates button, or on
+// iPhone the Add files menu's Insert Template… submenu.
+const templatesMenu = () => {
+  const button = screen.queryByLabelText('Templates');
+  const props: unknown = (button ?? screen.getByLabelText('Add files')).props;
+  ok(isTemplateMenu(props));
+  if (button !== null) {
+    return props;
+  }
+  const submenu = props.sections
+    .flatMap(({ items }) => items)
+    .find(({ title }) => title === 'Insert Template…');
+  ok(submenu?.sections);
+  return { sections: submenu.sections, onSelect: props.onSelect };
+};
+// Each group's items as their title, subtitle and whether they are disabled.
+const templateGroups = () =>
+  templatesMenu().sections.map(({ items }) =>
+    items.map(({ title, subtitle, disabled }) => [title, subtitle, disabled]),
+  );
+const chooseTemplateItem = async (title: string) => {
+  const { sections, onSelect } = templatesMenu();
+  const item = sections
+    .flatMap(({ items }) => items)
+    .find((each) => each.title === title && each.disabled !== true);
+  ok(item);
+  await act(async () => {
+    onSelect({ nativeEvent: { id: item.id } });
+  });
+};
+
+// Opens a Draft from alex's mailbox in the `size` layout with the content `edit` gives it, beside
+// Mail Template storage holding what `seed` saves.
+async function composeWithTemplates(
+  size: 'compact' | 'regular',
+  edit: (draft: Draft) => Draft,
+  seed?: (store: ReturnType<typeof createMailTemplates>) => Promise<void>,
+) {
+  const registration = account(connected(['alex@example.invalid']));
+  const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+  const drafts = createDrafts(storage.native, registration);
+  await drafts.load();
+  const templates = templateStorage(registration);
+  await seed?.(templates.store);
+  const created = await drafts.create({
+    id: alex,
+    address: 'alex@example.invalid',
+  });
+  ok(created);
+  const id: string = created;
+  const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+  ok(draft);
+  await drafts.update(edit(draft), draft);
+  // StrictMode replays effects, as development builds do.
+  await render(
+    <StrictMode>
+      <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={id}
+          mailTemplates={templates.store}
+        />
+      </ComposerLayoutContext>
+    </StrictMode>,
+  );
+  await screen.findByLabelText('Message body');
+  // The composer reads its templates after it opens.
+  await act(async () => {
+    await templates.store.templates(defaultProfile);
+  });
+  return templates;
+}
+
+// Chooses New Template from This Message… and answers the name prompt with `name`, if given.
+const saveAsTemplate = async (name?: string) => {
+  const prompt = jest.spyOn(Alert, 'prompt').mockReturnValue(undefined);
+  await chooseTemplateItem('New Template from This Message…');
+  if (name === undefined) {
+    expect(prompt).not.toHaveBeenCalled();
+    prompt.mockRestore();
+    return;
+  }
+  const [title, detail, buttons] = prompt.mock.calls[0] ?? [];
+  prompt.mockRestore();
+  expect([title, detail]).toStrictEqual([
+    'New Template',
+    'Saves this message’s subject and body, without recipients or files, as a template for this Mail Profile.',
+  ]);
+  ok(Array.isArray(buttons));
+  expect(buttons.map(({ text }) => text)).toStrictEqual([
+    'Cancel',
+    'Save Template',
+  ]);
+  await act(async () => {
+    buttons[1]?.onPress?.(name);
+  });
 };
 
 // Close asks about a changed Draft; Save Draft stores it and closes.
@@ -2617,6 +2787,7 @@ describe('composing Drafts', () => {
         ['Insert Image', 'photo.on.rectangle', undefined],
         ['Paste Image', 'doc.on.clipboard', undefined],
       ],
+      [['Insert Template…', 'doc.on.doc', undefined]],
     ]);
     await press('Format');
     expect(screen.getByLabelText('Formatting')).toBeOnTheScreen();
@@ -2647,6 +2818,186 @@ describe('composing Drafts', () => {
     await press('Undo');
     expect(screen.getByRole('button', { name: 'Body' })).toBeSelected();
     expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
+  });
+
+  // iPhone's submenu carries the heading as its title; iPad's menu starts with it.
+  it.each([
+    ['compact', []],
+    ['regular', [['Insert Template', undefined, true]]],
+  ] as const)(
+    'inserts a template of the Draft’s Profile at the caret as one Undo step on %s',
+    async (size, heading) => {
+      expect.hasAssertions();
+      const lease = {
+        id: 'lease',
+        name: 'Lease confirmation',
+        subject: 'Lease signing on Thursday',
+        body: [
+          {
+            kind: 'paragraph',
+            spans: [{ text: 'Thursday works', marks: ['bold'] }],
+          },
+        ],
+      } as const;
+      await composeWithTemplates(
+        size,
+        (draft) => ({
+          ...draft,
+          body: [{ kind: 'paragraph', spans: [{ text: 'Hi Tomáš, ' }] }],
+        }),
+        async (store) => {
+          await store.save(defaultProfile, lease);
+          await store.save(defaultProfile, {
+            ...lease,
+            id: 'address',
+            name: 'Shipping address',
+            subject: '',
+          });
+          await store.save('work', { ...lease, id: 'work', name: 'Work' });
+        },
+      );
+      // Only the Draft's Profile's templates are offered, each with its subject.
+      expect(templateGroups()).toStrictEqual([
+        [
+          ...heading,
+          [
+            'Lease confirmation',
+            'Subject: Lease signing on Thursday',
+            undefined,
+          ],
+          ['Shipping address', 'No subject · body only', undefined],
+        ],
+        [['New Template from This Message…', undefined, undefined]],
+      ]);
+      await chooseTemplateItem('Lease confirmation');
+      expect(shownSpans()).toStrictEqual([
+        { text: 'Hi Tomáš, ' },
+        { text: 'Thursday works', marks: ['bold'] },
+      ]);
+      expect(screen.getByLabelText('Subject')).toHaveProp(
+        'value',
+        'Lease signing on Thursday',
+      );
+      // An authored subject stays.
+      await chooseTemplateItem('Shipping address');
+      expect(screen.getByLabelText('Subject')).toHaveProp(
+        'value',
+        'Lease signing on Thursday',
+      );
+      await press('Undo');
+      await press('Undo');
+      expect(shownSpans()).toStrictEqual([{ text: 'Hi Tomáš, ' }]);
+      expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+    },
+  );
+
+  it.each(['compact', 'regular'] as const)(
+    'saves a Draft as a new template on %s and stores nothing it refuses',
+    async (size) => {
+      expect.hasAssertions();
+      const body = [
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'Rent is due', marks: ['bold'] }],
+        },
+      ] as const;
+      const templates = await composeWithTemplates(size, (draft) => ({
+        ...draft,
+        subject: 'Rent reminder',
+        to: [{ address: 'tomas@example.invalid' }],
+        body,
+      }));
+      const notSaved = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+
+      // A blank name and a write storage refuses store nothing.
+      await saveAsTemplate('  ');
+      templates.state.refusing = true;
+      await saveAsTemplate('Rent');
+      await waitFor(() => {
+        expect(notSaved.mock.calls).toStrictEqual([
+          [
+            'Template not saved',
+            'Give the template a name, then try again.',
+            [{ text: 'OK' }],
+          ],
+          [
+            'Template not saved',
+            'This device could not store the template. Try again.',
+            [{ text: 'OK' }],
+          ],
+        ]);
+      });
+      await expect(
+        templates.store.templates(defaultProfile),
+      ).resolves.toStrictEqual([]);
+
+      templates.state.refusing = false;
+      await saveAsTemplate(' Rent ');
+      await waitFor(async () => {
+        await expect(
+          templates.store.templates(defaultProfile),
+        ).resolves.toMatchObject([
+          {
+            profile: defaultProfile,
+            name: 'Rent',
+            subject: 'Rent reminder',
+            body,
+          },
+        ]);
+      });
+      await waitFor(() => {
+        expect(templateGroups()[0]).toContainEqual([
+          'Rent',
+          'Subject: Rent reminder',
+          undefined,
+        ]);
+      });
+      expect(notSaved).toHaveBeenCalledTimes(2);
+      notSaved.mockRestore();
+      // The Draft itself is unchanged.
+      expect(shownSpans()).toStrictEqual([
+        { text: 'Rent is due', marks: ['bold'] },
+      ]);
+      expect(screen.getByLabelText('Subject')).toHaveProp(
+        'value',
+        'Rent reminder',
+      );
+    },
+  );
+
+  it('refuses to save a Draft with an Inline Image as a template', async () => {
+    expect.hasAssertions();
+    const templates = await composeWithTemplates('regular', (draft) => ({
+      ...draft,
+      body: [
+        {
+          kind: 'paragraph',
+          spans: [
+            { text: 'See ' },
+            {
+              text: imageCharacter,
+              image: {
+                id: 'photo0001',
+                name: 'photo.png',
+                type: 'image/png',
+                state: 'cancelled',
+              },
+            },
+          ],
+        },
+      ],
+    }));
+    const notSaved = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    await saveAsTemplate();
+    expect(notSaved).toHaveBeenCalledWith(
+      'Template not saved',
+      'Templates can’t hold inline images. Remove them from the message, then try again.',
+      [{ text: 'OK' }],
+    );
+    notSaved.mockRestore();
+    await expect(
+      templates.store.templates(defaultProfile),
+    ).resolves.toStrictEqual([]);
   });
 
   // #1801: iOS puts the caret after an opened body without a selection event, and a tap there
@@ -4348,6 +4699,60 @@ describe('composing Drafts', () => {
       }
     },
   );
+
+  it('opens a text tool review over the whole iPad window, which Collapse returns', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked } = scriptedDraftAssistance();
+    await render(
+      <ComposerLayoutContext
+        value={{ size: 'regular', avoidKeyboard: true, top: 0 }}>
+        <AssistanceContext value={native}>
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            registration={registration}
+            expandable
+          />
+        </AssistanceContext>
+      </ComposerLayoutContext>,
+    );
+    await press('New Message');
+    const collapse = () => screen.queryByRole('button', { name: 'Collapse' });
+    // Generate a Draft keeps the floating composer.
+    await chooseWritingTool(
+      'Generate a draft from a description of what to write',
+    );
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
+    await press('Generate a draft from this description');
+    await screen.findByLabelText('Cancel writing help');
+    expect(collapse()).toBeNull();
+    await press('Cancel writing help');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      'lets meet friday',
+    );
+
+    // A text tool's progress and review take the whole window.
+    await chooseWritingTool('Rewrite the message body');
+    await screen.findByLabelText('Cancel writing help');
+    expect(collapse()).toBeOnTheScreen();
+    // Collapse returns the floating composer with the request still running.
+    await press('Collapse');
+    expect(collapse()).toBeNull();
+    asked.at(-1)?.answer.resolve('Let us meet on Friday.');
+    await screen.findByText('Let us meet on Friday.');
+    // The next text tool expands again, and one on an expanded composer keeps it expanded.
+    await press('Keep your text and close this suggestion');
+    await chooseWritingTool('Rewrite the message body');
+    expect(collapse()).toBeOnTheScreen();
+    await press('Cancel writing help');
+    await chooseWritingTool('Rewrite the message body');
+    expect(collapse()).toBeOnTheScreen();
+  });
 
   it.each([
     ['compact', 'bottom-sheet'],

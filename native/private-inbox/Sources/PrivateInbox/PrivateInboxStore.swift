@@ -348,14 +348,16 @@ public final class PrivateInboxStore: @unchecked Sendable {
       let kept = Set(keep).union(try composerRecoveries().flatMap { _, record in
         record?.owner == owner ? record?.assets ?? [] : []
       })
-      let assets = try draftAssets()
+      let assets = try files(in: "draft-assets")
       let retained = assets.filter {
         kept.contains($0.id) || Self.importedAssets.contains($0.id)
       }
       // The limit holds for the files written: escaping, the envelope and the AES-GCM nonce and
-      // tag, with every asset file still on disk. Unkept files are removed only after the write,
-      // and one whose removal failed earlier still takes space until a later save removes it.
-      guard plaintext.count + 28 + assets.reduce(0, { $0 + $1.size }) <= Self.outgoingContentLimit
+      // tag, with every asset file and recovery record still on disk. Unkept files are removed only
+      // after the write, and one whose removal failed earlier still takes space until a later save
+      // removes it.
+      guard plaintext.count + 28 + (try outgoingContentSize(replacing: "drafts.enc"))
+        <= Self.outgoingContentLimit
       else {
         throw PrivateInboxError.unavailable
       }
@@ -399,7 +401,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
   }
 
-  // Replaces Draft `id`'s recovery record for `owner`.
+  // Replaces Draft `id`'s recovery record for `owner`. A record counts toward the Outgoing Content
+  // Store's limit; one that does not fit is refused and leaves the record it would replace.
   public func writeComposerRecovery(owner: String, id: String, document: String, assets: [String])
     throws
   {
@@ -408,14 +411,21 @@ public final class PrivateInboxStore: @unchecked Sendable {
         throw PrivateInboxError.unavailable
       }
       let name = Self.recoveryName(id)
+      let plaintext = try JSONEncoder().encode(
+        ComposerRecovery(owner: owner, id: id, document: document, assets: assets))
+      // The assets it names are already counted as Draft assets.
+      guard plaintext.count + 28 + (try outgoingContentSize(replacing: "composer-recovery/\(name)"))
+        <= Self.outgoingContentLimit
+      else {
+        throw PrivateInboxError.unavailable
+      }
       // Before the folder exists, so a first record can create the key.
       let key = try writingKey(replacing: false)
       try FileManager.default.createDirectory(
         at: directory.appendingPathComponent("composer-recovery"),
         withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-      let record = ComposerRecovery(owner: owner, id: id, document: document, assets: assets)
       try write(
-        JSONEncoder().encode(record), file: "composer-recovery/\(name)", key: key,
+        plaintext, file: "composer-recovery/\(name)", key: key,
         authenticating: recoveryIdentity(name))
     }
   }
@@ -492,8 +502,18 @@ public final class PrivateInboxStore: @unchecked Sendable {
     Data("dev.unwired.private-inbox.draft-asset.v1\n\(owner)\n\(id)".utf8)
   }
 
-  private func draftAssets() throws -> [(id: String, url: URL, size: Int)] {
-    let folder = directory.appendingPathComponent("draft-assets")
+  // The bytes the Outgoing Content Store's files take on disk, except `replacing`, the file a write
+  // replaces: the Drafts document, Draft assets and composer recovery records.
+  private func outgoingContentSize(replacing: String) throws -> Int {
+    let drafts = (try? FileManager.default.attributesOfItem(
+      atPath: directory.appendingPathComponent("drafts.enc").path)[.size] as? Int) ?? 0
+    return try ["draft-assets", "composer-recovery"].flatMap { folder in
+      try files(in: folder).map { ("\(folder)/\($0.id)", $0.size) }
+    }.reduce(replacing == "drafts.enc" ? 0 : drafts) { $1.0 == replacing ? $0 : $0 + $1.1 }
+  }
+
+  private func files(in name: String) throws -> [(id: String, url: URL, size: Int)] {
+    let folder = directory.appendingPathComponent(name)
     let urls: [URL]
     do {
       urls = try FileManager.default.contentsOfDirectory(
@@ -516,9 +536,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     let url = try draftAssetURL(id)
     guard bytes.count <= Self.draftAssetLimit else { throw PrivateInboxError.tooLarge }
     return try transaction {
-      let drafts = (try? FileManager.default.attributesOfItem(
-        atPath: directory.appendingPathComponent("drafts.enc").path)[.size] as? Int) ?? 0
-      let used = try draftAssets().filter { $0.id != id }.reduce(drafts) { $0 + $1.size }
+      let used = try outgoingContentSize(replacing: "draft-assets/\(id)")
       guard used + bytes.count + 28 <= Self.outgoingContentLimit else {
         throw PrivateInboxError.tooLarge
       }

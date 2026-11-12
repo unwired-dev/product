@@ -257,7 +257,8 @@ a committed reference, including saves by another store instance. Relaunch drops
 that protection so the next save can remove orphaned imports. Synced asset downloads
 are not pending imports: the already-stored document's keep list protects them, and
 its next replacement can reclaim them without relaunch. The combined
-Outgoing Content Store admission limit remains 100 MB; an individual import is
+Outgoing Content Store admission limit remains 100 MB, composer recovery records
+included; an individual import is
 limited to 25 MiB without evicting authored content.
 
 The shared store retains completed assets referenced by a live Draft or its
