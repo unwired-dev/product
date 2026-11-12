@@ -4255,5 +4255,15 @@
     "style": "margin: 0",
     "webkit": ["margin-top", "margin-right", "margin-bottom", "margin-left"],
     "declared": [["margin", "0", "0px", "0px"]]
+  },
+  {
+    "style": "display:block;text-decoration:line-through #ffffff 40px !important !important;display:none",
+    "webkit": ["display"],
+    "declared": [["display", "none", "none", "none"]]
+  },
+  {
+    "style": "display:none;display:block !important !important",
+    "webkit": ["display"],
+    "declared": [["display", "none", "none", "none"]]
   }
 ]

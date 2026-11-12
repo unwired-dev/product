@@ -407,23 +407,36 @@ describe('the isolated rich reader', () => {
   it('paints sender decoration inside a link in the app color at a bounded thickness', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
-    const id = gmail.deliver({
-      content: {
-        html: '<p><a href="https://pay.example.com.evil.example/">pay.example.com<span style="text-decoration:line-through #ffffff 40px">.evil.example</span></a></p>',
-      },
-    });
+    const decorated = (style: string) =>
+      gmail.deliver({
+        content: {
+          html: `<p><a href="https://pay.example.com.evil.example/">pay.example.com<span style="${style}">.evil.example</span></a></p>`,
+        },
+      });
+    const plain = decorated('text-decoration:line-through #ffffff 40px');
+    // A doubled `!important` would otherwise leave an inline `!important` the stylesheet cannot override.
+    const doubled = decorated(
+      'text-decoration:line-through #ffffff 40px !important !important',
+    );
     const inbox = createInboxStore(gmail.native);
     await inbox.load();
-    const { document, links } = rich(await read(inbox, id));
-    expect(document).toContain(
+    const first = rich(await read(inbox, plain));
+    expect(first.document).toContain(
       '*{text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}',
     );
-    expect(links).toStrictEqual([
-      {
-        href: 'https://pay.example.com.evil.example/',
-        text: 'pay.example.com.evil.example',
-      },
-    ]);
+    expect(first.document).toContain(
+      '<span style="text-decoration: line-through #ffffff 40px">.evil.example</span>',
+    );
+    const second = rich(await read(inbox, doubled));
+    expect(second.document).toContain('<span>.evil.example</span>');
+    for (const { links } of [first, second]) {
+      expect(links).toStrictEqual([
+        {
+          href: 'https://pay.example.com.evil.example/',
+          text: 'pay.example.com.evil.example',
+        },
+      ]);
+    }
   });
 
   it('inspects image-only links by their description and keeps images CSS enlarges', async () => {
