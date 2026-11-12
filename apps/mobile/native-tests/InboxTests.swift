@@ -2315,6 +2315,34 @@ final class InboxTests: XCTestCase {
     try audit(app, "Spam and Trash Folders")
     app.buttons["Close"].tap()
     XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+
+    // #2059: Settings › Signatures lists both Sending Identities. The IMAP one's signature is
+    // typed, made bold and stored when the editor is left, then deleted.
+    openSettings("Signatures", in: app)
+    let identity = app.buttons[address]
+    XCTAssertTrue(identity.waitForExistence(timeout: 15))
+    XCTAssertEqual(identity.value as? String, "None")
+    identity.tap()
+    let signature = app.textViews.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Signature for \(address)")
+    ).firstMatch
+    XCTAssertTrue(signature.waitForExistence(timeout: 10))
+    capture("Signatures none")
+    // XCUITest never reports the multiline field as focused, so typing goes to the app.
+    signature.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    press("Pat Example", in: app)
+    waitUntil { signature.value as? String == "Pat Example" }
+    app.typeKey("a", modifierFlags: .command)
+    app.buttons["Bold"].tap()
+    capture("Signature editing")
+    // Tapping outside the field leaves the editor, which stores the signature.
+    text("Edit “\(address)”", in: app).tap()
+    waitUntil { identity.value as? String == "Pat Example" }
+    capture("Signature stored")
+    try audit(app, "Signatures")
+    app.buttons["Delete"].tap()
+    waitUntil { identity.value as? String == "None" }
   }
 
   private func keyboardAndAccessibilityJourney(_ app: XCUIApplication) throws {

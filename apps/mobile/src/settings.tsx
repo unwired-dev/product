@@ -441,7 +441,12 @@ export function SettingsWorkspace({
   const insets = useSafeAreaInsets();
   const header = usePaletteHeader();
   const content = (
-    <ScrollView contentContainerStyle={styles.content}>{children}</ScrollView>
+    // A control beside a field, such as the signature's Bold, acts on the first tap.
+    <ScrollView
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled">
+      {children}
+    </ScrollView>
   );
   if (settingsColumns) {
     const selected = destination ?? 'account';

@@ -3312,6 +3312,37 @@ describe('product registration', () => {
       signatures(),
     );
 
+    // Leaving without an edit keeps a signature stored meanwhile, as by another device.
+    const elsewhere = [
+      { kind: 'paragraph', spans: [{ text: 'Elsewhere' }] },
+    ] as const;
+    await fireEvent(editor(), 'focus');
+    await act(async () => {
+      await store.chooseSignature(
+        mailboxesOf(store.getSnapshot().snapshot)[0]!.id,
+        elsewhere,
+      );
+    });
+    await leave();
+    expect(signatures()[0]).toStrictEqual(['alex@example.invalid', elsewhere]);
+    expect(within(editor()).getByText('Elsewhere')).toBeVisible();
+    await type('Alex Example');
+    await fireEvent(editor(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Bold' }));
+    await leave();
+    await waitFor(() => {
+      expect(signatures()[0]).toStrictEqual(['alex@example.invalid', signed]);
+    });
+
+    // A save that stores nothing, as when authentication is cancelled, shows the stored one.
+    jest.spyOn(store, 'chooseSignature').mockResolvedValueOnce(undefined);
+    await type('Cancelled');
+    await leave();
+    expect(within(editor()).getByText('Alex')).toBeVisible();
+    expect(within(editor()).queryByText('Cancelled')).toBeNull();
+
     // A refused edit keeps the stored signature, shows it again and says so.
     synthetic.backend.offline = true;
     await type('Offline');
@@ -3321,6 +3352,13 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     expect(within(editor()).getByText('Alex')).toBeVisible();
     expect(signatures()[0]).toStrictEqual(['alex@example.invalid', signed]);
+    // A refused Delete shows the stored signature again, though the editor keeps focus.
+    await fireEvent(editor(), 'focus');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Delete' }));
+    });
+    expect(within(editor()).getByText('Alex')).toBeVisible();
+    await leave();
     synthetic.backend.offline = false;
 
     // Emptying the editor clears the signature, and so does Delete.
@@ -3348,6 +3386,19 @@ describe('product registration', () => {
       });
     });
     expect(signatures()[0]).toStrictEqual(['alex@example.invalid', undefined]);
+
+    // Closing Settings after another Product Account replaced this one stores nothing, though
+    // it can hold the same mailbox under the same connection.
+    await type('Replaced');
+    const choose = jest.spyOn(store, 'chooseSignature');
+    choose.mockClear();
+    const current = store.getSnapshot();
+    jest.spyOn(store, 'getSnapshot').mockReturnValue({
+      ...current,
+      snapshot: { ...current.snapshot, productAccountId: 'replacement' },
+    });
+    await screen.unmount();
+    expect(choose).not.toHaveBeenCalled();
   }); /* oxlint-enable vitest/max-expects */
 
   it('opens Settings over the Inbox, which keeps its state for the way back, and closes it on sign-out', async () => {
