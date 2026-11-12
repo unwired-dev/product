@@ -582,8 +582,9 @@ export function createRegistration(vault: NativeRegistrationVault) {
     setting: SettingRefused['setting'],
     connection: string,
     change: ReturnType<typeof request>,
-    { queued = false }: Readonly<{ queued?: boolean }> = {},
   ) => {
+    // Leaving the signature editor during foreground verification still stores the signature.
+    const queued = setting === 'signatureFailure';
     const operation = change.pipe(
       Effect.catchTags({
         ProfileRefused: () => settingRefusal(setting, connection),
@@ -871,8 +872,6 @@ export function createRegistration(vault: NativeRegistrationVault) {
         'signatureFailure',
         connection,
         request(native.chooseSignature(connection, signature)),
-        // Leaving the editor during foreground verification still stores the signature.
-        { queued: true },
       ),
     link: (provider: SignInProvider) =>
       execute(
