@@ -19,8 +19,9 @@ const fixture = (name: string) =>
   );
 
 const mediaOf = (document: string) =>
-  /<style>.*?(?<media>@media \(max-width.*)<\/style>/su.exec(document)?.[1] ??
-  '';
+  /<style>.*?(?<media>@media \(max-width.*)\.link-cell\{/su.exec(
+    document,
+  )?.[1] ?? '';
 
 // The rule a breakpoint gives the element whose emitted start tag precedes `text`.
 const ruleBefore = (
@@ -57,10 +58,10 @@ describe('responsive sender layouts', () => {
     const { document } = sanitizeHtml(steam);
     // The button cell keeps its background, and the label takes the ink that contrasts more.
     expect(document).toContain(
-      '<td align="center" class="link-cell responsive-10" style="padding: 18px 80px; background-color: #2d73ff; color: #000000; text-indent: 0; letter-spacing: normal">',
+      '<td align="center" class="link-cell responsive-10" style="padding: 18px 80px; background-color: #2d73ff; color: #000000">',
     );
     expect(ruleBefore(document, 'Retry your purchase')).toBe(
-      'padding:12px 24px!important;background-color:#2d73ff!important;color:#000000!important;text-indent:0!important;letter-spacing:normal!important',
+      'padding:12px 24px!important;background-color:#2d73ff!important;color:#000000!important',
     );
     expect(document).toContain('.link-cell a{color:inherit}');
     // Long words wrap only when they must, so the label never splits mid-word.
@@ -106,7 +107,7 @@ describe('responsive sender layouts', () => {
     expect.hasAssertions();
     const { document } = sanitizeHtml(fixture('fixed-width'));
     expect(document).toContain(
-      'https://<wbr>library.<wbr>example.<wbr>org/<wbr>account/<wbr>loans/<wbr>renew?<wbr>item=<wbr>9780393635522&amp;<wbr>branch=<wbr>central',
+      'https:/<wbr>/<wbr>library.<wbr>example.<wbr>org/<wbr>account/<wbr>loans/<wbr>renew?<wbr>item=<wbr>9780393635522&amp;<wbr>branch=<wbr>central',
     );
     expect(document).toContain('Thank you for reading with us.');
   });
@@ -163,34 +164,37 @@ describe('responsive sender layouts', () => {
       `<table><tr>${cells.join('')}</tr></table>`,
     );
     expect(document.match(/<td[^>]*>/gu)).toStrictEqual([
-      '<td class="link-cell" style="background-color: #ffffff; color: #000000; text-indent: 0; letter-spacing: normal">',
-      '<td class="link-cell" style="background-color: #112233; color: #FFFFFF; text-indent: 0; letter-spacing: normal">',
-      '<td class="link-cell" style="background-color: #ffffff; color: #000000; text-indent: 0; letter-spacing: normal">',
+      '<td class="link-cell" style="background-color: #ffffff; color: #000000">',
+      '<td class="link-cell" style="background-color: #112233; color: #FFFFFF">',
+      '<td class="link-cell" style="background-color: #ffffff; color: #000000">',
       '<td>',
       '<td>',
       '<td>',
     ]);
   });
 
-  it('keeps a sender background off a cell whose label could paint outside it', () => {
+  it('keeps a button label inside its cell at every width', () => {
     expect.hasAssertions();
-    const href = 'https://pay.example.com.evil.example/x';
-    const cells = [
-      `<td bgcolor="#000"><a href="${href}"><span>pay.example.com</span><span style="display:block;margin-top:-90px">.evil.example</span></a></td>`,
-      `<td bgcolor="#000"><a href="${href}" style="text-indent:-200px;display:block">Pay</a></td>`,
-      `<td bgcolor="#000" style="letter-spacing:-20px"><a href="${href}">Pay</a></td>`,
-      `<td bgcolor="#000"><a href="${href}" style="vertical-align:-80px">Pay</a></td>`,
-    ];
     const { document } = sanitizeHtml(
-      `<table><tr>${cells.join('')}</tr></table>`,
+      [
+        '<style>@media (max-width:600px){.p{font-size:14px}.lift{margin-top:-90px;line-height:0}}</style>',
+        '<p class="p">Text</p><table><tr><td bgcolor="#000" style="line-height:0">',
+        '<a href="https://pay.example.com.evil.example/x"><span>pay.example.com</span>',
+        '<span class="lift" style="display:block;text-indent:-200px">.evil.example</span></a></td></tr></table>',
+      ].join(''),
     );
-    expect(document).not.toContain('link-cell"');
-    expect(document.match(/<td[^>]*>/gu)).toStrictEqual([
-      '<td>',
-      '<td>',
-      '<td style="letter-spacing: -20px">',
-      '<td>',
-    ]);
+    expect(document).toContain(
+      '<td class="link-cell" style="line-height: 0; background-color: #000000; color: #FFFFFF">',
+    );
+    // The phone layout still applies, and the app's containment follows it, so it outranks every
+    // sender declaration: inline, inherited or narrow.
+    expect(mediaOf(document)).toContain('font-size:14px!important');
+    expect(document).toContain(
+      '}}.link-cell{text-indent:0!important;letter-spacing:normal!important;line-height:normal!important}' +
+        '.link-cell *{margin:0!important;text-indent:0!important;vertical-align:baseline!important;' +
+        'letter-spacing:normal!important;line-height:normal!important;width:auto!important;' +
+        'height:auto!important;max-width:none!important;max-height:none!important}',
+    );
   });
 
   it('restates narrow styles as the cascade orders them, without sender link decoration', () => {

@@ -745,11 +745,11 @@ The app controls both colors together so stripped backgrounds cannot hide text.
 One exception keeps buttons recognizable: a `td` or `th` whose only content is one
 link without images keeps its opaque hex `background-color`, `background` or
 `bgcolor`, and the app paints the label black or white, whichever contrasts more,
-so it reaches at least 4.5:1. That holds only inside the cell, so a descendant
-with margins, sizes, `text-indent`, `vertical-align` or negative letter spacing,
-or a cell with negative letter spacing, keeps no background; the cell resets
-inherited indent and letter spacing. Gradients, images and other backgrounds stay
-removed.
+so it reaches at least 4.5:1. That holds only inside the cell, so app CSS placed
+after every restated media rule resets indent, letter spacing and line height on
+the cell, and margins, vertical alignment and sizes on everything in it; the cell
+then grows to hold its label at every width. Gradients, images and other
+backgrounds stay removed.
 Author `style` blocks for screen contribute only `@media` rules whose queries are
 `max-width` in pixels and whose selectors are element names, classes or both. Their
 declarations pass the same property, value and bound checks as inline styles, minus
@@ -1042,9 +1042,10 @@ Normal-height documents stay pinned to the top of WebKit and use the
 reader's outer vertical scroll; horizontal overflow cannot introduce a second
 vertical scroll. Desktop-width tables and blocked image placeholders narrow to
 the column. Text wraps with `overflow-wrap: break-word`, so a narrow table cell
-never splits a word such as a button label; runs longer than 24 characters, such
-as URLs, may break after their punctuation and at least every 24 characters, so
-they do not widen a table past the column. Content that still needs more width, such as unwrappable text,
+never splits a word such as a button label. URL-like runs of printable ASCII
+longer than 24 characters, containing `/`, `?`, `&` or `=`, may break after each
+punctuation character and at least every 24 characters, so they do not widen a
+table past the column; other words, scripts and emoji never split. Content that still needs more width, such as unwrappable text,
 scrolls horizontally inside WebKit instead of being clipped. On the Mac, horizontal
 mouse-wheel or trackpad scrolling moves the message sideways while vertical
 scrolling still moves the reader. Only a document

@@ -1170,18 +1170,17 @@ const escapeText = (value: string) =>
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
-// Long unbroken runs, such as URLs, may break after their punctuation and at least every 24
-// characters. Under `overflow-wrap: break-word` a table cell otherwise widens to hold the whole run.
+// URL-like runs of printable ASCII may break after each punctuation character and at least every
+// 24 characters. Under `overflow-wrap: break-word` a table cell otherwise widens to hold the
+// whole run; words, other scripts and emoji never split.
 const breakableText = (value: string) =>
-  value
-    .split(/(\s+)/u)
+  (value.match(/[!-~]{25,}|[^!-~]+|[!-~]+/gu) ?? [])
     .map((part) =>
-      (part.length <= 24
-        ? [part]
-        : (part.match(/.{1,24}?(?:[/?&=.,_-]+|$)|.{24}/gsu) ?? [part])
-      )
-        .map(escapeText)
-        .join('<wbr>'),
+      part.length > 24 && /^[!-~]+$/u.test(part) && /[/?&=]/u.test(part)
+        ? (part.match(/[^/?&=.,_-]{1,24}[/?&=.,_-]?|[/?&=.,_-]/gu) ?? [])
+            .map(escapeText)
+            .join('<wbr>')
+        : escapeText(part),
     )
     .join('');
 const escapeAttribute = (value: string) =>
@@ -1407,13 +1406,20 @@ const attributes = (
 
 const hexColor = /^#(?:[\da-f]{3}){1,2}$/iu;
 
-const containsImage = (node: Element): boolean =>
-  node.childNodes.some(
-    (child) =>
-      isElement(child) && (child.tagName === 'img' || containsImage(child)),
-  );
+const imageHolders = new WeakMap<Element, boolean>();
+const containsImage = (node: Element): boolean => {
+  let holds = imageHolders.get(node);
+  if (holds === undefined) {
+    holds = node.childNodes.some(
+      (child) =>
+        isElement(child) && (child.tagName === 'img' || containsImage(child)),
+    );
+    imageHolders.set(node, holds);
+  }
+  return holds;
+};
 
-// A cell whose only content is one link without images: a button.
+// A table cell whose only content is one link without images: a button.
 const linkOnly = (cell: Element) => {
   const content = cell.childNodes.filter(
     (node) =>
@@ -1422,6 +1428,7 @@ const linkOnly = (cell: Element) => {
   );
   const [link] = content;
   return (
+    ['td', 'th'].includes(cell.tagName) &&
     content.length === 1 &&
     link !== undefined &&
     isElement(link) &&
@@ -1429,31 +1436,6 @@ const linkOnly = (cell: Element) => {
     !containsImage(link)
   );
 };
-
-const descendantsOf = (node: Element): Element[] =>
-  node.childNodes.flatMap((child) =>
-    isElement(child) ? [child, ...descendantsOf(child)] : [],
-  );
-
-// Declarations that move content out of its box, where a label's ink might not contrast.
-const displacing =
-  /^(?:margin|(?:min-|max-)?(?:width|height)$|text-indent$|vertical-align$)/u;
-const pullsBack = ({ retained }: FilteredStyle) =>
-  retained.get('letter-spacing')?.trim().startsWith('-') === true;
-const staysInside = (style: FilteredStyle) =>
-  !pullsBack(style) &&
-  ![...style.retained.keys()].some((name) => displacing.test(name));
-
-// A link-only cell whose label nothing moves out of it.
-const isButton = (
-  cell: Element,
-  style: FilteredStyle,
-  styleOf: (element: Element, tag: string) => FilteredStyle,
-) =>
-  ['td', 'th'].includes(cell.tagName) &&
-  linkOnly(cell) &&
-  !pullsBack(style) &&
-  descendantsOf(cell).every((node) => staysInside(styleOf(node, node.tagName)));
 
 // The cell's last background declaration, else its `bgcolor`, as `#rrggbb` when it is opaque hex.
 const fillOf = (cell: Element, style: FilteredStyle) => {
@@ -1477,26 +1459,26 @@ const inkOn = (fill: string) => {
 };
 
 // A link-only table cell keeps the sender's opaque background color (ADR 0077 decision 11) and
-// the app paints its label in contrasting ink, so only while nothing moves the label out of the
-// cell. Gradients, images and every other sender background stay removed.
-const buttonCell = (
-  cell: Element,
-  style: FilteredStyle,
-  styleOf: (element: Element, tag: string) => FilteredStyle,
-) => {
-  const fill = isButton(cell, style, styleOf) ? fillOf(cell, style) : undefined;
+// the app paints its label in contrasting ink; `buttonStyle` keeps the label inside the cell.
+// Gradients, images and every other sender background stay removed.
+const buttonCell = (cell: Element, style: FilteredStyle) => {
+  const fill = linkOnly(cell) ? fillOf(cell, style) : undefined;
   return fill === undefined
     ? style
     : withProperties(style, [
         ['background-color', fill],
         ['color', inkOn(fill)],
-        // Inherited spacing must not carry the label out either.
-        ['text-indent', '0'],
-        ...(style.retained.has('letter-spacing')
-          ? []
-          : ([['letter-spacing', 'normal']] as const)),
       ]);
 };
+
+// Follows the restated media rules so no sender style, inherited or narrow, moves a button's label
+// out of its cell, where its ink might not contrast. A table cell grows to hold what remains.
+const buttonStyle =
+  '.link-cell{text-indent:0!important;letter-spacing:normal!important;line-height:normal!important}' +
+  '.link-cell *{margin:0!important;text-indent:0!important;vertical-align:baseline!important;' +
+  'letter-spacing:normal!important;line-height:normal!important;width:auto!important;' +
+  'height:auto!important;max-width:none!important;max-height:none!important}' +
+  '.link-cell a{color:inherit}';
 
 // ADR 0077 decision 11 admits the sender's responsive layout: `max-width` media rules with
 // element or class selectors that change only geometry and type, with the values inline styles
@@ -1973,8 +1955,6 @@ const readerStyle =
   // Link colors sit close to the text's, so an underline marks links even where senders remove it.
   'a{text-decoration-line:underline;text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
   '.link-underline{text-decoration:underline}' +
-  // A button cell's label keeps the ink chosen for its background.
-  '.link-cell a{color:inherit}' +
   'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
   '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed;border-radius:4px;' +
@@ -2540,7 +2520,7 @@ function walk(
 
   const element = (node: Element) => {
     const name = node.tagName.toLowerCase();
-    const style = buttonCell(node, pass.styleOf(node, name), pass.styleOf);
+    const style = buttonCell(node, pass.styleOf(node, name));
     if (isDropped(node, style, visibility) || collapsed.has(node)) {
       return;
     }
@@ -2716,7 +2696,7 @@ export function sanitizeHtml(
       `<meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}">` +
       `<meta name="referrer" content="no-referrer">` +
       `<meta name="viewport" content="width=device-width, initial-scale=1">` +
-      `<style>${readerStyle}${media}</style></head><body>${output}</body></html>`,
+      `<style>${readerStyle}${media}${buttonStyle}</style></head><body>${output}</body></html>`,
     ...walked,
   };
 }
