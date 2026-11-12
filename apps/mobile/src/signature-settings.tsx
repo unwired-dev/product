@@ -105,13 +105,13 @@ function SignatureEditor({
     documentNow.current = next;
     setDocument(next);
   };
-  // A signature another device stores shows here while it is not being edited.
+  // A signature another device stores shows here while it is not being edited, as restore()
+  // below does.
   useEffect(() => {
     const next = signature ?? emptyDocument;
     if (!focused.current && stored(next) !== stored(documentNow.current)) {
       documentNow.current = next;
       setDocument(next);
-      // A Link Editor open on the replaced text would apply to other characters.
       showLinkEditor(false);
     }
   }, [signature, showLinkEditor]);
@@ -128,6 +128,15 @@ function SignatureEditor({
     mailboxesOf(store.getSnapshot().snapshot).find(
       (mailbox) => mailbox.id === id,
     )?.signature;
+  // Shows the stored signature in place of different text. A Link Editor open on the replaced
+  // text would apply to other characters, so it closes, as when another device stores one.
+  const restore = () => {
+    const next = storedNow() ?? emptyDocument;
+    if (stored(next) !== stored(documentNow.current)) {
+      show(next);
+      showLinkEditor(false);
+    }
+  };
   const commit = async (next: SemanticDocument) => {
     const chosen = plainText(next).trim() === '' ? undefined : next;
     if (ownerOf() !== owner.current || stored(chosen) === stored(storedNow())) {
@@ -139,7 +148,7 @@ function SignatureEditor({
       store.getSnapshot().signatureFailure === id ||
       (!focused.current && stored(chosen) !== stored(storedNow()))
     ) {
-      show(storedNow() ?? emptyDocument);
+      restore();
     }
   };
   // The document when editing began. Leaving without an edit stores nothing, so a signature
@@ -147,7 +156,7 @@ function SignatureEditor({
   const editing = useRef(document);
   const leave = () => {
     if (stored(documentNow.current) === stored(editing.current)) {
-      show(storedNow() ?? emptyDocument);
+      restore();
     } else {
       void commit(documentNow.current);
     }

@@ -3329,6 +3329,22 @@ describe('product registration', () => {
       );
     });
     expect(screen.queryByLabelText('Link')).toBeNull();
+    // So does one stored while the editor has focus, once opening the Link Editor leaves it.
+    await fireEvent(editor(), 'focus');
+    await fireEvent(editor(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await act(async () => {
+      await store.chooseSignature(
+        mailboxesOf(store.getSnapshot().snapshot)[0]!.id,
+        [{ kind: 'paragraph', spans: [{ text: 'Prof. Alex Example' }] }],
+      );
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Add Link' }));
+    expect(screen.getByLabelText('Link')).toBeVisible();
+    await leave();
+    expect(within(editor()).getByText('Prof. Alex Example')).toBeVisible();
+    expect(screen.queryByLabelText('Link')).toBeNull();
 
     // Leaving without an edit keeps a signature stored meanwhile, as by another device.
     const elsewhere = [
