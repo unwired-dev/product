@@ -11,6 +11,7 @@ import * as Schema from 'effect/Schema';
 import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
 import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
+import type { NativeMailTemplates } from './mail-templates.ts';
 import type { NativeGmailMailboxes } from './mailboxes.ts';
 import type { NativeNotifications } from './notifications.ts';
 import type { NativeDeliveryClaim } from './outbox.ts';
@@ -21,6 +22,7 @@ import { rejectionCode } from './diagnostics.ts';
 import { createDrafts } from './drafts.ts';
 import { createErrorReporting } from './error-reporting.ts';
 import { createFreshness, followWakes } from './freshness.ts';
+import { createMailTemplates } from './mail-templates.ts';
 import { createMailboxes } from './mailboxes.ts';
 import {
   createNotifications,
@@ -61,6 +63,7 @@ export interface NativeHostModule
     NativeGmailMailboxes,
     NativeDrafts,
     NativeDraftSync,
+    NativeMailTemplates,
     NativeDeliveryClaim,
     NativeWakes,
     NativeRemoteContent,
@@ -420,6 +423,16 @@ export function createHost(
     },
   );
 
+  // Each Mail Profile's Mail Templates, stored encrypted on this device.
+  const mailTemplates = createMailTemplates(
+    {
+      openMailTemplates: () => native().openMailTemplates(),
+      commitMailTemplates: (owner, expectedRevision, document) =>
+        native().commitMailTemplates(owner, expectedRevision, document),
+    },
+    registration,
+  );
+
   // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no
   // other Trusted Device sends the same Draft, and is handed to Gmail once.
   const outbox = createOutbox({
@@ -450,6 +463,7 @@ export function createHost(
     registration,
     gmailMailboxes,
     drafts,
+    mailTemplates,
     outbox,
     wakes,
     freshness,

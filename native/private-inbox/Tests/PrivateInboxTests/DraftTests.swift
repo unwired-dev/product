@@ -318,6 +318,76 @@ struct DraftTests {
     #expect(try fresh.openComposerRecovery(owner: owner).map(\.id) == ["draft5"])
   }
 
+  // Mail Templates are kept like Drafts: encrypted for the account that wrote them, replaced only
+  // from the revision read, sealed apart from the Drafts document and removed by an account purge.
+  @Test @MainActor func mailTemplatesStayEncryptedWithTheirProductAccount() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache) = (session.store, session.cache)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openMailTemplates()
+    }
+    let owner = try await session.owner()
+    let opened = try await store.openMailTemplates()
+    #expect(opened["owner"] as? String == owner && opened["revision"] as? Int == 0)
+    #expect(opened["document"] is NSNull)
+    let document = #"{"templates":[{"id":"invoice","name":"Private template name"}]}"#
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitMailTemplates(
+        owner: "another-account", expectedRevision: 0, document: document)
+    }
+    let committed = try await store.commitMailTemplates(
+      owner: owner, expectedRevision: 0, document: document)
+    #expect(committed["revision"] as? Int == 1)
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.commitMailTemplates(owner: owner, expectedRevision: 0, document: "{}")
+    }
+    let file = session.directory.appendingPathComponent("mail-templates.enc")
+    let ciphertext = try Data(contentsOf: file)
+    #expect(ciphertext.range(of: Data("Private template name".utf8)) == nil)
+    // Drafts are a separate document.
+    #expect(try cache.openDraftDocument(owner: owner).document == nil)
+
+    // After relaunch only the same account reads them, and only while protected data is available.
+    let relaunched = PrivateInboxStore(
+      directory: session.directory, service: session.service,
+      attachments: session.directory.appendingPathComponent("tmp"), protectedDataAvailable: { true })
+    #expect(try relaunched.openMailTemplateDocument(owner: owner) == (1, document))
+    #expect(try relaunched.openMailTemplateDocument(owner: "another-account") == (1, nil))
+    let locked = PrivateInboxStore(
+      directory: session.directory, service: session.service,
+      attachments: session.directory.appendingPathComponent("tmp"), protectedDataAvailable: { false })
+    #expect(throws: PrivateInboxError.locked) {
+      _ = try locked.commitMailTemplateDocument(owner: owner, expectedRevision: 1, document: "{}")
+    }
+    // Escaping counts: a document under the limit whose encrypted file would exceed it is refused.
+    #expect(throws: PrivateInboxError.unavailable) {
+      _ = try relaunched.commitMailTemplateDocument(
+        owner: owner, expectedRevision: 1,
+        document: String(repeating: "\"", count: PrivateInboxStore.outgoingContentLimit / 2 + 1))
+    }
+
+    // A damaged file, or the Drafts document served in its place, does not open.
+    var damaged = ciphertext
+    damaged[damaged.count - 1] ^= 1
+    try damaged.write(to: file)
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try relaunched.openMailTemplateDocument(owner: owner)
+    }
+    _ = try cache.commitDraftDocument(owner: owner, expectedRevision: 0, document: document)
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.copyItem(
+      at: session.directory.appendingPathComponent("drafts.enc"), to: file)
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try relaunched.openMailTemplateDocument(owner: owner)
+    }
+    try FileManager.default.removeItem(at: file)
+    try ciphertext.write(to: file)
+
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("mail-templates.enc"))
+  }
+
   // Bytes come only from a picker's copy, pasted data or a current Downloaded Attachment; any other
   // path JavaScript names is refused, and only the picker's own folders are ever removed.
   @Test @MainActor func draftAssetsImportOnlyFromGrantedSources() async throws {

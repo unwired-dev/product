@@ -122,6 +122,8 @@ RCT_EXTERN_METHOD(mailAssistance:(RCTPromiseResolveBlock)resolve rejecter:(RCTPr
 RCT_EXTERN_METHOD(setMailAssistance:(NSString *)owner profiles:(NSArray *)profiles privateCloud:(NSArray *)privateCloud resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openDrafts:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitDrafts:(NSString *)owner expectedRevision:(double)expectedRevision commit:(NSDictionary *)commit resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openMailTemplates:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(commitMailTemplates:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openComposerRecovery:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(writeComposerRecovery:(NSString *)owner id:(NSString *)id record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(removeComposerRecovery:(NSString *)owner id:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
