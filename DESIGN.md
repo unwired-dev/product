@@ -529,8 +529,8 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
-- iPad popovers, such as Filters, are system popovers and keep the iOS corner radius
-  and arrow.
+- iPad popovers, such as Filters, are system popovers and keep the iOS corner
+  radius. They are drawn without an arrow.
 - iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
   centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 29.095pt.
   iPhone's Profile Switcher above the Mailboxes groups uses `radius.profileSwitcher`,
