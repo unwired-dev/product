@@ -1,18 +1,57 @@
 import CryptoKit
 import Foundation
 
-// One Draft's Product Sync record: the Draft's identifier, the record's write count and the Draft's
-// JSON, sealed together so a record cannot be moved to another Draft or served as a newer one.
-struct DraftRecord: Codable, Equatable {
+// A Product Sync record TypeScript merges: its item's identifier, the record's write count and the
+// item's JSON, or nil once removed, sealed together so a record cannot be moved to another item or
+// served as a newer one. `field` names the JSON as TypeScript reads it.
+protocol SyncedRecord: Codable {
+  static var kind: String { get }
+  static var field: String { get }
+  static var schemaVersion: Int { get }
+  var id: String { get }
+  var version: Int { get }
+  var content: String? { get }
+  init(id: String, version: Int, content: String?)
+}
+
+// One Draft's Product Sync record.
+struct DraftRecord: SyncedRecord, Equatable {
+  static let kind = "draft"
+  static let field = "draft"
   static let schemaVersion = 1
   let id: String
   let version: Int
   let draft: String?
+  var content: String? { draft }
+  init(id: String, version: Int, draft: String?) {
+    self.id = id
+    self.version = version
+    self.draft = draft
+  }
+  init(id: String, version: Int, content: String?) {
+    self.init(id: id, version: version, draft: content)
+  }
 }
 
-// The signed-in Trusted Device's Product Sync of its Drafts: everything it needs, read once under
-// the registration gate, so network work runs without holding Draft storage or Gmail. TypeScript
-// merges the Drafts; this only seals, opens and moves records and asset chunks.
+// One Mail Template's Product Sync record; the template's JSON names the Mail Profile that owns it.
+struct MailTemplateRecord: SyncedRecord, Equatable {
+  static let kind = "profile-template"
+  static let field = "template"
+  static let schemaVersion = 1
+  let id: String
+  let version: Int
+  let template: String?
+  var content: String? { template }
+  init(id: String, version: Int, content: String?) {
+    self.id = id
+    self.version = version
+    template = content
+  }
+}
+
+// The signed-in Trusted Device's Product Sync of its Drafts and Mail Templates: everything it needs,
+// read once under the registration gate, so network work runs without holding Draft storage or
+// Gmail. TypeScript merges them; this only seals, opens and moves records and asset chunks.
 @MainActor struct DraftSync {
   // Chunks stay well within a Convex document once sealed and base64-encoded.
   static let chunkSize = 512 * 1024
@@ -25,7 +64,10 @@ struct DraftRecord: Codable, Equatable {
   let ring: ProductSyncKeyRing
   var owner: String { product.productAccountId }
 
-  func identifier(draft id: String) throws -> String { try ring.identifier("draft", id) }
+  func identifier(draft id: String) throws -> String { try identifier(DraftRecord.self, id) }
+  func identifier<R: SyncedRecord>(_: R.Type, _ id: String) throws -> String {
+    try ring.identifier(R.kind, id)
+  }
 
   private func signedIn() throws -> ProductSignInIdentity {
     guard let session else { throw RegistrationError.unavailable }
@@ -45,41 +87,49 @@ struct DraftRecord: Codable, Equatable {
     return (0..<max(1, (size + Self.chunkSize - 1) / Self.chunkSize)).map { base + ".\($0)" }
   }
 
-  // Records that open for this account under their own Draft's identifier. A record of a `known`
-  // Draft that exists but does not open is reported as unreadable rather than absent, so it is
-  // never taken for a deletion.
   func pull(known: [String]) async throws -> [String: Any] {
+    try await pull(DraftRecord.self, known: known)
+  }
+
+  // Records that open for this account under their own item's identifier. A record of a `known`
+  // item that exists but does not open is reported as unreadable rather than absent, so it is never
+  // taken for a deletion.
+  func pull<R: SyncedRecord>(_: R.Type, known: [String]) async throws -> [String: Any] {
     let knownIds = Dictionary(
-      try known.map { (try identifier(draft: $0), $0) }, uniquingKeysWith: { first, _ in first })
+      try known.map { (try identifier(R.self, $0), $0) }, uniquingKeysWith: { first, _ in first })
     var records: [[String: Any]] = []
     var unreadable: [String] = []
-    for stored in try await backend.list(try signedIn(), product, "draft.") {
+    for stored in try await backend.list(try signedIn(), product, R.kind + ".") {
       let record = try? JSONDecoder().decode(
-        DraftRecord.self,
+        R.self,
         from: ring.open(
           record: stored.encryptedPayload, account: owner, identifier: stored.payloadIdentifier,
-          schemaVersion: DraftRecord.schemaVersion))
-      guard let record, try identifier(draft: record.id) == stored.payloadIdentifier else {
+          schemaVersion: R.schemaVersion))
+      guard let record, try identifier(R.self, record.id) == stored.payloadIdentifier else {
         if let id = knownIds[stored.payloadIdentifier] { unreadable.append(id) }
         continue
       }
       records.append([
         "id": record.id, "version": record.version, "updatedAt": stored.updatedAt,
-        "draft": record.draft as Any? ?? NSNull(),
+        R.field: record.content as Any? ?? NSNull(),
       ])
     }
     return ["owner": owner, "records": records, "unreadable": unreadable]
   }
 
-  // A nil Draft is a sealed deletion tombstone retaining its version and identifier. Every write
-  // compares `expected`; a lost reply is reconciled by the next pull.
   func push(id: String, version: Int, draft: String?, expected: Double?) async throws
     -> [String: Any]
   {
-    let identifier = try identifier(draft: id)
+    try await push(DraftRecord(id: id, version: version, draft: draft), expected: expected)
+  }
+
+  // A nil content is a sealed deletion tombstone retaining its version and identifier. Every write
+  // compares `expected`; a lost reply is reconciled by the next pull.
+  func push<R: SyncedRecord>(_ record: R, expected: Double?) async throws -> [String: Any] {
+    let identifier = try identifier(R.self, record.id)
     let sealed = try ring.seal(
-      record: JSONEncoder().encode(DraftRecord(id: id, version: version, draft: draft)),
-      account: owner, identifier: identifier, schemaVersion: DraftRecord.schemaVersion)
+      record: JSONEncoder().encode(record),
+      account: owner, identifier: identifier, schemaVersion: R.schemaVersion)
     let stored: StoredPayload
     do {
       stored = try await backend.put(try signedIn(), product, identifier, sealed, expected)

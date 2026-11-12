@@ -531,7 +531,11 @@ the Drafts document, naming the Product Account that wrote it and replaced only
 from the revision the caller read. Native storage treats the document as opaque:
 it checks only the account, the revision and the size limit. TypeScript decodes
 it and checks each template and the Profile that owns it. Another account reads
-none, and every account purge removes it. They are not synchronized yet.
+none, and every account purge removes it. The document also keeps each template's
+last-read Product Sync record and its write in flight, so offline changes stay pending
+and are published by compare-and-set
+([#2043](https://github.com/unwired-dev/product/issues/2043)); see the
+[Draft guide](drafts.md).
 
 Picked files on iPhone and iPad are protected temporary copies removed after
 successful or failed import, an abandoned picker result, or the next launch.

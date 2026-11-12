@@ -116,6 +116,38 @@ struct DraftSyncTests {
     #expect(tombstone["version"] as? Int == 2)
     #expect(tombstone["draft"] is NSNull)
 
+    // A Mail Template record is ciphertext under its own opaque identifier; a Draft record moved
+    // there does not open, and a removal leaves a sealed tombstone.
+    let template = #"{"id":"template-1","profile":"work","name":"Private template name"}"#
+    let written = try await phone.push(
+      MailTemplateRecord(id: "template-1", version: 1, content: template), expected: nil)
+    let written1 = try #require(written["updatedAt"] as? Double)
+    let templateIdentifier = try phone.identifier(MailTemplateRecord.self, "template-1")
+    #expect(
+      templateIdentifier.hasPrefix("profile-template.") && !templateIdentifier.contains("template-1"))
+    let sealedTemplate = try #require(backend.records[owner]?[templateIdentifier])
+    let templateCiphertext = try #require(
+      Data(base64Encoded: sealedTemplate.encryptedPayload.ciphertextBase64))
+    #expect(templateCiphertext.range(of: Data("Private template name".utf8)) == nil)
+    let movedTemplate = try phone.identifier(MailTemplateRecord.self, "template-2")
+    backend.records[owner]?[movedTemplate] = StoredPayload(
+      payloadIdentifier: movedTemplate, encryptedPayload: stored.encryptedPayload,
+      updatedAt: updatedAt)
+    let templates = try await mac.pull(MailTemplateRecord.self, known: ["template-2"])
+    #expect(templates["unreadable"] as? [String] == ["template-2"])
+    let templateRecords = try #require(templates["records"] as? [[String: Any]])
+    #expect(templateRecords.count == 1)
+    #expect(templateRecords.first?["template"] as? String == template)
+    #expect(templateRecords.first?["updatedAt"] as? Double == written1)
+    let removedTemplate = try await mac.push(
+      MailTemplateRecord(id: "template-1", version: 2, content: nil), expected: written1)
+    #expect(removedTemplate["committed"] as? Bool == true)
+    let templateTombstone = try #require(
+      (try await phone.pull(MailTemplateRecord.self, known: [])["records"] as? [[String: Any]])?
+        .first)
+    #expect(templateTombstone["version"] as? Int == 2)
+    #expect(templateTombstone["template"] is NSNull)
+
     // A file spanning several chunks downloads only as the exact verified bytes.
     let bytes = Data((0..<(DraftSync.chunkSize * 2 + 100)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
     let imported = try await store.importDraftAsset(

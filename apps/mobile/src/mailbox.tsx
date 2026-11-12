@@ -96,16 +96,19 @@ export function InboxProvider({
   }, [navigation]);
   useEffect(() => {
     void drafts.load();
-    // Returning picks up other devices' Draft changes; leaving publishes this device's.
+    void mailTemplates.synchronize();
+    // Returning picks up other devices' Draft and Mail Template changes; leaving publishes this
+    // device's.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active' || state === 'background') {
         void drafts.syncInBackground();
+        void mailTemplates.synchronize();
       }
     });
     return () => {
       subscription.remove();
     };
-  }, [drafts]);
+  }, [drafts, mailTemplates]);
   useEffect(() => {
     void mailboxes.load();
     const subscription = AppState.addEventListener('change', (state) => {

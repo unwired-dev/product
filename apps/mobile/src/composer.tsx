@@ -2279,6 +2279,73 @@ function ReplyFooter({
   );
 }
 
+// How long after an edit its composer recovery record is written: the most typing that ending the
+// app can lose (ADR 0077).
+const journalDelay = 2000;
+
+// Keeps the editor's unsaved version, which `unsavedVersion` returns, in a composer recovery record
+// a few seconds after each `edited` change and when the app returns to the foreground, retrying a
+// record locked storage refused. The records it wrote go once the version is unchanged again. The
+// returned function closes the journal, removing those records and that of Draft `id` the editor
+// closes on, which another editor's journal may have written.
+function useRecoveryJournal(
+  edited: unknown,
+  unsavedVersion: () => Draft | undefined,
+  editor: (id: string) => void,
+) {
+  const store = useDraftStore();
+  const journaled = useRef(new Set<string>());
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const closed = useRef(false);
+  const forget = useCallback(() => {
+    for (const id of journaled.current) {
+      void store.forget(id, editor);
+    }
+    journaled.current.clear();
+  }, [editor, store]);
+  const write = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = undefined;
+    const version = closed.current ? undefined : unsavedVersion();
+    if (version === undefined) {
+      forget();
+      return;
+    }
+    journaled.current.add(version.id);
+    void store.journal(version);
+  }, [forget, store, unsavedVersion]);
+  const seen = useRef(edited);
+  useEffect(() => {
+    if (seen.current === edited) {
+      return;
+    }
+    seen.current = edited;
+    if (timer.current === undefined && !closed.current) {
+      timer.current = setTimeout(write, journalDelay);
+    }
+  });
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && !closed.current) {
+        write();
+      }
+    });
+    return () => {
+      subscription.remove();
+      clearTimeout(timer.current);
+      timer.current = undefined;
+    };
+  }, [write]);
+  return useCallback(
+    (id: string) => {
+      closed.current = true;
+      journaled.current.add(id);
+      write();
+    },
+    [write],
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -2463,6 +2530,17 @@ function Editor({
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
   const subjectCaret = useRef<number | undefined>(undefined);
   const draft = history.present;
+  const closeRecord = useRecoveryJournal(
+    draft,
+    useCallback(
+      () =>
+        authored.current !== stored.current || unsaved.current
+          ? authored.current
+          : undefined,
+      [],
+    ),
+    rebind,
+  );
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
   const { linkEditor, generatePrompt } = useOpenPresenters({
@@ -2817,6 +2895,9 @@ function Editor({
       closed = await operation();
     } catch {
       // An unexpected storage rejection keeps the composer open and retryable too.
+    }
+    if (closed) {
+      closeRecord(authored.current.id);
     }
     finishOperation();
     answerLeave(closed);
