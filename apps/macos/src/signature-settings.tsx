@@ -118,7 +118,8 @@ function SignatureEditor({
       return;
     }
     await store.chooseSignature(id, chosen);
-    if (store.getSnapshot().signatureFailure === id) {
+    // A refused save, or one that stored nothing, as when authentication is cancelled.
+    if (!focused.current && stored(chosen) !== stored(storedNow())) {
       show(storedNow() ?? emptyDocument);
     }
   };

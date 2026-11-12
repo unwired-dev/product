@@ -2791,6 +2791,13 @@ describe('mac windows of different Mail Profiles', () => {
         signatures(),
       );
 
+      // A save that stores nothing, as when authentication is cancelled, shows the stored one.
+      jest.spyOn(store, 'chooseSignature').mockResolvedValueOnce(undefined);
+      await type('Cancelled');
+      await leave();
+      expect(within(editor()).getByText('Alex')).toBeVisible();
+      expect(within(editor()).queryByText('Cancelled')).toBeNull();
+
       // A refused edit keeps the stored signature, shows it again and says so.
       sync.offline = true;
       await type('Offline');
