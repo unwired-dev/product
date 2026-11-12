@@ -104,6 +104,7 @@ RCT_EXTERN_METHOD(fetchRemoteContent:(NSDictionary *)mailbox url:(NSString *)url
 RCT_EXTERN_METHOD(cancelRemoteContent:(NSDictionary *)mailbox session:(NSString *)session finished:(BOOL)finished resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitRemoteContent:(NSDictionary *)mailbox resource:(NSDictionary *)resource admission:(NSDictionary *)admission resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(clearRemoteContent:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(requestUnsubscribe:(NSString *)url resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(remoteContentSettings:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setRemoteContentSettings:(NSString *)settings resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(notificationSettings:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

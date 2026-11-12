@@ -1,8 +1,16 @@
 // A received message's standards-based unsubscribe mechanism (ADR 0044), read only from its list
 // headers, never from body prose. Nothing here leaves the device.
 
+import * as Effect from 'effect/Effect';
+import * as Schema from 'effect/Schema';
+
 import type { BodyDocument } from './message-body.ts';
 
+import {
+  decodeDiagnostic,
+  rejectionDiagnostic,
+  runLogged,
+} from './diagnostics.ts';
 import { withoutComments } from './message-body.ts';
 
 // What a message offers for leaving its mailing list: an RFC 8058 one-click HTTPS request, or else
@@ -145,3 +153,40 @@ export function unsubscribeOf(
   }
   return undefined;
 }
+
+// How a one-click request ended: the server accepted it, nothing was sent or the server refused
+// it, or it may have arrived without a usable answer.
+const Outcome = Schema.Literals(['sent', 'failed', 'uncertain']);
+export type UnsubscribeOutcome = typeof Outcome.Type;
+
+const decodeAnswer = Schema.decodeUnknownEffect(
+  Schema.Struct({ outcome: Outcome }),
+);
+
+export interface NativeUnsubscribe {
+  // Sends an RFC 8058 one-click request once over the isolated native path (ADR 0044) and
+  // resolves `{ outcome }`.
+  readonly requestUnsubscribe: (url: string) => Promise<unknown>;
+}
+
+// Sends a one-click offer's request once; it is never retried automatically. A rejected or
+// malformed native answer may follow a request that reached the server, so it is uncertain.
+export const requestUnsubscribe = (
+  native: NativeUnsubscribe,
+  offer: Extract<UnsubscribeOffer, { kind: 'one-click' }>,
+): Promise<UnsubscribeOutcome> =>
+  runLogged(
+    Effect.tryPromise({
+      try: () => native.requestUnsubscribe(offer.url),
+      catch: rejectionDiagnostic,
+    }).pipe(
+      Effect.flatMap((answer) =>
+        decodeAnswer(answer).pipe(Effect.mapError(decodeDiagnostic)),
+      ),
+      Effect.map(({ outcome }) => outcome),
+      Effect.tapError((diagnostic) =>
+        Effect.logError('Unsubscribe request ended unusably:', diagnostic),
+      ),
+      Effect.orElseSucceed(() => 'uncertain' as const),
+    ),
+  );

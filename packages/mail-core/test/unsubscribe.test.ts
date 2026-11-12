@@ -7,7 +7,10 @@ import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
-import { unsubscribeOf } from '@private-email/mail-core/unsubscribe';
+import {
+  requestUnsubscribe,
+  unsubscribeOf,
+} from '@private-email/mail-core/unsubscribe';
 
 import { present } from './draft-sync-fixture.ts';
 
@@ -217,5 +220,43 @@ describe('unsubscribe offers', () => {
       'team@club.example',
     );
     expect(listOf({})).toBeUndefined();
+  });
+});
+
+describe('one-click unsubscribe requests', () => {
+  it('reports the native outcome, and uncertain when the answer is unusable', async () => {
+    expect.hasAssertions();
+    const urls: string[] = [];
+    const native = (answer: () => Promise<unknown>) => ({
+      requestUnsubscribe: (url: string) => {
+        urls.push(url);
+        return answer();
+      },
+    });
+    const send = (answer: () => Promise<unknown>) =>
+      requestUnsubscribe(native(answer), {
+        kind: 'one-click',
+        list: 'Alza.cz newsletter',
+        url: 'https://alza.example/u/42',
+      });
+
+    for (const outcome of ['sent', 'failed', 'uncertain']) {
+      await expect(send(async () => ({ outcome }))).resolves.toBe(outcome);
+    }
+    // The request may have arrived before the bridge failed, so neither counts as failed.
+    await expect(
+      send(async () => {
+        throw Object.assign(new Error('https://alza.example/u/42'), {
+          code: 'unavailable',
+        });
+      }),
+    ).resolves.toBe('uncertain');
+    await expect(send(async () => ({ outcome: 'accepted' }))).resolves.toBe(
+      'uncertain',
+    );
+    // One request per call: nothing is retried.
+    expect(urls).toStrictEqual(
+      Array.from({ length: 5 }, () => 'https://alza.example/u/42'),
+    );
   });
 });
