@@ -2737,9 +2737,13 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
   });
 
-  it.each(['compact', 'regular'] as const)(
+  // iPhone's submenu carries the heading as its title; iPad's menu starts with it.
+  it.each([
+    ['compact', []],
+    ['regular', [['Insert Template', undefined, true]]],
+  ] as const)(
     'inserts a template of the Draft’s Profile at the caret as one Undo step on %s',
-    async (size) => {
+    async (size, heading) => {
       expect.hasAssertions();
       const lease = {
         id: 'lease',
@@ -2769,16 +2773,17 @@ describe('composing Drafts', () => {
           await store.save('work', { ...lease, id: 'work', name: 'Work' });
         },
       );
-      // Only the Draft's Profile's templates are offered, each with its subject. iPhone's submenu
-      // carries the heading as its title; iPad's menu starts with it.
-      const offered = [
-        ['Lease confirmation', 'Subject: Lease signing on Thursday', undefined],
-        ['Shipping address', 'No subject · body only', undefined],
-      ];
+      // Only the Draft's Profile's templates are offered, each with its subject.
       expect(templateGroups()).toStrictEqual([
-        size === 'regular'
-          ? [['Insert Template', undefined, true], ...offered]
-          : offered,
+        [
+          ...heading,
+          [
+            'Lease confirmation',
+            'Subject: Lease signing on Thursday',
+            undefined,
+          ],
+          ['Shipping address', 'No subject · body only', undefined],
+        ],
         [['New Template from This Message…', undefined, undefined]],
       ]);
       await chooseTemplateItem('Lease confirmation');

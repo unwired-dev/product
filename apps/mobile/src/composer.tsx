@@ -4,7 +4,6 @@ import type {
   NativeAssistance,
   TextTool,
 } from '@private-email/mail-core/assistance';
-import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type {
   AssetPreview,
   Draft,
@@ -1977,10 +1976,10 @@ const templateId = () => {
   return id.slice(0, 24);
 };
 
-// The Templates menu's sections: the Mail Profile's templates for the Draft from `connection`, read
-// when the composer opens and after it saves one, then saving the Draft as `getDraft` gives it, when
+// The Templates menu's items: the Mail Profile's templates for the Draft from `connection`, read
+// when the composer opens and after it saves one, and saving the Draft as `getDraft` gives it, when
 // chosen, as a new template under the name asked for. The Draft itself does not change.
-function useTemplateSections({
+function useTemplateItems({
   connection,
   getDraft,
   onInsert,
@@ -1988,7 +1987,7 @@ function useTemplateSections({
   readonly connection: string;
   readonly getDraft: () => Draft;
   readonly onInsert: (template: StoredMailTemplate) => void;
-}): MenuSection[] {
+}) {
   const { t } = useLocalization();
   const store = useMailTemplates();
   const profile = profileOf(connection, use(AccountContext)?.mailboxes ?? []);
@@ -2071,34 +2070,28 @@ function useTemplateSections({
       'plain-text',
     );
   };
-  return [
-    {
-      items: (templates?.profile === profile ? templates.list : []).map(
-        (template) => ({
-          key: `template-${template.id}`,
-          title: template.name,
-          symbol: 'doc.on.doc',
-          subtitle:
-            template.subject === ''
-              ? t('drafts.templates.bodyOnly')
-              : t('drafts.templates.subject', { subject: template.subject }),
-          run: () => {
-            onInsert(template);
-          },
-        }),
-      ),
-    },
-    {
-      items: [
-        {
-          key: 'new-template',
-          title: t('drafts.templates.newFromMessage'),
-          symbol: 'plus',
-          run: save,
+  return {
+    templates: (templates?.profile === profile ? templates.list : []).map(
+      (template) => ({
+        key: `template-${template.id}`,
+        title: template.name,
+        symbol: 'doc.on.doc',
+        subtitle:
+          template.subject === ''
+            ? t('drafts.templates.bodyOnly')
+            : t('drafts.templates.subject', { subject: template.subject }),
+        run: () => {
+          onInsert(template);
         },
-      ],
+      }),
+    ),
+    save: {
+      key: 'new-template',
+      title: t('drafts.templates.newFromMessage'),
+      symbol: 'plus',
+      run: save,
     },
-  ];
+  };
 }
 
 // The Link Editor and Generate a Draft's prompt, kept above the composer's layouts so an open one
@@ -3030,7 +3023,7 @@ function Editor({
       }}
     />
   );
-  const templates = useTemplateSections({
+  const templates = useTemplateItems({
     connection: draft.connection,
     getDraft,
     onInsert: insertTemplate,
@@ -3094,10 +3087,10 @@ function Editor({
                 disabled: true,
                 run: () => undefined,
               },
-              ...(templates[0]?.items ?? []),
+              ...templates.templates,
             ],
           },
-          ...templates.slice(1),
+          { items: [templates.save] },
         ]}
         style={styles.menuControl}>
         <SFSymbol
@@ -3143,7 +3136,10 @@ function Editor({
                 {
                   title: t('drafts.assets.insertTemplate'),
                   symbol: 'doc.on.doc',
-                  sections: templates,
+                  sections: [
+                    { items: templates.templates },
+                    { items: [templates.save] },
+                  ],
                 },
               ],
             },
