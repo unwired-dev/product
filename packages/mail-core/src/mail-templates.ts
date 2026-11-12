@@ -128,20 +128,21 @@ export function createMailTemplates(
   registration: Pick<Registration, 'getSnapshot'>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The templates of `account`, the Product Account signed in when the action was called, so an
-  // action that waited while another account signed in reads and writes nothing of it.
+  // action that waited, or whose read finished, while another account signed in reads and writes
+  // nothing of it.
   const opened = (account: string | undefined) =>
     Effect.gen(function* () {
       const { owner, revision, document } = yield* native(
         storage.openMailTemplates,
         OpenedSchema,
       );
-      if (owner !== account) {
+      if (owner !== account || signedIn() !== account) {
         return yield* ownerMismatch();
       }
       return { owner, revision, templates: document?.templates ?? [] };
     });
-  const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
 
   // Stores what `change` makes of the stored templates. It refuses with undefined, and returning
   // them unchanged writes nothing. Resolves whether storage holds the result.

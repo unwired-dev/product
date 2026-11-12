@@ -384,14 +384,16 @@ public final class PrivateInboxStore: @unchecked Sendable {
     -> Int
   {
     try transaction {
-      guard document.utf8.count <= Self.outgoingContentLimit else {
-        throw PrivateInboxError.unavailable
-      }
       let stored = try readOwned("mail-templates.enc", authenticating: mailTemplatesAssociatedData)
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
+      let plaintext = try JSONEncoder().encode(next)
+      // Escaping counts, with the AES-GCM nonce and tag.
+      guard plaintext.count + 28 <= Self.outgoingContentLimit else {
+        throw PrivateInboxError.unavailable
+      }
       try write(
-        JSONEncoder().encode(next), file: "mail-templates.enc",
+        plaintext, file: "mail-templates.enc",
         key: try writingKey(replacing: stored != nil), authenticating: mailTemplatesAssociatedData)
       return next.revision
     }

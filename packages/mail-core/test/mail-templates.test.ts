@@ -163,18 +163,24 @@ const storage = () => {
     commits: number;
     // Runs before the next commit, as another writer would.
     before?: () => void;
+    // Holds the next read's reply, as a slow native read would.
+    reading?: Promise<undefined>;
   } = { account: 'account-1', locked: false, revision: 0, commits: 0 };
   const refuse = (code: string) =>
     Promise.reject(Object.assign(new Error(code), { code }));
   const native: NativeMailTemplates = {
-    openMailTemplates: () =>
-      state.locked
-        ? refuse('locked')
-        : Promise.resolve({
-            owner: state.account,
-            revision: state.revision,
-            document: state.owner === state.account ? state.document : null,
-          }),
+    openMailTemplates: async () => {
+      if (state.locked) {
+        return refuse('locked');
+      }
+      const reply = {
+        owner: state.account,
+        revision: state.revision,
+        document: state.owner === state.account ? state.document : null,
+      };
+      await state.reading;
+      return reply;
+    },
     commitMailTemplates: (owner, expectedRevision, document) => {
       state.before?.();
       state.before = undefined;
@@ -330,6 +336,19 @@ describe('stored Mail Templates', () => {
     ]);
     expect(state.commits).toBe(0);
     await expect(store.templates('work')).resolves.toStrictEqual([]);
+  });
+
+  it("returns none of an account's templates read while another signed in", async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { state, store } = storage();
+    await store.save('work', invoice);
+    const { promise, resolve } = Promise.withResolvers<undefined>();
+    state.reading = promise;
+    const listed = store.templates('work');
+    state.account = 'account-2';
+    resolve(undefined);
+    await expect(listed).resolves.toBeUndefined();
   });
 
   it('lists nothing from a document that does not decode', async () => {

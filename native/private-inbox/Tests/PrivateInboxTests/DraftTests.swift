@@ -360,6 +360,12 @@ struct DraftTests {
     #expect(throws: PrivateInboxError.locked) {
       _ = try locked.commitMailTemplateDocument(owner: owner, expectedRevision: 1, document: "{}")
     }
+    // Escaping counts: a document under the limit whose encrypted file would exceed it is refused.
+    #expect(throws: PrivateInboxError.unavailable) {
+      _ = try relaunched.commitMailTemplateDocument(
+        owner: owner, expectedRevision: 1,
+        document: String(repeating: "\"", count: PrivateInboxStore.outgoingContentLimit / 2 + 1))
+    }
 
     // A damaged file, or the Drafts document served in its place, does not open.
     var damaged = ciphertext

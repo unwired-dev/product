@@ -514,8 +514,10 @@ The account's **Mail Templates**
 ([#2035](https://github.com/unwired-dev/product/issues/2035)) are kept like its
 Drafts: one document, encrypted with the same device-only key and sealed apart from
 the Drafts document, naming the Product Account that wrote it and replaced only
-from the revision the caller read. Another account reads none, and every account
-purge removes it. They are not synchronized yet.
+from the revision the caller read. Native storage treats the document as opaque:
+it checks only the account, the revision and the size limit. TypeScript decodes
+it and checks each template and the Profile that owns it. Another account reads
+none, and every account purge removes it. They are not synchronized yet.
 
 Picked files on iPhone and iPad are protected temporary copies removed after
 successful or failed import, an abandoned picker result, or the next launch.
