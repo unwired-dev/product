@@ -1995,6 +1995,111 @@ const templateId = () => {
   return id.slice(0, 24);
 };
 
+// The format bar's Templates control: the Mail Profile's templates for the Draft from `connection`,
+// read when it opens and after it saves one, and saving the Draft as `getDraft` gives it, when
+// chosen, as a new template under the name asked for. The Draft itself does not change.
+function DraftTemplates({
+  connection,
+  disabled,
+  getDraft,
+  onInsert,
+}: {
+  readonly connection: string;
+  readonly disabled: boolean;
+  readonly getDraft: () => Draft;
+  readonly onInsert: (template: StoredMailTemplate) => void;
+}) {
+  const { t } = useLocalization();
+  const store = useMailTemplates();
+  const profile = profileOf(connection, use(AccountContext)?.mailboxes ?? []);
+  const [templates, setTemplates] = useState<{
+    readonly profile: string;
+    readonly list: readonly StoredMailTemplate[];
+  }>();
+  // Only the latest read shows, and none once unmounted.
+  const reads = useRef(0);
+  const anchor = useRef<View>(null);
+  const question = useRef<{ readonly retire: () => void }>(undefined);
+  useLayoutEffect(
+    () => () => {
+      reads.current += 1;
+      question.current?.retire();
+    },
+    [],
+  );
+  const read = useCallback(
+    async (owner: string) => {
+      reads.current += 1;
+      const at = reads.current;
+      const list = await store.templates(owner).catch(() => undefined);
+      if (at === reads.current && list !== undefined) {
+        setTemplates({ profile: owner, list });
+      }
+    },
+    [store],
+  );
+  useEffect(() => {
+    void read(profile);
+  }, [read, profile]);
+  const notSaved = (detail: string) => {
+    question.current = askInSheet(anchor.current, {
+      title: t('drafts.templates.notSaved'),
+      detail,
+      buttons: [t('common.ok')],
+    });
+  };
+  const save = async () => {
+    const { subject, body } = getDraft();
+    const owner = profile;
+    question.current?.retire();
+    if (imagesOf(body).length > 0) {
+      notSaved(t('drafts.templates.hasImages'));
+      return;
+    }
+    const naming = askForText(anchor.current, {
+      title: t('drafts.templates.nameTitle'),
+      detail: t('drafts.templates.nameDetail'),
+      buttons: [t('drafts.templates.save'), t('common.cancel')],
+      field: t('drafts.templates.name'),
+    });
+    question.current = naming;
+    const choice = await naming.answer;
+    if (choice?.index !== 0) {
+      return;
+    }
+    const name = choice.text.trim();
+    if (name === '') {
+      notSaved(t('drafts.templates.needsName'));
+      return;
+    }
+    const saved = await store
+      .save(owner, { id: templateId(), name, subject, body })
+      .catch(() => false);
+    if (anchor.current === null) {
+      return;
+    }
+    if (saved) {
+      void read(owner);
+    } else {
+      notSaved(t('drafts.templates.notSavedDetail'));
+    }
+  };
+  return (
+    <View
+      ref={anchor}
+      collapsable={false}>
+      <TemplatesMenu
+        disabled={disabled}
+        templates={templates?.profile === profile ? templates.list : []}
+        onInsert={onInsert}
+        onSave={() => {
+          void save();
+        }}
+      />
+    </View>
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -2476,99 +2581,20 @@ function Editor({
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
   };
-  // The Draft's Mail Profile's templates, read again after this editor saves one.
-  const mailTemplates = useMailTemplates();
-  const account = use(AccountContext);
-  const templateProfile = profileOf(
-    history.present.connection,
-    account?.mailboxes ?? [],
-  );
-  const [templates, setTemplates] = useState<{
-    readonly profile: string;
-    readonly list: readonly StoredMailTemplate[];
-  }>();
-  const [templatesSaved, setTemplatesSaved] = useState(0);
-  useEffect(() => {
-    let current = true;
-    const read = async () => {
-      const list = await mailTemplates
-        .templates(templateProfile)
-        .catch(() => undefined);
-      if (current && list !== undefined) {
-        setTemplates({ profile: templateProfile, list });
-      }
-    };
-    void read();
-    return () => {
-      current = false;
-    };
-  }, [mailTemplates, templateProfile, templatesSaved]);
   const insertTemplate = (template: MailTemplate) => {
     if (pausedNow.current) {
       return;
     }
     const latest = authored.current;
-    const { subject, edit } = applyTemplate(
-      latest,
-      selectionNow.current,
-      template,
-    );
-    change({ ...latest, subject, body: edit.document });
+    const applied = applyTemplate(latest, selectionNow.current, template);
+    change({
+      ...latest,
+      subject: applied.subject,
+      body: applied.edit.document,
+    });
     placeTyping(undefined);
-    selectionNow.current = edit.selection ?? selectionNow.current;
-    setPlaced(edit.selection);
-  };
-  // Saves the Draft's subject and body, as they are when chosen, as a new template under the name
-  // asked for; the Draft itself does not change.
-  const templateQuestion = useRef<{ readonly retire: () => void }>(undefined);
-  useLayoutEffect(
-    () => () => {
-      templateQuestion.current?.retire();
-    },
-    [],
-  );
-  const templateNotSaved = (detail: string) => {
-    templateQuestion.current = askInSheet(root.current, {
-      title: t('drafts.templates.notSaved'),
-      detail,
-      buttons: [t('common.ok')],
-    });
-  };
-  const saveTemplate = async () => {
-    const { subject, body } = authored.current;
-    const profile = templateProfile;
-    templateQuestion.current?.retire();
-    if (imagesOf(body).length > 0) {
-      templateNotSaved(t('drafts.templates.hasImages'));
-      return;
-    }
-    const question = askForText(root.current, {
-      title: t('drafts.templates.nameTitle'),
-      detail: t('drafts.templates.nameDetail'),
-      buttons: [t('drafts.templates.save'), t('common.cancel')],
-      field: t('drafts.templates.name'),
-    });
-    templateQuestion.current = question;
-    const choice = await question.answer;
-    if (choice?.index !== 0 || !lifetime.current.mounted) {
-      return;
-    }
-    const name = choice.text.trim();
-    if (name === '') {
-      templateNotSaved(t('drafts.templates.needsName'));
-      return;
-    }
-    const saved = await mailTemplates
-      .save(profile, { id: templateId(), name, subject, body })
-      .catch(() => false);
-    if (!lifetime.current.mounted) {
-      return;
-    }
-    if (saved) {
-      setTemplatesSaved((count) => count + 1);
-    } else {
-      templateNotSaved(t('drafts.templates.notSavedDetail'));
-    }
+    selectionNow.current = applied.edit.selection ?? selectionNow.current;
+    setPlaced(applied.edit.selection);
   };
   // Entries still being typed become recipients as one undoable correction; invalid text stays
   // in its field. Returns the finished Draft.
@@ -3096,17 +3122,13 @@ function Editor({
             void choose('photos', true);
           }}
         />
-        <TemplatesMenu
+        <DraftTemplates
+          connection={draft.connection}
           disabled={paused}
-          templates={
-            templates?.profile === templateProfile ? templates.list : []
-          }
+          getDraft={getDraft}
           onInsert={(template) => {
             fromControl();
             insertTemplate(template);
-          }}
-          onSave={() => {
-            void saveTemplate();
           }}
         />
       </FormatBar>

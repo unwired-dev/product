@@ -89,7 +89,7 @@ export function InboxProvider({
   readonly children: ReactNode;
   readonly mailboxes?: MailboxList;
   readonly drafts?: Drafts;
-  readonly mailTemplates?: MailTemplates;
+  readonly mailTemplates?: MailTemplates | undefined;
   // Sends the Drafts admitted to `drafts`' Outbox.
   readonly outbox?: Outbox;
 }) {
