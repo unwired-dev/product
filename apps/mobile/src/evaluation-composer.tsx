@@ -16,6 +16,7 @@ import { editorPage } from '@private-email/draft-editor/page';
 import {
   captureDraftText,
   draftReplacement,
+  isTextTool,
   sameDraftAssistanceSource,
 } from '@private-email/mail-core/assistance';
 import {
@@ -352,6 +353,10 @@ function EvaluationEditor({
     };
     captureNow.current = next;
     setCaptured(next);
+    // On iPad a text tool's review takes the whole window, as Expand does.
+    if (isTextTool(purpose) && !expanded) {
+      onExpand?.();
+    }
     // The software keyboard would cover the review panel; the page keeps its selection.
     run({ type: 'blur' });
   };

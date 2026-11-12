@@ -35,6 +35,12 @@ results for changed details on Mac, and on iPhone and iPad.
   text into paragraphs; **Expand Text** and **Shorten Text** change its length;
   the tone tools change only its tone. The `registration-draft-editor` evaluation
   editor still offers only **Rewrite** on iPhone and iPad.
+- On regular-width iPad, choosing a text tool takes the composer over the whole
+  window, as **Expand** does, so its progress, review and outcome show full screen
+  without dimming; **Collapse** returns it
+  ([#2052](https://github.com/unwired-dev/product/issues/2052)). The iPhone
+  composer already fills the window. Translate, Suggest reply and Generate a Draft
+  keep the composer as it is.
 - **Generate a Draft…** needs no text, so it is enabled whenever the menu is. It
   opens a prompt field and **Generate**, which is disabled while the prompt is
   blank; Return also generates. On Mac and iPad the prompt is a popover below the

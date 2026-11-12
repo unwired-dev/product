@@ -2077,7 +2077,7 @@ function useTemplateItems({
         title: template.name,
         symbol: 'doc.on.doc',
         subtitle:
-          template.subject === ''
+          template.subject.trim() === ''
             ? t('drafts.templates.bodyOnly')
             : t('drafts.templates.subject', { subject: template.subject }),
         run: () => {
@@ -2835,6 +2835,10 @@ function Editor({
     captureNow.current = next;
     setCaptured(next);
     setDropped(undefined);
+    // On iPad a text tool's review takes the whole window, as Expand does.
+    if (isTextTool(next.purpose) && !expanded) {
+      onExpand?.();
+    }
   };
   const rewrite = (tool: TextTool) => {
     const at = selectionNow.current;

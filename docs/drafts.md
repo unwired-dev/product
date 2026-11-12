@@ -66,7 +66,8 @@ transport and known native exit gaps.
   **Reply All** or **Forward**, with Expand and Discard in its header and From and
   **Send** beneath its fields. A docked iPad software keyboard raises either above
   it. On iPad, **Expand** takes the composer over the whole window with the same
-  Draft and **Collapse** returns it. On the Mac, the overlay
+  Draft and **Collapse** returns it; a Writing tools text tool expands it the same
+  way ([Draft rewrites](draft-assistance.md#behavior)). On the Mac, the overlay
   stays beneath the window's [command bar](command-palette.md#entry-points), and
   **Expand** saves the Draft, then moves it into its own **New Message** window and
   closes the overlay; there is no way back into the Inbox window. A failed save
@@ -380,7 +381,7 @@ another Profile owns is never replaced or removed. Each call acts for the Produc
 Account signed in when it was made. A write storage refuses, as while locked,
 after another account signed in or from a revision another write moved on,
 changes nothing and resolves `false`; a listing storage cannot read resolves
-`undefined`. The Mac composer's Templates control follows in a later #850 slice.
+`undefined`.
 
 Templates synchronize with the account's other Trusted Devices through Private Sync
 ([#2043](https://github.com/unwired-dev/product/issues/2043)), one sealed record per
@@ -404,6 +405,16 @@ within that limit; a template stored earlier with a longer identifier stays pend
 on this device. Every write carries a version above any earlier write of the same
 template that may still land, and each such write is remembered until a newer record
 is known, so an edit that lands late is never taken for another device's.
+
+The Mac composer's format bar ends with the Templates pull-down
+([#2045](https://github.com/unwired-dev/product/issues/2045)). Under its Insert
+Template heading it lists the Draft's Mail Profile's templates, never another
+Profile's, each with its subject or "No subject · body only". Choosing one applies
+it by the rules above. New Template from This Message… asks for a name in a sheet
+and saves the Draft's subject and body, without recipients or files, as a new
+template of the Draft's Profile; the Draft does not change. A blank name, a body
+with an Inline Image or a write storage refuses saves nothing, and a sheet says
+why. The composer reads the templates when it opens and after it saves one.
 
 On iPhone the Add files menu ends with Insert Template…, and on iPad the format
 bar ends with the Templates button

@@ -253,6 +253,7 @@ function App({
   composeFrom = 'inbox',
   nativeToolbar = false,
   mailTemplates,
+  expandable = false,
 }: {
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
@@ -265,6 +266,8 @@ function App({
   readonly composeFrom?: 'inbox' | 'mailboxes' | 'both';
   readonly nativeToolbar?: boolean;
   readonly mailTemplates?: ReturnType<typeof createMailTemplates>;
+  // Offers the window-level Expand, as a regular-width iPad window does.
+  readonly expandable?: boolean;
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -286,6 +289,7 @@ function App({
     [registration, providedMailboxes],
   );
   const [composing, setComposing] = useState<string | undefined>(initialDraft);
+  const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<Selection>();
   const [view, setView] = useState<MailboxView>({});
   const compose = (id: string) => {
@@ -328,6 +332,14 @@ function App({
             {composing === undefined ? null : (
               <DraftComposer
                 id={composing}
+                expanded={expanded}
+                onExpand={
+                  expandable
+                    ? () => {
+                        setExpanded((current) => !current);
+                      }
+                    : undefined
+                }
                 onClose={() => {
                   setComposing(undefined);
                 }}
@@ -4687,6 +4699,60 @@ describe('composing Drafts', () => {
       }
     },
   );
+
+  it('opens a text tool review over the whole iPad window, which Collapse returns', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked } = scriptedDraftAssistance();
+    await render(
+      <ComposerLayoutContext
+        value={{ size: 'regular', avoidKeyboard: true, top: 0 }}>
+        <AssistanceContext value={native}>
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            registration={registration}
+            expandable
+          />
+        </AssistanceContext>
+      </ComposerLayoutContext>,
+    );
+    await press('New Message');
+    const collapse = () => screen.queryByRole('button', { name: 'Collapse' });
+    // Generate a Draft keeps the floating composer.
+    await chooseWritingTool(
+      'Generate a draft from a description of what to write',
+    );
+    await fireEvent.changeText(
+      screen.getByLabelText('What to write'),
+      'thank Maya',
+    );
+    await press('Generate a draft from this description');
+    await screen.findByLabelText('Cancel writing help');
+    expect(collapse()).toBeNull();
+    await press('Cancel writing help');
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body'),
+      'lets meet friday',
+    );
+
+    // A text tool's progress and review take the whole window.
+    await chooseWritingTool('Rewrite the message body');
+    await screen.findByLabelText('Cancel writing help');
+    expect(collapse()).toBeOnTheScreen();
+    // Collapse returns the floating composer with the request still running.
+    await press('Collapse');
+    expect(collapse()).toBeNull();
+    asked.at(-1)?.answer.resolve('Let us meet on Friday.');
+    await screen.findByText('Let us meet on Friday.');
+    // The next text tool expands again, and one on an expanded composer keeps it expanded.
+    await press('Keep your text and close this suggestion');
+    await chooseWritingTool('Rewrite the message body');
+    expect(collapse()).toBeOnTheScreen();
+    await press('Cancel writing help');
+    await chooseWritingTool('Rewrite the message body');
+    expect(collapse()).toBeOnTheScreen();
+  });
 
   it.each([
     ['compact', 'bottom-sheet'],

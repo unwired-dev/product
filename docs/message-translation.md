@@ -13,23 +13,24 @@ fallback and nothing is downloaded by the app.
 
 - The reader shows **Translate** once the message body is on this device, next to
   **Summarize**. Opening a message never translates it.
-- Choosing **Translate** lists the target languages the device's Translation
-  supports. Nothing runs until the person picks one; picking another language
-  replaces the pending or shown translation. On Mac, **Translate** is a native
-  pull-down menu headed **Translate Into**; while a translation shows, it becomes a
-  pop-up naming the target, with the chosen language checked. The menu reads the
-  language list once assistance is on, so it can open with it; no mail text is sent
-  until a language is chosen. On iPhone and iPad the translation panel shows a
-  native pop-up, **Translate into**, that opens a system menu of the languages;
-  opening it chooses nothing, and once a language is chosen it reads
-  **Translate into** that language, with the language checked in the menu.
+- **Translate** is a split control: **Translate** and a language arrow
+  ([#2050](https://github.com/unwired-dev/product/issues/2050)). **Translate**
+  translates the message into the app language in one click. The arrow opens a
+  menu of the other target languages the device's Translation supports, without
+  the app language; choosing one translates into it, and the arrow side then names
+  that language, checked in the menu. Picking another language replaces the
+  pending or shown translation. Opening the menu chooses nothing, and no mail text
+  is sent until **Translate** or a language is chosen. On Mac the control sits in
+  the reader header and the menu reads the language list once assistance is on, so
+  it can open with it. On iPhone and iPad it sits in the translation panel and the
+  system menu opens from the arrow.
 - When the device's Translation fails to list its languages, the reader says
   **Translation languages couldn’t be loaded.** with **Try Again**, which asks the
   device again. On Mac this banner takes the place of **Translate** and stays
   visible with **Loading languages** and a small activity indicator while the
   device answers; a Draft's
   translation menu shows the failure followed by **Try Again**; on iPhone and iPad it
-  takes the place of the language pop-up in the translation panel. VoiceOver hears
+  takes the place of the language arrow in the translation panel. VoiceOver hears
   a failure that follows the person's action: opening the panel on iPhone and iPad,
   or **Try Again**. A device that lists no languages instead says **Translation is
   not available on this device.**, without **Try Again**.
