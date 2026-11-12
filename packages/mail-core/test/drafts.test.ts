@@ -3400,6 +3400,24 @@ describe('keeping composer recovery records', () => {
     await expect(drafts.recovered()).resolves.toStrictEqual([latest]);
   });
 
+  it('omits a record stored under another Draft id', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    storage.release();
+    await saving;
+    await drafts.journal(draft);
+    const { owner, document } = present(
+      storage.recoveryRecords().get(draft.id),
+      'the record',
+    );
+
+    await storage.native.writeComposerRecovery(owner, 'another-draft', {
+      document,
+      assets: [],
+    });
+    await expect(drafts.recovered()).resolves.toStrictEqual([draft]);
+  });
+
   it('removes the older record for a forget whose later journal storage refused', async () => {
     expect.hasAssertions();
     const { storage, drafts, draft, saving } = await savingDraft();
