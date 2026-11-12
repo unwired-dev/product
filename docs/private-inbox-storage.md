@@ -540,6 +540,14 @@ and are published by compare-and-set
 ([#2043](https://github.com/unwired-dev/product/issues/2043)); see the
 [Draft guide](drafts.md).
 
+The account's **Blocked Senders**
+([#2062](https://github.com/unwired-dev/product/issues/2062)) are kept like its
+Mail Templates, in their own sealed document that the Drafts and Mail Templates
+documents do not open as. TypeScript decodes each Blocked Sender and the Profile
+that owns it; another account reads none, and every account purge removes the
+document. They are not synchronized or enforced yet; see
+[Mute and blocked senders](architecture/product/organization.md#mute-and-blocked-senders).
+
 Picked files on iPhone and iPad are protected temporary copies removed after
 successful or failed import, an abandoned picker result, or the next launch.
 Cleanup recognizes only the picker-owned UUID folder beneath its exact temporary

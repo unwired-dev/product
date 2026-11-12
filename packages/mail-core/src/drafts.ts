@@ -128,7 +128,7 @@ const recoveredDraft = Schema.decodeUnknownOption(RecoveryRecordSchema);
 // Recipients ------------------------------------------------------------------------------------
 
 // A pragmatic addr-spec: one @, a dotted domain, and no spaces, quotes, brackets or separators.
-const addressPattern =
+export const addressPattern =
   /^[^\s@<>()[\]\\,;:"]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]{2,}$/u;
 // A quoted or plain display name, then the address in angle brackets.
 const named =

@@ -8,6 +8,7 @@ import { english } from '@private-email/localization';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
+import type { NativeBlockedSenders } from './blocked-senders.ts';
 import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
 import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
@@ -21,6 +22,7 @@ import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
 
+import { createBlockedSenders } from './blocked-senders.ts';
 import { rejectionCode } from './diagnostics.ts';
 import { createDrafts } from './drafts.ts';
 import { createErrorReporting } from './error-reporting.ts';
@@ -68,6 +70,7 @@ export interface NativeHostModule
     NativeDraftSync,
     NativeMailTemplates,
     NativeMailTemplateSync,
+    NativeBlockedSenders,
     NativeDeliveryClaim,
     NativeWakes,
     NativeRemoteContent,
@@ -448,6 +451,16 @@ export function createHost(
     },
   );
 
+  // Each Mail Profile's Blocked Senders, stored encrypted on this device.
+  const blockedSenders = createBlockedSenders(
+    {
+      openBlockedSenders: () => native().openBlockedSenders(),
+      commitBlockedSenders: (owner, expectedRevision, document) =>
+        native().commitBlockedSenders(owner, expectedRevision, document),
+    },
+    registration,
+  );
+
   // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no
   // other Trusted Device sends the same Draft, and is handed to Gmail once.
   const outbox = createOutbox({
@@ -479,6 +492,7 @@ export function createHost(
     gmailMailboxes,
     drafts,
     mailTemplates,
+    blockedSenders,
     outbox,
     wakes,
     freshness,
