@@ -191,8 +191,8 @@ const BodyDocumentSchema = Schema.Struct({
   ),
   // The decoded iCalendar text of a Gmail meeting invitation, for responding to it.
   calendar: Schema.optionalKey(Schema.String),
-  // The message's own addressing and threading headers, for Reply, Reply All and Forward; absent
-  // in bodies cached before they were kept.
+  // The message's own addressing and threading headers, for Reply, Reply All and Forward, and its
+  // list headers, for Unsubscribe; absent in bodies cached before they were kept.
   headers: Schema.optionalKey(
     Schema.Struct({
       from: Schema.optionalKey(Schema.String),
@@ -203,6 +203,9 @@ const BodyDocumentSchema = Schema.Struct({
       messageId: Schema.optionalKey(Schema.String),
       inReplyTo: Schema.optionalKey(Schema.String),
       references: Schema.optionalKey(Schema.String),
+      listId: Schema.optionalKey(Schema.String),
+      listUnsubscribe: Schema.optionalKey(Schema.String),
+      listUnsubscribePost: Schema.optionalKey(Schema.String),
     }),
   ),
 });
@@ -225,7 +228,8 @@ export const header = (part: GmailPart, name: string) =>
 // Sender-controlled header text kept for a response; recipient parsing is linear in it.
 const responseHeaderLimit = 64 * 1024;
 
-// A message's top-level headers that Reply, Reply All and Forward read; each present one is kept.
+// A message's top-level headers that Reply, Reply All, Forward and Unsubscribe read; each present
+// one is kept.
 export const responseHeadersOf = (
   payload: GmailPart,
 ): NonNullable<BodyDocument['headers']> => {
@@ -238,6 +242,9 @@ export const responseHeadersOf = (
     messageId: 'message-id',
     inReplyTo: 'in-reply-to',
     references: 'references',
+    listId: 'list-id',
+    listUnsubscribe: 'list-unsubscribe',
+    listUnsubscribePost: 'list-unsubscribe-post',
   } as const;
   const headers: Record<string, string> = {};
   for (const [key, name] of Object.entries(names)) {
