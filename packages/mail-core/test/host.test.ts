@@ -131,6 +131,9 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
     commitMailTemplates: (owner, expectedRevision) =>
       Promise.resolve({ owner, revision: expectedRevision + 1 }),
+    pullMailTemplates: (owner) =>
+      Promise.resolve({ owner, records: [], unreadable: [] }),
+    pushMailTemplate: (owner) => Promise.resolve({ owner, committed: false }),
     notificationSettings: async () => {
       settingsGate.started?.();
       await settingsGate.held;

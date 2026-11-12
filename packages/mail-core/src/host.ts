@@ -11,7 +11,10 @@ import * as Schema from 'effect/Schema';
 import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
 import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
-import type { NativeMailTemplates } from './mail-templates.ts';
+import type {
+  NativeMailTemplateSync,
+  NativeMailTemplates,
+} from './mail-templates.ts';
 import type { NativeGmailMailboxes } from './mailboxes.ts';
 import type { NativeNotifications } from './notifications.ts';
 import type { NativeDeliveryClaim } from './outbox.ts';
@@ -64,6 +67,7 @@ export interface NativeHostModule
     NativeDrafts,
     NativeDraftSync,
     NativeMailTemplates,
+    NativeMailTemplateSync,
     NativeDeliveryClaim,
     NativeWakes,
     NativeRemoteContent,
@@ -423,7 +427,8 @@ export function createHost(
     },
   );
 
-  // Each Mail Profile's Mail Templates, stored encrypted on this device.
+  // Each Mail Profile's Mail Templates, stored encrypted on this device and synchronized through
+  // Product Sync with its other Trusted Devices.
   const mailTemplates = createMailTemplates(
     {
       openMailTemplates: () => native().openMailTemplates(),
@@ -431,6 +436,16 @@ export function createHost(
         native().commitMailTemplates(owner, expectedRevision, document),
     },
     registration,
+    {
+      removed,
+      adoptKeyRotation: () => registration.adoptKeyRotation(),
+      native: {
+        pullMailTemplates: (owner, known) =>
+          native().pullMailTemplates(owner, known),
+        pushMailTemplate: (owner, record) =>
+          native().pushMailTemplate(owner, record),
+      },
+    },
   );
 
   // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no

@@ -380,8 +380,30 @@ another Profile owns is never replaced or removed. Each call acts for the Produc
 Account signed in when it was made. A write storage refuses, as while locked,
 after another account signed in or from a revision another write moved on,
 changes nothing and resolves `false`; a listing storage cannot read resolves
-`undefined`. Synchronizing templates through Product Sync and the composers'
-Templates control follow in later #850 slices.
+`undefined`. The composers' Templates control follows in a later #850 slice.
+
+Templates synchronize with the account's other Trusted Devices through Private Sync
+([#2043](https://github.com/unwired-dev/product/issues/2043)), one sealed record per
+template as the [Private Sync guide](private-product-sync.md) describes. The local
+document stays what `templates` reads: each template keeps the record it was made
+from, and one that differs from it is pending until its write commits, which
+`templates` reports. Each saved change, and each mailbox screen opening or the app
+becoming active or going to the background, runs `synchronize`: it adopts other
+devices' templates, edits and removals for templates without a pending change, then
+writes each pending change by compare-and-set from its record. When another device
+changed the same template first, its version keeps the id and this device's edit
+stays as a conflict copy, a new template marked `conflict` that publishes like any
+other. An edit wins over a removal on either side. A record that does not open
+here, names another template or is older than the one already read changes
+nothing, and a write whose reply was lost is recognized when it is read back by
+the random write identifier sealed in its record. Like
+Draft synchronization, a pass that finds this device removed reports it, and one
+refused for an older key epoch adopts the newer epoch and passes again. `save`
+refuses a template identifier longer than 200 characters, and conflict copies stay
+within that limit; a template stored earlier with a longer identifier stays pending
+on this device. Every write carries a version above any earlier write of the same
+template that may still land, and each such write is remembered until a newer record
+is known, so an edit that lands late is never taken for another device's.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
