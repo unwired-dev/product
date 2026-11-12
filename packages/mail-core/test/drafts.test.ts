@@ -3399,4 +3399,29 @@ describe('keeping composer recovery records', () => {
     await expect(Promise.all(queued)).resolves.toStrictEqual([true, true]);
     await expect(drafts.recovered()).resolves.toStrictEqual([latest]);
   });
+
+  it('removes the older record for a forget whose later journal storage refused', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    storage.release();
+    await saving;
+    await drafts.journal({ ...draft, subject: 'Older' });
+    const later = { ...draft, subject: 'Later' };
+
+    storage.hold();
+    const resaving = drafts.update({ ...draft, subject: 'Saved again' }, draft);
+    storage.setLocked(true);
+    const forgetting = drafts.forget(draft.id);
+    const journaling = drafts.journal(later);
+    storage.release();
+    await expect(
+      Promise.all([resaving, forgetting, journaling]),
+    ).resolves.toStrictEqual([false, true, false]);
+    expect(storage.recoveryRecords().size).toBe(0);
+
+    // The refused record stays pending and lands with the next write once storage opens.
+    storage.setLocked(false);
+    await expect(drafts.journal(later)).resolves.toBe(true);
+    await expect(drafts.recovered()).resolves.toStrictEqual([later]);
+  });
 });

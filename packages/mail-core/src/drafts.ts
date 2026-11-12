@@ -2196,20 +2196,25 @@ export function createDrafts(
       ),
     );
 
-  // A journal called after this forget owns the record, even when its pass ran first.
-  const forgetting = (id: string, call: number) =>
+  // A journal called after this forget owns the record once storage holds it, even when its pass
+  // ran first; while it is pending, removing the older record leaves it for that journal to write.
+  const forgetting = (current: number, id: string, call: number) =>
     Effect.gen(function* () {
       const account = owner;
-      if (account === undefined) {
+      if (!live(current) || account === undefined) {
         return false;
       }
-      if (recordCalls.get(id) !== call) {
+      const latest = recordCalls.get(id) === call;
+      if (!latest && !unrecorded.has(id)) {
         return true;
       }
       yield* Effect.tryPromise({
         try: () => storage.removeComposerRecovery(account, id),
         catch: failureOf,
       });
+      if (latest) {
+        recordCalls.delete(id);
+      }
       return true;
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -2493,7 +2498,7 @@ export function createDrafts(
     // or a later `journal` took the record over.
     forget: (id: string) => {
       unrecorded.delete(id);
-      return runLogged(forgetting(id, callRecord(id)));
+      return runLogged(forgetting(generation, id, callRecord(id)));
     },
     // Merges Product Sync into this device's Drafts and publishes this device's changes;
     // resolves once no pass is running, rejecting unexpected defects to the caller.
