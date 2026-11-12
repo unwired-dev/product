@@ -669,7 +669,8 @@ The existing reviewed rich-rendering contract admits these passive elements:
 formatting and table reading order. Active or unsupported elements cannot become
 executable output. Remove scripts, event handlers, forms and their controls,
 frames, embedded objects, author metadata including refresh, `base`, SVG and
-MathML, external stylesheets and author `style` blocks.
+MathML, external stylesheets and author `style` blocks; only the responsive subset
+below survives, restated as app CSS.
 
 The passive attribute boundary is:
 
@@ -741,6 +742,19 @@ and values are checked. Remove `url()` values, `@import`, executable expressions
 external fonts, clipping and other unapproved declarations. Remove sender-defined
 foreground and background colors, including legacy color/background attributes.
 The app controls both colors together so stripped backgrounds cannot hide text.
+One exception keeps buttons recognizable: a `td` or `th` whose only content is one
+link without images keeps its opaque hex `background-color`, `background` or
+`bgcolor`, and the app paints the label black or white, whichever contrasts more,
+so it reaches at least 4.5:1. Gradients, images and other backgrounds stay removed.
+Author `style` blocks for screen contribute only `@media` rules whose queries are
+`max-width` in pixels and whose selectors are element names, classes or both. Their
+declarations pass the same property, value and bound checks as inline styles, minus
+`display` and `visibility`, so they never hide content, change colors, backgrounds
+or position. The sanitizer resolves the cascade itself, for at most 256 rules and the
+three widest breakpoints, and restates each element's narrower style on an
+app-generated class inside the app's own `@media (max-width)` rule. If a narrower
+pass would show or inspect different content, such as a link or hidden text, every
+width keeps the base layout.
 Image width and height preserve literal lengths, percentages and supported sizing
 keywords, including `auto`, subject to the reader's sizing bounds below.
 Unvalidated sizing functions and invalid values are discarded; discarded

@@ -3,23 +3,30 @@ import type { ComponentValue } from '@csstools/css-parser-algorithms';
 import type { DefaultTreeAdapterTypes } from 'parse5';
 
 import {
+  isSimpleBlockNode,
   isTokenNode,
   isWhiteSpaceOrCommentNode,
   parseListOfComponentValues,
 } from '@csstools/css-parser-algorithms';
 import {
+  isTokenAtKeyword,
   isTokenBadString,
+  isTokenCDC,
+  isTokenCDO,
   isTokenBadURL,
   isTokenColon,
   isTokenComment,
   isTokenDelim,
   isTokenIdent,
+  isTokenOpenCurly,
   isTokenSemicolon,
   isTokenString,
   ParseErrorMessage,
   tokenize,
   TokenType,
 } from '@csstools/css-tokenizer';
+import * as Arr from 'effect/Array';
+import * as Order from 'effect/Order';
 import { html as htmlSpec, parse } from 'parse5';
 
 import type { ImageFacts } from './inline-images.ts';
@@ -34,7 +41,7 @@ import {
   messageLinkLimit,
   paragraphBuilder,
 } from './readable-text.ts';
-import { palette } from './theme.ts';
+import { channelsOf, luminanceOf, palette } from './theme.ts';
 
 type Node = DefaultTreeAdapterTypes.ChildNode;
 type Element = DefaultTreeAdapterTypes.Element;
@@ -1124,8 +1131,16 @@ export const parseDeclarations = (style: string) => {
   return { declared, unsafe, limited, important, rejected };
 };
 
-function filterStyle(style: string, tag = ''): FilteredStyle {
-  const { declared, unsafe } = parseDeclarations(style);
+function filterDeclarations(
+  {
+    declared,
+    unsafe,
+  }: Readonly<{
+    declared: ReadonlyMap<string, string>;
+    unsafe: ReadonlySet<string>;
+  }>,
+  tag = '',
+): FilteredStyle {
   const retained = new Map(
     [...declared].filter(
       (declaration) =>
@@ -1146,6 +1161,9 @@ function filterStyle(style: string, tag = ''): FilteredStyle {
     retained,
   };
 }
+
+const filterStyle = (style: string, tag = '') =>
+  filterDeclarations(parseDeclarations(style), tag);
 
 const escapeText = (value: string) =>
   value
@@ -1341,29 +1359,316 @@ const withProperties = (
   };
 };
 
-// The element's admitted attributes, each value validated, and its filtered style.
-const attributes = (element: Element, filtered: FilteredStyle) => {
+// The element's filtered style as emitted. WebKit ignores max-width on tables, so a desktop
+// width attribute narrows like a CSS width.
+const emittedStyle = (element: Element, filtered: FilteredStyle) => {
+  const width = attributeOf(element, 'width')?.trim().replace(/^\d+$/u, '$&px');
+  return element.tagName === 'table' &&
+    !filtered.retained.has('width') &&
+    /^\d{1,5}px$/iu.test(width ?? '') &&
+    farRight(width, bodyFontPixels)
+    ? withProperties(filtered, [['width', `min(100%, ${width})`]])
+    : filtered;
+};
+
+// The element's admitted attributes, each value validated, app classes and its emitted style.
+const attributes = (
+  element: Element,
+  style: FilteredStyle,
+  classes: string,
+) => {
   const allowed = new Set([
     'dir',
     'lang',
     'title',
     ...(elementAttributes[element.tagName] ?? []),
   ]);
-  // WebKit ignores max-width on tables, so a desktop width attribute narrows like a CSS width.
-  const width = attributeOf(element, 'width')?.trim().replace(/^\d+$/u, '$&px');
-  const style =
-    element.tagName === 'table' &&
-    !filtered.retained.has('width') &&
-    /^\d{1,5}px$/iu.test(width ?? '') &&
-    farRight(width, bodyFontPixels)
-      ? withProperties(filtered, [['width', `min(100%, ${width})`]])
-      : filtered;
   return (
     element.attrs.map(keptAttribute(element.tagName, allowed)).join('') +
     citeAttribute(element) +
+    (classes === '' ? '' : ` class="${classes}"`) +
     (style.css === '' ? '' : ` style="${escapeAttribute(style.css)}"`)
   );
 };
+
+const hexColor = /^#(?:[\da-f]{3}){1,2}$/iu;
+
+const containsImage = (node: Element): boolean =>
+  node.childNodes.some(
+    (child) =>
+      isElement(child) && (child.tagName === 'img' || containsImage(child)),
+  );
+
+// A cell whose only content is one link without images: a button.
+const linkOnly = (cell: Element) => {
+  const content = cell.childNodes.filter(
+    (node) =>
+      node.nodeName !== '#comment' &&
+      !('value' in node && /^[\t\n\f\r ]*$/u.test(node.value)),
+  );
+  const [link] = content;
+  return (
+    content.length === 1 &&
+    link !== undefined &&
+    isElement(link) &&
+    link.tagName === 'a' &&
+    !containsImage(link)
+  );
+};
+
+// A link-only table cell keeps the sender's opaque background color (ADR 0077 decision 11). The
+// app paints its label black or white, whichever contrasts more: at least 4.5:1 on any opaque
+// color. Gradients, images and every other sender background stay removed.
+const buttonCell = (cell: Element, style: FilteredStyle) => {
+  if (!['td', 'th'].includes(cell.tagName) || !linkOnly(cell)) {
+    return style;
+  }
+  let fill: string | undefined = undefined;
+  for (const [name, value] of style.declared) {
+    if (name === 'background' || name === 'background-color') {
+      fill = value;
+    }
+  }
+  const color = [fill, attributeOf(cell, 'bgcolor')]
+    .map((value) => value?.trim() ?? '')
+    .find((value) => hexColor.test(value));
+  if (color === undefined) {
+    return style;
+  }
+  const hex =
+    color.length === 4
+      ? `#${color.slice(1).replaceAll(/[\da-f]/giu, '$&$&')}`
+      : color;
+  const luminance = luminanceOf(channelsOf(hex));
+  return withProperties(style, [
+    ['background-color', hex],
+    [
+      'color',
+      1.05 / (luminance + 0.05) >= (luminance + 0.05) / 0.05
+        ? '#FFFFFF'
+        : '#000000',
+    ],
+  ]);
+};
+
+// ADR 0077 decision 11 admits the sender's responsive layout: `max-width` media rules with
+// element or class selectors that change only geometry and type, with the values inline styles
+// may keep. Never display, visibility, opacity, colors, backgrounds or position.
+const responsiveProperties = new Set(
+  [...properties].filter((name) => name !== 'display' && name !== 'visibility'),
+);
+const mediaQuery =
+  /^(?:(?:only\s+)?(?:screen|all)\s+and\s+)?\(\s*max-width\s*:\s*(?<breakpoint>\d{1,4}(?:\.\d+)?)px\s*\)$/u;
+// An element name, classes, or both: no combinators, IDs, attributes or pseudo-classes.
+// Positional captures: Hermes leaves `groups` unset on some named-group results.
+const compoundSelector =
+  /^(?<tag>[a-z][\da-z]*)?(?<classes>(?:\.-?[_a-z][\w-]*)*)$/iu;
+// Bounds the matching work and the extra sanitizer passes one message can cause.
+const responsiveRuleLimit = 256;
+const breakpointLimit = 3;
+
+interface ResponsiveRule {
+  // The widest reader, in CSS pixels, the rule applies to.
+  readonly breakpoint: number;
+  readonly selectors: ReadonlyArray<
+    Readonly<{ tag: string | undefined; classes: readonly string[] }>
+  >;
+  readonly normal: ReadonlyMap<string, string>;
+  readonly important: ReadonlyMap<string, string>;
+}
+
+// Each `{}` block with the component values before it; a `;` ends a statement without a block.
+const blocksOf = (nodes: readonly ComponentValue[]) => {
+  const blocks: Array<{ prelude: ComponentValue[]; block: ComponentValue[] }> =
+    [];
+  let prelude: ComponentValue[] = [];
+  for (const node of nodes) {
+    if (isSimpleBlockNode(node) && isTokenOpenCurly(node.startToken)) {
+      blocks.push({ prelude: trimNodes(prelude), block: node.value });
+      prelude = [];
+    } else if (isTokenNode(node) && isTokenSemicolon(node.value)) {
+      prelude = [];
+    } else if (
+      !isTokenNode(node) ||
+      !(isTokenCDO(node.value) || isTokenCDC(node.value))
+    ) {
+      prelude.push(node);
+    }
+  }
+  return blocks;
+};
+
+// The widest reader any supported query in the list admits, or 0.
+const breakpointOf = (query: readonly ComponentValue[]) =>
+  Math.max(
+    0,
+    ...sourceOf(query, ' ')
+      .toLowerCase()
+      .split(',')
+      .map((part) => Number(mediaQuery.exec(part.trim())?.[1] ?? 0)),
+  );
+
+// A selector list's compound selectors, or none when any is unsupported.
+const selectorsOf = (prelude: readonly ComponentValue[]) => {
+  const parts = sourceOf(prelude, ' ')
+    .split(',')
+    .map((part) => compoundSelector.exec(part.trim()));
+  return parts.every((part) => part !== null && part[0] !== '')
+    ? parts.flatMap((part) =>
+        part === null
+          ? []
+          : [
+              {
+                tag: part[1]?.toLowerCase(),
+                classes: (part[2] ?? '').split('.').slice(1),
+              },
+            ],
+      )
+    : [];
+};
+
+const declarationsOf = (block: readonly ComponentValue[]) => {
+  const { declared, unsafe, important } = parseDeclarations(
+    sourceOf(block, ' '),
+  );
+  const kept = [...declared].filter(
+    (declaration) =>
+      responsiveProperties.has(declaration[0]) &&
+      !unsafe.has(declaration[0]) &&
+      keptDeclaration(declaration),
+  );
+  return {
+    normal: new Map(kept.filter(([name]) => !important.has(name))),
+    important: new Map(kept.filter(([name]) => important.has(name))),
+  };
+};
+
+// The text of the document's author style blocks that apply on screen, in source order.
+const styleSheets = (parent: DefaultTreeAdapterTypes.ParentNode): string[] =>
+  parent.childNodes.flatMap((node) => {
+    if (!isElement(node)) {
+      return [];
+    }
+    if (node.tagName !== 'style' || node.namespaceURI !== htmlSpec.NS.HTML) {
+      return styleSheets(node);
+    }
+    return /^(?:|all|screen)$/iu.test(
+      attributeOf(node, 'media')?.trim() ?? '',
+    ) && /^(?:|text\/css)$/iu.test(attributeOf(node, 'type')?.trim() ?? '')
+      ? [
+          node.childNodes
+            .map((child) => ('value' in child ? child.value : ''))
+            .join(''),
+        ]
+      : [];
+  });
+
+// The admitted rules in a style sheet's `max-width` media blocks.
+const sheetRules = (sheet: string) =>
+  blocksOf(parseListOfComponentValues(tokenize({ css: sheet }))).flatMap(
+    ({ prelude, block }) => {
+      const [keyword, ...query] = prelude;
+      const breakpoint =
+        keyword !== undefined &&
+        isTokenNode(keyword) &&
+        isTokenAtKeyword(keyword.value) &&
+        keyword.value[4].value.toLowerCase() === 'media'
+          ? breakpointOf(query)
+          : 0;
+      return (breakpoint === 0 ? [] : blocksOf(block)).flatMap((rule) => {
+        const selectors = selectorsOf(rule.prelude);
+        return selectors.length === 0
+          ? []
+          : [{ breakpoint, selectors, ...declarationsOf(rule.block) }];
+      });
+    },
+  );
+
+// The admitted media rules of the document's author style blocks, in source order.
+const responsiveRules = (
+  document: DefaultTreeAdapterTypes.Document,
+): readonly ResponsiveRule[] => {
+  try {
+    return styleSheets(document)
+      .flatMap(sheetRules)
+      .slice(0, responsiveRuleLimit);
+  } catch {
+    // The component value parser throws past its nesting limit; the base layout remains.
+    return [];
+  }
+};
+
+// The rule's specificity for the element, or -1 when no selector matches it.
+const specificity = ({ selectors }: ResponsiveRule, element: Element) => {
+  const classes = new Set(
+    (attributeOf(element, 'class') ?? '').split(/[\t\n\f\r ]+/u),
+  );
+  return Math.max(
+    -1,
+    ...selectors
+      .filter(
+        ({ tag, classes: required }) =>
+          (tag === undefined || tag === element.tagName) &&
+          required.every((name) => classes.has(name)),
+      )
+      .map(
+        ({ tag, classes: required }) =>
+          required.length * 2 + (tag === undefined ? 0 : 1),
+      ),
+  );
+};
+
+const byRank = Order.combine(
+  Order.mapInput(
+    Order.Number,
+    ({ rank }: { rank: number; order: number }) => rank,
+  ),
+  Order.mapInput(
+    Order.Number,
+    ({ order }: { rank: number; order: number }) => order,
+  ),
+);
+
+// An element's style in readers at most `breakpoint` wide, as the cascade orders it: matching
+// rules by specificity and source order, the inline style over their normal declarations, and
+// their important ones over both unless the inline declaration is important too.
+const responsiveStyle =
+  (rules: readonly ResponsiveRule[], breakpoint: number) =>
+  (element: Element, tag: string) => {
+    const inline = parseDeclarations(attributeOf(element, 'style') ?? '');
+    const matched = Arr.sort(
+      rules.flatMap((rule, order) => {
+        const rank =
+          rule.breakpoint < breakpoint ? -1 : specificity(rule, element);
+        return rank < 0 ? [] : [{ rule, rank, order }];
+      }),
+      byRank,
+    );
+    const important = matched
+      .flatMap(({ rule }) => [...rule.important])
+      .filter(([name]) => !inline.important.has(name));
+    const declared = new Map<string, string>();
+    for (const [name, value] of [
+      ...matched.flatMap(({ rule }) => [...rule.normal]),
+      ...inline.declared,
+      ...important,
+    ]) {
+      // The last declaration's position decides shorthand precedence.
+      declared.delete(name);
+      declared.set(name, value);
+    }
+    return filterDeclarations(
+      {
+        declared,
+        unsafe: new Set(
+          [...inline.unsafe].filter(
+            (name) => !important.some(([other]) => other === name),
+          ),
+        ),
+      },
+      tag,
+    );
+  };
 
 // Admitted elements keep their name; other structural content becomes a block or inline span.
 // Elements WebKit lays out inline, whose vertical margins move nothing.
@@ -1603,10 +1908,12 @@ const readerStyle =
   `:root{color-scheme:light dark;font-size:16px}html,body{margin:0;padding:0}${readerColors(palette.light)}` +
   `@media (prefers-color-scheme:dark){${readerColors(palette.dark)}}` +
   'body{font:-apple-system-body;font-family:-apple-system,system-ui,sans-serif;line-height:1.5;' +
-  'overflow-wrap:anywhere;-webkit-text-size-adjust:100%}' +
+  'overflow-wrap:break-word;-webkit-text-size-adjust:100%}' +
   // Link colors sit close to the text's, so an underline marks links even where senders remove it.
   'a{text-decoration-line:underline;text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
   '.link-underline{text-decoration:underline}' +
+  // A button cell's label keeps the ink chosen for its background.
+  '.link-cell a{color:inherit}' +
   'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
   '.blocked-image{display:inline-block;box-sizing:border-box;border:1px dashed;border-radius:4px;' +
@@ -1627,9 +1934,6 @@ export const labelImagePlaceholders = (document: string, label: string) =>
       )}"}</style></head>`,
   );
 
-// Turns untrusted HTML into a passive document: allowlisted elements, attributes, CSS and URLs,
-// sender colors removed, remote images replaced by non-loading placeholders, and only admitted
-// inline images shown, as `data:` sources the app generated from validated bytes.
 // An image description as readable text, spaced from its neighbours.
 const altText = (alt: string) => (alt === '' ? '' : ` ${alt} `);
 
@@ -1653,21 +1957,32 @@ const whiteSpaceIn = (
   return tag === 'pre' ? 'pre-wrap' : parent;
 };
 
-export function sanitizeHtml(
-  html: string,
-  images: ReadonlyMap<string, InlineImage> = new Map(),
-  {
-    preserveImages = false,
-    remote = new Map(),
-    omitQuoted = false,
-  }: Readonly<{
-    preserveImages?: boolean;
-    // Admitted Remote Message Content by exact source; other HTTPS images stay placeholders.
-    remote?: ReadonlyMap<string, RemoteImage>;
-    // Leaves quoted history out of the document and its readable text.
-    omitQuoted?: boolean;
-  }> = {},
-): SanitizedHtml {
+interface SanitizeOptions {
+  readonly images: ReadonlyMap<string, InlineImage>;
+  readonly preserveImages: boolean;
+  // Admitted Remote Message Content by exact source; other HTTPS images stay placeholders.
+  readonly remote: ReadonlyMap<string, RemoteImage>;
+  // Leaves quoted history out of the document and its readable text.
+  readonly omitQuoted: boolean;
+}
+
+// How one sanitizer pass reads styles, and the app classes it emits.
+interface Pass {
+  readonly styleOf: (element: Element, tag: string) => FilteredStyle;
+  readonly classes: ReadonlyMap<Element, string>;
+}
+
+interface Walked extends Omit<SanitizedHtml, 'document'> {
+  readonly output: string;
+  // Each element's emitted style declarations.
+  readonly emitted: ReadonlyMap<Element, ReadonlyMap<string, string>>;
+}
+
+function walk(
+  body: Element | undefined,
+  { images, preserveImages, remote, omitQuoted }: SanitizeOptions,
+  pass: Pass,
+): Walked {
   const builder = paragraphBuilder();
   let quoted = false;
   let quoteDepth = 0;
@@ -1680,6 +1995,21 @@ export function sanitizeHtml(
   const links: BodyLink[] = [];
   let hidesImages = false;
   let output = '';
+  const emitted = new Map<Element, ReadonlyMap<string, string>>();
+  const attributesOf = (node: Element, style: FilteredStyle) => {
+    const shown = emittedStyle(node, style);
+    emitted.set(node, shown.retained);
+    const classes = [
+      // Sender backgrounds are never retained, so this is a button cell's.
+      shown.retained.has('background-color') ? 'link-cell' : '',
+      pass.classes.get(node) ?? '',
+    ];
+    return attributes(
+      node,
+      shown,
+      classes.filter((name) => name !== '').join(' '),
+    );
+  };
   // The link currently open in the readable fallback, and its collected visible text.
   let link:
     | { href: string; text: string; description: string; visible: boolean }
@@ -1902,7 +2232,7 @@ export function sanitizeHtml(
     } else {
       const marker =
         occurrence === undefined ? '' : ` data-remote="${occurrence.index}"`;
-      output += `<img${marker}${attributes(element, style)} src="data:${admittedImage.mimeType};base64,${admittedImage.data}">`;
+      output += `<img${marker}${attributesOf(element, style)} src="data:${admittedImage.mimeType};base64,${admittedImage.data}">`;
       describeImage(alt, false, inline?.contentId);
     }
     if (occurrence !== undefined) {
@@ -1925,7 +2255,7 @@ export function sanitizeHtml(
         link === undefined
           ? style
           : withProperties(style, [['display', 'none']]);
-      output += `<img${attributes(element, hiddenStyle)}>`;
+      output += `<img${attributesOf(element, hiddenStyle)}>`;
       return;
     }
     if (link !== undefined) {
@@ -1943,7 +2273,7 @@ export function sanitizeHtml(
       link !== undefined ||
       links.length >= messageLinkLimit
     ) {
-      output += `<span${attributes(element, style)}>`;
+      output += `<span${attributesOf(element, style)}>`;
       children(element);
       output += '</span>';
       return;
@@ -1956,14 +2286,14 @@ export function sanitizeHtml(
     children(element);
     link = undefined;
     if (!opened.visible) {
-      output = `${before}<span${attributes(element, style)}>${output}</span>`;
+      output = `${before}<span${attributesOf(element, style)}>${output}</span>`;
       return;
     }
     // A separate underline preserves the anchor's sender decoration, including `inherit`.
     const content = style.retained.has('text-decoration')
       ? `<span class="link-underline">${output}</span>`
       : output;
-    output = `${before}<a${attributes(element, style)} href="${messageLinkHref(links.length)}" rel="noreferrer noopener">${content}</a>`;
+    output = `${before}<a${attributesOf(element, style)} href="${messageLinkHref(links.length)}" rel="noreferrer noopener">${content}</a>`;
     const label = hasVisibleText(opened.text)
       ? opened.text
       : opened.description;
@@ -1987,7 +2317,7 @@ export function sanitizeHtml(
     const tag = outputTag(name);
     const before = output.length;
     const content = visibleContent;
-    output += `<${tag}${attributes(node, style)}>`;
+    output += `<${tag}${attributesOf(node, style)}>`;
     const start = output.length;
     // A link's underline does not reach into inline blocks, such as newsletter buttons.
     const underline =
@@ -2001,7 +2331,7 @@ export function sanitizeHtml(
       // Empty boxes can accumulate thousands of pixels with individually ordinary sizes.
       // Keep descendants and inherited text styles, but give the empty wrapper no box.
       const normalized = withProperties(style, [['display', 'contents']]);
-      output = `${output.slice(0, before)}<${tag}${attributes(node, normalized)}>${output.slice(start)}`;
+      output = `${output.slice(0, before)}<${tag}${attributesOf(node, normalized)}>${output.slice(start)}`;
     }
     output += `</${tag}>`;
   };
@@ -2024,7 +2354,7 @@ export function sanitizeHtml(
         if (readableNow()) {
           builder.add('\n', link?.href);
         }
-        output += `<br${attributes(node, style)}>`;
+        output += `<br${attributesOf(node, style)}>`;
       },
     ],
     [
@@ -2051,7 +2381,7 @@ export function sanitizeHtml(
           ['border-top-width', '1px'],
           ['border-bottom-width', '1px'],
         ]);
-        output += `<hr${attributes(node, normalized)}>`;
+        output += `<hr${attributesOf(node, normalized)}>`;
       },
     ],
   ]);
@@ -2149,7 +2479,7 @@ export function sanitizeHtml(
 
   const element = (node: Element) => {
     const name = node.tagName.toLowerCase();
-    const style = filterStyle(attributeOf(node, 'style') ?? '', name);
+    const style = buttonCell(node, pass.styleOf(node, name));
     if (isDropped(node, style, visibility) || collapsed.has(node)) {
       return;
     }
@@ -2191,23 +2521,14 @@ export function sanitizeHtml(
     }
   }
 
-  const document = parse(html);
-  const root = document.childNodes.find(isElement);
-  const body = root?.childNodes.find(
-    (node): node is Element => isElement(node) && node.tagName === 'body',
-  );
   if (body !== undefined) {
     children(body);
   }
   builder.end();
   const readable = { paragraphs: builder.paragraphs, hidesImages };
   return {
-    document:
-      `<!doctype html><html><head><meta charset="utf-8">` +
-      `<meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}">` +
-      `<meta name="referrer" content="no-referrer">` +
-      `<meta name="viewport" content="width=device-width, initial-scale=1">` +
-      `<style>${readerStyle}</style></head><body>${output}</body></html>`,
+    output,
+    emitted,
     readable,
     // A blocked-image placeholder is visible content too, so an image-only message renders.
     renderable:
@@ -2221,5 +2542,119 @@ export function sanitizeHtml(
     remoteNodes,
     links,
     quoted: quoted && !inlineReply,
+  };
+}
+
+const inlineStyle = (element: Element, tag: string) =>
+  filterStyle(attributeOf(element, 'style') ?? '', tag);
+
+// What a pass shows and inspects, apart from the styles it emits.
+const sameContent = (pass: Walked, base: Walked) =>
+  pass.output.replaceAll(/ style="[^"]*"/gu, '') ===
+    base.output.replaceAll(/ style="[^"]*"/gu, '') &&
+  JSON.stringify([pass.readable, pass.links]) ===
+    JSON.stringify([base.readable, base.links]);
+
+const listed = (declarations: ReadonlyMap<string, string>) =>
+  JSON.stringify([...declarations]);
+
+// App classes and media rules restating each element's sanitized style for readers at most each
+// admitted breakpoint wide, from passes that read the sender's media rules. When a pass shows or
+// inspects different content than the base pass, every width keeps the base layout.
+const responsiveLayout = (
+  base: Walked,
+  rules: readonly ResponsiveRule[],
+  run: (styleOf: Pass['styleOf']) => Walked,
+) => {
+  const breakpoints = Arr.sort(
+    new Set(rules.map(({ breakpoint }) => breakpoint)),
+    Order.flip(Order.Number),
+  ).slice(0, breakpointLimit);
+  const narrow = breakpoints.map((breakpoint) =>
+    run(responsiveStyle(rules, breakpoint)),
+  );
+  const classes = new Map<Element, string>();
+  const blocks = breakpoints.map(() => [] as string[]);
+  if (narrow.some((pass) => !sameContent(pass, base))) {
+    return { classes, media: '' };
+  }
+  for (const [element, declarations] of base.emitted) {
+    const regimes = narrow.map(
+      (pass) => pass.emitted.get(element) ?? declarations,
+    );
+    if (regimes.some((regime) => listed(regime) !== listed(declarations))) {
+      const name = `responsive-${classes.size}`;
+      classes.set(element, name);
+      const names = new Set(
+        [declarations, ...regimes].flatMap((regime) => [...regime.keys()]),
+      );
+      for (const [index, regime] of regimes.entries()) {
+        // Spacing and heights the narrower style's bounds removed reset rather than stay.
+        const reset = [...names]
+          .filter((property) => !regime.has(property))
+          .map((property) => [property, 'initial'] as const);
+        blocks[index]?.push(
+          `.${name}{${[...reset, ...regime]
+            .map(([property, value]) => `${property}:${value}!important`)
+            .join(';')}}`,
+        );
+      }
+    }
+  }
+  return {
+    classes,
+    media:
+      classes.size === 0
+        ? ''
+        : breakpoints
+            .map(
+              (breakpoint, index) =>
+                `@media (max-width:${breakpoint}px){${blocks[index]?.join('') ?? ''}}`,
+            )
+            .join(''),
+  };
+};
+
+// Turns untrusted HTML into a passive document: allowlisted elements, attributes, CSS and URLs,
+// sender colors removed, remote images replaced by non-loading placeholders, and only admitted
+// inline images shown, as `data:` sources the app generated from validated bytes.
+export function sanitizeHtml(
+  html: string,
+  images: ReadonlyMap<string, InlineImage> = new Map(),
+  {
+    preserveImages = false,
+    remote = new Map(),
+    omitQuoted = false,
+  }: Partial<Omit<SanitizeOptions, 'images'>> = {},
+): SanitizedHtml {
+  const document = parse(html);
+  const root = document.childNodes.find(isElement);
+  const body = root?.childNodes.find(
+    (node): node is Element => isElement(node) && node.tagName === 'body',
+  );
+  const options = { images, preserveImages, remote, omitQuoted };
+  const run = (
+    styleOf: Pass['styleOf'],
+    classes: ReadonlyMap<Element, string> = new Map(),
+  ) => walk(body, options, { styleOf, classes });
+  const base = run(inlineStyle);
+  const { classes, media } = responsiveLayout(
+    base,
+    responsiveRules(document),
+    run,
+  );
+  const {
+    output,
+    emitted: _emitted,
+    ...walked
+  } = classes.size === 0 ? base : run(inlineStyle, classes);
+  return {
+    document:
+      `<!doctype html><html><head><meta charset="utf-8">` +
+      `<meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}">` +
+      `<meta name="referrer" content="no-referrer">` +
+      `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+      `<style>${readerStyle}${media}</style></head><body>${output}</body></html>`,
+    ...walked,
   };
 }

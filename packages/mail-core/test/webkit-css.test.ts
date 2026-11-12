@@ -186,6 +186,24 @@ const reviewedOmissions = new Map<string, readonly string[]>([
       'background-color',
     ],
   ],
+  [
+    'padding: 12px 28px; border-radius: 4px',
+    [
+      'border-top-left-radius',
+      'border-top-right-radius',
+      'border-bottom-right-radius',
+      'border-bottom-left-radius',
+    ],
+  ],
+  [
+    'padding: 18px 80px; background: linear-gradient( 90deg, #06bfff 0%, #2d73ff 100% ); background-color: #2d73ff; border-radius: 2px;',
+    [
+      'border-top-left-radius',
+      'border-top-right-radius',
+      'border-bottom-right-radius',
+      'border-bottom-left-radius',
+    ],
+  ],
 ]);
 
 // WebKit properties no parsed declaration or its shorthand accounts for.

@@ -3527,5 +3527,733 @@
       ["display", "inline-block", "inline-block", "inline-block"],
       ["padding", "8px", "8px", "8px"]
     ]
+  },
+  {
+    "style": "margin: 0; padding: 0; background-color: #171a21",
+    "webkit": [
+      "margin-top",
+      "margin-right",
+      "margin-bottom",
+      "margin-left",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "background-color"
+    ],
+    "declared": [
+      ["margin", "0", "0px", "0px"],
+      ["padding", "0", "0px", "0px"],
+      ["background-color", "#171a21", "rgb(23, 26, 33)", "rgb(23, 26, 33)"]
+    ]
+  },
+  {
+    "style": "background-color: #171a21",
+    "webkit": ["background-color"],
+    "declared": [
+      ["background-color", "#171a21", "rgb(23, 26, 33)", "rgb(23, 26, 33)"]
+    ]
+  },
+  {
+    "style": "width: 640px; background-color: #1b2838",
+    "webkit": ["width", "background-color"],
+    "declared": [
+      ["width", "640px", "640px", "640px"],
+      ["background-color", "#1b2838", "rgb(27, 40, 56)", "rgb(27, 40, 56)"]
+    ]
+  },
+  {
+    "style": "padding: 48px 72px 0 72px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [
+      ["padding", "48px 72px 0 72px", "48px 72px 0px", "48px 72px 0px"]
+    ]
+  },
+  {
+    "style": "display: block; border: 0",
+    "webkit": [
+      "display",
+      "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width",
+      "border-top-style",
+      "border-right-style",
+      "border-bottom-style",
+      "border-left-style",
+      "border-top-color",
+      "border-right-color",
+      "border-bottom-color",
+      "border-left-color",
+      "border-image-source",
+      "border-image-slice",
+      "border-image-width",
+      "border-image-outset",
+      "border-image-repeat"
+    ],
+    "declared": [
+      ["display", "block", "block", "block"],
+      ["border", "0", "0px", "0px"]
+    ]
+  },
+  {
+    "style": "height: 48px; font-size: 0; line-height: 0",
+    "webkit": ["height", "font-size", "line-height"],
+    "declared": [
+      ["height", "48px", "48px", "48px"],
+      ["font-size", "0", "0px", "0px"],
+      ["line-height", "0", "0", "0"]
+    ]
+  },
+  {
+    "style": "padding: 0 72px; font-family: Arial, Helvetica, sans-serif; font-size: 36px; line-height: 44px; font-weight: bold; color: #dcdedf;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "font-family",
+      "font-size",
+      "line-height",
+      "font-weight",
+      "color"
+    ],
+    "declared": [
+      ["padding", "0 72px", "0px 72px", "0px 72px"],
+      [
+        "font-family",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif"
+      ],
+      ["font-size", "36px", "36px", "36px"],
+      ["line-height", "44px", "44px", "44px"],
+      ["font-weight", "bold", "bold", "bold"],
+      ["color", "#dcdedf", "rgb(220, 222, 223)", "rgb(220, 222, 223)"]
+    ]
+  },
+  {
+    "style": "height: 32px; font-size: 0; line-height: 0",
+    "webkit": ["height", "font-size", "line-height"],
+    "declared": [
+      ["height", "32px", "32px", "32px"],
+      ["font-size", "0", "0px", "0px"],
+      ["line-height", "0", "0", "0"]
+    ]
+  },
+  {
+    "style": "padding: 0 72px; font-family: Arial, Helvetica, sans-serif; font-size: 28px; line-height: 36px; font-weight: bold; color: #ffffff;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "font-family",
+      "font-size",
+      "line-height",
+      "font-weight",
+      "color"
+    ],
+    "declared": [
+      ["padding", "0 72px", "0px 72px", "0px 72px"],
+      [
+        "font-family",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif"
+      ],
+      ["font-size", "28px", "28px", "28px"],
+      ["line-height", "36px", "36px", "36px"],
+      ["font-weight", "bold", "bold", "bold"],
+      ["color", "#ffffff", "rgb(255, 255, 255)", "rgb(255, 255, 255)"]
+    ]
+  },
+  {
+    "style": "padding: 0 72px; font-family: Arial, Helvetica, sans-serif; font-size: 20px; line-height: 30px; color: #c6d4df;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "font-family",
+      "font-size",
+      "line-height",
+      "color"
+    ],
+    "declared": [
+      ["padding", "0 72px", "0px 72px", "0px 72px"],
+      [
+        "font-family",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif"
+      ],
+      ["font-size", "20px", "20px", "20px"],
+      ["line-height", "30px", "30px", "30px"],
+      ["color", "#c6d4df", "rgb(198, 212, 223)", "rgb(198, 212, 223)"]
+    ]
+  },
+  {
+    "style": "padding: 40px 72px; background-color: #171d25",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "background-color"
+    ],
+    "declared": [
+      ["padding", "40px 72px", "40px 72px", "40px 72px"],
+      ["background-color", "#171d25", "rgb(23, 29, 37)", "rgb(23, 29, 37)"]
+    ]
+  },
+  {
+    "style": "padding: 18px 80px; background: linear-gradient( 90deg, #06bfff 0%, #2d73ff 100% ); background-color: #2d73ff; border-radius: 2px;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "background-image",
+      "background-position-x",
+      "background-position-y",
+      "background-size",
+      "background-repeat",
+      "background-attachment",
+      "background-origin",
+      "background-clip",
+      "background-color",
+      "border-top-left-radius",
+      "border-top-right-radius",
+      "border-bottom-right-radius",
+      "border-bottom-left-radius"
+    ],
+    "declared": [
+      ["padding", "18px 80px", "18px 80px", "18px 80px"],
+      [
+        "background",
+        "linear-gradient( 90deg, #06bfff 0%, #2d73ff 100% )",
+        "linear-gradient(90deg, rgb(6, 191, 255) 0%, rgb(45, 115, 255) 100%)",
+        "linear-gradient(90deg, rgb(6, 191, 255) 0%, rgb(45, 115, 255) 100%) rgb(45, 115, 255)"
+      ],
+      ["background-color", "#2d73ff", "rgb(45, 115, 255)", "rgb(45, 115, 255)"],
+      ["border-radius", "2px", "2px", "2px"]
+    ]
+  },
+  {
+    "style": "font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 20px; letter-spacing: 0.08em; text-transform: uppercase; color: #ffffff; text-decoration: none;",
+    "webkit": [
+      "font-family",
+      "font-size",
+      "line-height",
+      "letter-spacing",
+      "text-transform",
+      "color",
+      "text-decoration-line",
+      "text-decoration-thickness",
+      "text-decoration-style",
+      "text-decoration-color"
+    ],
+    "declared": [
+      [
+        "font-family",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif"
+      ],
+      ["font-size", "16px", "16px", "16px"],
+      ["line-height", "20px", "20px", "20px"],
+      ["letter-spacing", "0.08em", "0.08em", "0.08em"],
+      ["text-transform", "uppercase", "uppercase", "uppercase"],
+      ["color", "#ffffff", "rgb(255, 255, 255)", "rgb(255, 255, 255)"],
+      ["text-decoration", "none", "none", "none"]
+    ]
+  },
+  {
+    "style": "padding: 24px 72px; font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 24px; color: #c6d4df;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "font-family",
+      "font-size",
+      "line-height",
+      "color"
+    ],
+    "declared": [
+      ["padding", "24px 72px", "24px 72px", "24px 72px"],
+      [
+        "font-family",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif"
+      ],
+      ["font-size", "16px", "16px", "16px"],
+      ["line-height", "24px", "24px", "24px"],
+      ["color", "#c6d4df", "rgb(198, 212, 223)", "rgb(198, 212, 223)"]
+    ]
+  },
+  {
+    "style": "padding: 24px 72px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [["padding", "24px 72px", "24px 72px", "24px 72px"]]
+  },
+  {
+    "style": "width: 100%; background-color: #2a475e",
+    "webkit": ["width", "background-color"],
+    "declared": [
+      ["width", "100%", "100%", "100%"],
+      ["background-color", "#2a475e", "rgb(42, 71, 94)", "rgb(42, 71, 94)"]
+    ]
+  },
+  {
+    "style": "padding: 8px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [["padding", "8px", "8px", "8px"]]
+  },
+  {
+    "style": "display: block; width: 100%; height: auto; border: 0;",
+    "webkit": [
+      "display",
+      "width",
+      "height",
+      "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width",
+      "border-top-style",
+      "border-right-style",
+      "border-bottom-style",
+      "border-left-style",
+      "border-top-color",
+      "border-right-color",
+      "border-bottom-color",
+      "border-left-color",
+      "border-image-source",
+      "border-image-slice",
+      "border-image-width",
+      "border-image-outset",
+      "border-image-repeat"
+    ],
+    "declared": [
+      ["display", "block", "block", "block"],
+      ["width", "100%", "100%", "100%"],
+      ["height", "auto", "auto", "auto"],
+      ["border", "0", "0px", "0px"]
+    ]
+  },
+  {
+    "style": "padding: 8px 8px 16px 8px; font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 22px; font-weight: bold; color: #ffffff;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "font-family",
+      "font-size",
+      "line-height",
+      "font-weight",
+      "color"
+    ],
+    "declared": [
+      ["padding", "8px 8px 16px 8px", "8px 8px 16px", "8px 8px 16px"],
+      [
+        "font-family",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif"
+      ],
+      ["font-size", "16px", "16px", "16px"],
+      ["line-height", "22px", "22px", "22px"],
+      ["font-weight", "bold", "bold", "bold"],
+      ["color", "#ffffff", "rgb(255, 255, 255)", "rgb(255, 255, 255)"]
+    ]
+  },
+  {
+    "style": "font-size: 14px",
+    "webkit": ["font-size"],
+    "declared": [["font-size", "14px", "14px", "14px"]]
+  },
+  {
+    "style": "padding: 0 72px 48px 72px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [
+      ["padding", "0 72px 48px 72px", "0px 72px 48px", "0px 72px 48px"]
+    ]
+  },
+  {
+    "style": "background-color: #0e141b; font-family: Arial, Helvetica, sans-serif; font-size: 13px; line-height: 20px; color: #8f98a0;",
+    "webkit": [
+      "background-color",
+      "font-family",
+      "font-size",
+      "line-height",
+      "color"
+    ],
+    "declared": [
+      ["background-color", "#0e141b", "rgb(14, 20, 27)", "rgb(14, 20, 27)"],
+      [
+        "font-family",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif",
+        "Arial, Helvetica, sans-serif"
+      ],
+      ["font-size", "13px", "13px", "13px"],
+      ["line-height", "20px", "20px", "20px"],
+      ["color", "#8f98a0", "rgb(143, 152, 160)", "rgb(143, 152, 160)"]
+    ]
+  },
+  {
+    "style": "padding: 12px 16px 0 16px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [
+      ["padding", "12px 16px 0 16px", "12px 16px 0px", "12px 16px 0px"]
+    ]
+  },
+  {
+    "style": "padding: 12px 16px 0 16px; color: #ffffff",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "color"
+    ],
+    "declared": [
+      ["padding", "12px 16px 0 16px", "12px 16px 0px", "12px 16px 0px"],
+      ["color", "#ffffff", "rgb(255, 255, 255)", "rgb(255, 255, 255)"]
+    ]
+  },
+  {
+    "style": "padding: 0 16px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [["padding", "0 16px", "0px 16px", "0px 16px"]]
+  },
+  {
+    "style": "padding: 0 16px; color: #ffffff",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "color"
+    ],
+    "declared": [
+      ["padding", "0 16px", "0px 16px", "0px 16px"],
+      ["color", "#ffffff", "rgb(255, 255, 255)", "rgb(255, 255, 255)"]
+    ]
+  },
+  {
+    "style": "padding: 0 16px 12px 16px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [
+      ["padding", "0 16px 12px 16px", "0px 16px 12px", "0px 16px 12px"]
+    ]
+  },
+  {
+    "style": "padding: 0 16px 12px 16px; color: #ffffff",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "color"
+    ],
+    "declared": [
+      ["padding", "0 16px 12px 16px", "0px 16px 12px", "0px 16px 12px"],
+      ["color", "#ffffff", "rgb(255, 255, 255)", "rgb(255, 255, 255)"]
+    ]
+  },
+  {
+    "style": "width: 100% !important;",
+    "webkit": ["width"],
+    "declared": [["width", "100%", "100%", "100%"]]
+  },
+  {
+    "style": "padding-left: 12px !important; padding-right: 12px !important;",
+    "webkit": ["padding-left", "padding-right"],
+    "declared": [
+      ["padding-left", "12px", "12px", "12px"],
+      ["padding-right", "12px", "12px", "12px"]
+    ]
+  },
+  {
+    "style": "font-size: 22px !important; line-height: 28px !important;",
+    "webkit": ["font-size", "line-height"],
+    "declared": [
+      ["font-size", "22px", "22px", "22px"],
+      ["line-height", "28px", "28px", "28px"]
+    ]
+  },
+  {
+    "style": "font-size: 18px !important; line-height: 24px !important;",
+    "webkit": ["font-size", "line-height"],
+    "declared": [
+      ["font-size", "18px", "18px", "18px"],
+      ["line-height", "24px", "24px", "24px"]
+    ]
+  },
+  {
+    "style": "font-size: 13px !important; line-height: 18px !important;",
+    "webkit": ["font-size", "line-height"],
+    "declared": [
+      ["font-size", "13px", "13px", "13px"],
+      ["line-height", "18px", "18px", "18px"]
+    ]
+  },
+  {
+    "style": "padding: 12px 24px !important;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [["padding", "12px 24px", "12px 24px", "12px 24px"]]
+  },
+  {
+    "style": "margin: 0; padding: 0",
+    "webkit": [
+      "margin-top",
+      "margin-right",
+      "margin-bottom",
+      "margin-left",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [
+      ["margin", "0", "0px", "0px"],
+      ["padding", "0", "0px", "0px"]
+    ]
+  },
+  {
+    "style": "width: 600px",
+    "webkit": ["width"],
+    "declared": [["width", "600px", "600px", "600px"]]
+  },
+  {
+    "style": "padding: 40px 48px; font-family: Helvetica, Arial, sans-serif",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "font-family"
+    ],
+    "declared": [
+      ["padding", "40px 48px", "40px 48px", "40px 48px"],
+      [
+        "font-family",
+        "Helvetica, Arial, sans-serif",
+        "Helvetica, Arial, sans-serif",
+        "Helvetica, Arial, sans-serif"
+      ]
+    ]
+  },
+  {
+    "style": "margin: 0 0 16px 0; font-size: 34px; line-height: 40px",
+    "webkit": [
+      "margin-top",
+      "margin-right",
+      "margin-bottom",
+      "margin-left",
+      "font-size",
+      "line-height"
+    ],
+    "declared": [
+      ["margin", "0 0 16px 0", "0px 0px 16px", "0px 0px 16px"],
+      ["font-size", "34px", "34px", "34px"],
+      ["line-height", "40px", "40px", "40px"]
+    ]
+  },
+  {
+    "style": "margin: 0 0 16px 0; font-size: 18px; line-height: 26px",
+    "webkit": [
+      "margin-top",
+      "margin-right",
+      "margin-bottom",
+      "margin-left",
+      "font-size",
+      "line-height"
+    ],
+    "declared": [
+      ["margin", "0 0 16px 0", "0px 0px 16px", "0px 0px 16px"],
+      ["font-size", "18px", "18px", "18px"],
+      ["line-height", "26px", "26px", "26px"]
+    ]
+  },
+  {
+    "style": "width: 280px; padding: 0 8px 0 0; vertical-align: top; font-size: 15px; line-height: 22px;",
+    "webkit": [
+      "width",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "vertical-align",
+      "font-size",
+      "line-height"
+    ],
+    "declared": [
+      ["width", "280px", "280px", "280px"],
+      ["padding", "0 8px 0 0", "0px 8px 0px 0px", "0px 8px 0px 0px"],
+      ["vertical-align", "top", "top", "top"],
+      ["font-size", "15px", "15px", "15px"],
+      ["line-height", "22px", "22px", "22px"]
+    ]
+  },
+  {
+    "style": "width: 280px; padding: 0 0 0 8px; vertical-align: top; font-size: 15px; line-height: 22px;",
+    "webkit": [
+      "width",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "vertical-align",
+      "font-size",
+      "line-height"
+    ],
+    "declared": [
+      ["width", "280px", "280px", "280px"],
+      ["padding", "0 0 0 8px", "0px 0px 0px 8px", "0px 0px 0px 8px"],
+      ["vertical-align", "top", "top", "top"],
+      ["font-size", "15px", "15px", "15px"],
+      ["line-height", "22px", "22px", "22px"]
+    ]
+  },
+  {
+    "style": "margin-top: 24px",
+    "webkit": ["margin-top"],
+    "declared": [["margin-top", "24px", "24px", "24px"]]
+  },
+  {
+    "style": "padding: 12px 28px; border-radius: 4px",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "border-top-left-radius",
+      "border-top-right-radius",
+      "border-bottom-right-radius",
+      "border-bottom-left-radius"
+    ],
+    "declared": [
+      ["padding", "12px 28px", "12px 28px", "12px 28px"],
+      ["border-radius", "4px", "4px", "4px"]
+    ]
+  },
+  {
+    "style": "font-size: 16px; font-weight: bold; text-decoration: none; color: #ffffff;",
+    "webkit": [
+      "font-size",
+      "font-weight",
+      "text-decoration-line",
+      "text-decoration-thickness",
+      "text-decoration-style",
+      "text-decoration-color",
+      "color"
+    ],
+    "declared": [
+      ["font-size", "16px", "16px", "16px"],
+      ["font-weight", "bold", "bold", "bold"],
+      ["text-decoration", "none", "none", "none"],
+      ["color", "#ffffff", "rgb(255, 255, 255)", "rgb(255, 255, 255)"]
+    ]
+  },
+  {
+    "style": "padding: 16px !important;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [["padding", "16px", "16px", "16px"]]
+  },
+  {
+    "style": "font-size: 24px !important; line-height: 30px !important;",
+    "webkit": ["font-size", "line-height"],
+    "declared": [
+      ["font-size", "24px", "24px", "24px"],
+      ["line-height", "30px", "30px", "30px"]
+    ]
+  },
+  {
+    "style": "padding: 12px !important;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ],
+    "declared": [["padding", "12px", "12px", "12px"]]
+  },
+  {
+    "style": "padding: 24px 32px; font-family: Georgia, serif; font-size: 17px; line-height: 26px;",
+    "webkit": [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "font-family",
+      "font-size",
+      "line-height"
+    ],
+    "declared": [
+      ["padding", "24px 32px", "24px 32px", "24px 32px"],
+      ["font-family", "Georgia, serif", "Georgia, serif", "Georgia, serif"],
+      ["font-size", "17px", "17px", "17px"],
+      ["line-height", "26px", "26px", "26px"]
+    ]
+  },
+  {
+    "style": "margin: 0 0 16px 0",
+    "webkit": ["margin-top", "margin-right", "margin-bottom", "margin-left"],
+    "declared": [["margin", "0 0 16px 0", "0px 0px 16px", "0px 0px 16px"]]
+  },
+  {
+    "style": "margin: 0",
+    "webkit": ["margin-top", "margin-right", "margin-bottom", "margin-left"],
+    "declared": [["margin", "0", "0px", "0px"]]
   }
 ]

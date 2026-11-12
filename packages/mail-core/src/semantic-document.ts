@@ -1,7 +1,7 @@
 import * as Schema from 'effect/Schema';
 
 import { vettedHref } from './link-inspection.ts';
-import { palette } from './theme.ts';
+import { channelsOf, luminanceOf, palette } from './theme.ts';
 
 export type { History } from './editor-history.ts';
 export { historyOf, record, redo, undo } from './editor-history.ts';
@@ -302,18 +302,6 @@ export function displayOf(document: SemanticDocument) {
       .join('\n'),
   };
 }
-
-const channelsOf = (color: string) =>
-  [1, 3, 5].map((at) => Number.parseInt(color.slice(at, at + 2), 16));
-
-// WCAG relative luminance of 8-bit sRGB channels.
-const luminanceOf = (channels: readonly number[]) => {
-  const [red = 0, green = 0, blue = 0] = channels.map((channel) => {
-    const value = channel / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-};
 
 const darkSurface = luminanceOf(channelsOf(palette.dark.surfaceContent));
 
