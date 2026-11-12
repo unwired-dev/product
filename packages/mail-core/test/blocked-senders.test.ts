@@ -6,9 +6,16 @@ import {
   createBlockedSenders,
 } from '@private-email/mail-core/blocked-senders';
 
+const november8 = Date.UTC(2026, 10, 8);
+
 // Native Blocked Sender storage as the store sees it: one document for the signed-in account,
-// replaced only from the revision read.
+// replaced only from the revision read. The clock starts on 8 November.
 const storage = () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(november8);
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
   const state: {
     account: string;
     // `cached` while registration has not verified again, as offline after a relaunch.
@@ -72,9 +79,7 @@ const storage = () => {
   return { state, store: relaunch(), relaunch };
 };
 
-const november8 = Date.UTC(2026, 10, 8);
-
-describe('Blocked Sender addresses', () => {
+describe('blocked sender addresses', () => {
   it('match one plain address as a whole, without case', () => {
     expect.hasAssertions();
     expect(blockedAddress('  Offers@GrowthLeads.io ')).toBe(
@@ -94,13 +99,6 @@ describe('Blocked Sender addresses', () => {
 });
 
 describe('stored Blocked Senders', () => {
-  beforeEach(() => {
-    vi.useFakeTimers({ now: november8 });
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('keeps each Profile its own Blocked Senders across a relaunch', async () => {
     expect.hasAssertions();
     const { store, relaunch } = storage();
@@ -118,16 +116,29 @@ describe('stored Blocked Senders', () => {
         blockedAt: november8,
       },
     ]);
-    // Unblocking in one Profile leaves the other's block.
-    await expect(
-      relaunched.unblock('work', 'offers@growthleads.io'),
-    ).resolves.toBe(true);
-    await expect(relaunched.blockedSenders('work')).resolves.toStrictEqual([]);
     await expect(relaunched.blockedSenders('home')).resolves.toStrictEqual([
       {
         profile: 'home',
         address: 'offers@growthleads.io',
         blockedAt: november8 + 1000,
+      },
+    ]);
+  });
+
+  it("unblocks an address in one Profile and leaves another Profile's block", async () => {
+    expect.hasAssertions();
+    const { store } = storage();
+    await store.block('work', 'offers@growthleads.io');
+    await store.block('home', 'offers@growthleads.io');
+    await expect(store.unblock('work', 'Offers@growthleads.io')).resolves.toBe(
+      true,
+    );
+    await expect(store.blockedSenders('work')).resolves.toStrictEqual([]);
+    await expect(store.blockedSenders('home')).resolves.toStrictEqual([
+      {
+        profile: 'home',
+        address: 'offers@growthleads.io',
+        blockedAt: november8,
       },
     ]);
   });

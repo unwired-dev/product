@@ -53,7 +53,9 @@ export interface NativeBlockedSenders {
 }
 
 // Locked storage is expected while the device is locked; any other failure is logged.
-const report = (error: DraftStorageFailure) =>
+const report = (
+  error: Readonly<Pick<DraftStorageFailure, 'kind' | 'diagnostic'>>,
+) =>
   error.kind === 'locked'
     ? Effect.void
     : Effect.logError('Blocked Sender storage failed:', error.diagnostic);
