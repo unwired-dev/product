@@ -40,6 +40,7 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Assistant inside Gmail and Outlook evaluation: no-go](provider-assistant-evaluation.md)
 - [Sending Drafts through the Outbox](outbox.md)
 - [Responding to Gmail meeting invitations on Mac, iPhone and iPad](invitation-responses.md)
+- [Unsubscribe: finding a message's unsubscribe mechanism](unsubscribe.md)
 - [New Mail Notifications](new-mail-notifications.md)
 - [Command Palette: finding and running actions from any screen](command-palette.md)
 - [Linked Google and Apple sign-in](linked-sign-in.md)
