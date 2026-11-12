@@ -24,7 +24,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { Profiler, useState } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, AppState } from 'react-native';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
@@ -215,13 +215,31 @@ describe('sending a Draft', () => {
       await act(async () => {
         await sender.mailboxes.load();
       });
+      const listeners = jest.mocked(AppState.addEventListener).mock.calls
+        .length;
       await render(<App sender={sender} />);
       await compose('Lunch');
+      // Returning to the foreground journals the unsent edits at once.
+      await act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(sender.storage.recoveryRecords().size).toBe(1);
+      });
 
       await press('Send');
 
-      // The composer closes; the message waits in the Outbox, and no Draft row remains.
+      // The composer closes and its recovery record goes; the message waits in the Outbox, and no
+      // Draft row remains.
       expect(screen.queryByLabelText('Subject')).toBeNull();
+      await waitFor(() => {
+        expect(sender.storage.recoveryRecords().size).toBe(0);
+      });
       expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
       expect(
         screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),

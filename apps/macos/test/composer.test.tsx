@@ -1590,7 +1590,7 @@ describe('composing Drafts', () => {
     expect(rows.length).toBeLessThan(60);
   });
 
-  it('keeps only the stored version when the app ends before Save', async () => {
+  it('keeps edits made before the app ends in a recovery record, not in the Drafts', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1602,17 +1602,85 @@ describe('composing Drafts', () => {
       />,
     );
     await press('New Message');
-    await fireEvent.changeText(await screen.findByLabelText('To'), 'maya@exa');
-    // The app ends without leaving the field or closing the composer, so the edit is lost.
+    await fireEvent.changeText(
+      await screen.findByLabelText('Subject'),
+      'Unsaved plan',
+    );
+    // A few seconds after the edit, the composer journals it without storing the Draft.
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // The app ends without leaving the field or closing the composer, so the Draft is unchanged.
     await first.unmount();
+    const reopened = createDrafts(storage.native, registration);
     await render(
       <App
-        drafts={createDrafts(storage.native, registration)}
+        drafts={reopened}
         registration={registration}
       />,
     );
     await press('Draft. No subject. No recipients. From alex@example.invalid');
-    expect(screen.getByLabelText('To')).toHaveProp('value', '');
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+    await expect(reopened.recovered()).resolves.toMatchObject([
+      { subject: 'Unsaved plan' },
+    ]);
+  });
+
+  it('journals again on return to the foreground and removes the record on Save and Don’t Save', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const listeners = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const activate = () =>
+      act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+    const records = () => storage.recoveryRecords().size;
+    const edit = async (subject: string) => {
+      await fireEvent.changeText(screen.getByLabelText('Subject'), subject);
+      await activate();
+      await waitFor(() => {
+        expect(records()).toBe(1);
+      });
+    };
+    const row = 'Draft. Plan. No recipients. From alex@example.invalid';
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    // Locked storage refuses the record; the next foreground activation writes it.
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Plan');
+    storage.setLocked(true);
+    await activate();
+    expect(records()).toBe(0);
+    storage.setLocked(false);
+    await edit('Plan');
+    await saveAndClose();
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+    await waitFor(() => {
+      expect(records()).toBe(0);
+    });
+    await press(row);
+    await edit('Plan, again');
+    await press('Close');
+    await answer('Don’t Save');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+    });
+    expect(records()).toBe(0);
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
 
   it('suggests recent correspondents of the Draft’s Profile and accepts one by key', async () => {

@@ -3332,21 +3332,17 @@ describe('keeping composer recovery records', () => {
       'Unsaved plan"',
     );
     storage.setLocked(false);
-    const second = { ...later, id: 'second-draft', attachments: [] };
+    const secondId = present(await drafts.create(alex), 'the second Draft');
+    const second = { ...later, id: secondId, attachments: [] };
     await expect(drafts.journal(second)).resolves.toBe(true);
-    expect([...storage.recoveryRecords().keys()]).toStrictEqual([
-      id,
-      'second-draft',
-    ]);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([id, secondId]);
     expect(storage.recoveryRecords().get(id)?.document).toContain('later');
 
     // Removing a record works while locked, and the next save then drops the bytes.
     storage.setLocked(true);
     await expect(drafts.forget(id)).resolves.toBe(true);
     storage.setLocked(false);
-    expect([...storage.recoveryRecords().keys()]).toStrictEqual([
-      'second-draft',
-    ]);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([secondId]);
     await drafts.update(
       { ...dropped, subject: 'Plan review' },
       { ...dropped, subject: 'Plan' },
@@ -3423,6 +3419,41 @@ describe('keeping composer recovery records', () => {
       assets: [],
     });
     await expect(drafts.recovered()).resolves.toStrictEqual([draft]);
+  });
+
+  it('writes no record for a Draft an editor opened before the Product Account changed', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), "the Draft's identifier");
+    const draft = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+
+    session.change(connected('account-b'));
+    await drafts.load();
+    await expect(
+      drafts.journal({ ...draft, subject: 'Account A notes' }),
+    ).resolves.toBe(false);
+    expect(storage.recoveryRecords().size).toBe(0);
+  });
+
+  it('leaves a record to another editor still open on its Draft', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    storage.release();
+    await saving;
+    const closing = (_: string) => undefined;
+    const open = (_: string) => undefined;
+    drafts.hold(draft.id, closing);
+    drafts.hold(draft.id, open);
+    await drafts.journal({ ...draft, subject: 'Unsaved' });
+
+    await expect(drafts.forget(draft.id, closing)).resolves.toBe(true);
+    expect(storage.recoveryRecords().has(draft.id)).toBe(true);
+    drafts.release(open);
+    await expect(drafts.forget(draft.id, closing)).resolves.toBe(true);
+    expect(storage.recoveryRecords().size).toBe(0);
   });
 
   it('removes the older record for a forget whose later journal storage refused', async () => {

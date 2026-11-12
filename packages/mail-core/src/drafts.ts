@@ -2488,16 +2488,27 @@ export function createDrafts(
     recovered: () => runLogged(recovering(generation)),
     // Keeps `draft` as its composer shows it in a recovery record on this device, without changing
     // the Drafts; a record refused earlier is written first. Resolves whether every record is stored,
-    // leaving one replaced meanwhile to the call that replaced it.
+    // leaving one replaced meanwhile to the call that replaced it. A Draft this account's session
+    // never listed, as one an editor opened before the Product Account changed, writes nothing.
     journal: (draft: Draft) => {
+      if (!known.has(draft.id)) {
+        return Promise.resolve(false);
+      }
       callRecord(draft.id);
       unrecorded.delete(draft.id);
       unrecorded.set(draft.id, draft);
       return runLogged(journaling(generation, [...unrecorded.values()]));
     },
     // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did
-    // or a later `journal` took the record over.
-    forget: (id: string) => {
+    // or a later `journal` took the record over. A closing `editor` leaves the record to another
+    // editor still open on that Draft.
+    forget: (id: string, editor?: (id: string) => void) => {
+      if (
+        editor !== undefined &&
+        [...(editors.get(id) ?? [])].some((each) => each !== editor)
+      ) {
+        return Promise.resolve(true);
+      }
       unrecorded.delete(id);
       return runLogged(forgetting(generation, id, callRecord(id)));
     },
