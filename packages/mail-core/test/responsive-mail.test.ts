@@ -190,7 +190,8 @@ describe('responsive sender layouts', () => {
     // sender declaration: inline, inherited or narrow.
     expect(mediaOf(document)).toContain('font-size:14px!important');
     expect(document).toContain(
-      '}}.link-cell{text-indent:0!important;letter-spacing:normal!important;line-height:normal!important}' +
+      '}}.link-cell{text-indent:0!important;letter-spacing:normal!important;line-height:normal!important;' +
+        'max-width:none!important;max-height:none!important}' +
         '.link-cell *{margin:0!important;text-indent:0!important;vertical-align:baseline!important;' +
         'letter-spacing:normal!important;line-height:normal!important;width:auto!important;' +
         'height:auto!important;max-width:none!important;max-height:none!important}',

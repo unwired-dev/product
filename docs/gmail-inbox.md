@@ -746,8 +746,8 @@ One exception keeps buttons recognizable: a `td` or `th` whose only content is o
 link without images keeps its opaque hex `background-color`, `background` or
 `bgcolor`, and the app paints the label black or white, whichever contrasts more,
 so it reaches at least 4.5:1. That holds only inside the cell, so app CSS placed
-after every restated media rule resets indent, letter spacing and line height on
-the cell, and margins, vertical alignment and sizes on everything in it; the cell
+after every restated media rule resets indent, letter spacing, line height and
+size limits on the cell, and margins, vertical alignment and sizes on everything in it; the cell
 then grows to hold its label at every width. Gradients, images and other
 backgrounds stay removed.
 Author `style` blocks for screen contribute only `@media` rules whose queries are

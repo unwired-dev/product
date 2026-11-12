@@ -1474,7 +1474,8 @@ const buttonCell = (cell: Element, style: FilteredStyle) => {
 // Follows the restated media rules so no sender style, inherited or narrow, moves a button's label
 // out of its cell, where its ink might not contrast. A table cell grows to hold what remains.
 const buttonStyle =
-  '.link-cell{text-indent:0!important;letter-spacing:normal!important;line-height:normal!important}' +
+  '.link-cell{text-indent:0!important;letter-spacing:normal!important;line-height:normal!important;' +
+  'max-width:none!important;max-height:none!important}' +
   '.link-cell *{margin:0!important;text-indent:0!important;vertical-align:baseline!important;' +
   'letter-spacing:normal!important;line-height:normal!important;width:auto!important;' +
   'height:auto!important;max-width:none!important;max-height:none!important}' +
