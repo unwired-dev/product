@@ -2041,6 +2041,11 @@ function DraftTemplates({
   useEffect(() => {
     void read(profile);
   }, [read, profile]);
+  // The Draft can move to another Profile while a save is pending; its list is the one to refresh.
+  const profileNow = useRef(profile);
+  useLayoutEffect(() => {
+    profileNow.current = profile;
+  });
   const notSaved = (detail: string) => {
     question.current = askInSheet(anchor.current, {
       title: t('drafts.templates.notSaved'),
@@ -2079,7 +2084,7 @@ function DraftTemplates({
       return;
     }
     if (saved) {
-      void read(owner);
+      void read(profileNow.current);
     } else {
       notSaved(t('drafts.templates.notSavedDetail'));
     }
