@@ -369,6 +369,8 @@ styles) so the file stays editable.
   orientations: Body 14.95/18.4, Subheadline 12.65/16.1 and Title 3 Emphasized
   17.25/23. Row insets, unread indicators and dividers use the same scale;
   interactive controls retain at least 44pt touch targets.
+- **iPad reader:** the Reading pane recipe at the same 1.15×: Reading Body
+  17.25/25.3 and Reading Subject 23/28.75.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
   long-form reading) and Reading Subject 20/25 bold for the Thread subject. These
   reference sizes respect the [reader's accessibility sizing](docs/gmail-inbox.md#presentation-accessibility-and-fallback).
@@ -714,10 +716,6 @@ These frames predate the requirements or implementation they show:
 - **Compose:** the reference mockups still show a 60% inline composer. The Mac
   New Message frame's Remind Me to Send bell waits for #658, and the overflow
   keeps Discard reachable.
-- **Compose field order:** the frames and the Layout section put the body first.
-  [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
-  changes the order to To, Cc and Bcc, Subject, body, attachments; the frames
-  will be redrawn and approved under #1994 before the change is built.
 - **Command Palette key cap:** the frames and the Layout section show ⌘P.
   [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
   moves the palette to ⌘K under #1993.
