@@ -3283,19 +3283,23 @@ describe('product registration', () => {
       });
     };
 
-    // Typing and bold are stored when the editor is left; the other identities keep none.
+    // Bold stores the signature at once, though the editor keeps focus; the other identities
+    // keep none.
     await type('Alex Example');
     await fireEvent(editor(), 'selectionChange', {
       nativeEvent: { selection: { start: 0, end: 4 } },
     });
     await fireEvent.press(screen.getByRole('button', { name: 'Bold' }));
-    await leave();
     const signed = [
       {
         kind: 'paragraph',
         spans: [{ text: 'Alex', marks: ['bold'] }, { text: ' Example' }],
       },
     ];
+    await waitFor(() => {
+      expect(signatures()[0]).toStrictEqual(['alex@example.invalid', signed]);
+    });
+    await leave();
     await waitFor(() => {
       expect(signatures()).toStrictEqual([
         ['alex@example.invalid', signed],
@@ -3311,6 +3315,20 @@ describe('product registration', () => {
     expect(signatures(relaunched.getSnapshot().snapshot)).toStrictEqual(
       signatures(),
     );
+
+    // A signature another device stores closes a Link Editor opened on the replaced text.
+    await fireEvent(editor(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Add Link' }));
+    expect(screen.getByLabelText('Link')).toBeVisible();
+    await act(async () => {
+      await store.chooseSignature(
+        mailboxesOf(store.getSnapshot().snapshot)[0]!.id,
+        [{ kind: 'paragraph', spans: [{ text: 'Dr. Alex Example' }] }],
+      );
+    });
+    expect(screen.queryByLabelText('Link')).toBeNull();
 
     // Leaving without an edit keeps a signature stored meanwhile, as by another device.
     const elsewhere = [
@@ -3393,10 +3411,13 @@ describe('product registration', () => {
     const choose = jest.spyOn(store, 'chooseSignature');
     choose.mockClear();
     const current = store.getSnapshot();
-    jest.spyOn(store, 'getSnapshot').mockReturnValue({
-      ...current,
-      snapshot: { ...current.snapshot, productAccountId: 'replacement' },
-    });
+    const replacement = {
+      ...current.snapshot,
+      productAccountId: 'replacement',
+    };
+    jest
+      .spyOn(store, 'getSnapshot')
+      .mockReturnValue({ ...current, snapshot: replacement });
     await screen.unmount();
     expect(choose).not.toHaveBeenCalled();
   }); /* oxlint-enable vitest/max-expects */

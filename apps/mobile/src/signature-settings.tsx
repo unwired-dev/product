@@ -91,6 +91,7 @@ function SignatureEditor({
   const appearance = useColorScheme() === 'dark' ? 'dark' : 'light';
   const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const linkEditor = useLinkEditor();
+  const { setShown: showLinkEditor } = linkEditor;
   const [document, setDocument] = useState(signature ?? emptyDocument);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [placed, setPlaced] = useState<typeof selection>();
@@ -106,11 +107,14 @@ function SignatureEditor({
   };
   // A signature another device stores shows here while it is not being edited.
   useEffect(() => {
-    if (!focused.current) {
-      documentNow.current = signature ?? emptyDocument;
-      setDocument(documentNow.current);
+    const next = signature ?? emptyDocument;
+    if (!focused.current && stored(next) !== stored(documentNow.current)) {
+      documentNow.current = next;
+      setDocument(next);
+      // A Link Editor open on the replaced text would apply to other characters.
+      showLinkEditor(false);
     }
-  }, [signature]);
+  }, [signature, showLinkEditor]);
   // The Product Account the editor opened under: a replacement account can hold the same
   // mailbox under the same connection, and must not receive this editor's signature.
   const ownerOf = () => {
@@ -166,14 +170,14 @@ function SignatureEditor({
     setSelection(at);
     setPlaced(at);
   };
+  // A format or link change stores the signature at once, though the body keeps focus.
   const change = (next: SemanticDocument, at?: typeof selection) => {
     show(next);
     if (at !== undefined) {
       select(at);
     }
-    if (!focused.current) {
-      void commit(next);
-    }
+    editing.current = next;
+    void commit(next);
   };
   const format = (mark: Mark) => {
     const at = selectionNow.current;
