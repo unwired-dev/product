@@ -382,7 +382,7 @@ after another account signed in or from a revision another write moved on,
 changes nothing and resolves `false`; a listing storage cannot read resolves
 `undefined`. The composers' Templates control follows in a later #850 slice.
 
-Templates synchronize with the account's other Trusted Devices through Product Sync
+Templates synchronize with the account's other Trusted Devices through Private Sync
 ([#2043](https://github.com/unwired-dev/product/issues/2043)), one sealed record per
 template as [Private Product Sync](private-product-sync.md) describes. The local
 document stays what `templates` reads: each template keeps the record it was made

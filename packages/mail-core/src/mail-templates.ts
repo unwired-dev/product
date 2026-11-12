@@ -56,7 +56,7 @@ export type StoredMailTemplate = typeof StoredMailTemplateSchema.Type;
 
 const Version = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 const NullableTemplate = Schema.NullOr(StoredMailTemplateSchema);
-// A template's Product Sync record as this device last read or wrote it: the record's write count,
+// A template's Private Sync record as this device last read or wrote it: the record's write count,
 // its Convex revision, the template, null once removed, and the random identifier of the write
 // that made it.
 const SyncedSchema = Schema.Struct({
@@ -112,7 +112,7 @@ const RecordJsonSchema = Schema.fromJsonString(
 );
 const decodeRecord = Schema.decodeUnknownOption(RecordJsonSchema);
 const isStored = Schema.is(StoredMailTemplateSchema);
-// Native code accepts a Product Sync record identifier of at most 200 characters.
+// Native code accepts a Private Sync record identifier of at most 200 characters.
 const publishable = (id: string) => id.length <= 200;
 const sameTemplate = Schema.toEquivalence(NullableTemplate);
 const sameDocument = Schema.toEquivalence(StoredDocumentSchema);
@@ -131,7 +131,7 @@ export interface NativeMailTemplates {
   ) => Promise<unknown>;
 }
 
-// The account's Mail Templates in End-to-End Encrypted Product Sync, one record per template.
+// The account's Mail Templates in Private Sync, one record per template.
 // Native code seals each record to the account and an opaque identifier derived from the
 // template's, so Convex holds only ciphertext. Every call rejects with 'unavailable' while this
 // device holds no keys or Product Sign-In session.
@@ -157,7 +157,7 @@ export interface NativeMailTemplateSync {
   ) => Promise<unknown>;
 }
 
-// Locked storage is expected while the device is locked, and Product Sync is expected to be
+// Locked storage is expected while the device is locked, and Private Sync is expected to be
 // unavailable without keys or a session or after a removal moved the key epoch; anything else is
 // logged.
 const report = (
@@ -273,10 +273,12 @@ const adoptRecord = (
     live,
     bases,
     sent,
+    pulled,
   }: Readonly<{
     live: Map<string, StoredMailTemplate>;
     bases: Map<string, Synced>;
     sent: Set<Sent>;
+    pulled: ReadonlySet<string>;
   }>,
   record: Synced,
 ) => {
@@ -304,7 +306,10 @@ const adoptRecord = (
     record.template !== null &&
     !sameTemplate(record.template, local)
   ) {
-    const id = copyId(record.id, new Set([...live.keys(), ...bases.keys()]));
+    const id = copyId(
+      record.id,
+      new Set([...live.keys(), ...bases.keys(), ...pulled]),
+    );
     live.set(record.id, record.template);
     live.set(id, { ...local, id, conflict: true });
   }
@@ -316,10 +321,11 @@ const adopt = (document: Templates, records: readonly Synced[]) => {
   const live = byId(document.templates);
   const bases = byId(document.synced);
   const sent = new Set(document.sent);
+  const pulled = new Set(records.map(({ id }) => id));
   for (const record of records.filter(
     ({ id, version }) => version > (bases.get(id)?.version ?? 0),
   )) {
-    adoptRecord({ live, bases, sent }, record);
+    adoptRecord({ live, bases, sent, pulled }, record);
   }
   const next = {
     templates: [...live.values()],
@@ -364,7 +370,7 @@ const settled = (document: Templates, written: Synced) => {
 };
 
 // Each Mail Profile's Mail Templates, stored on this device without network access. With `sync`,
-// they also synchronize through Product Sync: after each change and on `synchronize`.
+// they also synchronize through Private Sync: after each change and on `synchronize`.
 export function createMailTemplates(
   storage: NativeMailTemplates,
   registration: Pick<Registration, 'getSnapshot'>,
@@ -586,7 +592,7 @@ export function createMailTemplates(
   };
 
   return {
-    // `profile`'s templates, each saying whether it has a change Product Sync does not hold yet, or
+    // `profile`'s templates, each saying whether it has a change Private Sync does not hold yet, or
     // undefined while storage cannot read them.
     templates: (profile: string) =>
       runLogged(
@@ -628,7 +634,7 @@ export function createMailTemplates(
           withoutTemplate(document.templates, profile, id),
         ),
       ),
-    // Merges Product Sync into this device's templates and publishes this device's changes;
+    // Merges Private Sync into this device's templates and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,
   };

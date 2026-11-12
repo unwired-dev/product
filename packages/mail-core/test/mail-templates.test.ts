@@ -559,6 +559,37 @@ describe('synchronized Mail Templates', () => {
     await expect(mac.templates('work')).resolves.toStrictEqual(merged);
   });
 
+  it('names a conflict copy apart from a template removed in the same pull', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.save('work', invoice);
+    await mac.synchronize();
+    await phone.synchronize();
+
+    await mac.save('work', { ...invoice, subject: 'From the Mac' });
+    await mac.save('work', { ...invoice, id: 'invoice-conflict-1' });
+    await mac.synchronize();
+    await mac.remove('work', 'invoice-conflict-1');
+    await mac.synchronize();
+    await phone.save('work', { ...invoice, subject: 'From the phone' });
+    await phone.synchronize();
+    await mac.synchronize();
+
+    const merged = [
+      { ...invoice, profile: 'work', subject: 'From the Mac', pending: false },
+      {
+        ...invoice,
+        id: 'invoice-conflict-2',
+        profile: 'work',
+        subject: 'From the phone',
+        conflict: true,
+        pending: false,
+      },
+    ];
+    await expect(phone.templates('work')).resolves.toStrictEqual(merged);
+    await expect(mac.templates('work')).resolves.toStrictEqual(merged);
+  });
+
   it('keeps an edit made while another device removed the template', async () => {
     expect.hasAssertions();
     const { mac, phone } = devices();
