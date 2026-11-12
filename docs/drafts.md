@@ -415,8 +415,19 @@ and saves the Draft's subject and body, without recipients or files, as a new
 template of the Draft's Profile; the Draft does not change. A blank name, a body
 with an Inline Image or a write storage refuses saves nothing, and a sheet says
 why. The composer reads the templates when it opens and after it saves one.
-Manage Templates…, the Settings pane and the iPhone and iPad composers' control
-follow in later #850 slices.
+
+On iPhone the Add files menu ends with Insert Template…, and on iPad the format
+bar ends with the Templates button
+([#2047](https://github.com/unwired-dev/product/issues/2047)). Either opens a menu
+of the Draft's Mail Profile's templates, never another Profile's, each with
+"Subject: …" or "No subject · body only", then New Template from This Message….
+Choosing a template applies it by the rules above. New Template from This
+Message… asks for a name in the system text prompt and saves the Draft's subject
+and body, without recipients or files, as a new template of the Draft's Profile;
+the Draft does not change. A blank name, a body with an Inline Image or a write
+storage refuses saves nothing, and an alert says why. The composer reads the
+templates when it opens and after it saves one. Manage Templates… and the Settings
+pane follow in later #850 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
