@@ -3,7 +3,7 @@
 
 import type { BodyDocument } from './message-body.ts';
 
-import { recipientsOf } from './drafts.ts';
+import { withoutComments } from './message-body.ts';
 
 // What a message offers for leaving its mailing list: an RFC 8058 one-click HTTPS request, or else
 // an RFC 2369 mailto message to one address. `list` names the list for the person.
@@ -17,8 +17,10 @@ export type UnsubscribeOffer =
       body?: string;
     }>;
 
-// An HTTPS address without user information; React Native has no complete URL parser.
-const oneClickUrl = /^https:\/\/[^/?#@\s\p{Cc}]+(?:[/?#][^\s\p{Cc}]*)?$/iu;
+// An HTTPS address whose authority is a host name or bracketed IP address and an optional port;
+// React Native has no complete URL parser.
+const oneClickUrl =
+  /^https:\/\/(?:[a-z\d-]+(?:\.[a-z\d-]+)*|\[[\da-f:.]+\])(?::\d{1,5})?(?:[/?#][^\s\p{Cc}]*)?$/iu;
 // One address, then optional header fields.
 const mailtoUrl = /^mailto:(?<address>[^?,]+)(?:\?(?<query>.*))?$/iu;
 const addressPattern =
@@ -32,45 +34,80 @@ const decoded = (value: string) => {
   }
 };
 
-// The bracketed URIs of a List-Unsubscribe header, in order; whitespace inside one is ignored.
-const urisOf = (header: string) =>
-  [...header.matchAll(/<(?<uri>[^<>]*)>/gu)].map(([, uri = '']) =>
-    uri.replaceAll(/\s/gu, ''),
-  );
+// How many comments the text between URIs opens, less those it closes; escapes are not delimiters.
+const nesting = (text: string) => {
+  const plain = text.replaceAll(/\\./gsu, '');
+  return plain.split('(').length - plain.split(')').length;
+};
 
-const mailtoOf = (uri: string) => {
-  // Positional captures: Hermes leaves `groups` unset on some named-group results.
-  const [, rawAddress = '', query = ''] = mailtoUrl.exec(uri) ?? [];
-  const address = decoded(rawAddress);
-  if (address === undefined || !addressPattern.test(address)) {
-    return undefined;
-  }
-  // Only the subject and body are kept: other fields, such as cc, would add recipients.
+// The bracketed URIs of a List-Unsubscribe header, in order. Brackets inside a comment are not
+// URIs, and whitespace inside one is ignored.
+const urisOf = (header: string) => {
+  let depth = 0;
+  // Splitting on a capture group alternates the text between URIs with the URIs themselves.
+  return header.split(/(?<uri><[^<>]*>)/u).flatMap((part, index) => {
+    if (index % 2 === 0) {
+      depth = Math.max(depth + nesting(part), 0);
+      return [];
+    }
+    return depth === 0 ? [part.slice(1, -1).replaceAll(/\s/gu, '')] : [];
+  });
+};
+
+// The subject and body a mailto query names, or undefined when a field does not decode. Other
+// fields, such as cc, are left out: they would add recipients.
+const fieldsOf = (query: string) => {
   const fields: { subject?: string; body?: string } = {};
   for (const field of query.split('&')) {
     const [name = '', value = ''] = field.split('=', 2);
-    const key = name.toLowerCase();
+    const key = decoded(name)?.toLowerCase();
     const text = decoded(value);
-    if (text === undefined) {
+    if (key === undefined || text === undefined) {
       return undefined;
     }
     if ((key === 'subject' || key === 'body') && text !== '') {
       fields[key] = text;
     }
   }
-  return { address, ...fields };
+  return fields;
 };
 
-// The List-Id's display phrase before its bracketed identifier, else the sender's name or address.
-const listOf = (headers: NonNullable<BodyDocument['headers']>) => {
-  const listId = headers.listId ?? '';
-  const phrase = listId.slice(0, Math.max(listId.indexOf('<'), 0)).trim();
-  const unquoted =
+const mailtoOf = (uri: string) => {
+  // Positional captures: Hermes leaves `groups` unset on some named-group results.
+  const [, rawAddress = '', query = ''] = mailtoUrl.exec(uri) ?? [];
+  const address = decoded(rawAddress);
+  const fields = fieldsOf(query);
+  return address === undefined ||
+    !addressPattern.test(address) ||
+    fields === undefined
+    ? undefined
+    : { address, ...fields };
+};
+
+// A header's display phrase before its last bracketed part, unquoted.
+const phraseOf = (header: string) => {
+  const phrase = header.slice(0, Math.max(header.lastIndexOf('<'), 0)).trim();
+  return (
     /^"(?<text>.*)"$/su
       .exec(phrase)?.[1]
-      ?.replaceAll(/\\(?<char>.)/gsu, '$1') ?? phrase;
-  const [sender] = recipientsOf(headers.from ?? '');
-  return unquoted === '' ? (sender?.name ?? sender?.address) : unquoted;
+      ?.replaceAll(/\\(?<char>.)/gsu, '$1') ?? phrase
+  );
+};
+
+// The List-Id's phrase, else the sender's display name or address. Each read is linear in the
+// sender-controlled header.
+const listOf = (headers: NonNullable<BodyDocument['headers']>) => {
+  const list = phraseOf(withoutComments(headers.listId ?? '', ' '));
+  const from = withoutComments(headers.from ?? '', ' ');
+  const sender = phraseOf(from);
+  const address = from
+    .slice(from.lastIndexOf('<') + 1)
+    .replace(/>.*$/su, '')
+    .trim();
+  if (list !== '' || sender !== '') {
+    return list === '' ? sender : list;
+  }
+  return addressPattern.test(address) ? address : undefined;
 };
 
 // The message's unsubscribe offer, or undefined when its headers name no usable mechanism.
@@ -78,7 +115,8 @@ export function unsubscribeOf(
   document: Pick<BodyDocument, 'headers'> | undefined,
 ): UnsubscribeOffer | undefined {
   const headers = document?.headers;
-  const list = headers === undefined ? undefined : listOf(headers);
+  const list =
+    headers?.listUnsubscribe === undefined ? undefined : listOf(headers);
   if (headers?.listUnsubscribe === undefined || list === undefined) {
     return undefined;
   }

@@ -26,14 +26,16 @@ headers, never body prose:
   `body` fields are kept, so fields such as `cc` never add recipients.
 - Otherwise nothing: an `https:` link without the one-click header (an
   unsubscribe page: the approved frames show no Open Unsubscribe Page action, so
-  ADR 0044's page action waits for a later slice), `http:` and other
-  schemes, user information in an HTTPS address, unbracketed URIs, several
-  `mailto:` addresses and undecodable escapes.
+  ADR 0044's page action waits for a later slice), `http:` and other schemes, an
+  HTTPS address with user information or without a valid host and port,
+  unbracketed URIs, several `mailto:` addresses and undecodable escapes.
 
 URIs must be in angle brackets; whitespace inside the brackets is ignored, as
-RFC 2369 asks. The offer names the list by the `List-Id` phrase, such as
-`Alza.cz newsletter` in `Alza.cz newsletter <newsletter.alza.example>`, else by
-the sender's display name or address. With no name at all there is no offer.
+RFC 2369 asks, and a bracketed URI inside a comment is not one. Field names and
+values are percent-decoded. The offer names the list by the `List-Id` phrase,
+such as `Alza.cz newsletter` in `Alza.cz newsletter <newsletter.alza.example>`,
+else by the sender's display name or address. With no name at all there is no
+offer.
 
 The check is syntactic. It does not verify that a DKIM signature covers the
 list headers, so the confirmation names the list and the receiving address, and

@@ -104,6 +104,8 @@ describe('unsubscribe offers', () => {
       'http://alza.example/u/42',
       'https://user:secret@alza.example/u/42',
       'https://alza.example@elsewhere.example/u/42',
+      'https://alza.example:bad/u/42',
+      'https://[bad-host/u/42',
       'ftp://alza.example/u/42',
     ]) {
       expect(
@@ -129,6 +131,19 @@ describe('unsubscribe offers', () => {
       }),
     ).toBeUndefined();
     expect(offerOf({ listId, listUnsubscribePost })).toBeUndefined();
+    // A URI inside a comment is explanation, not the unsubscribe command.
+    expect(
+      offerOf({
+        listId,
+        listUnsubscribePost,
+        listUnsubscribe:
+          '<mailto:leave@alza.example> (Help: <https://alza.example/help>)',
+      }),
+    ).toStrictEqual({
+      kind: 'mailto',
+      list: 'Alza.cz newsletter',
+      address: 'leave@alza.example',
+    });
     expect(unsubscribeOf(undefined)).toBeUndefined();
   });
 
@@ -140,7 +155,7 @@ describe('unsubscribe offers', () => {
       offerOf({
         listId,
         listUnsubscribe:
-          '<mailto:leave%2Bme@club.example?subject=Stop%20please&cc=boss@club.example&body=bye>',
+          '<mailto:leave%2Bme@club.example?%73ubject=Stop%20please&cc=boss@club.example&BODY=bye>',
       }),
     ).toStrictEqual({
       kind: 'mailto',
@@ -182,7 +197,9 @@ describe('unsubscribe offers', () => {
         from: '"Club Team" <team@club.example>',
       }),
     ).toBe('Club Team');
-    expect(listOf({ from: 'team@club.example' })).toBe('team@club.example');
+    expect(listOf({ from: 'team@club.example (Club)' })).toBe(
+      'team@club.example',
+    );
     expect(listOf({})).toBeUndefined();
   });
 });
