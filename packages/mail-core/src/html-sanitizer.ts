@@ -994,9 +994,24 @@ const nameAndValue = (declaration: readonly ComponentValue[]) => {
     : undefined;
 };
 
+// A `!` left after the trailing `!important` invalidates the declaration. Kept, a doubled
+// `!important` would be emitted as an inline `!important` that outranks the reader's own rules.
+const strayBang = (value: readonly ComponentValue[]) =>
+  value.some((node) =>
+    node
+      .tokens()
+      .some(
+        (token) =>
+          token !== undefined && isTokenDelim(token) && token[4].value === '!',
+      ),
+  );
+
 // The decoded value, or nothing when WebKit would reject it. Escapes are admitted only where the
 // decoded value is a plain identifier.
 const decodedValue = (name: string, value: readonly ComponentValue[]) => {
+  if (strayBang(value)) {
+    return undefined;
+  }
   const raw = sourceOf(value, '  ');
   const decoded = unescapeCSS(raw);
   const valid =
@@ -1485,7 +1500,7 @@ const buttonStyle =
 // ADR 0077 decision 11 admits the sender's responsive layout: `max-width` media rules with
 // element or class selectors that change only geometry and type, with the values inline styles
 // may keep. Never display, visibility, opacity, colors, backgrounds or position, nor decoration,
-// whose colors and thickness the reader's link underline overrides.
+// whose colors and thickness the reader's stylesheet overrides.
 const restated = (name: string) =>
   !['display', 'visibility', 'text-decoration'].includes(name);
 const mediaQuery =
@@ -1954,8 +1969,10 @@ const readerStyle =
   `@media (prefers-color-scheme:dark){${readerColors(palette.dark)}}` +
   'body{font:-apple-system-body;font-family:-apple-system,system-ui,sans-serif;line-height:1.5;' +
   'overflow-wrap:break-word;-webkit-text-size-adjust:100%}' +
+  // Sender decoration takes the app's text color at a bounded thickness, so it cannot mask text.
+  '*{text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
   // Link colors sit close to the text's, so an underline marks links even where senders remove it.
-  'a{text-decoration-line:underline;text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
+  'a{text-decoration-line:underline}' +
   '.link-underline{text-decoration:underline}' +
   'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
