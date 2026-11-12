@@ -1047,7 +1047,8 @@ const unavailable = (
     }),
   );
 
-const ownerOf = (snapshot: RegistrationSnapshot) =>
+// The Product Account whose Drafts and Mail Templates this device may open, if any.
+export const ownerOf = (snapshot: RegistrationSnapshot) =>
   canOpenInbox(snapshot) && snapshot.kind !== 'signed-out'
     ? snapshot.productAccountId
     : undefined;

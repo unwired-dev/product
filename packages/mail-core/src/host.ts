@@ -424,11 +424,14 @@ export function createHost(
   );
 
   // Each Mail Profile's Mail Templates, stored encrypted on this device.
-  const mailTemplates = createMailTemplates({
-    openMailTemplates: () => native().openMailTemplates(),
-    commitMailTemplates: (owner, expectedRevision, document) =>
-      native().commitMailTemplates(owner, expectedRevision, document),
-  });
+  const mailTemplates = createMailTemplates(
+    {
+      openMailTemplates: () => native().openMailTemplates(),
+      commitMailTemplates: (owner, expectedRevision, document) =>
+        native().commitMailTemplates(owner, expectedRevision, document),
+    },
+    registration,
+  );
 
   // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no
   // other Trusted Device sends the same Draft, and is handed to Gmail once.

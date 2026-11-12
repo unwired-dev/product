@@ -371,9 +371,10 @@ Each Mail Profile's templates are stored on this device
 template to a Profile or replaces its template with the same id in place, `remove`
 removes one, and `templates` lists only that Profile's. Saving needs no network or
 Product Sign-In. A template the rules above refuse is never stored, and a template
-another Profile owns is never replaced or removed. A write storage refuses, as
-while locked, for another Product Account or from a revision another write moved
-on, changes nothing and resolves `false`; a listing storage cannot read resolves
+another Profile owns is never replaced or removed. Each call acts for the Product
+Account signed in when it was made. A write storage refuses, as while locked,
+after another account signed in or from a revision another write moved on,
+changes nothing and resolves `false`; a listing storage cannot read resolves
 `undefined`. Synchronizing templates through Product Sync and the composers'
 Templates control follow in later #850 slices.
 

@@ -1,5 +1,6 @@
 import type { MailTemplate } from '@private-email/mail-core/mail-templates';
 import type { NativeMailTemplates } from '@private-email/mail-core/mail-templates';
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 
 import {
@@ -191,7 +192,21 @@ const storage = () => {
       return Promise.resolve({ owner, revision: state.revision });
     },
   };
-  return { state, store: createMailTemplates(native), native };
+  // Registration as the store reads it: whichever account is signed in now.
+  const registration = {
+    getSnapshot: () => ({
+      snapshot: {
+        kind: 'connected',
+        productAccountId: state.account,
+        signInProvider: 'google',
+        mailboxes: '[]',
+      } satisfies RegistrationSnapshot,
+      busy: false,
+      failed: false,
+    }),
+  };
+  const relaunch = () => createMailTemplates(native, registration);
+  return { state, store: relaunch(), relaunch };
 };
 const invoice = { ...template, id: 'invoice' };
 const thanks = { ...template, id: 'thanks', name: 'Thanks' };
@@ -199,13 +214,13 @@ const thanks = { ...template, id: 'thanks', name: 'Thanks' };
 describe('stored Mail Templates', () => {
   it('keeps each Profile its own templates across a relaunch', async () => {
     expect.hasAssertions();
-    const { store, native } = storage();
+    const { store, relaunch } = storage();
     await expect(store.templates('work')).resolves.toStrictEqual([]);
     await store.save('work', invoice);
     await store.save('work', thanks);
     await store.save('home', { ...template, id: 'party', name: 'Party' });
 
-    const relaunched = createMailTemplates(native);
+    const relaunched = relaunch();
     await expect(relaunched.templates('work')).resolves.toStrictEqual([
       { ...invoice, profile: 'work' },
       { ...thanks, profile: 'work' },
@@ -296,6 +311,24 @@ describe('stored Mail Templates', () => {
     };
     await expect(store.remove('work', 'invoice')).resolves.toBe(false);
     expect(state.document).toBe(document);
+    await expect(store.templates('work')).resolves.toStrictEqual([]);
+  });
+
+  it('keeps a save that waited for another account out of it', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { state, store } = storage();
+    // The first save's commit finds another account signed in; the second waited behind it.
+    state.before = () => {
+      state.account = 'account-2';
+    };
+    const first = store.save('work', invoice);
+    const second = store.save('work', thanks);
+    await expect(Promise.all([first, second])).resolves.toStrictEqual([
+      false,
+      false,
+    ]);
+    expect(state.commits).toBe(0);
     await expect(store.templates('work')).resolves.toStrictEqual([]);
   });
 

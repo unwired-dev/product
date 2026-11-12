@@ -3,10 +3,12 @@ import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
 import type { DraftStorageFailure } from './draft-native.ts';
+import type { Registration } from './registration.ts';
 import type { SemanticDocument, Selection } from './semantic-document.ts';
 
 import { runLogged } from './diagnostics.ts';
 import { malformed, native, ownerMismatch } from './draft-native.ts';
+import { ownerOf } from './drafts.ts';
 import {
   imagesOf,
   insertDocument,
@@ -121,15 +123,25 @@ const withoutTemplate = (
 
 // Each Mail Profile's Mail Templates, stored on this device without network access. They are not
 // synchronized yet.
-export function createMailTemplates(storage: NativeMailTemplates) {
+export function createMailTemplates(
+  storage: NativeMailTemplates,
+  registration: Pick<Registration, 'getSnapshot'>,
+) {
   const semaphore = Semaphore.makeUnsafe(1);
-  const opened = Effect.gen(function* () {
-    const { owner, revision, document } = yield* native(
-      storage.openMailTemplates,
-      OpenedSchema,
-    );
-    return { owner, revision, templates: document?.templates ?? [] };
-  });
+  // The templates of `account`, the Product Account signed in when the action was called, so an
+  // action that waited while another account signed in reads and writes nothing of it.
+  const opened = (account: string | undefined) =>
+    Effect.gen(function* () {
+      const { owner, revision, document } = yield* native(
+        storage.openMailTemplates,
+        OpenedSchema,
+      );
+      if (owner !== account) {
+        return yield* ownerMismatch();
+      }
+      return { owner, revision, templates: document?.templates ?? [] };
+    });
+  const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
 
   // Stores what `change` makes of the stored templates. It refuses with undefined, and returning
   // them unchanged writes nothing. Resolves whether storage holds the result.
@@ -137,10 +149,11 @@ export function createMailTemplates(storage: NativeMailTemplates) {
     change: (
       templates: readonly StoredMailTemplate[],
     ) => readonly StoredMailTemplate[] | undefined,
-  ) =>
-    runLogged(
+  ) => {
+    const account = signedIn();
+    return runLogged(
       Effect.gen(function* () {
-        const { owner, revision, templates } = yield* opened;
+        const { owner, revision, templates } = yield* opened(account);
         const next = change(templates);
         if (next === undefined) {
           return false;
@@ -167,12 +180,13 @@ export function createMailTemplates(storage: NativeMailTemplates) {
         semaphore.withPermit,
       ),
     );
+  };
 
   return {
     // `profile`'s templates, or undefined while storage cannot read them.
     templates: (profile: string) =>
       runLogged(
-        opened.pipe(
+        opened(signedIn()).pipe(
           Effect.map(({ templates }) =>
             templates.filter((template) => template.profile === profile),
           ),
