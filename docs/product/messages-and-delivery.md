@@ -28,7 +28,7 @@ implemented.
 
 ## Prototype composer presentation
 
-The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) add crash recovery for unsaved composer edits and a To-first field order.
+The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) add crash recovery for unsaved composer edits.
 [ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records them; the notes here describe the current behavior until each issue
 ships.
 

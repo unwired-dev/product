@@ -357,7 +357,7 @@ const mailboxes = (recipients: readonly Recipient[] | undefined) =>
     .flatMap((recipient) => mailbox(recipient) ?? [])
     .join(', ');
 
-// Reply, Reply All and Forward read these; content headers never cross into the part tree, where
+// Reply, Reply All, Forward and Unsubscribe read these; content headers never cross into the part tree, where
 // they would contradict its own structure.
 const responseHeaders = (message: GraphFull) => {
   const transport = (name: string) =>
@@ -379,6 +379,9 @@ const responseHeaders = (message: GraphFull) => {
       ['Message-ID', message.internetMessageId ?? transport('message-id')],
       ['In-Reply-To', transport('in-reply-to')],
       ['References', transport('references')],
+      ['List-Id', transport('list-id')],
+      ['List-Unsubscribe', transport('list-unsubscribe')],
+      ['List-Unsubscribe-Post', transport('list-unsubscribe-post')],
     ] as const
   ).flatMap(([name, value]) =>
     value === undefined || value === null || oneLine(value) === ''

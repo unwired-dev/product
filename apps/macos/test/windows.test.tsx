@@ -2705,6 +2705,196 @@ describe('mac windows of different Mail Profiles', () => {
     }
   }); /* oxlint-enable vitest/max-expects */
 
+  /* oxlint-disable vitest/max-expects -- One journey edits, refuses, relaunches and clears a signature. */
+  it('edits each Sending Identity’s signature in Settings through Product Sync', async () => {
+    expect.hasAssertions();
+    const { vault, sync, relaunch } = await createTwoProfileRegistration();
+    const store = createRegistration({
+      ...vault,
+      registration: () => vault.registration(),
+    });
+    await store.restore();
+    const replaced = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof store }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      store,
+    );
+    const inbox = createInboxStore(createSyntheticGmail().native);
+    showMailboxes(singleMailbox(inbox, alex));
+    const signatures = (snapshot = store.getSnapshot().snapshot) =>
+      mailboxesOf(snapshot).map(({ address, signature }) => [
+        address,
+        signature,
+      ]);
+    try {
+      const app = await render(
+        <MacWindows store={store}>
+          <RegisteredWindow windowId="signatures" />
+        </MacWindows>,
+      );
+      await chooseProfile(
+        await app.findByLabelText('Mail Profile, Primary Profile'),
+        'Manage Mail Profiles…',
+      );
+      const settings = settingsWindow();
+      await fireEvent.press(
+        await settings.findByRole('button', { name: 'Signatures' }),
+      );
+      const row = (address: string) =>
+        settings.getByRole('button', { name: address });
+      expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+        text: 'None',
+      });
+      expect(row('other@example.invalid')).toHaveAccessibilityValue({
+        text: 'None',
+      });
+      expect(row('alex@example.invalid')).toBeSelected();
+      const editor = () =>
+        settings.getByLabelText('Signature for alex@example.invalid');
+      const type = async (text: string) => {
+        await fireEvent(editor(), 'focus');
+        await fireEvent.changeText(editor(), text);
+      };
+      const leave = async () => {
+        await act(async () => {
+          await fireEvent(editor(), 'blur');
+        });
+      };
+
+      // Typing and bold are stored when the editor is left; the other identity keeps none.
+      await type('Alex Example');
+      await fireEvent(editor(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 4 } },
+      });
+      await fireEvent.press(settings.getByRole('button', { name: 'Bold' }));
+      await leave();
+      const signed = [
+        {
+          kind: 'paragraph',
+          spans: [{ text: 'Alex', marks: ['bold'] }, { text: ' Example' }],
+        },
+      ];
+      await waitFor(() => {
+        expect(signatures()).toStrictEqual([
+          ['alex@example.invalid', signed],
+          ['other@example.invalid', undefined],
+        ]);
+      });
+      expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+        text: 'Alex Example',
+      });
+      const relaunched = createRegistration(relaunch());
+      await relaunched.restore();
+      expect(signatures(relaunched.getSnapshot().snapshot)).toStrictEqual(
+        signatures(),
+      );
+
+      // Leaving without an edit keeps a signature stored meanwhile, as by another device.
+      const elsewhere = [
+        { kind: 'paragraph', spans: [{ text: 'Elsewhere' }] },
+      ] as const;
+      await fireEvent(editor(), 'focus');
+      await act(async () => {
+        await store.chooseSignature(
+          mailboxesOf(store.getSnapshot().snapshot)[0]!.id,
+          elsewhere,
+        );
+      });
+      await leave();
+      expect(signatures()[0]).toStrictEqual([
+        'alex@example.invalid',
+        elsewhere,
+      ]);
+      expect(within(editor()).getByText('Elsewhere')).toBeVisible();
+      await type('Alex Example');
+      await fireEvent(editor(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 4 } },
+      });
+      await fireEvent.press(settings.getByRole('button', { name: 'Bold' }));
+      await leave();
+      await waitFor(() => {
+        expect(signatures()[0]).toStrictEqual(['alex@example.invalid', signed]);
+      });
+
+      // A save that stores nothing, as when authentication is cancelled, shows the stored one.
+      jest.spyOn(store, 'chooseSignature').mockResolvedValueOnce(undefined);
+      await type('Cancelled');
+      await leave();
+      expect(within(editor()).getByText('Alex')).toBeVisible();
+      expect(within(editor()).queryByText('Cancelled')).toBeNull();
+
+      // A refused edit keeps the stored signature, shows it again and says so.
+      sync.offline = true;
+      await type('Offline');
+      await leave();
+      await expect(
+        settings.findByText(
+          'The signature could not be changed. Try again later.',
+        ),
+      ).resolves.toBeVisible();
+      expect(within(editor()).getByText('Alex')).toBeVisible();
+      expect(signatures()[0]).toStrictEqual(['alex@example.invalid', signed]);
+      // A refused Delete shows the stored signature again, though the editor keeps focus.
+      await fireEvent(editor(), 'focus');
+      await act(async () => {
+        await fireEvent.press(settings.getByRole('button', { name: 'Delete' }));
+      });
+      expect(within(editor()).getByText('Alex')).toBeVisible();
+      await leave();
+      sync.offline = false;
+
+      // Emptying the editor clears the signature, and so does Delete.
+      await type('');
+      await leave();
+      await waitFor(() => {
+        expect(signatures()[0]).toStrictEqual([
+          'alex@example.invalid',
+          undefined,
+        ]);
+      });
+      await type('Alex');
+      await leave();
+      await waitFor(() => {
+        expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+          text: 'Alex',
+        });
+      });
+      await act(async () => {
+        await fireEvent.press(settings.getByRole('button', { name: 'Delete' }));
+      });
+      await waitFor(() => {
+        expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+          text: 'None',
+        });
+      });
+      expect(signatures()[0]).toStrictEqual([
+        'alex@example.invalid',
+        undefined,
+      ]);
+
+      // Closing Settings after another Product Account replaced this one stores nothing, though
+      // it can hold the same mailbox under the same connection.
+      await type('Replaced');
+      const choose = jest.spyOn(store, 'chooseSignature');
+      choose.mockClear();
+      const current = store.getSnapshot();
+      const replacement = {
+        ...current.snapshot,
+        productAccountId: 'replacement',
+      };
+      jest
+        .spyOn(store, 'getSnapshot')
+        .mockReturnValue({ ...current, snapshot: replacement });
+      await app.unmount();
+      expect(choose).not.toHaveBeenCalled();
+    } finally {
+      replaced.restore();
+      jest.restoreAllMocks();
+    }
+  }); /* oxlint-enable vitest/max-expects */
+
   /* oxlint-disable vitest/max-expects -- One journey moves a mailbox both ways, then removes its Profile. */
   it('moves a mailbox between Profiles and removes a Profile with its mailboxes in Settings', async () => {
     expect.hasAssertions();

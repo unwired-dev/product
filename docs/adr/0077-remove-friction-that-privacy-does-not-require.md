@@ -69,11 +69,11 @@ new message and Option-Command-N opens a new window. Command-P is reserved for
 Print, and the Command Palette moves to Command-K. Command-Z undoes the last
 organizing action when focus is outside a text field.
 
-**7. The composer starts with its recipients
-([#1994](https://github.com/unwired-dev/product/issues/1994)).** The order is To,
-Cc and Bcc, Subject, body, attachments. A new message opens with focus in To; a
-reply opens with focus in the body. The frames are redrawn and approved before the
-change is built.
+**7. Withdrawn on 12 Nov 2026: the composer keeps its body-first order
+([#1994](https://github.com/unwired-dev/product/issues/1994)).** The review
+proposed To, Cc and Bcc, Subject, body, attachments. The product owner confirmed
+on 12 Nov 2026 that the existing order is deliberate: body, attachments, Subject,
+To, then Cc and Bcc. It stays, and #1994 is closed without a change.
 
 **8. Only flagged links ask, and remote images can be allowed per sender
 ([#1995](https://github.com/unwired-dev/product/issues/1995)).** A link that link
@@ -174,7 +174,7 @@ This ADR supersedes only the clauses named here.
   includes a connection to a pinned certificate, so the password rule of
   [ADR 0010](0010-device-local-mailbox-authorization.md) applies to it unchanged.
 
-Decisions 5, 6, 7 and 10 replace behavior that the feature guides describe and
+Decisions 5, 6 and 10 replace behavior that the feature guides describe and
 no ADR decided. So do the account page opening before the Inbox while a Recovery
 Key is unconfirmed (decision 3), the absence of a notification question in setup
 (decision 4), the confirmation before every link (decision 8) and the deletion of

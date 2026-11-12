@@ -354,15 +354,15 @@ so a list or quote ending the body never continues into the signature. A Draft h
 signature is still empty. Draft storage and Product Sync keep it with the Draft.
 Each Sending Identity's signature synchronizes through Private Sync
 ([#2037](https://github.com/unwired-dev/product/issues/2037); see
-[Private Inbox storage](private-inbox-storage.md)). On iPhone and iPad, Settings ›
-Signatures lists each Sending Identity with its signature's first line, or None,
-and edits the chosen one with bold, italic, underline and links
-([#2059](https://github.com/unwired-dev/product/issues/2059)). Leaving the editor,
+[Private Inbox storage](private-inbox-storage.md)). On the Mac, iPhone and iPad,
+Settings › Signatures lists each Sending Identity with its signature's first line,
+or None, and edits the chosen one with bold, italic, underline and links
+([#2056](https://github.com/unwired-dev/product/issues/2056),
+[#2059](https://github.com/unwired-dev/product/issues/2059)). Leaving the editor,
 or a format or link change, stores the signature; empty text or Delete clears it.
-An edit that does not commit shows the stored signature again and says so. The
-Mac editor ([#2056](https://github.com/unwired-dev/product/issues/2056)) and adding
-the From identity's signature to a Draft follow in later
-[#850](https://github.com/unwired-dev/product/issues/850) slices.
+An edit that does not commit shows the stored signature again and says so. Adding
+the From identity's signature to a Draft follows in a later
+[#850](https://github.com/unwired-dev/product/issues/850) slice.
 
 A [Mail Template](domain/messages-and-delivery.md) has a name, a subject and a
 body ([#2022](https://github.com/unwired-dev/product/issues/2022), a first slice

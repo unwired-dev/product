@@ -191,8 +191,8 @@ Launch requirements:
 - On the Mac, Command-N starts a new message, Command-P prints, Command-K opens
   the Command Palette and Command-Z undoes the last organizing action
   ([#1993](https://github.com/unwired-dev/product/issues/1993)).
-- The composer orders its fields To, Cc and Bcc, Subject, body, attachments
-  ([#1994](https://github.com/unwired-dev/product/issues/1994)).
+- The composer keeps its body-first field order. The proposed To-first order was
+  withdrawn on 12 Nov 2026 ([#1994](https://github.com/unwired-dev/product/issues/1994)).
 - Only links that link inspection flags ask for confirmation, and remote images
   can be allowed for one sender ([#1995](https://github.com/unwired-dev/product/issues/1995)).
 - The message list groups conversations by default, with a preference for single

@@ -53,7 +53,8 @@
     "./context-menu": "./src/context-menu.ts",
     "./inline-style": "./src/inline-style.ts",
     "./draft-html": "./src/draft-html.ts",
-    "./invitations": "./src/invitations.ts"
+    "./invitations": "./src/invitations.ts",
+    "./unsubscribe": "./src/unsubscribe.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
