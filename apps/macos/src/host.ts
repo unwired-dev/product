@@ -37,6 +37,7 @@ export const {
   registration,
   gmailMailboxes,
   drafts,
+  mailTemplates,
   outbox,
   wakes,
   freshness,
