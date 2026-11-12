@@ -2212,7 +2212,7 @@ export function createDrafts(
         try: () => storage.removeComposerRecovery(account, id),
         catch: failureOf,
       });
-      if (latest) {
+      if (recordCalls.get(id) === call) {
         recordCalls.delete(id);
       }
       return true;
