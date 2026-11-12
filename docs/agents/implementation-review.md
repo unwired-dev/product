@@ -26,6 +26,12 @@ issue, the acceptance criteria, the base commit to diff against, the checks
 you ran with their results, and anything deferred. Give it the code, not your
 conclusions about it.
 
+Start the reviewer through T3 Code delegation (`delegate_task` with the `review`
+role) on `gpt-6.1-sol` with `high` reasoning; pass both settings explicitly,
+including when the implementer runs on another model. When T3 delegation or the
+model is unavailable, the review is incomplete: do not fall back to native
+subagents, the Codex CLI, another model or a self-review.
+
 The reviewer reads the whole diff, the callers, owning modules and tests it
 touches, and the architecture notes and ADRs for that area. It applies the
 [checklist](#review-checklist) and returns findings ranked by severity, each
