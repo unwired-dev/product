@@ -100,6 +100,7 @@ describe('blocked sender addresses', () => {
       'offers@growthleads..io',
       'offers@-growthleads.io',
       'offers@growthleads.--',
+      'offers@growthleads.xn--io-',
       'off\u0000ers@growthleads.io',
       'off\u0007ers@growthleads.io',
       `${'a'.repeat(250)}@growthleads.io`,
@@ -178,7 +179,7 @@ describe('stored Blocked Senders', () => {
     ]);
   });
 
-  it('never stores a display name, domain or list', async () => {
+  it('never stores a display name, domain, list or Profile-less block', async () => {
     expect.hasAssertions();
     const error = vi.spyOn(console, 'error');
     const { state, store } = storage();
@@ -189,6 +190,9 @@ describe('stored Blocked Senders', () => {
     ]) {
       await expect(store.block('work', refused)).resolves.toBe(false);
     }
+    await expect(store.unblock('', 'offers@growthleads.io')).resolves.toBe(
+      false,
+    );
     expect(state.commits + error.mock.calls.length).toBe(0);
   });
 

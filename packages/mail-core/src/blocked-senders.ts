@@ -15,7 +15,7 @@ import { ownerOf } from './drafts.ts';
 const atom = String.raw`[\p{L}\p{N}!#$%&'*+/=?^_\x60{|}~-]+`;
 const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
 const plainAddress = new RegExp(
-  `^${atom}(?:\\.${atom})*@(?:${label}\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$`,
+  `^${atom}(?:\\.${atom})*@(?:${label}\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{0,58}[a-z0-9])$`,
   'u',
 );
 
@@ -102,8 +102,9 @@ export function createBlockedSenders(
     });
 
   // Resolves whether storage holds what `change` makes of the stored Blocked Senders; returning
-  // them unchanged writes nothing. An address that is not one plain address is refused.
+  // them unchanged writes nothing. No Profile, or an address that is not one plain address, is refused.
   const changing = (
+    profile: string,
     address: string,
     change: (
       senders: readonly BlockedSender[],
@@ -111,7 +112,7 @@ export function createBlockedSenders(
     ) => readonly BlockedSender[],
   ) => {
     const normalized = blockedAddress(address);
-    if (normalized === undefined) {
+    if (profile === '' || normalized === undefined) {
       return Promise.resolve(false);
     }
     const account = signedIn();
@@ -159,7 +160,7 @@ export function createBlockedSenders(
       ),
     // Blocks `address` for `profile`; one it already blocks keeps its first date.
     block: (profile: string, address: string) =>
-      changing(address, (senders, normalized) =>
+      changing(profile, address, (senders, normalized) =>
         senders.some(isProfileAddress(profile, normalized))
           ? senders
           : [
@@ -169,7 +170,7 @@ export function createBlockedSenders(
       ),
     // Unblocks `address` for `profile` alone.
     unblock: (profile: string, address: string) =>
-      changing(address, (senders, normalized) =>
+      changing(profile, address, (senders, normalized) =>
         senders.some(isProfileAddress(profile, normalized))
           ? senders.filter(
               (sender) => !isProfileAddress(profile, normalized)(sender),
