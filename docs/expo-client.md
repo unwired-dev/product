@@ -104,13 +104,16 @@ native peers (gesture handler, Reanimated and Worklets) are explicitly installed
 for reproducible autolinking. `react-dom` is a development peer requirement and
 must not appear in the iOS production bundle.
 
-The selected baseline is Expo SDK 58 (`expo` 58.0.24, React Native 0.88.1,
+The selected baseline is Expo SDK 58 (`expo` 58.0.25, React Native 0.88.1,
 React 19.3.0), the SDK the [Expo Duo guide](https://expo.dev/blog/supporting-iphone-duo) names
 for Duo development, with every native peer at its SDK 58 bundled version. The
 Mac host keeps its separate `catalogs.macos` renderer (react-native-macos 0.81.9)
 and its own `react-native-webview` 13.16.1 patch. SDK 58 generates the UIKit
 scene lifecycle and no longer installs `expo-symbols` for Expo Router, which loads
 it only when present; the app draws SF Symbols through its own design views.
+The pinned `expo-dev-launcher` 58.0.20 patch drops the development launcher's
+iOS 27.1 toolbar axis, which the Xcode 27.0 SDK in CI cannot compile. Remove it
+when CI builds with the iOS 27.1 SDK.
 
 Inbox keyboard tracking uses `react-native-keyboard-controller`. Bar controls and
 notices must accept presses with slight finger movement during keyboard motion
@@ -142,7 +145,7 @@ exceptions for the same packages, then verify a frozen install and
 ### Navigation
 
 The shell uses the navigation React Native Screens 4.30.1 and Expo Router 58.0.31
-provide on Expo 58.0.24 and React Native 0.88.1:
+provide on Expo 58.0.25 and React Native 0.88.1:
 
 - `Split.Host` with Mailboxes, Inbox and reader `Split.Column`s in
   [`app/_layout.tsx`](../apps/mobile/app/_layout.tsx). The split API is experimental
