@@ -162,14 +162,15 @@ transport and known native exit gaps.
   the highlight; Return, Tab or a click adds the suggestion as one named
   recipient. Escape dismisses them until the entry changes. On iPhone and iPad
   the same suggestions open above the field; Return adds the first, a tap adds
-  any, and leaving the field hides them. There, a **Contacts** section follows
-  with up to three Apple Contacts addresses matched the same way, each address
-  once across both sections. The first entry in a recipient field asks for
-  Contacts access; until it is granted (denied, restricted or not yet decided)
-  only recent correspondents are suggested, and limited access suggests only the
-  contacts shared with the app. Contacts are read on the device into memory and
-  are never saved with the Draft, synchronized or sent anywhere. Apple Contacts
-  on the Mac, and hardware keyboard Up, Down and Tab on iPad, are later slices.
+  any, and leaving the field hides them. On every host, a **Contacts** section
+  follows with up to three Apple Contacts addresses matched the same way, each
+  address once across both sections; on the Mac, Up and Down Arrow move through
+  both sections. The first entry in a recipient field asks for Contacts access;
+  until it is granted (denied, restricted or not yet decided) only recent
+  correspondents are suggested, and limited access on iPhone and iPad suggests
+  only the contacts shared with the app. Contacts are read on the device into
+  memory and are never saved with the Draft, synchronized or sent anywhere.
+  Hardware keyboard Up, Down and Tab on iPad are a later slice.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The format bar applies marks to

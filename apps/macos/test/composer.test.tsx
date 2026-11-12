@@ -57,6 +57,7 @@ import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
+import { appleContacts } from './native-contacts.ts';
 import {
   chooseMenuItem,
   chooseSubmenuItem,
@@ -1741,6 +1742,90 @@ describe('composing Drafts', () => {
     ).toBeOnTheScreen();
     await fireEvent(bcc, 'blur');
     expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+  });
+
+  it('suggests Apple Contacts after recent correspondents only once access is granted', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    appleContacts.addresses = [
+      { sender: 'Ana Kovač', address: 'ana@example.invalid' },
+      { sender: 'Andrea Novak', address: 'andrea@northwind.invalid' },
+      { sender: 'Andrea Novak', address: 'andrea@home.invalid' },
+      { sender: 'Alex', address: 'alex@example.invalid' },
+    ];
+    const show = async () => {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+          mailboxes={createMailboxes(
+            syntheticConnections({ [alex]: personal }),
+            registration,
+          )}
+        />,
+      );
+      await press('New Message');
+      return screen.getByLabelText('To');
+    };
+    try {
+      // Without access, only recent correspondents are suggested.
+      const { requests } = appleContacts;
+      let to = await show();
+      await fireEvent.changeText(to, 'an');
+      await expect(
+        screen.findByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).resolves.toBeOnTheScreen();
+      expect(appleContacts.requests).toBe(requests + 1);
+      expect(screen.queryByText('Contacts')).toBeNull();
+      await screen.unmount();
+
+      // With access, matching contacts follow under their own heading, each address once and
+      // never the Profile's own.
+      appleContacts.granted = true;
+      to = await show();
+      await fireEvent.changeText(to, 'an');
+      await expect(screen.findByText('Contacts')).resolves.toBeOnTheScreen();
+      expect(
+        screen.getAllByRole('button', { name: /^Ana Kovač, /u }),
+      ).toHaveLength(1);
+      await fireEvent.changeText(to, 'al');
+      expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
+
+      // Down moves from the recent correspondent into Contacts; Return adds one named recipient.
+      await fireEvent.changeText(to, 'an');
+      await fireEvent(to, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+      expect(
+        screen.getByRole('button', {
+          name: 'Andrea Novak, andrea@northwind.invalid',
+        }),
+      ).toHaveProp(
+        'accessibilityState',
+        expect.objectContaining({ selected: true }),
+      );
+      await fireEvent(to, 'submitEditing');
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Andrea Novak <andrea@northwind.invalid>',
+        }),
+      ).toBeOnTheScreen();
+
+      // A click adds a contact too; with no recent match, Contacts is the only section.
+      await fireEvent.changeText(to, 'andrea@h');
+      expect(screen.queryByText('Recent')).toBeNull();
+      await press('Andrea Novak, andrea@home.invalid');
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Andrea Novak <andrea@home.invalid>',
+        }),
+      ).toBeOnTheScreen();
+      // Each field asks once, however much is typed.
+      expect(appleContacts.requests).toBe(requests + 2);
+    } finally {
+      Object.assign(appleContacts, { granted: false, addresses: [] });
+    }
   });
 
   it('undoes recipient corrections without erasing earlier typing', async () => {

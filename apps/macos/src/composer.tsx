@@ -98,6 +98,7 @@ import {
   translationInputLimit,
 } from '@private-email/mail-core/translation';
 import {
+  Fragment,
   memo,
   use,
   useCallback,
@@ -134,6 +135,7 @@ import {
   LinkEditor,
   PopUp,
 } from './composer-controls.tsx';
+import { useContactAddresses } from './contacts.ts';
 import {
   askInSheet,
   Notice as Banner,
@@ -769,26 +771,37 @@ export function Recipients({
   const [highlighted, setHighlighted] = useState(0);
   const account = use(AccountContext);
   const held = useAllMailboxes();
+  const contacts = useContactAddresses(entering && editable);
   const name = t(`drafts.fields.${field}`);
-  // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's;
-  // its own addresses are not suggested.
-  const suggestions = useMemo(() => {
+  // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's,
+  // then Apple Contacts not already suggested; its own addresses are not suggested.
+  const sections = useMemo(() => {
     if (!entering || !editable || dismissed) {
-      return [];
+      return { recent: [], contacts: [] };
     }
     const connections = account?.mailboxes ?? [];
     const profile = profileOf(draft.connection, connections);
-    return recipientSuggestions(draft, field, {
+    // Including connections awaiting authorization, which hold no mail here.
+    const excluded = connections.flatMap((mailbox) =>
+      mailbox.profile === profile ? [mailbox.address] : [],
+    );
+    const recent = recipientSuggestions(draft, field, {
       correspondents: inboxMessages(
         held.filter((mailbox) => mailbox.profile === profile),
         { profile },
       ).map(({ message }) => message),
-      // Including connections awaiting authorization, which hold no mail here.
-      excluded: connections.flatMap((mailbox) =>
-        mailbox.profile === profile ? [mailbox.address] : [],
-      ),
+      excluded,
     });
-  }, [entering, editable, dismissed, draft, field, account, held]);
+    return {
+      recent,
+      contacts: recipientSuggestions(draft, field, {
+        correspondents: contacts,
+        excluded: [...excluded, ...recent.map(({ address }) => address)],
+      }),
+    };
+  }, [entering, editable, dismissed, draft, field, account, held, contacts]);
+  // Up and Down move through both sections as one list.
+  const suggestions = [...sections.recent, ...sections.contacts];
   const active = Math.min(highlighted, suggestions.length - 1);
   const accept = (recipient: Recipient) => {
     onChange(acceptRecipient(getDraft(), field, recipient), false, field);
@@ -829,63 +842,77 @@ export function Recipients({
               panel
             />
           </View>
-          <Text
-            style={[styles.suggestionSection, { color: colors.textSecondary }]}>
-            {t('drafts.suggestions.recent')}
-          </Text>
-          {suggestions.map((recipient, index) => {
-            const chosen = index === active;
-            const primary = chosen ? colors.accentOnFill : colors.textPrimary;
-            const secondary = chosen
-              ? colors.accentOnFill
-              : colors.textSecondary;
-            return (
-              <Pressable
-                key={recipient.address}
-                accessibilityLabel={
-                  recipient.name === undefined
-                    ? recipient.address
-                    : t('drafts.suggestions.named', {
-                        name: recipient.name,
-                        address: recipient.address,
-                      })
-                }
-                accessibilityRole="button"
-                accessibilityState={{ selected: chosen }}
-                // The field keeps focus, so typing continues after a click.
-                focusable={false}
-                onPress={() => {
-                  accept(recipient);
-                }}
-                style={({ pressed }) => [
-                  styles.suggestion,
-                  pressed
-                    ? { backgroundColor: colors.accentSelectionSubtle }
-                    : null,
-                  chosen ? { backgroundColor: colors.accentFill } : null,
-                ]}>
-                <SFSymbol
-                  name="person.fill"
-                  color={secondary}
-                  size={11}
-                />
-                <View style={styles.grow}>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.suggestionName, { color: primary }]}>
-                    {recipient.name ?? recipient.address}
-                  </Text>
-                  {recipient.name === undefined ? null : (
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.suggestionAddress, { color: secondary }]}>
-                      {recipient.address}
-                    </Text>
-                  )}
-                </View>
-              </Pressable>
-            );
-          })}
+          {(['recent', 'contacts'] as const).map((section) =>
+            sections[section].length === 0 ? null : (
+              <Fragment key={section}>
+                <Text
+                  style={[
+                    styles.suggestionSection,
+                    { color: colors.textSecondary },
+                  ]}>
+                  {t(`drafts.suggestions.${section}`)}
+                </Text>
+                {sections[section].map((recipient) => {
+                  const chosen = recipient === suggestions[active];
+                  const primary = chosen
+                    ? colors.accentOnFill
+                    : colors.textPrimary;
+                  const secondary = chosen
+                    ? colors.accentOnFill
+                    : colors.textSecondary;
+                  return (
+                    <Pressable
+                      key={recipient.address}
+                      accessibilityLabel={
+                        recipient.name === undefined
+                          ? recipient.address
+                          : t('drafts.suggestions.named', {
+                              name: recipient.name,
+                              address: recipient.address,
+                            })
+                      }
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: chosen }}
+                      // The field keeps focus, so typing continues after a click.
+                      focusable={false}
+                      onPress={() => {
+                        accept(recipient);
+                      }}
+                      style={({ pressed }) => [
+                        styles.suggestion,
+                        pressed
+                          ? { backgroundColor: colors.accentSelectionSubtle }
+                          : null,
+                        chosen ? { backgroundColor: colors.accentFill } : null,
+                      ]}>
+                      <SFSymbol
+                        name="person.fill"
+                        color={secondary}
+                        size={11}
+                      />
+                      <View style={styles.grow}>
+                        <Text
+                          numberOfLines={1}
+                          style={[styles.suggestionName, { color: primary }]}>
+                          {recipient.name ?? recipient.address}
+                        </Text>
+                        {recipient.name === undefined ? null : (
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.suggestionAddress,
+                              { color: secondary },
+                            ]}>
+                            {recipient.address}
+                          </Text>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </Fragment>
+            ),
+          )}
         </View>
       )}
       <View style={[styles.field, { borderTopColor: colors.separator }]}>
