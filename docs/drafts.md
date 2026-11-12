@@ -380,8 +380,21 @@ another Profile owns is never replaced or removed. Each call acts for the Produc
 Account signed in when it was made. A write storage refuses, as while locked,
 after another account signed in or from a revision another write moved on,
 changes nothing and resolves `false`; a listing storage cannot read resolves
-`undefined`. Synchronizing templates through Product Sync and the composers'
+`undefined`. Synchronizing templates through Product Sync and the Mac composer's
 Templates control follow in later #850 slices.
+
+On iPhone the Add files menu ends with Insert Template…, and on iPad the format
+bar ends with the Templates button
+([#2047](https://github.com/unwired-dev/product/issues/2047)). Either opens a menu
+of the Draft's Mail Profile's templates, never another Profile's, each with
+"Subject: …" or "No subject · body only", then New Template from This Message….
+Choosing a template applies it by the rules above. New Template from This
+Message… asks for a name in the system text prompt and saves the Draft's subject
+and body, without recipients or files, as a new template of the Draft's Profile;
+the Draft does not change. A blank name, a body with an Inline Image or a write
+storage refuses saves nothing, and an alert says why. The composer reads the
+templates when it opens and after it saves one. Manage Templates… and the Settings
+pane follow in later #850 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.

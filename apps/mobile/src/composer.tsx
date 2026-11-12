@@ -4,6 +4,7 @@ import type {
   NativeAssistance,
   TextTool,
 } from '@private-email/mail-core/assistance';
+import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type {
   AssetPreview,
   Draft,
@@ -14,6 +15,10 @@ import type {
   RecipientField,
   RecipientNotice,
 } from '@private-email/mail-core/drafts';
+import type {
+  MailTemplate,
+  StoredMailTemplate,
+} from '@private-email/mail-core/mail-templates';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
 import type {
   MailboxConnection,
@@ -57,6 +62,7 @@ import {
   withAsset,
   withSender,
 } from '@private-email/mail-core/drafts';
+import { applyTemplate } from '@private-email/mail-core/mail-templates';
 import { inboxMessages } from '@private-email/mail-core/mailboxes';
 import {
   applyText,
@@ -107,6 +113,7 @@ import {
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Alert as SystemAlert,
   AppState,
   Image,
   Keyboard,
@@ -160,6 +167,7 @@ import {
   useDrafts,
   useDraftStore,
   useLeaveComposer,
+  useMailTemplates,
   useOutbox,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
@@ -1960,6 +1968,139 @@ function WritingTools({
   );
 }
 
+// A new Mail Template's identifier: random lowercase letters and digits.
+const templateId = () => {
+  let id = '';
+  while (id.length < 24) {
+    id += Math.random().toString(36).slice(2);
+  }
+  return id.slice(0, 24);
+};
+
+// The Templates menu's sections: the Mail Profile's templates for the Draft from `connection`, read
+// when the composer opens and after it saves one, then saving the Draft as `getDraft` gives it, when
+// chosen, as a new template under the name asked for. The Draft itself does not change.
+function useTemplateSections({
+  connection,
+  getDraft,
+  onInsert,
+}: {
+  readonly connection: string;
+  readonly getDraft: () => Draft;
+  readonly onInsert: (template: StoredMailTemplate) => void;
+}): MenuSection[] {
+  const { t } = useLocalization();
+  const store = useMailTemplates();
+  const profile = profileOf(connection, use(AccountContext)?.mailboxes ?? []);
+  const [templates, setTemplates] = useState<{
+    readonly profile: string;
+    readonly list: readonly StoredMailTemplate[];
+  }>();
+  // Only the latest read shows, and none once unmounted.
+  const reads = useRef(0);
+  const mounted = useRef(true);
+  useLayoutEffect(
+    () => () => {
+      reads.current += 1;
+      mounted.current = false;
+    },
+    [],
+  );
+  const read = useCallback(
+    async (owner: string) => {
+      reads.current += 1;
+      const at = reads.current;
+      const list = await store.templates(owner).catch(() => undefined);
+      if (at === reads.current && list !== undefined) {
+        setTemplates({ profile: owner, list });
+      }
+    },
+    [store],
+  );
+  useEffect(() => {
+    void read(profile);
+  }, [read, profile]);
+  // The Draft can move to another Profile while a save is pending; its list is the one to refresh.
+  const profileNow = useRef(profile);
+  useLayoutEffect(() => {
+    profileNow.current = profile;
+  });
+  const notSaved = (detail: string) => {
+    SystemAlert.alert(t('drafts.templates.notSaved'), detail, [
+      { text: t('common.ok') },
+    ]);
+  };
+  const save = () => {
+    const { subject, body } = getDraft();
+    const owner = profile;
+    if (imagesOf(body).length > 0) {
+      notSaved(t('drafts.templates.hasImages'));
+      return;
+    }
+    const saveNamed = async (entered = '') => {
+      const name = entered.trim();
+      if (name === '') {
+        notSaved(t('drafts.templates.needsName'));
+        return;
+      }
+      const saved = await store
+        .save(owner, { id: templateId(), name, subject, body })
+        .catch(() => false);
+      if (!mounted.current) {
+        return;
+      }
+      if (saved) {
+        void read(profileNow.current);
+      } else {
+        notSaved(t('drafts.templates.notSavedDetail'));
+      }
+    };
+    SystemAlert.prompt(
+      t('drafts.templates.nameTitle'),
+      t('drafts.templates.nameDetail'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('drafts.templates.save'),
+          isPreferred: true,
+          onPress: (entered?: string) => {
+            void saveNamed(entered);
+          },
+        },
+      ],
+      'plain-text',
+    );
+  };
+  return [
+    {
+      items: (templates?.profile === profile ? templates.list : []).map(
+        (template) => ({
+          key: `template-${template.id}`,
+          title: template.name,
+          symbol: 'doc.on.doc',
+          subtitle:
+            template.subject === ''
+              ? t('drafts.templates.bodyOnly')
+              : t('drafts.templates.subject', { subject: template.subject }),
+          run: () => {
+            onInsert(template);
+          },
+        }),
+      ),
+    },
+    {
+      items: [
+        {
+          key: 'new-template',
+          title: t('drafts.templates.newFromMessage'),
+          symbol: 'plus',
+          run: save,
+        },
+      ],
+    },
+  ];
+}
+
 // The Link Editor and Generate a Draft's prompt, kept above the composer's layouts so an open one
 // outlives a resize between them. On iPhone the Link Editor's sheet opens from the Format panel,
 // and Generate a Draft's from the pill the panel replaces.
@@ -2578,6 +2719,22 @@ function Editor({
     selectionNow.current = result.selection ?? selectionNow.current;
     setPlaced(result.selection);
   };
+  // Applies a template at the caret as one undoable edit; its subject fills only an empty one.
+  const insertTemplate = (template: MailTemplate) => {
+    if (sendingNow.current) {
+      return;
+    }
+    const latest = authored.current;
+    const applied = applyTemplate(latest, selectionNow.current, template);
+    change({
+      ...latest,
+      subject: applied.subject,
+      body: applied.edit.document,
+    });
+    placeTyping(undefined);
+    selectionNow.current = applied.edit.selection ?? selectionNow.current;
+    setPlaced(applied.edit.selection);
+  };
   const closeCaptured = () => {
     if (
       !sendingNow.current &&
@@ -2873,6 +3030,11 @@ function Editor({
       }}
     />
   );
+  const templates = useTemplateSections({
+    connection: draft.connection,
+    getDraft,
+    onInsert: insertTemplate,
+  });
   const formatBar = (
     <FormatBar
       active={active}
@@ -2919,6 +3081,31 @@ function Editor({
           }}
         />
       ))}
+      <MenuButton
+        accessibilityLabel={t('drafts.templates.menu')}
+        disabled={sending}
+        sections={[
+          {
+            items: [
+              {
+                key: 'heading',
+                title: t('drafts.templates.insert'),
+                symbol: '',
+                disabled: true,
+                run: () => undefined,
+              },
+              ...(templates[0]?.items ?? []),
+            ],
+          },
+          ...templates.slice(1),
+        ]}
+        style={styles.menuControl}>
+        <SFSymbol
+          name="doc.on.doc"
+          size={scaledToolbar.symbol}
+          color={colors.textPrimary}
+        />
+      </MenuButton>
     </FormatBar>
   );
   // iPhone's Format and Attach controls in one glass pill, with Writing tools beside it.
@@ -2950,6 +3137,15 @@ function Editor({
                   void choose(from, inline);
                 },
               })),
+            },
+            {
+              items: [
+                {
+                  title: t('drafts.assets.insertTemplate'),
+                  symbol: 'doc.on.doc',
+                  sections: templates,
+                },
+              ],
             },
           ]}
           style={styles.menuControl}>

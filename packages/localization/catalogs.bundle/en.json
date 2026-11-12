@@ -1154,6 +1154,7 @@
       "attachPhoto": "Attach Photo",
       "insertImage": "Insert Image",
       "pasteImage": "Paste Image",
+      "insertTemplate": "Insert Template…",
       "attachFilesPanel": "Attach Files…",
       "insertImagePanel": "Insert Image…",
       "attachments": "Attachments",
@@ -1183,6 +1184,21 @@
         "locked": "{{size}} · Not checked while private storage is locked"
       },
       "retryLabel": "Check {{name}} again"
+    },
+    "templates": {
+      "menu": "Templates",
+      "insert": "Insert Template",
+      "subject": "Subject: {{subject}}",
+      "bodyOnly": "No subject · body only",
+      "newFromMessage": "New Template from This Message…",
+      "nameTitle": "New Template",
+      "nameDetail": "Saves this message’s subject and body, without recipients or files, as a template for this Mail Profile.",
+      "name": "Template name",
+      "save": "Save Template",
+      "notSaved": "Template not saved",
+      "notSavedDetail": "This device could not store the template. Try again.",
+      "needsName": "Give the template a name, then try again.",
+      "hasImages": "Templates can’t hold inline images. Remove them from the message, then try again."
     },
     "response": {
       "wrote": "On {{date}}, {{sender}} wrote:",
