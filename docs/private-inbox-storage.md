@@ -494,8 +494,8 @@ Account with no removal under way; a save prepared for another account or a stal
 storage revision is refused.
 A pending device or an account being removed has no Drafts. Another account's
 document reads as empty, and its first save replaces it. A save whose encrypted
-file, with every Draft Asset file still on the device, would exceed the **Outgoing
-Content Store**'s 100 MB limit is refused rather than evicting anything. An asset
+file, with every Draft Asset file and composer recovery record still on the device,
+would exceed the **Outgoing Content Store**'s 100 MB limit is refused rather than evicting anything. An asset
 whose removal failed keeps counting until a later save removes it.
 Damaged or unreadable Drafts are preserved and reported as unavailable, and a
 missing key never creates a replacement while the document exists. Every account
@@ -509,8 +509,8 @@ Account and checked against their recorded digest when read. Assets moved to
 another identifier or read for another account do not open. A complete reference
 always follows stored bytes, and removing a reference does not remove bytes needed
 by a preserved conflict copy or the editor's Undo history. An asset is refused over
-25 MiB, or when the Drafts and their assets would exceed the Outgoing Content
-Store's 100 MB. Asset removal needs no key, and account purge removes every asset
+25 MiB, or when the Drafts, their assets and the composer recovery records would
+exceed the Outgoing Content Store's 100 MB. Asset removal needs no key, and account purge removes every asset
 with the document. Interrupted imports are cleaned on the next save after relaunch.
 
 A **composer recovery record** holds one open composer's Draft as it last showed
@@ -521,7 +521,10 @@ and it is excluded from backups. Records are never uploaded and never enter the 
 document or Product Sync. Writing and reading need protected data; removing one
 needs no key, so storing, sending or discarding while the device is locked still
 removes it. A save keeps the Draft Assets a record names until the record is
-removed. Opening the records removes another account's and any that does not open,
+removed. Records count toward the Outgoing Content Store's 100 MB; the assets a
+record names are counted once, as Draft Assets. A record that would exceed the
+limit is refused and leaves the record it would replace
+([#2054](https://github.com/unwired-dev/product/issues/2054)). Opening the records removes another account's and any that does not open,
 and every account purge removes them all.
 
 The account's **Mail Templates**
