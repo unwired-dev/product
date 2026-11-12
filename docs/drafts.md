@@ -729,7 +729,10 @@ Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` reads the account's records on demand. A record that storage
 refuses, as while locked, stays in memory and is written with the next
 record. Writing a record never changes what **Drafts** lists or synchronizes, and
-a save keeps the files and images a record names. `journal` writes nothing for a
+a save keeps the files and images a record names. Records count toward the
+Outgoing Content Store's 100 MB, so a record refused for space also waits in
+memory, and a nearly full store refuses a save or attachment sooner while records
+are kept ([#2054](https://github.com/unwired-dev/product/issues/2054)). `journal` writes nothing for a
 Draft this account's session never listed, so an editor opened before a Product
 Account change cannot write under the new account.
 
