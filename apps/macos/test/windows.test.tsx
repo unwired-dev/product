@@ -2753,17 +2753,9 @@ describe('mac windows of different Mail Profiles', () => {
       expect(row('alex@example.invalid')).toBeSelected();
       const editor = () =>
         settings.getByLabelText('Signature for alex@example.invalid');
-      const type = async (
-        text: string,
-        selection?: { start: number; end: number },
-      ) => {
+      const type = async (text: string) => {
         await fireEvent(editor(), 'focus');
         await fireEvent.changeText(editor(), text);
-        if (selection !== undefined) {
-          await fireEvent(editor(), 'selectionChange', {
-            nativeEvent: { selection },
-          });
-        }
       };
       const leave = async () => {
         await act(async () => {
@@ -2772,7 +2764,10 @@ describe('mac windows of different Mail Profiles', () => {
       };
 
       // Typing and bold are stored when the editor is left; the other identity keeps none.
-      await type('Alex Example', { start: 0, end: 4 });
+      await type('Alex Example');
+      await fireEvent(editor(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 4 } },
+      });
       await fireEvent.press(settings.getByRole('button', { name: 'Bold' }));
       await leave();
       const signed = [
