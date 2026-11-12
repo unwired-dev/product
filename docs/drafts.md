@@ -679,8 +679,9 @@ the app returns to the foreground, which writes a record that locked storage
 refused. A version undone back to the stored one removes its record. Closing the
 composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
-an unchanged one. A record of a Draft that another composer still has open stays
-for that composer. Offering the records at the next launch follows in
+an unchanged one. While another composer has the same Draft open, the record stays
+until that composer closes too. Both composers write the same record, so it holds
+the version journaled last. Offering the records at the next launch follows in
 [#1989](https://github.com/unwired-dev/product/issues/1989).
 
 ## Verification

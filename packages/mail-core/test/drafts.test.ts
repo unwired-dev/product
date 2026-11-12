@@ -3443,8 +3443,8 @@ describe('keeping composer recovery records', () => {
     const { storage, drafts, draft, saving } = await savingDraft();
     storage.release();
     await saving;
-    const closing = (_: string) => undefined;
-    const open = (_: string) => undefined;
+    const closing = () => undefined;
+    const open = () => undefined;
     drafts.hold(draft.id, closing);
     drafts.hold(draft.id, open);
     await drafts.journal({ ...draft, subject: 'Unsaved' });

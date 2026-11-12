@@ -2524,6 +2524,69 @@ describe('composing Drafts', () => {
     expect(first.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
   });
 
+  it('removes a recovery record left to another window once that window closes unchanged', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const [opened] = draftsOf(drafts.getSnapshot());
+    ok(opened);
+    await drafts.update({ ...opened, subject: 'Opened' }, opened);
+    await drafts.save();
+    const listeners = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const editor = (name: string) => (
+      <View testID={name}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={created}
+        />
+      </View>
+    );
+    await render(
+      <>
+        {editor('first')}
+        {editor('second')}
+      </>,
+    );
+    const first = within(screen.getByTestId('first'));
+    const second = within(screen.getByTestId('second'));
+    await fireEvent.changeText(first.getByLabelText('Subject'), 'Unwanted');
+    await act(async () => {
+      for (const [, listener] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listeners)) {
+        listener('active');
+      }
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(1);
+    });
+    // Don’t Save in the first window leaves the record while the second still has the Draft.
+    await act(async () => {
+      await fireEvent.press(first.getByRole('button', { name: 'Close' }));
+    });
+    await answer('Don’t Save');
+    await waitFor(() => {
+      expect(first.queryByLabelText('Subject')).toBeNull();
+    });
+    expect(storage.recoveryRecords().size).toBe(1);
+    // The second window closes unchanged, without having journaled, and removes it.
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Close' }));
+    });
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(0);
+    });
+  });
+
   it('keeps attachment bytes for an editor whose Draft another window deletes', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

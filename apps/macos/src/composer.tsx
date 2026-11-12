@@ -1984,8 +1984,9 @@ const journalDelay = 2000;
 
 // Keeps the editor's unsaved version, which `unsavedVersion` returns, in a composer recovery record
 // a few seconds after each `edited` change and when the app returns to the foreground, retrying a
-// record locked storage refused. The records it wrote go once the version is unchanged again, and
-// for good when the editor closes through the returned function.
+// record locked storage refused. The records it wrote go once the version is unchanged again. The
+// returned function closes the journal, removing those records and that of Draft `id` the editor
+// closes on, which another editor's journal may have written.
 function useRecoveryJournal(
   edited: unknown,
   unsavedVersion: () => Draft | undefined,
@@ -2034,10 +2035,14 @@ function useRecoveryJournal(
       timer.current = undefined;
     };
   }, [write]);
-  return useCallback(() => {
-    closed.current = true;
-    write();
-  }, [write]);
+  return useCallback(
+    (id: string) => {
+      closed.current = true;
+      journaled.current.add(id);
+      write();
+    },
+    [write],
+  );
 }
 
 function Editor({
@@ -2583,7 +2588,7 @@ function Editor({
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
     if (closed) {
-      closeRecord();
+      closeRecord(authored.current.id);
     }
     pausedNow.current = false;
     finishOperation();
@@ -2632,7 +2637,7 @@ function Editor({
     }
     // Another window's failed save leaves this editor's untouched Draft alone.
     if (authored.current === stored.current && !unsaved.current) {
-      closeRecord();
+      closeRecord(authored.current.id);
       onClose();
       return true;
     }
@@ -2723,7 +2728,7 @@ function Editor({
       // An unexpected storage rejection leaves the editor retryable too.
     }
     if (removed) {
-      closeRecord();
+      closeRecord(authored.current.id);
     } else {
       discarded.current = false;
     }
@@ -2780,7 +2785,7 @@ function Editor({
       // An unexpected rejection keeps the Draft open to send again.
     }
     if (refusal === undefined) {
-      closeRecord();
+      closeRecord(authored.current.id);
     } else {
       pausedNow.current = false;
       discarded.current = false;

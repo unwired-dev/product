@@ -2151,8 +2151,9 @@ const journalDelay = 2000;
 
 // Keeps the editor's unsaved version, which `unsavedVersion` returns, in a composer recovery record
 // a few seconds after each `edited` change and when the app returns to the foreground, retrying a
-// record locked storage refused. The records it wrote go once the version is unchanged again, and
-// for good when the editor closes through the returned function.
+// record locked storage refused. The records it wrote go once the version is unchanged again. The
+// returned function closes the journal, removing those records and that of Draft `id` the editor
+// closes on, which another editor's journal may have written.
 function useRecoveryJournal(
   edited: unknown,
   unsavedVersion: () => Draft | undefined,
@@ -2201,10 +2202,14 @@ function useRecoveryJournal(
       timer.current = undefined;
     };
   }, [write]);
-  return useCallback(() => {
-    closed.current = true;
-    write();
-  }, [write]);
+  return useCallback(
+    (id: string) => {
+      closed.current = true;
+      journaled.current.add(id);
+      write();
+    },
+    [write],
+  );
 }
 
 function Editor({
@@ -2742,7 +2747,7 @@ function Editor({
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
     if (closed) {
-      closeRecord();
+      closeRecord(authored.current.id);
     }
     finishOperation();
     answerLeave(closed);
