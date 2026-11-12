@@ -429,8 +429,9 @@ saves as Mail does:
 - **Leaving.** Opening another Draft, **New Message**, received mail on compact
   layouts, Command-W, the window's close button and **Quit** ask the same question first;
   they continue once the Draft is saved, deleted or unchanged.
-- **Durability.** Edits live only in the open composer until **Save** or **Send**
-  stores them; ending the app loses them, and reopening shows the stored version.
+- **Durability.** Only **Save** or **Send** stores edits in the Draft; reopening
+  after the app ends shows the stored version. The composer also keeps its unsaved
+  edits in a [composer recovery record](#storage-and-isolation), which its closing removes.
   **Expand** stores the shown version before moving it into its own window. A change
   of Product Account closes the composer without storing its edits. An open composer
   keeps its attachment and image bytes while its Draft is deleted in another window, so
@@ -485,8 +486,9 @@ another attempt. Drafts and received mail share the Inbox column's scroll surfac
 If saving failed or private storage became locked, the Inbox also says that Draft
 changes are not saved and offers **Save Drafts**. Keep the app open until saving
 succeeds; unsaved changes survive in memory, not a process termination or account
-removal. On iPhone and iPad edits live only in the open composer until **Save Draft**
-or **Send**; ending the app loses them, and reopening shows the stored version. On iPhone, selecting the current Draft again requests its composer without trying to
+removal. On iPhone and iPad only **Save Draft** or **Send** stores edits in the Draft;
+reopening after the app ends shows the stored version, and the composer keeps its
+unsaved edits in a composer recovery record, as on the Mac. On iPhone, selecting the current Draft again requests its composer without trying to
 leave it, so unfinished recipient text remains available to correct.
 After an interruption or relaunch the Drafts list shows every saved Draft, and
 opening one restores its sending mailbox, recipients, subject and formatted body
@@ -703,9 +705,20 @@ Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` reads the account's records on demand. A record that storage
 refuses, as while locked, stays in memory and is written with the next
 record. Writing a record never changes what **Drafts** lists or synchronizes, and
-a save keeps the files and images a record names. The composers do not write
-records yet, so the Durability rule above still holds
-([#1989](https://github.com/unwired-dev/product/issues/1989)).
+a save keeps the files and images a record names. `journal` writes nothing for a
+Draft this account's session never listed, so an editor opened before a Product
+Account change cannot write under the new account.
+
+The composers on iPhone, iPad and Mac journal their unsaved version two seconds
+after an edit, so continuous typing is recorded every two seconds, and again when
+the app returns to the foreground, which writes a record that locked storage
+refused. A version undone back to the stored one removes its record. Closing the
+composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
+**Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
+an unchanged one. While another composer has the same Draft open, the record stays
+until that composer closes too. Both composers write the same record, so it holds
+the version journaled last. Offering the records at the next launch follows in
+[#1989](https://github.com/unwired-dev/product/issues/1989).
 
 ## Verification
 
