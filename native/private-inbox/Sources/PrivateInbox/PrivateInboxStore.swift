@@ -33,8 +33,8 @@ struct MailboxCache: Codable {
   let document: String
 }
 
-// The Product Account's Drafts. Their document is TypeScript's; native keeps it encrypted for the
-// account that wrote it and replaces it only from the revision the caller read.
+// The Product Account's Drafts, or its Mail Templates. Their document is TypeScript's; native keeps
+// it encrypted for the account that wrote it and replaces it only from the revision the caller read.
 struct DraftStore: Codable {
   let revision: Int
   let owner: String
@@ -68,6 +68,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private let associatedData = Data("dev.unwired.private-inbox.v1".utf8)
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
   private let draftsAssociatedData = Data("dev.unwired.private-inbox.drafts.v1".utf8)
+  private let mailTemplatesAssociatedData = Data("dev.unwired.private-inbox.mail-templates.v1".utf8)
   static let outgoingContentLimit = 100 * 1024 * 1024
   static let draftAssetLimit = 25 * 1024 * 1024
   // Draft assets imported by this process that no stored Draft document keeps yet: commits never
@@ -297,8 +298,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
     if replacing { return try existingKey() }
     if let existing = try keychain.read("encryption-key") { return existing }
     for name in [
-      "inbox.enc", "drafts.enc", "draft-assets", "composer-recovery", "mailbox.enc", "mailboxes",
-      "bodies",
+      "inbox.enc", "drafts.enc", "draft-assets", "composer-recovery", "mail-templates.enc",
+      "mailbox.enc", "mailboxes", "bodies",
     ] {
       guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
       else { throw PrivateInboxError.unavailable }
@@ -317,7 +318,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
 
   func openDraftDocument(owner: String) throws -> (revision: Int, document: String?) {
     try transaction {
-      let stored = try readDrafts()
+      let stored = try readOwned("drafts.enc", authenticating: draftsAssociatedData)
       return (stored?.revision ?? 0, stored.flatMap { $0.owner == owner ? $0.document : nil })
     }
   }
@@ -340,7 +341,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
       guard document.utf8.count <= Self.outgoingContentLimit else {
         throw PrivateInboxError.unavailable
       }
-      let stored = try readDrafts()
+      let stored = try readOwned("drafts.enc", authenticating: draftsAssociatedData)
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
       let plaintext = try JSONEncoder().encode(next)
@@ -366,6 +367,32 @@ public final class PrivateInboxStore: @unchecked Sendable {
       for asset in assets where !retained.contains(where: { $0.id == asset.id }) {
         try? removeAttachmentItem(asset.url)
       }
+      return next.revision
+    }
+  }
+
+  // The Product Account's Mail Templates, kept like its Drafts: another account's read as none and
+  // its first commit replaces them.
+  func openMailTemplateDocument(owner: String) throws -> (revision: Int, document: String?) {
+    try transaction {
+      let stored = try readOwned("mail-templates.enc", authenticating: mailTemplatesAssociatedData)
+      return (stored?.revision ?? 0, stored.flatMap { $0.owner == owner ? $0.document : nil })
+    }
+  }
+
+  func commitMailTemplateDocument(owner: String, expectedRevision: Int, document: String) throws
+    -> Int
+  {
+    try transaction {
+      guard document.utf8.count <= Self.outgoingContentLimit else {
+        throw PrivateInboxError.unavailable
+      }
+      let stored = try readOwned("mail-templates.enc", authenticating: mailTemplatesAssociatedData)
+      guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
+      let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
+      try write(
+        JSONEncoder().encode(next), file: "mail-templates.enc",
+        key: try writingKey(replacing: stored != nil), authenticating: mailTemplatesAssociatedData)
       return next.revision
     }
   }
@@ -542,10 +569,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
     digest.map { String(format: "%02x", $0) }.joined()
   }
 
-  private func readDrafts() throws -> DraftStore? {
+  private func readOwned(_ file: String, authenticating: Data) throws -> DraftStore? {
     let data: Data
     do {
-      data = try Data(contentsOf: directory.appendingPathComponent("drafts.enc"))
+      data = try Data(contentsOf: directory.appendingPathComponent(file))
     } catch CocoaError.fileReadNoSuchFile {
       return nil
     }
@@ -553,7 +580,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     do {
       let box = try AES.GCM.SealedBox(combined: data)
       let plaintext = try AES.GCM.open(
-        box, using: SymmetricKey(data: key), authenticating: draftsAssociatedData)
+        box, using: SymmetricKey(data: key), authenticating: authenticating)
       let stored = try JSONDecoder().decode(DraftStore.self, from: plaintext)
       guard stored.revision > 0 else { throw PrivateInboxError.invalidStore }
       return stored
@@ -575,13 +602,14 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   // Every connection's cache, bodies and Downloaded Attachments, including the cache written
-  // before connections, and the account's Drafts, their assets and its composer recovery records:
-  // everything an account purge removes from this store.
+  // before connections, and the account's Drafts, their assets, its composer recovery records and
+  // its Mail Templates: everything an account purge removes from this store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
       try removeURLs(
         [
           "mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets", "composer-recovery",
+          "mail-templates.enc",
         ].map { directory.appendingPathComponent($0) } + [attachments])
     }
   }

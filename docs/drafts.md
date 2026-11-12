@@ -364,8 +364,18 @@ line around their blocks; a caret inside a list marker belongs to that item.
 Marks and links stay as the template has them, and the blocks it adds keep their
 kinds and alignment. The template's
 subject fills only a Draft without one. A new Draft from a template is the same
-on an empty Draft. Storing templates and the composers' Templates control follow
-in later #850 slices.
+on an empty Draft.
+
+Each Mail Profile's templates are stored on this device
+([#2035](https://github.com/unwired-dev/product/issues/2035)): `save` adds a
+template to a Profile or replaces its template with the same id in place, `remove`
+removes one, and `templates` lists only that Profile's. Saving needs no network or
+Product Sign-In. A template the rules above refuse is never stored, and a template
+another Profile owns is never replaced or removed. A write storage refuses, as
+while locked, for another Product Account or from a revision another write moved
+on, changes nothing and resolves `false`; a listing storage cannot read resolves
+`undefined`. Synchronizing templates through Product Sync and the composers'
+Templates control follow in later #850 slices.
 
 The [Tiptap evaluation editor](draft-editor-evaluation.md) is an opt-in test build
 of the body editor for comparison with this composer; it does not change it.
