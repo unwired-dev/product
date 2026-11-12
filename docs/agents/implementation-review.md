@@ -26,6 +26,13 @@ issue, the acceptance criteria, the base commit to diff against, the checks
 you ran with their results, and anything deferred. Give it the code, not your
 conclusions about it.
 
+The reviewer runs on `gpt-6.1-sol` with `high` reasoning; pass both settings
+explicitly, including when the implementer runs on another model. When T3
+delegation is unavailable, run it from a handoff file with
+`codex exec -m gpt-6.1-sol -c model_reasoning_effort='"high"' -C <checkout> - < <handoff>`.
+An unavailable reviewer leaves the review incomplete: do not fall back to
+another model or a self-review.
+
 The reviewer reads the whole diff, the callers, owning modules and tests it
 touches, and the architecture notes and ADRs for that area. It applies the
 [checklist](#review-checklist) and returns findings ranked by severity, each
