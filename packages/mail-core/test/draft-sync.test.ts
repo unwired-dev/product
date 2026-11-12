@@ -279,6 +279,60 @@ describe('synchronizing Drafts through Product Sync', () => {
     }
   });
 
+  it('keeps a signature apart from the body through a relaunch and on another device, and refuses one with an image', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const mac = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a new Draft');
+    const signed = {
+      ...write(phone.draft(id), 'Hello'),
+      signature: [
+        { kind: 'paragraph', spans: [{ text: 'Alex', marks: ['bold'] }] },
+      ],
+    } satisfies Draft;
+    await phone.drafts.update(signed, phone.draft(id));
+    await phone.relaunch();
+    await phone.drafts.sync();
+    await mac.drafts.sync();
+    expect(phone.draft(id)).toStrictEqual({
+      ...signed,
+      updatedAt: phone.draft(id).updatedAt,
+    });
+    expect(mac.draft(id)).toStrictEqual(phone.draft(id));
+
+    // A newer record whose signature holds an inline image does not open here.
+    const identifier = `draft.${id}`;
+    const image = {
+      id: 'image0001',
+      name: 'logo.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const pictured = {
+      ...signed,
+      signature: insertImage(signed.signature, { start: 4, end: 4 }, image)
+        .document,
+    };
+    server.replace(
+      'account-a',
+      identifier,
+      server.seal(
+        'account-a',
+        identifier,
+        JSON.stringify({
+          id,
+          // Newer than any version this test wrote.
+          version: 100,
+          draft: JSON.stringify(pictured),
+        }),
+      ),
+    );
+    const kept = mac.draft(id);
+    await mac.drafts.sync();
+    expect(mac.draft(id)).toStrictEqual(kept);
+  });
+
   it('preserves edits made on two devices as separate Drafts, and the editor follows its own copy', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

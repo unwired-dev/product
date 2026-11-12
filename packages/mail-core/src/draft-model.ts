@@ -66,6 +66,13 @@ export const DraftSchema = Schema.Struct({
   response: Schema.optionalKey(ResponseSchema),
   // The answered correspondence, kept apart from the authored body and never edited with it.
   quoted: Schema.optionalKey(SemanticDocumentSchema),
+  // The sender's signature, kept apart from the authored body and sent between it and the quoted
+  // correspondence. It holds no inline image.
+  signature: Schema.optionalKey(
+    SemanticDocumentSchema.check(
+      Schema.makeFilter((document) => imagesOf(document).length === 0),
+    ),
+  ),
   // Milliseconds since 1970 of the last edit.
   updatedAt: Schema.Finite,
 });

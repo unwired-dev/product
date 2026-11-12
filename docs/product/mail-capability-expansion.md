@@ -318,8 +318,8 @@ remain release prerequisites, with unavailable checks recorded as deferred.
 ### Verified prerequisites
 
 - Current Drafts separate authored content, quoted correspondence, file
-  Attachments and Inline Images. They do not yet have a dedicated signature
-  field. A phrase check cannot reliably recognize a signature or correspondence
+  Attachments and Inline Images, and keep a signature in its own field
+  ([#2024](https://github.com/unwired-dev/product/issues/2024)). A phrase check cannot reliably recognize a signature or correspondence
   pasted into the authored body. Signature work remains part of
   [#850](https://github.com/unwired-dev/product/issues/850); see
   [current Draft behavior](../drafts.md).

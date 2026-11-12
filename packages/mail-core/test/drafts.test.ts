@@ -1268,6 +1268,13 @@ describe('entering Draft recipients', () => {
     }
   });
 
+  it('treats a Draft holding only a signature as empty', () => {
+    expect.hasAssertions();
+    expect(
+      isEmptyDraft({ ...draft, signature: typed(emptyDocument, 'Alex') }),
+    ).toBe(true);
+  });
+
   it('parses named recipients when regular expression results carry no named groups, as on Hermes', () => {
     expect.hasAssertions();
     const spy = vi

@@ -130,6 +130,30 @@ describe('building an outgoing message', () => {
     );
   });
 
+  it('sends the signature after the authored body and before the quoted correspondence', async () => {
+    expect.hasAssertions();
+    const parsed = await PostalMime.parse(
+      assemble(
+        build(
+          draft({
+            body: [{ kind: 'numbered', spans: [{ text: 'Agenda' }] }],
+            signature: [
+              { kind: 'numbered', spans: [{ text: 'Alex', marks: ['bold'] }] },
+            ],
+            quoted: [{ kind: 'quote', spans: [{ text: 'Earlier' }] }],
+          }),
+        ),
+      ),
+    );
+
+    // A list ending the body and one starting the signature stay separate lists.
+    expect(parsed.html).toBe(
+      '<!DOCTYPE html><html><body><ol><li>Agenda</li></ol><ol><li><strong>Alex</strong></li></ol>' +
+        '<blockquote><p>Earlier</p></blockquote></body></html>',
+    );
+    expect(parsed.text).toBe('1. Agenda\n1. Alex\n> Earlier');
+  });
+
   it('links each linked run once and names its destination in the plain-text alternative', async () => {
     expect.hasAssertions();
     const plan = 'https://example.invalid/plan?a=1&b=2';

@@ -341,6 +341,17 @@ numbered lists restart around it as around any other block. Drafts do not store
 tables yet; Draft storage and editing tables in the composers follow in later
 #1268 slices.
 
+A Draft can carry a signature
+([#2024](https://github.com/unwired-dev/product/issues/2024)): a Semantic Message
+Document kept apart from the authored body and the quoted correspondence, so
+Compose Assistance never reads it. It holds no Inline Image; a stored Draft whose
+signature has one is refused. Outgoing HTML and plain text place it after the
+authored body and before the quoted correspondence, written apart from the body,
+so a list or quote ending the body never continues into the signature. A Draft holding only a
+signature is still empty. Draft storage and Product Sync keep it with the Draft.
+Signatures per Sending Identity, choosing one and showing it in the composers
+follow in later [#850](https://github.com/unwired-dev/product/issues/850) slices.
+
 A [Mail Template](domain/messages-and-delivery.md) has a name, a subject and a
 body ([#2022](https://github.com/unwired-dev/product/issues/2022), a first slice
 of [#850](https://github.com/unwired-dev/product/issues/850)). A blank name or a

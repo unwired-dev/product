@@ -429,6 +429,15 @@ export const draftFiles = (draft: Draft): readonly DraftFile[] =>
     };
   });
 
+// The documents a Draft's text is written from, in order. A signature is written apart, so a list
+// or quote ending the body never continues into it.
+const partsOf = ({ body, signature, quoted }: Draft) => {
+  const after = quoted ?? [];
+  return signature === undefined
+    ? [[...body, ...after]]
+    : [body, [...signature, ...after]];
+};
+
 // The message sent for a Draft: its recipients, subject and reply headers, the formatted body with a
 // plain-text alternative, inline images by Content-ID and attachments, and a Message-ID when the
 // sender names one. `withoutFiles` leaves out every image and attachment, which `draftFiles` lists.
@@ -451,13 +460,13 @@ export function outgoingMessage(
     calendar?: string;
   }>,
 ): OutgoingMessage {
-  const body = [...draft.body, ...(draft.quoted ?? [])];
+  const parts = partsOf(draft);
   const images = withoutFiles ? [] : inlineImages(draft);
   const alternative = multipart('alternative', `=_${boundary}_a`, [
-    textPart('text/plain', plainOf(body)),
+    textPart('text/plain', parts.map(plainOf).join(crlf)),
     textPart(
       'text/html',
-      `<!DOCTYPE html><html><body>${htmlOf(body)}</body></html>`,
+      `<!DOCTYPE html><html><body>${parts.map(htmlOf).join('')}</body></html>`,
     ),
     ...(calendar === undefined
       ? []
