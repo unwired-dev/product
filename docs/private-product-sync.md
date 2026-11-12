@@ -261,6 +261,10 @@ chosen connection's incarnation and its address, written only through compare-an
 so the address reaches Convex only as ciphertext. A Sending Identity's signature
 synchronizes as a sealed `mailbox-signature.` record bound to the connection, naming its
 incarnation and address and holding the signature document, in the same way.
+Each [Mail Template](drafts.md) synchronizes as a sealed `profile-template.` record
+under an identifier derived from the template's, holding its Profile, name, subject,
+body and a random write identifier, with a sealed tombstone once removed. Writes use compare-and-set, and a
+record that does not open under its own template's identifier is never adopted.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

@@ -41,6 +41,7 @@ import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   AppState,
+  DeviceEventEmitter,
   StyleSheet,
   TextInput,
   TurboModuleRegistry,
@@ -1691,7 +1692,7 @@ describe('composing Drafts', () => {
     expect(rows.length).toBeLessThan(60);
   });
 
-  it('keeps only the stored version when the app ends before Save', async () => {
+  it('keeps edits made before the app ends in a recovery record, not in the Drafts', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1703,17 +1704,85 @@ describe('composing Drafts', () => {
       />,
     );
     await press('New Message');
-    await fireEvent.changeText(await screen.findByLabelText('To'), 'maya@exa');
-    // The app ends without leaving the field or closing the composer, so the edit is lost.
+    await fireEvent.changeText(
+      await screen.findByLabelText('Subject'),
+      'Unsaved plan',
+    );
+    // A few seconds after the edit, the composer journals it without storing the Draft.
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // The app ends without leaving the field or closing the composer, so the Draft is unchanged.
     await first.unmount();
+    const reopened = createDrafts(storage.native, registration);
     await render(
       <App
-        drafts={createDrafts(storage.native, registration)}
+        drafts={reopened}
         registration={registration}
       />,
     );
     await press('Draft. No subject. No recipients. From alex@example.invalid');
-    expect(screen.getByLabelText('To')).toHaveProp('value', '');
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+    await expect(reopened.recovered()).resolves.toMatchObject([
+      { subject: 'Unsaved plan' },
+    ]);
+  });
+
+  it('journals again on return to the foreground and removes the record on Save and Don’t Save', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const listeners = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const activate = () =>
+      act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+    const records = () => storage.recoveryRecords().size;
+    const edit = async (subject: string) => {
+      await fireEvent.changeText(screen.getByLabelText('Subject'), subject);
+      await activate();
+      await waitFor(() => {
+        expect(records()).toBe(1);
+      });
+    };
+    const row = 'Draft. Plan. No recipients. From alex@example.invalid';
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    // Locked storage refuses the record; the next foreground activation writes it.
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Plan');
+    storage.setLocked(true);
+    await activate();
+    expect(records()).toBe(0);
+    storage.setLocked(false);
+    await edit('Plan');
+    await saveAndClose();
+    expect(screen.queryByLabelText('Subject')).toBeNull();
+    await waitFor(() => {
+      expect(records()).toBe(0);
+    });
+    await press(row);
+    await edit('Plan, again');
+    await press('Close');
+    await answer('Don’t Save');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+    });
+    expect(records()).toBe(0);
+    expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
 
   it('suggests recent correspondents of the Draft’s Profile and accepts one by key', async () => {
@@ -2520,6 +2589,7 @@ describe('composing Drafts', () => {
           name: 'Rent',
           subject: 'Rent reminder',
           body,
+          pending: true,
         },
       ]);
     });
@@ -2712,6 +2782,143 @@ describe('composing Drafts', () => {
     expect(sheetShown()).toBeUndefined();
     expect(second.queryByLabelText('Subject')).toBeNull();
     expect(first.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
+  });
+
+  it('removes a recovery record left to another window once that window closes unchanged', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const [opened] = draftsOf(drafts.getSnapshot());
+    ok(opened);
+    await drafts.update({ ...opened, subject: 'Opened' }, opened);
+    await drafts.save();
+    const listeners = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const editor = (name: string) => (
+      <View testID={name}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={created}
+        />
+      </View>
+    );
+    await render(
+      <>
+        {editor('first')}
+        {editor('second')}
+      </>,
+    );
+    const first = within(screen.getByTestId('first'));
+    const second = within(screen.getByTestId('second'));
+    await fireEvent.changeText(first.getByLabelText('Subject'), 'Unwanted');
+    await act(async () => {
+      for (const [, listener] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listeners)) {
+        listener('active');
+      }
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(1);
+    });
+    // Don’t Save in the first window leaves the record while the second still has the Draft.
+    await act(async () => {
+      await fireEvent.press(first.getByRole('button', { name: 'Close' }));
+    });
+    await answer('Don’t Save');
+    await waitFor(() => {
+      expect(first.queryByLabelText('Subject')).toBeNull();
+    });
+    expect(storage.recoveryRecords().size).toBe(1);
+    // The second window closes unchanged, without having journaled, and removes it.
+    await act(async () => {
+      await fireEvent.press(second.getByRole('button', { name: 'Close' }));
+    });
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(0);
+    });
+  });
+
+  it('answers Quit only once Don’t Save has removed the recovery record', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const host: TurboModule &
+      Readonly<{
+        addListener: typeof ignore;
+        removeListeners: typeof ignore;
+        guardClose: typeof ignore;
+        finishClose: ReturnType<typeof jest.fn>;
+      }> = {
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+      finishClose: jest.fn(),
+    };
+    const modules = windowHostWith(host);
+    const removal = deferred();
+    const remove = storage.native.removeComposerRecovery;
+    const held = jest
+      .spyOn(storage.native, 'removeComposerRecovery')
+      .mockImplementation(async (owner, id) => {
+        await removal.promise;
+        return remove(owner, id);
+      });
+    try {
+      const listeners = jest.mocked(AppState.addEventListener).mock.calls
+        .length;
+      await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      await fireEvent.changeText(screen.getByLabelText('Subject'), 'Unwanted');
+      await act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      });
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'inbox-window-composer',
+        });
+      });
+      await answer('Don’t Save');
+      await waitFor(() => {
+        expect(held).toHaveBeenCalledWith(expect.anything(), expect.anything());
+      });
+      expect(host.finishClose).not.toHaveBeenCalled();
+      await act(async () => {
+        removal.resolve(undefined);
+      });
+      await waitFor(() => {
+        expect(host.finishClose).toHaveBeenCalledWith(
+          'inbox-window-composer',
+          true,
+        );
+      });
+      expect(storage.recoveryRecords().size).toBe(0);
+    } finally {
+      held.mockRestore();
+      modules.mockRestore();
+    }
   });
 
   it('keeps attachment bytes for an editor whose Draft another window deletes', async () => {

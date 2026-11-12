@@ -97,18 +97,21 @@ export function InboxProvider({
   const navigation = useMemo(() => createComposerNavigation(), []);
   useEffect(() => {
     void drafts.load();
-    // Returning picks up other devices' Draft changes; leaving publishes this device's.
+    void mailTemplates.synchronize();
+    // Returning picks up other devices' Draft and Mail Template changes; leaving publishes this
+    // device's.
     return followOnce(drafts, () => {
       const subscription = AppState.addEventListener('change', (state) => {
         if (state === 'active' || state === 'background') {
           void drafts.syncInBackground();
+          void mailTemplates.synchronize();
         }
       });
       return () => {
         subscription.remove();
       };
     });
-  }, [drafts]);
+  }, [drafts, mailTemplates]);
   // Each load decrypts and opens every mailbox natively, so windows share one.
   useEffect(
     () =>

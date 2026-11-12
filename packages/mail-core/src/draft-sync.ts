@@ -71,7 +71,8 @@ const PulledSchema = Schema.Struct({
   ),
   unreadable: Schema.Array(Schema.NonEmptyString),
 });
-const PushedSchema = Schema.Union([
+// A compare-and-set write's reply, also for Mail Templates.
+export const PushedSchema = Schema.Union([
   Schema.Struct({
     owner: Schema.NonEmptyString,
     committed: Schema.Literal(false),

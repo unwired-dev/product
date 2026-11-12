@@ -991,6 +991,37 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(pullMailTemplates:known:resolver:rejecter:)
+  func pullMailTemplates(
+    _ owner: String, known: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pullMailTemplates", owner: owner, resolve, reject: reject) { _, sync in
+      try await sync.pull(MailTemplateRecord.self, known: known)
+    }
+  }
+
+  // `record` carries the template's identifier, the record's write count, its JSON or null to
+  // remove it, and the revision it replaces.
+  @objc(pushMailTemplate:record:resolver:rejecter:)
+  func pushMailTemplate(
+    _ owner: String, record: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pushMailTemplate", owner: owner, resolve, reject: reject) { _, sync in
+      guard let id = record["id"] as? String, !id.isEmpty, id.count <= 200,
+        let version = (record["version"] as? Double).flatMap({ Int(exactly: $0) }), version >= 1
+      else { throw RegistrationError.unavailable }
+      let template = record["template"] as? String
+      guard template != nil || record["template"] is NSNull else {
+        throw RegistrationError.unavailable
+      }
+      return try await sync.push(
+        MailTemplateRecord(id: id, version: version, content: template),
+        expected: record["expectedUpdatedAt"] as? Double)
+    }
+  }
+
   @objc(uploadDraftAsset:asset:resolver:rejecter:)
   func uploadDraftAsset(
     _ owner: String, asset: [String: Any],

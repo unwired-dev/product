@@ -380,8 +380,30 @@ another Profile owns is never replaced or removed. Each call acts for the Produc
 Account signed in when it was made. A write storage refuses, as while locked,
 after another account signed in or from a revision another write moved on,
 changes nothing and resolves `false`; a listing storage cannot read resolves
-`undefined`. Synchronizing templates through Product Sync follows in a later #850
-slice.
+`undefined`.
+
+Templates synchronize with the account's other Trusted Devices through Private Sync
+([#2043](https://github.com/unwired-dev/product/issues/2043)), one sealed record per
+template as the [Private Sync guide](private-product-sync.md) describes. The local
+document stays what `templates` reads: each template keeps the record it was made
+from, and one that differs from it is pending until its write commits, which
+`templates` reports. Each saved change, and each mailbox screen opening or the app
+becoming active or going to the background, runs `synchronize`: it adopts other
+devices' templates, edits and removals for templates without a pending change, then
+writes each pending change by compare-and-set from its record. When another device
+changed the same template first, its version keeps the id and this device's edit
+stays as a conflict copy, a new template marked `conflict` that publishes like any
+other. An edit wins over a removal on either side. A record that does not open
+here, names another template or is older than the one already read changes
+nothing, and a write whose reply was lost is recognized when it is read back by
+the random write identifier sealed in its record. Like
+Draft synchronization, a pass that finds this device removed reports it, and one
+refused for an older key epoch adopts the newer epoch and passes again. `save`
+refuses a template identifier longer than 200 characters, and conflict copies stay
+within that limit; a template stored earlier with a longer identifier stays pending
+on this device. Every write carries a version above any earlier write of the same
+template that may still land, and each such write is remembered until a newer record
+is known, so an edit that lands late is never taken for another device's.
 
 The Mac composer's format bar ends with the Templates pull-down
 ([#2045](https://github.com/unwired-dev/product/issues/2045)). Under its Insert
@@ -419,8 +441,9 @@ saves as Mail does:
 - **Leaving.** Opening another Draft, **New Message**, received mail on compact
   layouts, Command-W, the window's close button and **Quit** ask the same question first;
   they continue once the Draft is saved, deleted or unchanged.
-- **Durability.** Edits live only in the open composer until **Save** or **Send**
-  stores them; ending the app loses them, and reopening shows the stored version.
+- **Durability.** Only **Save** or **Send** stores edits in the Draft; reopening
+  after the app ends shows the stored version. The composer also keeps its unsaved
+  edits in a [composer recovery record](#storage-and-isolation), which its closing removes.
   **Expand** stores the shown version before moving it into its own window. A change
   of Product Account closes the composer without storing its edits. An open composer
   keeps its attachment and image bytes while its Draft is deleted in another window, so
@@ -475,8 +498,9 @@ another attempt. Drafts and received mail share the Inbox column's scroll surfac
 If saving failed or private storage became locked, the Inbox also says that Draft
 changes are not saved and offers **Save Drafts**. Keep the app open until saving
 succeeds; unsaved changes survive in memory, not a process termination or account
-removal. On iPhone and iPad edits live only in the open composer until **Save Draft**
-or **Send**; ending the app loses them, and reopening shows the stored version. On iPhone, selecting the current Draft again requests its composer without trying to
+removal. On iPhone and iPad only **Save Draft** or **Send** stores edits in the Draft;
+reopening after the app ends shows the stored version, and the composer keeps its
+unsaved edits in a composer recovery record, as on the Mac. On iPhone, selecting the current Draft again requests its composer without trying to
 leave it, so unfinished recipient text remains available to correct.
 After an interruption or relaunch the Drafts list shows every saved Draft, and
 opening one restores its sending mailbox, recipients, subject and formatted body
@@ -693,9 +717,20 @@ Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` reads the account's records on demand. A record that storage
 refuses, as while locked, stays in memory and is written with the next
 record. Writing a record never changes what **Drafts** lists or synchronizes, and
-a save keeps the files and images a record names. The composers do not write
-records yet, so the Durability rule above still holds
-([#1989](https://github.com/unwired-dev/product/issues/1989)).
+a save keeps the files and images a record names. `journal` writes nothing for a
+Draft this account's session never listed, so an editor opened before a Product
+Account change cannot write under the new account.
+
+The composers on iPhone, iPad and Mac journal their unsaved version two seconds
+after an edit, so continuous typing is recorded every two seconds, and again when
+the app returns to the foreground, which writes a record that locked storage
+refused. A version undone back to the stored one removes its record. Closing the
+composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
+**Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
+an unchanged one. While another composer has the same Draft open, the record stays
+until that composer closes too. Both composers write the same record, so it holds
+the version journaled last. Offering the records at the next launch follows in
+[#1989](https://github.com/unwired-dev/product/issues/1989).
 
 ## Verification
 

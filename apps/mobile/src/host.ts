@@ -41,6 +41,7 @@ export const {
   registration,
   gmailMailboxes,
   drafts,
+  mailTemplates,
   outbox,
   freshness,
   remoteContent,

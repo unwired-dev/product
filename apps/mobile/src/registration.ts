@@ -10,6 +10,7 @@ export {
   registration,
   gmailMailboxes,
   drafts,
+  mailTemplates,
   outbox,
   freshness,
   remoteContent,
