@@ -722,13 +722,30 @@ describe('sending a Draft', () => {
       await act(async () => {
         await sender.mailboxes.load();
       });
+      const listeners = jest.mocked(AppState.addEventListener).mock.calls
+        .length;
       await render(<App sender={sender} />);
       await compose('Lunch');
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
       await press('To: sam@example.invalid');
+      await act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(sender.storage.recoveryRecords().size).toBe(1);
+      });
       await press('Send');
       await screen.findByRole('alert', {
         name: 'Add a recipient before sending.',
+      });
+      // The refused Send saved the Draft, so its recovery record goes while the composer stays.
+      await waitFor(() => {
+        expect(sender.storage.recoveryRecords().size).toBe(0);
       });
       await press('Close');
       expect(sheetShown()).toBeUndefined();

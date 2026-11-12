@@ -1985,9 +1985,10 @@ const journalDelay = 2000;
 // Keeps the editor's unsaved version, which `unsavedVersion` returns, in a composer recovery record
 // a few seconds after each `edited` change and when the app returns to the foreground, retrying a
 // record locked storage refused. The records it wrote go once the version is unchanged again. The
-// returned function closes the journal, removing those records and that of Draft `id` the editor
-// closes on, which another editor's journal may have written; it resolves once they are gone, so
-// Quit waits for them.
+// first returned function closes the journal, removing those records and that of Draft `id` the
+// editor closes on, which another editor's journal may have written; it resolves once they are
+// gone, so Quit waits for them. The second journals at once, as after a save that keeps the editor
+// open.
 function useRecoveryJournal(
   edited: unknown,
   unsavedVersion: () => Draft | undefined,
@@ -2037,7 +2038,7 @@ function useRecoveryJournal(
       timer.current = undefined;
     };
   }, [write]);
-  return useCallback(
+  const close = useCallback(
     (id: string) => {
       closed.current = true;
       clearTimeout(timer.current);
@@ -2047,6 +2048,7 @@ function useRecoveryJournal(
     },
     [forget],
   );
+  return [close, write] as const;
 }
 
 function Editor({
@@ -2216,7 +2218,7 @@ function Editor({
   const subjectCaret = useRef<number | undefined>(undefined);
   const deletion = useRef<'backward' | 'forward' | undefined>(undefined);
   const draft = history.present;
-  const closeRecord = useRecoveryJournal(
+  const [closeRecord, journalNow] = useRecoveryJournal(
     draft,
     useCallback(
       () =>
@@ -2785,6 +2787,7 @@ function Editor({
       // A refused Send still stored the version shown; Close asks only if saving it failed.
       if (refusal !== undefined && (await store.save())) {
         unsaved.current = false;
+        journalNow();
       }
     } catch {
       // An unexpected rejection keeps the Draft open to send again.
