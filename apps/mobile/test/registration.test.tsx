@@ -3228,6 +3228,128 @@ describe('product registration', () => {
     });
   });
 
+  /* oxlint-disable vitest/max-expects -- One journey edits, refuses, relaunches and clears a signature. */
+  it('edits each Sending Identity’s signature in Settings through Product Sync', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const setup = createRegistration(synthetic.relaunch());
+    await connectImap(setup, { address: 'other@example.invalid' });
+    await connectImap(setup, {
+      address: 'receiving@example.invalid',
+      username: 'receiving',
+    });
+    // A manual server connected before SMTP existed receives only.
+    delete synthetic.device.record?.connections.find(
+      ({ address }) => address === 'receiving@example.invalid',
+    )?.smtp;
+    const store = createRegistration(synthetic.relaunch());
+    const signatures = (snapshot = store.getSnapshot().snapshot) =>
+      mailboxesOf(snapshot).map(({ address, signature }) => [
+        address,
+        signature,
+      ]);
+    await render(
+      <RegistrationGate
+        store={started(store)}
+        preview={false}>
+        <ConnectedInbox />
+      </RegistrationGate>,
+    );
+    await openAccount();
+    await openSettings('Signatures');
+    await expect(pushedSettings()).resolves.toBe('Signatures');
+    const row = (address: string) =>
+      screen.getByRole('button', { name: address });
+    expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+      text: 'None',
+    });
+    expect(row('other@example.invalid')).toHaveAccessibilityValue({
+      text: 'None',
+    });
+    // A receive-only connection has no Sending Identity to sign.
+    expect(
+      screen.queryByRole('button', { name: 'receiving@example.invalid' }),
+    ).toBeNull();
+    expect(row('alex@example.invalid')).toBeSelected();
+    const editor = () =>
+      screen.getByLabelText('Signature for alex@example.invalid');
+    const type = async (text: string) => {
+      await fireEvent(editor(), 'focus');
+      await fireEvent.changeText(editor(), text);
+    };
+    const leave = async () => {
+      await act(async () => {
+        await fireEvent(editor(), 'blur');
+      });
+    };
+
+    // Typing and bold are stored when the editor is left; the other identities keep none.
+    await type('Alex Example');
+    await fireEvent(editor(), 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Bold' }));
+    await leave();
+    const signed = [
+      {
+        kind: 'paragraph',
+        spans: [{ text: 'Alex', marks: ['bold'] }, { text: ' Example' }],
+      },
+    ];
+    await waitFor(() => {
+      expect(signatures()).toStrictEqual([
+        ['alex@example.invalid', signed],
+        ['other@example.invalid', undefined],
+        ['receiving@example.invalid', undefined],
+      ]);
+    });
+    expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+      text: 'Alex Example',
+    });
+    const relaunched = createRegistration(synthetic.relaunch());
+    await relaunched.restore();
+    expect(signatures(relaunched.getSnapshot().snapshot)).toStrictEqual(
+      signatures(),
+    );
+
+    // A refused edit keeps the stored signature, shows it again and says so.
+    synthetic.backend.offline = true;
+    await type('Offline');
+    await leave();
+    await expect(
+      screen.findByText('The signature could not be changed. Try again later.'),
+    ).resolves.toBeVisible();
+    expect(within(editor()).getByText('Alex')).toBeVisible();
+    expect(signatures()[0]).toStrictEqual(['alex@example.invalid', signed]);
+    synthetic.backend.offline = false;
+
+    // Emptying the editor clears the signature, and so does Delete.
+    await type('');
+    await leave();
+    await waitFor(() => {
+      expect(signatures()[0]).toStrictEqual([
+        'alex@example.invalid',
+        undefined,
+      ]);
+    });
+    await type('Alex');
+    await leave();
+    await waitFor(() => {
+      expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+        text: 'Alex',
+      });
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Delete' }));
+    });
+    await waitFor(() => {
+      expect(row('alex@example.invalid')).toHaveAccessibilityValue({
+        text: 'None',
+      });
+    });
+    expect(signatures()[0]).toStrictEqual(['alex@example.invalid', undefined]);
+  }); /* oxlint-enable vitest/max-expects */
+
   it('opens Settings over the Inbox, which keeps its state for the way back, and closes it on sign-out', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();

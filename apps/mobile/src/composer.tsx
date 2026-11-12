@@ -33,7 +33,7 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ComponentProps, ReactNode } from 'react';
-import type { TextInputInstance, TextStyle } from 'react-native';
+import type { TextInputInstance } from 'react-native';
 
 import {
   canRewrite,
@@ -135,7 +135,9 @@ import {
   FormatBar,
   FormatPanel,
   GeneratePrompt,
+  kindStyles,
   LinkEditor,
+  markStyle,
   MenuItem,
   PopUp,
   useGeneratePrompt,
@@ -537,44 +539,6 @@ export const layoutStyles = {
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
   }),
-};
-
-const kindStyles: Record<BlockKind, TextStyle> = {
-  paragraph: {},
-  heading1: { fontSize: 26, lineHeight: 34, fontWeight: '700' },
-  heading2: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
-  heading3: { fontSize: 19, lineHeight: 28, fontWeight: '600' },
-  bulleted: {},
-  numbered: {},
-  quote: { fontStyle: 'italic' },
-  code: { fontFamily: 'Menlo' },
-};
-
-const decorations = {
-  underline: 'underline',
-  strikethrough: 'line-through',
-  both: 'underline line-through',
-} as const;
-
-// Linked text shows underlined, as the Link Editor frames draw it.
-const markStyle = (marks: readonly Mark[] = [], linked = false): TextStyle => {
-  const underline = linked || marks.includes('underline');
-  const strikethrough = marks.includes('strikethrough');
-  let decoration: (typeof decorations)[keyof typeof decorations] | undefined =
-    undefined;
-  if (underline && strikethrough) {
-    decoration = decorations.both;
-  } else if (underline) {
-    decoration = decorations.underline;
-  } else if (strikethrough) {
-    decoration = decorations.strikethrough;
-  }
-  return {
-    ...(marks.includes('bold') ? { fontWeight: '700' } : {}),
-    ...(marks.includes('italic') ? { fontStyle: 'italic' } : {}),
-    ...(marks.includes('code') ? { fontFamily: 'Menlo' } : {}),
-    ...(decoration === undefined ? {} : { textDecorationLine: decoration }),
-  };
 };
 
 // What keeps the composer from closing, or asks before it does.

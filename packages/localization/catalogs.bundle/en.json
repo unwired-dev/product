@@ -197,6 +197,7 @@
     "accountPrivateSync": "Account & Devices · Private Sync on",
     "sections": {
       "accounts": "Accounts",
+      "composing": "Composing",
       "automation": "Automation",
       "application": "Application"
     },
@@ -204,6 +205,7 @@
       "account": "Account & Devices",
       "mailboxes": "Email Accounts",
       "profiles": "Mail Profiles",
+      "signatures": "Signatures",
       "notifications": "Notifications",
       "language": "Language",
       "privacy": "Privacy & Data",
@@ -1498,6 +1500,14 @@
     "saving": "Saving error reporting…",
     "backToWelcome": "Back to Welcome",
     "failedAction": "Retry"
+  },
+  "signatures": {
+    "edit": "Edit “{{address}}”",
+    "signature": "Signature for {{address}}",
+    "none": "None",
+    "delete": "Delete",
+    "changeFailed": "The signature could not be changed. Try again later.",
+    "noIdentities": "Add an email account that can send mail to give it a signature."
   },
   "notifications": {
     "newMail": "New mail",
