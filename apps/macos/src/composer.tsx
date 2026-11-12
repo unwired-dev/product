@@ -1986,7 +1986,8 @@ const journalDelay = 2000;
 // a few seconds after each `edited` change and when the app returns to the foreground, retrying a
 // record locked storage refused. The records it wrote go once the version is unchanged again. The
 // returned function closes the journal, removing those records and that of Draft `id` the editor
-// closes on, which another editor's journal may have written.
+// closes on, which another editor's journal may have written; it resolves once they are gone, so
+// Quit waits for them.
 function useRecoveryJournal(
   edited: unknown,
   unsavedVersion: () => Draft | undefined,
@@ -1997,17 +1998,18 @@ function useRecoveryJournal(
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
   const forget = useCallback(() => {
-    for (const id of journaled.current) {
-      void store.forget(id, editor);
-    }
+    const removals = [...journaled.current].map((id) =>
+      store.forget(id, editor),
+    );
     journaled.current.clear();
+    return Promise.allSettled(removals);
   }, [editor, store]);
   const write = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
     const version = closed.current ? undefined : unsavedVersion();
     if (version === undefined) {
-      forget();
+      void forget();
       return;
     }
     journaled.current.add(version.id);
@@ -2038,10 +2040,12 @@ function useRecoveryJournal(
   return useCallback(
     (id: string) => {
       closed.current = true;
+      clearTimeout(timer.current);
+      timer.current = undefined;
       journaled.current.add(id);
-      write();
+      return forget();
     },
-    [write],
+    [forget],
   );
 }
 
@@ -2588,7 +2592,7 @@ function Editor({
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
     if (closed) {
-      closeRecord(authored.current.id);
+      await closeRecord(authored.current.id);
     }
     pausedNow.current = false;
     finishOperation();
@@ -2637,8 +2641,9 @@ function Editor({
     }
     // Another window's failed save leaves this editor's untouched Draft alone.
     if (authored.current === stored.current && !unsaved.current) {
-      closeRecord(authored.current.id);
+      const removal = closeRecord(authored.current.id);
       onClose();
+      await removal;
       return true;
     }
     setClosing(undefined);
@@ -2728,7 +2733,7 @@ function Editor({
       // An unexpected storage rejection leaves the editor retryable too.
     }
     if (removed) {
-      closeRecord(authored.current.id);
+      await closeRecord(authored.current.id);
     } else {
       discarded.current = false;
     }
@@ -2785,7 +2790,7 @@ function Editor({
       // An unexpected rejection keeps the Draft open to send again.
     }
     if (refusal === undefined) {
-      closeRecord(authored.current.id);
+      await closeRecord(authored.current.id);
     } else {
       pausedNow.current = false;
       discarded.current = false;

@@ -32,6 +32,7 @@ import { StrictMode, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   AppState,
+  DeviceEventEmitter,
   StyleSheet,
   TextInput,
   TurboModuleRegistry,
@@ -2585,6 +2586,80 @@ describe('composing Drafts', () => {
     await waitFor(() => {
       expect(storage.recoveryRecords().size).toBe(0);
     });
+  });
+
+  it('answers Quit only once Don’t Save has removed the recovery record', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const host: TurboModule &
+      Readonly<{
+        addListener: typeof ignore;
+        removeListeners: typeof ignore;
+        guardClose: typeof ignore;
+        finishClose: ReturnType<typeof jest.fn>;
+      }> = {
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+      finishClose: jest.fn(),
+    };
+    const modules = windowHostWith(host);
+    const removal = deferred();
+    const remove = storage.native.removeComposerRecovery;
+    const held = jest
+      .spyOn(storage.native, 'removeComposerRecovery')
+      .mockImplementation(async (owner, id) => {
+        await removal.promise;
+        return remove(owner, id);
+      });
+    try {
+      const listeners = jest.mocked(AppState.addEventListener).mock.calls
+        .length;
+      await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      await fireEvent.changeText(screen.getByLabelText('Subject'), 'Unwanted');
+      await act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      });
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'inbox-window-composer',
+        });
+      });
+      await answer('Don’t Save');
+      await waitFor(() => {
+        expect(held).toHaveBeenCalledWith(expect.anything(), expect.anything());
+      });
+      expect(host.finishClose).not.toHaveBeenCalled();
+      await act(async () => {
+        removal.resolve(undefined);
+      });
+      await waitFor(() => {
+        expect(host.finishClose).toHaveBeenCalledWith(
+          'inbox-window-composer',
+          true,
+        );
+      });
+      expect(storage.recoveryRecords().size).toBe(0);
+    } finally {
+      held.mockRestore();
+      modules.mockRestore();
+    }
   });
 
   it('keeps attachment bytes for an editor whose Draft another window deletes', async () => {
