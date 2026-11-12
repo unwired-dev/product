@@ -108,13 +108,22 @@ function SignatureEditor({
       setDocument(documentNow.current);
     }
   }, [signature]);
+  // The Product Account the editor opened under: a replacement account can hold the same
+  // mailbox under the same connection, and must not receive this editor's signature.
+  const ownerOf = () => {
+    const { snapshot } = store.getSnapshot();
+    return snapshot.kind === 'signed-out'
+      ? undefined
+      : snapshot.productAccountId;
+  };
+  const owner = useRef(ownerOf());
   const storedNow = () =>
     mailboxesOf(store.getSnapshot().snapshot).find(
       (mailbox) => mailbox.id === id,
     )?.signature;
   const commit = async (next: SemanticDocument) => {
     const chosen = plainText(next).trim() === '' ? undefined : next;
-    if (stored(chosen) === stored(storedNow())) {
+    if (ownerOf() !== owner.current || stored(chosen) === stored(storedNow())) {
       return;
     }
     await store.chooseSignature(id, chosen);

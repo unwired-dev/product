@@ -2873,6 +2873,22 @@ describe('mac windows of different Mail Profiles', () => {
         'alex@example.invalid',
         undefined,
       ]);
+
+      // Closing Settings after another Product Account replaced this one stores nothing, though
+      // it can hold the same mailbox under the same connection.
+      await type('Replaced');
+      const choose = jest.spyOn(store, 'chooseSignature');
+      choose.mockClear();
+      const current = store.getSnapshot();
+      const replacement = {
+        ...current.snapshot,
+        productAccountId: 'replacement',
+      };
+      jest
+        .spyOn(store, 'getSnapshot')
+        .mockReturnValue({ ...current, snapshot: replacement });
+      await app.unmount();
+      expect(choose).not.toHaveBeenCalled();
     } finally {
       replaced.restore();
       jest.restoreAllMocks();
