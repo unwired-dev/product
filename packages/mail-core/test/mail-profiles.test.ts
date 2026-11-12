@@ -3,8 +3,6 @@ import type { NativeRegistrationVault } from '@private-email/mail-core/registrat
 import * as Schema from 'effect/Schema';
 import * as Struct from 'effect/Struct';
 
-import type { SemanticDocument } from '../src/semantic-document.ts';
-
 import { readingProfile } from '../src/mailboxes.ts';
 import {
   createRegistration,
@@ -14,6 +12,7 @@ import {
   RegistrationSnapshotSchema,
   unavailableProfile,
 } from '../src/registration.ts';
+import { SemanticDocumentSchema } from '../src/semantic-document.ts';
 import {
   createSyntheticVault,
   storeProfile,
@@ -182,12 +181,10 @@ const signatureOf = (
   }
   return signature;
 };
+const document = Schema.decodeUnknownSync(SemanticDocumentSchema);
 // A signature with one paragraph per line.
 const signed = (...lines: readonly string[]) =>
-  lines.map((text) => ({
-    kind: 'paragraph' as const,
-    spans: [{ text }],
-  })) as unknown as SemanticDocument;
+  document(lines.map((text) => ({ kind: 'paragraph', spans: [{ text }] })));
 
 // A native request whose caller loses the reply before Convex receives the first publication.
 const delayPublication = (vault: NativeRegistrationVault) => {
@@ -1254,14 +1251,14 @@ describe('mail profiles', () => {
     // A signature with an Inline Image is refused, and an edit that does not commit leaves the
     // stored one.
     const before = new Map(records());
-    const image = [
+    const image = document([
       {
         kind: 'paragraph',
         spans: [
           {
             text: '\uFFFC',
             image: {
-              id: 'logo',
+              id: 'logo0001',
               name: 'logo.png',
               type: 'image/png',
               state: 'importing',
@@ -1269,7 +1266,7 @@ describe('mail profiles', () => {
           },
         ],
       },
-    ] as unknown as SemanticDocument;
+    ]);
     await expect(flow.chooseSignature(ids.a, image)).rejects.toMatchObject({
       code: 'unavailable',
     });
