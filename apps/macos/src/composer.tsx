@@ -792,13 +792,13 @@ export function Recipients({
       ).map(({ message }) => message),
       excluded,
     });
-    return {
-      recent,
-      contacts: recipientSuggestions(draft, field, {
-        correspondents: contacts,
-        excluded: [...excluded, ...recent.map(({ address }) => address)],
-      }),
-    };
+    const matched = recipientSuggestions(draft, field, {
+      correspondents: contacts,
+      excluded: [...excluded, ...recent.map(({ address }) => address)],
+    });
+    // Three rows fit above To over Subject and the minimum body; a matching contact keeps one.
+    const shown = recent.slice(0, matched.length === 0 ? 3 : 2);
+    return { recent: shown, contacts: matched.slice(0, 3 - shown.length) };
   }, [entering, editable, dismissed, draft, field, account, held, contacts]);
   // Up and Down move through both sections as one list.
   const suggestions = [...sections.recent, ...sections.contacts];

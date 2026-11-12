@@ -264,7 +264,7 @@ Google and Apple sign-in, and persistence, require the
 Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
 credentials in Keychain; ad-hoc builds report unavailable storage. Signed builds
 run in the App Sandbox with outgoing network access and Contacts access (for
-[Recipient Suggestions](drafts.md#composing)) only, so their store lives
+[Recipient Suggestions](drafts.md#composing)), so their store lives
 in `~/Library/Containers/dev.unwired.mail`. Ad-hoc builds also run in the sandbox
 with the same access, but omit profile-required Apple sign-in, Keychain and
 APNs entitlements; their registration for remote notifications fails, so they keep

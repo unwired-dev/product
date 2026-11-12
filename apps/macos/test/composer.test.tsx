@@ -1749,6 +1749,8 @@ describe('composing Drafts', () => {
     const registration = account(connected(['alex@example.invalid']));
     const personal = createSyntheticGmail();
     personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Anders Berg <anders@example.invalid>' });
+    personal.deliver({ from: 'Anton Ek <anton@example.invalid>' });
     appleContacts.addresses = [
       { sender: 'Ana Kovač', address: 'ana@example.invalid' },
       { sender: 'Andrea Novak', address: 'andrea@northwind.invalid' },
@@ -1786,16 +1788,29 @@ describe('composing Drafts', () => {
       // never the Profile's own.
       appleContacts.granted = true;
       to = await show();
-      await fireEvent.changeText(to, 'an');
-      await expect(screen.findByText('Contacts')).resolves.toBeOnTheScreen();
-      expect(
-        screen.getAllByRole('button', { name: /^Ana Kovač, /u }),
-      ).toHaveLength(1);
+      await fireEvent.changeText(to, 'ana');
+      await expect(
+        screen.findByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText('Contacts')).toBeNull();
       await fireEvent.changeText(to, 'al');
       expect(screen.queryByLabelText('Recipient suggestions')).toBeNull();
 
-      // Down moves from the recent correspondent into Contacts; Return adds one named recipient.
+      // Three rows in all, one kept for a contact; Down moves from Recent into Contacts and
+      // Return adds one named recipient.
       await fireEvent.changeText(to, 'an');
+      await expect(screen.findByText('Contacts')).resolves.toBeOnTheScreen();
+      expect(
+        screen
+          .getAllByRole('button')
+          .filter(({ props }) => /, \S+@/u.test(props.accessibilityLabel)),
+      ).toHaveLength(3);
+      expect(
+        screen.queryByRole('button', {
+          name: 'Ana Kovač, ana@example.invalid',
+        }),
+      ).toBeNull();
+      await fireEvent(to, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
       await fireEvent(to, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
       expect(
         screen.getByRole('button', {
