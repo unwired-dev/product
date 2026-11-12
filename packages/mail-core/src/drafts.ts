@@ -1084,9 +1084,7 @@ export function createDrafts(
   let cleanup: readonly DeliveryCleanup[] = [];
   // Edits in memory that storage does not hold yet.
   let dirty = false;
-  // The composer recovery records found when this account's Drafts opened, and the records storage
-  // refused, as while locked, which the next record write retries.
-  let recovered: readonly Draft[] = [];
+  // Composer recovery records storage refused, as while locked, which the next record write retries.
   const unrecorded = new Map<string, Draft>();
   let state: DraftsState = { kind: 'closed' };
   let started = false;
@@ -1209,20 +1207,12 @@ export function createDrafts(
       }
       publish({ kind: 'loading' });
       const opened = yield* native(storage.openDrafts, OpenedSchema);
-      const records = yield* native(
-        storage.openComposerRecovery,
-        RecoveryOpenedSchema,
-      );
       if (!live(current)) {
         return;
       }
-      if (opened.owner !== account || records.owner !== account) {
+      if (opened.owner !== account) {
         return yield* ownerMismatch();
       }
-      recovered = records.records.flatMap(({ id, document }) => {
-        const draft = Option.getOrUndefined(recoveredDraft(document));
-        return draft?.id === id ? [draft] : [];
-      });
       ({ revision } = opened);
       const {
         drafts = [],
@@ -2168,6 +2158,33 @@ export function createDrafts(
       return stored;
     }).pipe(semaphore.withPermit);
 
+  // The account's records; none while storage is locked, which keeps them for a later read.
+  const recovering = (current: number) =>
+    Effect.gen(function* () {
+      const account = owner;
+      if (account === undefined) {
+        return [];
+      }
+      const opened = yield* native(
+        storage.openComposerRecovery,
+        RecoveryOpenedSchema,
+      );
+      if (opened.owner !== account) {
+        return yield* ownerMismatch();
+      }
+      return live(current)
+        ? opened.records.flatMap(({ id, document }) => {
+            const draft = Option.getOrUndefined(recoveredDraft(document));
+            return draft?.id === id ? [draft] : [];
+          })
+        : [];
+    }).pipe(
+      // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+      Effect.catchTag('DraftStorageFailure', (error) =>
+        report(error).pipe(Effect.as<readonly Draft[]>([])),
+      ),
+    );
+
   const forgetting = (id: string) =>
     Effect.gen(function* () {
       const account = owner;
@@ -2178,7 +2195,6 @@ export function createDrafts(
         try: () => storage.removeComposerRecovery(account, id),
         catch: failureOf,
       });
-      recovered = recovered.filter((draft) => draft.id !== id);
       return true;
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -2203,7 +2219,6 @@ export function createDrafts(
     sent = [];
     cleanup = [];
     dirty = false;
-    recovered = [];
     unrecorded.clear();
     editors.clear();
     known.clear();
@@ -2447,8 +2462,8 @@ export function createDrafts(
         void background();
       }
     },
-    // The composer recovery records found when this account's Drafts opened.
-    recovered: () => recovered,
+    // The composer recovery records this account left on this device.
+    recovered: () => runLogged(recovering(generation)),
     // Keeps `draft` as its composer shows it in a recovery record on this device, without changing
     // the Drafts; a record refused earlier is written first. Resolves whether every record is stored.
     journal: (draft: Draft) => {

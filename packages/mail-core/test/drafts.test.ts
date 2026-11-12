@@ -3307,7 +3307,7 @@ describe('keeping composer recovery records', () => {
     // After relaunches, a save that dropped the attachment keeps its bytes while the record
     // names them.
     drafts = await relaunch();
-    expect(drafts.recovered()).toStrictEqual([unsaved]);
+    await expect(drafts.recovered()).resolves.toStrictEqual([unsaved]);
     const reopened = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
     const dropped = { ...reopened, attachments: [] };
     await drafts.update(dropped, reopened);
@@ -3315,8 +3315,10 @@ describe('keeping composer recovery records', () => {
     await drafts.update({ ...dropped, subject: 'Plan' }, dropped);
     expect(storage.assets()).toStrictEqual([attachment.id]);
 
-    // While locked, a record is refused and the stored one kept; the next write stores both.
+    // While locked, records are neither read nor written, and the stored one is kept; the next
+    // write stores both.
     storage.setLocked(true);
+    await expect(drafts.recovered()).resolves.toStrictEqual([]);
     const later = { ...unsaved, subject: 'Unsaved plan, later' };
     await expect(drafts.journal(later)).resolves.toBe(false);
     expect(storage.recoveryRecords().get(id)?.document).toContain(
@@ -3346,9 +3348,7 @@ describe('keeping composer recovery records', () => {
 
     // Another Product Account reads none of them, and opening its Drafts removes them.
     session.change(connected('account-b'));
-    expect(drafts.recovered()).toStrictEqual([]);
-    drafts = await relaunch();
-    expect(drafts.recovered()).toStrictEqual([]);
+    await expect(drafts.recovered()).resolves.toStrictEqual([]);
     expect(storage.recoveryRecords().size).toBe(0);
   });
   /* oxlint-enable vitest/max-expects */

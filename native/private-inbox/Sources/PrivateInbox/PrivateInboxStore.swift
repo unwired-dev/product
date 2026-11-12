@@ -379,13 +379,15 @@ public final class PrivateInboxStore: @unchecked Sendable {
         throw PrivateInboxError.unavailable
       }
       let name = Self.recoveryName(id)
+      // Before the folder exists, so a first record can create the key.
+      let key = try writingKey(replacing: false)
       try FileManager.default.createDirectory(
         at: directory.appendingPathComponent("composer-recovery"),
         withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
       let record = ComposerRecovery(owner: owner, id: id, document: document, assets: assets)
       try write(
-        JSONEncoder().encode(record), file: "composer-recovery/\(name)",
-        key: try writingKey(replacing: false), authenticating: recoveryIdentity(name))
+        JSONEncoder().encode(record), file: "composer-recovery/\(name)", key: key,
+        authenticating: recoveryIdentity(name))
     }
   }
 
@@ -421,7 +423,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
     Data("dev.unwired.private-inbox.composer-recovery.v1\n\(name)".utf8)
   }
 
-  // Every record file, with nil for one that does not open as the record its name promises.
+  // Every record file, with nil for one that does not open as the record its name promises. A file
+  // that cannot be read, as when the device locks meanwhile, fails rather than reading as damaged.
   private func composerRecoveries() throws -> [(url: URL, record: ComposerRecovery?)] {
     let urls: [URL]
     do {
@@ -432,10 +435,15 @@ public final class PrivateInboxStore: @unchecked Sendable {
     }
     guard !urls.isEmpty else { return [] }
     let key = SymmetricKey(data: try existingKey())
-    return urls.map { url in
+    return try urls.compactMap { url in
       let name = url.lastPathComponent
-      guard let data = try? Data(contentsOf: url),
-        let box = try? AES.GCM.SealedBox(combined: data),
+      let data: Data
+      do {
+        data = try Data(contentsOf: url)
+      } catch CocoaError.fileReadNoSuchFile {
+        return nil
+      }
+      guard let box = try? AES.GCM.SealedBox(combined: data),
         let plaintext = try? AES.GCM.open(box, using: key, authenticating: recoveryIdentity(name)),
         let record = try? JSONDecoder().decode(ComposerRecovery.self, from: plaintext),
         Self.recoveryName(record.id) == name

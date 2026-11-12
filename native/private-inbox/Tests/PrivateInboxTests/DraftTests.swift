@@ -306,6 +306,16 @@ struct DraftTests {
       owner: owner, id: "draft4", document: document, assets: [])
     _ = try await store.purge(notice: "signed-out")
     #expect(!session.exists("composer-recovery"))
+
+    // A first record on a store without a key creates it, and the store keeps working.
+    let freshService = session.service + ".fresh"
+    defer { try? DeviceKeychain(service: freshService + ".database").remove("encryption-key") }
+    let fresh = PrivateInboxStore(
+      directory: session.directory.appendingPathComponent("fresh"), service: freshService,
+      attachments: session.directory.appendingPathComponent("tmp"), protectedDataAvailable: { true })
+    try fresh.writeComposerRecovery(owner: owner, id: "draft5", document: "{}", assets: [])
+    _ = try fresh.commitDrafts(owner: owner, expectedRevision: 0, document: "{}")
+    #expect(try fresh.openComposerRecovery(owner: owner).map(\.id) == ["draft5"])
   }
 
   // Bytes come only from a picker's copy, pasted data or a current Downloaded Attachment; any other
