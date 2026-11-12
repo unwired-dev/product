@@ -7,13 +7,34 @@ import type { Registration } from './registration.ts';
 
 import { runLogged } from './diagnostics.ts';
 import { malformed, native, ownerMismatch } from './draft-native.ts';
-import { addressPattern, ownerOf } from './drafts.ts';
+import { ownerOf } from './drafts.ts';
+
+// A dot-atom local part (RFC 5322, with RFC 6531's non-ASCII letters) and a domain of letter, digit
+// and hyphen labels ending in an alphabetic or IDNA top-level label: no empty, leading or trailing
+// dot, no hyphen at a label's edge, and nothing a display name, list or control character adds.
+const atom = String.raw`[\p{L}\p{N}!#$%&'*+/=?^_\x60{|}~-]+`;
+const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+const plainAddress = new RegExp(
+  `^${atom}(?:\\.${atom})*@(?:${label}\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$`,
+  'u',
+);
+
+// The address a Blocked Sender matches: one plain address, compared as a whole without case, as
+// recipient deduplication compares them. A display name, bare domain or list is none.
+export const blockedAddress = (address: string) => {
+  const normalized = address.trim().toLowerCase();
+  return normalized.length <= 254 && plainAddress.test(normalized)
+    ? normalized
+    : undefined;
+};
 
 // A Blocked Sender: an exact normalized address, the Mail Profile that blocks it and when, in
 // milliseconds since the epoch.
 const BlockedSenderSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
-  address: Schema.NonEmptyString,
+  address: Schema.String.check(
+    Schema.makeFilter((address) => blockedAddress(address) === address),
+  ),
   blockedAt: Schema.Finite,
 });
 export type BlockedSender = typeof BlockedSenderSchema.Type;
@@ -30,13 +51,6 @@ const CommittedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
 });
-
-// The address a Blocked Sender matches: one plain address, compared as a whole without case, as
-// recipient deduplication compares them. A display name, bare domain or list is none.
-export const blockedAddress = (address: string) => {
-  const trimmed = address.trim();
-  return addressPattern.test(trimmed) ? trimmed.toLowerCase() : undefined;
-};
 
 // The signed-in Product Account's Blocked Senders on this device: one document native code keeps
 // encrypted for the account that wrote it, like its Mail Templates. Every call rejects with

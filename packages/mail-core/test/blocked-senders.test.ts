@@ -85,12 +85,24 @@ describe('blocked sender addresses', () => {
     expect(blockedAddress('  Offers@GrowthLeads.io ')).toBe(
       'offers@growthleads.io',
     );
+    expect(blockedAddress("o'brien+news@mail.xn--p1ai")).toBe(
+      "o'brien+news@mail.xn--p1ai",
+    );
     for (const refused of [
       'Growth Leads <offers@growthleads.io>',
       'growthleads.io',
       '@growthleads.io',
       'offers@growthleads.io, news@growthleads.io',
       'offers@localhost',
+      'a..b@growthleads.io',
+      '.offers@growthleads.io',
+      'offers.@growthleads.io',
+      'offers@growthleads..io',
+      'offers@-growthleads.io',
+      'offers@growthleads.--',
+      'off\u0000ers@growthleads.io',
+      'off\u0007ers@growthleads.io',
+      `${'a'.repeat(250)}@growthleads.io`,
       '',
     ]) {
       expect(blockedAddress(refused)).toBeUndefined();
@@ -246,7 +258,7 @@ describe('stored Blocked Senders', () => {
     await expect(store.blockedSenders('work')).resolves.toStrictEqual([]);
   });
 
-  it('lists nothing from a stored document that does not decode', async () => {
+  it('lists nothing from a stored document that does not decode or holds an invalid address', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue();
     const { state, store } = storage();
@@ -260,5 +272,8 @@ describe('stored Blocked Senders', () => {
       false,
     );
     expect(state.commits).toBe(0);
+    state.document =
+      '{"senders":[{"profile":"work","address":"a..b@growthleads.io","blockedAt":0}]}';
+    await expect(store.blockedSenders('work')).resolves.toBeUndefined();
   });
 });
