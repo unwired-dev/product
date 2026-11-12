@@ -404,6 +404,28 @@ describe('the isolated rich reader', () => {
     );
   });
 
+  it('paints sender decoration inside a link in the app color at a bounded thickness', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({
+      content: {
+        html: '<p><a href="https://pay.example.com.evil.example/">pay.example.com<span style="text-decoration:line-through #ffffff 40px">.evil.example</span></a></p>',
+      },
+    });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const { document, links } = rich(await read(inbox, id));
+    expect(document).toContain(
+      '*{text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}',
+    );
+    expect(links).toStrictEqual([
+      {
+        href: 'https://pay.example.com.evil.example/',
+        text: 'pay.example.com.evil.example',
+      },
+    ]);
+  });
+
   it('inspects image-only links by their description and keeps images CSS enlarges', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

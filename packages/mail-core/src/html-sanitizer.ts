@@ -1954,8 +1954,10 @@ const readerStyle =
   `@media (prefers-color-scheme:dark){${readerColors(palette.dark)}}` +
   'body{font:-apple-system-body;font-family:-apple-system,system-ui,sans-serif;line-height:1.5;' +
   'overflow-wrap:break-word;-webkit-text-size-adjust:100%}' +
+  // Sender decoration takes the app's text color at a bounded thickness, so it cannot mask text.
+  '*{text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
   // Link colors sit close to the text's, so an underline marks links even where senders remove it.
-  'a{text-decoration-line:underline;text-decoration-color:currentColor!important;text-decoration-thickness:auto!important}' +
+  'a{text-decoration-line:underline}' +
   '.link-underline{text-decoration:underline}' +
   'a .blocked-image{text-decoration:underline}' +
   'img{max-width:100%;height:auto}table{max-width:100%}pre{white-space:pre-wrap}' +
