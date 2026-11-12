@@ -111,6 +111,9 @@ Mac host keeps its separate `catalogs.macos` renderer (react-native-macos 0.81.9
 and its own `react-native-webview` 13.16.1 patch. SDK 58 generates the UIKit
 scene lifecycle and no longer installs `expo-symbols` for Expo Router, which loads
 it only when present; the app draws SF Symbols through its own design views.
+The pinned `expo-dev-launcher` 58.0.20 patch drops the development launcher's
+iOS 27.1 toolbar axis, which the Xcode 27.0 SDK in CI cannot compile. Remove it
+when CI builds with the iOS 27.1 SDK.
 
 Inbox keyboard tracking uses `react-native-keyboard-controller`. Bar controls and
 notices must accept presses with slight finger movement during keyboard motion
