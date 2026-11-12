@@ -44,6 +44,7 @@ assert.deepEqual(
     'expo-background-task',
     'expo-clipboard',
     'expo-constants',
+    'expo-contacts',
     'expo-dev-client',
     'expo-dev-launcher',
     'expo-dev-menu',
