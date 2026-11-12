@@ -1,6 +1,16 @@
 import { readFileSync } from 'node:fs';
 
-import { sanitizeHtml } from '../src/html-sanitizer.ts';
+import { presentation } from '@private-email/mail-core/message-body';
+
+// The rich reader's document, links and readable text for an HTML-only body.
+const sanitizeHtml = (html: string) => {
+  const { rich, readable } = presentation({ version: 2, id: 'mail', html });
+  return {
+    document: rich?.document ?? '',
+    links: rich?.links ?? [],
+    readable,
+  };
+};
 
 const fixture = (name: string) =>
   readFileSync(
@@ -47,10 +57,10 @@ describe('responsive sender layouts', () => {
     const { document } = sanitizeHtml(steam);
     // The button cell keeps its background, and the label takes the ink that contrasts more.
     expect(document).toContain(
-      '<td align="center" class="link-cell responsive-10" style="padding: 18px 80px; background-color: #2d73ff; color: #000000">',
+      '<td align="center" class="link-cell responsive-10" style="padding: 18px 80px; background-color: #2d73ff; color: #000000; text-indent: 0; letter-spacing: normal">',
     );
     expect(ruleBefore(document, 'Retry your purchase')).toBe(
-      'padding:12px 24px!important;background-color:#2d73ff!important;color:#000000!important',
+      'padding:12px 24px!important;background-color:#2d73ff!important;color:#000000!important;text-indent:0!important;letter-spacing:normal!important',
     );
     expect(document).toContain('.link-cell a{color:inherit}');
     // Long words wrap only when they must, so the label never splits mid-word.
@@ -144,12 +154,65 @@ describe('responsive sender layouts', () => {
       `<table><tr>${cells.join('')}</tr></table>`,
     );
     expect(document.match(/<td[^>]*>/gu)).toStrictEqual([
-      '<td class="link-cell" style="background-color: #ffffff; color: #000000">',
-      '<td class="link-cell" style="background-color: #112233; color: #FFFFFF">',
-      '<td class="link-cell" style="background-color: #ffffff; color: #000000">',
+      '<td class="link-cell" style="background-color: #ffffff; color: #000000; text-indent: 0; letter-spacing: normal">',
+      '<td class="link-cell" style="background-color: #112233; color: #FFFFFF; text-indent: 0; letter-spacing: normal">',
+      '<td class="link-cell" style="background-color: #ffffff; color: #000000; text-indent: 0; letter-spacing: normal">',
       '<td>',
       '<td>',
       '<td>',
     ]);
+  });
+
+  it('keeps a sender background off a cell whose label could paint outside it', () => {
+    expect.hasAssertions();
+    const href = 'https://pay.example.com.evil.example/x';
+    const cells = [
+      `<td bgcolor="#000"><a href="${href}"><span>pay.example.com</span><span style="display:block;margin-top:-90px">.evil.example</span></a></td>`,
+      `<td bgcolor="#000"><a href="${href}" style="text-indent:-200px;display:block">Pay</a></td>`,
+      `<td bgcolor="#000" style="letter-spacing:-20px"><a href="${href}">Pay</a></td>`,
+      `<td bgcolor="#000"><a href="${href}" style="vertical-align:-80px">Pay</a></td>`,
+    ];
+    const { document } = sanitizeHtml(
+      `<table><tr>${cells.join('')}</tr></table>`,
+    );
+    expect(document).not.toContain('link-cell"');
+    expect(document.match(/<td[^>]*>/gu)).toStrictEqual([
+      '<td>',
+      '<td>',
+      '<td style="letter-spacing: -20px">',
+      '<td>',
+    ]);
+  });
+
+  it('restates narrow styles as the cascade orders them, without sender link decoration', () => {
+    expect.hasAssertions();
+    const { document } = sanitizeHtml(
+      [
+        '<style>@media (max-width:600px){',
+        'a{font-size:15px;text-decoration:underline wavy}',
+        '.list{padding-left:400px !important}',
+        '.p{padding:12px !important}}</style>',
+        '<p><a href="https://a.example/" style="text-decoration:underline wavy #ff0000 6px">Link</a></p>',
+        '<ul class="list" style="padding-left:20px"><li>Item</li></ul>',
+        '<p class="p" style="padding-left:72px !important">Text</p>',
+      ].join(''),
+    );
+    // The reader's own underline keeps its color and thickness at every width.
+    expect(ruleBefore(document, 'Link')).toBe('font-size:15px!important');
+    // A bounded-out value returns to the browser's list indent, not zero.
+    expect(ruleBefore(document, 'Item')).toBe('padding-left:revert!important');
+    // An important inline longhand outranks an important rule's shorthand.
+    expect(ruleBefore(document, 'Text')).toBe(
+      'padding:12px!important;padding-left:72px!important',
+    );
+  });
+
+  it('ignores media rules past the selector budget', () => {
+    expect.hasAssertions();
+    const selectors = Array.from({ length: 600 }, () => '.a').join(',');
+    const { document } = sanitizeHtml(
+      `<style>@media (max-width:600px){${selectors}{font-size:18px}}</style><p class="a">Text</p>`,
+    );
+    expect(mediaOf(document)).toBe('');
   });
 });

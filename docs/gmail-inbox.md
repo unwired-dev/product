@@ -745,14 +745,20 @@ The app controls both colors together so stripped backgrounds cannot hide text.
 One exception keeps buttons recognizable: a `td` or `th` whose only content is one
 link without images keeps its opaque hex `background-color`, `background` or
 `bgcolor`, and the app paints the label black or white, whichever contrasts more,
-so it reaches at least 4.5:1. Gradients, images and other backgrounds stay removed.
+so it reaches at least 4.5:1. That holds only inside the cell, so a descendant
+with margins, sizes, `text-indent`, `vertical-align` or negative letter spacing,
+or a cell with negative letter spacing, keeps no background; the cell resets
+inherited indent and letter spacing. Gradients, images and other backgrounds stay
+removed.
 Author `style` blocks for screen contribute only `@media` rules whose queries are
 `max-width` in pixels and whose selectors are element names, classes or both. Their
 declarations pass the same property, value and bound checks as inline styles, minus
-`display` and `visibility`, so they never hide content, change colors, backgrounds
-or position. The sanitizer resolves the cascade itself, for at most 256 rules and the
-three widest breakpoints, and restates each element's narrower style on an
-app-generated class inside the app's own `@media (max-width)` rule. If a narrower
+`display`, `visibility` and `text-decoration`, so they never hide content, change
+colors, backgrounds, link decoration or position. The sanitizer resolves the
+cascade itself, for at most 256 rules, 512 selectors and the three widest
+breakpoints, and restates each element's narrower style on an app-generated class
+inside the app's own `@media (max-width)` rule; a value its bounds remove returns
+to the browser's default. If a narrower
 pass would show or inspect different content, such as a link or hidden text, every
 width keeps the base layout.
 Image width and height preserve literal lengths, percentages and supported sizing

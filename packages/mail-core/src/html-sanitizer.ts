@@ -1416,11 +1416,37 @@ const linkOnly = (cell: Element) => {
   );
 };
 
+const descendantsOf = (node: Element): Element[] =>
+  node.childNodes.flatMap((child) =>
+    isElement(child) ? [child, ...descendantsOf(child)] : [],
+  );
+
+// Declarations that move content out of its box, where a label's ink might not contrast.
+const displacing =
+  /^(?:margin|(?:min-|max-)?(?:width|height)$|text-indent$|vertical-align$)/u;
+const pullsBack = ({ retained }: FilteredStyle) =>
+  retained.get('letter-spacing')?.trim().startsWith('-') === true;
+const staysInside = (style: FilteredStyle) =>
+  !pullsBack(style) &&
+  ![...style.retained.keys()].some((name) => displacing.test(name));
+
 // A link-only table cell keeps the sender's opaque background color (ADR 0077 decision 11). The
 // app paints its label black or white, whichever contrasts more: at least 4.5:1 on any opaque
-// color. Gradients, images and every other sender background stay removed.
-const buttonCell = (cell: Element, style: FilteredStyle) => {
-  if (!['td', 'th'].includes(cell.tagName) || !linkOnly(cell)) {
+// color, so only while nothing moves the label out of the cell. Gradients, images and every
+// other sender background stay removed.
+const buttonCell = (
+  cell: Element,
+  style: FilteredStyle,
+  styleOf: (element: Element, tag: string) => FilteredStyle,
+) => {
+  if (
+    !['td', 'th'].includes(cell.tagName) ||
+    !linkOnly(cell) ||
+    pullsBack(style) ||
+    !descendantsOf(cell).every((node) =>
+      staysInside(styleOf(node, node.tagName)),
+    )
+  ) {
     return style;
   }
   let fill: string | undefined = undefined;
@@ -1448,15 +1474,20 @@ const buttonCell = (cell: Element, style: FilteredStyle) => {
         ? '#FFFFFF'
         : '#000000',
     ],
+    // Inherited spacing must not carry the label out either.
+    ['text-indent', '0'],
+    ...(style.retained.has('letter-spacing')
+      ? []
+      : ([['letter-spacing', 'normal']] as const)),
   ]);
 };
 
 // ADR 0077 decision 11 admits the sender's responsive layout: `max-width` media rules with
 // element or class selectors that change only geometry and type, with the values inline styles
-// may keep. Never display, visibility, opacity, colors, backgrounds or position.
-const responsiveProperties = new Set(
-  [...properties].filter((name) => name !== 'display' && name !== 'visibility'),
-);
+// may keep. Never display, visibility, opacity, colors, backgrounds or position, nor decoration,
+// whose colors and thickness the reader's link underline overrides.
+const restated = (name: string) =>
+  !['display', 'visibility', 'text-decoration'].includes(name);
 const mediaQuery =
   /^(?:(?:only\s+)?(?:screen|all)\s+and\s+)?\(\s*max-width\s*:\s*(?<breakpoint>\d{1,4}(?:\.\d+)?)px\s*\)$/u;
 // An element name, classes, or both: no combinators, IDs, attributes or pseudo-classes.
@@ -1465,6 +1496,7 @@ const compoundSelector =
   /^(?<tag>[a-z][\da-z]*)?(?<classes>(?:\.-?[_a-z][\w-]*)*)$/iu;
 // Bounds the matching work and the extra sanitizer passes one message can cause.
 const responsiveRuleLimit = 256;
+const selectorLimit = 512;
 const breakpointLimit = 3;
 
 interface ResponsiveRule {
@@ -1533,7 +1565,8 @@ const declarationsOf = (block: readonly ComponentValue[]) => {
   );
   const kept = [...declared].filter(
     (declaration) =>
-      responsiveProperties.has(declaration[0]) &&
+      properties.has(declaration[0]) &&
+      restated(declaration[0]) &&
       !unsafe.has(declaration[0]) &&
       keptDeclaration(declaration),
   );
@@ -1589,21 +1622,24 @@ const responsiveRules = (
   document: DefaultTreeAdapterTypes.Document,
 ): readonly ResponsiveRule[] => {
   try {
+    let selectors = 0;
     return styleSheets(document)
       .flatMap(sheetRules)
-      .slice(0, responsiveRuleLimit);
+      .slice(0, responsiveRuleLimit)
+      .filter((rule) => (selectors += rule.selectors.length) <= selectorLimit);
   } catch {
     // The component value parser throws past its nesting limit; the base layout remains.
     return [];
   }
 };
 
-// The rule's specificity for the element, or -1 when no selector matches it.
-const specificity = ({ selectors }: ResponsiveRule, element: Element) => {
-  const classes = new Set(
-    (attributeOf(element, 'class') ?? '').split(/[\t\n\f\r ]+/u),
-  );
-  return Math.max(
+// The rule's specificity for an element with these classes, or -1 when no selector matches it.
+const specificity = (
+  { selectors }: ResponsiveRule,
+  element: Element,
+  classes: ReadonlySet<string>,
+) =>
+  Math.max(
     -1,
     ...selectors
       .filter(
@@ -1616,7 +1652,6 @@ const specificity = ({ selectors }: ResponsiveRule, element: Element) => {
           required.length * 2 + (tag === undefined ? 0 : 1),
       ),
   );
-};
 
 const byRank = Order.combine(
   Order.mapInput(
@@ -1630,28 +1665,36 @@ const byRank = Order.combine(
 );
 
 // An element's style in readers at most `breakpoint` wide, as the cascade orders it: matching
-// rules by specificity and source order, the inline style over their normal declarations, and
-// their important ones over both unless the inline declaration is important too.
+// rules by specificity and source order, the inline style over their normal declarations, their
+// important ones over both, and important inline declarations over everything.
 const responsiveStyle =
   (rules: readonly ResponsiveRule[], breakpoint: number) =>
   (element: Element, tag: string) => {
     const inline = parseDeclarations(attributeOf(element, 'style') ?? '');
+    const classes = new Set(
+      (attributeOf(element, 'class') ?? '').split(/[\t\n\f\r ]+/u),
+    );
     const matched = Arr.sort(
       rules.flatMap((rule, order) => {
         const rank =
-          rule.breakpoint < breakpoint ? -1 : specificity(rule, element);
+          rule.breakpoint < breakpoint
+            ? -1
+            : specificity(rule, element, classes);
         return rank < 0 ? [] : [{ rule, rank, order }];
       }),
       byRank,
     );
-    const important = matched
-      .flatMap(({ rule }) => [...rule.important])
-      .filter(([name]) => !inline.important.has(name));
+    const important = matched.flatMap(({ rule }) => [...rule.important]);
+    const inlineOf = (priority: boolean) =>
+      [...inline.declared].filter(
+        ([name]) => inline.important.has(name) === priority,
+      );
     const declared = new Map<string, string>();
     for (const [name, value] of [
       ...matched.flatMap(({ rule }) => [...rule.normal]),
-      ...inline.declared,
+      ...inlineOf(false),
       ...important,
+      ...inlineOf(true),
     ]) {
       // The last declaration's position decides shorthand precedence.
       declared.delete(name);
@@ -1662,7 +1705,9 @@ const responsiveStyle =
         declared,
         unsafe: new Set(
           [...inline.unsafe].filter(
-            (name) => !important.some(([other]) => other === name),
+            (name) =>
+              inline.important.has(name) ||
+              !important.some(([other]) => other === name),
           ),
         ),
       },
@@ -2479,7 +2524,7 @@ function walk(
 
   const element = (node: Element) => {
     const name = node.tagName.toLowerCase();
-    const style = buttonCell(node, pass.styleOf(node, name));
+    const style = buttonCell(node, pass.styleOf(node, name), pass.styleOf);
     if (isDropped(node, style, visibility) || collapsed.has(node)) {
       return;
     }
@@ -2589,12 +2634,13 @@ const responsiveLayout = (
         [declarations, ...regimes].flatMap((regime) => [...regime.keys()]),
       );
       for (const [index, regime] of regimes.entries()) {
-        // Spacing and heights the narrower style's bounds removed reset rather than stay.
+        // Spacing and heights the narrower style's bounds removed return to the browser's.
         const reset = [...names]
           .filter((property) => !regime.has(property))
-          .map((property) => [property, 'initial'] as const);
+          .map((property) => [property, 'revert'] as const);
         blocks[index]?.push(
           `.${name}{${[...reset, ...regime]
+            .filter(([property]) => restated(property))
             .map(([property, value]) => `${property}:${value}!important`)
             .join(';')}}`,
         );
