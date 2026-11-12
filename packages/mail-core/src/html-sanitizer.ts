@@ -1430,56 +1430,58 @@ const staysInside = (style: FilteredStyle) =>
   !pullsBack(style) &&
   ![...style.retained.keys()].some((name) => displacing.test(name));
 
-// A link-only table cell keeps the sender's opaque background color (ADR 0077 decision 11). The
-// app paints its label black or white, whichever contrasts more: at least 4.5:1 on any opaque
-// color, so only while nothing moves the label out of the cell. Gradients, images and every
-// other sender background stay removed.
+// A link-only cell whose label nothing moves out of it.
+const isButton = (
+  cell: Element,
+  style: FilteredStyle,
+  styleOf: (element: Element, tag: string) => FilteredStyle,
+) =>
+  ['td', 'th'].includes(cell.tagName) &&
+  linkOnly(cell) &&
+  !pullsBack(style) &&
+  descendantsOf(cell).every((node) => staysInside(styleOf(node, node.tagName)));
+
+// The cell's last background declaration, else its `bgcolor`, as `#rrggbb` when it is opaque hex.
+const fillOf = (cell: Element, style: FilteredStyle) => {
+  const fill = Arr.reverse(style.declared).find(
+    ([name]) => name === 'background' || name === 'background-color',
+  )?.[1];
+  const color = [fill, attributeOf(cell, 'bgcolor')]
+    .map((value) => value?.trim() ?? '')
+    .find((value) => hexColor.test(value));
+  return color?.length === 4
+    ? `#${color.slice(1).replaceAll(/[\da-f]/giu, '$&$&')}`
+    : color;
+};
+
+// Black or white, whichever contrasts more with the fill: at least 4.5:1 on any opaque color.
+const inkOn = (fill: string) => {
+  const luminance = luminanceOf(channelsOf(fill));
+  return 1.05 / (luminance + 0.05) >= (luminance + 0.05) / 0.05
+    ? '#FFFFFF'
+    : '#000000';
+};
+
+// A link-only table cell keeps the sender's opaque background color (ADR 0077 decision 11) and
+// the app paints its label in contrasting ink, so only while nothing moves the label out of the
+// cell. Gradients, images and every other sender background stay removed.
 const buttonCell = (
   cell: Element,
   style: FilteredStyle,
   styleOf: (element: Element, tag: string) => FilteredStyle,
 ) => {
-  if (
-    !['td', 'th'].includes(cell.tagName) ||
-    !linkOnly(cell) ||
-    pullsBack(style) ||
-    !descendantsOf(cell).every((node) =>
-      staysInside(styleOf(node, node.tagName)),
-    )
-  ) {
-    return style;
-  }
-  let fill: string | undefined = undefined;
-  for (const [name, value] of style.declared) {
-    if (name === 'background' || name === 'background-color') {
-      fill = value;
-    }
-  }
-  const color = [fill, attributeOf(cell, 'bgcolor')]
-    .map((value) => value?.trim() ?? '')
-    .find((value) => hexColor.test(value));
-  if (color === undefined) {
-    return style;
-  }
-  const hex =
-    color.length === 4
-      ? `#${color.slice(1).replaceAll(/[\da-f]/giu, '$&$&')}`
-      : color;
-  const luminance = luminanceOf(channelsOf(hex));
-  return withProperties(style, [
-    ['background-color', hex],
-    [
-      'color',
-      1.05 / (luminance + 0.05) >= (luminance + 0.05) / 0.05
-        ? '#FFFFFF'
-        : '#000000',
-    ],
-    // Inherited spacing must not carry the label out either.
-    ['text-indent', '0'],
-    ...(style.retained.has('letter-spacing')
-      ? []
-      : ([['letter-spacing', 'normal']] as const)),
-  ]);
+  const fill = isButton(cell, style, styleOf) ? fillOf(cell, style) : undefined;
+  return fill === undefined
+    ? style
+    : withProperties(style, [
+        ['background-color', fill],
+        ['color', inkOn(fill)],
+        // Inherited spacing must not carry the label out either.
+        ['text-indent', '0'],
+        ...(style.retained.has('letter-spacing')
+          ? []
+          : ([['letter-spacing', 'normal']] as const)),
+      ]);
 };
 
 // ADR 0077 decision 11 admits the sender's responsive layout: `max-width` media rules with
