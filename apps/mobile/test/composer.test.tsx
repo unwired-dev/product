@@ -526,15 +526,18 @@ async function composeWithTemplates(
   const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
   ok(draft);
   await drafts.update(edit(draft), draft);
+  // StrictMode replays effects, as development builds do.
   await render(
-    <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
-      <App
-        drafts={drafts}
-        registration={registration}
-        initialDraft={id}
-        mailTemplates={templates.store}
-      />
-    </ComposerLayoutContext>,
+    <StrictMode>
+      <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={id}
+          mailTemplates={templates.store}
+        />
+      </ComposerLayoutContext>
+    </StrictMode>,
   );
   await screen.findByLabelText('Message body');
   // The composer reads its templates after it opens.

@@ -1998,13 +1998,13 @@ function useTemplateItems({
   // Only the latest read shows, and none once unmounted.
   const reads = useRef(0);
   const mounted = useRef(true);
-  useLayoutEffect(
-    () => () => {
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
       reads.current += 1;
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   const read = useCallback(
     async (owner: string) => {
       reads.current += 1;
