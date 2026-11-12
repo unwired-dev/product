@@ -263,9 +263,10 @@ Google and Apple sign-in, and persistence, require the
 [Keychain signing setup](private-inbox-storage.md#native-wiring-and-signing).
 Google's SDK reports `com.google.GIDSignIn` code `-2` when it cannot store
 credentials in Keychain; ad-hoc builds report unavailable storage. Signed builds
-run in the App Sandbox with outgoing network access only, so their store lives
+run in the App Sandbox with outgoing network access and Contacts access (for
+[Recipient Suggestions](drafts.md#composing)), so their store lives
 in `~/Library/Containers/dev.unwired.mail`. Ad-hoc builds also run in the sandbox
-with outgoing network access, but omit profile-required Apple sign-in, Keychain and
+with the same access, but omit profile-required Apple sign-in, Keychain and
 APNs entitlements; their registration for remote notifications fails, so they keep
 the five-minute interval. Signed builds request the `com.apple.developer.aps-environment` entitlement
 for [push wake routes](gmail-inbox.md#push-wake-routes), so their profile needs the

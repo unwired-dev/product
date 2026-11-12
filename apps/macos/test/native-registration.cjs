@@ -27,6 +27,9 @@ TurboModuleRegistry.getEnforcing = (name) => {
   if (name === 'UnwiredAlert') {
     return require('./native-alert.ts').unwiredAlert;
   }
+  if (name === 'UnwiredContacts') {
+    return require('./native-contacts.ts').unwiredContacts;
+  }
   return name === 'UnwiredMenu'
     ? require('./native-menu.ts').unwiredMenu
     : getEnforcing(name);
