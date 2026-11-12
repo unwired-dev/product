@@ -43,9 +43,11 @@ Figma file define how the maintained clients look and behave.
 - For design work, load the `impeccable` and `apple-design` skills.
 - Before changing UI, read DESIGN.md and inspect the matching Light and Dark
   frames through the Figma MCP server. Each platform has a group of pages
-  (`macOS · …`, `iPadOS · …` and `iOS · …`): Core screens, two Features pages,
-  Approved issue work and the Review pages for proposals awaiting approval,
-  with sections such as "2 · Inbox" or "iPhone · Mail".
+  (`macOS · …`, `iPadOS · …` and `iOS · …`): one per product area, from
+  Sign-in and accounts to System and navigation, and a Review page for
+  proposals awaiting approval. On an area page the `Core · …` reference
+  sections come first, then `Features · …`, then one section per issue, such as
+  "#1673 Send and Archive · approved 2026-11-11".
 - Use DESIGN.md's tokens and SF Symbols; reuse the shared tokens in
   `packages/mail-core/src/theme.ts` and add only the tokens the task needs.
 - Where a frame differs from a product requirement or feature guide (including

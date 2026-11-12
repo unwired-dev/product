@@ -191,7 +191,7 @@ unavailable or misses an item. Inference is not required to use the commitment l
 ### Owner decisions for the commitment list (7 Nov 2026)
 
 The owner approved the Mac, iPad and iPhone Commitments frames for #939, #944
-and #947 in the `· Approved issue work` pages of the
+and #947 in the `· Calendar and Commitments` pages of the
 [Figma file](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T): Mac
 [1022:17202](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1022-17202),
 iPad [1027:22366](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1027-22366)
