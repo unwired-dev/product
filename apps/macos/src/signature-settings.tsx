@@ -119,19 +119,32 @@ function SignatureEditor({
     }
     await store.chooseSignature(id, chosen);
     // A refused save, or one that stored nothing, as when authentication is cancelled.
-    if (!focused.current && stored(chosen) !== stored(storedNow())) {
+    if (
+      store.getSnapshot().signatureFailure === id ||
+      (!focused.current && stored(chosen) !== stored(storedNow()))
+    ) {
       show(storedNow() ?? emptyDocument);
     }
   };
+  // The document when editing began. Leaving without an edit stores nothing, so a signature
+  // another device stored meanwhile is kept and shows here.
+  const editing = useRef(document);
+  const leave = () => {
+    if (stored(documentNow.current) === stored(editing.current)) {
+      show(storedNow() ?? emptyDocument);
+    } else {
+      void commit(documentNow.current);
+    }
+  };
   // Closing Settings while typing still stores the signature.
-  const commitNow = useRef(commit);
+  const leaveNow = useRef(leave);
   useLayoutEffect(() => {
-    commitNow.current = commit;
+    leaveNow.current = leave;
   });
   useEffect(
     () => () => {
       if (focused.current) {
-        void commitNow.current(documentNow.current);
+        leaveNow.current();
       }
     },
     [],
@@ -193,7 +206,7 @@ function SignatureEditor({
           multiline
           onBlur={() => {
             focused.current = false;
-            void commit(documentNow.current);
+            leave();
           }}
           onChangeText={(text) => {
             const result = applyText(documentNow.current, text, {
@@ -209,6 +222,7 @@ function SignatureEditor({
           }}
           onFocus={() => {
             focused.current = true;
+            editing.current = documentNow.current;
           }}
           onSelectionChange={({ nativeEvent }) => {
             const next = nativeEvent.selection;
