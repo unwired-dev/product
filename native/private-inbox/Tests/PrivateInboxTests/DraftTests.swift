@@ -318,6 +318,52 @@ struct DraftTests {
     #expect(try fresh.openComposerRecovery(owner: owner).map(\.id) == ["draft5"])
   }
 
+  // Recovery records count toward the Outgoing Content Store's limit with the Drafts and their
+  // assets: a record that does not fit is refused, and records leave less space for saves.
+  @Test @MainActor func composerRecoveryRecordsCountTowardTheOutgoingContentLimit() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let cache = session.cache
+    let owner = try await session.owner()
+    _ = try cache.importDraftAsset(owner: owner, id: "filler001", bytes: session.bytes)
+    _ = try cache.commitDrafts(
+      owner: owner, expectedRevision: 0, document: "{}", keep: ["filler001"])
+    let handle = try FileHandle(
+      forWritingTo: session.directory.appendingPathComponent("draft-assets/filler001"))
+    try handle.truncate(atOffset: UInt64(PrivateInboxStore.outgoingContentLimit - 10_000))
+    try handle.close()
+    func record(_ id: String, _ count: Int) throws {
+      try cache.writeComposerRecovery(
+        owner: owner, id: id, document: String(repeating: "x", count: count), assets: [])
+    }
+
+    // Replacing a record counts only the new one.
+    try record("draft1", 5_000)
+    try record("draft1", 8_000)
+    #expect(throws: PrivateInboxError.unavailable) { try record("draft1", 20_000) }
+    #expect(throws: PrivateInboxError.unavailable) { try record("draft2", 3_000) }
+    #expect(
+      try cache.openComposerRecovery(owner: owner).map(\.document) == [
+        String(repeating: "x", count: 8_000)
+      ])
+
+    // A save and an import that would fit without the record are refused.
+    #expect(throws: PrivateInboxError.unavailable) {
+      _ = try cache.commitDrafts(
+        owner: owner, expectedRevision: 1, document: String(repeating: "x", count: 3_000),
+        keep: ["filler001"])
+    }
+    #expect(throws: PrivateInboxError.tooLarge) {
+      _ = try cache.importDraftAsset(owner: owner, id: "late00001", bytes: Data(count: 3_000))
+    }
+
+    try cache.removeComposerRecovery(id: "draft1")
+    _ = try cache.commitDrafts(
+      owner: owner, expectedRevision: 1, document: String(repeating: "x", count: 3_000),
+      keep: ["filler001"])
+    try record("draft2", 3_000)
+  }
+
   // Mail Templates are kept like Drafts: encrypted for the account that wrote them, replaced only
   // from the revision read, sealed apart from the Drafts document and removed by an account purge.
   @Test @MainActor func mailTemplatesStayEncryptedWithTheirProductAccount() async throws {
