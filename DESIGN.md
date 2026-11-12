@@ -486,12 +486,20 @@ styles) so the file stays editable.
   iPad; the Mac asks in an alert sheet. iPhone moves the format bar into a floating Liquid Glass
   pill (Aa and paperclip) with a separate Writing tools button above the keyboard;
   Aa replaces the keyboard with the glass Format panel.
-- **Settings:** the Mac reference is a 900×720 independent window, opened with
+- **Settings:** the Mac reference is a 900×732 independent window, opened with
   `Command-,`, with a glass sidebar grouped as Accounts, Mail, Composing,
   Automation and Application, and grouped forms on the right. iPad uses an in-app
-  two-column workspace; iPhone pushes one column into the existing navigation
+  two-column workspace whose sidebar starts with a 44pt glass back button that
+  returns to mail; iPhone pushes one column into the existing navigation
   stack. Detail failures follow the
   [Settings requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
+- **Modal placement:** alerts and sheets are centred in the Mac window and on the
+  iPad screen. iPhone alerts are centred, and partial-height sheets attach to the
+  screen edges. A backdrop covers the whole window or screen. Popovers have no
+  arrow.
+- **Dates and times:** the system formatter writes them in the interface
+  language's conventions, and one language never mixes formats. The English
+  reference frames write `13 Oct`, `Tue 13 Oct, 8:00` and `Today, 18:00`.
 - **Spacing scale:** 4, 8, 12, 16, 20pt. Hit targets are at least 28pt on the Mac
   and 44pt on iPhone.
 
