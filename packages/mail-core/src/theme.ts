@@ -222,3 +222,16 @@ export const typography = {
     body: style(15, 22, '400'),
   },
 };
+
+// The 8-bit sRGB channels of a `#RRGGBB` color.
+export const channelsOf = (color: string) =>
+  [1, 3, 5].map((at) => Number.parseInt(color.slice(at, at + 2), 16));
+
+// WCAG relative luminance of 8-bit sRGB channels.
+export const luminanceOf = (channels: readonly number[]) => {
+  const [red = 0, green = 0, blue = 0] = channels.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+};
