@@ -1458,11 +1458,12 @@ const inkOn = (fill: string) => {
     : '#000000';
 };
 
-// A link-only table cell keeps the sender's opaque background color (ADR 0077 decision 11) and
-// the app paints its label in contrasting ink; `buttonStyle` keeps the label inside the cell.
-// Gradients, images and every other sender background stay removed.
-const buttonCell = (cell: Element, style: FilteredStyle) => {
-  const fill = linkOnly(cell) ? fillOf(cell, style) : undefined;
+// A visible link-only table cell keeps the sender's opaque background color (ADR 0077 decision 11)
+// and the app paints its label in contrasting ink, which a hidden cell's unpainted fill could not
+// back; `buttonStyle` keeps the label inside the cell. Gradients, images and every other sender
+// background stay removed.
+const buttonCell = (cell: Element, style: FilteredStyle, visible: boolean) => {
+  const fill = visible && linkOnly(cell) ? fillOf(cell, style) : undefined;
   return fill === undefined
     ? style
     : withProperties(style, [
@@ -2521,7 +2522,12 @@ function walk(
 
   const element = (node: Element) => {
     const name = node.tagName.toLowerCase();
-    const style = buttonCell(node, pass.styleOf(node, name));
+    const sent = pass.styleOf(node, name);
+    const style = buttonCell(
+      node,
+      sent,
+      visibilityIn(sent, visibility) === 'visible',
+    );
     if (isDropped(node, style, visibility) || collapsed.has(node)) {
       return;
     }
@@ -2600,12 +2606,35 @@ const sameContent = (pass: Walked, base: Walked) =>
 const listed = (declarations: ReadonlyMap<string, string>) =>
   JSON.stringify([...declarations]);
 
+// Each element's place in the parsed document, so its responsive class has one name in every
+// sanitization of the HTML, whichever remote images a pass shows: the reader swaps loaded images
+// into a document styled by the pass without them.
+const positionsOf = (root: Element | undefined) => {
+  const positions = new Map<Element, number>();
+  const pending = root === undefined ? [] : [root];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    positions.set(node, positions.size);
+    for (const child of Arr.reverse(node.childNodes)) {
+      if (isElement(child)) {
+        pending.push(child);
+      }
+    }
+  }
+  return positions;
+};
+
 // App classes and media rules restating each element's sanitized style for readers at most each
 // admitted breakpoint wide, from passes that read the sender's media rules. When a pass shows or
 // inspects different content than the base pass, every width keeps the base layout.
 const responsiveLayout = (
   base: Walked,
-  rules: readonly ResponsiveRule[],
+  {
+    rules,
+    positions,
+  }: {
+    readonly rules: readonly ResponsiveRule[];
+    readonly positions: ReadonlyMap<Element, number>;
+  },
   run: (styleOf: Pass['styleOf']) => Walked,
 ) => {
   const breakpoints = Arr.sort(
@@ -2625,7 +2654,7 @@ const responsiveLayout = (
       (pass) => pass.emitted.get(element) ?? declarations,
     );
     if (regimes.some((regime) => listed(regime) !== listed(declarations))) {
-      const name = `responsive-${classes.size}`;
+      const name = `responsive-${positions.get(element) ?? 0}`;
       classes.set(element, name);
       const names = new Set(
         [declarations, ...regimes].flatMap((regime) => [...regime.keys()]),
@@ -2683,7 +2712,7 @@ export function sanitizeHtml(
   const base = run(inlineStyle);
   const { classes, media } = responsiveLayout(
     base,
-    responsiveRules(document),
+    { rules: responsiveRules(document), positions: positionsOf(body) },
     run,
   );
   const {

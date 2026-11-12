@@ -742,7 +742,7 @@ and values are checked. Remove `url()` values, `@import`, executable expressions
 external fonts, clipping and other unapproved declarations. Remove sender-defined
 foreground and background colors, including legacy color/background attributes.
 The app controls both colors together so stripped backgrounds cannot hide text.
-One exception keeps buttons recognizable: a `td` or `th` whose only content is one
+One exception keeps buttons recognizable: a visible `td` or `th` whose only content is one
 link without images keeps its opaque hex `background-color`, `background` or
 `bgcolor`, and the app paints the label black or white, whichever contrasts more,
 so it reaches at least 4.5:1. That holds only inside the cell, so app CSS placed
@@ -756,8 +756,8 @@ declarations pass the same property, value and bound checks as inline styles, mi
 `display`, `visibility` and `text-decoration`, so they never hide content, change
 colors, backgrounds, link decoration or position. The sanitizer resolves the
 cascade itself, for at most 256 rules, 512 selectors and the three widest
-breakpoints, and restates each element's narrower style on an app-generated class
-inside the app's own `@media (max-width)` rule; a value its bounds remove returns
+breakpoints, and restates each element's narrower style on an app-generated class, named by the
+element's place in the parsed document so a remote image loaded later never takes another element's, inside the app's own `@media (max-width)` rule; a value its bounds remove returns
 to the browser's default. If a narrower
 pass would show or inspect different content, such as a link or hidden text, every
 width keeps the base layout.

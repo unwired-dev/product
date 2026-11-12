@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { presentation } from '@private-email/mail-core/message-body';
@@ -58,7 +59,7 @@ describe('responsive sender layouts', () => {
     const { document } = sanitizeHtml(steam);
     // The button cell keeps its background, and the label takes the ink that contrasts more.
     expect(document).toContain(
-      '<td align="center" class="link-cell responsive-10" style="padding: 18px 80px; background-color: #2d73ff; color: #000000">',
+      '<td align="center" class="link-cell responsive-29" style="padding: 18px 80px; background-color: #2d73ff; color: #000000">',
     );
     expect(ruleBefore(document, 'Retry your purchase')).toBe(
       'padding:12px 24px!important;background-color:#2d73ff!important;color:#000000!important',
@@ -127,9 +128,9 @@ describe('responsive sender layouts', () => {
       ].join(''),
     );
     expect(mediaOf(document)).toBe(
-      '@media (max-width:480px){.responsive-0{font-size:18px!important}}',
+      '@media (max-width:480px){.responsive-1{font-size:18px!important}}',
     );
-    expect(document).toContain('<p title="t" class="responsive-0">Text</p>');
+    expect(document).toContain('<p title="t" class="responsive-1">Text</p>');
   });
 
   it('keeps the base layout everywhere when a narrow style would change what a link shows', () => {
@@ -159,6 +160,7 @@ describe('responsive sender layouts', () => {
       '<td bgcolor="#000">Text <a href="https://a.example/">and link</a></td>',
       '<td bgcolor="#000"><a href="https://a.example/"><img alt="Icon" src="https://a.example/i.png"> Icon</a></td>',
       '<td style="background:rgba(0,0,0,.5)"><a href="https://a.example/">Translucent</a></td>',
+      '<td bgcolor="#000" style="visibility:hidden"><a href="https://a.example/" style="visibility:visible">Hidden</a></td>',
     ];
     const { document } = sanitizeHtml(
       `<table><tr>${cells.join('')}</tr></table>`,
@@ -170,7 +172,30 @@ describe('responsive sender layouts', () => {
       '<td>',
       '<td>',
       '<td>',
+      '<td style="visibility: hidden">',
     ]);
+  });
+
+  it('names a loaded remote image apart from the rules of the document it is swapped into', () => {
+    expect.hasAssertions();
+    const url = 'https://a.example/hero.png';
+    const html =
+      '<style>@media (max-width:600px){img{width:100%!important}td.icon{width:40px!important}}</style>' +
+      `<img width="600" height="300" src="${url}"><table><tr><td class="icon">Icon</td></tr></table>`;
+    const loaded = presentation(
+      { version: 2, id: 'mail', html },
+      [],
+      new Map([
+        [url, { data: 'AA==', width: 600, height: 300, mimeType: 'image/png' }],
+      ]),
+    ).rich;
+    assert.ok(loaded);
+    const image = /responsive-\d+/u.exec(loaded.remote.updates)?.[0];
+    expect(mediaOf(loaded.document)).toContain(`.${image}{width:`);
+    expect(mediaOf(loaded.initialDocument)).not.toContain(`.${image}{`);
+    expect(ruleBefore(loaded.initialDocument, 'Icon')).toBe(
+      'width:40px!important',
+    );
   });
 
   it('keeps a button label inside its cell at every width', () => {
