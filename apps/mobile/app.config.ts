@@ -135,6 +135,13 @@ const config: ExpoConfig = {
     './plugins/design.cjs',
     './plugins/categorization-spike.cjs',
     'expo-background-task',
+    [
+      'expo-contacts',
+      {
+        contactsPermission:
+          'Unwired Mail suggests your contacts as recipients while you write. Contacts stay on this device.',
+      },
+    ],
     ['expo-build-properties', { ios: { deploymentTarget: '27.0' } }],
   ],
 };

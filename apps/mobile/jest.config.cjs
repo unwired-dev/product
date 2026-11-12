@@ -16,6 +16,7 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/test/animations.cjs'],
   moduleNameMapper: {
     '^react-native-webview$': '<rootDir>/test/webview.tsx',
+    '^expo-contacts$': '<rootDir>/test/contacts.ts',
     '/language-storage\\.ts$': '<rootDir>/test/language-storage.ts',
     // Package exports outside React Native's file layout, which the path mapping below would miss.
     '^react-native/(asset-registry|react-private-interface|setup-env|unstable-internals-do-not-use)$': `${path.dirname(require.resolve('react-native/package.json'))}/src/$1.js`,
