@@ -58,8 +58,8 @@ const SendingIdentitySchema = Schema.Struct({
   address: Schema.NonEmptyString,
 });
 // A Mail Profile definition, a connection's ownership, its New Mail Notification policy, its chosen
-// Spam and Trash folders, its display order and Color, or a Profile's Default Sending Identity as
-// native code seals and opens it.
+// Spam and Trash folders, its display order and Color, a Profile's Default Sending Identity or a
+// Sending Identity's signature as native code seals and opens it.
 export const ProfileRecordSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal('profile'),
@@ -114,6 +114,14 @@ export const ProfileRecordSchema = Schema.Union([
     profile: Schema.NonEmptyString,
     version: Version,
     identity: Schema.optionalKey(SendingIdentitySchema),
+  }),
+  // The signature of one incarnation of a connection's primary address, as document JSON text, or
+  // none once cleared.
+  Schema.Struct({
+    kind: Schema.Literal('signature'),
+    ...SendingIdentitySchema.fields,
+    version: Version,
+    signature: Schema.optionalKey(Schema.NonEmptyString),
   }),
 ]);
 export type ProfileRecord = typeof ProfileRecordSchema.Type;
@@ -198,6 +206,17 @@ export const ProfileStateSchema = Schema.Struct({
       Schema.Struct({
         profile: Schema.NonEmptyString,
         identity: Schema.optionalKey(SendingIdentitySchema),
+        version: Version,
+        updatedAt: Schema.Finite,
+      }),
+    ),
+  ),
+  // Each Sending Identity's synchronized signature, by its connection's descriptor record.
+  signatures: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        ...SendingIdentitySchema.fields,
+        signature: Schema.optionalKey(Schema.NonEmptyString),
         version: Version,
         updatedAt: Schema.Finite,
       }),

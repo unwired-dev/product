@@ -1,4 +1,5 @@
 import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
 import type { StoredPayload } from './registration-replies.ts';
@@ -13,7 +14,9 @@ import type {
   ProfileState,
   RegistrationRecord,
 } from './registration-vault.ts';
+import type { SemanticDocument } from './semantic-document.ts';
 
+import { SignatureSchema } from './draft-model.ts';
 import { failWith, nativeSteps } from './registration-native.ts';
 import { RegistrationRejected } from './registration-rejection.ts';
 import { EncryptedPayload } from './registration-replies.ts';
@@ -40,6 +43,10 @@ const Sealed = Schema.Struct({
 const emptyState: ProfileState = { profiles: [], owners: [] };
 const isColor = Schema.is(ProfileColorSchema);
 const isIcon = Schema.is(ProfileIconSchema);
+const isSignature = Schema.is(SignatureSchema);
+const decodeSignature = Schema.decodeUnknownOption(
+  Schema.fromJsonString(SignatureSchema),
+);
 
 // A Profile's style as a record or state entry carries it, without absent keys.
 const styleOf = ({
@@ -278,6 +285,32 @@ export const sendingDefaults = (value: RegistrationRecord) => {
   );
 };
 
+// The synchronized signature of each of this device's connections whose record names its current
+// incarnation and primary address. Unreadable Profile state or keys give none.
+export const identitySignatures = (value: RegistrationRecord) => {
+  const state = value.profiles;
+  const vault = stateOf(value);
+  if (state === undefined || state === 'unreadable' || vault === undefined) {
+    return new Map<string, SemanticDocument>();
+  }
+  return new Map(
+    value.mailboxes.flatMap(({ id, epoch, address }) => {
+      const record = vault.mailboxes.find(
+        (mailbox) => mailbox.id === id,
+      )?.record;
+      const stored = state.signatures?.find(
+        (item) =>
+          item.record === record &&
+          item.epoch === epoch &&
+          item.address === address,
+      )?.signature;
+      const signature =
+        stored === undefined ? Option.none() : decodeSignature(stored);
+      return Option.isSome(signature) ? [[id, signature.value] as const] : [];
+    }),
+  );
+};
+
 // The Mail Profiles besides the Default Profile, as JSON text, or undefined without any: each one's
 // identifier, name and style this client knows, and whether that name is not yet synchronized.
 export const profileList = (value: RegistrationRecord) => {
@@ -385,6 +418,13 @@ const withRecord = (
       display: replacing(state.display, { ...display, updatedAt }),
     };
   }
+  if (record.kind === 'signature') {
+    const { kind: _, ...signature } = record;
+    return {
+      ...state,
+      signatures: replacing(state.signatures, { ...signature, updatedAt }),
+    };
+  }
   if (record.kind === 'sending') {
     const { kind: _, ...sending } = record;
     return {
@@ -477,13 +517,14 @@ const withoutUnreadable = (
 // The records of one connection-bound kind this state knows.
 const connectionRecords = (
   state: ProfileState,
-  kind: 'mailbox' | 'notifications' | 'folders' | 'display',
+  kind: 'mailbox' | 'notifications' | 'folders' | 'display' | 'signature',
 ): ReadonlyArray<Readonly<{ record: string; version: number }>> =>
   ({
     mailbox: state.owners,
     notifications: state.notifications ?? [],
     folders: state.folders ?? [],
     display: state.display ?? [],
+    signature: state.signatures ?? [],
   })[kind];
 
 // Only an IMAP connection chooses folders, and one folder cannot be both Spam and Trash.
@@ -754,6 +795,7 @@ export function createMailProfileProgram<E>(
       'mailbox-folders.',
       'mailbox-display.',
       'profile-sending.',
+      'mailbox-signature.',
     ]) {
       yield* list(prefix, read);
     }
@@ -1269,6 +1311,52 @@ export function createMailProfileProgram<E>(
     }
   });
 
+  // Gives the primary address of one of this device's connections a signature, or with none clears
+  // it. A receive-only connection has no Sending Identity, and a signature holds no Inline Image.
+  const chooseSignature = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+    document: SemanticDocument | undefined,
+  ) {
+    const mailbox = value.mailboxes.find(({ id }) => id === connection);
+    if (
+      mailbox === undefined ||
+      (mailbox.provider === 'imap' && mailbox.smtp === undefined) ||
+      (document !== undefined && !isSignature(document))
+    ) {
+      return yield* failWith('unavailable');
+    }
+    const { record, epoch } = yield* incarnationOf(value, connection);
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    yield* stillLive([{ record, epoch }]);
+    const signature =
+      document === undefined ? undefined : JSON.stringify(document);
+    const current = state.signatures?.find((item) => item.record === record);
+    if (
+      current?.epoch === epoch &&
+      current.address === mailbox.address &&
+      current.signature === signature
+    ) {
+      return;
+    }
+    yield* commit(state, [
+      {
+        record: {
+          kind: 'signature',
+          record,
+          epoch,
+          address: mailbox.address,
+          version: (current?.version ?? 0) + 1,
+          ...(signature === undefined ? {} : { signature }),
+        },
+        expectedUpdatedAt: current?.updatedAt,
+      },
+    ]);
+  });
+
   return {
     synchronize,
     create,
@@ -1281,5 +1369,6 @@ export function createMailProfileProgram<E>(
     arrange,
     colorConnection,
     chooseSending,
+    chooseSignature,
   };
 }

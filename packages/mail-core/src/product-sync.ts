@@ -27,6 +27,7 @@ import type {
   ProductSyncState,
   RegistrationRecord,
 } from './registration-vault.ts';
+import type { SemanticDocument } from './semantic-document.ts';
 
 import { createMailProfileProgram } from './mail-profiles.ts';
 import { createDeviceTrustProgram } from './product-sync-devices.ts';
@@ -944,5 +945,10 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
       profile: string,
       connection: string | undefined,
     ) => rotating(() => profiles.chooseSending(value, profile, connection)),
+    chooseSignature: (
+      value: RegistrationRecord,
+      connection: string,
+      signature: SemanticDocument | undefined,
+    ) => rotating(() => profiles.chooseSignature(value, connection, signature)),
   };
 }

@@ -351,8 +351,11 @@ signature has one is refused. Outgoing HTML and plain text place it after the
 authored body and before the quoted correspondence, written apart from the body,
 so a list or quote ending the body never continues into the signature. A Draft holding only a
 signature is still empty. Draft storage and Product Sync keep it with the Draft.
-Signatures per Sending Identity, choosing one and showing it in the composers
-follow in later [#850](https://github.com/unwired-dev/product/issues/850) slices.
+Each Sending Identity's signature synchronizes through Private Sync
+([#2037](https://github.com/unwired-dev/product/issues/2037); see
+[Private Inbox storage](private-inbox-storage.md)). Editing it in Settings and adding
+the From identity's signature to a Draft follow in later
+[#850](https://github.com/unwired-dev/product/issues/850) slices.
 
 A [Mail Template](domain/messages-and-delivery.md) has a name, a subject and a
 body ([#2022](https://github.com/unwired-dev/product/issues/2022), a first slice

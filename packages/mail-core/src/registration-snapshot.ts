@@ -2,6 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
+import { SignatureSchema } from './draft-model.ts';
 import {
   ImapEndpointSchema,
   SmtpEndpointSchema,
@@ -150,6 +151,8 @@ const MailboxesSchema = Schema.fromJsonString(
       color: Schema.optionalKey(ProfileColorSchema),
       // Its primary address is its Mail Profile's Default Sending Identity in Product Sync.
       sendingDefault: Schema.optionalKey(Schema.Literal(true)),
+      // Its primary address's signature in Product Sync.
+      signature: Schema.optionalKey(SignatureSchema),
     }).check(Schema.makeFilter(endpointMatchesProvider)),
   ).check(
     Schema.makeFilter(
