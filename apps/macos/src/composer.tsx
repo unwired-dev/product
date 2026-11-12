@@ -137,7 +137,9 @@ import { RegisterCommands, useCloseGuard } from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
+  kindStyles,
   LinkEditor,
+  markStyle,
   PopUp,
   TemplatesMenu,
 } from './composer-controls.tsx';
@@ -375,44 +377,6 @@ const styles = StyleSheet.create({
   rowDetail: { ...textStyles.body },
   footer: { ...textStyles.body, paddingHorizontal: spacing.xl },
 });
-
-const kindStyles: Record<BlockKind, TextStyle> = {
-  paragraph: {},
-  heading1: { fontSize: 26, lineHeight: 34, fontWeight: '700' },
-  heading2: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
-  heading3: { fontSize: 19, lineHeight: 28, fontWeight: '600' },
-  bulleted: {},
-  numbered: {},
-  quote: { fontStyle: 'italic' },
-  code: { fontFamily: 'Menlo' },
-};
-
-const decorations = {
-  underline: 'underline',
-  strikethrough: 'line-through',
-  both: 'underline line-through',
-} as const;
-
-// Linked text shows underlined, as the Link Editor frames draw it.
-const markStyle = (marks: readonly Mark[] = [], linked = false): TextStyle => {
-  const underline = linked || marks.includes('underline');
-  const strikethrough = marks.includes('strikethrough');
-  let decoration: (typeof decorations)[keyof typeof decorations] | undefined =
-    undefined;
-  if (underline && strikethrough) {
-    decoration = decorations.both;
-  } else if (underline) {
-    decoration = decorations.underline;
-  } else if (strikethrough) {
-    decoration = decorations.strikethrough;
-  }
-  return {
-    ...(marks.includes('bold') ? { fontWeight: '700' } : {}),
-    ...(marks.includes('italic') ? { fontStyle: 'italic' } : {}),
-    ...(marks.includes('code') ? { fontFamily: 'Menlo' } : {}),
-    ...(decoration === undefined ? {} : { textDecorationLine: decoration }),
-  };
-};
 
 // What keeps the composer from closing, or asks before it does.
 export type Closing =
