@@ -415,7 +415,7 @@ export function TemplatesMenu({
               key: `template-${template.id}`,
               title: template.name,
               subtitle:
-                template.subject === ''
+                template.subject.trim() === ''
                   ? t('drafts.templates.bodyOnly')
                   : t('drafts.templates.subject', {
                       subject: template.subject,
