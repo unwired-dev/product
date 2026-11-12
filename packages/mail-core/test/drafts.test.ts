@@ -3352,4 +3352,29 @@ describe('keeping composer recovery records', () => {
     expect(storage.recoveryRecords().size).toBe(0);
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('stores the edit journaled after a forget while an earlier record waited for a save', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = present(await drafts.create(alex), "the Draft's identifier");
+    const draft = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    const first = { ...draft, subject: 'First' };
+    const second = { ...draft, subject: 'Second' };
+
+    storage.hold();
+    const saving = drafts.update({ ...draft, subject: 'Saved' }, draft);
+    expect(ready(drafts.getSnapshot()).save).toBe('saving');
+    const writing = drafts.journal(first);
+    const forgetting = drafts.forget(id);
+    const journaling = drafts.journal(second);
+    storage.release();
+
+    await expect(
+      Promise.all([saving, writing, forgetting, journaling]),
+    ).resolves.toStrictEqual([true, true, true, true]);
+    await expect(drafts.recovered()).resolves.toStrictEqual([second]);
+  });
 });

@@ -2139,21 +2139,24 @@ export function createDrafts(
   });
 
   // Writes every record storage has not taken yet, oldest first; one refused stays for the next.
-  const journaling = (current: number) =>
+  // `pending` is the call's snapshot: an entry replaced or forgotten meanwhile belongs to a later call.
+  const journaling = (current: number, pending: readonly Draft[]) =>
     Effect.gen(function* () {
       const account = owner;
       let stored = true;
-      for (const draft of unrecorded.values()) {
+      for (const draft of pending) {
         if (!live(current) || account === undefined) {
           return false;
         }
-        const written = yield* writeRecord(account, draft).pipe(
-          Effect.as(true),
-          Effect.catchTag('DraftStorageFailure', (error) =>
-            report(error).pipe(Effect.as(false)),
-          ),
-        );
-        stored &&= written;
+        if (unrecorded.get(draft.id) === draft) {
+          const written = yield* writeRecord(account, draft).pipe(
+            Effect.as(true),
+            Effect.catchTag('DraftStorageFailure', (error) =>
+              report(error).pipe(Effect.as(false)),
+            ),
+          );
+          stored &&= written;
+        }
       }
       return stored;
     }).pipe(semaphore.withPermit);
@@ -2465,11 +2468,12 @@ export function createDrafts(
     // The composer recovery records this account left on this device.
     recovered: () => runLogged(recovering(generation)),
     // Keeps `draft` as its composer shows it in a recovery record on this device, without changing
-    // the Drafts; a record refused earlier is written first. Resolves whether every record is stored.
+    // the Drafts; a record refused earlier is written first. Resolves whether every record is stored,
+    // leaving one replaced meanwhile to the call that replaced it.
     journal: (draft: Draft) => {
       unrecorded.delete(draft.id);
       unrecorded.set(draft.id, draft);
-      return runLogged(journaling(generation));
+      return runLogged(journaling(generation, [...unrecorded.values()]));
     },
     // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did.
     forget: (id: string) => {

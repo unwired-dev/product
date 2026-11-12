@@ -367,7 +367,8 @@ export function createSyntheticDrafts(
         records: [...records].map(([id, { document }]) => ({ id, document })),
       });
     },
-    writeComposerRecovery: (owner, id, record) => {
+    writeComposerRecovery: async (owner, id, record) => {
+      await waitWhile(() => held);
       if (locked) {
         return rejection('locked');
       }
@@ -375,7 +376,7 @@ export function createSyntheticDrafts(
         return rejection('mailbox-invalidated');
       }
       records.set(id, { owner, ...record });
-      return Promise.resolve({ owner });
+      return { owner };
     },
     removeComposerRecovery: (_owner, id) => {
       records.delete(id);
@@ -590,7 +591,7 @@ export function createSyntheticDrafts(
     },
     // Picked copies the store discarded rather than adding.
     discardedPicks: () => [...discardedPicks],
-    // Holds commits until `release`, so edits can arrive while a save is in flight.
+    // Holds commits and record writes until `release`, so edits can arrive while one is in flight.
     hold: () => {
       held = [];
     },
