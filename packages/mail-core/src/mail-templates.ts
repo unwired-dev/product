@@ -430,9 +430,9 @@ export function createMailTemplates(
       id,
       template,
       base,
-      sent = [],
+      sent,
     }: Readonly<
-      ReturnType<typeof pendingOf>[number] & { sent?: readonly Sent[] }
+      ReturnType<typeof pendingOf>[number] & { sent: readonly Sent[] }
     >,
   ) {
     const version =
@@ -499,8 +499,10 @@ export function createMailTemplates(
       ({ id }) => !unreadable.has(id) && publishable(id),
     )) {
       conflicted =
-        (yield* publish(remote, account, { ...change, sent: current.sent })) ||
-        conflicted;
+        (yield* publish(remote, account, {
+          ...change,
+          sent: current.sent ?? [],
+        })) || conflicted;
     }
     return conflicted;
   });
