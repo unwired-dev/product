@@ -115,9 +115,9 @@ describe('unsubscribe offers', () => {
         offerOf({
           ...oneClickPost,
           listId: base.listId,
-          listUnsubscribe: `<${url}>`,
+          listUnsubscribe: `<mailto:leave@alza.example?subject=unsubscribe>, <${url}>`,
         }),
-      ).toBeUndefined();
+      ).toStrictEqual(mailto);
     }
   });
 
