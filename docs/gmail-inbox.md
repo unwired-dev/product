@@ -1041,7 +1041,10 @@ height. Invalid or failed measurement uses the retained readable-text fallback.
 Normal-height documents stay pinned to the top of WebKit and use the
 reader's outer vertical scroll; horizontal overflow cannot introduce a second
 vertical scroll. Desktop-width tables and blocked image placeholders narrow to
-the column. Content that still needs more width, such as unwrappable text,
+the column. Text wraps with `overflow-wrap: break-word`, so a narrow table cell
+never splits a word such as a button label; runs longer than 24 characters, such
+as URLs, may break after their punctuation and at least every 24 characters, so
+they do not widen a table past the column. Content that still needs more width, such as unwrappable text,
 scrolls horizontally inside WebKit instead of being clipped. On the Mac, horizontal
 mouse-wheel or trackpad scrolling moves the message sideways while vertical
 scrolling still moves the reader. Only a document

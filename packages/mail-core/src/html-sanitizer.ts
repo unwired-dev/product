@@ -1170,6 +1170,20 @@ const escapeText = (value: string) =>
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+// Long unbroken runs, such as URLs, may break after their punctuation and at least every 24
+// characters. Under `overflow-wrap: break-word` a table cell otherwise widens to hold the whole run.
+const breakableText = (value: string) =>
+  value
+    .split(/(\s+)/u)
+    .map((part) =>
+      (part.length <= 24
+        ? [part]
+        : (part.match(/.{1,24}?(?:[/?&=.,_-]+|$)|.{24}/gsu) ?? [part])
+      )
+        .map(escapeText)
+        .join('<wbr>'),
+    )
+    .join('');
 const escapeAttribute = (value: string) =>
   escapeText(value).replaceAll('"', '&quot;');
 
@@ -2174,7 +2188,7 @@ function walk(
     if (link !== undefined && visibleNow() && hasVisibleText(normalized)) {
       link.visible = true;
     }
-    output += escapeText(normalized);
+    output += breakableText(normalized);
   };
 
   // Descriptions stay in the readable fallback. Only placeholder descriptions are painted;

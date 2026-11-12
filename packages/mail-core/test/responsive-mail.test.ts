@@ -102,6 +102,15 @@ describe('responsive sender layouts', () => {
     expect(mediaOf(sanitizeHtml(fixture('fixed-width')).document)).toBe('');
   });
 
+  it('lets a long URL wrap inside a fixed-width table while words stay whole', () => {
+    expect.hasAssertions();
+    const { document } = sanitizeHtml(fixture('fixed-width'));
+    expect(document).toContain(
+      'https://<wbr>library.<wbr>example.<wbr>org/<wbr>account/<wbr>loans/<wbr>renew?<wbr>item=<wbr>9780393635522&amp;<wbr>branch=<wbr>central',
+    );
+    expect(document).toContain('Thank you for reading with us.');
+  });
+
   it('admits only geometry and type from max-width rules with element or class selectors', () => {
     expect.hasAssertions();
     const { document } = sanitizeHtml(
