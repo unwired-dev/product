@@ -1086,6 +1086,14 @@ export function createDrafts(
   let dirty = false;
   // Composer recovery records storage refused, as while locked, which the next record write retries.
   const unrecorded = new Map<string, Draft>();
+  // The latest journal or forget call per Draft id; storage's semaphore does not keep call order.
+  const recordCalls = new Map<string, number>();
+  let recordCall = 0;
+  const callRecord = (id: string) => {
+    recordCall += 1;
+    recordCalls.set(id, recordCall);
+    return recordCall;
+  };
   let state: DraftsState = { kind: 'closed' };
   let started = false;
   // Every open editor by the version it edits, saved or not, so a version that synchronization
@@ -2188,11 +2196,15 @@ export function createDrafts(
       ),
     );
 
-  const forgetting = (id: string) =>
+  // A journal called after this forget owns the record, even when its pass ran first.
+  const forgetting = (id: string, call: number) =>
     Effect.gen(function* () {
       const account = owner;
       if (account === undefined) {
         return false;
+      }
+      if (recordCalls.get(id) !== call) {
+        return true;
       }
       yield* Effect.tryPromise({
         try: () => storage.removeComposerRecovery(account, id),
@@ -2223,6 +2235,7 @@ export function createDrafts(
     cleanup = [];
     dirty = false;
     unrecorded.clear();
+    recordCalls.clear();
     editors.clear();
     known.clear();
     held.clear();
@@ -2471,14 +2484,16 @@ export function createDrafts(
     // the Drafts; a record refused earlier is written first. Resolves whether every record is stored,
     // leaving one replaced meanwhile to the call that replaced it.
     journal: (draft: Draft) => {
+      callRecord(draft.id);
       unrecorded.delete(draft.id);
       unrecorded.set(draft.id, draft);
       return runLogged(journaling(generation, [...unrecorded.values()]));
     },
-    // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did.
+    // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did
+    // or a later `journal` took the record over.
     forget: (id: string) => {
       unrecorded.delete(id);
-      return runLogged(forgetting(id));
+      return runLogged(forgetting(id, callRecord(id)));
     },
     // Merges Product Sync into this device's Drafts and publishes this device's changes;
     // resolves once no pass is running, rejecting unexpected defects to the caller.

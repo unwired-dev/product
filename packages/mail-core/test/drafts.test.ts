@@ -3353,22 +3353,26 @@ describe('keeping composer recovery records', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
-  it('stores the edit journaled after a forget while an earlier record waited for a save', async () => {
-    expect.hasAssertions();
+  // A Draft whose next save `hold` keeps in flight, so record calls queue behind it.
+  const savingDraft = async () => {
     const session = account(connected('account-a'));
     const storage = createSyntheticDrafts(session.productAccount);
     const drafts = createDrafts(storage.native, session.registration);
     await drafts.load();
     const id = present(await drafts.create(alex), "the Draft's identifier");
     const draft = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
-    const first = { ...draft, subject: 'First' };
-    const second = { ...draft, subject: 'Second' };
-
     storage.hold();
     const saving = drafts.update({ ...draft, subject: 'Saved' }, draft);
-    expect(ready(drafts.getSnapshot()).save).toBe('saving');
-    const writing = drafts.journal(first);
-    const forgetting = drafts.forget(id);
+    return { storage, drafts, draft, saving };
+  };
+
+  it('stores the edit journaled after a forget while an earlier record waited for a save', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    const second = { ...draft, subject: 'Second' };
+
+    const writing = drafts.journal({ ...draft, subject: 'First' });
+    const forgetting = drafts.forget(draft.id);
     const journaling = drafts.journal(second);
     storage.release();
 
@@ -3376,5 +3380,23 @@ describe('keeping composer recovery records', () => {
       Promise.all([saving, writing, forgetting, journaling]),
     ).resolves.toStrictEqual([true, true, true, true]);
     await expect(drafts.recovered()).resolves.toStrictEqual([second]);
+  });
+
+  it('keeps a record journaled after a forget even when it reaches storage first', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    const latest = { ...draft, subject: 'Latest' };
+
+    // A journal called as the save ends can take the storage permit ahead of the queued forget.
+    const queued = [
+      drafts.journal({ ...draft, subject: 'First' }),
+      drafts.forget(draft.id),
+    ];
+    storage.release();
+    await saving;
+    await expect(drafts.journal(latest)).resolves.toBe(true);
+
+    await expect(Promise.all(queued)).resolves.toStrictEqual([true, true]);
+    await expect(drafts.recovered()).resolves.toStrictEqual([latest]);
   });
 });
