@@ -770,7 +770,10 @@ the shared [DESIGN.md](../DESIGN.md#colors) tokens: the `surface/content`
 background, `text/primary` text, `accent/ink` links and `text/secondary`
 blocked-image placeholders. Links stay visibly underlined, as in plain text, even
 where the sender removed or hid the underline, while retaining sender strike-through
-and overline, so color alone never marks them. It switches through `prefers-color-scheme`, so an
+and overline, so color alone never marks them. Every decoration the reader paints,
+on any element including those inside links, uses the element's app-set text color
+at the automatic thickness, so a sender's colored or thick line cannot mask part of
+a label or an inspected address. It switches through `prefers-color-scheme`, so an
 appearance change while a message is open restyles it in place, and the
 isolated view's own background uses the same content surface, so neither
 appearance shows a white canvas while it opens or scrolls. Matching the
