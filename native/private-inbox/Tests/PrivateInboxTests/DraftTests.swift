@@ -236,6 +236,78 @@ struct DraftTests {
     #expect(!session.exists("draft-assets"))
   }
 
+  // Composer recovery records are sealed to their account on this device, keep the assets they name
+  // through saves, are written only while protected data is available, are removed without a key
+  // and go with an account purge.
+  @Test @MainActor func composerRecoveryRecordsKeepTheirAssetsUntilRemoved() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache) = (session.store, session.cache)
+    let owner = try await session.owner()
+    _ = try await store.importDraftAsset(
+      owner: owner, id: "plan00001",
+      source: [
+        "kind": "data", "uri": "data:image/png;base64,\(session.bytes.base64EncodedString())",
+      ])
+    _ = try await store.commitDrafts(
+      owner: owner, expectedRevision: 0, document: "{}", keep: ["plan00001"])
+    let document = #"{"id":"draft1","subject":"Unsaved private subject"}"#
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.writeComposerRecovery(
+        owner: "another-account", id: "draft1", document: document, assets: [])
+    }
+    _ = try await store.writeComposerRecovery(
+      owner: owner, id: "draft1", document: document, assets: ["plan00001"])
+    let folder = session.directory.appendingPathComponent("composer-recovery")
+    let files = try FileManager.default.contentsOfDirectory(
+      at: folder, includingPropertiesForKeys: nil)
+    #expect(files.count == 1)
+    #expect(
+      try Data(contentsOf: try #require(files.first)).range(
+        of: Data("Unsaved private subject".utf8)) == nil)
+
+    // A save that no longer names the asset keeps it while the record does, also after relaunch.
+    _ = try await store.commitDrafts(owner: owner, expectedRevision: 1, document: "{}", keep: [])
+    #expect(session.exists("draft-assets/plan00001"))
+    let opened = try await store.openComposerRecovery()
+    #expect(opened["owner"] as? String == owner)
+    #expect(opened["records"] as? [[String: String]] == [["id": "draft1", "document": document]])
+    let relaunched = PrivateInboxStore(
+      directory: session.directory, service: session.service,
+      attachments: session.directory.appendingPathComponent("tmp"), protectedDataAvailable: { true })
+    #expect(try relaunched.openComposerRecovery(owner: owner).map(\.document) == [document])
+
+    // While locked a record is neither written nor read, but it is still removed; the next save
+    // then drops the asset.
+    let locked = PrivateInboxStore(
+      directory: session.directory, service: session.service,
+      attachments: session.directory.appendingPathComponent("tmp"), protectedDataAvailable: { false })
+    #expect(throws: PrivateInboxError.locked) {
+      try locked.writeComposerRecovery(owner: owner, id: "draft2", document: "{}", assets: [])
+    }
+    #expect(throws: PrivateInboxError.locked) { _ = try locked.openComposerRecovery(owner: owner) }
+    try locked.removeComposerRecovery(id: "draft1")
+    #expect(try cache.openComposerRecovery(owner: owner).isEmpty)
+    _ = try await store.commitDrafts(owner: owner, expectedRevision: 2, document: "{}", keep: [])
+    #expect(!session.exists("draft-assets/plan00001"))
+
+    // A record moved to another file name does not open and is removed.
+    try cache.writeComposerRecovery(owner: owner, id: "draft3", document: "{}", assets: [])
+    let sealed = try #require(
+      try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).first)
+    try FileManager.default.copyItem(at: sealed, to: folder.appendingPathComponent("moved"))
+    #expect(try cache.openComposerRecovery(owner: owner).map(\.id) == ["draft3"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
+
+    // Another Product Account reads no record, and opening its own removes this account's.
+    #expect(try cache.openComposerRecovery(owner: "another-account").isEmpty)
+    #expect(try cache.openComposerRecovery(owner: owner).isEmpty)
+    _ = try await store.writeComposerRecovery(
+      owner: owner, id: "draft4", document: document, assets: [])
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("composer-recovery"))
+  }
+
   // Bytes come only from a picker's copy, pasted data or a current Downloaded Attachment; any other
   // path JavaScript names is refused, and only the picker's own folders are ever removed.
   @Test @MainActor func draftAssetsImportOnlyFromGrantedSources() async throws {

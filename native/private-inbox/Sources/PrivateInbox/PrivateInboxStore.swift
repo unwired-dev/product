@@ -41,6 +41,16 @@ struct DraftStore: Codable {
   let document: String
 }
 
+// An open composer's Draft as it last showed it, kept only on this device so the next launch can
+// offer what the app ended without storing. Its document is TypeScript's; `assets` names the Draft
+// assets whose bytes commits keep while the record exists.
+struct ComposerRecovery: Codable {
+  let owner: String
+  let id: String
+  let document: String
+  let assets: [String]
+}
+
 // Mailbox body work runs off the main actor: state is immutable and every transaction holds the
 // store's file lock, which also serializes threads within this process.
 public final class PrivateInboxStore: @unchecked Sendable {
@@ -286,7 +296,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private func writingKey(replacing: Bool) throws -> Data {
     if replacing { return try existingKey() }
     if let existing = try keychain.read("encryption-key") { return existing }
-    for name in ["inbox.enc", "drafts.enc", "draft-assets", "mailbox.enc", "mailboxes", "bodies"] {
+    for name in [
+      "inbox.enc", "drafts.enc", "draft-assets", "composer-recovery", "mailbox.enc", "mailboxes",
+      "bodies",
+    ] {
       guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
       else { throw PrivateInboxError.unavailable }
     }
@@ -331,7 +344,9 @@ public final class PrivateInboxStore: @unchecked Sendable {
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
       let plaintext = try JSONEncoder().encode(next)
-      let kept = Set(keep)
+      let kept = Set(keep).union(try composerRecoveries().flatMap { _, record in
+        record?.owner == owner ? record?.assets ?? [] : []
+      })
       let assets = try draftAssets()
       let retained = assets.filter {
         kept.contains($0.id) || Self.importedAssets.contains($0.id)
@@ -352,6 +367,80 @@ public final class PrivateInboxStore: @unchecked Sendable {
         try? removeAttachmentItem(asset.url)
       }
       return next.revision
+    }
+  }
+
+  // Replaces Draft `id`'s recovery record for `owner`.
+  public func writeComposerRecovery(owner: String, id: String, document: String, assets: [String])
+    throws
+  {
+    try transaction {
+      guard document.utf8.count <= Self.outgoingContentLimit else {
+        throw PrivateInboxError.unavailable
+      }
+      let name = Self.recoveryName(id)
+      try FileManager.default.createDirectory(
+        at: directory.appendingPathComponent("composer-recovery"),
+        withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      let record = ComposerRecovery(owner: owner, id: id, document: document, assets: assets)
+      try write(
+        JSONEncoder().encode(record), file: "composer-recovery/\(name)",
+        key: try writingKey(replacing: false), authenticating: recoveryIdentity(name))
+    }
+  }
+
+  // The records `owner` wrote. Another account's, and any that does not open, are removed.
+  public func openComposerRecovery(owner: String) throws -> [(id: String, document: String)] {
+    try transaction {
+      try composerRecoveries().compactMap { url, record in
+        guard let record, record.owner == owner else {
+          try? removeAttachmentItem(url)
+          return nil
+        }
+        return (record.id, record.document)
+      }
+    }
+  }
+
+  // Needs no key, so storing, sending or discarding a message while the device is locked still
+  // removes its record.
+  public func removeComposerRecovery(id: String) throws {
+    try unlockedTransaction {
+      try removeAttachmentItem(
+        directory.appendingPathComponent("composer-recovery/\(Self.recoveryName(id))"))
+    }
+  }
+
+  // Named by a digest, so any Draft identifier is a safe file name.
+  private static func recoveryName(_ id: String) -> String {
+    hex(SHA256.hash(data: Data(id.utf8)))
+  }
+
+  // Sealed to its file name, so one record cannot stand in for another.
+  private func recoveryIdentity(_ name: String) -> Data {
+    Data("dev.unwired.private-inbox.composer-recovery.v1\n\(name)".utf8)
+  }
+
+  // Every record file, with nil for one that does not open as the record its name promises.
+  private func composerRecoveries() throws -> [(url: URL, record: ComposerRecovery?)] {
+    let urls: [URL]
+    do {
+      urls = try FileManager.default.contentsOfDirectory(
+        at: directory.appendingPathComponent("composer-recovery"), includingPropertiesForKeys: nil)
+    } catch CocoaError.fileReadNoSuchFile {
+      return []
+    }
+    guard !urls.isEmpty else { return [] }
+    let key = SymmetricKey(data: try existingKey())
+    return urls.map { url in
+      let name = url.lastPathComponent
+      guard let data = try? Data(contentsOf: url),
+        let box = try? AES.GCM.SealedBox(combined: data),
+        let plaintext = try? AES.GCM.open(box, using: key, authenticating: recoveryIdentity(name)),
+        let record = try? JSONDecoder().decode(ComposerRecovery.self, from: plaintext),
+        Self.recoveryName(record.id) == name
+      else { return (url, nil) }
+      return (url, record)
     }
   }
 
@@ -478,14 +567,14 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   // Every connection's cache, bodies and Downloaded Attachments, including the cache written
-  // before connections, and the account's Drafts and their assets: everything an account purge
-  // removes from this store.
+  // before connections, and the account's Drafts, their assets and its composer recovery records:
+  // everything an account purge removes from this store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
       try removeURLs(
-        ["mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets"].map {
-          directory.appendingPathComponent($0)
-        } + [attachments])
+        [
+          "mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets", "composer-recovery",
+        ].map { directory.appendingPathComponent($0) } + [attachments])
     }
   }
 

@@ -3266,3 +3266,90 @@ describe('adding files and images to Drafts', () => {
   });
   /* oxlint-enable vitest/max-expects */
 });
+
+describe('keeping composer recovery records', () => {
+  /* oxlint-disable vitest/max-expects -- One journey proves a record's lifecycle end to end. */
+  it('keeps records apart from the Drafts, with their assets, through locking, relaunch and an account change', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const relaunch = async () => {
+      storage.relaunch();
+      const store = createDrafts(storage.native, session.registration);
+      await store.load();
+      return store;
+    };
+    let drafts = await relaunch();
+    const id = present(await drafts.create(alex), "the Draft's identifier");
+    const created = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    storage.addFile('file:///plan.pdf', 'plan bytes');
+    const attachment = drafts.prepare({
+      name: 'plan.pdf',
+      type: 'application/pdf',
+    });
+    await drafts.update({ ...created, attachments: [attachment] }, created);
+    await drafts.importAsset(attachment, {
+      kind: 'file',
+      uri: 'file:///plan.pdf',
+    });
+    const saved = present(draftOf(drafts.getSnapshot(), id), 'the saved Draft');
+
+    // A record holds the composer's unsaved edit; the Drafts and their document do not.
+    const unsaved = {
+      ...saved,
+      subject: 'Unsaved plan',
+      body: typed(emptyDocument, 'Unsaved notes'),
+    };
+    await expect(drafts.journal(unsaved)).resolves.toBe(true);
+    expect(draftOf(drafts.getSnapshot(), id)?.subject).toBe('');
+    expect(storage.stored()?.document).not.toContain('Unsaved');
+
+    // After relaunches, a save that dropped the attachment keeps its bytes while the record
+    // names them.
+    drafts = await relaunch();
+    expect(drafts.recovered()).toStrictEqual([unsaved]);
+    const reopened = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
+    const dropped = { ...reopened, attachments: [] };
+    await drafts.update(dropped, reopened);
+    drafts = await relaunch();
+    await drafts.update({ ...dropped, subject: 'Plan' }, dropped);
+    expect(storage.assets()).toStrictEqual([attachment.id]);
+
+    // While locked, a record is refused and the stored one kept; the next write stores both.
+    storage.setLocked(true);
+    const later = { ...unsaved, subject: 'Unsaved plan, later' };
+    await expect(drafts.journal(later)).resolves.toBe(false);
+    expect(storage.recoveryRecords().get(id)?.document).toContain(
+      'Unsaved plan"',
+    );
+    storage.setLocked(false);
+    const second = { ...later, id: 'second-draft', attachments: [] };
+    await expect(drafts.journal(second)).resolves.toBe(true);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([
+      id,
+      'second-draft',
+    ]);
+    expect(storage.recoveryRecords().get(id)?.document).toContain('later');
+
+    // Removing a record works while locked, and the next save then drops the bytes.
+    storage.setLocked(true);
+    await expect(drafts.forget(id)).resolves.toBe(true);
+    storage.setLocked(false);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([
+      'second-draft',
+    ]);
+    await drafts.update(
+      { ...dropped, subject: 'Plan review' },
+      { ...dropped, subject: 'Plan' },
+    );
+    expect(storage.assets()).toStrictEqual([]);
+
+    // Another Product Account reads none of them, and opening its Drafts removes them.
+    session.change(connected('account-b'));
+    expect(drafts.recovered()).toStrictEqual([]);
+    drafts = await relaunch();
+    expect(drafts.recovered()).toStrictEqual([]);
+    expect(storage.recoveryRecords().size).toBe(0);
+  });
+  /* oxlint-enable vitest/max-expects */
+});

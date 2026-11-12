@@ -51,6 +51,30 @@ extension RegistrationStore {
     return ["owner": owner, "revision": revision]
   }
 
+  // Composer recovery records stay on this device: they are never uploaded or synchronized.
+  func openComposerRecovery() async throws -> [String: Any] {
+    let (owner, records) = try await draftWork { try $0.openComposerRecovery(owner: $1) }
+    return ["owner": owner, "records": records.map { ["id": $0.id, "document": $0.document] }]
+  }
+
+  func writeComposerRecovery(owner: String, id: String, document: String, assets: [String])
+    async throws -> [String: Any]
+  {
+    _ = try await draftWork { store, current in
+      guard owner == current else { throw PrivateInboxError.mailboxInvalidated }
+      try store.writeComposerRecovery(owner: owner, id: id, document: document, assets: assets)
+    }
+    return ["owner": owner]
+  }
+
+  // Needs no key, so it also runs while the device is locked.
+  func removeComposerRecovery(id: String) async throws {
+    guard let mailCache else { return }
+    try await Task.detached(priority: .userInitiated) {
+      try mailCache.removeComposerRecovery(id: id)
+    }.value
+  }
+
   // Files the system pickers copied for this process; launch removes any left behind.
   nonisolated public static var pickedDraftFiles: URL {
     FileManager.default.temporaryDirectory.appendingPathComponent("draft-picks", isDirectory: true)
