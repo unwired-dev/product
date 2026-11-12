@@ -106,6 +106,9 @@ describe('unsubscribe offers', () => {
       'https://alza.example@elsewhere.example/u/42',
       'https://alza.example:bad/u/42',
       'https://[bad-host/u/42',
+      'https://alza.example:99999/u/42',
+      'https://alza.example:0/u/42',
+      'https://[2001:db8::1]/u/42',
       'ftp://alza.example/u/42',
     ]) {
       expect(
@@ -138,6 +141,19 @@ describe('unsubscribe offers', () => {
         listUnsubscribePost,
         listUnsubscribe:
           '<mailto:leave@alza.example> (Help: <https://alza.example/help>)',
+      }),
+    ).toStrictEqual({
+      kind: 'mailto',
+      list: 'Alza.cz newsletter',
+      address: 'leave@alza.example',
+    });
+    // Parentheses inside a commented URI still open and close comments.
+    expect(
+      offerOf({
+        listId,
+        listUnsubscribePost,
+        listUnsubscribe:
+          '(help <https://alza.example/(details> here) <https://alza.example/faq>), <mailto:leave@alza.example>',
       }),
     ).toStrictEqual({
       kind: 'mailto',

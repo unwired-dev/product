@@ -27,11 +27,12 @@ headers, never body prose:
 - Otherwise nothing: an `https:` link without the one-click header (an
   unsubscribe page: the approved frames show no Open Unsubscribe Page action, so
   ADR 0044's page action waits for a later slice), `http:` and other schemes, an
-  HTTPS address with user information or without a valid host and port,
-  unbracketed URIs, several `mailto:` addresses and undecodable escapes.
+  HTTPS address with user information, a bracketed IP address or a port outside
+  1–65535, unbracketed URIs, several `mailto:` addresses and undecodable escapes.
 
 URIs must be in angle brackets; whitespace inside the brackets is ignored, as
-RFC 2369 asks, and a bracketed URI inside a comment is not one. Field names and
+RFC 2369 asks, and a bracketed URI inside a comment is not one, even when it holds
+parentheses. Field names and
 values are percent-decoded. The offer names the list by the `List-Id` phrase,
 such as `Alza.cz newsletter` in `Alza.cz newsletter <newsletter.alza.example>`,
 else by the sender's display name or address. With no name at all there is no

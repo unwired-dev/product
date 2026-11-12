@@ -17,10 +17,18 @@ export type UnsubscribeOffer =
       body?: string;
     }>;
 
-// An HTTPS address whose authority is a host name or bracketed IP address and an optional port;
-// React Native has no complete URL parser.
+// An HTTPS address whose authority is a host name and an optional port; React Native has no
+// complete URL parser.
 const oneClickUrl =
-  /^https:\/\/(?:[a-z\d-]+(?:\.[a-z\d-]+)*|\[[\da-f:.]+\])(?::\d{1,5})?(?:[/?#][^\s\p{Cc}]*)?$/iu;
+  /^https:\/\/[a-z\d-]+(?:\.[a-z\d-]+)*(?::(?<port>\d{1,5}))?(?:[/?#][^\s\p{Cc}]*)?$/iu;
+const isOneClickUrl = (uri: string) => {
+  // Positional captures: Hermes leaves `groups` unset on some named-group results.
+  const [match, port] = oneClickUrl.exec(uri) ?? [];
+  return (
+    match !== undefined &&
+    (port === undefined || (Number(port) >= 1 && Number(port) <= 65_535))
+  );
+};
 // One address, then optional header fields.
 const mailtoUrl = /^mailto:(?<address>[^?,]+)(?:\?(?<query>.*))?$/iu;
 const addressPattern =
@@ -46,7 +54,8 @@ const urisOf = (header: string) => {
   let depth = 0;
   // Splitting on a capture group alternates the text between URIs with the URIs themselves.
   return header.split(/(?<uri><[^<>]*>)/u).flatMap((part, index) => {
-    if (index % 2 === 0) {
+    // Text between URIs, or a bracketed part inside a comment, which may open or close comments.
+    if (index % 2 === 0 || depth > 0) {
       depth = Math.max(depth + nesting(part), 0);
       return [];
     }
@@ -123,7 +132,7 @@ export function unsubscribeOf(
   const uris = urisOf(headers.listUnsubscribe);
   const oneClick =
     headers.listUnsubscribePost?.trim() === 'List-Unsubscribe=One-Click'
-      ? uris.find((uri) => oneClickUrl.test(uri))
+      ? uris.find(isOneClickUrl)
       : undefined;
   if (oneClick !== undefined) {
     return { kind: 'one-click', list, url: oneClick };
