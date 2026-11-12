@@ -156,6 +156,8 @@ describe('the Mail Template model', () => {
 const storage = () => {
   const state: {
     account: string;
+    // `cached` while registration has not verified again, as offline after a relaunch.
+    kind: 'connected' | 'cached';
     locked: boolean;
     revision: number;
     owner?: string;
@@ -165,7 +167,13 @@ const storage = () => {
     before?: () => void;
     // Holds the next read's reply, as a slow native read would.
     reading?: Promise<undefined>;
-  } = { account: 'account-1', locked: false, revision: 0, commits: 0 };
+  } = {
+    account: 'account-1',
+    kind: 'connected',
+    locked: false,
+    revision: 0,
+    commits: 0,
+  };
   const refuse = (code: string) =>
     Promise.reject(Object.assign(new Error(code), { code }));
   const native: NativeMailTemplates = {
@@ -202,7 +210,7 @@ const storage = () => {
   const registration = {
     getSnapshot: () => ({
       snapshot: {
-        kind: 'connected',
+        kind: state.kind,
         productAccountId: state.account,
         signInProvider: 'google',
         mailboxes: '[]',
@@ -233,6 +241,18 @@ describe('stored Mail Templates', () => {
     ]);
     await expect(relaunched.templates('home')).resolves.toStrictEqual([
       { ...template, id: 'party', name: 'Party', profile: 'home' },
+    ]);
+  });
+
+  it('saves and removes without a verified Product Sign-In session', async () => {
+    expect.hasAssertions();
+    const { state, store, relaunch } = storage();
+    state.kind = 'cached';
+    await expect(store.save('work', invoice)).resolves.toBe(true);
+    await expect(store.save('work', thanks)).resolves.toBe(true);
+    await expect(store.remove('work', 'invoice')).resolves.toBe(true);
+    await expect(relaunch().templates('work')).resolves.toStrictEqual([
+      { ...thanks, profile: 'work' },
     ]);
   });
 
