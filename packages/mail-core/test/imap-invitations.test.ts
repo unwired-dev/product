@@ -22,7 +22,7 @@ const cancellation = [
 
 // An invitation message as a calendar client sends it: text, the calendar alternative and the same
 // calendar attached as a file.
-const invitationMessage = (calendar: string) =>
+const invitationMessage = (calendar: string, encoding = '7bit') =>
   [
     'From: Lena Fischer <lena@northwind.example>',
     `To: ${me}`,
@@ -40,6 +40,7 @@ const invitationMessage = (calendar: string) =>
     'This meeting was cancelled.',
     '--alt',
     'Content-Type: text/calendar; charset=utf-8; method=CANCEL',
+    `Content-Transfer-Encoding: ${encoding}`,
     '',
     calendar,
     '--alt--',
@@ -68,5 +69,21 @@ describe('imap meeting invitations', () => {
     expect(inbox.messageAttachments(id)).toMatchObject([
       { name: 'invite.ics', mimeType: 'application/ics' },
     ]);
+  });
+
+  it('leaves a message whose calendar part cannot decode readable without an invitation', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const uid = imap.deliver('INBOX', {
+      subject: 'Cancelled: Q4 roadmap review',
+      raw: invitationMessage('A', 'base64'),
+    });
+    const inbox = createImapInbox(imap.native, { connection: 'imap-1' });
+    await inbox.load();
+    const id = `7.${uid}.INBOX`;
+    inbox.retainMessage(id, Symbol('reader'));
+    await inbox.readMessage(id);
+    expect(inbox.responseSource(id)).toBeDefined();
+    expect(inbox.responseSource(id)?.calendar).toBeUndefined();
   });
 });

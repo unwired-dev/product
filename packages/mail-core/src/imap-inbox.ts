@@ -739,11 +739,11 @@ const describesReadablePart = (fields: HeaderFields) => {
   return described !== undefined && singleReadablePart(described);
 };
 
-// A meeting invitation's calendar text. Text that cannot decode leaves the message readable without
-// its invitation.
+// A meeting invitation's calendar text. Text that cannot decode, which the MIME parser reads as an
+// empty part, leaves the message readable without its invitation.
 const calendarText = (payload: GmailPart) => {
   const part = calendarPart(payload);
-  return part === undefined
+  return part === undefined || part.body?.size === 0
     ? Effect.undefined
     : partText(part, part.body?.data ?? '').pipe(
         Effect.option,
