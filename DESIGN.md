@@ -288,7 +288,7 @@ Graphite neutrals with a single warm seal.
 | Focus ring        | `accent/focus-ring`        | `#3A3D44` 32% | `#6A6E78` 28% | iPad Command Palette outline around the focused query          |
 | On device ink     | `on-device/ink`            | `#A3321F`     | `#FF9E88`     | The cinnabar seal: On device marker text and icon              |
 | On device surface | `on-device/surface`        | `#FBEEEA`     | `#3A2420`     | Summary card and Mail Assistance surfaces                      |
-| Brand deep        | `brand/deep`               | `#15171B`     | `#15171B`     | Welcome, Recovery Key, Undo Send toast                         |
+| Brand deep        | `brand/deep`               | `#15171B`     | `#15171B`     | Welcome, Recovery Key                                          |
 | On brand deep     | `brand/on-deep`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep                                   |
 | Brand seal        | `brand/seal`               | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                        |
 | On brand seal     | `brand/on-seal`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                   |
@@ -371,6 +371,9 @@ styles) so the file stays editable.
   interactive controls retain at least 44pt touch targets.
 - **iPad reader:** the Reading pane recipe at the same 1.15×: Reading Body
   17.25/25.3 and Reading Subject 23/28.75.
+- **iPad onboarding:** Welcome, Sign In and the Recovery Key use the same 1.15×:
+  Title 1 25.3/29.9, Body 14.95/18.4, and 41.4pt and 46pt buttons with 6.9pt
+  corners.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
   long-form reading) and Reading Subject 20/25 bold for the Thread subject. These
   reference sizes respect the [reader's accessibility sizing](docs/gmail-inbox.md#presentation-accessibility-and-fallback).
@@ -426,7 +429,7 @@ styles) so the file stays editable.
   places and lifts above the software keyboard. Whether it shows while composing
   follows [Drafts](docs/drafts.md#composing).
 - **Command Palette:** on the Mac a glass command input (command symbol,
-  "Commands", ⌘P key cap) sits in the window's toolbar row: 36pt at the leading
+  "Commands", ⌘K key cap) sits in the window's toolbar row: 36pt at the leading
   end of the Inbox reader's row, beside its glass groups, and 32pt at the trailing
   end of the Settings title row and in the New Message toolbar; open,
   it becomes the focused query with an esc key cap and a 460pt glass panel with
@@ -473,7 +476,9 @@ styles) so the file stays editable.
   Compact
   layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
-  field reveals together. The sender is a From pop-up beside Send.
+  field reveals together. The sender is a From pop-up beside Send. The Send
+  button's menu, a long press on iPhone and iPad, lists Remind Me to Send… after
+  Send Later; no composer carries a reminder bell.
   The Mac New Message window has no composer header or bottom row: its toolbar
   row holds the window controls, the "New Message" title, the Command Input, the
   From pop-up, the Compose actions overflow and Send.
@@ -517,7 +522,7 @@ content.
 - Small glass controls (48pt or less) use a soft shadow: 8pt blur, 2pt down, 8%
   black in Light and 30% in Dark. Large glass (sidebar) uses 16pt blur, 4pt
   down. Menus and sheets keep a deeper 24pt shadow so they read as floating.
-  The deep graphite toast uses 9pt blur, 6pt down, 18% black in Light and Dark.
+  A toast keeps the glass material's own shadow.
 - Content rows are transparent so the list surface and edge effects show
   through. Never stack glass on glass.
 - Where floating chrome overlaps content, use a scroll edge fade instead of a
@@ -529,6 +534,8 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
+- iPhone partial-height sheets have 34pt top corners and sit flush with the
+  screen's bottom edge.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
   radius. They are drawn without an arrow.
 - iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
@@ -625,8 +632,13 @@ form accessories, keyboards, status bar).
   [translation](docs/message-translation.md#behavior) and
   [remote-content requirements](docs/gmail-inbox.md#links-and-blocked-remote-content);
   authorization problems identify the affected Mailbox Connection.
-- **Undo Send Toast / Outbox Row:** the toast is deep graphite, centered above the
-  search bar, with Undo during the Undo Send Window. Window preferences follow the
+- **Toast / Outbox Row:** a toast is a Liquid Glass capsule with no fill of its
+  own, 48pt tall with a 24pt radius, centred with its bottom edge 12pt above the
+  search bar: 16pt leading and 20pt trailing padding, an 18pt symbol and the
+  message in 15/20 semibold `text/primary`, and at most one action in 17/22
+  semibold, `accent/ink` in Light and `text/primary` in Dark. On iPhone a
+  message that does not fit one line wraps to a 64pt two-line toast. The Undo
+  Send toast offers Undo during the Undo Send Window. Window preferences follow the
   [delivery requirements](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
   [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
   states with recovery controls after the toast ends. Its refusal state follows
@@ -640,7 +652,7 @@ form accessories, keyboards, status bar).
   [grouped order](docs/draft-assistance.md#behavior)), the file controls and
   Templates; no glass on iPad and Mac),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,
-  From Pop-up. A suggested subject carries the On device marker until explicit
+  From Pop-up. On iPhone a Compose Field is 44pt tall. A suggested subject carries the On device marker until explicit
   Use Subject acceptance makes it ordinary Draft content. A subject the person
   types is ordinary Draft content.
 - **Compose editing and assets:** text styles cover paragraphs, headings 1–3,
@@ -705,7 +717,8 @@ form accessories, keyboards, status bar).
 
 ## Known frame differences
 
-These frames predate the requirements or implementation they show:
+These frames predate the requirements or implementation they show, or show a
+decision the app has not built yet:
 
 - **Sidebar:** the unified Archive frames in each platform's "Features ·
   Unified Mailboxes and backfill" section, on its Mailboxes and Inbox page,
@@ -720,13 +733,22 @@ These frames predate the requirements or implementation they show:
 - **Command Palette:** no compact iPad frame shows the command input in the
   reader and composer headers yet.
 - **Toolbar:** the reference mockups show only Archive, Delete, Move, Reply,
-  Reply All, Forward, a flag and Snooze.
-- **Compose:** the reference mockups still show a 60% inline composer. The Mac
-  New Message frame's Remind Me to Send bell waits for #658, and the overflow
-  keeps Discard reachable.
-- **Command Palette key cap:** the frames and the Layout section show ⌘P.
+  Reply All, Forward, Pin and Snooze.
+- **Compose:** the reference mockups still show a 60% inline composer. The Send
+  menu's Remind Me to Send… waits for #658, and the frames do not draw how the
+  Mac's Send menu opens. The Mac New Message overflow keeps Discard reachable.
+- **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
+  until #2104.
+- **Command Palette key cap:** the frames and the Layout section show ⌘K, as
   [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
-  moves the palette to ⌘K under #1993.
+  decides. The app opens the palette with ⌘P until #1993.
+- **Outbox:** the frames draw the conditional Outbox as a sidebar row after Sent.
+  The app lists its rows at the top of the Inbox column until #2101.
+- **Reader date:** the frames write `Today, 8:12`. The app writes a full UTC date
+  until #2102.
+- **iPad Settings height:** frames whose Settings sidebar lists more rows than
+  the screen holds are drawn 912pt tall to show the whole list. On the device
+  the sidebar scrolls.
 - **Message Row:** the reference mockups show a two-line preview.
 - **Profile Menu:** the reference frames' trailing counts are not drawn; the
   system menu puts each Profile's unread count in its subtitle.

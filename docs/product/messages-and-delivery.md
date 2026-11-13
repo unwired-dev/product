@@ -25,6 +25,7 @@ implemented.
 ## Conditional Outbox navigation
 
 - **Outbox** is a conditional unified item rather than a permanent mailbox
+- Its place is a sidebar row after Sent, not the Inbox column (owner decision of 13 November 2026, [#2101](https://github.com/unwired-dev/product/issues/2101))
 
 ## Prototype composer presentation
 
