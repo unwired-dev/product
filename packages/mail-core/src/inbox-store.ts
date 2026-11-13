@@ -3671,11 +3671,15 @@ export function createInboxStore(
     );
   };
   // Shows the change at once, saves it with the cache and sends it to Gmail in order. Without a
-  // verified open mailbox nothing could be saved, so nothing changes.
+  // verified open mailbox nothing could be saved, so nothing changes. A quiet change, as opening
+  // marks mail read, keeps the latest notice and its Undo.
   const organize = (
     message: GmailMessage,
     action: GmailAction,
-    label?: GmailLabel,
+    {
+      label,
+      quiet = false,
+    }: Readonly<{ label?: GmailLabel; quiet?: boolean }> = {},
   ) => {
     if (
       forgotten ||
@@ -3694,8 +3698,10 @@ export function createInboxStore(
       pending: { action, message },
       ...(label === undefined ? {} : { label }),
     });
-    // Every outcome is announced; only a removal from the Inbox offers Undo.
-    notice = { kind: 'done', action, message };
+    // Every chosen outcome is announced; only a removal from the Inbox offers Undo.
+    if (!quiet) {
+      notice = { kind: 'done', action, message };
+    }
     publish(render());
     return runLogged(persistence.withPermit(save)).then((saved) =>
       saved && requestedFor === ownership ? load() : undefined,
@@ -3744,7 +3750,9 @@ export function createInboxStore(
     ) {
       return false;
     }
-    await organize(message, gmailAction.label(created.value.id), created.value);
+    await organize(message, gmailAction.label(created.value.id), {
+      label: created.value,
+    });
     return true;
   };
 
@@ -3848,6 +3856,11 @@ export function createInboxStore(
     },
     organize: (message: GmailMessage, action: GmailAction) =>
       organize(message, action),
+    // Marks a message the person opened as read, as Mark as Read does, without announcing it.
+    readOpened: (message: GmailMessage) =>
+      message.unread
+        ? organize(message, gmailAction.read, { quiet: true })
+        : Promise.resolve(),
     createLabel,
     // The body of a listed message, once readMessage has asked for it.
     messageBody: (id: string, reader?: symbol) => {

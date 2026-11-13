@@ -1935,8 +1935,13 @@ export function createImapInbox(
       ),
     );
 
-  // Shows the change at once and saves it on this device; it reaches the server in order.
-  const organize = async (message: ImapMessage, action: ImapAction) => {
+  // Shows the change at once and saves it on this device; it reaches the server in order. A quiet
+  // change, as opening marks mail read, keeps the latest notice and its Undo.
+  const organize = async (
+    message: ImapMessage,
+    action: ImapAction,
+    { quiet = false }: Readonly<{ quiet?: boolean }> = {},
+  ) => {
     const started = await runLogged(
       Effect.gen(function* () {
         if (forgotten || opened === undefined || document === undefined) {
@@ -1950,12 +1955,14 @@ export function createImapInbox(
             destination: action.destination,
           });
         }
-        notice = {
-          kind: 'done',
-          action,
-          message,
-        };
-        noticed = { id, original: message };
+        if (!quiet) {
+          notice = {
+            kind: 'done',
+            action,
+            message,
+          };
+          noticed = { id, original: message };
+        }
         render();
         return true;
       }),
@@ -3313,7 +3320,13 @@ export function createImapInbox(
       cachedViews.set(messages, cached);
       return projectView(cached);
     },
-    organize,
+    organize: (message: ImapMessage, action: ImapAction) =>
+      organize(message, action),
+    // Marks a message the person opened as read, as Mark as Read does, without announcing it.
+    readOpened: (message: ImapMessage) =>
+      message.unread
+        ? organize(message, { kind: 'read' }, { quiet: true })
+        : Promise.resolve(),
     undo,
     discardPending,
     // The shared online-search contract's name; IMAP has no further pages.

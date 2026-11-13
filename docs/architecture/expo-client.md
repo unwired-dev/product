@@ -39,7 +39,7 @@ record the current implementation, not requirements to retain them.
 
 - Effect from the shared catalog runs the Persistent Inbox and Registration stores,
   following the [Effect conventions](../agents/effect.md). React owns presentation
-  state. Opening a message does not mutate mailbox read state.
+  state. Opening an unread message marks it read, as Mark as read does.
 
 Catalogs centralize versions; bundle checks
 and native autolinking still have to establish each host's renderer boundary.

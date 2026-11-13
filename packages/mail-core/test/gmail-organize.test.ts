@@ -713,6 +713,37 @@ describe('organizing Gmail mail', () => {
     expect(shown(relaunched, trashed)).toBeDefined();
   });
 
+  it('marks an opened message read without announcing it or replacing the Undo before it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Unread 0' });
+    gmail.deliver({ subject: 'Unread 1' });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const [opened = '', archived = ''] = ready(
+      inbox.getSnapshot(),
+    ).messages.map(({ id }) => id);
+    await inbox.organize(message(inbox, archived), gmailAction.archive);
+    const archiving = ready(inbox.getSnapshot()).notice;
+    expect(archiving).toMatchObject({
+      kind: 'done',
+      action: gmailAction.archive,
+    });
+
+    expect(message(inbox, opened).unread).toBe(true);
+    const reading = inbox.readOpened(message(inbox, opened));
+    expect(message(inbox, opened).unread).toBe(false);
+    await reading;
+    expect(gmail.labelsOf(opened)).not.toContain('UNREAD');
+    expect(ready(inbox.getSnapshot()).notice).toBe(archiving);
+
+    // A message already read is left alone.
+    await inbox.readOpened(message(inbox, opened));
+    expect(gmail.modifies.filter(({ id }) => id === opened)).toStrictEqual([
+      { id: opened, add: [], remove: ['UNREAD'] },
+    ]);
+  });
+
   it('reconciles refused, repeated and interrupted changes in order without losing later ones', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 3 });

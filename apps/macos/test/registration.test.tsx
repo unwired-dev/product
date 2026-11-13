@@ -1281,12 +1281,11 @@ describe('product registration', () => {
       });
     };
 
-    // Reading never marks a message read; the reader's action does, at the server.
+    // Opening a message marks it read, at the server.
     await press(/Quarterly invoice/u);
     await expect(
       screen.findByRole('header', { name: 'Quarterly invoice' }),
     ).resolves.toBeVisible();
-    await press('Mark as read');
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
@@ -1376,9 +1375,8 @@ describe('product registration', () => {
       { title: 'Projects', accessibilityLabel: 'Move to Projects' },
     ]);
     await dismissMenu();
-    expect(imap.server.changes.at(-1)).toBe(
-      `move Deleted Messages ${deleted} INBOX`,
-    );
+    // Only opening it changed it.
+    expect(imap.server.changes.at(-1)).toBe(`read INBOX ${lunch}`);
     await press('Folders');
     imap.server.loseReply = true;
     await chooseMenuItem('Projects');
@@ -2254,7 +2252,11 @@ describe('product registration', () => {
     await press('Inbox. In mailbox1@example.invalid');
     await press(/Team lunch/u);
     await chooseMenuItem('Projects');
-    expect(servers.map(({ server }) => server.changes)).toStrictEqual([[], []]);
+    // Each opening read its message; nothing moved.
+    expect(servers.map(({ server }) => server.changes)).toStrictEqual([
+      ['read INBOX 1'],
+      ['read INBOX 1'],
+    ]);
   });
 
   // Opens the Garden plans reader of a connected Microsoft mailbox and its Move menu.
@@ -2972,12 +2974,14 @@ describe('product registration', () => {
       });
     });
     expect(body.props).toMatchObject({ scrollEnabled: true, bounces: true });
+    // Opening it read it.
     await press('Close reader');
-    await waitFor(() => {
-      expect(rows()).toStrictEqual([
-        'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Saved on this device',
-      ]);
-    });
+    await expect(
+      screen.findByRole('button', {
+        name: 'Oliver Park. Café on Saturday. In alex@example.invalid. Saved on this device',
+      }),
+    ).resolves.toBeVisible();
+    expect(rows()).toStrictEqual([]);
 
     // A removed mailbox's mail leaves the results.
     await openAccount();

@@ -416,6 +416,14 @@ Gmail's labels.
 | **Move to** a label           | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
 | **Undo**                      | Reverses the latest removal from the Inbox                                                                                               |
 
+Opening an unread message reads it ([#2080](https://github.com/unwired-dev/product/issues/2080)):
+once the reader can change the message, it makes the change **Mark as read** makes, for every
+provider: Gmail's `UNREAD`, Microsoft's `isRead` and IMAP's `\Seen`. The change is not
+announced and leaves the latest notice and its **Undo** in place. Each opening marks the
+message once, so **Mark as unread** stands while it stays open. Prefetch, body downloads and
+notifications leave read state alone. [#1992](https://github.com/unwired-dev/product/issues/1992)
+adds the preference for when opening reads mail.
+
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
 above the reading pane groups **Archive**, **Move

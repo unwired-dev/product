@@ -162,8 +162,8 @@ final class InboxTests: XCTestCase {
       bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
       XCTAssertTrue(unstar.waitForNonExistence(timeout: 5))
     }
-    // The starred row names its flag.
-    let starred = app.buttons["Unread. Rowan Hale. Garden plans for spring. Flagged"]
+    // The starred row names its flag; opening it read it.
+    let starred = app.buttons["Rowan Hale. Garden plans for spring. Flagged"]
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
       let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report Spam"))
@@ -2792,7 +2792,7 @@ final class InboxTests: XCTestCase {
     oliver.tap()
     XCTAssertTrue(app.staticTexts["oliver@example.com"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.staticTexts["maya@example.com"].exists)
-    app.buttons["Mark as read"].tap()
+    // Opening it read it.
     XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
     let committed = XCTAttachment(screenshot: app.screenshot())
     committed.name = "Committed read state"

@@ -334,6 +334,33 @@ describe('organizing IMAP mail', () => {
     });
   });
 
+  it('marks an opened message read without announcing it, keeping the Undo of an earlier archive', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    const archivedUid = imap.deliver('INBOX', { subject: 'Archived' });
+    const openedUid = imap.deliver('INBOX', { subject: 'Opened' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const state = inbox.getSnapshot();
+    const archived = inboxMessage(state, 'Archived');
+    await inbox.organize(archived, action(state, archived, 'archive'));
+    const archiving = ready(inbox.getSnapshot()).notice;
+    const opened = inboxMessage(inbox.getSnapshot(), 'Opened');
+    const reading = inbox.readOpened(opened);
+    expect(inbox.message(opened.id)?.unread).toBe(false);
+    await reading;
+    // A message already read is left alone.
+    await inbox.readOpened(inboxMessage(inbox.getSnapshot(), 'Opened'));
+    expect(imap.server.changes).toStrictEqual([
+      `move INBOX ${archivedUid} Archive`,
+      `read INBOX ${openedUid}`,
+    ]);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      notice: archiving,
+      undo: true,
+    });
+  });
+
   it('archives at once and Undo moves the message back to the Inbox from where the server put it', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves each step of the change's life. */
     expect.hasAssertions();
