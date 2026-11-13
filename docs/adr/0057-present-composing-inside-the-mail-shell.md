@@ -4,6 +4,23 @@ status: accepted
 
 # Present composing inside the mail shell
 
+## iPad placement amendment, 2026-11-13
+
+The owner decided on 13 November 2026 that the approved iPad frames win over the
+regular-width placement below. On regular-width iPad a new message opens as a
+card centred on the window, at most 874 points wide, 40 points below the status
+bar and 32 points above the bottom edge, over a dimmed window that stays usable.
+A reply or forward docks across the reading column's lower two thirds, edge to
+edge. This supersedes, for iPad, the statements below that the composer starts
+in a bottom-anchored overlay contained by the detail column, and that the
+collapsed overlay spans the detail column with 12-point outer insets at 70
+percent of its available height.
+
+Composing stays nonmodal: the sidebar and Thread list remain interactive, Expand
+still takes the composer over the whole window, and the Mac's bottom overlay at
+70 percent is unchanged. [The Draft guide](../drafts.md#composing) already
+describes this placement, which the iPad app has.
+
 ## Compact sheet amendment, 2026-11-13
 
 The owner decided on 13 November 2026 that the approved frames win over this
