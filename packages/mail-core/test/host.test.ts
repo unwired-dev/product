@@ -774,17 +774,33 @@ describe('the host assembly', () => {
 
   it('keeps another editor’s change made while the typed reply saves, and sends nothing', async () => {
     expect.hasAssertions();
-    const { host, answered, reply, drafts } = await replyingHost();
-    // Another editor changes the Draft once the reply is applied, before its save resolves.
-    const { fill } = host.drafts;
-    host.drafts.fill = async (id, ...rest) => {
-      const filled = await fill(id, ...rest);
-      host.drafts.fill = fill;
-      await fill(id, (each) => ({ ...each, subject: 'Mine' }), []);
-      return filled;
+    const { host, native, answered, reply, drafts } = await replyingHost();
+    // The reply's save waits once the Draft exists, while another editor changes it.
+    const commit = native.commitDrafts;
+    const saving = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    const { create } = host.drafts;
+    host.drafts.create = async (...args) => {
+      const id = await create(...args);
+      vi.spyOn(native, 'commitDrafts').mockImplementationOnce(
+        async (...saved) => {
+          saving.resolve(undefined);
+          await held.promise;
+          return commit(...saved);
+        },
+      );
+      return id;
     };
 
-    await reply('reply', answered, 'Thursday works.');
+    const replying = reply('reply', answered, 'Thursday works.');
+    await saving.promise;
+    const editing = host.drafts.fill(
+      required(drafts()[0]).id,
+      (each) => ({ ...each, subject: 'Mine' }),
+      [],
+    );
+    held.resolve(undefined);
+    await Promise.all([replying, editing]);
     expect({
       outbox: host.outbox.getSnapshot(),
       subjects: drafts().map(({ subject }) => subject),
