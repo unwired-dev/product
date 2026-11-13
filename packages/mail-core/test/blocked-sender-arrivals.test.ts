@@ -13,8 +13,8 @@ import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 const blocked = 'offers@growthleads.io';
 
 // A Gmail, a Microsoft and an IMAP connection of the Default Profile, each with New Mail
-// Notifications on, and this device's Blocked Senders, which block `blocked` there.
-const setup = async () => {
+// Notifications on unless asked otherwise, and this device's Blocked Senders, which block `blocked` there.
+const setup = async ({ notifications = true } = {}) => {
   const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
   const graph = createSyntheticGraph();
   const imap = createSyntheticImap();
@@ -35,7 +35,7 @@ const setup = async () => {
             address: 'alex@example.invalid',
             provider: 'gmail',
             state: 'connected',
-            notifications: true,
+            ...(notifications ? { notifications } : {}),
             profile: gmailProfile.current,
           },
           {
@@ -43,7 +43,7 @@ const setup = async () => {
             address: 'casey@example.invalid',
             provider: 'microsoft-graph',
             state: 'connected',
-            notifications: true,
+            ...(notifications ? { notifications } : {}),
           },
           {
             id: 'imap',
@@ -51,7 +51,7 @@ const setup = async () => {
             provider: 'imap',
             imap: { host: 'imap.example.invalid', port: 993, username: 'alex' },
             state: 'connected',
-            notifications: true,
+            ...(notifications ? { notifications } : {}),
           },
         ]),
       },
@@ -258,5 +258,36 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     await mailboxes.load();
     expect(notified).toStrictEqual([]);
     expect(imap.server.changes).toStrictEqual(['move INBOX 1 Trash']);
+  });
+
+  it('moves new mail from a Blocked Sender to Trash with New Mail Notifications off', async () => {
+    expect.hasAssertions();
+    const { gmail, graph, imap, notified, mailboxes } = await setup({
+      notifications: false,
+    });
+    const fromGmail = gmail.deliver({
+      from: `Growth Leads <${blocked}>`,
+      subject: 'Gmail offer',
+    });
+    const fromGraph = graph.deliver({
+      from: { name: 'Growth Leads', address: blocked },
+      subject: 'Microsoft offer',
+    });
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received: Date.now(),
+    });
+    await mailboxes.load();
+    expect(notified).toStrictEqual([]);
+    await vi.waitFor(() => {
+      expect(gmail.modifies).toStrictEqual([
+        { id: fromGmail, add: ['TRASH'], remove: ['INBOX'] },
+      ]);
+      expect(graph.modifies).toStrictEqual([
+        { message: fromGraph, folder: 'deleteditems' },
+      ]);
+      expect(imap.server.changes).toStrictEqual(['move INBOX 1 Trash']);
+    });
   });
 });

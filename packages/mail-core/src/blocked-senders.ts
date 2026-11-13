@@ -41,7 +41,7 @@ export type BlockedSender = typeof BlockedSenderSchema.Type;
 
 // A device-local receipt: this device took one blocked arrival of a connection to Trash, where the
 // connection has one, so an arrival reported again, as when the person restores it to the Inbox,
-// is never moved again. Its sender and receipt time name it, since a move renames an IMAP or
+// is not moved again while its receipt is kept. Its sender and receipt time name it, since a move renames an IMAP or
 // Microsoft message.
 const ReceiptSchema = Schema.Struct({
   connection: Schema.NonEmptyString,
@@ -50,7 +50,7 @@ const ReceiptSchema = Schema.Struct({
 });
 type Receipt = typeof ReceiptSchema.Type;
 
-// The newest receipts kept; an arrival older than all of them is not reported again.
+// The newest receipts kept; an arrival whose receipt fell out of them can move again.
 const receiptLimit = 1000;
 
 const DocumentSchema = Schema.fromJsonString(
@@ -203,7 +203,7 @@ export function createBlockedSenders(
       ),
     // Which of a connection's newly arriving `messages` its Mail Profile `profile` blocks: `blocked`
     // names each, which gets no notification, and `move` those this call recorded a receipt for,
-    // which the caller moves to Trash. An arrival with a receipt is never moved again, and a receipt
+    // which the caller moves to Trash. An arrival with a kept receipt is not moved again, and a receipt
     // storage refuses moves nothing. Undefined while storage cannot read the Blocked Senders.
     screen: (
       profile: string,
