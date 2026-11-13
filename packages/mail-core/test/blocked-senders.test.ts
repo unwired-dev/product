@@ -271,6 +271,46 @@ describe('stored Blocked Senders', () => {
     await expect(store.blockedSenders('work')).resolves.toStrictEqual([]);
   });
 
+  it('counts the moves a document stored before senders kept their count recorded since the block', async () => {
+    expect.hasAssertions();
+    const { state, store } = storage();
+    const receipt = (receivedAt: string) => ({
+      connection: 'connection-1',
+      address: 'offers@growthleads.io',
+      receivedAt,
+    });
+    Object.assign(state, {
+      owner: state.account,
+      revision: 1,
+      document: JSON.stringify({
+        senders: [
+          {
+            profile: 'work',
+            address: 'offers@growthleads.io',
+            blockedAt: november8,
+          },
+        ],
+        receipts: [
+          receipt('2026-11-07T09:00:00Z'),
+          receipt('2026-11-09T09:00:00Z'),
+        ],
+      }),
+    });
+    await expect(store.blockedSenders('work')).resolves.toMatchObject([
+      { moved: 1 },
+    ]);
+    await store.screen('work', { id: 'connection-1', moves: true }, [
+      {
+        id: 'next',
+        address: 'offers@growthleads.io',
+        receivedAt: '2026-11-10T09:00:00Z',
+      },
+    ]);
+    await expect(store.blockedSenders('work')).resolves.toMatchObject([
+      { moved: 2 },
+    ]);
+  });
+
   it('lists nothing from a stored document that does not decode or holds an invalid address', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue();

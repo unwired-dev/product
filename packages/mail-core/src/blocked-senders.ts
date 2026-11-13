@@ -29,8 +29,8 @@ export const blockedAddress = (address: string) => {
 };
 
 // A Blocked Sender: an exact normalized address, the Mail Profile that blocks it and when, in
-// milliseconds since the epoch, and how many arrivals this device moved to Trash for it since then,
-// absent for none.
+// milliseconds since the epoch, and how many arrivals this device moved to Trash for it since then;
+// a block stored before #2141 has no count.
 const BlockedSenderSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   address: Schema.String.check(
@@ -92,6 +92,16 @@ const report = (
   error.kind === 'locked'
     ? Effect.void
     : Effect.logError('Blocked Sender storage failed:', error.diagnostic);
+
+// A sender's move count. One stored before senders kept it counts its kept receipts that arrived
+// since it was blocked.
+const movedFor = (sender: BlockedSender, receipts: readonly Receipt[]) =>
+  sender.moved ??
+  receipts.filter(
+    (receipt) =>
+      receipt.address === sender.address &&
+      Date.parse(receipt.receivedAt) >= sender.blockedAt,
+  ).length;
 
 const isProfileAddress =
   (profile: string, address: string) => (sender: BlockedSender) =>
@@ -198,10 +208,13 @@ export function createBlockedSenders(
     blockedSenders: (profile: string) =>
       runLogged(
         opened(signedIn()).pipe(
-          Effect.map(({ senders }) =>
+          Effect.map(({ senders, receipts }) =>
             senders
               .filter((sender) => sender.profile === profile)
-              .map((sender) => ({ ...sender, moved: sender.moved ?? 0 })),
+              .map((sender) => ({
+                ...sender,
+                moved: movedFor(sender, receipts),
+              })),
           ),
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
           Effect.catchTag('DraftStorageFailure', (error) =>
@@ -216,7 +229,7 @@ export function createBlockedSenders(
           ? senders
           : [
               ...senders,
-              { profile, address: normalized, blockedAt: Date.now() },
+              { profile, address: normalized, blockedAt: Date.now(), moved: 0 },
             ],
       ),
     // Which of a connection's newly arriving `messages` its Mail Profile `profile` blocks: `blocked`
@@ -272,7 +285,10 @@ export function createBlockedSenders(
               ).length;
               return moved === 0
                 ? sender
-                : { ...sender, moved: (sender.moved ?? 0) + moved };
+                : {
+                    ...sender,
+                    moved: movedFor(sender, stored.receipts) + moved,
+                  };
             }),
             receipts: [
               ...stored.receipts,
