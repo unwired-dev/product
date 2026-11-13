@@ -1756,6 +1756,71 @@ final class WindowTests: XCTestCase {
     attach(primary, "Primary Profile window after moving back")
   }
 
+  // #2141: the reader's sender menu blocks the sender's exact address once its sheet confirms, and
+  // Settings › Blocked Senders lists it until − unblocks it, in each appearance.
+  func testBlockSender() throws {
+    try blockSender(appearance: "Light")
+  }
+
+  func testBlockSenderDark() throws {
+    try blockSender(appearance: "Dark")
+  }
+
+  private func blockSender(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let settings = app.windows["settings-window"]
+    let address = "sender001@example.invalid"
+    func attach(_ element: XCUIElement, _ name: String) {
+      let attachment = XCTAttachment(screenshot: element.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
+    window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001")).firstMatch
+      .click()
+    // The sender's label repeats on its inner text, so it is clicked by position.
+    let sender = window.staticTexts["Sender 001, \(address)"].firstMatch
+    XCTAssertTrue(sender.waitForExistence(timeout: 15))
+    sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+    XCTAssertTrue(app.menuItems["Block Sender…"].waitForExistence(timeout: 5))
+    app.menuItems["Block Sender…"].click()
+    let sheet = window.sheets.firstMatch
+    XCTAssertTrue(sheet.waitForExistence(timeout: 10))
+    // An alert's title is its text's value.
+    XCTAssertTrue(
+      sheet.descendants(matching: .any)
+        .matching(NSPredicate(format: "value == %@", "Block \(address)?")).firstMatch
+        .waitForExistence(timeout: 5))
+    attach(window, "Block Sender sheet")
+    sheet.buttons["Block Sender"].click()
+    XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Blocked Senders"].click()
+    let row = settings.buttons[address]
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    XCTAssertTrue(text("0 since", in: settings).exists)
+    row.click()
+    attach(settings, "Settings › Blocked Senders")
+    settings.buttons["Unblock"].click()
+    XCTAssertTrue(row.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(text("No Blocked Senders.", in: settings).waitForExistence(timeout: 10))
+    attach(settings, "Settings › Blocked Senders empty")
+  }
+
   // #1538: a window switched to a Mail Profile that owns no mailbox shows No Mailboxes, with
   // Manage Mail Profiles… opening Settings › Mail Profiles, in each appearance.
   func testMailProfileWithoutMailboxes() throws {

@@ -1902,8 +1902,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
         title: 'Block oliver@example.invalid?',
         detail:
           'New mail from this address goes to Trash in your Primary Profile. The 1 message you have now stays where it is, and the sender isn’t told.',
-        buttons: ['Cancel', 'Block Sender'],
+        // As the approved frame shows, Block Sender is the default action and Escape cancels.
+        buttons: ['Block Sender', 'Cancel'],
+        cancel: 1,
       });
+      expect(sheetShown()).not.toHaveProperty('destructive');
       await act(async () => {
         chooseSheetButton('Cancel');
       });

@@ -38,6 +38,7 @@ export function useBlockSender() {
             : t('blockedSenders.confirm', { profile: name, count }),
         cancel: t('common.cancel'),
         action: t('blockedSenders.action'),
+        destructive: false,
       })) &&
       !(await store.block(profile, address))
     ) {
@@ -58,7 +59,6 @@ export function useBlockSender() {
             key: `block\n${address}`,
             title: t('blockedSenders.block'),
             symbol: 'hand.raised.slash',
-            destructive: true,
             run: () => block(address),
           },
         ];

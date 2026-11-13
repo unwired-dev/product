@@ -232,6 +232,14 @@ no mailbox is listed. The window's capture is kept as an attachment and the
 accessibility audit runs on it. **Manage Mail Profiles…** opens Settings › Mail
 Profiles. It sets Light; `testMailProfileWithoutMailboxesDark` runs it in Dark.
 
+`testBlockSender` uses the same build and sign-in
+([#2141](https://github.com/unwired-dev/product/issues/2141)). It opens Gmail
+update 001 and chooses **Block Sender…** from its sender's menu; the sheet asks
+`Block sender001@example.invalid?` and **Block Sender** confirms it. Settings ›
+Blocked Senders then lists the address as `0 since`, and selecting it and choosing
+− leaves **No Blocked Senders**. The sheet and both Settings states are kept as
+attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
+
 ## Mac IMAP Spam and Trash folder journey
 
 The `testImapSpamAndTrashFolders` journey and its `Dark` variant use the same
