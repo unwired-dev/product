@@ -423,8 +423,9 @@ a refusal of it is announced, and both leave the latest notice and its **Undo** 
 Each opening marks the message once, even when two windows show it, so **Mark as unread**
 stands while it stays open. A Thread reader marks only the message it opened. A read that
 rolls back because only the saved Inbox opens is asked again once Gmail access verifies.
-Prefetch, body downloads and notifications leave read state alone. [#1992](https://github.com/unwired-dev/product/issues/1992) adds the preference for
-when opening reads mail.
+An online search result outside every cached view offers no organizing actions, so opening
+it leaves it unread. Prefetch, body downloads and notifications leave read state alone. The preference for when opening reads mail is deferred to
+[#1992](https://github.com/unwired-dev/product/issues/1992).
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
