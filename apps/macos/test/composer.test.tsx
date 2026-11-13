@@ -2804,6 +2804,32 @@ describe('composing Drafts', () => {
     expect(draftsOf(empty.drafts.getSnapshot())).toHaveLength(0);
   });
 
+  it('ignores Remove Reminder while a reminder change is pending', async () => {
+    expect.hasAssertions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    const stored = () => subject.reminders.store.reminders(defaultProfile);
+    await remindFromSendMenu();
+    await chooseMenuItem('Tomorrow Morning');
+    await screen.findByText(/^Reminder for /u);
+    // Storage holds the save that Change makes before it stores the new time.
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Keys');
+    subject.storage.hold();
+    await press('Change');
+    await chooseMenuItem('Tomorrow Morning');
+    await press('Remove Reminder');
+    await expect(stored()).resolves.toHaveLength(1);
+    await act(async () => {
+      subject.storage.release();
+    });
+    await waitFor(async () => {
+      await expect(stored()).resolves.toHaveLength(1);
+    });
+    expect(screen.getByText(/^Reminder for /u)).toBeOnTheScreen();
+  });
+
   it('keeps the reminder of newer content another window saved when a stale editor discards or closes empty', async () => {
     expect.hasAssertions();
     const { timeZone } = Intl.DateTimeFormat().resolvedOptions();

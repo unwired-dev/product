@@ -2949,17 +2949,20 @@ function Editor({
       }
     }
   };
+  // Waits for no pending Save, Send or reminder change, so the reminder stored is the one shown.
   const removeReminder = async () => {
-    if (reminder === undefined) {
+    if (reminder === undefined || lifetime.current.finishing > 0) {
       return;
     }
     setReminderFailed(undefined);
+    lifetime.current.finishing += 1;
     let removed = false;
     try {
       removed = await sendReminders.cancel(reminder.profile, reminder.draft);
     } catch {
       // An unexpected storage rejection keeps the reminder, to remove again.
     }
+    finishOperation();
     if (lifetime.current.mounted) {
       if (removed) {
         setReadReminder(undefined);
