@@ -244,8 +244,9 @@ read and move requests, Undo, interrupted/throttled writes, concurrent placement
 changes, incomplete replies, refused grants and missing folder roles. Native hosted tests use
 real local storage and a controlled HTTP boundary through `GraphMailProvider`;
 packaged Microsoft-first registration uses synthetic providers. Neither proves
-live personal/tenant OAuth, real Graph shapes, physical lock enforcement or Mac
-native compatibility. Those remain explicit release qualification prerequisites.
+live OAuth, real Graph shapes, physical lock enforcement or Mac
+native compatibility. Those remain explicit release qualification prerequisites
+on a personal Microsoft account; work/school tenants are not qualified live.
 
 Sending journeys parse the frozen reply, inline image, attachment and Bcc with an
 independent MIME parser, exercise safe refusals and retain unknown across relaunch

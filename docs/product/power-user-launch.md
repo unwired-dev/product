@@ -28,7 +28,9 @@ owns this specification and roadmap reconciliation.
   Connection. Certify iCloud Mail and Fastmail and support reviewed manual
   configuration for other compatible servers. Explain unsupported capabilities
   and connection failures without claiming universal server compatibility.
-- Support personal Outlook.com and work/school Microsoft 365 mailboxes.
+- Support personal Outlook.com and work/school Microsoft 365 mailboxes. Test and
+  certify on personal accounts only (owner decision of 13 November 2026);
+  work/school accounts are supported without their own qualification.
 - Defer shared and delegated Microsoft mailboxes.
 - Keep Google and Apple Product Sign-In. Microsoft mailbox authorization is
   separate; Microsoft Product Sign-In and linking remain follow-up work in

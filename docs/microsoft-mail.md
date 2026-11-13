@@ -334,8 +334,10 @@ first, then adds Gmail. On iPhone it also searches for a folder with no match in
 the **Move to…** sheet, checks that the search field and explanation stay above
 the software keyboard, dismisses the sheet and reads the message after relaunch.
 
-These are deterministic and mocked evidence. Real Microsoft authorization, tenant
-restrictions and Graph transport on packaged hosts remain release checks, as do
+These are deterministic and mocked evidence. Real Microsoft authorization and
+Graph transport on packaged hosts remain release checks on a personal account
+(work/school accounts and tenant restrictions are covered by the mocked evidence
+only, per the [launch scope](product/power-user-launch.md)), as do
 confirming that Microsoft keeps a sent message's Message-ID in Sent Items (otherwise an
 unknown outcome safely stays unknown), Bcc and threading in Outlook, and native
 iPhone, iPad and Mac send journeys, in
