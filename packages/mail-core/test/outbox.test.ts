@@ -165,6 +165,7 @@ describe('sending a Draft through the Outbox', () => {
         }),
         sendAt: clock.now + undoSendWindow,
         state: 'waiting',
+        epoch: 'legacy',
       },
     ]);
     expect(
@@ -759,6 +760,66 @@ describe('sending a Draft through the Outbox', () => {
           [`draft-delivery.${id}`, 'phone'],
         ]);
         expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      } finally {
+        sending.outbox.dispose();
+      }
+    },
+  );
+
+  it.each([
+    ['its epoch', 'first', 'first'],
+    ['no epoch', undefined, 'legacy'],
+  ] as const)(
+    'admits a Send stored while its last mailbox, listed with %s, is removed and added again, and refuses it from the new connection',
+    async (_listed, first, recorded) => {
+      expect.hasAssertions();
+      const { server, gmail } = sharedAccount();
+      const sending = await sender(server, gmail, 'phone');
+      const connectedAs = (epoch: string | undefined) => {
+        sending.change({
+          kind: 'connected',
+          productAccountId: account,
+          signInProvider: 'google',
+          mailboxes: JSON.stringify([{ ...alex, state: 'connected', epoch }]),
+        });
+      };
+      try {
+        connectedAs(first);
+        const id = await addressed(sending);
+        const shown = sending.draft(id);
+        // The Draft is saved, so the next write is its admission.
+        const admitting = Promise.withResolvers<undefined>();
+        const commit = sending.storage.native.commitDrafts;
+        vi.spyOn(sending.storage.native, 'commitDrafts').mockImplementationOnce(
+          (...args) => {
+            admitting.resolve(undefined);
+            return commit(...args);
+          },
+        );
+        sending.storage.hold();
+        const sent = sending.outbox.send(() => shown);
+        await admitting.promise;
+        // Removing the last mailbox closes the Drafts; adding it again reopens them.
+        sending.change({
+          kind: 'mailbox-needed',
+          productAccountId: account,
+          signInProvider: 'google',
+        });
+        connectedAs('second');
+        sending.storage.release();
+        await expect(sent).resolves.toBeUndefined();
+        await sending.drafts.load();
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: 'waiting', epoch: recorded },
+        ]);
+
+        await sending.mailboxes.load();
+        later(undoSendWindow);
+        await sending.outbox.process();
+        expect(sending.drafts.getOutbox()).toMatchObject([
+          { id, state: 'failed', problem: 'mailbox' },
+        ]);
+        expect(gmail.sends).toStrictEqual([]);
       } finally {
         sending.outbox.dispose();
       }

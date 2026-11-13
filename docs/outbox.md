@@ -105,6 +105,11 @@ it.
     or 3 MB of text alone for Microsoft;
   - was changed in another window meanwhile;
   - cannot be saved.
+
+  A Send that storage holds is never refused, even when removing the account's
+  last mailbox closed the Drafts meanwhile; the message is in the Outbox when
+  they reopen.
+
 - While Send is pending, the composer accepts no edits: its fields, Undo, Redo,
   formatting and Discard wait until the message is admitted or Send is refused.
   Send dismisses any translation or writing-help preview and prevents new requests;
@@ -158,8 +163,8 @@ it.
   handing it off, or blocking later messages in the Outbox.
 - **Not sent** explains a definite refusal and offers **Edit**:
   - another of the account's devices claimed the Draft first;
-  - the mailbox needs Gmail access again, is no longer connected, or changed its
-    address;
+  - the mailbox needs Gmail access again, is no longer connected, was removed and
+    added again since Send, or changed its address;
   - its files are no longer on this device;
   - it is too large;
   - Gmail refused it.

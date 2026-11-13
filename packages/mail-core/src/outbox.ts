@@ -147,6 +147,7 @@ const withState = (
   sendAt: entry.sendAt,
   state,
   ...(entry.claim === undefined ? {} : { claim: entry.claim }),
+  ...(entry.epoch === undefined ? {} : { epoch: entry.epoch }),
   ...(problem === undefined ? {} : { problem }),
 });
 
@@ -273,10 +274,13 @@ export function createOutbox({
       ? 'sent-folder'
       : undefined;
   };
-  const providerOf = (draft: Draft) =>
+  const listedOf = (draft: Draft) =>
     mailboxesOf(registration.getSnapshot().snapshot).find(
       ({ id }) => id === draft.connection,
-    )?.provider;
+    );
+  const providerOf = (draft: Draft) => listedOf(draft)?.provider;
+  // The sending connection's incarnation; one listed before epochs is the legacy one.
+  const epochOf = (draft: Draft) => listedOf(draft)?.epoch ?? 'legacy';
   // Both scheduling and processing use the same deadline, including a refused storage step.
   const dueAt = (entry: OutboxEntry) => {
     if (entry.state === 'waiting') {
@@ -322,8 +326,14 @@ export function createOutbox({
 
   // Whether a queued message may be handed off now: a problem that refuses it for good, 'wait'
   // while an IMAP connection's listing has not named the Sent folder for its copy, or undefined.
-  const handoffCheck = (draft: Draft): DeliveryProblem | 'wait' | undefined =>
-    senderProblem(draft) ?? sentFolderCheck(draft);
+  // A connection added again since Send is another incarnation, refused as a removed one.
+  const handoffCheck = ({
+    draft,
+    epoch,
+  }: OutboxEntry): DeliveryProblem | 'wait' | undefined =>
+    epoch !== undefined && epoch !== epochOf(draft)
+      ? 'mailbox'
+      : (senderProblem(draft) ?? sentFolderCheck(draft));
 
   const record = (id: string, outcome: SendOutcome) => {
     if (outcome.kind === 'accepted') {
@@ -527,7 +537,7 @@ export function createOutbox({
       return;
     }
     // Claim and storage awaited meanwhile; recheck before invoking the current Inbox.
-    const problem = handoffCheck(sending.draft);
+    const problem = handoffCheck(sending);
     if (problem !== undefined) {
       await keep(id, {
         kind: problem === 'wait' ? 'queued' : 'failed',
@@ -745,7 +755,7 @@ export function createOutbox({
       );
       return;
     }
-    const check = handoffCheck(entry.draft);
+    const check = handoffCheck(entry);
     if (check === 'wait') {
       return;
     }
@@ -1062,6 +1072,7 @@ export function createOutbox({
       report?: (check: SendCheck) => void,
     ): Promise<SendRefusal | undefined> => {
       const draft = expected();
+      const epoch = epochOf(draft);
       const refusal = refusalOf(draft);
       if (refusal !== undefined) {
         return refusal;
@@ -1098,6 +1109,7 @@ export function createOutbox({
           message,
           sendAt,
           state: 'waiting',
+          epoch,
         }),
       );
       if (admitted) {
