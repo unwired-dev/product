@@ -754,8 +754,8 @@ app follows under the issue named:
 
 - **Edit Favorites:** the sidebar's Edit mode, and **Edit** beside Account in the
   iPhone Mailboxes frames, wait for #2106.
-- **Message list header:** the iPhone frames' **…** menu and List/Chat toggle
-  beside the title have no feature behind them yet.
+- **Message list header:** the iPhone frames' List/Chat toggle beside the title
+  waits for #810. Their **…** menu waits for an issue that names what it offers.
 - **Send menu:** Remind Me to Send… waits for #658.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
