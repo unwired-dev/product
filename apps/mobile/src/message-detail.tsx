@@ -17,6 +17,7 @@ import {
   recipientsOf,
   sendingMailboxes,
 } from '@private-email/mail-core/drafts';
+import { canOrganize } from '@private-email/mail-core/gmail-actions';
 import { listedMessage } from '@private-email/mail-core/inbox-store';
 import { threadMessages } from '@private-email/mail-core/inbox-store';
 import { startResponse } from '@private-email/mail-core/responses';
@@ -44,6 +45,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 
 import type { SavedAttachment } from './message-body.tsx';
 import type { ReaderPanel } from './organize.tsx';
+import type { Marked } from './organize.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import { Action } from './action.tsx';
@@ -88,6 +90,7 @@ import { MessageSummary } from './message-summary.tsx';
 import {
   MessageActions,
   MessageActionsNotice,
+  ReadWhenOpened,
   readerToolbarInset,
 } from './organize.tsx';
 import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
@@ -1164,6 +1167,8 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const insets = useSafeAreaInsets();
   // The opened message stays scrolled into place as the Thread lays out until the person scrolls.
   const pinned = useRef(true);
+  // The opened message, once this Thread marked it read.
+  const markedRef: Marked = useRef(undefined);
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -1195,6 +1200,15 @@ function ThreadMessages({ id }: { readonly id: string }) {
         <LinkConfirmationProvider
           inbox={inbox}
           ids={messages.map((message) => message.id)}>
+          {/* Opening reads only the opened message, never the rest of its Thread. */}
+          {'organize' in state && state.organize && canOrganize(opened) ? (
+            <ReadWhenOpened
+              markedRef={markedRef}
+              store={inbox}
+              message={opened}
+              read={inbox.readOpened}
+            />
+          ) : null}
           <RegisterCommands
             offer={() =>
               expectedCommands(t, {

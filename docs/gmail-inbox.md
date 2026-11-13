@@ -416,6 +416,17 @@ Gmail's labels.
 | **Move to** a label           | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
 | **Undo**                      | Reverses the latest removal from the Inbox                                                                                               |
 
+Opening an unread message reads it ([#2080](https://github.com/unwired-dev/product/issues/2080)):
+once the reader can change the message, it makes the change **Mark as read** makes, for every
+provider: Gmail's `UNREAD`, Microsoft's `isRead` and IMAP's `\Seen`. Neither the change nor
+a refusal of it is announced, and both leave the latest notice and its **Undo** in place.
+Each opening marks the message once, even when two windows show it, so **Mark as unread**
+stands while it stays open. A Thread reader marks only the message it opened. A read that
+rolls back because only the saved Inbox opens is asked again once Gmail access verifies.
+An online search result outside every cached view offers no organizing actions, so opening
+it leaves it unread. Prefetch, body downloads and notifications leave read state alone. The preference for when opening reads mail is deferred to
+[#1992](https://github.com/unwired-dev/product/issues/1992).
+
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
 above the reading pane groups **Archive**, **Move
@@ -563,8 +574,9 @@ Opening a listed message first reads the **Bounded Encrypted Body Cache** on thi
 device. A valid hit, including after an offline relaunch, contacts nothing and
 restores its rich presentation. A miss downloads through the authorized mailbox,
 saves the complete body when capacity permits, and shows it. An explicit open and
-prefetch of the same message share one load. Opening or prefetching never changes
-Gmail's read state.
+prefetch of the same message share one load. Loading a body never changes Gmail's
+read state; the reader marks an opened message read, as
+[Organizing mail](#organizing-mail) describes.
 
 The reader selects a renderable HTML alternative before plain text, decoded from
 the part's charset. Only a complete `charset` parameter outside comments and

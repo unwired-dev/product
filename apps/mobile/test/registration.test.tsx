@@ -794,13 +794,12 @@ describe('product registration', () => {
       });
     };
 
-    // Reading never marks a message read; the reader's action does, at the server.
+    // Opening a message marks it read, at the server.
     await press(/Quarterly invoice/u);
     await expect(
       screen.findByRole('header', { name: 'Quarterly invoice' }),
     ).resolves.toBeVisible();
     await press('More');
-    await press('Mark as read');
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
@@ -1976,12 +1975,14 @@ describe('product registration', () => {
       expect(body.props.source.html).toContain('Coffee');
       expect(screen.getByLabelText('Message')).toBeVisible();
     });
+    // Opening it read it.
     await press('Close reader');
-    await waitFor(() => {
-      expect(rows()).toStrictEqual([
-        'Unread. Oliver Park. Café on Saturday. In alex@example.invalid. Saved on this device',
-      ]);
-    });
+    await expect(
+      screen.findByRole('button', {
+        name: 'Oliver Park. Café on Saturday. In alex@example.invalid. Saved on this device',
+      }),
+    ).resolves.toBeVisible();
+    expect(rows()).toStrictEqual([]);
 
     // A removed mailbox's mail leaves the results.
     await openAccount();

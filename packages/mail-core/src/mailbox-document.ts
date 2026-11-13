@@ -77,6 +77,8 @@ const PendingActionSchema = Schema.Struct({
   ),
   // Gmail refused this change for good; only its current labels remain to be read.
   refused: Schema.optionalKey(Schema.Literal(true)),
+  // Opening the message asked for it, so neither its outcome nor a refusal is announced.
+  quiet: Schema.optionalKey(Schema.Literal(true)),
   action: GmailActionSchema,
   message: GmailMessageSchema,
 });

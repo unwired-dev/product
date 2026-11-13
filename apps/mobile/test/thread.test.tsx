@@ -68,7 +68,7 @@ function threadMailbox() {
     from: 'Pat Doe <pat@example.invalid>',
     subject: 'Elsewhere',
   });
-  return { native: gmail.native, middle };
+  return { gmail, native: gmail.native, middle };
 }
 
 // Six messages of one thread, Sender 0 the newest; Gmail answers each body download only when the
@@ -274,6 +274,26 @@ describe('thread view', () => {
     expect(expanded.props.source.html).toContain('Original agenda');
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('marks only the opened message of a Thread read', async () => {
+    expect.hasAssertions();
+    const { gmail, native, middle } = threadMailbox();
+    const store = createInboxStore(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <ThreadView
+          id={middle}
+          mailbox={alex}
+        />
+      </InboxProvider>,
+    );
+    await act(store.load);
+    await waitFor(() => {
+      expect(gmail.modifies).toStrictEqual([
+        { id: middle, add: [], remove: ['UNREAD'] },
+      ]);
+    });
+  });
 
   it('keeps a link confirmation while another message of the thread toggles its quoted text', async () => {
     expect.hasAssertions();
@@ -513,11 +533,11 @@ describe('thread view', () => {
         1,
       );
       expect(screen.getByText('3 Messages')).toBeVisible();
-      // Every delivered message is unread, including the one outside the Thread.
-      // The reader names and badges the system Back.
+      // Every delivered message but the opened one is unread, including the one outside the
+      // Thread. The reader names and badges the system Back.
       expect(screen.getByTestId('system-back').props).toMatchObject({
-        backLabel: 'Back, 4 unread',
-        backCount: '4',
+        backLabel: 'Back, 3 unread',
+        backCount: '3',
       });
     } finally {
       Dimensions.set({ window });

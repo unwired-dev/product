@@ -341,9 +341,11 @@ describe('mac window selection with the shared mock mailbox', () => {
       );
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       // The reader's toolbar above the overlay stays usable without closing the Draft (#1211).
-      await fireEvent.press(app.getByRole('button', { name: 'Mark as read' }));
+      await fireEvent.press(
+        app.getByRole('button', { name: 'Mark as unread' }),
+      );
       await expect(
-        app.findByRole('button', { name: 'Mark as unread' }),
+        app.findByRole('button', { name: 'Mark as read' }),
       ).resolves.toBeVisible();
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
@@ -579,9 +581,10 @@ describe('mac window selection with the shared mock mailbox', () => {
           backgroundColor: colors.accentFill,
           borderColor: 'transparent',
         });
+        // Opening the message read it.
         expect(within(message).getByText('Maya Chen')).toHaveStyle({
           color: colors.accentOnFill,
-          fontWeight: '600',
+          fontWeight: '400',
         });
       } finally {
         paletteSpy.mockRestore();
@@ -744,19 +747,19 @@ describe('mac window selection with the shared mock mailbox', () => {
     );
     const first = within(app.getByTestId('inbox-window-first'));
     const second = within(app.getByTestId('inbox-window-second'));
+    // Opening a message in one window reads it in the other.
     await fireEvent.press(await first.findByRole('button', { name: maya }));
-    await fireEvent.press(await second.findByRole('button', { name: oliver }));
-    await fireEvent.press(first.getByRole('button', { name: 'Mark as read' }));
     await second.findByRole('button', {
       name: 'Maya Chen. A little more room to think',
     });
+    await fireEvent.press(await second.findByRole('button', { name: oliver }));
     expect(first.getByText('maya@example.com')).toBeVisible();
     expect(second.getByText('oliver@example.com')).toBeVisible();
-    await fireEvent.press(second.getByRole('button', { name: 'Mark as read' }));
+    await fireEvent.press(
+      second.getByRole('button', { name: 'Mark as unread' }),
+    );
     await expect(
-      first.findByRole('button', {
-        name: 'Oliver Park. Saturday, by the river?',
-      }),
+      first.findByRole('button', { name: oliver }),
     ).resolves.toBeVisible();
     await app.rerender(
       <Windows
@@ -801,7 +804,7 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Forward. Not available for this message',
         'Archive. Not available for this message',
         'Move to…. Not available for this message',
-        'Mark as read',
+        'Mark as unread',
         'Search Mail',
         'Inbox',
       ];
@@ -859,17 +862,16 @@ describe('mac window selection with the shared mock mailbox', () => {
     await fireEvent.press(
       app.getByRole('button', { name: 'Open Command Palette' }),
     );
+    // Opening it read it, so the palette offers to mark it unread, and that change stands.
     await act(async () => {
       await fireEvent.press(
         within(app.getByTestId('command-palette')).getByRole('button', {
-          name: 'Mark as read',
+          name: 'Mark as unread',
         }),
       );
     });
     await expect(
-      app.findByRole('button', {
-        name: 'Oliver Park. Saturday, by the river?',
-      }),
+      app.findByRole('button', { name: oliver }),
     ).resolves.toBeVisible();
   });
 
@@ -1617,6 +1619,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
       held.release();
       await list.load();
     });
+    // Once Gmail access verifies, each window's open message is read.
+    const readMaya = 'Maya Chen. A little more room to think';
+    const readOliver = 'Oliver Park. Saturday, by the river?';
     expect(first.getByRole('button', { name: 'Folders' })).toBeVisible();
     expect(second.getByRole('button', { name: 'Folders' })).toBeVisible();
     // Archiving in one window closes its reader and updates the other, which keeps its selection;
@@ -1625,7 +1630,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await fireEvent.press(first.getByRole('button', { name: 'Archive' }));
     });
     expect(first.getByText('Select a message to start reading.')).toBeVisible();
-    expect(second.queryByRole('button', { name: maya })).toBeNull();
+    expect(second.queryByRole('button', { name: readMaya })).toBeNull();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
     expect(
       second.getByLabelText('Archived: “A little more room to think”.'),
@@ -1633,11 +1638,13 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await act(async () => {
       await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
     });
-    expect(first.getByRole('button', { name: maya })).toBeVisible();
-    expect(second.getByRole('button', { name: maya })).toBeVisible();
+    expect(first.getByRole('button', { name: readMaya })).toBeVisible();
+    expect(second.getByRole('button', { name: readMaya })).toBeVisible();
     expect(
       gmail.modifies.map(({ add, remove }) => [add, remove]),
     ).toStrictEqual([
+      [[], ['UNREAD']],
+      [[], ['UNREAD']],
       [[], ['INBOX']],
       [['INBOX'], []],
     ]);
@@ -1645,11 +1652,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
     // A VoiceOver row action that removes the selected message closes that reader too; Undo keeps
     // it closed, the other window keeps its selection, and the outcome is announced once.
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
-    await fireEvent.press(first.getByRole('button', { name: maya }));
+    await fireEvent.press(first.getByRole('button', { name: readMaya }));
     expect(first.getByText('maya@example.invalid')).toBeVisible();
     await act(async () => {
       await fireEvent(
-        first.getByRole('button', { name: maya }),
+        first.getByRole('button', { name: readMaya }),
         'accessibilityAction',
         { nativeEvent: { actionName: 'trash' } },
       );
@@ -1673,13 +1680,13 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await act(async () => {
       await fireEvent.press(first.getByRole('button', { name: 'Undo' }));
     });
-    expect(first.getByRole('button', { name: maya })).toBeVisible();
+    expect(first.getByRole('button', { name: readMaya })).toBeVisible();
     expect(first.getByText('Select a message to start reading.')).toBeVisible();
     expect(second.getByText('oliver@example.invalid')).toBeVisible();
     // The same action again is a new outcome with the same words, and is announced again.
     await act(async () => {
       await fireEvent(
-        second.getByRole('button', { name: maya }),
+        second.getByRole('button', { name: readMaya }),
         'accessibilityAction',
         { nativeEvent: { actionName: 'trash' } },
       );
@@ -1692,13 +1699,13 @@ describe('mac windows over a connected Gmail mailbox', () => {
     await act(async () => {
       await fireEvent.press(second.getByRole('button', { name: 'Undo' }));
     });
-    expect(second.getByRole('button', { name: maya })).toBeVisible();
+    expect(second.getByRole('button', { name: readMaya })).toBeVisible();
 
     // A refusal keeps its alert semantics while sharing one explicit announcement.
     gmail.failModify({ status: 400 });
     await act(async () => {
       await fireEvent(
-        second.getByRole('button', { name: oliver }),
+        second.getByRole('button', { name: readOliver }),
         'accessibilityAction',
         { nativeEvent: { actionName: 'star' } },
       );
@@ -1808,7 +1815,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
           within(received).getByText(/UTC$/u).props.selectable === true,
       }).toStrictEqual({ selectableDate: false });
       expect(menuSections(message)).toStrictEqual([
-        ['Mark as Read', 'Flag'],
+        ['Mark as Unread', 'Flag'],
         [['Move Message', ['Travel']], 'Delete Message'],
       ]);
       await chooseFromMenu(message, 'Delete Message');

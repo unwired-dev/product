@@ -222,9 +222,10 @@ describe('preview Inbox', () => {
         ).toHaveStyle({ fontWeight: '600' });
         await fireEvent.press(message);
         expect(message).toHaveStyle({ backgroundColor: colors.accentFill });
+        // Opening the message read it.
         expect(within(message).getByText('Oliver Park')).toHaveStyle({
           color: colors.accentOnFill,
-          fontWeight: '600',
+          fontWeight: '400',
         });
       } finally {
         paletteSpy.mockRestore();
@@ -839,7 +840,7 @@ describe('preview Inbox', () => {
     ).toBeVisible();
   });
 
-  it('commits a read change and recovers it after the view remounts', async () => {
+  it('reads an opened message, keeps Mark as Unread while it stays open, and recovers after the view remounts', async () => {
     expect.hasAssertions();
     const app = await render(<InboxJourney />);
     await fireEvent.press(
@@ -847,6 +848,14 @@ describe('preview Inbox', () => {
         name: 'Unread. Maya Chen. A little more room to think',
       }),
     );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Mark as unread' }),
+    );
+    await expect(
+      screen.findByRole('button', {
+        name: 'Unread. Maya Chen. A little more room to think',
+      }),
+    ).resolves.toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: 'Mark as read' }));
     await expect(
       screen.findByRole('button', { name: 'Mark as unread' }),
@@ -1732,16 +1741,18 @@ describe('connected Gmail Inbox', () => {
       await store.load();
     });
     expect(screen.getByRole('button', { name: 'Folders' })).toBeVisible();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Mark as read' }),
-      );
-    });
-    expect(
-      screen.getByRole('button', {
+    // Once Gmail access verifies, the open message is read, without announcing it.
+    await expect(
+      screen.findByRole('button', {
         name: 'Oliver Park. Saturday, by the river?',
       }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByText('Marked as read: “Saturday, by the river?”.'),
+    ).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
+    expect(
+      screen.getByRole('button', { name: 'Mark as unread' }),
     ).toBeVisible();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
@@ -1830,8 +1841,9 @@ describe('connected Gmail Inbox', () => {
     expect(
       screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
     ).toBeVisible();
+    // Opening it read it first.
     await waitFor(() => {
-      expect(gmail.labelsOf(other)).toStrictEqual(['UNREAD', 'TRASH']);
+      expect(gmail.labelsOf(other)).toStrictEqual(['TRASH']);
     });
     expect(
       screen.getByText('Moved to Trash: “Tickets for Lisbon”.'),
@@ -2253,18 +2265,20 @@ describe('connected Gmail Inbox', () => {
     ).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
     expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
-    expect(graph.modifies).toStrictEqual([]);
+    // Only opening the message changed it: it is read.
+    expect(graph.modifies).toStrictEqual([{ message: plans, read: true }]);
     expect(graph.folderOf(plans)).toBe('inbox');
 
     // More reopens, and its actions still work.
     await fireEvent.press(screen.getByRole('button', { name: 'More' }));
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Mark as read' }),
+        screen.getByRole('button', { name: 'Mark as unread' }),
       );
     });
     expect(graph.modifies).toStrictEqual([
-      expect.objectContaining({ message: plans }),
+      { message: plans, read: true },
+      { message: plans, read: false },
     ]);
   });
 
@@ -2302,7 +2316,7 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'More' }));
     expect(
-      ['Mark as read', 'Move to Trash', 'Report spam'].map((name) =>
+      ['Mark as unread', 'Move to Trash', 'Report spam'].map((name) =>
         screen.getByRole('button', { name }),
       ),
     ).toHaveLength(3);
@@ -2629,7 +2643,12 @@ describe('connected Gmail Inbox', () => {
     // Without Gmail, a saved body still opens and another one says it needs downloading.
     gmail.deliver({ subject: 'Not downloaded yet' });
     await act(store.load);
-    gmail.fail({ code: 'unavailable' }, { code: 'unavailable' });
+    // Opening it also tries to send its read change.
+    gmail.fail(
+      { code: 'unavailable' },
+      { code: 'unavailable' },
+      { code: 'unavailable' },
+    );
     await fireEvent.press(
       screen.getByRole('button', { name: /Not downloaded yet/u }),
     );
@@ -3411,14 +3430,15 @@ describe('command palette', () => {
     await openPalette(
       screen.getByRole('header', { name: 'Saturday, by the river?' }),
     );
+    // Opening it read it, so the palette offers to mark it unread, and that change stands.
     await act(async () => {
       await fireEvent.press(
-        openedPalette().getByRole('button', { name: 'Mark as read' }),
+        openedPalette().getByRole('button', { name: 'Mark as unread' }),
       );
     });
     await expect(
       screen.findByRole('button', {
-        name: 'Oliver Park. Saturday, by the river?',
+        name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
     ).resolves.toBeVisible();
   });
@@ -3556,7 +3576,7 @@ describe('context menus', () => {
     }).toStrictEqual({
       sender: [['Copy Address']],
       message: [
-        ['Mark as Read', 'Unflag'],
+        ['Mark as Unread', 'Unflag'],
         [['Move Message', ['Travel']], 'Delete Message'],
       ],
     });
@@ -3573,6 +3593,6 @@ describe('context menus', () => {
     expect({
       labels: gmail.labelsOf(oliver),
       shown: screen.queryByText('Saturday, by the river?') !== null,
-    }).toStrictEqual({ labels: ['UNREAD', 'STARRED', travel], shown: false });
+    }).toStrictEqual({ labels: ['STARRED', travel], shown: false });
   });
 });

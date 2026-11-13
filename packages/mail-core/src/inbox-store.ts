@@ -1254,6 +1254,8 @@ export function createInboxStore(
     pending: PendingAction;
     readonly label?: GmailLabel;
   }> = [];
+  // Requested changes a cache-only mailbox rolled back before they could be saved.
+  const rolledBack = new WeakSet<(typeof queued)[number]>();
   // A synchronization queued behind the running one.
   let waiting: Promise<void> | null = null;
   let ownership = 0;
@@ -2902,6 +2904,15 @@ export function createInboxStore(
     const kept = queued.filter((item) => !taken(item));
     queued.splice(0, queued.length, ...kept);
   };
+  // Changes a cache-only mailbox could not save leave the queue, and their requests learn so.
+  const rollBack = (
+    taken: ReadonlyArray<Readonly<(typeof queued)[number]>>,
+  ) => {
+    removeQueued((item) => taken.includes(item));
+    for (const item of taken) {
+      rolledBack.add(item);
+    }
+  };
   // Intake IDs stay on the queued intent, so a retried save after a lost reply reuses them.
   const identify = Effect.fnUntraced(function* (cache: MailboxScope) {
     for (const item of queued) {
@@ -3031,15 +3042,17 @@ export function createInboxStore(
       if (cache.availability !== undefined) {
         // Only the saved Inbox opens now, so nothing can be saved: the unsaved changes roll back
         // and organizing waits until Gmail access verifies again.
-        removeQueued((item) => taken.includes(item));
-        const last = owned.at(-1);
-        if (taken.length > 0) {
+        rollBack(taken);
+        // Quiet changes roll back unannounced, keeping the latest notice when only they were lost.
+        const announced = owned.filter(({ pending }) => pending.quiet !== true);
+        const last = announced.at(-1);
+        if (owned.length === 0 ? taken.length > 0 : announced.length > 0) {
           notice =
             last === undefined
               ? undefined
               : {
                   kind: 'unsaved',
-                  count: owned.length,
+                  count: announced.length,
                   action: last.pending.action,
                   message: last.pending.message,
                 };
@@ -3184,7 +3197,7 @@ export function createInboxStore(
     );
     // Keep rejection feedback if settlement loses its reply; a late read cannot restore the
     // previous owner's message, and forget() clears this notice while a commit is pending.
-    if (startedFor === ownership && !forgotten) {
+    if (startedFor === ownership && !forgotten && head.quiet !== true) {
       notice = { kind: 'rejected', ...head };
     }
     const saved = yield* commitOver(current.cache, current.document, next);
@@ -3267,7 +3280,7 @@ export function createInboxStore(
       head,
       Option.getOrUndefined(observed),
     );
-    if (Option.isNone(observed)) {
+    if (Option.isNone(observed) && head.quiet !== true) {
       notice = { kind: 'rejected', ...head };
     }
     const saved = yield* commitOver(current.cache, current.document, next);
@@ -3671,11 +3684,15 @@ export function createInboxStore(
     );
   };
   // Shows the change at once, saves it with the cache and sends it to Gmail in order. Without a
-  // verified open mailbox nothing could be saved, so nothing changes.
+  // verified open mailbox nothing could be saved, so nothing changes. A quiet change, as opening
+  // marks mail read, keeps the latest notice and its Undo.
   const organize = (
     message: GmailMessage,
     action: GmailAction,
-    label?: GmailLabel,
+    {
+      label,
+      quiet = false,
+    }: Readonly<{ label?: GmailLabel; quiet?: boolean }> = {},
   ) => {
     if (
       forgotten ||
@@ -3689,17 +3706,24 @@ export function createInboxStore(
       return Promise.resolve();
     }
     const requestedFor = ownership;
-    queued.push({
+    const request = {
       scope: shown.scope,
-      pending: { action, message },
+      pending: { action, message, ...(quiet ? { quiet: true as const } : {}) },
       ...(label === undefined ? {} : { label }),
-    });
-    // Every outcome is announced; only a removal from the Inbox offers Undo.
-    notice = { kind: 'done', action, message };
+    };
+    queued.push(request);
+    // Every chosen outcome is announced; only a removal from the Inbox offers Undo.
+    if (!quiet) {
+      notice = { kind: 'done', action, message };
+    }
     publish(render());
-    return runLogged(persistence.withPermit(save)).then((saved) =>
-      saved && requestedFor === ownership ? load() : undefined,
-    );
+    // Resolves false when the change rolled back unsaved.
+    return runLogged(persistence.withPermit(save)).then(async (saved) => {
+      if (saved && requestedFor === ownership) {
+        await load();
+      }
+      return !rolledBack.has(request);
+    });
   };
 
   // A failed creation that changed access recovers the Inbox, unless its owner already left. Gmail
@@ -3744,7 +3768,9 @@ export function createInboxStore(
     ) {
       return false;
     }
-    await organize(message, gmailAction.label(created.value.id), created.value);
+    await organize(message, gmailAction.label(created.value.id), {
+      label: created.value,
+    });
     return true;
   };
 
@@ -3846,8 +3872,31 @@ export function createInboxStore(
       publish(render());
       return load();
     },
-    organize: (message: GmailMessage, action: GmailAction) =>
-      organize(message, action),
+    organize: async (message: GmailMessage, action: GmailAction) => {
+      await organize(message, action);
+    },
+    // Marks a message the person opened as read, as Mark as Read does, without announcing it.
+    // Another reader of the same message may have asked already, so it checks the changes the
+    // store holds, not the caller's copy. Resolves false when the read rolled back unsaved.
+    readOpened: (message: GmailMessage) =>
+      [
+        ...(shown?.document?.pending ?? []),
+        ...queued.map(({ pending }) => pending),
+      ]
+        .filter((pending) => pending.message.id === message.id)
+        .reduce(
+          (labels, { action }) => relabel(labels, action),
+          labelsOf(
+            (shown?.document === undefined
+              ? undefined
+              : cachedMessages(shown.document).find(
+                  ({ id }) => id === message.id,
+                )) ?? message,
+          ),
+        )
+        .includes('UNREAD')
+        ? organize(message, gmailAction.read, { quiet: true })
+        : Promise.resolve(),
     createLabel,
     // The body of a listed message, once readMessage has asked for it.
     messageBody: (id: string, reader?: symbol) => {

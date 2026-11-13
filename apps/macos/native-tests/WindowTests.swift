@@ -270,6 +270,9 @@ final class WindowTests: XCTestCase {
         timeout: 15))
     resumed.buttons[rowan].click()
     XCTAssertTrue(text("rowan@example.invalid", in: resumed).waitForExistence(timeout: 10))
+    // Opening it read it.
+    let opened = "Rowan Hale. Garden plans for spring"
+    XCTAssertTrue(resumed.buttons[opened].waitForExistence(timeout: 15))
     // The opened body arrives from Gmail as text; its image is not loaded.
     XCTAssertTrue(
       text("Images in this message are not loaded.", in: resumed).waitForExistence(timeout: 15))
@@ -283,7 +286,7 @@ final class WindowTests: XCTestCase {
       app.typeKey(.escape, modifierFlags: [])
       XCTAssertTrue(app.menuItems[item].waitForNonExistence(timeout: 5))
     }
-    opensMenu("Archive", from: resumed.buttons[rowan])
+    opensMenu("Archive", from: resumed.buttons[opened])
     // The sender's label repeats on its inner text, so it is clicked by position.
     opensMenu(
       "Copy Address", from: resumed.staticTexts["Rowan Hale, rowan@example.invalid"].firstMatch)
@@ -302,7 +305,7 @@ final class WindowTests: XCTestCase {
     assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Remove star"].exists)
     // The starred row names its flag.
-    let starred = rowan + ". Flagged"
+    let starred = opened + ". Flagged"
     resumed.buttons["Archive"].click()
     XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
     assertProviderActionsSettled(resumed)
@@ -1201,9 +1204,7 @@ final class WindowTests: XCTestCase {
     oliver.click()
     XCTAssertTrue(address(second, "oliver@example.com").waitForExistence(timeout: 10))
     XCTAssertTrue(address(first, "maya@example.com").exists)
-    XCTAssertTrue(oliver.label.hasPrefix("Unread."))
-    XCTAssertTrue(second.buttons["Mark as read"].waitForExistence(timeout: 10))
-    second.buttons["Mark as read"].click()
+    // Opening it read it, in both windows.
     XCTAssertTrue(second.buttons["Mark as unread"].waitForExistence(timeout: 10))
     XCTAssertTrue(
       first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))

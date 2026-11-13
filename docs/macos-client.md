@@ -147,7 +147,7 @@ alongside the keyboard-navigation work in
 [#849](https://github.com/unwired-dev/product/issues/849).
 
 Each window owns its selected message. Opening another starts with no selection.
-Reading leaves unread flags unchanged. Explicit read/unread actions persist and
+Opening an unread message marks it read once the reader can change it. Explicit read/unread actions persist and
 update all windows without changing their selections.
 A window's one composer overlays the reader as described in
 [composing](drafts.md#composing); opening a Draft keeps the selected message

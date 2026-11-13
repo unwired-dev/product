@@ -334,6 +334,52 @@ describe('organizing IMAP mail', () => {
     });
   });
 
+  it('marks an opened message read without announcing it, keeping the Undo of an earlier archive', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    const archivedUid = imap.deliver('INBOX', { subject: 'Archived' });
+    const openedUid = imap.deliver('INBOX', { subject: 'Opened' });
+    const refusedUid = imap.deliver('INBOX', { subject: 'Refused' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const state = inbox.getSnapshot();
+    const archived = inboxMessage(state, 'Archived');
+    await inbox.organize(archived, action(state, archived, 'archive'));
+    const archiving = ready(inbox.getSnapshot()).notice;
+    // Two readers opening the same unread copy ask once.
+    const opened = inboxMessage(inbox.getSnapshot(), 'Opened');
+    const reading = Promise.all([
+      inbox.readOpened(opened),
+      inbox.readOpened(opened),
+    ]);
+    expect(inbox.message(opened.id)?.unread).toBe(false);
+    await reading;
+    // A message already read is left alone, even by a reader still holding the unread copy.
+    await inbox.readOpened(opened);
+    await inbox.readOpened(inboxMessage(inbox.getSnapshot(), 'Opened'));
+    expect(imap.server.changes).toStrictEqual([
+      `move INBOX ${archivedUid} Archive`,
+      `read INBOX ${openedUid}`,
+    ]);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      notice: archiving,
+      undo: true,
+    });
+
+    // A refused read is not announced either.
+    const refused = inboxMessage(inbox.getSnapshot(), 'Refused');
+    imap.server.failure = 'offline';
+    await inbox.readOpened(refused);
+    imap.expunge('INBOX', refusedUid);
+    imap.server.failure = undefined;
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: archiving,
+      undo: true,
+    });
+  });
+
   it('archives at once and Undo moves the message back to the Inbox from where the server put it', async () => {
     /* oxlint-disable vitest/max-expects -- One journey proves each step of the change's life. */
     expect.hasAssertions();

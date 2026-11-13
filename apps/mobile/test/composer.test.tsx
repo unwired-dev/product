@@ -6373,7 +6373,7 @@ describe('replying to and forwarding from the reader', () => {
         'Reply',
         'Forward',
         'Archive',
-        'Mark as read',
+        'Mark as unread',
         'Star',
         'Move Message',
         'Labels',
@@ -6396,9 +6396,9 @@ describe('replying to and forwarding from the reader', () => {
     ]);
     expect(
       screen
-        .getAllByRole('button', { name: /^(?:Star|Mark as read)$/u })
+        .getAllByRole('button', { name: /^(?:Star|Mark as unread)$/u })
         .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Star', 'Mark as read']);
+    ).toStrictEqual(['Star', 'Mark as unread']);
     // Choosing an action runs it and closes the sheet.
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
@@ -6408,9 +6408,9 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
     expect(
       screen
-        .getAllByRole('button', { name: /^(?:Remove star|Mark as read)$/u })
+        .getAllByRole('button', { name: /^(?:Remove star|Mark as unread)$/u })
         .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Remove star', 'Mark as read']);
+    ).toStrictEqual(['Remove star', 'Mark as unread']);
     await press('Close');
     expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
     // Labels opens the label checkboxes alone, without the actions the sheet already offers.

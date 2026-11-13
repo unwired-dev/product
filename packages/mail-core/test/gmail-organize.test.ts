@@ -713,6 +713,54 @@ describe('organizing Gmail mail', () => {
     expect(shown(relaunched, trashed)).toBeDefined();
   });
 
+  it('marks an opened message read without announcing it or replacing the Undo before it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Unread 0' });
+    gmail.deliver({ subject: 'Unread 1' });
+    gmail.deliver({ subject: 'Unread 2' });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const [refused = '', opened = '', archived = ''] = ready(
+      inbox.getSnapshot(),
+    ).messages.map(({ id }) => id);
+    await inbox.organize(message(inbox, archived), gmailAction.archive);
+    const archiving = ready(inbox.getSnapshot()).notice;
+    expect(archiving).toMatchObject({
+      kind: 'done',
+      action: gmailAction.archive,
+    });
+
+    // Two readers opening the same unread copy ask once.
+    const unread = message(inbox, opened);
+    expect(unread.unread).toBe(true);
+    const reading = Promise.all([
+      inbox.readOpened(unread),
+      inbox.readOpened(unread),
+    ]);
+    expect(message(inbox, opened).unread).toBe(false);
+    await reading;
+    expect(gmail.labelsOf(opened)).not.toContain('UNREAD');
+    expect(ready(inbox.getSnapshot()).notice).toBe(archiving);
+
+    // A message already read is left alone, even by a reader still holding the unread copy.
+    await inbox.readOpened(unread);
+    await inbox.readOpened(message(inbox, opened));
+    expect(gmail.modifies.filter(({ id }) => id === opened)).toStrictEqual([
+      { id: opened, add: [], remove: ['UNREAD'] },
+    ]);
+
+    // A refused read is not announced either.
+    gmail.failModify({ code: 'unavailable' });
+    await inbox.readOpened(message(inbox, refused));
+    gmail.remove(refused);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: archiving,
+    });
+  });
+
   it('reconciles refused, repeated and interrupted changes in order without losing later ones', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 3 });
@@ -1757,6 +1805,42 @@ describe('organizing Gmail mail', () => {
     expect(gmail.modifies).toStrictEqual([]);
     await inbox.organize(message(inbox, target.id), gmailAction.star);
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
+  });
+
+  it('tells the reader when an opening read rolled back, so it can mark the message again', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Unread' });
+    const { native, becomeCacheOnly, verify } = switchingToCacheOnly(
+      gmail.native,
+    );
+    const inbox = createInboxStore(native);
+    await inbox.load();
+    const opened = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    // A save that failed but kept the read queued is not a rollback.
+    gmail.failCommit('gmail-unavailable');
+    await expect(inbox.readOpened(opened)).resolves.toBe(true);
+    expect(message(inbox, opened.id).unread).toBe(false);
+    await inbox.organize(message(inbox, opened.id), gmailAction.unread);
+    expect(message(inbox, opened.id).unread).toBe(true);
+    becomeCacheOnly();
+    await expect(inbox.readOpened(message(inbox, opened.id))).resolves.toBe(
+      false,
+    );
+    expect(message(inbox, opened.id).unread).toBe(true);
+    expect(ready(inbox.getSnapshot()).notice).toMatchObject({
+      kind: 'done',
+      action: gmailAction.unread,
+    });
+    verify();
+    await inbox.load();
+    await expect(inbox.readOpened(message(inbox, opened.id))).resolves.toBe(
+      true,
+    );
+    expect(gmail.labelsOf(opened.id)).not.toContain('UNREAD');
   });
 
   it('rolls back an unsaved change on load while preserving already durable intent', async () => {

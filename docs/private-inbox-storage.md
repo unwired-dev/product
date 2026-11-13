@@ -4,8 +4,8 @@ Setup, coding rules, validation and observable requirements remain in this file.
 Architecture notes live in the separate [architecture companion](architecture/private-inbox-storage.md).
 
 [#594](https://github.com/unwired-dev/product/issues/594) adds persistent read
-state to the synthetic Inbox in both Apple hosts. Selecting a message leaves its
-read state alone. **Mark as read** and **Mark as unread** commit a field update
+state to the synthetic Inbox in both Apple hosts. Opening an unread message marks it
+read, as **Mark as read** does. **Mark as read** and **Mark as unread** commit a field update
 before publishing the resulting snapshot to the application. Selection stays in
 each window or route and is never persisted.
 

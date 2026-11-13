@@ -6,7 +6,7 @@ import type {
 } from '@private-email/mail-core/imap-inbox';
 import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
-import type { ReactNode, Ref } from 'react';
+import type { ReactNode, Ref, RefObject } from 'react';
 
 import {
   commandTarget,
@@ -143,6 +143,40 @@ const icons: Readonly<Record<string, string>> = {
   restore: 'tray.and.arrow.down',
 };
 
+// The message a reader last marked read on opening, and its mailbox's store, kept above the
+// provider's actions so a remounted toolbar cannot mark it again.
+type Marked = RefObject<Readonly<{ store: object; id: string }> | undefined>;
+
+// Opening a message reads it: once the reader can change the message, it marks it read with the
+// change Mark as Read makes. Each opening marks it once, so a later Mark as Unread stands.
+function ReadWhenOpened<M extends Readonly<{ id: string }>>({
+  markedRef,
+  store,
+  message,
+  read,
+}: {
+  readonly markedRef: Marked;
+  readonly store: object;
+  readonly message: M;
+  readonly read: (message: M) => Promise<unknown>;
+}) {
+  useEffect(() => {
+    const marked = markedRef.current;
+    if (marked?.store !== store || marked.id !== message.id) {
+      const opening = { store, id: message.id };
+      markedRef.current = opening;
+      // A read the mailbox could not save marks it again once the reader can change it.
+      const mark = async () => {
+        if ((await read(message)) === false && markedRef.current === opening) {
+          markedRef.current = undefined;
+        }
+      };
+      void mark();
+    }
+  }, [markedRef, store, message, read]);
+  return null;
+}
+
 // The reader's actions for the message's provider: glass groups of Archive, Delete and Move,
 // the response actions passed as children, then the remaining actions.
 export function MessageActions({
@@ -158,11 +192,14 @@ export function MessageActions({
   readonly children?: ReactNode;
 }) {
   const store = useInboxActions();
+  // The message this reader last marked read on opening.
+  const markedRef: Marked = useRef(undefined);
   if ('setUnread' in store) {
     return (
       <PreviewMessageActions
         id={id}
         inbox={store}
+        markedRef={markedRef}
       />
     );
   }
@@ -170,6 +207,7 @@ export function MessageActions({
     <ImapMessageActions
       id={id}
       inbox={store}
+      markedRef={markedRef}
       onClose={onClose}>
       {children}
     </ImapMessageActions>
@@ -177,6 +215,7 @@ export function MessageActions({
     <GmailMessageActions
       id={id}
       view={folder ?? inboxFolder}
+      markedRef={markedRef}
       onClose={onClose}>
       {children}
     </GmailMessageActions>
@@ -348,9 +387,11 @@ function MoveMenu({
 function PreviewMessageActions({
   inbox,
   id,
+  markedRef,
 }: {
   readonly inbox: PersistentInbox;
   readonly id: string;
+  readonly markedRef: Marked;
 }) {
   const state = useInbox();
   const { t } = useLocalization();
@@ -374,6 +415,16 @@ function PreviewMessageActions({
   };
   return (
     <>
+      <ReadWhenOpened
+        markedRef={markedRef}
+        store={inbox}
+        message={message}
+        read={async ({ unread }) => {
+          if (unread) {
+            await inbox.setUnread(message.id, false);
+          }
+        }}
+      />
       <RegisterCommands
         offer={() =>
           organizeCommands(t, {
@@ -404,11 +455,13 @@ function PreviewMessageActions({
 function ImapMessageActions({
   inbox,
   id,
+  markedRef,
   onClose,
   children,
 }: {
   readonly inbox: ImapInbox;
   readonly id: string;
+  readonly markedRef: Marked;
   readonly onClose?: (() => void) | undefined;
   readonly children: ReactNode;
 }) {
@@ -440,6 +493,12 @@ function ImapMessageActions({
   const target = commandTarget(mailbox?.id, message).id;
   return (
     <>
+      <ReadWhenOpened
+        markedRef={markedRef}
+        store={inbox}
+        message={message}
+        read={inbox.readOpened}
+      />
       <RegisterCommands
         offer={() =>
           organizeCommands(t, {
@@ -480,11 +539,13 @@ function ImapMessageActions({
 function GmailMessageActions({
   id,
   view: opened,
+  markedRef,
   onClose,
   children,
 }: {
   readonly id: string;
   readonly view: string;
+  readonly markedRef: Marked;
   readonly onClose?: (() => void) | undefined;
   readonly children: ReactNode;
 }) {
@@ -598,6 +659,12 @@ function GmailMessageActions({
       : undefined;
   return (
     <>
+      <ReadWhenOpened
+        markedRef={markedRef}
+        store={store}
+        message={message}
+        read={store.readOpened}
+      />
       <RegisterCommands
         offer={() =>
           organizeCommands(t, {

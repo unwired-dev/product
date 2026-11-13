@@ -43,7 +43,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
   and framework-independent light/dark tokens in `packages/mail-core`; preserve
   accessible names, selection state and keyboard focus.
 - Follow the [Effect conventions](agents/effect.md) with the catalog-pinned version.
-  React owns presentation state. Opening a message does not mutate mailbox read state.
+  React owns presentation state. Opening an unread message marks it read, as Mark as read does.
 - TypeScript, the Effect patcher, Oxlint and Oxfmt versions belong to the shared catalog.
   Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
   TypeScript config includes the `@effect/language-service` plugin configuration;
@@ -343,9 +343,8 @@ VoiceOver, resize or physical-device qualification. Native E2E runs in separate 
 
 The three component tests cover selecting a message, replacing the selected
 message and rejecting an unknown identifier. The shared service tests cover
-lookup failure and the invariant that opening a message leaves read state alone.
-Read-state changes and storage recovery have additional shared and component
-coverage. The [private storage checks](private-inbox-storage.md#verification)
+lookup failure. Read-state changes, including the one opening makes, and storage
+recovery have additional shared and component coverage. The [private storage checks](private-inbox-storage.md#verification)
 exercise real encryption and credentials separately. Real provider, authentication,
 delivery and production observability belong to their approved follow-up slices.
 

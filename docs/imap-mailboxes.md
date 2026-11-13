@@ -372,7 +372,8 @@ under **Folders**, **Move to** any other selectable folder, including the Inbox.
 folders the server declares as Trash or Spam (`\Trash`, `\Junk`), or chosen for them as
 [Synchronization](#synchronization) describes, **Move to Inbox** takes
 the place of Archive, Move to Trash and Report spam, as in Gmail's Trash and Spam; it offers
-no Undo. IMAP has no labels.
+no Undo. IMAP has no labels. Opening an unread message sets its `\Seen` flag, as
+[Organizing mail](gmail-inbox.md#organizing-mail) describes for every provider.
 The star is the server's `\Flagged` flag, so other mail apps show it as a flag: the
 Inbox row shows a flag, the context menus say **Flag** and **Unflag**, and a flag set
 or cleared elsewhere arrives with the next synchronization. Starring keeps the reader

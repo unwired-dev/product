@@ -1600,11 +1600,11 @@ export function createImapInbox(
       : Effect.logError('IMAP synchronization failed:', diagnostic);
   }
 
-  // What the notice says once the server answered: a refusal replaces it, and a move the server
-  // mapped to a new UID can be undone from there.
+  // What the notice says once the server answered: a refusal replaces it unless opening asked for
+  // the change, and a move the server mapped to a new UID can be undone from there.
   const announce = (change: ImapPending, answer: Answer) => {
     const { action, message } = change;
-    if (applied(answer)) {
+    if (applied(answer) || change.quiet === true) {
       const restore = movedTo(change, answer);
       if (noticed?.id === change.id && restore !== undefined) {
         noticed = { ...noticed, restore };
@@ -1935,27 +1935,43 @@ export function createImapInbox(
       ),
     );
 
-  // Shows the change at once and saves it on this device; it reaches the server in order.
-  const organize = async (message: ImapMessage, action: ImapAction) => {
+  // Shows the change at once and saves it on this device; it reaches the server in order. A quiet
+  // change, as opening marks mail read, keeps the latest notice and its Undo.
+  const organize = async (
+    message: ImapMessage,
+    action: ImapAction,
+    { quiet = false }: Readonly<{ quiet?: boolean }> = {},
+  ) => {
     const started = await runLogged(
       Effect.gen(function* () {
         if (forgotten || opened === undefined || document === undefined) {
           return false;
         }
         const id = `${yield* Random.nextInt}:${yield* Random.nextInt}`;
-        queued = [...queued, { id, action, message, attempts: 0 }];
+        queued = [
+          ...queued,
+          {
+            id,
+            action,
+            message,
+            attempts: 0,
+            ...(quiet ? { quiet: true as const } : {}),
+          },
+        ];
         if (action.kind === 'restore') {
           restoring.set(id, {
             message: message.id,
             destination: action.destination,
           });
         }
-        notice = {
-          kind: 'done',
-          action,
-          message,
-        };
-        noticed = { id, original: message };
+        if (!quiet) {
+          notice = {
+            kind: 'done',
+            action,
+            message,
+          };
+          noticed = { id, original: message };
+        }
         render();
         return true;
       }),
@@ -3313,7 +3329,15 @@ export function createImapInbox(
       cachedViews.set(messages, cached);
       return projectView(cached);
     },
-    organize,
+    organize: (message: ImapMessage, action: ImapAction) =>
+      organize(message, action),
+    // Marks a message the person opened as read, as Mark as Read does, without announcing it.
+    // Another reader of the same message may have asked already, so it checks the changes the
+    // store holds, not the caller's copy.
+    readOpened: (message: ImapMessage) =>
+      (messageOf(message.id) ?? projectMessage(message)).unread
+        ? organize(message, { kind: 'read' }, { quiet: true })
+        : Promise.resolve(),
     undo,
     discardPending,
     // The shared online-search contract's name; IMAP has no further pages.
