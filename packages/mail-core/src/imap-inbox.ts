@@ -1481,11 +1481,13 @@ export function createImapInbox(
     ) {
       return earlier;
     }
+    // UIDs start at 1; a server that omits UIDNEXT leaves a checkpoint of 0.
+    const floor = Math.max(1, checkpoint);
     const pageBelow = (below: number) =>
       call(() =>
         native.imapHistory(scope, {
           folder,
-          above: checkpoint,
+          above: floor,
           below,
           limit: window,
           known: [],
@@ -1496,7 +1498,7 @@ export function createImapInbox(
         ),
       );
     let below = Math.min(...listed.map(({ uid }) => uid));
-    while (below > checkpoint) {
+    while (below > floor) {
       const end = below;
       const page = yield* pageBelow(end);
       // A new UIDVALIDITY lists the folder afresh next time; a cursor that does not move ends.
@@ -1505,7 +1507,7 @@ export function createImapInbox(
       }
       earlier.push(
         ...page.messages
-          .filter(({ uid }) => uid >= checkpoint && uid < end)
+          .filter(({ uid }) => uid >= floor && uid < end)
           .map((message) => listedMessage(folder, uidValidity, message)),
       );
       ({ below } = page);
