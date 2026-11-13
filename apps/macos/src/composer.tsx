@@ -2145,6 +2145,14 @@ function useRecoveryJournal(
   return [close, write] as const;
 }
 
+// The Send Reminder `read` while it belongs to `draft` in `profile`: one read before the editor
+// moved to a conflict copy or another Profile belongs to that Draft.
+const reminderOf = (
+  read: SendReminder | undefined,
+  draft: string,
+  profile: string,
+) => (read?.draft === draft && read.profile === profile ? read : undefined);
+
 // The Draft's Send Reminder banner, and the reminder change that last failed.
 function DraftReminder({
   reminder,
@@ -2349,20 +2357,16 @@ function Editor({
     use(AccountContext)?.mailboxes ?? [],
   );
   // The Draft's stored Send Reminder, once read, and which reminder change last failed.
-  const [readReminder, setReminder] = useState<SendReminder>();
+  const [readReminder, setReadReminder] = useState<SendReminder>();
   const [reminderFailed, setReminderFailed] = useState<'set' | 'remove'>();
   const draftID = history.present.id;
-  // One read before the editor moved to a conflict copy or another Profile belongs to that Draft.
-  const reminder =
-    readReminder?.draft === draftID && readReminder.profile === draftProfile
-      ? readReminder
-      : undefined;
+  const reminder = reminderOf(readReminder, draftID, draftProfile);
   useEffect(() => {
     let current = true;
     const read = async () => {
       const listed = await sendReminders.reminders(draftProfile);
       if (current && listed !== undefined) {
-        setReminder(listed.find((each) => each.draft === draftID));
+        setReadReminder(listed.find((each) => each.draft === draftID));
       }
     };
     void read();
@@ -2941,7 +2945,7 @@ function Editor({
       if (set === undefined) {
         setReminderFailed('set');
       } else {
-        setReminder(set);
+        setReadReminder(set);
       }
     }
   };
@@ -2958,7 +2962,7 @@ function Editor({
     }
     if (lifetime.current.mounted) {
       if (removed) {
-        setReminder(undefined);
+        setReadReminder(undefined);
       } else {
         setReminderFailed('remove');
       }
