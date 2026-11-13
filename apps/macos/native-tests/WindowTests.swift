@@ -1111,12 +1111,14 @@ final class WindowTests: XCTestCase {
     _ app: XCUIApplication, titles: [String], file: StaticString = #filePath, line: UInt = #line
   ) {
     app.menuBars.menuBarItems["Window"].click()
+    // The open menu is readable, and AppKit added no tab command to it.
+    XCTAssertTrue(app.menuItems["Minimize"].waitForExistence(timeout: 5), file: file, line: line)
+    XCTAssertFalse(app.menuItems["Merge All Windows"].exists, file: file, line: line)
     let entries = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Inbox "))
     XCTAssertEqual(entries.count, titles.count, file: file, line: line)
     for title in titles {
       XCTAssertEqual(entries.matching(identifier: title).count, 1, file: file, line: line)
     }
-    XCTAssertFalse(app.menuItems["Merge All Windows"].exists, file: file, line: line)
     app.typeKey(.escape, modifierFlags: [])
   }
 
