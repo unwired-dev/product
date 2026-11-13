@@ -4,20 +4,26 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
+import type { Drafts } from './drafts.ts';
 import type { ImapInbox } from './imap-inbox.ts';
 import type { ImapAction } from './imap-model.ts';
 import type { GmailInbox } from './inbox-store.ts';
 import type { GmailMessage } from './mailbox-message.ts';
+import type { Outbox } from './outbox.ts';
 import type {
+  MailboxConnection,
   MailGrantProvider,
   RegistrationSnapshot,
 } from './registration-snapshot.ts';
 
 import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
+import { draftOf } from './drafts.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder } from './imap-actions.ts';
 import { listedMessage } from './inbox-store.ts';
+import { undoSendWindow } from './outbox.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
+import { typedBody, typedReply } from './responses.ts';
 import { createSubscribable } from './subscribable.ts';
 
 // What the operating system lets this device show, and whether a New Mail Notification may show
@@ -51,19 +57,32 @@ const Opened = Schema.Struct({
 });
 export type OpenedNotification = typeof Opened.Type;
 
-// Archive or Mark as Read, chosen on a notification without opening the application. Native code
-// finishes the system's handler once `id` completes.
-const Action = Schema.Struct({
+// Archive or Mark as Read, a reply typed into the Reply field, or Undo or Open Draft on that
+// reply's own notification, chosen without opening the application. Native code finishes the
+// system's handler once `id` completes.
+const Chosen = {
   ...Mailbox.fields,
   message: Schema.NonEmptyString,
   id: Schema.NonEmptyString,
-  action: Schema.Literals(['archive', 'read']),
-});
+};
+const Action = Schema.Union([
+  Schema.Struct({ ...Chosen, action: Schema.Literals(['archive', 'read']) }),
+  Schema.Struct({
+    ...Chosen,
+    action: Schema.Literal('reply'),
+    text: Schema.String,
+  }),
+  Schema.Struct({
+    ...Chosen,
+    action: Schema.Literals(['undo', 'open-draft']),
+    draft: Schema.NonEmptyString,
+  }),
+]);
 
 // The connection's current Mail Profile groups its notifications; it is read just before posting,
-// since the connection can move to another Profile meanwhile.
+// since the connection can move to another Profile meanwhile. Its address names the Reply field.
 type Arrival = NotificationMailbox &
-  Readonly<{ profile: () => string | undefined }>;
+  Readonly<{ address: string; profile: () => string | undefined }>;
 
 type Posted = Omit<OpenedNotification, 'action'> &
   Readonly<{
@@ -73,10 +92,28 @@ type Posted = Omit<OpenedNotification, 'action'> &
     body: string;
     previews: boolean;
     profile: string;
+    // The Mac's Reply field placeholder, which names the receiving address.
+    reply: string;
   }>;
 
-// The notification actions' titles, in this device's language.
-type ActionTitles = Readonly<Record<'reply' | 'archive' | 'read', string>>;
+// The notification actions' titles, in this device's language; `send` titles the Reply field's
+// button.
+type ActionTitles = Readonly<
+  Record<'reply' | 'send' | 'archive' | 'read', string>
+>;
+
+// A reply typed into a notification, after Send: `sending` offers Undo while the Undo Send Window
+// runs, and `saved` says the text waits in Drafts and offers Open Draft.
+type ReplyPosted = Omit<OpenedNotification, 'action'> &
+  Readonly<{
+    id: string;
+    kind: 'sending' | 'saved';
+    title: string;
+    body: string;
+    previews: boolean;
+    profile: string;
+    draft: string;
+  }>;
 
 // The native host's notification permission, preview choice, posting and taps.
 export interface NativeNotifications {
@@ -103,10 +140,18 @@ export interface NativeNotifications {
   readonly restoreOpenedNotification: (
     opened: OpenedNotification,
   ) => Promise<unknown>;
-  // The next Archive or Mark as Read, or null once a reloaded JavaScript context replaced this
-  // reader.
+  // The next action chosen on a notification, or null once a reloaded JavaScript context replaced
+  // this reader.
   readonly nextNotificationAction: () => Promise<unknown>;
   readonly completeNotificationAction: (id: string) => void;
+  // Posts the notification a reply typed into a notification leaves; `actions` titles Undo and
+  // Open Draft.
+  readonly postReplyNotification: (
+    notification: ReplyPosted,
+    actions: Readonly<Record<'undo' | 'openDraft', string>>,
+  ) => Promise<unknown>;
+  // Removes the notification `id` from Notification Center.
+  readonly withdrawNotification: (id: string) => Promise<unknown>;
 }
 
 // A native call that failed; its cause is logged only as a diagnostic.
@@ -168,6 +213,8 @@ export function createNotifications(
     | 'restoreOpenedNotification'
     | 'nextNotificationAction'
     | 'completeNotificationAction'
+    | 'postReplyNotification'
+    | 'withdrawNotification'
   >,
   translate: () => Translate,
 ) {
@@ -217,7 +264,7 @@ export function createNotifications(
     // `eligible` is checked again after reading the settings, just before posting: the
     // connection may have been removed or turned off meanwhile.
     arrived: (
-      { profile: currentProfile, ...mailbox }: Arrival,
+      { profile: currentProfile, address, ...mailbox }: Arrival,
       messages: readonly ArrivedMessage[],
       eligible: () => boolean,
     ) =>
@@ -251,9 +298,11 @@ export function createNotifications(
                   profile,
                   message: message.id,
                   previews: current.previews,
+                  reply: t('notifications.replyFrom', { address }),
                 })),
                 {
                   reply: t('contextMenu.reply'),
+                  send: t('drafts.send'),
                   archive: t('contextMenu.archive'),
                   read: t('contextMenu.read'),
                 },
@@ -422,27 +471,266 @@ async function organizeListed(
   }
 }
 
-// Archives or marks as read each message chosen on a notification, one at a time, until a reloaded
-// JavaScript context replaces this reader. Each acts once registration verifies, while the
-// connection is still the one the notification named, through the same queued provider change as
-// the reader's toolbar; one that cannot act is still completed.
+// What a reply typed into a notification needs: the Draft store, the Outbox, this device's
+// language, and how the host opens a Draft in its own New Message window.
+type Replies = Readonly<{
+  drafts: Pick<Drafts, 'load' | 'create' | 'fill' | 'getSnapshot' | 'prepare'>;
+  outbox: Pick<Outbox, 'send' | 'undo' | 'getSnapshot'>;
+  translate: () => Translate;
+  openDraft: (draft: string, profile: string) => void;
+}>;
+
+// The listed message `id`, with the body and headers a reply starts from once its body reads.
+async function answered(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Inbox stores are mutable; only their actions are called.
+  open: OpenInbox,
+  id: string,
+) {
+  await open.inbox.load();
+  let message:
+    | (Pick<GmailMessage, 'id' | 'subject' | 'sender' | 'address'> &
+        Readonly<{ threadId?: string }>)
+    | undefined = undefined;
+  if (open.provider === 'imap') {
+    message = open.inbox.message(id);
+  } else {
+    const state = open.inbox.getSnapshot();
+    message = state.kind === 'ready' ? listedMessage(state, id) : undefined;
+  }
+  if (message === undefined) {
+    return undefined;
+  }
+  const release = open.inbox.retainMessage(id);
+  try {
+    await open.inbox.readMessage(id);
+    return { message, document: open.inbox.responseSource(id) };
+  } finally {
+    release();
+  }
+}
+
+// Queues `text` alone as a reply to the notified message, from the connection that received it,
+// through the Outbox and its Undo Send Window, and says so on a notification offering Undo until
+// the window ends. A message no longer listed or unreadable, or a Send the Outbox refuses, keeps
+// the text in Drafts and offers Open Draft instead.
+async function replyTyped(
+  native: Pick<
+    NativeNotifications,
+    'notificationSettings' | 'postReplyNotification' | 'withdrawNotification'
+  >,
+  { drafts, outbox, translate }: Replies,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Inbox stores are mutable; only their actions are called.
+  {
+    open,
+    named,
+    profile,
+    sender,
+    identities,
+    text,
+  }: Readonly<{
+    open: OpenInbox;
+    named: Omit<OpenedNotification, 'action'>;
+    profile: string;
+    sender: Pick<MailboxConnection, 'id' | 'address'>;
+    identities: readonly string[];
+    text: string;
+  }>,
+) {
+  const t = translate();
+  const source = await answered(open, named.message);
+  // An action can launch the application before its Drafts open.
+  await drafts.load();
+  const draft = await drafts.create(sender);
+  if (draft === undefined) {
+    await runLogged(logNote('Notification reply not saved: Drafts closed'));
+    return;
+  }
+  const reply =
+    source?.document === undefined
+      ? undefined
+      : typedReply(
+          t,
+          {
+            message: source.message,
+            document: source.document,
+            connection: sender.id,
+            from: sender.address,
+            identities,
+            received: '',
+            prepare: drafts.prepare,
+          },
+          text,
+        );
+  const filled = await drafts.fill(
+    draft,
+    reply ?? ((each) => ({ ...each, body: typedBody(text) })),
+    [],
+  );
+  const saved = draftOf(drafts.getSnapshot(), draft);
+  const queued =
+    filled &&
+    reply !== undefined &&
+    saved !== undefined &&
+    (await outbox.send(() => draftOf(drafts.getSnapshot(), draft) ?? saved)) ===
+      undefined;
+  const { previews } = await runLogged(
+    settingsOf(() => native.notificationSettings()).pipe(
+      Effect.orElseSucceed(() => ({ previews: false })),
+    ),
+  );
+  const id = `${named.connection}.reply.${draft}`;
+  const replied = source?.message;
+  await runLogged(
+    logged(
+      'Notification reply notification could not be posted:',
+      call(() =>
+        native.postReplyNotification(
+          {
+            ...named,
+            id,
+            draft,
+            profile,
+            previews,
+            ...(queued
+              ? {
+                  kind: 'sending' as const,
+                  title:
+                    previews && replied !== undefined
+                      ? t('notifications.replyTo', {
+                          sender:
+                            replied.sender === ''
+                              ? (replied.address ?? '')
+                              : replied.sender,
+                        })
+                      : '',
+                  body: t('notifications.replySending', {
+                    seconds: undoSendWindow / 1000,
+                    address: sender.address,
+                  }),
+                }
+              : {
+                  kind: 'saved' as const,
+                  title: t('notifications.replyFailed'),
+                  body: t(
+                    source === undefined
+                      ? 'notifications.replyDeleted'
+                      : 'notifications.replySaved',
+                  ),
+                }),
+          },
+          {
+            undo: t('notifications.undo'),
+            openDraft: t('notifications.openDraft'),
+          },
+        ),
+      ),
+    ),
+  );
+  if (queued) {
+    setTimeout(() => {
+      void runLogged(
+        logged(
+          'Notification reply notification could not be withdrawn:',
+          call(() => native.withdrawNotification(id)),
+        ),
+      );
+    }, undoSendWindow);
+  }
+}
+
+// Acts on one action chosen on a notification while the connection is still the one it named.
+async function act(
+  native: Pick<
+    NativeNotifications,
+    'notificationSettings' | 'postReplyNotification' | 'withdrawNotification'
+  >,
+  {
+    snapshot,
+    mailbox,
+    replies,
+  }: Readonly<{
+    snapshot: () => RegistrationSnapshot;
+    mailbox: (connection: string) => OpenInbox | undefined;
+    replies: Replies;
+  }>,
+  chosen: typeof Action.Type,
+) {
+  const { account, connection, epoch, message } = chosen;
+  const named = { account, connection, epoch, message };
+  const target = openedTarget(snapshot(), named);
+  const open = target === undefined ? undefined : mailbox(target.mailbox);
+  if (target === undefined || open === undefined) {
+    return;
+  }
+  if (chosen.action === 'archive' || chosen.action === 'read') {
+    await organizeListed(open, target.id, chosen.action);
+  } else if (chosen.action === 'reply') {
+    const listed = mailboxesOf(snapshot());
+    const sender = listed.find(({ id }) => id === target.mailbox);
+    if (sender !== undefined && chosen.text.trim() !== '') {
+      await replyTyped(native, replies, {
+        open,
+        named,
+        profile: target.profile,
+        sender,
+        // Only the sending Mail Profile's own addresses leave the recipients.
+        identities: listed
+          .filter(({ profile }) => profile === target.profile)
+          .map(({ address }) => address),
+        text: chosen.text,
+      });
+    }
+  } else if (chosen.action === 'undo') {
+    // Only this connection's reply still waiting in the Outbox returns to Drafts.
+    if (
+      replies.outbox
+        .getSnapshot()
+        .some(
+          ({ id, draft }) =>
+            id === chosen.draft && draft.connection === target.mailbox,
+        )
+    ) {
+      await replies.outbox.undo(chosen.draft);
+    }
+    await native.withdrawNotification(
+      `${target.mailbox}.reply.${chosen.draft}`,
+    );
+  } else if (
+    chosen.action === 'open-draft' &&
+    draftOf(replies.drafts.getSnapshot(), chosen.draft)?.connection ===
+      target.mailbox
+  ) {
+    replies.openDraft(chosen.draft, target.profile);
+  }
+}
+
+// Acts on each action chosen on a notification, one at a time, until a reloaded JavaScript context
+// replaces this reader. Each acts once registration verifies, while the connection is still the one
+// the notification named: Archive and Mark as Read through the same queued provider change as the
+// reader's toolbar, a typed reply through the Outbox. One that cannot act is still completed.
 export async function followNotificationActions(
   native: Pick<
     NativeNotifications,
-    'nextNotificationAction' | 'completeNotificationAction'
+    | 'nextNotificationAction'
+    | 'completeNotificationAction'
+    | 'notificationSettings'
+    | 'postReplyNotification'
+    | 'withdrawNotification'
   >,
   {
     snapshot,
     verify,
     mailbox,
+    replies,
   }: Readonly<{
     snapshot: () => RegistrationSnapshot;
     verify: (
-      load: () => Promise<void>,
-      mailboxLoading: 'explicit',
+      work: () => Promise<void>,
+      loading: 'automatic' | 'explicit',
     ) => Promise<void>;
     // The connection's open Inbox.
     mailbox: (connection: string) => OpenInbox | undefined;
+    replies: Replies;
   }>,
 ) {
   for (;;) {
@@ -458,17 +746,13 @@ export async function followNotificationActions(
     // Native code finishes a malformed action's handler at its deadline.
     const decoded = Schema.decodeUnknownOption(Action)(received);
     if (Option.isSome(decoded)) {
-      const { id, action, ...opened } = decoded.value;
+      const chosen = decoded.value;
       try {
-        await verify(async () => {
-          // Read after verification, which restores a cold host or removes a stale connection.
-          const target = openedTarget(snapshot(), opened);
-          const open =
-            target === undefined ? undefined : mailbox(target.mailbox);
-          if (target !== undefined && open !== undefined) {
-            await organizeListed(open, target.id, action);
-          }
-        }, 'explicit');
+        // Read after verification, which restores a cold host or removes a stale connection.
+        await verify(
+          () => act(native, { snapshot, mailbox, replies }, chosen),
+          'explicit',
+        );
       } catch (error) {
         await runLogged(
           Effect.logError(
@@ -477,7 +761,7 @@ export async function followNotificationActions(
           ),
         );
       }
-      native.completeNotificationAction(id);
+      native.completeNotificationAction(chosen.id);
     }
   }
 }

@@ -1529,7 +1529,15 @@
     "mailbox": "{{provider}} · {{address}}",
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",
     "noMailboxes": "Add a mailbox to choose its notifications.",
-    "changeFailed": "Notifications could not be changed. Try again later."
+    "changeFailed": "Notifications could not be changed. Try again later.",
+    "replyFrom": "Reply from {{address}}",
+    "replyTo": "Reply to {{sender}}",
+    "replySending": "Sending in {{seconds}} seconds from {{address}}",
+    "replyFailed": "Couldn’t reply",
+    "replyDeleted": "That message was deleted on another device. Your text is saved in Drafts.",
+    "replySaved": "Your text is saved in Drafts.",
+    "undo": "Undo",
+    "openDraft": "Open Draft"
   },
   "profiles": {
     "primary": "Primary Profile",

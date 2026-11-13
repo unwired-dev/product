@@ -12,6 +12,7 @@ import {
   mailboxesOf,
   profilesOf,
 } from '../src/registration.ts';
+import { typedBody } from '../src/responses.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -55,9 +56,12 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     imapServers,
   );
-  const drafts = createSyntheticDrafts(() => undefined, {
-    server: createSyntheticProductSync(),
-  });
+  const drafts = createSyntheticDrafts(
+    () => 'account-synthetic-product-subject',
+    {
+      server: createSyntheticProductSync(),
+    },
+  );
   const held = new Map<string, () => void>();
   const attachments = Promise.withResolvers<string>();
   const cancelled: string[] = [];
@@ -66,6 +70,9 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const device = { authorization: 'undetermined', previews: false };
   const notified: unknown[] = [];
   const titles: unknown[] = [];
+  // The notifications a typed reply posted, and those withdrawn.
+  const replied: unknown[] = [];
+  const withdrawn: string[] = [];
   // Archive and Mark as Read native code queued for JavaScript; each send settles once completed.
   const queued: unknown[] = [];
   let reading: ((action: unknown) => void) | undefined = undefined;
@@ -177,6 +184,14 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     completeNotificationAction: (id) => {
       completions.get(id)?.();
     },
+    postReplyNotification: (posted, actions) => {
+      replied.push({ ...posted, actions });
+      return Promise.resolve(null);
+    },
+    withdrawNotification: (id) => {
+      withdrawn.push(id);
+      return Promise.resolve(null);
+    },
   };
   const host = createHost(
     () => {
@@ -196,9 +211,53 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     counts,
     notified,
     titles,
+    replied,
+    withdrawn,
     notificationActions,
     settingsGate,
   };
+}
+
+// A synthetic host following notification actions, with an answerable and a removable message in
+// its Gmail Inbox, previews on, and the Drafts and Open Draft requests it holds.
+async function replyingHost() {
+  const synthetic = syntheticHost(undefined, true);
+  const { host, gmail } = synthetic;
+  await host.registration.register('google');
+  await host.registration.addMailbox();
+  const answered = gmail.deliver({
+    subject: 'Studio review',
+    headers: { 'Message-ID': '<review@example.invalid>' },
+  });
+  const gone = gmail.deliver({ subject: 'Gone' });
+  await host.gmailMailboxes.load();
+  await host.notifications.request();
+  await host.notifications.setPreviews(true);
+  const mailbox = required(
+    mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+  );
+  const opened: unknown[] = [];
+  host.followNotificationActions((draft, profile) => {
+    opened.push({ draft, profile });
+  });
+  const named = {
+    account: 'account-synthetic-product-subject',
+    connection: mailbox.id,
+    epoch: required(mailbox.epoch),
+  };
+  const reply = (id: string, message: string, text: string) =>
+    synthetic.notificationActions.send({
+      id,
+      ...named,
+      message,
+      action: 'reply',
+      text,
+    });
+  const drafts = () => {
+    const state = host.drafts.getSnapshot();
+    return state.kind === 'ready' ? state.drafts : [];
+  };
+  return { ...synthetic, answered, gone, named, opened, reply, drafts };
 }
 
 describe('the host assembly', () => {
@@ -267,6 +326,7 @@ describe('the host assembly', () => {
         ...scope,
         profile: defaultProfile,
         previews: false,
+        reply: 'Reply from alex@example.invalid',
       },
       {
         id: `${connection}.${previewed}`,
@@ -277,11 +337,13 @@ describe('the host assembly', () => {
         ...scope,
         profile: defaultProfile,
         previews: true,
+        reply: 'Reply from alex@example.invalid',
       },
     ]);
     // Every notification offers Reply, Archive and Mark as Read.
     expect(titles[0]).toStrictEqual({
       reply: 'Reply',
+      send: 'Send',
       archive: 'Archive',
       read: 'Mark as Read',
     });
@@ -394,6 +456,159 @@ describe('the host assembly', () => {
     expect(gmail.labelsOf(kept)).toStrictEqual(
       expect.arrayContaining(['INBOX', 'UNREAD']),
     );
+  });
+
+  it('sends a reply typed into a Mac notification from the receiving connection, with only the typed text', async () => {
+    expect.hasAssertions();
+    const { host, answered, named, reply, replied } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const [queued] = host.outbox.getSnapshot();
+    expect(queued?.draft).toMatchObject({
+      connection: named.connection,
+      from: 'alex@example.invalid',
+      to: [{ name: 'Maya Chen', address: 'maya@example.invalid' }],
+      subject: 'Re: Studio review',
+      response: { kind: 'reply', inReplyTo: '<review@example.invalid>' },
+    });
+    // No quote and no signature.
+    expect({
+      quoted: queued?.draft.quoted,
+      body: JSON.stringify(queued?.draft.body),
+    }).toStrictEqual({
+      quoted: undefined,
+      body: JSON.stringify(typedBody('Thursday works.')),
+    });
+    const draft = required(queued).id;
+    expect(replied).toStrictEqual([
+      {
+        ...named,
+        message: answered,
+        id: `${named.connection}.reply.${draft}`,
+        draft,
+        profile: defaultProfile,
+        previews: true,
+        kind: 'sending',
+        title: 'Reply to Maya Chen',
+        body: 'Sending in 10 seconds from alex@example.invalid',
+        actions: { undo: 'Undo', openDraft: 'Open Draft' },
+      },
+    ]);
+  });
+
+  it('returns a typed reply to Drafts on Undo, and otherwise withdraws its notification once the Undo Send Window ends', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const {
+      host,
+      answered,
+      named,
+      reply,
+      drafts,
+      withdrawn,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const undone = required(host.outbox.getSnapshot()[0]).id;
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft: undone,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      drafts: drafts().some(({ id }) => id === undone),
+      withdrawn,
+    }).toStrictEqual({
+      outbox: [],
+      drafts: true,
+      withdrawn: [`${named.connection}.reply.${undone}`],
+    });
+
+    await reply('again', answered, 'Thursday still works.');
+    const sending = required(host.outbox.getSnapshot()[0]).id;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(withdrawn).toContain(`${named.connection}.reply.${sending}`);
+  });
+
+  it('keeps a reply to a message no longer listed in Drafts, and opens it from Couldn’t reply', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      gmail,
+      gone,
+      named,
+      reply,
+      drafts,
+      replied,
+      opened,
+      notificationActions,
+    } = await replyingHost();
+    gmail.remove(gone);
+    await host.gmailMailboxes.load();
+
+    await reply('gone', gone, 'Is this still on?');
+    const saved = required(drafts()[0]);
+    expect({
+      body: JSON.stringify(saved.body),
+      outbox: host.outbox.getSnapshot(),
+    }).toStrictEqual({
+      body: JSON.stringify(typedBody('Is this still on?')),
+      outbox: [],
+    });
+    expect(replied).toMatchObject([
+      {
+        draft: saved.id,
+        kind: 'saved',
+        title: 'Couldn’t reply',
+        body: 'That message was deleted on another device. Your text is saved in Drafts.',
+      },
+    ]);
+    await notificationActions.send({
+      id: 'open',
+      ...named,
+      message: gone,
+      action: 'open-draft',
+      draft: saved.id,
+    });
+    expect(opened).toStrictEqual([
+      { draft: saved.id, profile: defaultProfile },
+    ]);
+  });
+
+  it('sends and saves nothing from a notification of a recreated connection or another account', async () => {
+    expect.hasAssertions();
+    const { host, answered, named, drafts, replied, notificationActions } =
+      await replyingHost();
+    await host.drafts.load();
+    expect(host.drafts.getSnapshot().kind).toBe('ready');
+
+    await notificationActions.send({
+      id: 'recreated',
+      ...named,
+      epoch: 'another incarnation',
+      message: answered,
+      action: 'reply',
+      text: 'Not this one.',
+    });
+    await notificationActions.send({
+      id: 'other account',
+      ...named,
+      account: 'another account',
+      message: answered,
+      action: 'reply',
+      text: 'Not this one either.',
+    });
+    expect({ replied, drafts: drafts() }).toStrictEqual({
+      replied: [],
+      drafts: [],
+    });
   });
 
   it('applies Spam and Trash folders chosen through Product Sync to the open IMAP Inbox, and reports a refused choice on its row', async () => {

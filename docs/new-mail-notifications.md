@@ -110,6 +110,26 @@ finishes when that change is saved, or after 25 seconds; a change still queued i
 sent at the next opportunity. A message no longer listed, or a connection that is
 gone or recreated, changes nothing.
 
+## Replying from a notification on the Mac
+
+On the Mac, **Reply** is a text field whose placeholder names the receiving address
+("Reply from mara@novak.cz"), with **Send**. Like Archive, it asks to unlock first and
+acts without opening a window. Each connection has its own notification category, so
+the placeholder names its own address. Once registration verifies, while the connection
+keeps the same Product Account and incarnation, the typed text becomes a Draft from that
+connection replying to the notified message, with its recipients and threading headers
+but only the typed text: no quote and no signature. The Outbox then admits it through
+the ordinary send checks, the Convex claim and the 10-second Undo Send Window.
+
+A **Reply to <sender>** notification then reads "Sending in 10 seconds from <address>"
+and offers **Undo** until the window ends, when it is withdrawn. Undo returns the
+reply to Drafts. With previews off it has no title, as a New Mail Notification. When
+the message is no longer listed, or its body cannot be read, or the Outbox refuses
+the Send, the text stays in Drafts and **Couldn’t reply** offers **Open Draft**, which
+opens it in its own New Message window. A connection that is gone, recreated or another
+Product Account's sends and saves nothing. iPhone and iPad keep the Reply that opens the
+message; the offline outcome and a locked Profile come in later #1672 slices.
+
 ## Opening a notification
 
 On iPhone and iPad a tap opens the message in its connection's current Mail Profile
@@ -158,7 +178,9 @@ ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
 content, and that its diagnostics name no message or connection. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
-as Read, for Gmail and IMAP, and `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
+as Read, for Gmail and IMAP, and a typed Mac reply: sent with only its text, Undo,
+withdrawal after the window, a message no longer listed with Open Draft, and a recreated
+connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
 appearance and grouping, and each action from a locked device and with the app not
