@@ -155,22 +155,56 @@ export type SendReminders = ReturnType<typeof createSendReminders>;
 
 const dayLength = 86_400_000;
 
+// `at`'s date and time on the clocks of `timeZone`, counted as if they were UTC, or none in a time
+// zone the platform does not know. Effect's zoned DateTime reads the offset from the time zone's
+// name, which Hermes splits into parts ("GMT", "+", "01", …), so on the device it reads every
+// offset as zero; the date and time parts read the same everywhere.
+const wallClock = (timeZone: string) =>
+  Option.map(DateTime.zoneMakeNamed(timeZone), () => {
+    const format = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+    });
+    return (at: number) => {
+      const parts = new Map(
+        format
+          .formatToParts(at)
+          .map(({ type, value }) => [type, Number(value)]),
+      );
+      const part = (type: Intl.DateTimeFormatPartTypes) => parts.get(type) ?? 0;
+      return Date.UTC(
+        part('year'),
+        part('month') - 1,
+        part('day'),
+        part('hour'),
+        part('minute'),
+      );
+    };
+  });
+
+// The instant `clock` reads `wall` at, its offset taken where that instant falls.
+const instantAt = (clock: (at: number) => number, wall: number) => {
+  const guess = wall - (clock(wall) - wall);
+  return wall - (clock(guess) - guess);
+};
+
+const hourLength = 3_600_000;
+
 // The times the reminder menu offers from `now` in `timeZone`, the device's: This Evening at 20:00
 // while it is still ahead, then Tomorrow Morning at 9:00. None in a time zone the platform does not
 // know.
 export const reminderTimes = (now: number, timeZone: string) =>
-  Option.match(DateTime.makeZoned(now, { timeZone }), {
+  Option.match(wallClock(timeZone), {
     onNone: () => [],
-    onSome: (today) => {
+    onSome: (clock) => {
+      const today = Math.floor(clock(now) / dayLength) * dayLength;
       const at = (days: number, hour: number) =>
-        DateTime.toEpochMillis(
-          DateTime.setParts(DateTime.add(today, { days }), {
-            hour,
-            minute: 0,
-            second: 0,
-            millisecond: 0,
-          }),
-        );
+        instantAt(clock, today + days * dayLength + hour * hourLength);
       const evening = at(0, 20);
       return [
         ...(evening > now
@@ -187,14 +221,8 @@ export const reminderDay = (
   { dueAt, timeZone }: Pick<SendReminder, 'dueAt' | 'timeZone'>,
   now: number,
 ) => {
-  const day = (at: number) =>
-    Option.match(DateTime.makeZoned(at, { timeZone }), {
-      onNone: () => Math.floor(at / dayLength),
-      onSome: (zoned) => {
-        const { year, month, day: date } = DateTime.toParts(zoned);
-        return Date.UTC(year, month - 1, date) / dayLength;
-      },
-    });
+  const clock = Option.getOrElse(wallClock(timeZone), () => (at: number) => at);
+  const day = (at: number) => Math.floor(clock(at) / dayLength);
   return day(dueAt) - day(now);
 };
 
