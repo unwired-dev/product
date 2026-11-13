@@ -1536,6 +1536,7 @@
     "replyFailed": "Couldn’t reply",
     "replyDeleted": "That message was deleted on another device. Your text is saved in Drafts.",
     "replySaved": "Your text is saved in Drafts.",
+    "replyUnsaved": "Your text couldn’t be saved. Open the Draft to try again.",
     "undo": "Undo",
     "openDraft": "Open Draft"
   },

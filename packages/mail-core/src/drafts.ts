@@ -1791,9 +1791,14 @@ export function createDrafts(
       }),
     );
 
-  // Returns an Outbox message not awaiting Gmail's answer to the Drafts. One whose claim was
-  // requested keeps its claim's identifier retired and returns under a new one.
-  const restoring = (current: number, id: string) =>
+  // Returns an Outbox message not awaiting Gmail's answer to the Drafts, only while it is `only`
+  // when given. One whose claim was requested keeps its claim's identifier retired and returns
+  // under a new one.
+  const restoring = (
+    current: number,
+    id: string,
+    only: OutboxEntry['state'] | undefined,
+  ) =>
     guarded(
       current,
       Effect.gen(function* () {
@@ -1806,7 +1811,11 @@ export function createDrafts(
           account,
           Effect.gen(function* () {
             const entry = outbox.find((each) => each.id === id);
-            if (!restorable(entry) || state.kind !== 'ready') {
+            if (
+              !restorable(entry) ||
+              (only !== undefined && entry.state !== only) ||
+              state.kind !== 'ready'
+            ) {
               return undefined;
             }
             const now = yield* Clock.currentTimeMillis;
@@ -2715,10 +2724,10 @@ export function createDrafts(
       id: string,
       step: (entry: OutboxEntry) => OutboxEntry | Sent | undefined,
     ) => runLogged(delivering(generation, id, step)),
-    // Returns an Outbox message not awaiting Gmail's answer to the Drafts. Resolves the Draft's
-    // identifier, or false when the message can no longer return.
-    restore: async (id: string) => {
-      const restored = await runLogged(restoring(generation, id));
+    // Returns an Outbox message not awaiting Gmail's answer to the Drafts, only while it is `only`
+    // when given. Resolves the Draft's identifier, or false when the message can no longer return.
+    restore: async (id: string, only?: OutboxEntry['state']) => {
+      const restored = await runLogged(restoring(generation, id, only));
       schedule();
       return restored;
     },

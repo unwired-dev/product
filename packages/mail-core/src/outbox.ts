@@ -1111,11 +1111,11 @@ export function createOutbox({
         : 'storage';
     },
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
-    // edit one whose delivery is unknown. Resolves the Draft's identifier, or false when it can no
-    // longer return.
-    undo: async (id: string) => {
+    // edit one whose delivery is unknown; only while it is `only` when given. Resolves the Draft's
+    // identifier, or false when it can no longer return.
+    undo: async (id: string, only?: OutboxEntry['state']) => {
       retryAt.delete(id);
-      const restored = await drafts.restore(id);
+      const restored = await drafts.restore(id, only);
       if (restored !== false && drafts.getDeliveryCleanup().length > 0) {
         void process();
       }

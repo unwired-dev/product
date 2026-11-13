@@ -17,7 +17,7 @@ import type {
 } from './registration-snapshot.ts';
 
 import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
-import { draftOf } from './drafts.ts';
+import { draftOf, draftSaveProblem } from './drafts.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder } from './imap-actions.ts';
 import { listedMessage } from './inbox-store.ts';
@@ -477,7 +477,7 @@ type Replies = Readonly<{
   // The Outbox's admission, Undo and entries; resolving undefined admits, and false refuses Undo.
   outbox: Readonly<{
     send: (expected: () => Draft) => Promise<unknown>;
-    undo: (id: string) => Promise<unknown>;
+    undo: (id: string, only: OutboxEntry['state']) => Promise<unknown>;
     getSnapshot: () => readonly OutboxEntry[];
   }>;
   translate: () => Translate;
@@ -540,7 +540,8 @@ const postReply = (
   );
 
 // A Draft from `sender` holding only `text`: a reply to the message when its body was read, and
-// the text alone otherwise. `sendable` is the saved reply, unset when it is not one or did not save.
+// the text alone otherwise. `sendable` is the saved reply, unset when it is not one or did not save;
+// `unsaved` says storage refused the text, which the Draft's composer then reports.
 async function savedReply(
   drafts: Replies['drafts'],
   t: Translate,
@@ -582,10 +583,12 @@ async function savedReply(
     reply ?? ((each) => ({ ...each, body: typedBody(text) })),
     [],
   );
+  const unsaved = draftSaveProblem(drafts.getSnapshot()) !== undefined;
   return {
     draft,
+    unsaved,
     sendable:
-      filled && reply !== undefined
+      filled && !unsaved && reply !== undefined
         ? draftOf(drafts.getSnapshot(), draft)
         : undefined,
   };
@@ -689,8 +692,6 @@ async function replyTyped(
 ) {
   const t = translate();
   const source = await answered(open, named.message);
-  // An action can launch the application before its Drafts open.
-  await drafts.load();
   const saved = current()
     ? await savedReply(drafts, t, { source, sender, identities, text })
     : undefined;
@@ -698,12 +699,15 @@ async function replyTyped(
     await runLogged(logNote('Notification reply not saved or not sent'));
     return;
   }
-  const { draft, sendable } = saved;
-  const queued =
+  const { draft, unsaved, sendable } = saved;
+  const admitted =
     sendable !== undefined &&
     (await outbox.send(
       () => draftOf(drafts.getSnapshot(), draft) ?? sendable,
     )) === undefined;
+  // A connection replaced while the Outbox admitted the reply gets it back in Drafts instead.
+  const queued =
+    admitted && (current() || (await outbox.undo(draft, 'waiting')) === false);
   const { previews } = await runLogged(
     settingsOf(() => native.notificationSettings()).pipe(
       Effect.orElseSucceed(() => ({ previews: false })),
@@ -730,20 +734,22 @@ async function replyTyped(
     );
     return;
   }
+  const kept =
+    source === undefined
+      ? 'notifications.replyDeleted'
+      : 'notifications.replySaved';
   await postReply(native, t, {
     ...base,
     kind: 'saved',
     title: t('notifications.replyFailed'),
-    body: t(
-      source === undefined
-        ? 'notifications.replyDeleted'
-        : 'notifications.replySaved',
-    ),
+    body: t(unsaved ? 'notifications.replyUnsaved' : kept),
   });
 }
 
 // Returns a connection's typed reply still waiting in the Outbox to Drafts and withdraws its
-// notification; one whose return could not be saved keeps offering Undo while its window runs.
+// notification; one whose return could not be saved keeps offering Undo while its window runs. A
+// reply already handed to its provider stays for the Outbox, which warns before editing an
+// uncertain one.
 async function undoReply(
   native: ReplyNative,
   outbox: Replies['outbox'],
@@ -756,8 +762,13 @@ async function undoReply(
   const id = `${connection}.reply.${draft}`;
   const waiting = outbox
     .getSnapshot()
-    .some((each) => each.id === draft && each.draft.connection === connection);
-  if (waiting && (await outbox.undo(draft)) === false) {
+    .some(
+      (each) =>
+        each.id === draft &&
+        each.state === 'waiting' &&
+        each.draft.connection === connection,
+    );
+  if (waiting && (await outbox.undo(draft, 'waiting')) === false) {
     await sending.get(id)?.();
     return;
   }
@@ -829,6 +840,8 @@ async function act(
   if (target === undefined) {
     return;
   }
+  // An action can launch the application before its Drafts and Outbox open.
+  await replies.drafts.load();
   if (chosen.action === 'undo') {
     await undoReply(native, replies.outbox, {
       sending,

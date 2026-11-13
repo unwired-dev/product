@@ -123,13 +123,17 @@ the ordinary send checks, the Convex claim and the 10-second Undo Send Window.
 
 A **Reply to <sender>** notification then reads "Sending in 10 seconds from <address>"
 and offers **Undo** until the window ends, when it is withdrawn; both count from
-the time the Outbox admitted the reply. Undo returns the reply to Drafts, and needs no
-open Inbox, as Open Draft does not; an Undo that cannot be saved posts the notification
-again with the time left. A connection that changes while the reply is prepared sends
-nothing. With previews off it has no title, as a New Mail Notification. When
+the time the Outbox admitted the reply. Undo returns the reply to Drafts only while it
+still waits out the window; one already handed to its provider stays in the Outbox, which
+warns before editing a message whose delivery is uncertain, and the notification is
+withdrawn. Undo and Open Draft need no open Inbox, and wait for this launch's Drafts to
+open. An Undo that cannot be saved posts the notification again with the time left. A
+connection that changes while the reply is prepared sends nothing, and one that changes
+while the Outbox admits it gets the reply back in Drafts. With previews off the notification has no title, as a New Mail Notification. When
 the message is no longer listed, or its body cannot be read, or the Outbox refuses
-the Send, the text stays in Drafts and **Couldn’t reply** offers **Open Draft**, which
-opens it in its own New Message window. A connection that is gone, recreated or another
+the Send, the text stays in Drafts and **Couldn’t reply** offers **Open Draft**; when
+storage refuses the text it says so instead, and the Draft's composer reports the failed
+save. Open Draft opens it in its own New Message window. A connection that is gone, recreated or another
 Product Account's sends and saves nothing. iPhone and iPad keep the Reply that opens the
 message; the offline outcome and a locked Profile come in later #1672 slices.
 
@@ -182,8 +186,9 @@ content, and that its diagnostics name no message or connection. `mail-profiles.
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
 as Read, for Gmail and IMAP, and a typed Mac reply: sent with only its text, Undo,
-an Undo that cannot be saved, withdrawal after the window, a message no longer listed with Open Draft, and a recreated
-connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
+an Undo that cannot be saved, an Undo after delivery became uncertain, withdrawal after
+the window, text storage refused, a message no longer listed with Open Draft, Open Draft
+before the Drafts opened, and a recreated connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
 appearance and grouping, and each action from a locked device and with the app not

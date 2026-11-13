@@ -6,7 +6,9 @@ import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailb
 
 import type { NativeHostModule } from '../src/host.ts';
 
+import { createDrafts } from '../src/drafts.ts';
 import { createHost } from '../src/host.ts';
+import { undoSendWindow } from '../src/outbox.ts';
 import {
   defaultProfile,
   mailboxesOf,
@@ -571,6 +573,79 @@ describe('the host assembly', () => {
     ]);
   });
 
+  it('leaves a typed reply whose delivery became uncertain to the Outbox on Undo', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const {
+      host,
+      gmail,
+      answered,
+      named,
+      reply,
+      drafts,
+      withdrawn,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const draft = required(host.outbox.getSnapshot()[0]).id;
+    vi.setSystemTime(Date.now() + undoSendWindow);
+    // Gmail takes the reply but its answer is lost, and the opportunity ends before a Sent check.
+    gmail.failSend({ lost: true });
+    const submit = gmail.native.gmailSend;
+    gmail.native.gmailSend = async (...args) => {
+      try {
+        return await submit(...args);
+      } finally {
+        host.outbox.pause();
+      }
+    };
+    await host.outbox.resume();
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot().map(({ id, state }) => ({ id, state })),
+      drafts: drafts().map(({ id }) => id),
+      withdrawn,
+    }).toStrictEqual({
+      outbox: [{ id: draft, state: 'unknown' }],
+      drafts: [],
+      withdrawn: [`${named.connection}.reply.${draft}`],
+    });
+  });
+
+  it('says a typed reply that storage refused is not saved, and sends nothing', async () => {
+    expect.hasAssertions();
+    const { host, answered, reply, replied, draftStorage } =
+      await replyingHost();
+    // Refuses the save of the typed text, after its empty Draft was stored.
+    const { fill } = host.drafts;
+    host.drafts.fill = async (...args) => {
+      draftStorage.failNextCommit('unavailable');
+      return fill(...args);
+    };
+
+    await reply('reply', answered, 'Thursday works.');
+    expect({ outbox: host.outbox.getSnapshot(), replied }).toMatchObject({
+      outbox: [],
+      replied: [
+        {
+          kind: 'saved',
+          title: 'Couldn’t reply',
+          body: 'Your text couldn’t be saved. Open the Draft to try again.',
+        },
+      ],
+    });
+  });
+
   it('keeps a reply to a message no longer listed in Drafts, and opens it from Couldn’t reply', async () => {
     expect.hasAssertions();
     const {
@@ -614,6 +689,31 @@ describe('the host assembly', () => {
     expect(opened).toStrictEqual([
       { draft: saved.id, profile: defaultProfile },
     ]);
+  });
+
+  it('opens a typed reply’s Draft chosen on a notification before the Drafts opened', async () => {
+    expect.hasAssertions();
+    const { host, gone, named, opened, draftStorage, notificationActions } =
+      await replyingHost();
+    // Stored by an earlier launch; this one has not opened its Drafts yet.
+    const earlier = createDrafts(draftStorage.native, host.registration);
+    await earlier.load();
+    const draft = required(
+      await earlier.create({
+        id: named.connection,
+        address: 'alex@example.invalid',
+      }),
+    );
+    await earlier.fill(draft, (each) => ({ ...each, subject: 'Later' }), []);
+
+    await notificationActions.send({
+      id: 'open',
+      ...named,
+      message: gone,
+      action: 'open-draft',
+      draft,
+    });
+    expect(opened).toStrictEqual([{ draft, profile: defaultProfile }]);
   });
 
   it('sends and saves nothing from a notification of a recreated connection or another account', async () => {
