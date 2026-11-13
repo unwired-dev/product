@@ -1254,6 +1254,8 @@ export function createInboxStore(
     pending: PendingAction;
     readonly label?: GmailLabel;
   }> = [];
+  // Requested changes a cache-only mailbox rolled back before they could be saved.
+  const rolledBack = new WeakSet<(typeof queued)[number]>();
   // A synchronization queued behind the running one.
   let waiting: Promise<void> | null = null;
   let ownership = 0;
@@ -2902,6 +2904,15 @@ export function createInboxStore(
     const kept = queued.filter((item) => !taken(item));
     queued.splice(0, queued.length, ...kept);
   };
+  // Changes a cache-only mailbox could not save leave the queue, and their requests learn so.
+  const rollBack = (
+    taken: ReadonlyArray<Readonly<(typeof queued)[number]>>,
+  ) => {
+    removeQueued((item) => taken.includes(item));
+    for (const item of taken) {
+      rolledBack.add(item);
+    }
+  };
   // Intake IDs stay on the queued intent, so a retried save after a lost reply reuses them.
   const identify = Effect.fnUntraced(function* (cache: MailboxScope) {
     for (const item of queued) {
@@ -3031,7 +3042,7 @@ export function createInboxStore(
       if (cache.availability !== undefined) {
         // Only the saved Inbox opens now, so nothing can be saved: the unsaved changes roll back
         // and organizing waits until Gmail access verifies again.
-        removeQueued((item) => taken.includes(item));
+        rollBack(taken);
         // Quiet changes roll back unannounced, keeping the latest notice when only they were lost.
         const announced = owned.filter(({ pending }) => pending.quiet !== true);
         const last = announced.at(-1);
@@ -3695,11 +3706,12 @@ export function createInboxStore(
       return Promise.resolve();
     }
     const requestedFor = ownership;
-    queued.push({
+    const request = {
       scope: shown.scope,
       pending: { action, message, ...(quiet ? { quiet: true as const } : {}) },
       ...(label === undefined ? {} : { label }),
-    });
+    };
+    queued.push(request);
     // Every chosen outcome is announced; only a removal from the Inbox offers Undo.
     if (!quiet) {
       notice = { kind: 'done', action, message };
@@ -3710,7 +3722,7 @@ export function createInboxStore(
       if (saved && requestedFor === ownership) {
         await load();
       }
-      return saved;
+      return !rolledBack.has(request);
     });
   };
 

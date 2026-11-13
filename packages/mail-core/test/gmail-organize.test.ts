@@ -1820,10 +1820,21 @@ describe('organizing Gmail mail', () => {
       ready(inbox.getSnapshot()).messages[0],
       'the message',
     );
-    becomeCacheOnly();
-    await expect(inbox.readOpened(opened)).resolves.toBe(false);
+    // A save that failed but kept the read queued is not a rollback.
+    gmail.failCommit('gmail-unavailable');
+    await expect(inbox.readOpened(opened)).resolves.toBe(true);
+    expect(message(inbox, opened.id).unread).toBe(false);
+    await inbox.organize(message(inbox, opened.id), gmailAction.unread);
     expect(message(inbox, opened.id).unread).toBe(true);
-    expect(ready(inbox.getSnapshot()).notice).toBeUndefined();
+    becomeCacheOnly();
+    await expect(inbox.readOpened(message(inbox, opened.id))).resolves.toBe(
+      false,
+    );
+    expect(message(inbox, opened.id).unread).toBe(true);
+    expect(ready(inbox.getSnapshot()).notice).toMatchObject({
+      kind: 'done',
+      action: gmailAction.unread,
+    });
     verify();
     await inbox.load();
     await expect(inbox.readOpened(message(inbox, opened.id))).resolves.toBe(
