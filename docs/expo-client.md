@@ -372,11 +372,12 @@ No signing credentials, provider accounts or running Metro server are required.
 
 Assertion failures fail immediately, zero selected tests never pass, and only
 recognized infrastructure failures or zero-test success receive one fresh-device
-retry. The build and journey jobs each have a 25-minute timeout; the interaction
-step has a separate 18-minute limit for harness compilation, one simulator startup
-and its journey, including the bounded infrastructure retry. The storage job has
-a 34-minute timeout; its native integration step has a 26-minute limit, including
-the bounded infrastructure retry and cleanup. Superseded pull-request runs are cancelled.
+retry. The build job has a 35-minute timeout and each journey job a 25-minute
+timeout; the interaction step has a separate 18-minute limit for harness
+compilation, one simulator startup and its journey, including the bounded
+infrastructure retry. The storage job has a 50-minute timeout; its native
+integration step has a 40-minute limit, including the bounded infrastructure
+retry and cleanup. Superseded pull-request runs are cancelled.
 Logs and XCTest result bundles, including screenshots, run ownership, simulator
 IDs and exit results, are uploaded with seven-day retention, including on failure,
 as `expo-native-e2e-<device>-<run id>-<attempt>`,
