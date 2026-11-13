@@ -50,9 +50,12 @@ Figma file define how the maintained clients look and behave.
   "#1673 Send and Archive · approved 2026-11-11".
 - Use DESIGN.md's tokens and SF Symbols; reuse the shared tokens in
   `packages/mail-core/src/theme.ts` and add only the tokens the task needs.
-- Where a frame differs from a product requirement or feature guide (including
-  the stale mockups DESIGN.md lists), the requirement wins: implement it and
-  list the difference in the PR.
+- The frames are the source of truth, in look and in behavior. Where a frame
+  differs from DESIGN.md, a product requirement or a feature guide, the frame
+  wins: build what it shows, correct the document in the same PR and list the
+  difference there. The one exception is a frame that DESIGN.md lists under
+  [Known frame differences](DESIGN.md#known-frame-differences) as predating a
+  requirement: there the requirement wins until the frame is redrawn.
 - A request for visual design, or a look the frames do not show yet, starts in
   Figma and waits for the user's [design approval](docs/agents/implementation-review.md#design-approval).
 
