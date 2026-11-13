@@ -122,8 +122,11 @@ but only the typed text: no quote and no signature. The Outbox then admits it th
 the ordinary send checks, the Convex claim and the 10-second Undo Send Window.
 
 A **Reply to <sender>** notification then reads "Sending in 10 seconds from <address>"
-and offers **Undo** until the window ends, when it is withdrawn. Undo returns the
-reply to Drafts. With previews off it has no title, as a New Mail Notification. When
+and offers **Undo** until the window ends, when it is withdrawn; both count from
+the time the Outbox admitted the reply. Undo returns the reply to Drafts, and needs no
+open Inbox, as Open Draft does not; an Undo that cannot be saved posts the notification
+again with the time left. A connection that changes while the reply is prepared sends
+nothing. With previews off it has no title, as a New Mail Notification. When
 the message is no longer listed, or its body cannot be read, or the Outbox refuses
 the Send, the text stays in Drafts and **Couldn’t reply** offers **Open Draft**, which
 opens it in its own New Message window. A connection that is gone, recreated or another
@@ -179,7 +182,7 @@ content, and that its diagnostics name no message or connection. `mail-profiles.
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
 as Read, for Gmail and IMAP, and a typed Mac reply: sent with only its text, Undo,
-withdrawal after the window, a message no longer listed with Open Draft, and a recreated
+an Undo that cannot be saved, withdrawal after the window, a message no longer listed with Open Draft, and a recreated
 connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its

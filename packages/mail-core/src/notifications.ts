@@ -21,7 +21,6 @@ import { draftOf } from './drafts.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder } from './imap-actions.ts';
 import { listedMessage } from './inbox-store.ts';
-import { undoSendWindow } from './outbox.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
 import { typedBody, typedReply } from './responses.ts';
 import { createSubscribable } from './subscribable.ts';
@@ -509,20 +508,46 @@ async function answered(
   }
 }
 
+type ReplyNative = Pick<
+  NativeNotifications,
+  'notificationSettings' | 'postReplyNotification' | 'withdrawNotification'
+>;
+
+// The typed replies whose notifications offer Undo, by notification: each posts its notification
+// again with the time left, until the Undo Send Window ends.
+type Sending = Map<string, () => Promise<void>>;
+
+const postReply = (
+  native: ReplyNative,
+  t: Translate,
+  notification: Parameters<NativeNotifications['postReplyNotification']>[0],
+) =>
+  runLogged(
+    logged(
+      'Notification reply notification could not be posted:',
+      call(() =>
+        native.postReplyNotification(notification, {
+          undo: t('notifications.undo'),
+          openDraft: t('notifications.openDraft'),
+        }),
+      ),
+    ),
+  );
+
 // Queues `text` alone as a reply to the notified message, from the connection that received it,
 // through the Outbox and its Undo Send Window, and says so on a notification offering Undo until
 // the window ends. A message no longer listed or unreadable, or a Send the Outbox refuses, keeps
-// the text in Drafts and offers Open Draft instead.
+// the text in Drafts and offers Open Draft instead. Nothing is saved or sent once `current` says
+// the connection is no longer the one the notification named.
 async function replyTyped(
-  native: Pick<
-    NativeNotifications,
-    'notificationSettings' | 'postReplyNotification' | 'withdrawNotification'
-  >,
+  native: ReplyNative,
   { drafts, outbox, translate }: Replies,
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Inbox stores are mutable; only their actions are called.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Inbox stores and the sending map are mutable; only their actions are called.
   {
     open,
     named,
+    current,
+    sending,
     profile,
     sender,
     identities,
@@ -530,6 +555,8 @@ async function replyTyped(
   }: Readonly<{
     open: OpenInbox;
     named: Omit<OpenedNotification, 'action'>;
+    current: () => boolean;
+    sending: Sending;
     profile: string;
     sender: Pick<MailboxConnection, 'id' | 'address'>;
     identities: readonly string[];
@@ -540,9 +567,9 @@ async function replyTyped(
   const source = await answered(open, named.message);
   // An action can launch the application before its Drafts open.
   await drafts.load();
-  const draft = await drafts.create(sender);
+  const draft = current() ? await drafts.create(sender) : undefined;
   if (draft === undefined) {
-    await runLogged(logNote('Notification reply not saved: Drafts closed'));
+    await runLogged(logNote('Notification reply not saved'));
     return;
   }
   const reply =
@@ -566,6 +593,9 @@ async function replyTyped(
     reply ?? ((each) => ({ ...each, body: typedBody(text) })),
     [],
   );
+  if (!current()) {
+    return;
+  }
   const saved = draftOf(drafts.getSnapshot(), draft);
   const queued =
     filled &&
@@ -579,98 +609,129 @@ async function replyTyped(
     ),
   );
   const id = `${named.connection}.reply.${draft}`;
-  const replied = source?.message;
-  await runLogged(
-    logged(
-      'Notification reply notification could not be posted:',
-      call(() =>
-        native.postReplyNotification(
-          {
-            ...named,
-            id,
-            draft,
-            profile,
-            previews,
-            ...(queued
-              ? {
-                  kind: 'sending' as const,
-                  title:
-                    previews && replied !== undefined
-                      ? t('notifications.replyTo', {
-                          sender:
-                            replied.sender === ''
-                              ? (replied.address ?? '')
-                              : replied.sender,
-                        })
-                      : '',
-                  body: t('notifications.replySending', {
-                    seconds: undoSendWindow / 1000,
-                    address: sender.address,
-                  }),
-                }
-              : {
-                  kind: 'saved' as const,
-                  title: t('notifications.replyFailed'),
-                  body: t(
-                    source === undefined
-                      ? 'notifications.replyDeleted'
-                      : 'notifications.replySaved',
-                  ),
-                }),
-          },
-          {
-            undo: t('notifications.undo'),
-            openDraft: t('notifications.openDraft'),
-          },
-        ),
+  const base = { ...named, id, draft, profile, previews };
+  if (!queued) {
+    await postReply(native, t, {
+      ...base,
+      kind: 'saved',
+      title: t('notifications.replyFailed'),
+      body: t(
+        source === undefined
+          ? 'notifications.replyDeleted'
+          : 'notifications.replySaved',
       ),
-    ),
-  );
-  if (queued) {
-    setTimeout(() => {
+    });
+    return;
+  }
+  const replied = source?.message;
+  const title =
+    previews && replied !== undefined
+      ? t('notifications.replyTo', {
+          sender:
+            replied.sender === '' ? (replied.address ?? '') : replied.sender,
+        })
+      : '';
+  // The notification counts down from the admitted reply's own send time.
+  const left = () => {
+    const entry = outbox
+      .getSnapshot()
+      .find((each) => each.id === draft && each.state === 'waiting');
+    return entry === undefined ? 0 : entry.sendAt - Date.now();
+  };
+  const post = async () => {
+    const seconds = Math.ceil(left() / 1000);
+    if (seconds > 0) {
+      await postReply(native, t, {
+        ...base,
+        kind: 'sending',
+        title,
+        body: t('notifications.replySending', {
+          seconds,
+          address: sender.address,
+        }),
+      });
+    }
+  };
+  sending.set(id, post);
+  await post();
+  setTimeout(
+    () => {
+      sending.delete(id);
       void runLogged(
         logged(
           'Notification reply notification could not be withdrawn:',
           call(() => native.withdrawNotification(id)),
         ),
       );
-    }, undoSendWindow);
-  }
+    },
+    Math.max(0, left()),
+  );
 }
 
 // Acts on one action chosen on a notification while the connection is still the one it named.
+// Undo and Open Draft change only this device's Drafts and Outbox, so they need no open Inbox.
 async function act(
-  native: Pick<
-    NativeNotifications,
-    'notificationSettings' | 'postReplyNotification' | 'withdrawNotification'
-  >,
+  native: ReplyNative,
   {
     snapshot,
     mailbox,
     replies,
+    sending,
   }: Readonly<{
     snapshot: () => RegistrationSnapshot;
     mailbox: (connection: string) => OpenInbox | undefined;
     replies: Replies;
+    sending: Sending;
   }>,
   chosen: typeof Action.Type,
 ) {
   const { account, connection, epoch, message } = chosen;
   const named = { account, connection, epoch, message };
+  const current = () => openedTarget(snapshot(), named) !== undefined;
   const target = openedTarget(snapshot(), named);
-  const open = target === undefined ? undefined : mailbox(target.mailbox);
-  if (target === undefined || open === undefined) {
+  if (target === undefined) {
     return;
   }
-  if (chosen.action === 'archive' || chosen.action === 'read') {
-    await organizeListed(open, target.id, chosen.action);
-  } else if (chosen.action === 'reply') {
+  if (chosen.action === 'undo') {
+    const id = `${target.mailbox}.reply.${chosen.draft}`;
+    // Only this connection's reply still waiting in the Outbox returns to Drafts. One that cannot
+    // return keeps offering Undo while its window runs.
+    const waiting = replies.outbox
+      .getSnapshot()
+      .some(
+        ({ id: each, draft }) =>
+          each === chosen.draft && draft.connection === target.mailbox,
+      );
+    if (waiting && (await replies.outbox.undo(chosen.draft)) === false) {
+      await sending.get(id)?.();
+      return;
+    }
+    sending.delete(id);
+    await native.withdrawNotification(id);
+    return;
+  }
+  if (chosen.action === 'open-draft') {
+    if (
+      draftOf(replies.drafts.getSnapshot(), chosen.draft)?.connection ===
+      target.mailbox
+    ) {
+      replies.openDraft(chosen.draft, target.profile);
+    }
+    return;
+  }
+  const open = mailbox(target.mailbox);
+  if (open === undefined) {
+    return;
+  }
+  if (chosen.action === 'reply') {
     const listed = mailboxesOf(snapshot());
     const sender = listed.find(({ id }) => id === target.mailbox);
     if (sender !== undefined && chosen.text.trim() !== '') {
       await replyTyped(native, replies, {
         open,
         named,
+        current,
+        sending,
         profile: target.profile,
         sender,
         // Only the sending Mail Profile's own addresses leave the recipients.
@@ -680,28 +741,9 @@ async function act(
         text: chosen.text,
       });
     }
-  } else if (chosen.action === 'undo') {
-    // Only this connection's reply still waiting in the Outbox returns to Drafts.
-    if (
-      replies.outbox
-        .getSnapshot()
-        .some(
-          ({ id, draft }) =>
-            id === chosen.draft && draft.connection === target.mailbox,
-        )
-    ) {
-      await replies.outbox.undo(chosen.draft);
-    }
-    await native.withdrawNotification(
-      `${target.mailbox}.reply.${chosen.draft}`,
-    );
-  } else if (
-    chosen.action === 'open-draft' &&
-    draftOf(replies.drafts.getSnapshot(), chosen.draft)?.connection ===
-      target.mailbox
-  ) {
-    replies.openDraft(chosen.draft, target.profile);
+    return;
   }
+  await organizeListed(open, target.id, chosen.action);
 }
 
 // Acts on each action chosen on a notification, one at a time, until a reloaded JavaScript context
@@ -733,6 +775,7 @@ export async function followNotificationActions(
     replies: Replies;
   }>,
 ) {
+  const sending: Sending = new Map();
   for (;;) {
     let received: unknown = null;
     try {
@@ -750,7 +793,7 @@ export async function followNotificationActions(
       try {
         // Read after verification, which restores a cold host or removes a stale connection.
         await verify(
-          () => act(native, { snapshot, mailbox, replies }, chosen),
+          () => act(native, { snapshot, mailbox, replies, sending }, chosen),
           'explicit',
         );
       } catch (error) {

@@ -213,6 +213,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     titles,
     replied,
     withdrawn,
+    draftStorage: drafts,
     notificationActions,
     settingsGate,
   };
@@ -535,6 +536,39 @@ describe('the host assembly', () => {
     const sending = required(host.outbox.getSnapshot()[0]).id;
     await vi.advanceTimersByTimeAsync(10_000);
     expect(withdrawn).toContain(`${named.connection}.reply.${sending}`);
+  });
+
+  it('keeps offering Undo on a typed reply whose return to Drafts could not be saved', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      answered,
+      named,
+      reply,
+      replied,
+      withdrawn,
+      draftStorage,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const draft = required(host.outbox.getSnapshot()[0]).id;
+    draftStorage.failNextCommit('unavailable');
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot().map(({ id }) => id),
+      withdrawn,
+    }).toStrictEqual({ outbox: [draft], withdrawn: [] });
+    expect(replied).toMatchObject([
+      { draft, kind: 'sending' },
+      { draft, kind: 'sending', title: 'Reply to Maya Chen' },
+    ]);
   });
 
   it('keeps a reply to a message no longer listed in Drafts, and opens it from Couldn’t reply', async () => {
