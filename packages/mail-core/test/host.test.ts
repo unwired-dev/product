@@ -75,6 +75,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   // The notifications a typed reply posted, and those withdrawn.
   const replied: unknown[] = [];
   const withdrawn: string[] = [];
+  // How often an earlier context's sending notifications were withdrawn.
+  const sweeps = { count: 0 };
   // Archive and Mark as Read native code queued for JavaScript; each send settles once completed.
   const queued: unknown[] = [];
   let reading: ((action: unknown) => void) | undefined = undefined;
@@ -194,6 +196,10 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       withdrawn.push(id);
       return Promise.resolve(null);
     },
+    withdrawSendingReplies: () => {
+      sweeps.count += 1;
+      return Promise.resolve(null);
+    },
   };
   const host = createHost(
     () => {
@@ -215,6 +221,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     titles,
     replied,
     withdrawn,
+    sweeps,
     draftStorage: drafts,
     notificationActions,
     settingsGate,
@@ -463,9 +470,12 @@ describe('the host assembly', () => {
 
   it('sends a reply typed into a Mac notification from the receiving connection, with only the typed text', async () => {
     expect.hasAssertions();
-    const { host, answered, named, reply, replied } = await replyingHost();
+    const { host, answered, named, reply, replied, sweeps } =
+      await replyingHost();
 
     await reply('reply', answered, 'Thursday works.');
+    // Sending notifications an earlier launch left are withdrawn before any action.
+    expect(sweeps.count).toBe(1);
     const [queued] = host.outbox.getSnapshot();
     expect(queued?.draft).toMatchObject({
       connection: named.connection,
@@ -538,6 +548,44 @@ describe('the host assembly', () => {
     const sending = required(host.outbox.getSnapshot()[0]).id;
     await vi.advanceTimersByTimeAsync(10_000);
     expect(withdrawn).toContain(`${named.connection}.reply.${sending}`);
+  });
+
+  it('undoes a typed reply while another reply still reads its message', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      gmail,
+      answered,
+      gone,
+      named,
+      reply,
+      drafts,
+      notificationActions,
+    } = await replyingHost();
+    await reply('first', answered, 'Thursday works.');
+    const first = required(host.outbox.getSnapshot()[0]).id;
+    // Gmail reads, as the second reply's, wait for `read`.
+    const read = Promise.withResolvers<undefined>();
+    const request = gmail.native.gmailRequest;
+    gmail.native.gmailRequest = async (...args) => {
+      await read.promise;
+      return request(...args);
+    };
+
+    const second = reply('second', gone, 'Friday too.');
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft: first,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      drafts: drafts().map(({ id }) => id),
+    }).toStrictEqual({ outbox: [], drafts: [first] });
+    read.resolve(undefined);
+    await second;
   });
 
   it('keeps offering Undo on a typed reply whose return to Drafts could not be saved', async () => {

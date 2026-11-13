@@ -445,6 +445,22 @@ extension UnwiredRegistration {
     resolve(NSNull())
   }
 
+  // Every typed reply's sending notification, which a replaced JavaScript context no longer
+  // counts down or withdraws.
+  @objc(withdrawSendingReplies:rejecter:)
+  func withdrawSendingReplies(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    let center = UNUserNotificationCenter.current()
+    center.getDeliveredNotifications { delivered in
+      center.removeDeliveredNotifications(
+        withIdentifiers: delivered.filter {
+          $0.request.content.categoryIdentifier == "reply-sending"
+        }.map(\.request.identifier))
+    }
+    resolve(NSNull())
+  }
+
   @objc(nextOpenedNotification:reader:resolver:rejecter:)
   func nextOpenedNotification(
     _ window: String, reader: String, resolve: @escaping RCTPromiseResolveBlock,

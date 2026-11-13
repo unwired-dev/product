@@ -118,6 +118,7 @@ RCT_EXTERN_METHOD(nextNotificationAction:(RCTPromiseResolveBlock)resolve rejecte
 RCT_EXTERN_METHOD(completeNotificationAction:(NSString *)id)
 RCT_EXTERN_METHOD(postReplyNotification:(NSDictionary *)notification actions:(NSDictionary *)actions resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(withdrawNotification:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(withdrawSendingReplies:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(restoreOpenedNotification:(NSDictionary *)opened resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(preference:(NSString *)key resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(setPreference:(NSString *)key value:(NSString *)value resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

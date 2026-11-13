@@ -127,7 +127,7 @@ the time the Outbox admitted the reply. Undo returns the reply to Drafts only wh
 still waits out the window; one already handed to its provider stays in the Outbox, which
 warns before editing a message whose delivery is uncertain, and the notification is
 withdrawn. Undo and Open Draft need no open Inbox, and wait for this launch's Drafts to
-open, and check the connection after that. An Undo that cannot be saved posts the notification again with the time left. A
+open, and check the connection after that. An Undo that cannot be saved posts the notification again with the time left. A reply being prepared does not hold up an Undo chosen meanwhile. When the app quits or reloads during the window, nothing counts its notification down any more, so the next launch withdraws it; the Outbox still offers Undo while the window runs. A
 connection that changes while the reply is prepared sends nothing, and one that changes
 while the Outbox admits it gets the reply back in Drafts. Once admitted, the reply follows
 the Outbox's rule for every Send: it names its connection by id, so removing the last
@@ -189,7 +189,7 @@ writes. `notifications.test.ts` covers account/incarnation routing, Draft exit g
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
 as Read, for Gmail and IMAP, and a typed Mac reply: sent with only its text, Undo,
 an Undo that cannot be saved, an Undo after delivery became uncertain, withdrawal after
-the window, text storage refused, a message no longer listed with Open Draft, Open Draft
+the window, an Undo while another reply reads its message, sending notifications left by an earlier launch, text storage refused, a message no longer listed with Open Draft, Open Draft
 before the Drafts opened, an Archive whose connection is recreated while the Drafts open,
 and a recreated connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native

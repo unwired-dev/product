@@ -151,6 +151,8 @@ export interface NativeNotifications {
   ) => Promise<unknown>;
   // Removes the notification `id` from Notification Center.
   readonly withdrawNotification: (id: string) => Promise<unknown>;
+  // Removes every typed reply's sending notification from Notification Center.
+  readonly withdrawSendingReplies: () => Promise<unknown>;
 }
 
 // A native call that failed; its cause is logged only as a diagnostic.
@@ -214,6 +216,7 @@ export function createNotifications(
     | 'completeNotificationAction'
     | 'postReplyNotification'
     | 'withdrawNotification'
+    | 'withdrawSendingReplies'
   >,
   translate: () => Translate,
 ) {
@@ -898,10 +901,12 @@ async function act(
   await organizeListed(open, target.id, chosen.action);
 }
 
-// Acts on each action chosen on a notification, one at a time, until a reloaded JavaScript context
-// replaces this reader. Each acts once registration verifies, while the connection is still the one
-// the notification named: Archive and Mark as Read through the same queued provider change as the
-// reader's toolbar, a typed reply through the Outbox. One that cannot act is still completed.
+// Acts on each action chosen on a notification, one at a time except typed replies, until a
+// reloaded JavaScript context replaces this reader. Each acts once registration verifies, while the
+// connection is still the one the notification named: Archive and Mark as Read through the same
+// queued provider change as the reader's toolbar, a typed reply through the Outbox. One that cannot
+// act is still completed. Sending notifications an earlier context left are withdrawn first, since
+// nothing counts them down any more.
 export async function followNotificationActions(
   native: Pick<
     NativeNotifications,
@@ -910,6 +915,7 @@ export async function followNotificationActions(
     | 'notificationSettings'
     | 'postReplyNotification'
     | 'withdrawNotification'
+    | 'withdrawSendingReplies'
   >,
   {
     snapshot,
@@ -927,7 +933,30 @@ export async function followNotificationActions(
     replies: Replies;
   }>,
 ) {
+  await runLogged(
+    logged(
+      'Sending reply notifications could not be withdrawn:',
+      call(() => native.withdrawSendingReplies()),
+    ),
+  );
   const sending: Sending = new Map();
+  const handle = async (chosen: typeof Action.Type) => {
+    try {
+      // Read after verification, which restores a cold host or removes a stale connection.
+      await verify(
+        () => act(native, { snapshot, mailbox, replies, sending }, chosen),
+        'explicit',
+      );
+    } catch (error) {
+      await runLogged(
+        Effect.logError(
+          'Notification action failed',
+          rejectionDiagnostic(error),
+        ),
+      );
+    }
+    native.completeNotificationAction(chosen.id);
+  };
   for (;;) {
     let received: unknown = null;
     try {
@@ -941,22 +970,11 @@ export async function followNotificationActions(
     // Native code finishes a malformed action's handler at its deadline.
     const decoded = Schema.decodeUnknownOption(Action)(received);
     if (Option.isSome(decoded)) {
-      const chosen = decoded.value;
-      try {
-        // Read after verification, which restores a cold host or removes a stale connection.
-        await verify(
-          () => act(native, { snapshot, mailbox, replies, sending }, chosen),
-          'explicit',
-        );
-      } catch (error) {
-        await runLogged(
-          Effect.logError(
-            'Notification action failed',
-            rejectionDiagnostic(error),
-          ),
-        );
+      const handled = handle(decoded.value);
+      // A reply reads its message first; an Undo chosen meanwhile cannot wait for that.
+      if (decoded.value.action !== 'reply') {
+        await handled;
       }
-      native.completeNotificationAction(chosen.id);
     }
   }
 }

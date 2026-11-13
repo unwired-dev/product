@@ -549,6 +549,7 @@ export function createHost(
             postReplyNotification: (posted, actions) =>
               native().postReplyNotification(posted, actions),
             withdrawNotification: (id) => native().withdrawNotification(id),
+            withdrawSendingReplies: () => native().withdrawSendingReplies(),
           },
           {
             snapshot: () => registration.getSnapshot().snapshot,
