@@ -421,8 +421,9 @@ once the reader can change the message, it makes the change **Mark as read** mak
 provider: Gmail's `UNREAD`, Microsoft's `isRead` and IMAP's `\Seen`. Neither the change nor
 a refusal of it is announced, and both leave the latest notice and its **Undo** in place.
 Each opening marks the message once, even when two windows show it, so **Mark as unread**
-stands while it stays open. Prefetch, body downloads and notifications leave read state
-alone. [#1992](https://github.com/unwired-dev/product/issues/1992) adds the preference for
+stands while it stays open. A Thread reader marks only the message it opened. A read that
+rolls back because only the saved Inbox opens is asked again once Gmail access verifies.
+Prefetch, body downloads and notifications leave read state alone. [#1992](https://github.com/unwired-dev/product/issues/1992) adds the preference for
 when opening reads mail.
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups

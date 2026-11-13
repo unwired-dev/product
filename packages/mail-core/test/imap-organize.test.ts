@@ -354,7 +354,8 @@ describe('organizing IMAP mail', () => {
     ]);
     expect(inbox.message(opened.id)?.unread).toBe(false);
     await reading;
-    // A message already read is left alone.
+    // A message already read is left alone, even by a reader still holding the unread copy.
+    await inbox.readOpened(opened);
     await inbox.readOpened(inboxMessage(inbox.getSnapshot(), 'Opened'));
     expect(imap.server.changes).toStrictEqual([
       `move INBOX ${archivedUid} Archive`,

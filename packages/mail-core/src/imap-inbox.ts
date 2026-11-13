@@ -3335,7 +3335,7 @@ export function createImapInbox(
     // Another reader of the same message may have asked already, so it checks the changes the
     // store holds, not the caller's copy.
     readOpened: (message: ImapMessage) =>
-      projectMessage(message).unread
+      (messageOf(message.id) ?? projectMessage(message)).unread
         ? organize(message, { kind: 'read' }, { quiet: true })
         : Promise.resolve(),
     undo,

@@ -743,7 +743,8 @@ describe('organizing Gmail mail', () => {
     expect(gmail.labelsOf(opened)).not.toContain('UNREAD');
     expect(ready(inbox.getSnapshot()).notice).toBe(archiving);
 
-    // A message already read is left alone.
+    // A message already read is left alone, even by a reader still holding the unread copy.
+    await inbox.readOpened(unread);
     await inbox.readOpened(message(inbox, opened));
     expect(gmail.modifies.filter(({ id }) => id === opened)).toStrictEqual([
       { id: opened, add: [], remove: ['UNREAD'] },
@@ -1804,6 +1805,31 @@ describe('organizing Gmail mail', () => {
     expect(gmail.modifies).toStrictEqual([]);
     await inbox.organize(message(inbox, target.id), gmailAction.star);
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
+  });
+
+  it('tells the reader when an opening read rolled back, so it can mark the message again', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Unread' });
+    const { native, becomeCacheOnly, verify } = switchingToCacheOnly(
+      gmail.native,
+    );
+    const inbox = createInboxStore(native);
+    await inbox.load();
+    const opened = required(
+      ready(inbox.getSnapshot()).messages[0],
+      'the message',
+    );
+    becomeCacheOnly();
+    await expect(inbox.readOpened(opened)).resolves.toBe(false);
+    expect(message(inbox, opened.id).unread).toBe(true);
+    expect(ready(inbox.getSnapshot()).notice).toBeUndefined();
+    verify();
+    await inbox.load();
+    await expect(inbox.readOpened(message(inbox, opened.id))).resolves.toBe(
+      true,
+    );
+    expect(gmail.labelsOf(opened.id)).not.toContain('UNREAD');
   });
 
   it('rolls back an unsaved change on load while preserving already durable intent', async () => {

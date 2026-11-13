@@ -163,11 +163,13 @@ const inboxUnread = (messages: ReadonlyArray<Readonly<{ unread: boolean }>>) =>
 
 // The message a reader last marked read on opening, and its mailbox's store, kept above the
 // provider's actions so a remounted toolbar cannot mark it again.
-type Marked = RefObject<Readonly<{ store: object; id: string }> | undefined>;
+export type Marked = RefObject<
+  Readonly<{ store: object; id: string }> | undefined
+>;
 
 // Opening a message reads it: once the reader can change the message, it marks it read with the
 // change Mark as Read makes. Each opening marks it once, so a later Mark as Unread stands.
-function ReadWhenOpened<M extends Readonly<{ id: string }>>({
+export function ReadWhenOpened<M extends Readonly<{ id: string }>>({
   markedRef,
   store,
   message,
@@ -176,13 +178,20 @@ function ReadWhenOpened<M extends Readonly<{ id: string }>>({
   readonly markedRef: Marked;
   readonly store: object;
   readonly message: M;
-  readonly read: (message: M) => unknown;
+  readonly read: (message: M) => Promise<unknown>;
 }) {
   useEffect(() => {
     const marked = markedRef.current;
     if (marked?.store !== store || marked.id !== message.id) {
-      markedRef.current = { store, id: message.id };
-      void read(message);
+      const opening = { store, id: message.id };
+      markedRef.current = opening;
+      // A read the mailbox could not save marks it again once the reader can change it.
+      const mark = async () => {
+        if ((await read(message)) === false && markedRef.current === opening) {
+          markedRef.current = undefined;
+        }
+      };
+      void mark();
     }
   }, [markedRef, store, message, read]);
   return null;
@@ -740,9 +749,9 @@ function PreviewMessageActions({
         markedRef={markedRef}
         store={inbox}
         message={message}
-        read={({ unread }) => {
+        read={async ({ unread }) => {
           if (unread) {
-            act(false);
+            await inbox.setUnread(message.id, false);
           }
         }}
       />

@@ -3705,9 +3705,13 @@ export function createInboxStore(
       notice = { kind: 'done', action, message };
     }
     publish(render());
-    return runLogged(persistence.withPermit(save)).then((saved) =>
-      saved && requestedFor === ownership ? load() : undefined,
-    );
+    // Resolves false when the change rolled back unsaved.
+    return runLogged(persistence.withPermit(save)).then(async (saved) => {
+      if (saved && requestedFor === ownership) {
+        await load();
+      }
+      return saved;
+    });
   };
 
   // A failed creation that changed access recovers the Inbox, unless its owner already left. Gmail
@@ -3856,11 +3860,12 @@ export function createInboxStore(
       publish(render());
       return load();
     },
-    organize: (message: GmailMessage, action: GmailAction) =>
-      organize(message, action),
+    organize: async (message: GmailMessage, action: GmailAction) => {
+      await organize(message, action);
+    },
     // Marks a message the person opened as read, as Mark as Read does, without announcing it.
     // Another reader of the same message may have asked already, so it checks the changes the
-    // store holds, not the caller's copy.
+    // store holds, not the caller's copy. Resolves false when the read rolled back unsaved.
     readOpened: (message: GmailMessage) =>
       [
         ...(shown?.document?.pending ?? []),
@@ -3869,7 +3874,13 @@ export function createInboxStore(
         .filter((pending) => pending.message.id === message.id)
         .reduce(
           (labels, { action }) => relabel(labels, action),
-          labelsOf(message),
+          labelsOf(
+            (shown?.document === undefined
+              ? undefined
+              : cachedMessages(shown.document).find(
+                  ({ id }) => id === message.id,
+                )) ?? message,
+          ),
         )
         .includes('UNREAD')
         ? organize(message, gmailAction.read, { quiet: true })
