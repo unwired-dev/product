@@ -259,6 +259,7 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     imap.server.historyFailure = 'offline';
     await mailboxes.load();
     expect(notified).toStrictEqual([]);
+    expect(imap.server.changes).toStrictEqual([]);
 
     imap.server.historyFailure = undefined;
     await mailboxes.load();
