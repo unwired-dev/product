@@ -477,8 +477,8 @@ styles) so the file stays editable.
   layouts push the composer onto the navigation stack. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
   field reveals together. The sender is a From pop-up beside Send. The Send
-  button's menu, a long press on iPhone and iPad, lists Remind Me to Send… after
-  Send Later; no composer carries a reminder bell.
+  button's menu, a long press on iPhone and iPad and a right click on the Mac,
+  lists Remind Me to Send… after Send Later; no composer carries a reminder bell.
   The Mac New Message window has no composer header or bottom row: its toolbar
   row holds the window controls, the "New Message" title, the Command Input, the
   From pop-up, the Compose actions overflow and Send.
@@ -736,8 +736,8 @@ decision the app has not built yet:
 - **Toolbar:** the reference mockups show only Archive, Delete, Move, Reply,
   Reply All, Forward, Pin and Snooze.
 - **Compose:** the reference mockups still show a 60% inline composer. The Send
-  menu's Remind Me to Send… waits for #658, and the frames do not draw how the
-  Mac's Send menu opens. The Mac New Message overflow keeps Discard reachable.
+  menu's Remind Me to Send… waits for #658. The Mac New Message overflow keeps
+  Discard reachable.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
 - **Command Palette key cap:** the frames and the Layout section show ⌘K, as
