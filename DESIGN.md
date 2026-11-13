@@ -271,7 +271,7 @@ content without the marker.
 
 - Native macOS 27 and iOS 27 structure, controls and type.
 - Liquid Glass only on the navigation layer: sidebar, toolbar groups, the search
-  bar, menus and sheets. Content surfaces stay opaque.
+  bar, menus, sheets and toasts. Content surfaces stay opaque.
 - One accent, used sparingly; meaning is never carried by color alone.
 - Light and Dark are designed as separate modes, not an inversion.
 
@@ -514,7 +514,7 @@ Depth comes from Apple's Liquid Glass and opaque layering, not from shadows on
 content.
 
 - Liquid Glass is reserved for the navigation layer: sidebar, toolbar groups,
-  search bar, menus, popovers and sheets. Use the macOS 27 and iOS 27 kit
+  search bar, menus, popovers, sheets and toasts. Use the macOS 27 and iOS 27 kit
   material ("Liquid Glass - Medium") in its Light or Dark variant. On iPhone
   and iPad, toolbar control groups use interactive system glass with their
   controls inside the material and no opaque backing fill; menus, sheets and
@@ -709,8 +709,9 @@ form accessories, keyboards, status bar).
 - **Do** design Light and Dark explicitly, and check AA contrast in both.
   **Don't** invert one mode to get the other.
 - **Do** keep glass on the navigation layer. **Don't** put glass on message
-  content, cards or the iPad and Mac compose format bar; the iPhone compose pill,
-  Writing tools button and Format panel float above content as controls.
+  content, cards or the iPad and Mac compose format bar; toasts, the iPhone
+  compose pill, Writing tools button and Format panel float above content as
+  controls.
 - **Do** keep hit targets at 28pt on the Mac and 44pt on iPhone, and test layouts
   with German strings.
 - **Don't** generate initials avatars or add hover actions in message list rows.
