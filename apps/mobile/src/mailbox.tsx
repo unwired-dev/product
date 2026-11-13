@@ -43,13 +43,16 @@ import {
   drafts as defaultDrafts,
   mailTemplates as defaultMailTemplates,
   outbox as defaultOutbox,
+  sendReminders as defaultSendReminders,
 } from './registration.ts';
 
 export type MailTemplates = typeof defaultMailTemplates;
+export type SendReminders = typeof defaultSendReminders;
 
 const DraftsContext = createContext<Drafts>(defaultDrafts);
 const OutboxContext = createContext<Outbox>(defaultOutbox);
 const MailTemplatesContext = createContext(defaultMailTemplates);
+const SendRemindersContext = createContext(defaultSendReminders);
 // The Mail Profile whose mail the hooks below read.
 const ProfileContext = createContext(defaultProfile);
 // The mailbox a reader or status belongs to.
@@ -76,6 +79,7 @@ export function InboxProvider({
   drafts = defaultDrafts,
   outbox = defaultOutbox,
   mailTemplates = defaultMailTemplates,
+  sendReminders = defaultSendReminders,
 }: {
   readonly children: ReactNode;
   readonly mailboxes?: MailboxList;
@@ -83,6 +87,7 @@ export function InboxProvider({
   // Sends the Drafts admitted to `drafts`' Outbox.
   readonly outbox?: Outbox;
   readonly mailTemplates?: MailTemplates | undefined;
+  readonly sendReminders?: SendReminders | undefined;
 }) {
   const account = use(AccountContext);
   const navigation = useMemo(() => createComposerNavigation(), []);
@@ -126,11 +131,13 @@ export function InboxProvider({
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>
         <MailTemplatesContext value={mailTemplates}>
-          <OutboxContext value={outbox}>
-            <ComposerNavigationContext value={navigation}>
-              {children}
-            </ComposerNavigationContext>
-          </OutboxContext>
+          <SendRemindersContext value={sendReminders}>
+            <OutboxContext value={outbox}>
+              <ComposerNavigationContext value={navigation}>
+                {children}
+              </ComposerNavigationContext>
+            </OutboxContext>
+          </SendRemindersContext>
         </MailTemplatesContext>
       </DraftsContext>
     </MailboxesContext>
@@ -139,6 +146,10 @@ export function InboxProvider({
 
 export function useMailTemplates() {
   return use(MailTemplatesContext);
+}
+
+export function useSendReminders() {
+  return use(SendRemindersContext);
 }
 
 export function useOutbox() {
