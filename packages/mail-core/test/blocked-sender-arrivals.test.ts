@@ -242,6 +242,32 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     });
   });
 
+  it('keeps the checkpoint when the older arrivals cannot be read, and screens them on retry', async () => {
+    expect.hasAssertions();
+    const { imap, notified, mailboxes } = await setup();
+    imap.deliver('INBOX', { subject: 'Known note', received: Date.now() });
+    await mailboxes.load();
+    notified.length = 0;
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received: Date.now(),
+    });
+    for (let index = 0; index < 250; index += 1) {
+      imap.deliver('INBOX', { subject: `Note ${index}`, received: Date.now() });
+    }
+    imap.server.historyFailure = 'offline';
+    await mailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    imap.server.historyFailure = undefined;
+    await mailboxes.load();
+    expect(notified).toHaveLength(200);
+    await vi.waitFor(() => {
+      expect(imap.server.changes).toStrictEqual(['move INBOX 2 Trash']);
+    });
+  });
+
   it("follows neither Profile's blocks for a connection moved while its mail was screened", async () => {
     expect.hasAssertions();
     const { gmail, notified, mailboxes, gmailProfile, screened } =
