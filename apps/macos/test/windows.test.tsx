@@ -3,7 +3,8 @@ import { ok } from 'node:assert/strict';
 import type { ReactNode } from 'react';
 import type { AppStateStatus, TurboModule } from 'react-native';
 
-import { createDrafts } from '@private-email/mail-core/drafts';
+import { createBlockedSenders } from '@private-email/mail-core/blocked-senders';
+import { createDrafts, ownerOf } from '@private-email/mail-core/drafts';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
@@ -55,6 +56,7 @@ import {
 import type { mailboxes } from '../src/private-storage.ts';
 import type { usePalette } from '../src/theme.ts';
 
+import { BlockedSendersContext } from '../src/blocked-senders.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { profileChoices } from '../src/profile-choices.ts';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
@@ -1796,7 +1798,10 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await fireEvent.press(row);
       await window.findByRole('button', { name: 'Folders' });
       const sender = contextMenuOf(window.getByText('oliver@example.invalid'));
-      expect(menuSections(sender)).toStrictEqual([['Copy Address']]);
+      expect(menuSections(sender)).toStrictEqual([
+        ['Copy Address'],
+        ['Block Sender…'],
+      ]);
       await chooseFromMenu(sender, 'Copy Address');
       expect(copy).toHaveBeenCalledWith('oliver@example.invalid');
       const senderText = window.getByRole('text', {
@@ -1827,6 +1832,107 @@ describe('mac windows over a connected Gmail mailbox', () => {
     } finally {
       await app.unmount();
       copy.mockRestore();
+    }
+  });
+
+  it('blocks a sender’s exact address for the Profile from the sender menu after confirming', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <Oliver@Example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const { registration } = await connectedRegistration();
+    // Blocked Sender storage on this device, which refuses the first write and accepts the rest.
+    const saved = { revision: 0, document: null as string | null };
+    const commitBlockedSenders = jest
+      .fn<
+        Promise<{ owner: string; revision: number }>,
+        [string, number, string]
+      >()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('locked'), { code: 'locked' }),
+      )
+      .mockImplementation((owner, revision, document) => {
+        Object.assign(saved, { revision: revision + 1, document });
+        return Promise.resolve({ owner, revision: saved.revision });
+      });
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: () =>
+          Promise.resolve({
+            owner: ownerOf(registration.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitBlockedSenders,
+      },
+      registration,
+    );
+    showMailboxes(
+      createMailboxes(
+        syntheticConnections({ [alex]: { native: gmail.native } }),
+        registration,
+      ),
+    );
+    const app = await render(
+      <BlockedSendersContext value={blocked}>
+        <RegistrationGate
+          store={started(registration)}
+          preview={false}>
+          <InboxWindow windowId="first" />
+        </RegistrationGate>
+      </BlockedSendersContext>,
+    );
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await window.findByRole('button', { name: oliver }),
+      );
+      const sender = contextMenuOf(
+        await window.findByText('Oliver@Example.invalid'),
+      );
+      const block = async () => {
+        await chooseFromMenu(sender, 'Block Sender…');
+        await waitFor(() => {
+          ok(sheetShown());
+        });
+      };
+      await block();
+      expect(sheetShown()).toMatchObject({
+        title: 'Block oliver@example.invalid?',
+        detail:
+          'New mail from this address goes to Trash in your Primary Profile. The 1 message you have now stays where it is, and the sender isn’t told.',
+        buttons: ['Cancel', 'Block Sender'],
+      });
+      await act(async () => {
+        chooseSheetButton('Cancel');
+      });
+      await block();
+      await act(async () => {
+        chooseSheetButton('Block Sender');
+      });
+      await waitFor(() => {
+        expect(sheetShown()?.title).toBe(
+          'oliver@example.invalid couldn’t be blocked',
+        );
+      });
+      await act(async () => {
+        chooseSheetButton('OK');
+      });
+      await block();
+      await act(async () => {
+        chooseSheetButton('Block Sender');
+      });
+      await waitFor(async () => {
+        await expect(
+          blocked.blockedSenders(defaultProfile),
+        ).resolves.toMatchObject([{ address: 'oliver@example.invalid' }]);
+      });
+      expect(sheetShown()).toBeUndefined();
+      // Blocking leaves the mail already here in place.
+      expect(window.getByText('Oliver@Example.invalid')).toBeVisible();
+    } finally {
+      await app.unmount();
     }
   });
 

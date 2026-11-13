@@ -31,6 +31,7 @@ import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import { Action } from './action.tsx';
+import { useBlockSender } from './block-sender.ts';
 import {
   inputHeight,
   RegisterCommands,
@@ -594,6 +595,7 @@ function MailboxMessage({
   const address = mailbox?.address;
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [stackedHeader, setStackedHeader] = useState(false);
+  const { anchor: blockAnchor, items: blockItems } = useBlockSender();
   const colors = usePalette();
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat(true);
@@ -696,6 +698,8 @@ function MailboxMessage({
               </Text>
               <MessageMenu target={commandTarget(mailbox?.id, message)}>
                 <View
+                  ref={blockAnchor}
+                  collapsable={false}
                   style={[
                     styles.metadata,
                     { borderBottomColor: colors.separator },
@@ -731,6 +735,7 @@ function MailboxMessage({
                             },
                           ],
                         },
+                        { items: blockItems(message.address) },
                       ]}>
                       <Text style={{ color: colors.textSecondary }}>
                         <Text

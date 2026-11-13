@@ -39,6 +39,7 @@ export const {
   drafts,
   mailTemplates,
   sendReminders,
+  blockedSenders,
   outbox,
   wakes,
   freshness,

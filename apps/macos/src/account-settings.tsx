@@ -26,6 +26,7 @@ import {
 
 import type { SettingsButton, SettingsDestination } from './settings.tsx';
 
+import { BlockedSenderSettings } from './blocked-senders.tsx';
 import { AnnouncedAlert, Button, Notice, SFSymbol } from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { Label } from './label.tsx';
@@ -751,6 +752,12 @@ export function AccountSettings({
           button={button}
           mailboxes={mailboxes}
           store={store}
+        />
+      ) : null}
+      {destination === 'blockedSenders' ? (
+        <BlockedSenderSettings
+          mailboxes={mailboxes}
+          profiles={profilesOf(snapshot)}
         />
       ) : null}
       {shows('privacy') && mailboxes.length > 0 ? (

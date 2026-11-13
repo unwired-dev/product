@@ -17,6 +17,7 @@ export type SettingsDestination =
   | 'profiles'
   | 'signatures'
   | 'notifications'
+  | 'blockedSenders'
   | 'language'
   | 'privacy'
   | 'errorReporting';
@@ -31,7 +32,13 @@ const sections = [
     ],
   },
   { title: 'composing', items: [{ id: 'signatures', icon: 'signature' }] },
-  { title: 'automation', items: [{ id: 'notifications', icon: 'bell' }] },
+  {
+    title: 'automation',
+    items: [
+      { id: 'notifications', icon: 'bell' },
+      { id: 'blockedSenders', icon: 'hand.raised.slash' },
+    ],
+  },
   {
     title: 'application',
     items: [

@@ -102,6 +102,13 @@ export function createBlockedSenders(
   registration: Pick<Registration, 'getSnapshot'>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  // Told after each change this device stores, such as a block or a receipt.
+  const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const listener of listeners) {
+      listener();
+    }
+  };
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The Blocked Senders of `account`, the Product Account signed in when the action was called, so
   // an action that waited, or whose read finished, while another account signed in reads and
@@ -142,6 +149,7 @@ export function createBlockedSenders(
       if (committed.owner !== owner) {
         return yield* ownerMismatch();
       }
+      changed();
     });
 
   // Resolves whether storage holds what `change` makes of the stored Blocked Senders; returning
@@ -178,12 +186,28 @@ export function createBlockedSenders(
   };
 
   return {
-    // `profile`'s Blocked Senders, or undefined while storage cannot read them.
-    blockedSenders: (profile: string) =>
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    // `profile`'s Blocked Senders, or undefined while storage cannot read them. `moved` counts the
+    // address's kept receipts on the Profile's `connections`.
+    blockedSenders: (profile: string, connections: readonly string[] = []) =>
       runLogged(
         opened(signedIn()).pipe(
-          Effect.map(({ senders }) =>
-            senders.filter((sender) => sender.profile === profile),
+          Effect.map(({ senders, receipts }) =>
+            senders
+              .filter((sender) => sender.profile === profile)
+              .map((sender) => ({
+                ...sender,
+                moved: receipts.filter(
+                  (receipt) =>
+                    receipt.address === sender.address &&
+                    connections.includes(receipt.connection),
+                ).length,
+              })),
           ),
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
           Effect.catchTag('DraftStorageFailure', (error) =>

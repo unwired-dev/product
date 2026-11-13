@@ -127,6 +127,7 @@ describe('stored Blocked Senders', () => {
         profile: 'work',
         address: 'offers@growthleads.io',
         blockedAt: november8,
+        moved: 0,
       },
     ]);
     await expect(relaunched.blockedSenders('home')).resolves.toStrictEqual([
@@ -134,6 +135,7 @@ describe('stored Blocked Senders', () => {
         profile: 'home',
         address: 'offers@growthleads.io',
         blockedAt: november8 + 1000,
+        moved: 0,
       },
     ]);
   });
@@ -152,6 +154,7 @@ describe('stored Blocked Senders', () => {
         profile: 'home',
         address: 'offers@growthleads.io',
         blockedAt: november8,
+        moved: 0,
       },
     ]);
   });
@@ -175,6 +178,7 @@ describe('stored Blocked Senders', () => {
         profile: 'work',
         address: 'offers@growthleads.io',
         blockedAt: november8,
+        moved: 0,
       },
     ]);
   });
@@ -210,7 +214,12 @@ describe('stored Blocked Senders', () => {
       true,
     );
     await expect(relaunch().blockedSenders('work')).resolves.toStrictEqual([
-      { profile: 'work', address: 'news@growthleads.io', blockedAt: november8 },
+      {
+        profile: 'work',
+        address: 'news@growthleads.io',
+        blockedAt: november8,
+        moved: 0,
+      },
     ]);
   });
 

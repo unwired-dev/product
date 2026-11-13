@@ -12,6 +12,7 @@ export {
   drafts,
   mailTemplates,
   sendReminders,
+  blockedSenders,
   outbox,
   wakes,
   freshness,

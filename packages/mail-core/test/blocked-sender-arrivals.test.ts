@@ -111,13 +111,15 @@ const setup = async ({ notifications = true } = {}) => {
     mailboxes,
     gmailProfile,
     screened,
+    blockedSenders,
   };
 };
 
 describe("enforcing a Profile's Blocked Senders on new mail", () => {
   it('moves new Inbox mail from a Blocked Sender to Trash, without a notification', async () => {
     expect.hasAssertions();
-    const { gmail, graph, imap, notified, mailboxes } = await setup();
+    const { gmail, graph, imap, notified, mailboxes, blockedSenders } =
+      await setup();
     const fromGmail = gmail.deliver({
       from: `Growth Leads <${blocked}>`,
       subject: 'Gmail offer',
@@ -153,6 +155,13 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
       ]);
       expect(imap.server.changes).toStrictEqual(['move INBOX 1 Trash']);
     });
+    // Settings counts the moves on each of the Profile's connections.
+    await expect(
+      blockedSenders.blockedSenders(defaultProfile, ['gmail', 'graph', 'imap']),
+    ).resolves.toMatchObject([{ address: blocked, moved: 3 }]);
+    await expect(
+      blockedSenders.blockedSenders(defaultProfile, ['gmail']),
+    ).resolves.toMatchObject([{ address: blocked, moved: 1 }]);
   });
 
   it('leaves a Blocked Sender’s mail unnotified where no Trash takes it, and notifies all while unreadable', async () => {
