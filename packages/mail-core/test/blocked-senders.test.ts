@@ -330,7 +330,7 @@ describe('stored Blocked Senders', () => {
     ).resolves.toStrictEqual({ blocked: new Set(['blocked']), move: [] });
   });
 
-  it('counts a Blocked Sender’s moves on the given connections since it was blocked', async () => {
+  it('counts a Blocked Sender’s moves since it was blocked, beyond the kept receipts', async () => {
     expect.hasAssertions();
     const { store } = storage();
     await store.block('work', 'offers@growthleads.io');
@@ -355,16 +355,29 @@ describe('stored Blocked Senders', () => {
         arrival('2026-11-10'),
       ),
     ).resolves.toStrictEqual({ blocked: new Set(['2026-11-10']), move: [] });
-    await expect(
-      store.blockedSenders('work', ['connection-1']),
-    ).resolves.toMatchObject([{ moved: 1 }]);
+    await expect(store.blockedSenders('work')).resolves.toMatchObject([
+      { moved: 2 },
+    ]);
+    // More moves than the receipts keep still count.
+    await store.screen(
+      'work',
+      { id: 'connection-1', moves: true },
+      Array.from({ length: 1000 }, (_, index) => ({
+        id: `bulk-${index}`,
+        address: 'offers@growthleads.io',
+        receivedAt: `bulk-${index}`,
+      })),
+    );
+    await expect(store.blockedSenders('work')).resolves.toMatchObject([
+      { moved: 1002 },
+    ]);
     // Blocked again later, it counts none of the moves from before.
     vi.setSystemTime(november8 + 1000);
     await store.unblock('work', 'offers@growthleads.io');
     await store.block('work', 'offers@growthleads.io');
-    await expect(
-      store.blockedSenders('work', ['connection-1', 'connection-2']),
-    ).resolves.toMatchObject([{ blockedAt: november8 + 1000, moved: 0 }]);
+    await expect(store.blockedSenders('work')).resolves.toMatchObject([
+      { blockedAt: november8 + 1000, moved: 0 },
+    ]);
   });
 
   it('moves nothing whose receipt cannot be written, and screens nothing it cannot read', async () => {

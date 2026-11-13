@@ -162,11 +162,8 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     });
     // Settings counts the moves on each of the Profile's connections.
     await expect(
-      blockedSenders.blockedSenders(defaultProfile, ['gmail', 'graph', 'imap']),
+      blockedSenders.blockedSenders(defaultProfile),
     ).resolves.toMatchObject([{ address: blocked, moved: 3 }]);
-    await expect(
-      blockedSenders.blockedSenders(defaultProfile, ['gmail']),
-    ).resolves.toMatchObject([{ address: blocked, moved: 1 }]);
   });
 
   it('leaves a Blocked Sender’s mail unnotified where no Trash takes it, and notifies all while unreadable', async () => {
@@ -186,7 +183,7 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     expect(notified).toStrictEqual([]);
     // Settings counts no move that never happened.
     await expect(
-      blockedSenders.blockedSenders(defaultProfile, ['graph', 'imap']),
+      blockedSenders.blockedSenders(defaultProfile),
     ).resolves.toMatchObject([{ moved: 0 }]);
     expect(graph.modifies).toStrictEqual([]);
 

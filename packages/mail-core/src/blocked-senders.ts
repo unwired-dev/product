@@ -29,13 +29,15 @@ export const blockedAddress = (address: string) => {
 };
 
 // A Blocked Sender: an exact normalized address, the Mail Profile that blocks it and when, in
-// milliseconds since the epoch.
+// milliseconds since the epoch, and how many arrivals this device moved to Trash for it since then,
+// absent for none.
 const BlockedSenderSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   address: Schema.String.check(
     Schema.makeFilter((address) => blockedAddress(address) === address),
   ),
   blockedAt: Schema.Finite,
+  moved: Schema.optionalKey(Schema.Int),
 });
 export type BlockedSender = typeof BlockedSenderSchema.Type;
 
@@ -47,8 +49,6 @@ const ReceiptSchema = Schema.Struct({
   connection: Schema.NonEmptyString,
   address: Schema.NonEmptyString,
   receivedAt: Schema.NonEmptyString,
-  // When this device recorded it; receipts recorded before #2141 have none.
-  at: Schema.optionalKey(Schema.Finite),
 });
 type Receipt = typeof ReceiptSchema.Type;
 
@@ -194,25 +194,14 @@ export function createBlockedSenders(
         listeners.delete(listener);
       };
     },
-    // `profile`'s Blocked Senders, or undefined while storage cannot read them. `moved` counts the
-    // address's kept receipts on the Profile's `connections` since it was blocked; one recorded
-    // before receipts kept their time counts from the message's arrival.
-    blockedSenders: (profile: string, connections: readonly string[] = []) =>
+    // `profile`'s Blocked Senders, or undefined while storage cannot read them.
+    blockedSenders: (profile: string) =>
       runLogged(
         opened(signedIn()).pipe(
-          Effect.map(({ senders, receipts }) =>
+          Effect.map(({ senders }) =>
             senders
               .filter((sender) => sender.profile === profile)
-              .map((sender) => ({
-                ...sender,
-                moved: receipts.filter(
-                  (receipt) =>
-                    receipt.address === sender.address &&
-                    connections.includes(receipt.connection) &&
-                    (receipt.at ?? Date.parse(receipt.receivedAt)) >=
-                      sender.blockedAt,
-                ).length,
-              })),
+              .map((sender) => ({ ...sender, moved: sender.moved ?? 0 })),
           ),
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
           Effect.catchTag('DraftStorageFailure', (error) =>
@@ -274,10 +263,20 @@ export function createBlockedSenders(
             return { blocked, move };
           }
           const recorded = yield* commit(stored, {
-            senders: stored.senders,
+            // A count outlives the receipts, which only keep an arrival from moving twice.
+            senders: stored.senders.map((sender) => {
+              const moved = moving.filter(
+                ({ receipt }) =>
+                  sender.profile === profile &&
+                  receipt.address === sender.address,
+              ).length;
+              return moved === 0
+                ? sender
+                : { ...sender, moved: (sender.moved ?? 0) + moved };
+            }),
             receipts: [
               ...stored.receipts,
-              ...moving.map(({ receipt }) => ({ ...receipt, at: Date.now() })),
+              ...moving.map(({ receipt }) => receipt),
             ].slice(-receiptLimit),
           }).pipe(
             Effect.as(true),

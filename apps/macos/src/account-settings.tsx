@@ -755,10 +755,7 @@ export function AccountSettings({
         />
       ) : null}
       {destination === 'blockedSenders' ? (
-        <BlockedSenderSettings
-          mailboxes={mailboxes}
-          profiles={profilesOf(snapshot)}
-        />
+        <BlockedSenderSettings profiles={profilesOf(snapshot)} />
       ) : null}
       {shows('privacy') && mailboxes.length > 0 ? (
         <RemoteContentSettings

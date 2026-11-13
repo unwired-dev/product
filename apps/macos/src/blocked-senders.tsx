@@ -1,21 +1,18 @@
 import type { BlockedSenders } from '@private-email/mail-core/blocked-senders';
-import type {
-  MailboxConnection,
-  MailProfile,
-} from '@private-email/mail-core/registration';
+import type { MailProfile } from '@private-email/mail-core/registration';
 
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
-import { radius } from '@private-email/mail-core/theme';
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import { createContext, use, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { Button } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { blockedSenders } from './registration.ts';
 import { SettingsGroup, SettingsRow, SettingsRowButton } from './settings.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { usePalette } from './theme.ts';
 
 export const BlockedSendersContext =
   createContext<BlockedSenders>(blockedSenders);
@@ -27,14 +24,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  remove: {
-    width: 24,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.control,
-  },
-  removeLabel: { fontSize: 15, fontWeight: '500' },
 });
 
 const newestFirst = Order.flip(
@@ -54,10 +43,8 @@ type Listed = ReadonlyArray<
 // Settings › Blocked Senders: each Mail Profile's Blocked Senders, newest first, with how many
 // arrivals this device moved to Trash; − unblocks the selected one.
 export function BlockedSenderSettings({
-  mailboxes,
   profiles,
 }: {
-  readonly mailboxes: readonly MailboxConnection[];
   readonly profiles: readonly MailProfile[];
 }) {
   const store = use(BlockedSendersContext);
@@ -72,19 +59,15 @@ export function BlockedSenderSettings({
     [settings.locale],
   );
   const [listed, setListed] = useState<Listed>();
+  // A block's date tells it from a later block of the same address.
   const [selected, setSelected] =
-    useState<Readonly<{ profile: string; address: string }>>();
+    useState<
+      Readonly<{ profile: string; address: string; blockedAt: number }>
+    >();
   const [failed, setFailed] = useState<string>();
-  // Each Profile and its connections, whose receipts its counts include.
   const scopes = useMemo(
-    () =>
-      [defaultProfile, ...profiles.map(({ id }) => id)].map((profile) => ({
-        profile,
-        connections: mailboxes
-          .filter((mailbox) => mailbox.profile === profile)
-          .map(({ id }) => id),
-      })),
-    [mailboxes, profiles],
+    () => [defaultProfile, ...profiles.map(({ id }) => id)],
+    [profiles],
   );
   // Reads again after every change, here or from a reader's Block Sender…; only the latest read
   // is shown.
@@ -94,9 +77,9 @@ export function BlockedSenderSettings({
       current += 1;
       const read = current;
       const next = await Promise.all(
-        scopes.map(async ({ profile, connections }) => ({
+        scopes.map(async (profile) => ({
           profile,
-          senders: await store.blockedSenders(profile, connections),
+          senders: await store.blockedSenders(profile),
         })),
       );
       if (read === current) {
@@ -119,11 +102,14 @@ export function BlockedSenderSettings({
     return <SettingsGroup footer={t('blockedSenders.unavailable')} />;
   }
   const groups = listed.filter(({ senders }) => (senders?.length ?? 0) > 0);
-  // A selected address unblocked elsewhere is no longer selected.
+  // A selected address unblocked elsewhere is no longer selected, nor when blocked again.
   const chosen = groups.some(
     ({ profile, senders }) =>
       profile === selected?.profile &&
-      senders?.some(({ address }) => address === selected.address),
+      senders?.some(
+        ({ address, blockedAt }) =>
+          address === selected.address && blockedAt === selected.blockedAt,
+      ),
   )
     ? selected
     : undefined;
@@ -164,7 +150,7 @@ export function BlockedSenderSettings({
             accessibilityLabel={address}
             accessibilityState={{ selected: isChosen }}
             onPress={() => {
-              setSelected({ profile, address });
+              setSelected({ profile, address, blockedAt });
             }}>
             <SettingsRow
               title={address}
@@ -177,27 +163,14 @@ export function BlockedSenderSettings({
         );
       })}
       <View style={[styles.controls, { borderTopColor: colors.separator }]}>
-        <Pressable
-          accessibilityRole="button"
+        <Button
+          label="−"
           accessibilityLabel={t('blockedSenders.unblock')}
           disabled={chosen?.profile !== profile}
           onPress={() => {
             void unblock();
           }}
-          style={({ pressed }) => [
-            styles.remove,
-            pressed && { backgroundColor: colors.accentSelectionSubtle },
-            chosen?.profile !== profile && { opacity: 0.4 },
-          ]}>
-          <Text
-            style={[
-              textStyles.body,
-              styles.removeLabel,
-              { color: colors.textPrimary },
-            ]}>
-            −
-          </Text>
-        </Pressable>
+        />
       </View>
     </SettingsGroup>
   ));

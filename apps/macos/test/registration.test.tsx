@@ -1787,9 +1787,21 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(unblock).toBeDisabled();
     });
+    // Blocked again, it is a new block that is not selected.
+    const later = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1000);
+    await act(async () => {
+      await blocked.block(defaultProfile, 'noreply@crypto-daily.co');
+    });
+    later.mockRestore();
+    await expect(
+      settingsWindow().findByRole('button', {
+        name: 'noreply@crypto-daily.co',
+      }),
+    ).resolves.toHaveProp('accessibilityState', { selected: false });
     await fireEvent.press(offers);
     await act(async () => {
       await fireEvent.press(unblock);
+      await blocked.unblock(defaultProfile, 'noreply@crypto-daily.co');
     });
     await expect(
       settingsWindow().findByText(
