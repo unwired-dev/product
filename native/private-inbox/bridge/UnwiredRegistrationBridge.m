@@ -125,6 +125,8 @@ RCT_EXTERN_METHOD(openDrafts:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromis
 RCT_EXTERN_METHOD(commitDrafts:(NSString *)owner expectedRevision:(double)expectedRevision commit:(NSDictionary *)commit resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openMailTemplates:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitMailTemplates:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openSendReminders:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(commitSendReminders:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openBlockedSenders:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitBlockedSenders:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openComposerRecovery:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

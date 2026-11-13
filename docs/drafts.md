@@ -753,6 +753,23 @@ until that composer closes too. Both composers write the same record, so it hold
 the version journaled last. Offering the records at the next launch follows in
 [#1989](https://github.com/unwired-dev/product/issues/1989).
 
+A Draft's **Send Reminder** is stored on this device
+([#2074](https://github.com/unwired-dev/product/issues/2074), a first slice of
+[#658](https://github.com/unwired-dev/product/issues/658)) in
+`@private-email/mail-core/send-reminders`. It names the Draft, the Mail Profile
+that owns it, the instant it is due in milliseconds since the epoch and the time
+zone it was set in, and nothing of the Draft's content; it never authorizes
+delivery. `remind` sets a Draft's one reminder, replacing the one it has, `cancel`
+removes it, and `reminders` lists only one Profile's. An instant that is not a
+whole number of milliseconds or a time zone the platform does not know is never
+stored, and another Profile's reminder for the same Draft is never replaced or
+removed. Setting and cancelling need no network or Product Sign-In; like Mail
+Templates, a write storage refuses, also when the reminders would not fit in the
+Outgoing Content Store they share with the Drafts, changes nothing and resolves
+`false`, and a listing storage cannot read resolves `undefined`. Reminders are not synchronized,
+schedule no notification and appear nowhere yet; later #658 slices add those and
+remove a reminder when its Draft is sent or discarded.
+
 ## Verification
 
 ```sh
