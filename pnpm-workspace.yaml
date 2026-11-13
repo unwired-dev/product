@@ -97,7 +97,9 @@ minimumReleaseAgeExclude:
   - '@oxfmt/binding-win32-ia32-msvc@0.71.0'
   - '@oxfmt/binding-win32-x64-msvc@0.71.0'
   - oxfmt@0.71.0
-  # Exact Expo 58.0.25 patches required by `expo install --check` in CI for #1997 and #2082.
+  # Exact Expo 58.0.24 patches required by `expo install --check` in CI for #1997, then the
+  # 2026-11-12 expo 58.0.25, expo-contacts 58.0.11 and expo-dev-client 58.0.20 patches (#1844).
+  # List one version per package: pnpm 11.5.2 applies only the first entry for a name.
   # Include their new transitive patches so the release-age delay cannot block installation.
   - '@expo/cli@58.1.20'
   - '@expo/config-plugins@58.0.13'

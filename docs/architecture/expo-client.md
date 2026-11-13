@@ -66,13 +66,6 @@ still owns presentation, dismissal and gestures; the patch preserves both
 dismissal callbacks. It also applies to the reply sheet. Remove the patch when a
 supported upstream version retains content through the complete dismissal.
 
-The pinned `expo-dev-launcher@58.0.20` patch drops the launcher toolbar's
-`axisBehavior(.verticalPreferred)`. Upstream guards that iOS 27.1 call with
-`compiler(>=6.4)`, but Xcode 27.0's Swift 6.4 builds against the iOS 27.0 SDK,
-where the call does not exist, so the native build fails. The launcher keeps its
-default toolbar axis. Remove the patch when the supported upstream version checks
-for the SDK rather than the compiler, or CI builds with the iOS 27.1 SDK.
-
 ## Inbox keyboard tracking
 
 On React Native 0.88.1 and Reanimated 4.7.1, `KeyboardLift` in

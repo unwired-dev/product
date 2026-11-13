@@ -1729,6 +1729,27 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(openBlockedSenders:rejecter:)
+  func openBlockedSenders(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openBlockedSenders", resolve, reject: reject) { try await $0.openBlockedSenders() }
+  }
+
+  @objc(commitBlockedSenders:expectedRevision:document:resolver:rejecter:)
+  func commitBlockedSenders(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitBlockedSenders", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitBlockedSenders(
+        owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
   @objc(openComposerRecovery:rejecter:)
   func openComposerRecovery(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
