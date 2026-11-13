@@ -84,6 +84,16 @@ export function BlockedSenderSettings({
       );
       if (read === current) {
         setListed(next);
+        // A selection a read no longer lists stays cleared, even if the address is blocked again.
+        setSelected((chosen) =>
+          next.some(
+            ({ profile, senders }) =>
+              profile === chosen?.profile &&
+              senders?.some(({ address }) => address === chosen.address),
+          )
+            ? chosen
+            : undefined,
+        );
       }
     };
     void load();

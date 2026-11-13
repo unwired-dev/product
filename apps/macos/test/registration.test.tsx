@@ -1760,9 +1760,14 @@ describe('product registration', () => {
         ?.props.children,
     }).toStrictEqual({ group: 'Primary Profile', moved: expect.any(String) });
     // A sender blocked from a reader while Settings is open joins the list, newest first.
+    const noreplyBlockedAt = Date.now() + 1000;
+    const blockedLater = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(noreplyBlockedAt);
     await act(async () => {
       await blocked.block(defaultProfile, 'noreply@crypto-daily.co');
     });
+    blockedLater.mockRestore();
     await expect(
       settingsWindow().findByText(/^Blocked .+ · 0 since$/u),
     ).resolves.toBeVisible();
@@ -1787,12 +1792,12 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(unblock).toBeDisabled();
     });
-    // Blocked again, it is a new block that is not selected.
-    const later = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1000);
+    // Blocked again, even at the same instant, it is a new block that is not selected.
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(noreplyBlockedAt);
     await act(async () => {
       await blocked.block(defaultProfile, 'noreply@crypto-daily.co');
     });
-    later.mockRestore();
+    clock.mockRestore();
     await expect(
       settingsWindow().findByRole('button', {
         name: 'noreply@crypto-daily.co',
