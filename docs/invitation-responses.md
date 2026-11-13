@@ -145,9 +145,17 @@ separately.
 message's calendar part the same way, from the message source Unwired already
 downloads, and shows the cards that offer no response: a cancelled meeting, an
 invitation for another address, a series update that names no one meeting and an
-invitation Unwired can't read. An invitation the IMAP mailbox could answer shows no
-card yet: its response goes through the Outbox, which a later slice of #1279 adds.
-Nothing is sent.
+invitation Unwired can't read.
+
+[#2114](https://github.com/unwired-dev/product/issues/2114) handles an invitation
+the opened IMAP mailbox could answer when that mailbox has no outgoing server: the
+card lists **Invited** as **You** and **{address} · Receive only**, and says **This
+mailbox can’t send** with **{address} has no outgoing server, so Unwired can’t
+respond from it. It won’t use another address.** It offers no response;
+**Mailbox Settings…** opens Settings at the mailboxes, where entering the password
+again sets up sending. An IMAP mailbox that can send still shows no card: its
+response goes through the Outbox, which a later slice of #1279 adds. Nothing is
+sent.
 
 ## Limitations
 
@@ -182,9 +190,9 @@ Nothing is sent.
 - `packages/mail-core/test/imap-invitations.test.ts` reads an IMAP invitation's
   calendar part from a synthetic IMAP server.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
-  render each reader with a synthetic Gmail mailbox, and an IMAP cancellation and
-  unanswered invitation with a synthetic IMAP server; they are component tests, not
-  native evidence.
+  render each reader with a synthetic Gmail mailbox, and an IMAP cancellation and an
+  invitation for a receive-only and a sending IMAP mailbox with a synthetic IMAP
+  server; they are component tests, not native evidence.
 - The iPhone and iPad `registration-invitation`
   [Mock Mail journey](mock-mail-sessions.md) opens a Gmail invitation and accepts
   it, keeping captures of the card before and after. It also captures an invitation

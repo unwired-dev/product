@@ -625,9 +625,14 @@ export function InvitationCard({
       </View>
     );
   }
-  // An IMAP response goes through the Outbox, which #1279 adds; until then none is offered.
   if ('openFolder' in inbox) {
-    return null;
+    return (
+      <ReceiveOnly
+        invitation={offer}
+        connection={connection}
+        current={current}
+      />
+    );
   }
   return (
     <Invited
@@ -636,6 +641,59 @@ export function InvitationCard({
       connection={connection}
       current={current}
     />
+  );
+}
+
+// An IMAP invitation for a mailbox without an outgoing server, which no other mailbox answers for.
+// One that can send answers through the Outbox, which #1279 adds; until then it shows no card.
+function ReceiveOnly({
+  invitation,
+  connection,
+  current,
+}: {
+  readonly invitation: Invitation;
+  readonly connection: string | undefined;
+  readonly current: () => boolean;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const account = use(AccountContext);
+  const mailbox = account?.mailboxes.find(({ id }) => id === connection);
+  if (
+    account === undefined ||
+    mailbox?.provider !== 'imap' ||
+    mailbox.smtp !== undefined
+  ) {
+    return null;
+  }
+  return (
+    <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
+      <Details
+        details={invitation.details}
+        invited={[
+          t('invitation.you'),
+          t('invitation.yourAddress', {
+            address: invitation.address,
+            provider: t('invitation.receiveOnly'),
+          }),
+        ]}
+      />
+      <Status
+        icon="info.circle"
+        title={t('invitation.cannotSend')}
+        detail={t('invitation.cannotSendDetail', {
+          address: invitation.address,
+        })}>
+        <Button
+          label={t('invitation.mailboxSettings')}
+          onPress={() => {
+            if (current()) {
+              account.openAccount('mailboxes');
+            }
+          }}
+        />
+      </Status>
+    </View>
   );
 }
 
