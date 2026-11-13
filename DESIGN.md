@@ -425,7 +425,10 @@ styles) so the file stays editable.
   above the bottom safe area, or 12pt above the software keyboard. Rows scroll
   under it behind a 72pt scroll edge fade. On iPhone, Filter, the system search
   field and New Message are items of the system toolbar instead, which UIKit
-  places and lifts above the software keyboard. Whether it shows while composing
+  places and lifts above the software keyboard: 48pt glass with its bottom edge
+  28pt above the screen's bottom and 28pt from each side, a 226pt field and 12pt
+  gaps. The Quick Look, Select Messages and Ask About Calendar bars sit on the
+  same line. Whether it shows while composing
   follows [Drafts](docs/drafts.md#composing).
 - **Command Palette:** on the Mac a glass command input (command symbol,
   "Commands", ⌘K key cap) sits in the window's toolbar row: 36pt at the leading
