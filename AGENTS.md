@@ -53,9 +53,10 @@ Figma file define how the maintained clients look and behave.
 - The frames are the source of truth, in look and in behavior. Where a frame
   differs from DESIGN.md, a product requirement or a feature guide, the frame
   wins: build what it shows, correct the document in the same PR and list the
-  difference there. The one exception is a frame that DESIGN.md lists under
-  [Known frame differences](DESIGN.md#known-frame-differences) as predating a
-  requirement: there the requirement wins until the frame is redrawn.
+  difference there. Two exceptions: for the frames listed first under
+  [Known frame differences](DESIGN.md#known-frame-differences) the requirement
+  or the system wins until the frame is redrawn, and a provided native
+  component keeps its [own size and motion](docs/agents/native-components.md#native-behavior-and-design).
 - A request for visual design, or a look the frames do not show yet, starts in
   Figma and waits for the user's [design approval](docs/agents/implementation-review.md#design-approval).
 

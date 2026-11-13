@@ -722,7 +722,7 @@ Everywhere else the frames win over this document, as the
 [frames rule](AGENTS.md#design) says.
 
 These frames predate a requirement or leave out what the system does. Here the
-requirement wins until the frame is redrawn:
+requirement or the system wins until the frame is redrawn:
 
 - **Sidebar:** the unified Archive frames in each platform's "Features ·
   Unified Mailboxes and backfill" section, on its Mailboxes and Inbox page,
@@ -738,6 +738,10 @@ requirement wins until the frame is redrawn:
   Reply All, Forward, Pin and Snooze.
 - **Compose:** the reference mockups still show a 60% inline composer. The Mac
   New Message overflow keeps Discard reachable.
+- **iPhone composer:** the frames draw the composer as a sheet.
+  [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) pushes it
+  onto the navigation stack on compact layouts, and the owner has not chosen
+  between them.
 - **iPad Settings height:** frames whose Settings sidebar lists more rows than
   the screen holds are drawn 912pt tall to show the whole list. On the device
   the sidebar scrolls.
