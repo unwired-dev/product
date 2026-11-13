@@ -1,4 +1,7 @@
-import type { MailProvider } from '@private-email/mail-core/registration';
+import type {
+  MailboxConnection,
+  MailProvider,
+} from '@private-email/mail-core/registration';
 
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
@@ -124,6 +127,66 @@ async function opened(
     </AccountContext>,
   );
   return { gmail, inbox, id, app, shown };
+}
+
+// An IMAP invitation for the opened mailbox, whose connection is `connection`. Records where each
+// press of a Settings button opens it.
+async function openedImap(connection: Partial<MailboxConnection>) {
+  const imap = createSyntheticImap({ address: me });
+  const uid = imap.deliver('INBOX', {
+    subject: 'Invited',
+    raw: [
+      'From: Lena Fischer <lena@northwind.example>',
+      `To: ${me}`,
+      'Subject: Invited',
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/alternative; boundary="alt"',
+      '',
+      '--alt',
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'Invited body',
+      '--alt',
+      'Content-Type: text/calendar; charset=utf-8',
+      '',
+      invitation(me),
+      '--alt--',
+    ].join('\r\n'),
+  });
+  const inbox = createImapInbox(imap.native);
+  await inbox.load();
+  const settings: Array<string | undefined> = [];
+  const app = await render(
+    <AccountContext
+      value={{
+        mailboxes: [
+          {
+            id: 'imap-connection',
+            provider: 'imap',
+            address: me,
+            state: 'connected',
+            profile: 'default',
+            ...connection,
+          },
+        ],
+        openAccount: (destination) => {
+          settings.push(destination);
+        },
+        authorizeMailbox: () => Promise.resolve(),
+        refreshInbox: (load) => load(),
+        account: 'synthetic-product-account',
+        profiles: [],
+        createProfile: () => Promise.resolve(undefined),
+        chooseFolders: () => Promise.resolve(true),
+      }}>
+      <ImapMessageBody
+        inbox={inbox}
+        id={`7.${uid}.INBOX`}
+        connection="imap-connection"
+      />
+    </AccountContext>,
+  );
+  return { app, settings };
 }
 
 describe('meeting invitations in the iPhone and iPad reader', () => {
@@ -731,7 +794,7 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     }
   });
 
-  it('shows an IMAP cancellation and says a receive-only IMAP mailbox cannot respond', async () => {
+  it('shows an IMAP cancellation and offers no response to an IMAP invitation yet', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap({ address: me });
     // An IMAP message carrying `calendar` as its text/calendar alternative.
@@ -781,78 +844,63 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
     } finally {
       await first.unmount();
     }
-    // The opened IMAP connection, with an outgoing server or receiving only.
-    const opened: string[] = [];
-    const withConnection = (smtp: boolean) => (
-      <AccountContext
-        value={{
-          mailboxes: [
-            {
-              id: 'imap-connection',
-              provider: 'imap',
-              address: me,
-              state: 'connected',
-              profile: 'default',
-              ...(smtp
-                ? {
-                    smtp: {
-                      host: 'smtp.example.invalid',
-                      port: 465,
-                      security: 'tls',
-                      username: me,
-                    },
-                  }
-                : {}),
-            },
-          ],
-          openAccount: (destination) => {
-            opened.push(destination ?? 'account');
-          },
-          authorizeMailbox: () => Promise.resolve(),
-          refreshInbox: (load) => load(),
-          account: 'synthetic-product-account',
-          profiles: [],
-          createProfile: () => Promise.resolve(undefined),
-          chooseFolders: () => Promise.resolve(true),
-        }}>
-        <ImapMessageBody
-          inbox={inbox}
-          id={`7.${invited}.INBOX`}
-          connection="imap-connection"
-        />
-      </AccountContext>
+    const second = await render(
+      <ImapMessageBody
+        inbox={inbox}
+        id={`7.${invited}.INBOX`}
+      />,
     );
-    // One that can send answers through the Outbox, which a later slice adds.
-    const sending = await render(withConnection(true));
     try {
       await expect(
         screen.findByText('Invited body'),
       ).resolves.toBeOnTheScreen();
       expect(screen.queryByText('Q4 roadmap review')).toBeNull();
       expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+      expect(imap.smtp.accepted).toHaveLength(0);
     } finally {
-      await sending.unmount();
+      await second.unmount();
     }
-    const receiving = await render(withConnection(false));
+  });
+
+  it('offers no response yet from an IMAP mailbox that can send', async () => {
+    expect.hasAssertions();
+    const { app } = await openedImap({
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: me,
+      },
+    });
     try {
       await expect(
-        screen.findByText('This mailbox can’t send'),
+        screen.findByText('Invited body'),
       ).resolves.toBeOnTheScreen();
-      expect(screen.getByText('Q4 roadmap review')).toBeOnTheScreen();
-      expect(screen.getByText(`${me} · Receive only`)).toBeOnTheScreen();
-      expect(
-        screen.getByText(
+      expect(screen.queryByText('Q4 roadmap review')).toBeNull();
+      expect(screen.queryByText('This mailbox can’t send')).toBeNull();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('says a receive-only IMAP mailbox cannot respond and opens its settings', async () => {
+    expect.hasAssertions();
+    const { app, settings } = await openedImap({});
+    try {
+      await expect(
+        screen.findByText(
           `${me} has no outgoing server, so Unwired can’t respond from it. It won’t use another address.`,
         ),
-      ).toBeOnTheScreen();
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByText('This mailbox can’t send')).toBeOnTheScreen();
+      expect(screen.getByText(`${me} · Receive only`)).toBeOnTheScreen();
       expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
       await fireEvent.press(
         screen.getByRole('button', { name: 'Mailbox Settings…' }),
       );
-      expect(opened).toStrictEqual(['mailboxes']);
-      expect(imap.smtp.accepted).toHaveLength(0);
+      expect(settings).toStrictEqual(['mailboxes']);
     } finally {
-      await receiving.unmount();
+      await app.unmount();
     }
   });
 });
