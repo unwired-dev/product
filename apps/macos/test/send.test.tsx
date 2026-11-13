@@ -6,7 +6,11 @@ import type { RegistrationSnapshot } from '@private-email/mail-core/registration
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createOutbox } from '@private-email/mail-core/outbox';
-import { mailboxesOf } from '@private-email/mail-core/registration';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import { createSendReminders } from '@private-email/mail-core/send-reminders';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync as createServer,
@@ -33,7 +37,7 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
-import { chooseMenuItem } from './native-menu.ts';
+import { chooseInSendMenu, chooseMenuItem } from './native-menu.ts';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const account = 'synthetic-product-account';
@@ -69,7 +73,19 @@ function device() {
     registration,
     claims: storage.delivery,
   });
-  return { gmail, drafts, mailboxes, outbox, storage };
+  // Send Reminder storage on this device, which always accepts a write.
+  const saved = { revision: 0, document: null as string | null };
+  const reminders = createSendReminders(
+    {
+      openSendReminders: () => Promise.resolve({ owner: account, ...saved }),
+      commitSendReminders: (owner, revision, document) => {
+        Object.assign(saved, { revision: revision + 1, document });
+        return Promise.resolve({ owner, revision: saved.revision });
+      },
+    },
+    registration,
+  );
+  return { gmail, drafts, mailboxes, outbox, storage, reminders };
 }
 
 // `listed` is the account's Mailbox Connections, as after one is removed.
@@ -98,6 +114,7 @@ function App({
         <InboxProvider
           drafts={sender.drafts}
           mailboxes={sender.mailboxes}
+          sendReminders={sender.reminders}
           outbox={sender.outbox}>
           <Inbox
             composing={composing}
@@ -266,6 +283,33 @@ describe('sending a Draft', () => {
       expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
       expect(sender.gmail.sends[0]?.raw).toContain('To: sam@example.invalid');
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('removes the reminder of a Draft it sends', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await chooseInSendMenu('Remind Me to Send…');
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(/^Reminder for tomorrow/u);
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toHaveLength(1);
+
+      await press('Send');
+      await waitFor(async () => {
+        await expect(
+          sender.reminders.reminders(defaultProfile),
+        ).resolves.toStrictEqual([]);
+      });
     } finally {
       sender.outbox.dispose();
     }

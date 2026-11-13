@@ -273,6 +273,26 @@ interface NativeMenu extends TurboModule {
   ) => Promise<unknown>;
 }
 
+// Drops an AppKit menu of `sections` from `anchor`, as a pull-down button's does, and runs the
+// chosen item.
+export async function showMenu(
+  anchor: View | null,
+  sections: readonly MenuSection[],
+  destructiveColor: ColorValue,
+) {
+  const tag = findNodeHandle(anchor);
+  if (tag === null) {
+    return;
+  }
+  const menu = menuState(sections);
+  const chosen = await TurboModuleRegistry.getEnforcing<NativeMenu>(
+    'UnwiredMenu',
+  ).show(tag, menu.sections, processColor(destructiveColor));
+  if (isMenuChoice(chosen) && chosen !== null) {
+    await menu.runs.get(chosen)?.();
+  }
+}
+
 // A pull-down button whose AppKit menu drops below it on click, Space or VoiceOver press. Its
 // children draw the label; the latest items answer the chosen one.
 export function MenuButton({

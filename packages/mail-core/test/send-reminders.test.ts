@@ -1,7 +1,11 @@
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { NativeSendReminders } from '@private-email/mail-core/send-reminders';
 
-import { createSendReminders } from '@private-email/mail-core/send-reminders';
+import {
+  createSendReminders,
+  reminderDay,
+  reminderTimes,
+} from '@private-email/mail-core/send-reminders';
 
 // Tomorrow, 09:00 in Prague, as the approved banner shows it.
 const tomorrowMorning = Date.UTC(2026, 10, 13, 8);
@@ -223,5 +227,30 @@ describe('stored Send Reminders', () => {
       reminders: [{ ...keys, profile: 'work', timeZone: 'Mars/Olympus' }],
     });
     await expect(store.reminders('work')).resolves.toBeUndefined();
+  });
+});
+
+describe('reminder menu times', () => {
+  it('offers this evening at 20:00 only while it is ahead, and tomorrow at 9:00 across a clock change', () => {
+    expect.hasAssertions();
+    // Saturday 24 October 2026, 10:00 in Prague; summer time ends that night.
+    const morning = Date.UTC(2026, 9, 24, 8);
+    expect(reminderTimes(morning, 'Europe/Prague')).toStrictEqual([
+      { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 24, 18) },
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 8) },
+    ]);
+    const night = Date.UTC(2026, 9, 24, 18, 30);
+    expect(reminderTimes(night, 'Europe/Prague')).toStrictEqual([
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 8) },
+    ]);
+    expect(reminderTimes(morning, 'Mars/Olympus')).toStrictEqual([]);
+  });
+
+  it('counts the due day in the reminder’s own time zone', () => {
+    expect.hasAssertions();
+    // 23:30 UTC on 12 November is already 13 November in Prague.
+    const lateEvening = Date.UTC(2026, 10, 12, 23, 30);
+    expect(reminderDay(keys, lateEvening)).toBe(0);
+    expect(reminderDay(keys, lateEvening - 3_600_000)).toBe(1);
   });
 });

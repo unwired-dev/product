@@ -152,3 +152,52 @@ export function createSendReminders(
   };
 }
 export type SendReminders = ReturnType<typeof createSendReminders>;
+
+const dayLength = 86_400_000;
+
+// The times the reminder menu offers from `now` in `timeZone`, the device's: This Evening at 20:00
+// while it is still ahead, then Tomorrow Morning at 9:00. None in a time zone the platform does not
+// know.
+export const reminderTimes = (now: number, timeZone: string) =>
+  Option.match(DateTime.makeZoned(now, { timeZone }), {
+    onNone: () => [],
+    onSome: (today) => {
+      const at = (days: number, hour: number) =>
+        DateTime.toEpochMillis(
+          DateTime.setParts(DateTime.add(today, { days }), {
+            hour,
+            minute: 0,
+            second: 0,
+            millisecond: 0,
+          }),
+        );
+      const evening = at(0, 20);
+      return [
+        ...(evening > now
+          ? [{ time: 'thisEvening', dueAt: evening } as const]
+          : []),
+        { time: 'tomorrowMorning', dueAt: at(1, 9) } as const,
+      ];
+    },
+  });
+
+// How many days after `now`'s day the reminder is due, both days in the reminder's time zone: 0
+// today, 1 tomorrow.
+export const reminderDay = (
+  { dueAt, timeZone }: Pick<SendReminder, 'dueAt' | 'timeZone'>,
+  now: number,
+) => {
+  const day = (at: number) =>
+    Option.match(DateTime.makeZoned(at, { timeZone }), {
+      onNone: () => Math.floor(at / dayLength),
+      onSome: (zoned) => {
+        const { year, month, day: date } = DateTime.toParts(zoned);
+        return Date.UTC(year, month - 1, date) / dayLength;
+      },
+    });
+  return day(dueAt) - day(now);
+};
+
+// The city a time zone is named after, such as Prague for Europe/Prague.
+export const reminderCity = (timeZone: string) =>
+  (timeZone.split('/').at(-1) ?? timeZone).replaceAll('_', ' ');

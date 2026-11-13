@@ -1,4 +1,4 @@
-import { act } from '@testing-library/react-native';
+import { act, screen } from '@testing-library/react-native';
 
 interface Item {
   readonly id: string;
@@ -88,4 +88,25 @@ export const chooseSubmenuItem = async (submenu: string, title: string) => {
 export const dismissMenu = async () => {
   menuItems();
   await answer(null);
+};
+
+// Chooses `title` in the Send menu, the system context menu a right click on Send opens.
+export const chooseInSendMenu = async (title: string) => {
+  let menu = screen.getByRole('button', { name: 'Send' }).parent;
+  while (menu !== null && menu.type !== 'UnwiredContextMenu') {
+    menu = menu.parent;
+  }
+  const sections: ReadonlyArray<{ readonly items: readonly Item[] }> =
+    menu?.props.sections ?? [];
+  const item = sections
+    .flatMap(({ items }) => items)
+    .find((each) => each.title === title);
+  if (menu === null || item === undefined) {
+    throw new Error(`Expected ${title} in the Send menu`);
+  }
+  const select: (event: { nativeEvent: { id: string } }) => void =
+    menu.props.onSelect;
+  await act(async () => {
+    select({ nativeEvent: { id: item.id } });
+  });
 };

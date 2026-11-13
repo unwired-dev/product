@@ -1080,6 +1080,21 @@
       "changed": "This Draft changed in another window. Review it, then send it again.",
       "storage": "This message could not be queued because Drafts are not saved. Try again."
     },
+    "reminder": {
+      "remindMeToSend": "Remind Me to Send…",
+      "thisEvening": "This Evening",
+      "tomorrowMorning": "Tomorrow Morning",
+      "todayAt": "Today, {{time}}",
+      "dayAt": "{{day}} {{time}}",
+      "note": "One of your devices will remind you to finish this Draft. It won’t send it.",
+      "today": "Reminder for today, {{time}} ({{city}})",
+      "tomorrow": "Reminder for tomorrow, {{time}} ({{city}})",
+      "on": "Reminder for {{date}}, {{time}} ({{city}})",
+      "change": "Change",
+      "remove": "Remove Reminder",
+      "setFailed": "The reminder could not be set. Try again.",
+      "removeFailed": "The reminder could not be removed. Try again."
+    },
     "discardDraft": "Discard Draft",
     "keepEditing": "Keep Editing",
     "deleteDraft": "Delete Draft",

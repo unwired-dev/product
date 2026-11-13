@@ -754,7 +754,14 @@ app follows under the issue named:
 - **iPhone composer:** the frames draw the composer as a sheet, as
   [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) now
   decides. The app pushes it onto the navigation stack until #2113.
-- **Send menu:** Remind Me to Send… waits for #658.
+- **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); Send
+  and Archive, Send Now and Send Later wait for #1673, #1674 and #1262. On
+  iPhone and iPad, Remind Me to Send… waits for #658.
+- **Reminder menu:** Choose Date and Time… waits for a frame of what it opens
+  (#658). The Mac menu shows each time on the item's second line and the note
+  as a dimmed item, as AppKit draws them, where M3 draws the time trailing and
+  the note in small type. Until #658 schedules notifications, no device reminds
+  the person yet.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
 - **Command Palette key cap:** the frames and the Layout section show ⌘K, as

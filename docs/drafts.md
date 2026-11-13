@@ -766,9 +766,20 @@ stored, and another Profile's reminder for the same Draft is never replaced or
 removed. Setting and cancelling need no network or Product Sign-In; like Mail
 Templates, a write storage refuses, also when the reminders would not fit in the
 Outgoing Content Store they share with the Drafts, changes nothing and resolves
-`false`, and a listing storage cannot read resolves `undefined`. Reminders are not synchronized,
-schedule no notification and appear nowhere yet; later #658 slices add those and
-remove a reminder when its Draft is sent or discarded.
+`false`, and a listing storage cannot read resolves `undefined`.
+
+On the Mac ([#2123](https://github.com/unwired-dev/product/issues/2123)) a right
+click on Send opens the Send menu, whose **Remind Me to Send…** opens the
+reminder menu from Send: **This Evening** at 20:00 while that is still ahead and
+**Tomorrow Morning** at 9:00, in the Mac's time zone (`reminderTimes`). Choosing
+one saves the Draft as Save does, keeps the composer open and stores the
+reminder for the Draft's Mail Profile; a failed save or write is reported and
+stores nothing. The composer shows a stored reminder in a banner ("Reminder for
+tomorrow, 09:00 (Prague)") with **Change** and **Remove Reminder**, and sending
+or discarding the Draft from the composer removes it. Reminders are not
+synchronized and schedule no notification yet, iPhone and iPad offer none, and
+a reminder whose Draft is deleted elsewhere stays stored; later #658 slices add
+those.
 
 ## Verification
 

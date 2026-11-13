@@ -31,6 +31,7 @@ import type {
   Selection,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
+import type { SendReminder } from '@private-email/mail-core/send-reminders';
 import type {
   NativeTranslation,
   TranslationLanguage,
@@ -170,10 +171,12 @@ import {
   useLeaveComposer,
   useMailTemplates,
   useOutbox,
+  useSendReminders,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import { ReminderBanner, SendMenu } from './send-reminder.tsx';
 import { windowHost } from './settings-window-client.ts';
 import { textStyles, usePalette } from './theme.ts';
 import {
@@ -2303,6 +2306,29 @@ function Editor({
   // A control that also waits while Save or Send is pending.
   const lockedUnless = (available: boolean) => paused || !available;
   const outbox = useOutbox();
+  const sendReminders = useSendReminders();
+  // The Mail Profile owning this Draft, and so its Send Reminder.
+  const draftProfile = profileOf(
+    history.present.connection,
+    use(AccountContext)?.mailboxes ?? [],
+  );
+  // The Draft's stored Send Reminder, once read, and which reminder change last failed.
+  const [reminder, setReminder] = useState<SendReminder>();
+  const [reminderFailed, setReminderFailed] = useState<'set' | 'remove'>();
+  const draftID = history.present.id;
+  useEffect(() => {
+    let current = true;
+    const read = async () => {
+      const listed = await sendReminders.reminders(draftProfile);
+      if (current && listed !== undefined) {
+        setReminder(listed.find((each) => each.draft === draftID));
+      }
+    };
+    void read();
+    return () => {
+      current = false;
+    };
+  }, [sendReminders, draftProfile, draftID]);
   const caret = useRef<number | undefined>(undefined);
   const typingField = useRef<string | undefined>(undefined);
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
@@ -2823,6 +2849,63 @@ function Editor({
       format(mark);
     }
   };
+  // A sent or discarded Draft needs no reminder; one storage could not remove stays harmless, as
+  // it names a Draft that no longer exists.
+  const forgetReminder = (reminded: SendReminder | undefined) => {
+    if (reminded !== undefined) {
+      void sendReminders.cancel(reminded.profile, reminded.draft);
+    }
+  };
+  // Saves the Draft as Save does, keeping it open, then stores its reminder at `dueAt`.
+  const remind = async (dueAt: number, timeZone: string) => {
+    if (discarded.current || lifetime.current.finishing > 0) {
+      return;
+    }
+    if (finishEntries().entries !== undefined) {
+      setClosing('recipients');
+      return;
+    }
+    setReminderFailed(undefined);
+    lifetime.current.finishing += 1;
+    let stored: SendReminder | undefined = undefined;
+    try {
+      if (await storeAndSave()) {
+        const next = { draft: authored.current.id, dueAt, timeZone };
+        if (await sendReminders.remind(draftProfile, next)) {
+          stored = { ...next, profile: draftProfile };
+        }
+      }
+    } catch {
+      // An unexpected storage rejection leaves the reminder as it was, to set again.
+    }
+    finishOperation();
+    if (lifetime.current.mounted) {
+      if (stored === undefined) {
+        setReminderFailed('set');
+      } else {
+        setReminder(stored);
+      }
+    }
+  };
+  const removeReminder = async () => {
+    if (reminder === undefined) {
+      return;
+    }
+    setReminderFailed(undefined);
+    let removed = false;
+    try {
+      removed = await sendReminders.cancel(reminder.profile, reminder.draft);
+    } catch {
+      // An unexpected storage rejection keeps the reminder, to remove again.
+    }
+    if (lifetime.current.mounted) {
+      if (removed) {
+        setReminder(undefined);
+      } else {
+        setReminderFailed('remove');
+      }
+    }
+  };
   // Deletes the Draft, as Discard and Don’t Save do; a failed deletion keeps this editor's version.
   const discard = async () => {
     if (discarded.current || lifetime.current.finishing > 0) {
@@ -2832,6 +2915,7 @@ function Editor({
     setClosing('saving');
     discarded.current = true;
     lifetime.current.finishing += 1;
+    const reminded = reminder;
     let removed = false;
     try {
       removed = await store.discard(() => authored.current.id, {
@@ -2841,6 +2925,7 @@ function Editor({
       // An unexpected storage rejection leaves the editor retryable too.
     }
     if (removed) {
+      forgetReminder(reminded);
       await closeRecord(authored.current.id);
     } else {
       discarded.current = false;
@@ -2869,6 +2954,7 @@ function Editor({
       return;
     }
     const shown = authored.current;
+    const reminded = reminder;
     setRefused(undefined);
     setClosing('saving');
     pausedNow.current = true;
@@ -2899,6 +2985,7 @@ function Editor({
       // An unexpected rejection keeps the Draft open to send again.
     }
     if (refusal === undefined) {
+      forgetReminder(reminded);
       await closeRecord(authored.current.id);
     } else {
       pausedNow.current = false;
@@ -2988,12 +3075,13 @@ function Editor({
     />
   );
   const sendButton = (
-    <Button
+    <SendMenu
       disabled={closing === 'saving'}
-      label={t('drafts.send')}
-      fill="accent"
-      onPress={() => {
+      onSend={() => {
         void send();
+      }}
+      onRemind={(dueAt, timeZone) => {
+        void remind(dueAt, timeZone);
       }}
     />
   );
@@ -3210,6 +3298,32 @@ function Editor({
             setClosing(undefined);
           }}
         />
+        {reminderFailed === undefined ? null : (
+          <View style={styles.alerts}>
+            <Alert
+              outcome
+              message={t(
+                reminderFailed === 'set'
+                  ? 'drafts.reminder.setFailed'
+                  : 'drafts.reminder.removeFailed',
+              )}
+            />
+          </View>
+        )}
+        {reminder === undefined ? null : (
+          <View style={styles.alerts}>
+            <ReminderBanner
+              reminder={reminder}
+              disabled={paused}
+              onRemind={(dueAt, timeZone) => {
+                void remind(dueAt, timeZone);
+              }}
+              onRemove={() => {
+                void removeReminder();
+              }}
+            />
+          </View>
+        )}
         {captured === undefined ? null : (
           <View style={styles.review}>
             <CapturedAssistance
