@@ -64,6 +64,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 // windows next, so React Native is ready for them.
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
 {
+  // Mail has no tabs: without this AppKit adds its tab commands and merges windows into tabs.
+  NSWindow.allowsAutomaticWindowTabbing = NO;
   [(Class<UnwiredNotifications>)NSClassFromString(@"UnwiredNotifications") start];
   self.dependencyProvider = [RCTAppDependencyProvider new];
   self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
