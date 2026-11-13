@@ -101,11 +101,13 @@ function SignatureEditor({
     documentNow.current = next;
     setDocument(next);
   };
-  // A signature another device stores shows here while it is not being edited.
+  // A signature another device stores shows here while it is not being edited, closing a Link
+  // Editor opened on the text it replaces.
   useEffect(() => {
-    if (!focused.current) {
-      documentNow.current = signature ?? emptyDocument;
-      setDocument(documentNow.current);
+    const next = signature ?? emptyDocument;
+    if (!focused.current && stored(next) !== stored(documentNow.current)) {
+      documentNow.current = next;
+      setDocument(next);
     }
   }, [signature]);
   // The Product Account the editor opened under: a replacement account can hold the same
@@ -121,6 +123,17 @@ function SignatureEditor({
     mailboxesOf(store.getSnapshot().snapshot).find(
       (mailbox) => mailbox.id === id,
     )?.signature;
+  // The document when editing began, or the last one stored or shown as stored. Leaving without
+  // an edit stores nothing, so a signature another device stored meanwhile is kept and shows here.
+  const editing = useRef(document);
+  // Shows the stored signature in place of different text, which closes an open Link Editor.
+  const restore = () => {
+    const next = storedNow() ?? emptyDocument;
+    editing.current = next;
+    if (stored(next) !== stored(documentNow.current)) {
+      show(next);
+    }
+  };
   const commit = async (next: SemanticDocument) => {
     const chosen = plainText(next).trim() === '' ? undefined : next;
     if (ownerOf() !== owner.current || stored(chosen) === stored(storedNow())) {
@@ -132,15 +145,12 @@ function SignatureEditor({
       store.getSnapshot().signatureFailure === id ||
       (!focused.current && stored(chosen) !== stored(storedNow()))
     ) {
-      show(storedNow() ?? emptyDocument);
+      restore();
     }
   };
-  // The document when editing began. Leaving without an edit stores nothing, so a signature
-  // another device stored meanwhile is kept and shows here.
-  const editing = useRef(document);
   const leave = () => {
     if (stored(documentNow.current) === stored(editing.current)) {
-      show(storedNow() ?? emptyDocument);
+      restore();
     } else {
       void commit(documentNow.current);
     }
@@ -158,6 +168,7 @@ function SignatureEditor({
     },
     [],
   );
+  // A format or link change stores the signature at once, though the body keeps focus.
   const change = (next: SemanticDocument, at?: typeof selection) => {
     show(next);
     if (at !== undefined) {
@@ -165,9 +176,8 @@ function SignatureEditor({
       setSelection(at);
       setPlaced(at);
     }
-    if (!focused.current) {
-      void commit(next);
-    }
+    editing.current = next;
+    void commit(next);
   };
   const format = (mark: Mark) => {
     const at = selectionNow.current;
@@ -203,6 +213,7 @@ function SignatureEditor({
           <LinkEditor
             disabled={busy}
             link={editableLinkAt(document, selection)}
+            source={document}
             onChange={(link: Link, text, href) => {
               const result = setLink(document, link, { text, href });
               change(result.document, result.selection);
@@ -283,8 +294,7 @@ function SignatureEditor({
             disabled={busy || signature === undefined}
             label={t('signatures.delete')}
             onPress={() => {
-              show(emptyDocument);
-              void commit(emptyDocument);
+              change(emptyDocument);
             }}
           />
         </View>

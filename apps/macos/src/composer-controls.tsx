@@ -3,6 +3,7 @@ import type {
   BlockKind,
   Link,
   Mark,
+  SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
 import type { ReactNode } from 'react';
 import type {
@@ -490,11 +491,15 @@ export function TemplatesMenu({
 // at the caret, or to add one to selected unlinked text. It is unavailable otherwise.
 export function LinkEditor({
   link,
+  source,
   disabled,
   onChange,
   onShown,
 }: {
   readonly link: Link | undefined;
+  // The document the link's offsets index. The popover closes when another replaces it, as when
+  // another device stores a signature, since they would apply to other characters.
+  readonly source?: SemanticDocument;
   readonly disabled: boolean;
   readonly onChange: (link: Link, text: string, href?: string) => void;
   // Reports the popover opening and, after any change, closing; `returning` when Escape, Apply or
@@ -509,6 +514,7 @@ export function LinkEditor({
     useColorScheme() === 'dark' ? colors.textSecondary : colors.textPrimary;
   const [editing, setEditing] = useState<Link>();
   const [shown, setShown] = useState(false);
+  const [openedOn, setOpenedOn] = useState(source);
   const returning = useRef(false);
   const close = () => {
     returning.current = true;
@@ -586,6 +592,7 @@ export function LinkEditor({
             setDestination(link.href);
             setChecked(false);
             returning.current = false;
+            setOpenedOn(source);
             setShown(true);
             onShown?.(true);
           }
@@ -594,7 +601,7 @@ export function LinkEditor({
       <Popover
         below
         title={adding ? t('drafts.link.add') : t('drafts.link.edit')}
-        shown={shown}
+        shown={shown && openedOn === source}
         onClose={() => {
           setShown(false);
           onShown?.(false, returning.current);

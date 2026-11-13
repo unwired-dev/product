@@ -2770,13 +2770,13 @@ describe('mac windows of different Mail Profiles', () => {
         });
       };
 
-      // Typing and bold are stored when the editor is left; the other identity keeps none.
+      // Bold stores the signature at once, though the editor keeps focus; the other identity
+      // keeps none.
       await type('Alex Example');
       await fireEvent(editor(), 'selectionChange', {
         nativeEvent: { selection: { start: 0, end: 4 } },
       });
       await fireEvent.press(settings.getByRole('button', { name: 'Bold' }));
-      await leave();
       const signed = [
         {
           kind: 'paragraph',
@@ -2789,6 +2789,7 @@ describe('mac windows of different Mail Profiles', () => {
           ['other@example.invalid', undefined],
         ]);
       });
+      await leave();
       expect(row('alex@example.invalid')).toHaveAccessibilityValue({
         text: 'Alex Example',
       });
@@ -2797,6 +2798,44 @@ describe('mac windows of different Mail Profiles', () => {
       expect(signatures(relaunched.getSnapshot().snapshot)).toStrictEqual(
         signatures(),
       );
+
+      // A signature another device stores closes a Link Editor opened on the replaced text.
+      const storeElsewhere = async (text: string) => {
+        await act(async () => {
+          await store.chooseSignature(
+            mailboxesOf(store.getSnapshot().snapshot)[0]!.id,
+            [{ kind: 'paragraph', spans: [{ text }] }],
+          );
+        });
+      };
+      // AppKit shows the popover once its content has a size; Jest lays out nothing.
+      const linkEditor = async () => {
+        await fireEvent(settings.getByLabelText('Link'), 'layout', {
+          nativeEvent: { layout: { width: 320, height: 160 } },
+        });
+        let popover = settings.getByLabelText('Link');
+        while (popover.type !== 'UnwiredPopover') {
+          popover = popover.parent!;
+        }
+        return popover;
+      };
+      await fireEvent(editor(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 4 } },
+      });
+      await fireEvent.press(settings.getByRole('button', { name: 'Add Link' }));
+      await expect(linkEditor()).resolves.toHaveProp('shown', true);
+      await storeElsewhere('Dr. Alex Example');
+      await expect(linkEditor()).resolves.toHaveProp('shown', false);
+      await fireEvent(await linkEditor(), 'close');
+      // So does one stored while the editor has focus, once opening the Link Editor leaves it.
+      await fireEvent(editor(), 'focus');
+      await storeElsewhere('Prof. Alex Example');
+      await fireEvent.press(settings.getByRole('button', { name: 'Add Link' }));
+      await expect(linkEditor()).resolves.toHaveProp('shown', true);
+      await leave();
+      expect(within(editor()).getByText('Prof. Alex Example')).toBeVisible();
+      await expect(linkEditor()).resolves.toHaveProp('shown', false);
+      await fireEvent(await linkEditor(), 'close');
 
       // Leaving without an edit keeps a signature stored meanwhile, as by another device.
       const elsewhere = [
@@ -2849,8 +2888,21 @@ describe('mac windows of different Mail Profiles', () => {
         await fireEvent.press(settings.getByRole('button', { name: 'Delete' }));
       });
       expect(within(editor()).getByText('Alex')).toBeVisible();
-      await leave();
+      // After a refused format change, leaving without an edit keeps a signature stored meanwhile.
+      await fireEvent(editor(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 4 } },
+      });
+      await act(async () => {
+        await fireEvent.press(settings.getByRole('button', { name: 'Italic' }));
+      });
       sync.offline = false;
+      await storeElsewhere('Alex Meanwhile');
+      await leave();
+      expect(signatures()[0]).toStrictEqual([
+        'alex@example.invalid',
+        [{ kind: 'paragraph', spans: [{ text: 'Alex Meanwhile' }] }],
+      ]);
+      expect(within(editor()).getByText('Alex Meanwhile')).toBeVisible();
 
       // Emptying the editor clears the signature, and so does Delete.
       await type('');
