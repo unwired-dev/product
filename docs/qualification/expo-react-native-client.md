@@ -11,6 +11,26 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad Settings › Signatures, 2026-11-12
+
+[#2059](https://github.com/unwired-dev/product/issues/2059) adds the Signatures
+step to the [iPhone and iPad IMAP Spam and Trash folder journey](../native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey).
+It ran on a `registration-imap-folders` Release build of the reviewed editor
+(99725dea9) with Xcode 27.2 on the iOS 27.0 runtime. Host load was 90–290 from
+other work.
+
+- iPhone 18 Pro passed the whole journey in Light and in Dark.
+- iPad Pro 11-inch (M5) in Light passed every Signatures step: typing, Bold,
+  storing on leave and the row's first line. It then failed the accessibility
+  audit, which reports Dynamic Type as partially unsupported in the signature
+  field. iPhone reports the same finding as unsupported. The field fails the audit
+  whenever it holds text, plain or bold, and passes while empty. The composer
+  body renders the same way, as a multiline input of styled spans. The finding is
+  recorded as a known gap for the Signatures text view and left to
+  [#2007](https://github.com/unwired-dev/product/issues/2007).
+- The rerun with that gap stalled on app-idle waits in all 20 iPad attempts, Light
+  and Dark. **A passing iPad run and every iPad Dark step are deferred.**
+
 ## Physical reference access update, 2026-10-21
 
 The [native validation guide](../agents/native-validation.md#performance-qualification)
