@@ -786,9 +786,13 @@ Send or Discard removes the original leaves the original's reminder removed.
 
 On iPhone and iPad ([#2136](https://github.com/unwired-dev/product/issues/2136))
 a long press on Send opens its menu, whose **Remind Me to Send…** ("Keep it as a
-draft and remind me") offers the same two times in the device's time zone: as a
-sheet on iPhone, where a row sets the reminder, and as a popover from Send on
-iPad, where a choice is selected and **Set Reminder** sets it. A tap on Send
+draft and remind me") offers, in the device's time zone (`mobileReminderTimes`),
+**This Evening** at 18:00 while that is still ahead, **Tomorrow Morning** at
+8:00, and **Next Week** on the first Monday after tomorrow at 8:00. iPhone also
+offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday. They appear
+as a sheet on iPhone, where a row sets the reminder, and as a popover from Send
+on iPad, where Tomorrow Morning starts selected and **Set Reminder** sets the
+selected choice. A tap on Send
 still sends. Choosing a time, the banner, **Change**, **Remove Reminder** and the
 removal on Send, Discard or an empty Close behave as on the Mac, in the iPhone
 composer, the iPad card and the docked reply.

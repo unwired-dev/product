@@ -4,6 +4,7 @@ import type { NativeSendReminders } from '@private-email/mail-core/send-reminder
 import {
   createSendReminders,
   reminderDay,
+  mobileReminderTimes,
   reminderTimes,
 } from '@private-email/mail-core/send-reminders';
 
@@ -263,6 +264,39 @@ describe('reminder menu times', () => {
       { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 8) },
     ]);
     expect(reminderTimes(morning, 'Mars/Olympus')).toStrictEqual([]);
+  });
+
+  it('offers the iPhone and iPad times, This Weekend on iPhone only from Sunday to Thursday', () => {
+    expect.hasAssertions();
+    // Monday 12 October 2026, noon in Prague.
+    const monday = Date.UTC(2026, 9, 12, 10);
+    expect(mobileReminderTimes(monday, 'Europe/Prague', true)).toStrictEqual([
+      { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 12, 16) },
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 13, 6) },
+      { time: 'thisWeekend', dueAt: Date.UTC(2026, 9, 17, 7) },
+      { time: 'nextWeek', dueAt: Date.UTC(2026, 9, 19, 6) },
+    ]);
+    // Sunday 25 October 2026, 10:00 in Prague, after summer time ended: Next Week skips tomorrow.
+    const sunday = Date.UTC(2026, 9, 25, 9);
+    expect(mobileReminderTimes(sunday, 'Europe/Prague', true)).toStrictEqual([
+      { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 25, 17) },
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 26, 7) },
+      { time: 'thisWeekend', dueAt: Date.UTC(2026, 9, 31, 8) },
+      { time: 'nextWeek', dueAt: Date.UTC(2026, 10, 2, 7) },
+    ]);
+    // Friday 13 November 2026, 19:30 in Prague: the evening has passed and the weekend is next.
+    const friday = Date.UTC(2026, 10, 13, 18, 30);
+    const fridayTimes = [
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 10, 14, 7) },
+      { time: 'nextWeek', dueAt: Date.UTC(2026, 10, 16, 7) },
+    ];
+    expect(
+      [true, false].map((weekend) =>
+        mobileReminderTimes(friday, 'Europe/Prague', weekend),
+      ),
+    ).toStrictEqual([fridayTimes, fridayTimes]);
+    expect(mobileReminderTimes(monday, 'Europe/Prague', false)).toHaveLength(3);
+    expect(mobileReminderTimes(monday, 'Mars/Olympus', true)).toStrictEqual([]);
   });
 
   it('reads the same times where the engine splits the time zone offset into parts, as Hermes does', () => {

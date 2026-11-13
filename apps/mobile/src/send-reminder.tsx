@@ -16,9 +16,9 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import {
+  mobileReminderTimes,
   reminderCity,
   reminderDay,
-  reminderTimes,
 } from '@private-email/mail-core/send-reminders';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
@@ -81,9 +81,14 @@ function ReminderChoices({
   // oxlint-disable-next-line react/hook-use-state -- One presentation keeps the times it opened with.
   const [{ timeZone, times }] = useState(() => {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return { timeZone: zone, times: reminderTimes(Date.now(), zone) };
+    return {
+      timeZone: zone,
+      times: mobileReminderTimes(Date.now(), zone, !popover),
+    };
   });
-  const [selected, setSelected] = useState(times.at(-1)?.dueAt);
+  const [selected, setSelected] = useState(
+    times.find(({ time }) => time === 'tomorrowMorning')?.dueAt,
+  );
   const time = (at: number) =>
     formatAt(settings.locale, at, {
       timeZone,
@@ -101,20 +106,21 @@ function ReminderChoices({
   const rows = times.map(({ time: choice, dueAt }) => {
     const title = t(`drafts.reminder.${choice}`);
     const today = choice === 'thisEvening';
-    // iPad names the day and date beneath the choice; iPhone shows the time beside it.
+    const date = formatAt(settings.locale, dueAt, {
+      timeZone,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    });
+    // iPad names the day and date beneath the choice; iPhone shows the time beside it, and Next
+    // Week's date.
     let when = time(dueAt);
     if (popover && today) {
       when = t('drafts.reminder.todayAt', { time: when });
     } else if (popover) {
-      when = t('drafts.reminder.dateAt', {
-        date: formatAt(settings.locale, dueAt, {
-          timeZone,
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-        }),
-        time: when,
-      });
+      when = t('drafts.reminder.dateAt', { date, time: when });
+    } else if (choice === 'nextWeek') {
+      when = date;
     } else if (!today) {
       when = t('drafts.reminder.dayAt', {
         day: formatAt(settings.locale, dueAt, { timeZone, weekday: 'short' }),
@@ -123,6 +129,9 @@ function ReminderChoices({
     }
     const checked = selected === dueAt;
     let symbol = 'clock';
+    if (choice === 'thisWeekend' || choice === 'nextWeek') {
+      symbol = 'calendar';
+    }
     if (popover) {
       symbol = checked ? 'largecircle.fill.circle' : 'circle';
     }

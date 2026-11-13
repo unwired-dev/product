@@ -746,10 +746,9 @@ app follows under the issue named:
   iPhone and iPad it lists Remind Me to Send… (#2136). Send and Archive, Send
   Now and Send Later wait for #1673, #1674 and #1262.
 - **Reminder menu:** Choose Date and Time… waits for a frame of what it opens
-  (#658). The iPhone sheet and iPad popover frames draw This Evening at 18:00,
-  Tomorrow Morning at 8:00 and Next Week, and iPhone This Weekend; every
-  platform offers This Evening at 20:00 and Tomorrow Morning at 9:00, as the Mac
-  frame draws them, until the owner decides on #658. The Mac menu shows each time on the item's second line and the note
+  (#658). The Mac offers This Evening at 20:00 and Tomorrow Morning at 9:00, as
+  M3 draws them; iPhone and iPad offer the times their frames draw (#2136). The
+  Mac menu shows each time on the item's second line and the note
   as a dimmed item on one line, as AppKit draws them, where M3 draws the time
   trailing and the note wrapped in small type. Until #658 schedules
   notifications, no device reminds the person yet.

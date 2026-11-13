@@ -1094,6 +1094,8 @@
       "dateAt": "{{date}}, {{time}}",
       "thisEvening": "This Evening",
       "tomorrowMorning": "Tomorrow Morning",
+      "thisWeekend": "This Weekend",
+      "nextWeek": "Next Week",
       "todayAt": "Today, {{time}}",
       "dayAt": "{{day}} {{time}}",
       "note": "One of your devices will remind you to finish this Draft. It won’t send it.",

@@ -22,7 +22,7 @@ import {
 import {
   createSendReminders,
   reminderCity,
-  reminderTimes,
+  mobileReminderTimes,
 } from '@private-email/mail-core/send-reminders';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
@@ -3031,23 +3031,32 @@ describe('composing Drafts', () => {
 
   // An iPhone row sets its time; on iPad a choice is selected, then Set Reminder sets it.
   it.each([
-    { size: 'compact', role: 'button', confirm: async () => undefined },
+    {
+      size: 'compact',
+      role: 'button',
+      choices: /^(?:This Evening|Tomorrow Morning|This Weekend|Next Week), /u,
+      count: 4,
+      confirm: async () => undefined,
+    },
     {
       size: 'regular',
       role: 'radio',
+      choices: /^(?:This Evening|Tomorrow Morning|Next Week), /u,
+      count: 3,
       confirm: async () => press('Set Reminder'),
     },
   ] as const)(
     'sets, changes and removes a Draft’s Send Reminder from the Send menu on $size without sending it',
-    async ({ size, role, confirm }) => {
+    async ({ size, role, choices, count, confirm }) => {
       expect.hasAssertions();
-      // Noon today, so the choices offer This Evening and Tomorrow Morning whenever the test runs.
-      const noon = new Date();
-      noon.setHours(12, 0, 0, 0);
+      // Noon on a Monday, so every choice is offered.
+      const noon = new Date(2026, 9, 12, 12);
       const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
       try {
         const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
-        const tomorrow = reminderTimes(Date.now(), timeZone).at(-1);
+        const tomorrow = mobileReminderTimes(Date.now(), timeZone, false).find(
+          ({ time }) => time === 'tomorrowMorning',
+        );
         ok(tomorrow);
         const composed = await composeWithTemplates(size, (draft) => ({
           ...draft,
@@ -3075,11 +3084,9 @@ describe('composing Drafts', () => {
             'Keeps this message in Drafts and reminds you to send it. Nothing is sent automatically.',
           ),
         ).toBeOnTheScreen();
-        expect(
-          screen.getAllByRole(role, {
-            name: /^(?:This Evening|Tomorrow Morning), /u,
-          }),
-        ).toHaveLength(2);
+        expect(screen.getAllByRole(role, { name: choices })).toHaveLength(
+          count,
+        );
         // A reminder that storage refuses is reported and stores nothing.
         reminders.state.refusing = true;
         await chooseTomorrow();
