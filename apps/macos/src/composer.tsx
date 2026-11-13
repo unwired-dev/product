@@ -2359,6 +2359,8 @@ function Editor({
   // The Draft's stored Send Reminder, once read, and which reminder change last failed.
   const [readReminder, setReadReminder] = useState<SendReminder>();
   const [reminderFailed, setReminderFailed] = useState<'set' | 'remove'>();
+  // A pending Remove Reminder, which a reminder change waits for.
+  const removingReminder = useRef(false);
   const draftID = history.present.id;
   const reminder = reminderOf(readReminder, draftID, draftProfile);
   useEffect(() => {
@@ -2920,7 +2922,11 @@ function Editor({
   };
   // Saves the Draft as Save does, keeping it open, then stores its reminder at `dueAt`.
   const remind = async (dueAt: number, timeZone: string) => {
-    if (discarded.current || lifetime.current.finishing > 0) {
+    if (
+      discarded.current ||
+      lifetime.current.finishing > 0 ||
+      removingReminder.current
+    ) {
       return;
     }
     if (finishEntries().entries !== undefined) {
@@ -2951,18 +2957,22 @@ function Editor({
   };
   // Waits for no pending Save, Send or reminder change, so the reminder stored is the one shown.
   const removeReminder = async () => {
-    if (reminder === undefined || lifetime.current.finishing > 0) {
+    if (
+      reminder === undefined ||
+      lifetime.current.finishing > 0 ||
+      removingReminder.current
+    ) {
       return;
     }
     setReminderFailed(undefined);
-    lifetime.current.finishing += 1;
+    removingReminder.current = true;
     let removed = false;
     try {
       removed = await sendReminders.cancel(reminder.profile, reminder.draft);
     } catch {
       // An unexpected storage rejection keeps the reminder, to remove again.
     }
-    finishOperation();
+    removingReminder.current = false;
     if (lifetime.current.mounted) {
       if (removed) {
         setReadReminder(undefined);
