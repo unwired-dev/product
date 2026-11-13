@@ -264,6 +264,47 @@ const styles = StyleSheet.create({
   menuItemText: { ...textStyles.body, flex: 1 },
 });
 
+export const kindStyles: Record<BlockKind, TextStyle> = {
+  paragraph: {},
+  heading1: { fontSize: 26, lineHeight: 34, fontWeight: '700' },
+  heading2: { fontSize: 22, lineHeight: 30, fontWeight: '700' },
+  heading3: { fontSize: 19, lineHeight: 28, fontWeight: '600' },
+  bulleted: {},
+  numbered: {},
+  quote: { fontStyle: 'italic' },
+  code: { fontFamily: 'Menlo' },
+};
+
+const decorations = {
+  underline: 'underline',
+  strikethrough: 'line-through',
+  both: 'underline line-through',
+} as const;
+
+// Linked text shows underlined, as the Link Editor frames draw it.
+export const markStyle = (
+  marks: readonly Mark[] = [],
+  linked = false,
+): TextStyle => {
+  const underline = linked || marks.includes('underline');
+  const strikethrough = marks.includes('strikethrough');
+  let decoration: (typeof decorations)[keyof typeof decorations] | undefined =
+    undefined;
+  if (underline && strikethrough) {
+    decoration = decorations.both;
+  } else if (underline) {
+    decoration = decorations.underline;
+  } else if (strikethrough) {
+    decoration = decorations.strikethrough;
+  }
+  return {
+    ...(marks.includes('bold') ? { fontWeight: '700' } : {}),
+    ...(marks.includes('italic') ? { fontStyle: 'italic' } : {}),
+    ...(marks.includes('code') ? { fontFamily: 'Menlo' } : {}),
+    ...(decoration === undefined ? {} : { textDecorationLine: decoration }),
+  };
+};
+
 type MarkName = `drafts.marks.${Mark}`;
 type BlockName = `drafts.blocks.${Exclude<BlockKind, 'paragraph'>}`;
 export const markControls: ReadonlyArray<
@@ -299,7 +340,7 @@ export const blockControls: ReadonlyArray<
 ];
 
 // The format bar's SF Symbols for each mark, and the block kinds its Text Style menu offers.
-const markIcons: Readonly<Record<Mark, string>> = {
+export const markIcons: Readonly<Record<Mark, string>> = {
   bold: 'bold',
   italic: 'italic',
   underline: 'underline',

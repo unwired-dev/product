@@ -280,6 +280,11 @@ dismisses the sheet and Save saves it; the iPhone row opens the sheet from Setti
 the iPad row's Change… button does. Each step's capture is named with the
 appearance, for comparison with the approved frames. VoiceOver speech is not covered.
 
+Settings › Signatures then lists the IMAP Sending Identity with None
+([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
+made bold and stored when the editor is left; the row shows its first line, Delete
+clears it, and the list passes an accessibility audit.
+
 ## iPhone and iPad keyboard and accessibility journey
 
 The Expo native journey for a `registration-performance` Release build drives

@@ -2315,6 +2315,34 @@ final class InboxTests: XCTestCase {
     try audit(app, "Spam and Trash Folders")
     app.buttons["Close"].tap()
     XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+
+    // #2059: Settings › Signatures lists both Sending Identities. The IMAP one's signature is
+    // typed, made bold and stored when the editor is left, then deleted.
+    openSettings("Signatures", in: app)
+    let identity = app.buttons[address]
+    XCTAssertTrue(identity.waitForExistence(timeout: 15))
+    XCTAssertEqual(identity.value as? String, "None")
+    identity.tap()
+    let signature = app.textViews.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Signature for \(address)")
+    ).firstMatch
+    XCTAssertTrue(signature.waitForExistence(timeout: 10))
+    capture("Signatures none")
+    // XCUITest never reports the multiline field as focused, so typing goes to the app.
+    signature.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    press("Pat Example", in: app)
+    waitUntil { signature.value as? String == "Pat Example" }
+    app.typeKey("a", modifierFlags: .command)
+    app.buttons["Bold"].tap()
+    capture("Signature editing")
+    // Tapping outside the field leaves the editor, which stores the signature.
+    text("Edit “\(address)”", in: app).tap()
+    waitUntil { identity.value as? String == "Pat Example" }
+    capture("Signature stored")
+    try audit(app, "Signatures")
+    app.buttons["Delete"].tap()
+    waitUntil { identity.value as? String == "None" }
   }
 
   private func keyboardAndAccessibilityJourney(_ app: XCUIApplication) throws {
@@ -2639,11 +2667,16 @@ final class InboxTests: XCTestCase {
     // The software keyboard's suggestion cells.
     case .sufficientElementDescription where issue.detailedDescription.contains("TUIPrediction"):
       return "system keyboard"
-    // An address is the readable name of a sender or, in Settings, of the signed-in account or a
-    // mailbox.
+    // An address is the readable name of a sender or, in Settings, of the signed-in account, a
+    // mailbox or a Sending Identity's signature row.
     case .sufficientElementDescription
-    where issue.element?.elementType == .staticText && label.hasSuffix("example.invalid"):
+    where [.staticText, .button].contains(issue.element?.elementType)
+      && label.hasSuffix("example.invalid"):
       return "email address"
+    // The signature field, a multiline text input of styled spans like the composer's body, fails
+    // the audit once it holds text; #2007 checks formatted text at the largest sizes.
+    case .dynamicType where issue.element?.elementType == .textView && screen == "Signatures":
+      return "formatted text field (#2007)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
