@@ -163,7 +163,7 @@ export const OutboxEntrySchema = Schema.Struct({
   ]),
   // Whether this device asked Convex for the Draft's claim, and whether it holds it.
   claim: Schema.optionalKey(Schema.Literals(['requested', 'held'])),
-  // The sending connection's incarnation at Send; a message admitted before this was kept has none.
+  // The sending connection's incarnation at Send; a message admitted before it was kept has none.
   epoch: Schema.optionalKey(Schema.NonEmptyString),
   problem: Schema.optionalKey(DeliveryProblemSchema),
 });

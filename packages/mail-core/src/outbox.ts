@@ -279,11 +279,8 @@ export function createOutbox({
       ({ id }) => id === draft.connection,
     );
   const providerOf = (draft: Draft) => listedOf(draft)?.provider;
-  // The sending connection's incarnation, kept with a message admitted from it.
-  const incarnationOf = (draft: Draft) => {
-    const epoch = listedOf(draft)?.epoch;
-    return epoch === undefined ? {} : { epoch };
-  };
+  // The sending connection's incarnation; one listed before epochs is the legacy one.
+  const epochOf = (draft: Draft) => listedOf(draft)?.epoch ?? 'legacy';
   // Both scheduling and processing use the same deadline, including a refused storage step.
   const dueAt = (entry: OutboxEntry) => {
     if (entry.state === 'waiting') {
@@ -334,7 +331,7 @@ export function createOutbox({
     draft,
     epoch,
   }: OutboxEntry): DeliveryProblem | 'wait' | undefined =>
-    epoch !== undefined && epoch !== listedOf(draft)?.epoch
+    epoch !== undefined && epoch !== epochOf(draft)
       ? 'mailbox'
       : (senderProblem(draft) ?? sentFolderCheck(draft));
 
@@ -1075,7 +1072,7 @@ export function createOutbox({
       report?: (check: SendCheck) => void,
     ): Promise<SendRefusal | undefined> => {
       const draft = expected();
-      const incarnation = incarnationOf(draft);
+      const epoch = epochOf(draft);
       const refusal = refusalOf(draft);
       if (refusal !== undefined) {
         return refusal;
@@ -1112,7 +1109,7 @@ export function createOutbox({
           message,
           sendAt,
           state: 'waiting',
-          ...incarnation,
+          epoch,
         }),
       );
       if (admitted) {
