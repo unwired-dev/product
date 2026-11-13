@@ -803,8 +803,12 @@ export function createImapInbox(
     // Called after native code purged this device because another device removed it.
     removed?: (() => void) | undefined;
     // Called once a committed Inbox read brought unread mail newly into it; see arrivedMessages.
+    // `earlier` arrived beyond the cached window.
     arrived?:
-      | ((messages: readonly ImapMessage[]) => void | Promise<void>)
+      | ((
+          messages: readonly ImapMessage[],
+          earlier: readonly ImapMessage[],
+        ) => void | Promise<void>)
       | undefined;
     shared?: Readonly<ReturnType<typeof createBodyLoads>>;
     connection?: string;
@@ -1453,6 +1457,47 @@ export function createImapInbox(
       }
     }
   };
+  // The Inbox's arrivals older than the newest window `listed` when more than it keeps arrived,
+  // read only for Blocked Sender screening. Sequence numbers follow UIDs, so their envelopes are
+  // read in batches below the window, at most `remaining` from the top, until a batch reaches a
+  // UID from before the checkpoint.
+  const readEarlier = Effect.fnUntraced(function* ({
+    folder,
+    read,
+    selection,
+    remaining,
+    checkpoint,
+    listed,
+  }: Readonly<{
+    folder: string;
+    read: (total: number) => Effect.Effect<readonly Envelope[], ImapFailure>;
+    selection: Readonly<{ uidValidity: number; messages: number }>;
+    remaining: number;
+    checkpoint: number;
+    listed: readonly Envelope[];
+  }>) {
+    const earlier: ImapMessage[] = [];
+    if (arrived === undefined || folder !== inboxFolder) {
+      return earlier;
+    }
+    let batch = listed;
+    for (
+      let total = selection.messages - window;
+      total > selection.messages - remaining &&
+      batch.every(({ uid }) => uid >= checkpoint);
+      total -= window
+    ) {
+      batch = yield* read(total);
+      earlier.push(
+        ...batch
+          .filter(({ uid }) => uid >= checkpoint)
+          .map((message) =>
+            listedMessage(folder, selection.uidValidity, message),
+          ),
+      );
+    }
+    return earlier;
+  });
   // Reads what changed in the folder since the cached checkpoint, or its newest messages afresh
   // without one at the folder's UIDVALIDITY.
   const readFolder = Effect.fnUntraced(function* (
@@ -1511,9 +1556,18 @@ export function createImapInbox(
         ? unlisted
         : Math.min(unlisted, next - Math.min(next, cached.uidNext));
     let messages: readonly Envelope[] = [];
+    let earlier: readonly ImapMessage[] = [];
     if (remaining > window) {
-      // More arrived than the window keeps: only the newest are read.
+      // More arrived than the window keeps: only the newest are listed.
       messages = yield* newest;
+      earlier = yield* readEarlier({
+        folder: request.folder,
+        read: (total) => envelopes({ ...session, newest: window, total }),
+        selection,
+        remaining,
+        checkpoint: cached.uidNext,
+        listed: messages,
+      });
     } else if (next === 0 || next > cached.uidNext) {
       // `UID n:*` always names the newest message, even one below n, so it is left out.
       messages = (yield* envelopes({
@@ -1527,6 +1581,7 @@ export function createImapInbox(
       reset: false,
       messages,
       flags,
+      earlier,
     } satisfies FolderRead;
   });
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
@@ -1564,10 +1619,8 @@ export function createImapInbox(
     if (name === inboxFolder) {
       // Shows the new mail, and the folders and capabilities just listed, before reporting it.
       render();
-      yield* reportArrivals(
-        arrived,
-        arrivedMessages(cached, read, entry.cache),
-      );
+      const { listed, earlier } = arrivedMessages(cached, read, entry.cache);
+      yield* reportArrivals(arrived, listed, earlier);
     }
     yield* pruneBodies;
   });

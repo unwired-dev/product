@@ -615,11 +615,13 @@ export function createMailboxes(
       };
       // Mail from a Blocked Sender of the connection's current Mail Profile posts no notification,
       // whether or not notifications are on, and moves to Trash through the reader's queued change.
+      // `earlier` arrivals, beyond the reader's window, are screened but never notified.
       const report =
         <M extends ArrivedMessage & Readonly<{ receivedAt: string }>>(
           trash: (message: M) => void,
         ) =>
-        async (arrivals: readonly M[]) => {
+        async (listed: readonly M[], earlier: readonly M[] = []) => {
+          const arrivals = [...listed, ...earlier];
           const profile = () =>
             openMailboxes(registration.getSnapshot().snapshot).find(
               (mailbox) => mailbox.id === id && mailbox.owner === owner,
@@ -636,7 +638,7 @@ export function createMailboxes(
               trash(message);
             }
           }
-          const messages = arrivals.filter(
+          const messages = listed.filter(
             (message) => screened?.blocked.has(message.id) !== true,
           );
           if (arrived === undefined || messages.length === 0) {

@@ -202,6 +202,37 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     });
   });
 
+  it('moves new IMAP mail from a Blocked Sender that arrived beyond the Inbox read window', async () => {
+    expect.hasAssertions();
+    const { imap, notified, mailboxes } = await setup();
+    imap.deliver('INBOX', { subject: 'Known note', received: Date.now() });
+    await mailboxes.load();
+    notified.length = 0;
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received: Date.now(),
+    });
+    for (let index = 0; index < 250; index += 1) {
+      imap.deliver('INBOX', { subject: `Note ${index}`, received: Date.now() });
+    }
+    const envelopes = vi.spyOn(imap.native, 'imapEnvelopes');
+    await mailboxes.load();
+
+    // Only the newest window is listed and notified; the older arrivals' envelopes are read in one
+    // more batch, which reaches the known message, and nothing older.
+    expect(notified).toHaveLength(200);
+    expect(
+      envelopes.mock.calls.map(([, request]) => ({ ...request, session: '' })),
+    ).toStrictEqual([
+      { session: '', newest: 200, total: 252 },
+      { session: '', newest: 200, total: 52 },
+    ]);
+    await vi.waitFor(() => {
+      expect(imap.server.changes).toStrictEqual(['move INBOX 2 Trash']);
+    });
+  });
+
   it("follows neither Profile's blocks for a connection moved while its mail was screened", async () => {
     expect.hasAssertions();
     const { gmail, notified, mailboxes, gmailProfile, screened } =

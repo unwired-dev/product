@@ -742,14 +742,19 @@ const sameProgress = (left: PendingAction, right: PendingAction) =>
       attempt.at === right.attempts?.[index]?.at,
   );
 
-// Reports new Inbox mail after its commit. Awaited so a background opportunity covers posting; its
-// failure never ends synchronization.
+// Reports new Inbox mail after its commit, and any `earlier` arrivals the read could not keep.
+// Awaited so a background opportunity covers posting; its failure never ends synchronization.
 export const reportArrivals = Effect.fnUntraced(function* <M>(
-  arrived: ((messages: readonly M[]) => void | Promise<void>) | undefined,
+  arrived:
+    | ((messages: readonly M[], earlier: readonly M[]) => void | Promise<void>)
+    | undefined,
   messages: readonly M[],
+  earlier: readonly M[] = [],
 ) {
-  if (arrived !== undefined && messages.length > 0) {
-    yield* Effect.tryPromise(() => Promise.resolve(arrived(messages))).pipe(
+  if (arrived !== undefined && messages.length + earlier.length > 0) {
+    yield* Effect.tryPromise(() =>
+      Promise.resolve(arrived(messages, earlier)),
+    ).pipe(
       Effect.catch((error) =>
         Effect.logError(
           'New mail notifications failed:',
