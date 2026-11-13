@@ -135,8 +135,8 @@ connection mid-admission and adding it back can still send it (#2128). With prev
 the message is no longer listed, or its body cannot be read, or the Outbox refuses
 the Send, the text stays in Drafts and **Couldn’t reply** offers **Open Draft**; when
 storage refuses the text, or another editor changed the new Draft first and keeps its
-content, it says the text couldn't be saved instead, and the Draft's composer reports a failed
-save. When the Drafts cannot open at all, **Couldn’t reply** has no Draft to offer and says to
+content, it says the text couldn't be saved instead; for refused storage the Draft's composer
+also reports the failed save. When the Drafts cannot open at all, **Couldn’t reply** has no Draft to offer and says to
 open the message, which its tap does, to reply again. Open Draft opens it in its own New Message window. A connection that is gone, recreated or another
 Product Account's sends and saves nothing. iPhone and iPad keep the Reply that opens the
 message; the offline outcome and a locked Profile come in later #1672 slices.
