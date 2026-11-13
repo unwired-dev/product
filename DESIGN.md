@@ -457,8 +457,10 @@ styles) so the file stays editable.
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
   safe area, and the reading pane runs to the screen's bottom edge beneath them.
-  Its controls are Reply, Reply All, Forward, the multi-select Category control,
-  Archive, Delete, Move, Spam, Pin, Muted Thread, Mark Read or Unread and Snooze;
+  On Mac and iPad it holds Archive, Delete, Move, Reply, Reply All, Forward, Pin,
+  Snooze and More; on iPhone Archive, Move and Reply. More holds Mark as Unread,
+  Mute Thread and Move to Spam, and the multi-select Category control sits in
+  the reader header;
   the [conversation reader requirements](docs/product/messages-and-delivery.md#thread-identity-and-reader-behavior)
   and [Thread Snooze requirements](docs/product/organization.md#snooze-and-follow-up-notes)
   set what each targets.
@@ -466,10 +468,11 @@ styles) so the file stays editable.
   [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation)
   and [Drafts](docs/drafts.md#composing) own its states, Expand, Close, Discard,
   interactivity beside it and save behavior.
-  On regular width it opens as a bottom-anchored overlay inside the
-  reading pane, with 12pt outer insets on iPad and docked across the reading pane's full width
-  at its bottom edge on the Mac, as the inline composer frame shows, at 70% of the available height, clamped
-  from 420 to 720pt. Expand covers the app window on iPad and moves the Draft into
+  On the Mac it opens as a bottom-anchored overlay docked across the reading
+  pane's full width, as the inline composer frame shows, at 70% of the available
+  height, clamped from 420 to 720pt. On regular-width iPad a reply or forward
+  docks across the reading column's lower two thirds, and a new message opens as
+  a card centred on the window, at most 874pt wide. Expand covers the app window on iPad and moves the Draft into
   its own New Message window on the Mac
   ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).
   Compact
@@ -720,29 +723,11 @@ form accessories, keyboards, status bar).
 Everywhere else the frames win over this document, as the
 [frames rule](AGENTS.md#design) says.
 
-These frames predate a requirement or leave out what the system does. Here the
-requirement or the system wins until the frame is redrawn:
+One frame size differs from the device on purpose. Here the system wins:
 
-- **Sidebar:** the unified Archive frames in each platform's "Features ·
-  Unified Mailboxes and backfill" section, on its Mailboxes and Inbox page,
-  show the secondary mailboxes under Favorites and a connection without that
-  role; other mockups omit them.
-- **Message list header:** the reference mockups show an earlier System Category
-  row with All selected.
-- **Search bar:** on iPhone the system toolbar's glass sits lower and further
-  inset than the frames draw (#1534).
-- **Command Palette:** no compact iPad frame shows the command input in the
-  reader and composer headers yet.
-- **Toolbar:** the reference mockups show only Archive, Delete, Move, Reply,
-  Reply All, Forward, Pin and Snooze.
-- **Compose:** the reference mockups still show a 60% inline composer. The Mac
-  New Message overflow keeps Discard reachable.
 - **iPad Settings height:** frames whose Settings sidebar lists more rows than
   the screen holds are drawn 912pt tall to show the whole list. On the device
   the sidebar scrolls.
-- **Message Row:** the reference mockups show a two-line preview.
-- **Profile Menu:** the reference frames' trailing counts are not drawn; the
-  system menu puts each Profile's unread count in its subtitle.
 
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
@@ -754,14 +739,21 @@ app follows under the issue named:
 - **iPhone composer:** the frames draw the composer as a sheet, as
   [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) now
   decides. The app pushes it onto the navigation stack until #2113.
-- **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); Send
-  and Archive, Send Now and Send Later wait for #1673, #1674 and #1262. On
+- **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); on
   iPhone and iPad, Remind Me to Send… waits for #658.
 - **Reminder menu:** Choose Date and Time… waits for a frame of what it opens
   (#658). The Mac menu shows each time on the item's second line and the note
   as a dimmed item on one line, as AppKit draws them, where M3 draws the time
-  trailing and the note wrapped in small type. Until #658 schedules notifications, no device reminds
-  the person yet.
+  trailing and the note wrapped in small type. Until #658 schedules
+  notifications, no device reminds the person yet.
+- **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
+- **Reader More menu:** Move to Spam waits for #2132.
+- **Compact iPad window:** the Command input in the reader's navigation bar and
+  on the composer's From row waits for #2133.
+- **iPhone composer body:** the body fills the sheet and the fields are below
+  the fold, which waits for #2119.
+- **Slash Command Menu:** the menu and Show Formatting Toolbar wait for #2117
+  and #2118.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
 - **Command Palette key cap:** the frames and the Layout section show ⌘K, as
