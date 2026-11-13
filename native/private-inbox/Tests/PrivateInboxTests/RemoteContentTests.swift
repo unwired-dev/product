@@ -321,7 +321,9 @@ extension PrivateInboxTests {
     let server = try ImageServer()
     defer { server.stop() }
     #expect(try await unsubscribe(server) == .sent)
-    #expect(try #require(server.requests.first).hasPrefix("POST /unsubscribe HTTP/1.1\r\n"))
+    let request = try #require(server.requests.first)
+    #expect(request.hasPrefix("POST /unsubscribe HTTP/1.1\r\n"))
+    #expect(request.hasSuffix("\r\n\r\nList-Unsubscribe=One-Click"))
     let silent = try ImageServer(answers: false)
     defer { silent.stop() }
     #expect(try await unsubscribe(silent) == .uncertain)
@@ -518,7 +520,14 @@ private final class ImageServer: @unchecked Sendable {
     connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) {
       [self] data, _, complete, error in
       let next = buffer + (data ?? Data())
-      if next.range(of: Data("\r\n\r\n".utf8)) != nil {
+      // A request is complete once its headers and any Content-Length body have arrived.
+      let head = next.range(of: Data("\r\n\r\n".utf8))
+      let length = head.flatMap { head in
+        String(decoding: next[..<head.lowerBound], as: UTF8.self).split(separator: "\r\n")
+          .first { $0.lowercased().hasPrefix("content-length:") }
+          .flatMap { Int($0.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) }
+      } ?? 0
+      if let head, next.count >= head.upperBound + length {
         lock.withLock { received.append(String(decoding: next, as: UTF8.self)) }
         guard answers else { return }
         let reply = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 7\r\n\r\nPNGDATA"
