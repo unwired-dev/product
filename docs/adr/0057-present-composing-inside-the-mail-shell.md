@@ -4,6 +4,27 @@ status: accepted
 
 # Present composing inside the mail shell
 
+## Compact sheet amendment, 2026-11-13
+
+The owner decided on 13 November 2026 that the approved frames win over this
+record: on compact layouts the composer is presented as a sheet over the screen
+it was started from, as the iPhone Compose frames draw it, and is no longer
+pushed into the navigation stack. This supersedes the two compact clauses below:
+that the mail shell pushes the composer into its existing navigation stack as
+an editor destination, and that the client does not use a sheet for these
+composer states.
+
+The sheet is the system's, with its own size, motion and gestures. Dismissing it
+is Close and passes the same guard: changed content is kept until the person
+chooses **Save Draft** or **Delete Draft**. Composing stays owned by the mail
+window, one active composer per window, and adaptive layout changes still
+preserve the composition identity, Semantic Message Document, selection, focus
+and Undo history. The regular-width overlay on iPad, the Mac contracts, Draft
+storage, ownership, encryption and delivery are unchanged.
+[#2113](https://github.com/unwired-dev/product/issues/2113) builds it, and
+[the Draft guide](../drafts.md#composing) owns the observable contract once it
+ships.
+
 ## Crash recovery amendment, 2026-11-11
 
 [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the Mac saving amendment's acceptance below that edits are lost if
