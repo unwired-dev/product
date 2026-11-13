@@ -1,0 +1,22 @@
+diff --git a/ios/SwiftUI/Navigation/DevLauncherToolbar.swift b/ios/SwiftUI/Navigation/DevLauncherToolbar.swift
+index dfe7a00834cd4639a361461605db6beaf4b5f87d..ca71a645001550f0da27ac9c82b267bdf41c54fd 100644
+--- a/ios/SwiftUI/Navigation/DevLauncherToolbar.swift
++++ b/ios/SwiftUI/Navigation/DevLauncherToolbar.swift
+@@ -16,15 +16,9 @@ extension View {
+ extension ToolbarContent {
+   @ToolbarContentBuilder
+   func verticalBarPreferred() -> some ToolbarContent {
+-#if os(iOS) && compiler(>=6.4)
+-    if #available(iOS 27.1, *) {
+-      axisBehavior(.verticalPreferred)
+-    } else {
+-      self
+-    }
+-#else
++    // Unwired Mail: Xcode 27.0's Swift 6.4 lacks the iOS 27.1 SDK's axisBehavior, so the
++    // launcher keeps its default toolbar axis.
+     self
+-#endif
+   }
+ 
+   @ToolbarContentBuilder
