@@ -780,10 +780,13 @@ discarding or closing an empty Draft from the composer removes the reminder of
 the Draft it sent or removed, whichever window set it; a conflicting copy sent
 from a stale window leaves the original's reminder alone, and so does a stale
 window's Discard or empty Close that keeps newer content another window saved
-under the same Draft. Reminders are not
-synchronized and schedule no notification yet, iPhone and iPad offer none, and
-a reminder whose Draft is deleted elsewhere, or whose removal storage refused
-after Send or Discard, stays stored; later #658 slices add those.
+under the same Draft. A reminder stays with its Draft: a conflicting copy the
+editor moves to shows none of the original's, and an edit kept as a copy while
+Send or Discard removes the original leaves the original's reminder removed.
+Reminders are not synchronized and schedule no notification yet, iPhone and
+iPad offer none, and a reminder whose Draft is deleted elsewhere, or whose
+removal storage refused after Send or Discard, stays stored; later #658 slices
+add those.
 
 ## Verification
 

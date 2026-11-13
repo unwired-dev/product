@@ -2349,9 +2349,14 @@ function Editor({
     use(AccountContext)?.mailboxes ?? [],
   );
   // The Draft's stored Send Reminder, once read, and which reminder change last failed.
-  const [reminder, setReminder] = useState<SendReminder>();
+  const [readReminder, setReminder] = useState<SendReminder>();
   const [reminderFailed, setReminderFailed] = useState<'set' | 'remove'>();
   const draftID = history.present.id;
+  // One read before the editor moved to a conflict copy or another Profile belongs to that Draft.
+  const reminder =
+    readReminder?.draft === draftID && readReminder.profile === draftProfile
+      ? readReminder
+      : undefined;
   useEffect(() => {
     let current = true;
     const read = async () => {
@@ -2794,13 +2799,24 @@ function Editor({
     }
     return finishing(storeAndSave);
   };
-  // A Draft `id` that Send or Discard removed needs no reminder, whichever window set it. Discard
-  // keeps another window's newer content under the same id, which keeps its reminder too. One
-  // storage could not remove stays harmless, as it names a Draft that no longer exists.
-  const forgetReminder = (id: string) => {
-    if (draftOf(store.getSnapshot(), id) === undefined) {
-      void sendReminders.cancel(reminder?.profile ?? draftProfile, id);
-    }
+  // A Draft that Send or Discard removed needs no reminder, whichever window set it. `target` reads
+  // the Draft `id` for the store, which removes the one read last; a rebinding after that moves the
+  // editor to a conflict copy keeping its own reminder. Discard keeps another window's newer
+  // content under the same id, which keeps its reminder too. One storage could not remove stays
+  // harmless, as it names a Draft that no longer exists.
+  const reminderCleanup = () => {
+    let { id } = authored.current;
+    return {
+      target: () => {
+        ({ id } = authored.current);
+        return id;
+      },
+      forget: () => {
+        if (draftOf(store.getSnapshot(), id) === undefined) {
+          void sendReminders.cancel(draftProfile, id);
+        }
+      },
+    };
   };
   // Close asks to save changes, including ones a failed Save left unsaved; an empty Draft is
   // removed and an unchanged one closes.
@@ -2811,12 +2827,13 @@ function Editor({
     asked.current = false;
     if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
       return finishing(async () => {
-        const removed = await store.discard(() => authored.current.id, {
+        const cleanup = reminderCleanup();
+        const removed = await store.discard(cleanup.target, {
           onlyIfEmpty: true,
           expected: () => stored.current,
         });
         if (removed) {
-          forgetReminder(authored.current.id);
+          cleanup.forget();
         }
         return removed;
       });
@@ -2957,15 +2974,16 @@ function Editor({
     discarded.current = true;
     lifetime.current.finishing += 1;
     let removed = false;
+    const cleanup = reminderCleanup();
     try {
-      removed = await store.discard(() => authored.current.id, {
+      removed = await store.discard(cleanup.target, {
         expected: () => stored.current,
       });
     } catch {
       // An unexpected storage rejection leaves the editor retryable too.
     }
     if (removed) {
-      forgetReminder(authored.current.id);
+      cleanup.forget();
       await closeRecord(authored.current.id);
     } else {
       discarded.current = false;
@@ -3005,12 +3023,13 @@ function Editor({
     discarded.current = true;
     lifetime.current.finishing += 1;
     let refusal: SendRefusal | undefined = 'storage';
+    const cleanup = reminderCleanup();
     try {
       storeShown();
       refusal = await outbox.send(
         () => ({
           ...shown,
-          id: authored.current.id,
+          id: cleanup.target(),
           ...(authored.current.conflict ? { conflict: true as const } : {}),
         }),
         setCheck,
@@ -3024,7 +3043,7 @@ function Editor({
       // An unexpected rejection keeps the Draft open to send again.
     }
     if (refusal === undefined) {
-      forgetReminder(authored.current.id);
+      cleanup.forget();
       await closeRecord(authored.current.id);
     } else {
       pausedNow.current = false;

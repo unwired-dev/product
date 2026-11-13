@@ -509,7 +509,7 @@ async function composeWithTemplates(
     });
   };
   await reopen();
-  return { ...templates, reminders, drafts, id, reopen };
+  return { ...templates, reminders, drafts, storage, id, reopen };
 }
 
 // Chooses New Template from This Message… and Save Template with `name`.
@@ -2851,6 +2851,76 @@ describe('composing Drafts', () => {
     await expect(
       closing.reminders.store.reminders(defaultProfile),
     ).resolves.toMatchObject([{ draft: closing.id }]);
+  });
+
+  it('stops offering the original’s reminder once a stale editor moves to its conflicting copy', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      dueAt: Date.now() + 3_600_000,
+      timeZone,
+    });
+    await screen.unmount();
+    await subject.reopen();
+    expect(screen.getByText(/^Reminder for /u)).toBeOnTheScreen();
+    // The conflicting copy's own reminder cannot be read.
+    const reading = jest
+      .spyOn(subject.reminders.store, 'reminders')
+      .mockResolvedValue(undefined);
+    const [shown] = draftsOf(subject.drafts.getSnapshot());
+    ok(shown);
+    await act(async () => {
+      await subject.drafts.update({ ...shown, subject: 'Other window' }, shown);
+    });
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'This window');
+    // While storage refuses the save, the editor stays open on its conflicting copy.
+    subject.storage.setLocked(true);
+    await saveAndClose();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'This window');
+    expect(screen.queryByText(/^Reminder for /u)).toBeNull();
+    reading.mockRestore();
+  });
+
+  it('removes the discarded Draft’s reminder when an edit made meanwhile moves the editor to a conflicting copy', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      dueAt: Date.now() + 3_600_000,
+      timeZone,
+    });
+    const [shown] = draftsOf(subject.drafts.getSnapshot());
+    ok(shown);
+    subject.storage.hold();
+    await press('Compose actions');
+    await chooseMenuItem('Discard');
+    await press('Discard Draft');
+    // Another window edits the Draft while its deletion is stored, which keeps the edit as a copy.
+    await act(async () => {
+      void subject.drafts.update(
+        { ...shown, subject: 'Edited meanwhile' },
+        shown,
+      );
+      subject.storage.release();
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Message body')).toBeNull();
+    });
+    expect(draftsOf(subject.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Edited meanwhile', conflict: true },
+    ]);
+    await expect(
+      subject.reminders.store.reminders(defaultProfile),
+    ).resolves.toStrictEqual([]);
   });
 
   it('keeps a stale editor on its own conflicting copy', async () => {

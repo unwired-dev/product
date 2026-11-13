@@ -359,6 +359,50 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('removes the sent Draft’s reminder when an edit made meanwhile moves the editor to a conflicting copy', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(/^Reminder for tomorrow/u);
+      await act(async () => {
+        await sender.drafts.save();
+      });
+      const [original] = draftsOf(sender.drafts.getSnapshot());
+      ok(original);
+      // Storage holds the admission while another window edits the Draft, which keeps the edit as
+      // a conflicting copy.
+      sender.storage.hold();
+      await act(async () => {
+        void fireEvent.press(screen.getByRole('button', { name: 'Send' }));
+      });
+      await act(async () => {
+        void sender.drafts.update(
+          { ...original, subject: 'Keys from the other window' },
+          original,
+        );
+        sender.storage.release();
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Message body')).toBeNull();
+      });
+      expect(draftsOf(sender.drafts.getSnapshot())).toMatchObject([
+        { subject: 'Keys from the other window', conflict: true },
+      ]);
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
   it('accepts no edits while Send is pending, then closes once the message is admitted', async () => {
     expect.hasAssertions();
     const sender = device();
