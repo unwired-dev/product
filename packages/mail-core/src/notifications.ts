@@ -544,7 +544,7 @@ const postReply = (
   );
 
 // A Draft from `sender` holding only `text`: a reply to the message when its body was read, and
-// the text alone otherwise. `sendable` is the saved reply, unset when it is not one or did not save;
+// the text alone otherwise. `sendable` is the reply as prepared, unset when it is not one or did not save;
 // `unsaved` says the text is not stored: storage refused it, which the Draft's composer then
 // reports, or another editor changed the new Draft first, whose content is kept.
 async function savedReply(
@@ -585,24 +585,22 @@ async function savedReply(
         );
   const typed =
     reply ?? ((each: Draft) => ({ ...each, body: typedBody(text) }));
-  let applied = false;
+  let prepared: Draft | undefined = undefined;
   const filled = await drafts.fill(
     draft,
     (each) => {
-      applied = isEmptyDraft(each);
-      return applied ? typed(each) : each;
+      prepared = isEmptyDraft(each) ? typed(each) : undefined;
+      return prepared ?? each;
     },
     [],
   );
   const unsaved =
-    !applied || draftSaveProblem(drafts.getSnapshot()) !== undefined;
+    prepared === undefined ||
+    draftSaveProblem(drafts.getSnapshot()) !== undefined;
   return {
     draft,
     unsaved,
-    sendable:
-      filled && !unsaved && reply !== undefined
-        ? draftOf(drafts.getSnapshot(), draft)
-        : undefined,
+    sendable: filled && !unsaved && reply !== undefined ? prepared : undefined,
   };
 }
 
@@ -673,10 +671,11 @@ const sendingTitle = (
       })
     : '';
 
-// Admits a saved reply to the Outbox; a connection replaced meanwhile gets it back in Drafts.
+// Admits a saved reply to the Outbox as prepared, refused once another editor changed it; a
+// connection replaced meanwhile gets it back in Drafts.
 // Resolves whether it waits to send.
 async function queuedReply(
-  { drafts, outbox }: Pick<Replies, 'drafts' | 'outbox'>,
+  outbox: Replies['outbox'],
   {
     draft,
     sendable,
@@ -689,9 +688,7 @@ async function queuedReply(
 ) {
   if (
     sendable === undefined ||
-    (await outbox.send(
-      () => draftOf(drafts.getSnapshot(), draft) ?? sendable,
-    )) !== undefined
+    (await outbox.send(() => sendable)) !== undefined
   ) {
     return false;
   }
@@ -753,10 +750,7 @@ async function replyTyped(
   }
   const { draft, unsaved, sendable } = saved;
   // Admitted before anything else is awaited, so no other editor's change is sent.
-  const queued = await queuedReply(
-    { drafts, outbox },
-    { draft, sendable, current },
-  );
+  const queued = await queuedReply(outbox, { draft, sendable, current });
   const { previews } = await runLogged(
     settingsOf(() => native.notificationSettings()).pipe(
       Effect.orElseSucceed(() => ({ previews: false })),

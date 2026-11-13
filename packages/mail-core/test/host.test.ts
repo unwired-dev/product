@@ -772,6 +772,25 @@ describe('the host assembly', () => {
     });
   });
 
+  it('keeps another editor’s change made while the typed reply saves, and sends nothing', async () => {
+    expect.hasAssertions();
+    const { host, answered, reply, drafts } = await replyingHost();
+    // Another editor changes the Draft once the reply is applied, before its save resolves.
+    const { fill } = host.drafts;
+    host.drafts.fill = async (id, ...rest) => {
+      const filled = await fill(id, ...rest);
+      host.drafts.fill = fill;
+      await fill(id, (each) => ({ ...each, subject: 'Mine' }), []);
+      return filled;
+    };
+
+    await reply('reply', answered, 'Thursday works.');
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      subjects: drafts().map(({ subject }) => subject),
+    }).toStrictEqual({ outbox: [], subjects: ['Mine'] });
+  });
+
   it('keeps a reply to a message no longer listed in Drafts, and opens it from Couldn’t reply', async () => {
     expect.hasAssertions();
     const {
