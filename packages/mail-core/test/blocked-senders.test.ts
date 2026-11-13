@@ -285,9 +285,10 @@ describe('stored Blocked Senders', () => {
     expect.hasAssertions();
     const { store, relaunch } = storage();
     await store.block('work', 'offers@growthleads.io');
+    const receivedAt = '2026-11-08T09:00:00.000Z';
     const arrivals = [
-      { id: 'blocked', address: ' Offers@GrowthLeads.io' },
-      { id: 'other', address: 'maya@example.invalid' },
+      { id: 'blocked', address: ' Offers@GrowthLeads.io', receivedAt },
+      { id: 'other', address: 'maya@example.invalid', receivedAt },
     ];
     await expect(
       store.screen('work', 'connection-1', arrivals),
@@ -295,10 +296,13 @@ describe('stored Blocked Senders', () => {
       blocked: new Set(['blocked']),
       move: ['blocked'],
     });
-    // Reported again, as after a restore to the Inbox, it is still blocked but never moved again.
+    // Reported again, as after a restore to the Inbox renamed it, it is still blocked but never
+    // moved again.
     await expect(
-      relaunch().screen('work', 'connection-1', arrivals),
-    ).resolves.toStrictEqual({ blocked: new Set(['blocked']), move: [] });
+      relaunch().screen('work', 'connection-1', [
+        { id: 'restored', address: 'offers@growthleads.io', receivedAt },
+      ]),
+    ).resolves.toStrictEqual({ blocked: new Set(['restored']), move: [] });
     // A receipt names its connection; another Profile's Blocked Senders never apply.
     await expect(
       store.screen('work', 'connection-2', arrivals),
@@ -322,7 +326,13 @@ describe('stored Blocked Senders', () => {
     vi.spyOn(console, 'error').mockReturnValue();
     const { state, store } = storage();
     await store.block('work', 'offers@growthleads.io');
-    const arrivals = [{ id: 'blocked', address: 'offers@growthleads.io' }];
+    const arrivals = [
+      {
+        id: 'blocked',
+        address: 'offers@growthleads.io',
+        receivedAt: '2026-11-08T09:00:00.000Z',
+      },
+    ];
     state.before = () => {
       state.locked = true;
     };
@@ -344,7 +354,11 @@ describe('stored Blocked Senders', () => {
     state.account = 'account-1';
     const waiting = store.block('home', 'offers@growthleads.io');
     const screening = store.screen('work', 'connection-1', [
-      { id: 'blocked', address: 'offers@growthleads.io' },
+      {
+        id: 'blocked',
+        address: 'offers@growthleads.io',
+        receivedAt: '2026-11-08T09:00:00.000Z',
+      },
     ]);
     state.account = 'account-2';
     await waiting;

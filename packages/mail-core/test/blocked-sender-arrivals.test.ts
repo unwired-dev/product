@@ -234,4 +234,29 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
       expect(imap.server.changes).toStrictEqual(['move INBOX 1 Trash']);
     });
   });
+
+  it('never moves again a Blocked Sender’s mail restored to the Inbox under a new UID', async () => {
+    expect.hasAssertions();
+    const { imap, notified, mailboxes } = await setup();
+    const received = Date.now();
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received,
+    });
+    await mailboxes.load();
+    await vi.waitFor(() => {
+      expect(imap.server.changes).toStrictEqual(['move INBOX 1 Trash']);
+    });
+    // Restored as the person would move it back, it keeps its INTERNALDATE.
+    imap.expunge('Trash', 1);
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received,
+    });
+    await mailboxes.load();
+    expect(notified).toStrictEqual([]);
+    expect(imap.server.changes).toStrictEqual(['move INBOX 1 Trash']);
+  });
 });

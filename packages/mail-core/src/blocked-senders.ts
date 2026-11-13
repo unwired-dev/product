@@ -41,10 +41,12 @@ export type BlockedSender = typeof BlockedSenderSchema.Type;
 
 // A device-local receipt: this device took one blocked arrival of a connection to Trash, where the
 // connection has one, so an arrival reported again, as when the person restores it to the Inbox,
-// is never moved again.
+// is never moved again. Its sender and receipt time name it, since a move renames an IMAP or
+// Microsoft message.
 const ReceiptSchema = Schema.Struct({
   connection: Schema.NonEmptyString,
-  message: Schema.NonEmptyString,
+  address: Schema.NonEmptyString,
+  receivedAt: Schema.NonEmptyString,
 });
 type Receipt = typeof ReceiptSchema.Type;
 
@@ -206,30 +208,32 @@ export function createBlockedSenders(
     screen: (
       profile: string,
       connection: string,
-      messages: ReadonlyArray<Readonly<{ id: string; address: string }>>,
+      messages: ReadonlyArray<
+        Readonly<{ id: string; address: string; receivedAt: string }>
+      >,
     ) => {
       const account = signedIn();
       return runLogged(
         Effect.gen(function* () {
           const stored = yield* opened(account);
-          const blocked = new Set(
-            messages
-              .filter(({ address }) => {
-                const normalized = blockedAddress(address);
-                return (
-                  normalized !== undefined &&
-                  stored.senders.some(isProfileAddress(profile, normalized))
-                );
-              })
-              .map(({ id }) => id),
-          );
-          const move = [...blocked].filter(
-            (id) =>
+          const arrivals = messages.flatMap(({ id, receivedAt, ...sender }) => {
+            const address = blockedAddress(sender.address);
+            return address !== undefined &&
+              stored.senders.some(isProfileAddress(profile, address))
+              ? [{ id, receipt: { connection, address, receivedAt } }]
+              : [];
+          });
+          const blocked = new Set(arrivals.map(({ id }) => id));
+          const moving = arrivals.filter(
+            ({ receipt }) =>
               !stored.receipts.some(
-                (receipt) =>
-                  receipt.connection === connection && receipt.message === id,
+                (kept) =>
+                  kept.connection === receipt.connection &&
+                  kept.address === receipt.address &&
+                  kept.receivedAt === receipt.receivedAt,
               ),
           );
+          const move = moving.map(({ id }) => id);
           if (move.length === 0) {
             return { blocked, move };
           }
@@ -237,7 +241,7 @@ export function createBlockedSenders(
             senders: stored.senders,
             receipts: [
               ...stored.receipts,
-              ...move.map((message) => ({ connection, message })),
+              ...moving.map(({ receipt }) => receipt),
             ].slice(-receiptLimit),
           }).pipe(
             Effect.as(true),

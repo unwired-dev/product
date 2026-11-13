@@ -498,7 +498,9 @@ export function createMailboxes(
     screen?: (
       profile: string,
       connection: string,
-      messages: readonly ArrivedMessage[],
+      messages: ReadonlyArray<
+        ArrivedMessage & Readonly<{ receivedAt: string }>
+      >,
     ) => Promise<
       | Readonly<{ blocked: ReadonlySet<string>; move: readonly string[] }>
       | undefined
@@ -614,7 +616,9 @@ export function createMailboxes(
       // Mail from a Blocked Sender of the connection's current Mail Profile posts no notification,
       // whether or not notifications are on, and moves to Trash through the reader's queued change.
       const report =
-        <M extends ArrivedMessage>(trash: (message: M) => void) =>
+        <M extends ArrivedMessage & Readonly<{ receivedAt: string }>>(
+          trash: (message: M) => void,
+        ) =>
         async (arrivals: readonly M[]) => {
           const profile = () =>
             openMailboxes(registration.getSnapshot().snapshot).find(
