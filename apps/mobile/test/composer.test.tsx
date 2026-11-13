@@ -2,7 +2,6 @@ import { ok } from 'node:assert/strict';
 
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { Draft } from '@private-email/mail-core/drafts';
-import type { NativeMailTemplates } from '@private-email/mail-core/mail-templates';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
@@ -20,6 +19,11 @@ import {
   imageCharacter,
   imagesOf,
 } from '@private-email/mail-core/semantic-document';
+import {
+  createSendReminders,
+  reminderCity,
+  reminderTimes,
+} from '@private-email/mail-core/send-reminders';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
@@ -70,6 +74,7 @@ import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { TranslationContext } from '../src/translation.tsx';
 import { appleContacts } from './contacts.ts';
+import { remindFromSendMenu } from './send-menu.tsx';
 import { targetChoice, translateInto } from './translation-menu.tsx';
 import {
   addFilesChoice,
@@ -253,6 +258,7 @@ function App({
   composeFrom = 'inbox',
   nativeToolbar = false,
   mailTemplates,
+  sendReminders,
   expandable = false,
 }: {
   readonly mailboxes?: MailboxList;
@@ -266,6 +272,7 @@ function App({
   readonly composeFrom?: 'inbox' | 'mailboxes' | 'both';
   readonly nativeToolbar?: boolean;
   readonly mailTemplates?: ReturnType<typeof createMailTemplates>;
+  readonly sendReminders?: ReturnType<typeof createSendReminders>;
   // Offers the window-level Expand, as a regular-width iPad window does.
   readonly expandable?: boolean;
 }) {
@@ -312,7 +319,8 @@ function App({
         <InboxProvider
           drafts={drafts}
           mailboxes={mailboxes}
-          mailTemplates={mailTemplates}>
+          mailTemplates={mailTemplates}
+          sendReminders={sendReminders}>
           <ProfileScope profile={profile}>
             <Mailboxes
               {...(composeFrom === 'inbox' ? {} : { onCompose: compose })}
@@ -439,22 +447,23 @@ const closeFormat = async () => {
   }
 };
 
-// Mail Template storage on this device for `registration`'s account; `refusing` makes a write fail
-// as locked storage does.
-function templateStorage(registration: ReturnType<typeof account>) {
+// One encrypted document on this device for the synthetic account, as native code keeps Mail
+// Templates and Send Reminders; `refusing` makes a write fail as locked storage does.
+function documentStorage() {
   const state = {
     revision: 0,
     document: null as string | null,
     refusing: false,
   };
-  const native: NativeMailTemplates = {
-    openMailTemplates: () =>
+  return {
+    state,
+    open: () =>
       Promise.resolve({
         owner: 'synthetic-product-account',
         revision: state.revision,
         document: state.document,
       }),
-    commitMailTemplates: (owner, expectedRevision, document) => {
+    commit: (owner: string, expectedRevision: number, document: string) => {
       if (state.refusing || expectedRevision !== state.revision) {
         return Promise.reject(
           Object.assign(new Error('locked'), { code: 'locked' }),
@@ -464,7 +473,20 @@ function templateStorage(registration: ReturnType<typeof account>) {
       return Promise.resolve({ owner, revision: state.revision });
     },
   };
+}
+
+// Mail Template storage on this device for `registration`'s account.
+function templateStorage(registration: ReturnType<typeof account>) {
+  const { state, open, commit } = documentStorage();
+  const native = { openMailTemplates: open, commitMailTemplates: commit };
   return { state, store: createMailTemplates(native, registration) };
+}
+
+// Send Reminder storage on this device for `registration`'s account.
+function reminderStorage(registration: ReturnType<typeof account>) {
+  const { state, open, commit } = documentStorage();
+  const native = { openSendReminders: open, commitSendReminders: commit };
+  return { state, store: createSendReminders(native, registration) };
 }
 
 interface TemplateItem {
@@ -517,7 +539,8 @@ const chooseTemplateItem = async (title: string) => {
 };
 
 // Opens a Draft from alex's mailbox in the `size` layout with the content `edit` gives it, beside
-// Mail Template storage holding what `seed` saves.
+// Mail Template storage holding what `seed` saves and Send Reminder storage. `reopen` opens it
+// again in a new composer.
 async function composeWithTemplates(
   size: 'compact' | 'regular',
   edit: (draft: Draft) => Draft,
@@ -528,6 +551,7 @@ async function composeWithTemplates(
   const drafts = createDrafts(storage.native, registration);
   await drafts.load();
   const templates = templateStorage(registration);
+  const reminders = reminderStorage(registration);
   await seed?.(templates.store);
   const created = await drafts.create({
     id: alex,
@@ -538,25 +562,30 @@ async function composeWithTemplates(
   const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
   ok(draft);
   await drafts.update(edit(draft), draft);
-  // StrictMode replays effects, as development builds do.
-  await render(
-    <StrictMode>
-      <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
-        <App
-          drafts={drafts}
-          registration={registration}
-          initialDraft={id}
-          mailTemplates={templates.store}
-        />
-      </ComposerLayoutContext>
-    </StrictMode>,
-  );
-  await screen.findByLabelText('Message body');
-  // The composer reads its templates after it opens.
-  await act(async () => {
-    await templates.store.templates(defaultProfile);
-  });
-  return templates;
+  const reopen = async () => {
+    // StrictMode replays effects, as development builds do.
+    await render(
+      <StrictMode>
+        <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            registration={registration}
+            initialDraft={id}
+            mailTemplates={templates.store}
+            sendReminders={reminders.store}
+          />
+        </ComposerLayoutContext>
+      </StrictMode>,
+    );
+    await screen.findByLabelText('Message body');
+    // The composer reads its templates and reminder after it opens.
+    await act(async () => {
+      await templates.store.templates(defaultProfile);
+      await reminders.store.reminders(defaultProfile);
+    });
+  };
+  await reopen();
+  return { ...templates, reminders, drafts, id, reopen };
 }
 
 // Chooses New Template from This Message… and answers the name prompt with `name`, if given.
@@ -2997,6 +3026,141 @@ describe('composing Drafts', () => {
     notSaved.mockRestore();
     await expect(
       templates.store.templates(defaultProfile),
+    ).resolves.toStrictEqual([]);
+  });
+
+  // An iPhone row sets its time; on iPad a choice is selected, then Set Reminder sets it.
+  it.each([
+    { size: 'compact', role: 'button', confirm: async () => undefined },
+    {
+      size: 'regular',
+      role: 'radio',
+      confirm: async () => press('Set Reminder'),
+    },
+  ] as const)(
+    'sets, changes and removes a Draft’s Send Reminder from the Send menu on $size without sending it',
+    async ({ size, role, confirm }) => {
+      expect.hasAssertions();
+      // Noon today, so the choices offer This Evening and Tomorrow Morning whenever the test runs.
+      const noon = new Date();
+      noon.setHours(12, 0, 0, 0);
+      const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
+      try {
+        const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+        const tomorrow = reminderTimes(Date.now(), timeZone).at(-1);
+        ok(tomorrow);
+        const composed = await composeWithTemplates(size, (draft) => ({
+          ...draft,
+          subject: 'Keys for the flat',
+        }));
+        const { reminders, drafts, id } = composed;
+        const stored = () => reminders.store.reminders(defaultProfile);
+        const banner = new RegExp(
+          `^Reminder for tomorrow, .+ \\(${reminderCity(timeZone)}\\)$`,
+          'u',
+        );
+        const chooseTomorrow = async () => {
+          await act(async () => {
+            await fireEvent.press(
+              screen.getByRole(role, { name: /^Tomorrow Morning, /u }),
+            );
+          });
+          await confirm();
+        };
+
+        // Remind Me to Send… opens the choices from Send, under the note that nothing is sent.
+        await remindFromSendMenu();
+        expect(
+          screen.getByText(
+            'Keeps this message in Drafts and reminds you to send it. Nothing is sent automatically.',
+          ),
+        ).toBeOnTheScreen();
+        expect(
+          screen.getAllByRole(role, {
+            name: /^(?:This Evening|Tomorrow Morning), /u,
+          }),
+        ).toHaveLength(2);
+        // A reminder that storage refuses is reported and stores nothing.
+        reminders.state.refusing = true;
+        await chooseTomorrow();
+        await screen.findByText('The reminder could not be set. Try again.');
+        await expect(stored()).resolves.toStrictEqual([]);
+
+        // Choosing a time saves the Draft and stores its reminder; the composer stays open.
+        reminders.state.refusing = false;
+        await remindFromSendMenu();
+        await chooseTomorrow();
+        await screen.findByText(banner);
+        expect(
+          screen.queryByText('The reminder could not be set. Try again.'),
+        ).toBeNull();
+        await expect(stored()).resolves.toStrictEqual([
+          {
+            draft: id,
+            profile: defaultProfile,
+            dueAt: tomorrow.dueAt,
+            timeZone,
+          },
+        ]);
+        await savedQuietly(drafts);
+        expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+          { id, subject: 'Keys for the flat' },
+        ]);
+        expect(screen.getByLabelText('Message body')).toBeOnTheScreen();
+
+        // Change offers the choices again; reopening the Draft shows its reminder.
+        await press('Change');
+        expect(
+          screen.getAllByRole(role, { name: /^Tomorrow Morning, /u }),
+        ).toHaveLength(1);
+        await screen.unmount();
+        await composed.reopen();
+        await screen.findByText(banner);
+
+        // Remove Reminder removes it once storage accepts the write.
+        reminders.state.refusing = true;
+        await press('Remove Reminder');
+        await screen.findByText(
+          'The reminder could not be removed. Try again.',
+        );
+        expect(screen.getByText(banner)).toBeOnTheScreen();
+        reminders.state.refusing = false;
+        await press('Remove Reminder');
+        await waitFor(() => {
+          expect(screen.queryByText(banner)).toBeNull();
+        });
+        await expect(stored()).resolves.toStrictEqual([]);
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
+
+  it('removes the reminder of a Draft it discards', async () => {
+    expect.hasAssertions();
+    const { reminders, drafts } = await composeWithTemplates(
+      'compact',
+      (draft) => ({ ...draft, subject: 'Keys for the flat' }),
+    );
+    await remindFromSendMenu();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: /^Tomorrow Morning, /u }),
+      );
+    });
+    await screen.findByText(/^Reminder for tomorrow/u);
+    await expect(
+      reminders.store.reminders(defaultProfile),
+    ).resolves.toHaveLength(1);
+
+    await press('Compose actions');
+    await press('Discard');
+    await press('Discard Draft');
+    await waitFor(() => {
+      expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+    });
+    await expect(
+      reminders.store.reminders(defaultProfile),
     ).resolves.toStrictEqual([]);
   });
 

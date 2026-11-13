@@ -6,7 +6,11 @@ import type { RegistrationSnapshot } from '@private-email/mail-core/registration
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createOutbox } from '@private-email/mail-core/outbox';
-import { mailboxesOf } from '@private-email/mail-core/registration';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import { createSendReminders } from '@private-email/mail-core/send-reminders';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync as createServer,
@@ -32,6 +36,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { remindFromSendMenu } from './send-menu.tsx';
 import { chooseWritingTool, writingToolChoice } from './writing-tools.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -77,7 +82,19 @@ function device() {
     registration,
     claims: storage.delivery,
   });
-  return { gmail, drafts, mailboxes, outbox, storage };
+  // Send Reminder storage on this device, which always accepts a write.
+  const saved = { revision: 0, document: null as string | null };
+  const reminders = createSendReminders(
+    {
+      openSendReminders: () => Promise.resolve({ owner: account, ...saved }),
+      commitSendReminders: (owner, revision, document) => {
+        Object.assign(saved, { revision: revision + 1, document });
+        return Promise.resolve({ owner, revision: saved.revision });
+      },
+    },
+    registration,
+  );
+  return { gmail, drafts, mailboxes, outbox, storage, reminders };
 }
 
 // `listed` is the account's Mailbox Connections, as after one is removed.
@@ -105,6 +122,7 @@ function App({
         <InboxProvider
           drafts={sender.drafts}
           mailboxes={sender.mailboxes}
+          sendReminders={sender.reminders}
           outbox={sender.outbox}>
           <Inbox
             composing={composing}
@@ -205,6 +223,83 @@ describe('sending a Draft', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  // Sets the Draft's reminder for Tomorrow Morning from Send's menu.
+  const remindTomorrow = async () => {
+    await remindFromSendMenu();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: /^Tomorrow Morning, /u }),
+      );
+    });
+    await screen.findByText(/^Reminder for tomorrow/u);
+  };
+
+  it('removes the reminder of a Draft it sends', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await remindTomorrow();
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toHaveLength(1);
+
+      await press('Send');
+      await waitFor(async () => {
+        await expect(
+          sender.reminders.reminders(defaultProfile),
+        ).resolves.toStrictEqual([]);
+      });
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('keeps the reminder of a Draft another editor saved when it sends its own conflicting copy', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await remindTomorrow();
+      const reminded = await sender.reminders.reminders(defaultProfile);
+      expect(reminded).toHaveLength(1);
+      const [original] = draftsOf(sender.drafts.getSnapshot());
+      ok(original);
+
+      // Another editor saves the Draft, then this stale composer edits and sends its copy.
+      await act(async () => {
+        await sender.drafts.update(
+          { ...original, subject: 'Keys from the other editor' },
+          original,
+        );
+      });
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Keys, sent',
+      );
+      await press('Send');
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Message body')).toBeNull();
+      });
+      expect(draftsOf(sender.drafts.getSnapshot())).toMatchObject([
+        { id: original.id, subject: 'Keys from the other editor' },
+      ]);
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toStrictEqual(reminded);
+    } finally {
+      sender.outbox.dispose();
+    }
   });
 
   /* oxlint-disable vitest/max-expects -- Each journey proves one delivery path end to end. */

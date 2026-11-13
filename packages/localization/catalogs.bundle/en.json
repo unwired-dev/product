@@ -1086,6 +1086,12 @@
     },
     "reminder": {
       "remindMeToSend": "Remind Me to Send…",
+      "detail": "Keep it as a draft and remind me",
+      "title": "Remind Me to Send",
+      "explanation": "Keeps this message in Drafts and reminds you to send it. Nothing is sent automatically.",
+      "zone": "Times in {{zone}} ({{city}})",
+      "set": "Set Reminder",
+      "dateAt": "{{date}}, {{time}}",
       "thisEvening": "This Evening",
       "tomorrowMorning": "Tomorrow Morning",
       "todayAt": "Today, {{time}}",
