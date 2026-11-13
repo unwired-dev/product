@@ -51,7 +51,8 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
     return [.banner, .list, .sound]
   }
 
-  // A tap or Reply opens the message; Archive and Mark as Read act without opening a window.
+  // A tap or Reply opens the message; Archive, Mark as Read, a reply typed on the Mac, and Undo
+  // and Open Draft on that reply's notification act through JavaScript, with no window opened.
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
@@ -66,35 +67,78 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
     case UNNotificationDefaultActionIdentifier:
       await NotificationTaps.shared.receive(opened)
     case "reply":
-      await NotificationTaps.shared.receive(opened.merging(["action": "reply"]) { $1 })
+      if let typed = response as? UNTextInputNotificationResponse {
+        await NotificationActions.shared.perform(
+          opened.merging(["action": "reply", "text": typed.userText]) { $1 })
+      } else {
+        await NotificationTaps.shared.receive(opened.merging(["action": "reply"]) { $1 })
+      }
     case "archive", "read":
       await NotificationActions.shared.perform(
         opened.merging(["action": response.actionIdentifier]) { $1 })
+    case "undo", "open-draft":
+      guard let draft = info["draft"] as? String, !draft.isEmpty else { return }
+      await NotificationActions.shared.perform(
+        opened.merging(["action": response.actionIdentifier, "draft": draft]) { $1 })
     default:
       return
     }
   }
 
+  static func action(
+    _ id: String, _ title: String?, _ symbol: String, _ options: UNNotificationActionOptions
+  ) -> UNNotificationAction {
+    UNNotificationAction(
+      identifier: id, title: title ?? "", options: options,
+      icon: UNNotificationActionIcon(systemImageName: symbol))
+  }
+
   // Reply, Archive and Mark as Read, in the order each platform's design lists them. Archive and
   // Mark as Read act in the background only once the device is unlocked: protected storage stays
-  // closed while it is locked.
-  static func newMail(_ titles: [String: String]) -> UNNotificationCategory {
-    func action(_ id: String, _ symbol: String, _ options: UNNotificationActionOptions)
-      -> UNNotificationAction
-    {
-      UNNotificationAction(
-        identifier: id, title: titles[id] ?? "", options: options,
-        icon: UNNotificationActionIcon(systemImageName: symbol))
-    }
-    let reply = action("reply", "arrowshape.turn.up.left", .foreground)
-    let archive = action("archive", "archivebox", .authenticationRequired)
-    let read = action("read", "envelope.open", .authenticationRequired)
+  // closed while it is locked. On the Mac, Reply is a field whose placeholder names the
+  // connection's receiving address, so each connection has its own category.
+  static func newMail(_ titles: [String: String], connection: String, placeholder: String)
+    -> UNNotificationCategory
+  {
+    let archive = action("archive", titles["archive"], "archivebox", .authenticationRequired)
+    let read = action("read", titles["read"], "envelope.open", .authenticationRequired)
     #if os(iOS)
-      let actions = [reply, archive, read]
+      let reply = action("reply", titles["reply"], "arrowshape.turn.up.left", .foreground)
+      return UNNotificationCategory(
+        identifier: "new-mail", actions: [reply, archive, read], intentIdentifiers: [])
     #else
-      let actions = [archive, read, reply]
+      let reply = UNTextInputNotificationAction(
+        identifier: "reply", title: titles["reply"] ?? "", options: .authenticationRequired,
+        icon: UNNotificationActionIcon(systemImageName: "arrowshape.turn.up.left"),
+        textInputButtonTitle: titles["send"] ?? "", textInputPlaceholder: placeholder)
+      return UNNotificationCategory(
+        identifier: "new-mail.\(connection)", actions: [archive, read, reply],
+        intentIdentifiers: [])
     #endif
-    return UNNotificationCategory(identifier: "new-mail", actions: actions, intentIdentifiers: [])
+  }
+
+  // A typed reply's notification: Undo while it waits to send, or Open Draft once it was kept in
+  // Drafts.
+  static func reply(_ titles: [String: String]) -> [UNNotificationCategory] {
+    [
+      UNNotificationCategory(
+        identifier: "reply-sending",
+        actions: [action("undo", titles["undo"], "arrow.uturn.backward", .authenticationRequired)],
+        intentIdentifiers: []),
+      UNNotificationCategory(
+        identifier: "reply-saved",
+        actions: [action("open-draft", titles["openDraft"], "doc.text", .foreground)],
+        intentIdentifiers: []),
+    ]
+  }
+
+  // Registers `categories`, keeping those registered earlier under other identifiers: notifications
+  // already shown keep their actions.
+  static func register(_ categories: [UNNotificationCategory]) async {
+    let center = UNUserNotificationCenter.current()
+    let replaced = Set(categories.map(\.identifier))
+    let kept = await center.notificationCategories().filter { !replaced.contains($0.identifier) }
+    center.setNotificationCategories(kept.union(categories))
   }
 }
 
@@ -275,9 +319,17 @@ extension UnwiredRegistration {
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     performStep("postNotifications", resolve, reject: reject) { store in
-      UNUserNotificationCenter.current().setNotificationCategories([
-        UnwiredNotifications.newMail(actions)
-      ])
+      var categories: [String: UNNotificationCategory] = [:]
+      for notification in notifications {
+        if let connection = notification["connection"] as? String,
+          let placeholder = notification["reply"] as? String
+        {
+          let category = UnwiredNotifications.newMail(
+            actions, connection: connection, placeholder: placeholder)
+          categories[category.identifier] = category
+        }
+      }
+      await UnwiredNotifications.register(Array(categories.values))
       var skipped: [String: Int] = [:]
       var added = 0
       for notification in notifications {
@@ -299,10 +351,7 @@ extension UnwiredRegistration {
           skipped["previews turned off", default: 0] += 1
           continue
         }
-        guard (try? store.mailboxAccount(connection).productAccountId) == account,
-          let held = try? store.saved().connection(connection),
-          (held.epoch ?? "legacy") == epoch
-        else {
+        guard Self.holds(store, account: account, connection: connection, epoch: epoch) else {
           skipped["connection no longer held", default: 0] += 1
           continue
         }
@@ -310,7 +359,11 @@ extension UnwiredRegistration {
         content.title = title
         content.body = body
         content.sound = .default
-        content.categoryIdentifier = "new-mail"
+        #if os(iOS)
+          content.categoryIdentifier = "new-mail"
+        #else
+          content.categoryIdentifier = "new-mail.\(connection)"
+        #endif
         content.threadIdentifier = profile
         content.userInfo = ["account": account, "epoch": epoch, "connection": connection, "message": message]
         do {
@@ -329,6 +382,83 @@ extension UnwiredRegistration {
       UnwiredNotifications.logger.info(
         "New mail notifications added: \(added, privacy: .public), skipped: \(skipped.description, privacy: .public); authorization \(settings.authorizationStatus.rawValue, privacy: .public), alerts \(settings.alertSetting.rawValue, privacy: .public), Notification Center \(settings.notificationCenterSetting.rawValue, privacy: .public), Lock Screen \(settings.lockScreenSetting.rawValue, privacy: .public)"
       )
+    }
+  }
+
+  @MainActor private static func holds(
+    _ store: RegistrationStore, account: String, connection: String, epoch: String
+  ) -> Bool {
+    guard (try? store.mailboxAccount(connection).productAccountId) == account,
+      let held = try? store.saved().connection(connection)
+    else { return false }
+    return (held.epoch ?? "legacy") == epoch
+  }
+
+  // A typed reply's notification, under its own identifier: `sending` offers Undo and `saved`
+  // Open Draft, titled by `actions`; `failed` has no Draft and no action. Its routing data adds
+  // the reply's opaque Draft identifier. Like a New Mail Notification, it skips a connection this
+  // device no longer holds.
+  @objc(postReplyNotification:actions:resolver:rejecter:)
+  func postReplyNotification(
+    _ notification: [String: Any], actions: [String: String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    performStep("postReplyNotification", resolve, reject: reject) { store in
+      guard let id = notification["id"] as? String,
+        let kind = notification["kind"] as? String, ["sending", "saved", "failed"].contains(kind),
+        let title = notification["title"] as? String,
+        let body = notification["body"] as? String,
+        let profile = notification["profile"] as? String, !profile.isEmpty,
+        let connection = notification["connection"] as? String,
+        id.hasPrefix(connection + "."),
+        let message = notification["message"] as? String,
+        let draft = notification["draft"] as? String, kind == "failed" || !draft.isEmpty,
+        let previews = notification["previews"] as? Bool,
+        let account = notification["account"] as? String,
+        let epoch = notification["epoch"] as? String,
+        !previews || UserDefaults.standard.bool(forKey: Self.notificationPreviewsKey),
+        Self.holds(store, account: account, connection: connection, epoch: epoch)
+      else {
+        UnwiredNotifications.logger.info("Reply notification skipped")
+        return
+      }
+      await UnwiredNotifications.register(UnwiredNotifications.reply(actions))
+      let content = UNMutableNotificationContent()
+      content.title = title
+      content.body = body
+      content.categoryIdentifier = "reply-\(kind)"
+      content.threadIdentifier = profile
+      content.userInfo = [
+        "account": account, "epoch": epoch, "connection": connection, "message": message,
+        "draft": draft,
+      ]
+      try await UNUserNotificationCenter.current().add(
+        UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+  }
+
+  @objc(withdrawNotification:resolver:rejecter:)
+  func withdrawNotification(
+    _ id: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+    resolve(NSNull())
+  }
+
+  // Every typed reply's sending notification, which a replaced JavaScript context no longer
+  // counts down or withdraws.
+  @objc(withdrawSendingReplies:rejecter:)
+  func withdrawSendingReplies(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    // Settles once removed, so a reply this context posts afterwards is never swept.
+    performStep("withdrawSendingReplies", resolve, reject: reject) { _ in
+      let center = UNUserNotificationCenter.current()
+      center.removeDeliveredNotifications(
+        withIdentifiers: await center.deliveredNotifications().filter {
+          $0.request.content.categoryIdentifier == "reply-sending"
+        }.map(\.request.identifier))
     }
   }
 

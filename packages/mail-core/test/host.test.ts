@@ -6,7 +6,9 @@ import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailb
 
 import type { NativeHostModule } from '../src/host.ts';
 
+import { createDrafts } from '../src/drafts.ts';
 import { createHost } from '../src/host.ts';
+import { undoSendWindow } from '../src/outbox.ts';
 import {
   defaultProfile,
   mailboxesOf,
@@ -55,9 +57,12 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     imapServers,
   );
-  const drafts = createSyntheticDrafts(() => undefined, {
-    server: createSyntheticProductSync(),
-  });
+  const drafts = createSyntheticDrafts(
+    () => 'account-synthetic-product-subject',
+    {
+      server: createSyntheticProductSync(),
+    },
+  );
   const held = new Map<string, () => void>();
   const attachments = Promise.withResolvers<string>();
   const cancelled: string[] = [];
@@ -66,6 +71,11 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const device = { authorization: 'undetermined', previews: false };
   const notified: unknown[] = [];
   const titles: unknown[] = [];
+  // The notifications a typed reply posted, and those withdrawn.
+  const replied: unknown[] = [];
+  const withdrawn: string[] = [];
+  // How often an earlier context's sending notifications were withdrawn.
+  const sweeps = { count: 0 };
   // Archive and Mark as Read native code queued for JavaScript; each send settles once completed.
   const queued: unknown[] = [];
   let reading: ((action: unknown) => void) | undefined = undefined;
@@ -177,6 +187,18 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     completeNotificationAction: (id) => {
       completions.get(id)?.();
     },
+    postReplyNotification: (posted, actions) => {
+      replied.push({ ...posted, actions });
+      return Promise.resolve(null);
+    },
+    withdrawNotification: (id) => {
+      withdrawn.push(id);
+      return Promise.resolve(null);
+    },
+    withdrawSendingReplies: () => {
+      sweeps.count += 1;
+      return Promise.resolve(null);
+    },
   };
   const host = createHost(
     () => {
@@ -196,9 +218,55 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     counts,
     notified,
     titles,
+    replied,
+    withdrawn,
+    sweeps,
+    draftStorage: drafts,
     notificationActions,
     settingsGate,
   };
+}
+
+// A synthetic host following notification actions, with an answerable and a removable message in
+// its Gmail Inbox, previews on, and the Drafts and Open Draft requests it holds.
+async function replyingHost() {
+  const synthetic = syntheticHost(undefined, true);
+  const { host, gmail } = synthetic;
+  await host.registration.register('google');
+  await host.registration.addMailbox();
+  const answered = gmail.deliver({
+    subject: 'Studio review',
+    headers: { 'Message-ID': '<review@example.invalid>' },
+  });
+  const gone = gmail.deliver({ subject: 'Gone' });
+  await host.gmailMailboxes.load();
+  await host.notifications.request();
+  await host.notifications.setPreviews(true);
+  const mailbox = required(
+    mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+  );
+  const opened: unknown[] = [];
+  host.followNotificationActions((draft, profile) => {
+    opened.push({ draft, profile });
+  });
+  const named = {
+    account: 'account-synthetic-product-subject',
+    connection: mailbox.id,
+    epoch: required(mailbox.epoch),
+  };
+  const reply = (id: string, message: string, text: string) =>
+    synthetic.notificationActions.send({
+      id,
+      ...named,
+      message,
+      action: 'reply',
+      text,
+    });
+  const drafts = () => {
+    const state = host.drafts.getSnapshot();
+    return state.kind === 'ready' ? state.drafts : [];
+  };
+  return { ...synthetic, answered, gone, named, opened, reply, drafts };
 }
 
 describe('the host assembly', () => {
@@ -267,6 +335,7 @@ describe('the host assembly', () => {
         ...scope,
         profile: defaultProfile,
         previews: false,
+        reply: 'Reply from alex@example.invalid',
       },
       {
         id: `${connection}.${previewed}`,
@@ -277,11 +346,13 @@ describe('the host assembly', () => {
         ...scope,
         profile: defaultProfile,
         previews: true,
+        reply: 'Reply from alex@example.invalid',
       },
     ]);
     // Every notification offers Reply, Archive and Mark as Read.
     expect(titles[0]).toStrictEqual({
       reply: 'Reply',
+      send: 'Send',
       archive: 'Archive',
       read: 'Mark as Read',
     });
@@ -394,6 +465,515 @@ describe('the host assembly', () => {
     expect(gmail.labelsOf(kept)).toStrictEqual(
       expect.arrayContaining(['INBOX', 'UNREAD']),
     );
+  });
+
+  it('sends a reply typed into a Mac notification from the receiving connection, with only the typed text', async () => {
+    expect.hasAssertions();
+    const { host, answered, named, reply, replied, sweeps } =
+      await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.\nSee you then.');
+    // Sending notifications an earlier launch left are withdrawn before any action.
+    expect(sweeps.count).toBe(1);
+    const [queued] = host.outbox.getSnapshot();
+    expect(queued?.draft).toMatchObject({
+      connection: named.connection,
+      from: 'alex@example.invalid',
+      to: [{ name: 'Maya Chen', address: 'maya@example.invalid' }],
+      subject: 'Re: Studio review',
+      response: { kind: 'reply', inReplyTo: '<review@example.invalid>' },
+    });
+    // No quote and no signature: a paragraph per typed line.
+    expect({
+      quoted: queued?.draft.quoted,
+      body: queued?.draft.body,
+    }).toStrictEqual({
+      quoted: undefined,
+      body: [
+        { kind: 'paragraph', spans: [{ text: 'Thursday works.' }] },
+        { kind: 'paragraph', spans: [{ text: 'See you then.' }] },
+      ],
+    });
+    const draft = required(queued).id;
+    expect(replied).toStrictEqual([
+      {
+        ...named,
+        message: answered,
+        id: `${named.connection}.reply.${draft}`,
+        draft,
+        profile: defaultProfile,
+        previews: true,
+        kind: 'sending',
+        title: 'Reply to Maya Chen',
+        body: 'Sending in 10 seconds from alex@example.invalid',
+        actions: { undo: 'Undo', openDraft: 'Open Draft' },
+      },
+    ]);
+  });
+
+  it('returns a typed reply to Drafts on Undo, and otherwise withdraws its notification once the Undo Send Window ends', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const {
+      host,
+      answered,
+      named,
+      reply,
+      drafts,
+      withdrawn,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const undone = required(host.outbox.getSnapshot()[0]).id;
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft: undone,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      drafts: drafts().some(({ id }) => id === undone),
+      withdrawn,
+    }).toStrictEqual({
+      outbox: [],
+      drafts: true,
+      withdrawn: [`${named.connection}.reply.${undone}`],
+    });
+
+    await reply('again', answered, 'Thursday still works.');
+    const sending = required(host.outbox.getSnapshot()[0]).id;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(withdrawn).toContain(`${named.connection}.reply.${sending}`);
+  });
+
+  it('undoes a typed reply while another reply still reads its message', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      gmail,
+      answered,
+      gone,
+      named,
+      reply,
+      drafts,
+      notificationActions,
+    } = await replyingHost();
+    await reply('first', answered, 'Thursday works.');
+    const first = required(host.outbox.getSnapshot()[0]).id;
+    // Gmail reads, as the second reply's, wait for `read`.
+    const read = Promise.withResolvers<undefined>();
+    const request = gmail.native.gmailRequest;
+    gmail.native.gmailRequest = async (...args) => {
+      await read.promise;
+      return request(...args);
+    };
+
+    const second = reply('second', gone, 'Friday too.');
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft: first,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      drafts: drafts().map(({ id }) => id),
+    }).toStrictEqual({ outbox: [], drafts: [first] });
+    read.resolve(undefined);
+    await second;
+  });
+
+  it('keeps offering Undo on a typed reply whose return to Drafts could not be saved', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      answered,
+      named,
+      reply,
+      replied,
+      withdrawn,
+      draftStorage,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const draft = required(host.outbox.getSnapshot()[0]).id;
+    draftStorage.failNextCommit('unavailable');
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot().map(({ id }) => id),
+      withdrawn,
+    }).toStrictEqual({ outbox: [draft], withdrawn: [] });
+    expect(replied).toMatchObject([
+      { draft, kind: 'sending' },
+      { draft, kind: 'sending', title: 'Reply to Maya Chen' },
+    ]);
+  });
+
+  it('withdraws a repeated Undo offer that lands after the Undo Send Window ended', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const {
+      host,
+      native,
+      answered,
+      named,
+      reply,
+      withdrawn,
+      draftStorage,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const draft = required(host.outbox.getSnapshot()[0]).id;
+    draftStorage.failNextCommit('unavailable');
+    // The Undo offer posted again waits until the window has ended.
+    const post = native.postReplyNotification;
+    const posting = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'postReplyNotification').mockImplementationOnce(
+      async (...args) => {
+        posting.resolve(undefined);
+        await held.promise;
+        return post(...args);
+      },
+    );
+    const undoing = notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft,
+    });
+    await posting.promise;
+    await vi.advanceTimersByTimeAsync(10_000);
+    held.resolve(undefined);
+    await undoing;
+    expect(withdrawn).toStrictEqual([
+      `${named.connection}.reply.${draft}`,
+      `${named.connection}.reply.${draft}`,
+    ]);
+  });
+
+  it('leaves a typed reply whose delivery became uncertain to the Outbox on Undo', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const {
+      host,
+      gmail,
+      answered,
+      named,
+      reply,
+      drafts,
+      withdrawn,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const draft = required(host.outbox.getSnapshot()[0]).id;
+    vi.setSystemTime(Date.now() + undoSendWindow);
+    // Gmail takes the reply but its answer is lost, and the opportunity ends before a Sent check.
+    gmail.failSend({ lost: true });
+    const submit = gmail.native.gmailSend;
+    gmail.native.gmailSend = async (...args) => {
+      try {
+        return await submit(...args);
+      } finally {
+        host.outbox.pause();
+      }
+    };
+    await host.outbox.resume();
+    await notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft,
+    });
+    expect({
+      outbox: host.outbox.getSnapshot().map(({ id, state }) => ({ id, state })),
+      drafts: drafts().map(({ id }) => id),
+      withdrawn,
+    }).toStrictEqual({
+      outbox: [{ id: draft, state: 'unknown' }],
+      drafts: [],
+      withdrawn: [`${named.connection}.reply.${draft}`],
+    });
+  });
+
+  it('says a typed reply that storage refused is not saved, and sends nothing', async () => {
+    expect.hasAssertions();
+    const { host, answered, reply, replied, draftStorage } =
+      await replyingHost();
+    // Refuses the save of the typed text, after its empty Draft was stored.
+    const { fill } = host.drafts;
+    host.drafts.fill = async (...args) => {
+      draftStorage.failNextCommit('unavailable');
+      return fill(...args);
+    };
+
+    await reply('reply', answered, 'Thursday works.');
+    expect({ outbox: host.outbox.getSnapshot(), replied }).toMatchObject({
+      outbox: [],
+      replied: [
+        {
+          kind: 'saved',
+          title: 'Couldn’t reply',
+          body: 'Your text couldn’t be saved. Open the Draft to try again.',
+        },
+      ],
+    });
+  });
+
+  it('sends the typed reply as prepared when its Draft changes while notification settings are read', async () => {
+    expect.hasAssertions();
+    const { host, answered, reply, drafts, settingsGate } =
+      await replyingHost();
+    const settings = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    settingsGate.held = settings.promise;
+    settingsGate.started = () => {
+      reading.resolve(undefined);
+    };
+
+    const replying = reply('reply', answered, 'Thursday works.');
+    await reading.promise;
+    // Another editor changes any Draft still listed meanwhile.
+    await Promise.all(
+      drafts().map(({ id }) =>
+        host.drafts.fill(id, (each) => ({ ...each, subject: 'Edited' }), []),
+      ),
+    );
+    settingsGate.held = undefined;
+    settingsGate.started = undefined;
+    settings.resolve(undefined);
+    await replying;
+    expect(
+      host.outbox.getSnapshot().map(({ draft }) => draft.subject),
+    ).toStrictEqual(['Re: Studio review']);
+  });
+
+  it('says a typed reply was not kept when its Draft cannot be created', async () => {
+    expect.hasAssertions();
+    const { host, answered, named, reply, replied } = await replyingHost();
+    host.drafts.create = async () => undefined;
+
+    await reply('reply', answered, 'Thursday works.');
+    expect({ outbox: host.outbox.getSnapshot(), replied }).toMatchObject({
+      outbox: [],
+      replied: [
+        {
+          id: `${named.connection}.reply.${answered}`,
+          draft: '',
+          kind: 'failed',
+          title: 'Couldn’t reply',
+          body: 'Your text couldn’t be saved. Open the message to reply again.',
+        },
+      ],
+    });
+  });
+
+  it('keeps another editor’s change to the new Draft and sends nothing', async () => {
+    expect.hasAssertions();
+    const { host, answered, reply, drafts, replied } = await replyingHost();
+    // Another editor completes the Draft while its creation saves.
+    const { create } = host.drafts;
+    host.drafts.create = async (...args) => {
+      const id = required(await create(...args));
+      await host.drafts.fill(id, (each) => ({ ...each, subject: 'Mine' }), []);
+      return id;
+    };
+
+    await reply('reply', answered, 'Thursday works.');
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      drafts: drafts().map(({ subject, body }) => ({ subject, body })),
+      replied,
+    }).toMatchObject({
+      outbox: [],
+      drafts: [{ subject: 'Mine', body: [{ kind: 'paragraph', spans: [] }] }],
+      replied: [
+        {
+          kind: 'saved',
+          body: 'Your text couldn’t be saved. Open the Draft to try again.',
+        },
+      ],
+    });
+  });
+
+  it('keeps another editor’s change made while the typed reply saves, and sends nothing', async () => {
+    expect.hasAssertions();
+    const { host, native, answered, reply, drafts } = await replyingHost();
+    // The reply's save waits once the Draft exists, while another editor changes it.
+    const commit = native.commitDrafts;
+    const saving = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    const { create } = host.drafts;
+    host.drafts.create = async (...args) => {
+      const id = await create(...args);
+      vi.spyOn(native, 'commitDrafts').mockImplementationOnce(
+        async (...saved) => {
+          saving.resolve(undefined);
+          await held.promise;
+          return commit(...saved);
+        },
+      );
+      return id;
+    };
+
+    const replying = reply('reply', answered, 'Thursday works.');
+    await saving.promise;
+    const editing = host.drafts.fill(
+      required(drafts()[0]).id,
+      (each) => ({ ...each, subject: 'Mine' }),
+      [],
+    );
+    held.resolve(undefined);
+    await Promise.all([replying, editing]);
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      subjects: drafts().map(({ subject }) => subject),
+    }).toStrictEqual({ outbox: [], subjects: ['Mine'] });
+  });
+
+  it('keeps a reply to a message no longer listed in Drafts, and opens it from Couldn’t reply', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      gmail,
+      gone,
+      named,
+      reply,
+      drafts,
+      replied,
+      opened,
+      notificationActions,
+    } = await replyingHost();
+    gmail.remove(gone);
+    await host.gmailMailboxes.load();
+
+    await reply('gone', gone, 'Is this still on?');
+    const saved = required(drafts()[0]);
+    expect({
+      body: saved.body,
+      outbox: host.outbox.getSnapshot(),
+    }).toStrictEqual({
+      body: [{ kind: 'paragraph', spans: [{ text: 'Is this still on?' }] }],
+      outbox: [],
+    });
+    expect(replied).toMatchObject([
+      {
+        draft: saved.id,
+        kind: 'saved',
+        title: 'Couldn’t reply',
+        body: 'That message was deleted on another device. Your text is saved in Drafts.',
+      },
+    ]);
+    await notificationActions.send({
+      id: 'open',
+      ...named,
+      message: gone,
+      action: 'open-draft',
+      draft: saved.id,
+    });
+    expect(opened).toStrictEqual([
+      { draft: saved.id, profile: defaultProfile },
+    ]);
+  });
+
+  it('opens a typed reply’s Draft chosen on a notification before the Drafts opened', async () => {
+    expect.hasAssertions();
+    const { host, gone, named, opened, draftStorage, notificationActions } =
+      await replyingHost();
+    // Stored by an earlier launch; this one has not opened its Drafts yet.
+    const earlier = createDrafts(draftStorage.native, host.registration);
+    await earlier.load();
+    const draft = required(
+      await earlier.create({
+        id: named.connection,
+        address: 'alex@example.invalid',
+      }),
+    );
+    await earlier.fill(draft, (each) => ({ ...each, subject: 'Later' }), []);
+
+    await notificationActions.send({
+      id: 'open',
+      ...named,
+      message: gone,
+      action: 'open-draft',
+      draft,
+    });
+    expect(opened).toStrictEqual([{ draft, profile: defaultProfile }]);
+  });
+
+  it('archives nothing when the connection is recreated while a notification action opens the Drafts', async () => {
+    expect.hasAssertions();
+    const { host, gmail, answered, named, notificationActions } =
+      await replyingHost();
+    const { load } = host.drafts;
+    host.drafts.load = async () => {
+      host.drafts.load = load;
+      await host.registration.removeMailbox(named.connection);
+      await host.registration.addMailbox();
+      await host.gmailMailboxes.load();
+      return load();
+    };
+
+    await notificationActions.send({
+      id: 'archive',
+      ...named,
+      message: answered,
+      action: 'archive',
+    });
+    expect(gmail.labelsOf(answered)).toContain('INBOX');
+  });
+
+  it('sends and saves nothing from a notification of a recreated connection or another account', async () => {
+    expect.hasAssertions();
+    const { host, answered, named, drafts, replied, notificationActions } =
+      await replyingHost();
+    await host.drafts.load();
+    expect(host.drafts.getSnapshot().kind).toBe('ready');
+
+    await notificationActions.send({
+      id: 'recreated',
+      ...named,
+      epoch: 'another incarnation',
+      message: answered,
+      action: 'reply',
+      text: 'Not this one.',
+    });
+    await notificationActions.send({
+      id: 'other account',
+      ...named,
+      account: 'another account',
+      message: answered,
+      action: 'reply',
+      text: 'Not this one either.',
+    });
+    expect({ replied, drafts: drafts() }).toStrictEqual({
+      replied: [],
+      drafts: [],
+    });
   });
 
   it('applies Spam and Trash folders chosen through Product Sync to the open IMAP Inbox, and reports a refused choice on its row', async () => {

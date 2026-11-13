@@ -110,6 +110,37 @@ finishes when that change is saved, or after 25 seconds; a change still queued i
 sent at the next opportunity. A message no longer listed, or a connection that is
 gone or recreated, changes nothing.
 
+## Replying from a notification on the Mac
+
+On the Mac, **Reply** is a text field whose placeholder names the receiving address
+("Reply from mara@novak.cz"), with **Send**. Like Archive, it asks to unlock first and
+acts without opening a window. Each connection has its own notification category, so
+the placeholder names its own address. Once registration verifies, while the connection
+keeps the same Product Account and incarnation, the typed text becomes a Draft from that
+connection replying to the notified message, with its recipients and threading headers
+but only the typed text: no quote and no signature. The Outbox then admits it through
+the ordinary send checks, the Convex claim and the 10-second Undo Send Window.
+
+A **Reply to <sender>** notification then reads "Sending in 10 seconds from <address>"
+and offers **Undo** until the window ends, when it is withdrawn; both count from
+the time the Outbox admitted the reply. Undo returns the reply to Drafts only while it
+still waits out the window; one already handed to its provider stays in the Outbox, which
+warns before editing a message whose delivery is uncertain, and the notification is
+withdrawn. Undo and Open Draft need no open Inbox, and wait for this launch's Drafts to
+open, and check the connection after that. An Undo that cannot be saved posts the notification again with the time left. A reply being prepared does not hold up an Undo chosen meanwhile. When the app quits or reloads during the window, nothing counts its notification down any more, so the next launch withdraws it; the Outbox still offers Undo while the window runs. A
+connection that changes while the reply is prepared sends nothing, and one that changes
+while the Outbox admits it gets the reply back in Drafts. Once admitted, the reply follows
+the Outbox's rule for every Send: it names its connection by id, so removing the last
+connection mid-admission and adding it back can still send it (#2128). With previews off the notification has no title, as a New Mail Notification. When
+the message is no longer listed, or its body cannot be read, or the Outbox refuses
+the Send, the text stays in Drafts and **Couldn’t reply** offers **Open Draft**; when
+storage refuses the text, or another editor changed the new Draft first and keeps its
+content, it says the text couldn't be saved instead; for refused storage the Draft's composer
+also reports the failed save. When the Drafts cannot open at all, **Couldn’t reply** has no Draft to offer and says to
+open the message, which its tap does, to reply again. Open Draft opens it in its own New Message window. A connection that is gone, recreated or another
+Product Account's sends and saves nothing. iPhone and iPad keep the Reply that opens the
+message; the offline outcome and a locked Profile come in later #1672 slices.
+
 ## Opening a notification
 
 On iPhone and iPad a tap opens the message in its connection's current Mail Profile
@@ -120,12 +151,12 @@ navigating and recheck the destination afterwards. A connection that is gone,
 belongs to another account, has been recreated, or whose Profile is unknown, opens nothing.
 Native code queues a tap that launches the app until JavaScript reads it.
 An authorization screen retains that tap until the mail shell can receive it.
-**Reply** opens the message the same way, then starts a reply as soon as the reader
+On iPhone and iPad, **Reply** opens the message the same way, then starts a reply as soon as the reader
 offers one, as its own Reply button would. It rechecks the originating Product Account
 and connection incarnation before starting, and stops waiting after a minute, when that
 ownership changes, or when a later Reply in the same window replaces it. A Mac launch
-from a notification starts without a window: Archive and Mark as Read act without one,
-and a tap or Reply opens one. Every other launch opens an Inbox window as before.
+from a notification starts without a window: Archive, Mark as Read and a typed reply act
+without one, and a tap opens one. Every other launch opens an Inbox window as before.
 
 ## Diagnostics
 
@@ -158,7 +189,11 @@ ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
 content, and that its diagnostics name no message or connection. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
-as Read, for Gmail and IMAP, and `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
+as Read, for Gmail and IMAP, and a typed Mac reply: sent with only its text, Undo,
+an Undo that cannot be saved, an Undo after delivery became uncertain, withdrawal after
+the window, an Undo while another reply reads its message, sending notifications left by an earlier launch, text storage refused, a Draft that cannot be created, a new Draft another editor changed first, a message no longer listed with Open Draft, Open Draft
+before the Drafts opened, an Archive whose connection is recreated while the Drafts open,
+and a recreated connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
 appearance and grouping, and each action from a locked device and with the app not

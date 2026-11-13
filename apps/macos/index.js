@@ -7,6 +7,7 @@ import { AppRegistry, TurboModuleRegistry } from 'react-native';
 import './src/delivery.ts';
 import { keepGmailFresh } from './src/freshness.ts';
 import { followNotificationActions, start } from './src/registration.ts';
+import { windowHost } from './src/settings-window-client.ts';
 import {
   ComposerWindowRoot,
   FolderChoiceWindowRoot,
@@ -25,8 +26,11 @@ AppRegistry.registerComponent(
 // here.
 if (!previewInbox) {
   void start();
-  // Archive and Mark as Read chosen on a notification act with no window open.
-  followNotificationActions();
+  // Archive, Mark as Read and a typed reply chosen on a notification act with no window open;
+  // Open Draft opens the reply's Draft in its own New Message window.
+  followNotificationActions((draft, profile) => {
+    windowHost()?.openComposer(draft, profile);
+  });
 }
 keepGmailFresh();
 // Only the assistance qualification build runs its synthetic corpus, once per launch.

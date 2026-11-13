@@ -1,5 +1,7 @@
 import type { Translate } from '@private-email/localization';
 
+import * as Struct from 'effect/Struct';
+
 import type { ComposerNavigation } from './composer-navigation.ts';
 import type {
   AssetSource,
@@ -335,6 +337,23 @@ export const respond = (
   kind: ResponseKind,
   source: ResponseSource,
 ) => (kind === 'forward' ? forwarded(t, source) : replied(t, kind, source));
+
+// A Draft body of plain `text`, one paragraph per line.
+export const typedBody = (text: string) =>
+  documentOf(blocksOf('paragraph', text));
+
+// A reply holding only `text`, as typed into a notification: no quote, and no signature.
+export const typedReply = (
+  t: Translate,
+  source: ResponseSource,
+  text: string,
+) => {
+  const { edit } = replied(t, 'reply', source);
+  return (draft: Draft): Draft => ({
+    ...Struct.omit(edit(draft), ['quoted']),
+    body: typedBody(text),
+  });
+};
 
 // The files a forward attaches: each listed attachment of an opened message in `mailbox`,
 // downloaded first. One too large to download, or that cannot be downloaded, is attached as a

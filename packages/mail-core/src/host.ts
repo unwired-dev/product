@@ -533,8 +533,11 @@ export function createHost(
         void followWakes(freshness, wakes);
       }
     },
-    // Reads Archive and Mark as Read chosen on notifications for the life of the process.
-    followNotificationActions: () => {
+    // Reads the actions chosen on notifications for the life of the process: Archive, Mark as
+    // Read, and on the Mac a typed reply, whose Open Draft `openDraft` opens.
+    followNotificationActions: (
+      openDraft: (draft: string, profile: string) => void = () => undefined,
+    ) => {
       if (!followingActions) {
         followingActions = true;
         void followNotificationActions(
@@ -543,6 +546,11 @@ export function createHost(
             completeNotificationAction: (id) => {
               native().completeNotificationAction(id);
             },
+            notificationSettings: () => native().notificationSettings(),
+            postReplyNotification: (posted, actions) =>
+              native().postReplyNotification(posted, actions),
+            withdrawNotification: (id) => native().withdrawNotification(id),
+            withdrawSendingReplies: () => native().withdrawSendingReplies(),
           },
           {
             snapshot: () => registration.getSnapshot().snapshot,
@@ -551,6 +559,7 @@ export function createHost(
               gmailMailboxes
                 .getConnections()
                 .find(({ id }) => id === connection),
+            replies: { drafts, outbox, translate, openDraft },
           },
         );
       }

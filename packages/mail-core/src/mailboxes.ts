@@ -489,7 +489,7 @@ export function createMailboxes(
     // asynchronous work.
     arrived?: (
       mailbox: NotificationMailbox &
-        Readonly<{ profile: () => string | undefined }>,
+        Readonly<{ address: string; profile: () => string | undefined }>,
       messages: readonly ArrivedMessage[],
       eligible: () => boolean,
     ) => void | Promise<void>;
@@ -648,6 +648,7 @@ export function createMailboxes(
                 account: productAccount,
                 connection: id,
                 epoch,
+                address,
                 // A connection moved to another Profile keeps its Inbox.
                 profile: () =>
                   mailboxesOf(registration.getSnapshot().snapshot).find(
