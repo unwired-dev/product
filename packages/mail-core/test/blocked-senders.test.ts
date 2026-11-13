@@ -274,9 +274,12 @@ describe('stored Blocked Senders', () => {
   it('counts the moves a document stored before senders kept their count recorded since the block', async () => {
     expect.hasAssertions();
     const { state, store } = storage();
-    const receipt = (receivedAt: string) => ({
+    const receipt = (
+      receivedAt: string,
+      address = 'offers@growthleads.io',
+    ) => ({
       connection: 'connection-1',
-      address: 'offers@growthleads.io',
+      address,
       receivedAt,
     });
     Object.assign(state, {
@@ -289,8 +292,14 @@ describe('stored Blocked Senders', () => {
             address: 'offers@growthleads.io',
             blockedAt: november8,
           },
+          {
+            profile: 'work',
+            address: 'noreply@crypto-daily.co',
+            blockedAt: november8,
+          },
         ],
         receipts: [
+          receipt('2026-11-08T10:00:00Z', 'noreply@crypto-daily.co'),
           receipt('2026-11-07T09:00:00Z'),
           receipt('2026-11-09T09:00:00Z'),
         ],
@@ -298,16 +307,21 @@ describe('stored Blocked Senders', () => {
     });
     await expect(store.blockedSenders('work')).resolves.toMatchObject([
       { moved: 1 },
+      { moved: 1 },
     ]);
-    await store.screen('work', { id: 'connection-1', moves: true }, [
-      {
-        id: 'next',
+    // Moves that push the oldest receipts out keep every sender's history.
+    await store.screen(
+      'work',
+      { id: 'connection-1', moves: true },
+      Array.from({ length: 1000 }, (_, index) => ({
+        id: `next-${index}`,
         address: 'offers@growthleads.io',
-        receivedAt: '2026-11-10T09:00:00Z',
-      },
-    ]);
+        receivedAt: `2026-11-10T09:00:00.${String(index).padStart(3, '0')}Z`,
+      })),
+    );
     await expect(store.blockedSenders('work')).resolves.toMatchObject([
-      { moved: 2 },
+      { address: 'offers@growthleads.io', moved: 1001 },
+      { address: 'noreply@crypto-daily.co', moved: 1 },
     ]);
   });
 

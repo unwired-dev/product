@@ -276,20 +276,18 @@ export function createBlockedSenders(
             return { blocked, move };
           }
           const recorded = yield* commit(stored, {
-            // A count outlives the receipts, which only keep an arrival from moving twice.
-            senders: stored.senders.map((sender) => {
-              const moved = moving.filter(
-                ({ receipt }) =>
-                  sender.profile === profile &&
-                  receipt.address === sender.address,
-              ).length;
-              return moved === 0
-                ? sender
-                : {
-                    ...sender,
-                    moved: movedFor(sender, stored.receipts) + moved,
-                  };
-            }),
+            // A count outlives the receipts, which only keep an arrival from moving twice, so every
+            // sender's is stored before older receipts are dropped.
+            senders: stored.senders.map((sender) => ({
+              ...sender,
+              moved:
+                movedFor(sender, stored.receipts) +
+                moving.filter(
+                  ({ receipt }) =>
+                    sender.profile === profile &&
+                    receipt.address === sender.address,
+                ).length,
+            })),
             receipts: [
               ...stored.receipts,
               ...moving.map(({ receipt }) => receipt),
