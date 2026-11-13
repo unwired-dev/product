@@ -189,7 +189,7 @@ const BodyDocumentSchema = Schema.Struct({
       }),
     ),
   ),
-  // The decoded iCalendar text of a Gmail meeting invitation, for responding to it.
+  // The decoded iCalendar text of a meeting invitation, for showing and responding to it.
   calendar: Schema.optionalKey(Schema.String),
   // The message's own addressing and threading headers, for Reply, Reply All and Forward, and its
   // list headers, for Unsubscribe; absent in bodies cached before they were kept.

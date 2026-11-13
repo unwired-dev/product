@@ -4,7 +4,7 @@
 [#1277](https://github.com/unwired-dev/product/issues/1277), lets the Mac reader
 send an [Invitation Response](domain/organization.md) to a single Gmail meeting
 invitation, and [#1815](https://github.com/unwired-dev/product/issues/1815) brings
-the same card to the iPhone and iPad reader. Microsoft, IMAP, Add to Calendar
+the same card to the iPhone and iPad reader. Microsoft, IMAP responses, Add to Calendar
 ([#1280](https://github.com/unwired-dev/product/issues/1280)) and organizer
 updates ([#1281](https://github.com/unwired-dev/product/issues/1281)) follow
 separately.
@@ -138,6 +138,17 @@ separately.
   a timed meeting whose `DURATION` counts days, and damaged calendar text show
   **Unwired can’t read this invitation**, with no response.
 
+## IMAP
+
+[#2109](https://github.com/unwired-dev/product/issues/2109), the first slice of
+[#1279](https://github.com/unwired-dev/product/issues/1279), reads an IMAP
+message's calendar part the same way, from the message source Unwired already
+downloads, and shows the cards that offer no response: a cancelled meeting, an
+invitation for another address, a series update that names no one meeting and an
+invitation Unwired can't read. An invitation the IMAP mailbox could answer shows no
+card yet: its response goes through the Outbox, which a later slice of #1279 adds.
+Nothing is sent.
+
 ## Limitations
 
 - Bodies cached before this change open without the card until the cache is
@@ -168,8 +179,11 @@ separately.
   a send the app quit during, restore after relaunch and mailbox removal, a
   revision that moved the meeting after an earlier answer, and the message an
   older revision's **Show Latest** opens.
+- `packages/mail-core/test/imap-invitations.test.ts` reads an IMAP invitation's
+  calendar part from a synthetic IMAP server.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
-  render each reader with a synthetic Gmail mailbox; they are component tests, not
+  render each reader with a synthetic Gmail mailbox, and an IMAP cancellation and
+  unanswered invitation with a synthetic IMAP server; they are component tests, not
   native evidence.
 - The iPhone and iPad `registration-invitation`
   [Mock Mail journey](mock-mail-sessions.md) opens a Gmail invitation and accepts

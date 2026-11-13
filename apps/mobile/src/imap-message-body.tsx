@@ -12,6 +12,7 @@ import {
 import { ActivityIndicator, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
+import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import { styles } from './message-body-styles.ts';
 import {
@@ -128,6 +129,12 @@ export function ImapMessageBody({
           body={body.presentation.readable}
         />
       </View>
+      <InvitationCard
+        inbox={inbox}
+        id={id}
+        connection={connection}
+        current={current}
+      />
       <Presentation
         onCopy={(link) => {
           if (current()) {
