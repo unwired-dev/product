@@ -1457,44 +1457,58 @@ export function createImapInbox(
       }
     }
   };
-  // The Inbox's arrivals older than the newest window `listed` when more than it keeps arrived,
-  // read only for Blocked Sender screening. Sequence numbers follow UIDs, so their envelopes are
-  // read in batches below the window, at most `remaining` from the top, until a batch reaches a
-  // UID from before the checkpoint.
-  const readEarlier = Effect.fnUntraced(function* ({
-    folder,
-    read,
-    selection,
-    remaining,
-    checkpoint,
-    listed,
-  }: Readonly<{
-    folder: string;
-    read: (total: number) => Effect.Effect<readonly Envelope[], ImapFailure>;
-    selection: Readonly<{ uidValidity: number; messages: number }>;
-    remaining: number;
-    checkpoint: number;
-    listed: readonly Envelope[];
-  }>) {
+  // The Inbox's arrivals from the checkpoint up to the oldest of the newest window `listed`, when
+  // more than it keeps arrived, read only for Blocked Sender screening. History reads page them by
+  // UID, newest first and at most a window at a time, so mail expunged meanwhile shifts nothing.
+  const readEarlier = Effect.fnUntraced(function* (
+    scope: Scope,
+    folder: string,
+    {
+      uidValidity,
+      checkpoint,
+      listed,
+    }: Readonly<{
+      uidValidity: number;
+      checkpoint: number;
+      listed: readonly Envelope[];
+    }>,
+  ) {
     const earlier: ImapMessage[] = [];
-    if (arrived === undefined || folder !== inboxFolder) {
+    if (
+      arrived === undefined ||
+      folder !== inboxFolder ||
+      listed.length === 0
+    ) {
       return earlier;
     }
-    let batch = listed;
-    for (
-      let total = selection.messages - window;
-      total > selection.messages - remaining &&
-      batch.every(({ uid }) => uid >= checkpoint);
-      total -= window
-    ) {
-      batch = yield* read(total);
-      earlier.push(
-        ...batch
-          .filter(({ uid }) => uid >= checkpoint)
-          .map((message) =>
-            listedMessage(folder, selection.uidValidity, message),
-          ),
+    const pageBelow = (below: number) =>
+      call(() =>
+        native.imapHistory(scope, {
+          folder,
+          above: checkpoint,
+          below,
+          limit: window,
+          known: [],
+        }),
+      ).pipe(
+        Effect.flatMap((reply) =>
+          decodeHistoryRead(reply).pipe(Effect.mapError(malformed)),
+        ),
       );
+    let below = Math.min(...listed.map(({ uid }) => uid));
+    while (below > checkpoint) {
+      const end = below;
+      const page = yield* pageBelow(end);
+      // A new UIDVALIDITY lists the folder afresh next time; a cursor that does not move ends.
+      if (page.uidValidity !== uidValidity || page.below >= end) {
+        break;
+      }
+      earlier.push(
+        ...page.messages
+          .filter(({ uid }) => uid >= checkpoint && uid < end)
+          .map((message) => listedMessage(folder, uidValidity, message)),
+      );
+      ({ below } = page);
     }
     return earlier;
   });
@@ -1560,11 +1574,8 @@ export function createImapInbox(
     if (remaining > window) {
       // More arrived than the window keeps: only the newest are listed.
       messages = yield* newest;
-      earlier = yield* readEarlier({
-        folder: request.folder,
-        read: (total) => envelopes({ ...session, newest: window, total }),
-        selection,
-        remaining,
+      earlier = yield* readEarlier(scope, request.folder, {
+        uidValidity: selection.uidValidity,
         checkpoint: cached.uidNext,
         listed: messages,
       });

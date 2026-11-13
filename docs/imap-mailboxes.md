@@ -131,8 +131,8 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   the flags of those UIDs and the messages that arrived since UIDNEXT, and drop cached
   messages the server no longer reports. When more than 200 arrived, only the newest
   200 are listed, cached and notified. For the Inbox, the older arrivals' envelopes
-  are also read in batches of up to 200, newest first, until a batch reaches a
-  message from before the checkpoint, and only screened for
+  are also read in UID pages of up to 200, newest first, down to the checkpoint, so
+  mail another client expunges meanwhile shifts nothing, and only screened for
   [Blocked Senders](architecture/product/organization.md#mute-and-blocked-senders)
   ([#2122](https://github.com/unwired-dev/product/issues/2122)).
 - Each folder's messages and checkpoint are committed together to the connection's
