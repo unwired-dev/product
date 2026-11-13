@@ -2886,6 +2886,54 @@ describe('composing Drafts', () => {
     reading.mockRestore();
   });
 
+  it('removes the discarded Draft’s reminder when storage refuses the write after its removal', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      dueAt: Date.now() + 3_600_000,
+      timeZone,
+    });
+    const [shown] = draftsOf(subject.drafts.getSnapshot());
+    ok(shown);
+    // Storage stores the removal, then refuses every later write.
+    const { native } = subject.storage;
+    const commit = native.commitDrafts;
+    const committing = jest
+      .spyOn(native, 'commitDrafts')
+      .mockImplementation(async (...args) => {
+        const committed = await commit(...args);
+        subject.storage.setLocked(true);
+        return committed;
+      });
+    subject.storage.hold();
+    await press('Compose actions');
+    await chooseMenuItem('Discard');
+    await press('Discard Draft');
+    // An edit made meanwhile is kept as a copy, which the refused write cannot store.
+    await act(async () => {
+      void subject.drafts.update(
+        { ...shown, subject: 'Edited meanwhile' },
+        shown,
+      );
+      subject.storage.release();
+    });
+    await waitFor(() => {
+      expect(subject.drafts.getSnapshot()).toMatchObject({ save: 'locked' });
+    });
+    expect(draftsOf(subject.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Edited meanwhile', conflict: true },
+    ]);
+    await expect(
+      subject.reminders.store.reminders(defaultProfile),
+    ).resolves.toStrictEqual([]);
+    committing.mockRestore();
+  });
+
   it('removes the discarded Draft’s reminder when an edit made meanwhile moves the editor to a conflicting copy', async () => {
     expect.hasAssertions();
     const { timeZone } = Intl.DateTimeFormat().resolvedOptions();

@@ -2806,8 +2806,9 @@ function Editor({
   // A Draft that Send or Discard removed needs no reminder, whichever window set it. `target` reads
   // the Draft `id` for the store, which removes the one read last; a rebinding after that moves the
   // editor to a conflict copy keeping its own reminder. Discard keeps another window's newer
-  // content under the same id, which keeps its reminder too. One storage could not remove stays
-  // harmless, as it names a Draft that no longer exists.
+  // content under the same id, which keeps its reminder too. `forget` runs whatever the operation
+  // resolved, as a removal stored before a later write failed still removed the Draft. One storage
+  // could not remove stays harmless, as it names a Draft that no longer exists.
   const reminderCleanup = () => {
     let { id } = authored.current;
     return {
@@ -2816,7 +2817,8 @@ function Editor({
         return id;
       },
       forget: () => {
-        if (draftOf(store.getSnapshot(), id) === undefined) {
+        const state = store.getSnapshot();
+        if (state.kind === 'ready' && draftOf(state, id) === undefined) {
           void sendReminders.cancel(draftProfile, id);
         }
       },
@@ -2836,9 +2838,7 @@ function Editor({
           onlyIfEmpty: true,
           expected: () => stored.current,
         });
-        if (removed) {
-          cleanup.forget();
-        }
+        cleanup.forget();
         return removed;
       });
     }
@@ -2986,8 +2986,8 @@ function Editor({
     } catch {
       // An unexpected storage rejection leaves the editor retryable too.
     }
+    cleanup.forget();
     if (removed) {
-      cleanup.forget();
       await closeRecord(authored.current.id);
     } else {
       discarded.current = false;
@@ -3046,8 +3046,8 @@ function Editor({
     } catch {
       // An unexpected rejection keeps the Draft open to send again.
     }
+    cleanup.forget();
     if (refusal === undefined) {
-      cleanup.forget();
       await closeRecord(authored.current.id);
     } else {
       pausedNow.current = false;
