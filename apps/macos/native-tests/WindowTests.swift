@@ -1116,6 +1116,7 @@ final class WindowTests: XCTestCase {
     for title in titles {
       XCTAssertEqual(entries.matching(identifier: title).count, 1, file: file, line: line)
     }
+    XCTAssertFalse(app.menuItems["Merge All Windows"].exists, file: file, line: line)
     app.typeKey(.escape, modifierFlags: [])
   }
 
