@@ -425,7 +425,10 @@ styles) so the file stays editable.
   above the bottom safe area, or 12pt above the software keyboard. Rows scroll
   under it behind a 72pt scroll edge fade. On iPhone, Filter, the system search
   field and New Message are items of the system toolbar instead, which UIKit
-  places and lifts above the software keyboard. Whether it shows while composing
+  places and lifts above the software keyboard: 48pt glass with its bottom edge
+  28pt above the screen's bottom and 28pt from each side, a 226pt field and 12pt
+  gaps. The Quick Look, Select Messages and Ask About Calendar bars sit on the
+  same line. Whether it shows while composing
   follows [Drafts](docs/drafts.md#composing).
 - **Command Palette:** on the Mac a glass command input (command symbol,
   "Commands", ⌘K key cap) sits in the window's toolbar row: 36pt at the leading
@@ -739,7 +742,13 @@ app follows under the issue named:
 - **iPhone composer:** the frames draw the composer as a sheet, as
   [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) now
   decides. The app pushes it onto the navigation stack until #2113.
-- **Send menu:** Remind Me to Send… waits for #658.
+- **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); on
+  iPhone and iPad, Remind Me to Send… waits for #658.
+- **Reminder menu:** Choose Date and Time… waits for a frame of what it opens
+  (#658). The Mac menu shows each time on the item's second line and the note
+  as a dimmed item on one line, as AppKit draws them, where M3 draws the time
+  trailing and the note wrapped in small type. Until #658 schedules
+  notifications, no device reminds the person yet.
 - **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
 - **Reader More menu:** Move to Spam waits for #2132.
 - **Compact iPad window:** the Command input in the reader's navigation bar and

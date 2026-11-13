@@ -1,7 +1,11 @@
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { NativeSendReminders } from '@private-email/mail-core/send-reminders';
 
-import { createSendReminders } from '@private-email/mail-core/send-reminders';
+import {
+  createSendReminders,
+  reminderDay,
+  reminderTimes,
+} from '@private-email/mail-core/send-reminders';
 
 // Tomorrow, 09:00 in Prague, as the approved banner shows it.
 const tomorrowMorning = Date.UTC(2026, 10, 13, 8);
@@ -9,6 +13,25 @@ const keys = {
   draft: 'keys-for-the-flat',
   dueAt: tomorrowMorning,
   timeZone: 'Europe/Prague',
+};
+
+// A formatted part as Hermes gives it: GMT+01:00 as "GMT", then "+", "01" and ":00" apart.
+const splitOffset = (
+  part: Intl.DateTimeFormatPart,
+): Intl.DateTimeFormatPart[] => {
+  const offset = /^GMT(?<sign>[+-])(?<hours>\d\d):(?<minutes>\d\d)$/u.exec(
+    part.value,
+  );
+  if (part.type !== 'timeZoneName' || offset === null) {
+    return [part];
+  }
+  const { sign = '', hours = '', minutes = '' } = offset.groups ?? {};
+  return [
+    { type: 'timeZoneName', value: 'GMT' },
+    { type: 'literal', value: sign },
+    { type: 'minute', value: hours },
+    { type: 'literal', value: `:${minutes}` },
+  ];
 };
 
 // Native Send Reminder storage as the store sees it: one document for the signed-in account,
@@ -223,5 +246,51 @@ describe('stored Send Reminders', () => {
       reminders: [{ ...keys, profile: 'work', timeZone: 'Mars/Olympus' }],
     });
     await expect(store.reminders('work')).resolves.toBeUndefined();
+  });
+});
+
+describe('reminder menu times', () => {
+  it('offers this evening at 20:00 only while it is ahead, and tomorrow at 9:00 across a clock change', () => {
+    expect.hasAssertions();
+    // Saturday 24 October 2026, 10:00 in Prague; summer time ends that night.
+    const morning = Date.UTC(2026, 9, 24, 8);
+    expect(reminderTimes(morning, 'Europe/Prague')).toStrictEqual([
+      { time: 'thisEvening', dueAt: Date.UTC(2026, 9, 24, 18) },
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 8) },
+    ]);
+    const night = Date.UTC(2026, 9, 24, 18, 30);
+    expect(reminderTimes(night, 'Europe/Prague')).toStrictEqual([
+      { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 9, 25, 8) },
+    ]);
+    expect(reminderTimes(morning, 'Mars/Olympus')).toStrictEqual([]);
+  });
+
+  it('reads the same times where the engine splits the time zone offset into parts, as Hermes does', () => {
+    expect.hasAssertions();
+    const { formatToParts } = Intl.DateTimeFormat.prototype;
+    const split = vi
+      .spyOn(Intl.DateTimeFormat.prototype, 'formatToParts')
+      .mockImplementation(function (this: Intl.DateTimeFormat, at) {
+        return formatToParts.call(this, at).flatMap(splitOffset);
+      });
+    try {
+      // Friday 13 November 2026, 14:28 in Prague.
+      const afternoon = Date.UTC(2026, 10, 13, 13, 28);
+      expect(reminderTimes(afternoon, 'Europe/Prague')).toStrictEqual([
+        { time: 'thisEvening', dueAt: Date.UTC(2026, 10, 13, 19) },
+        { time: 'tomorrowMorning', dueAt: Date.UTC(2026, 10, 14, 8) },
+      ]);
+      expect(reminderDay(keys, Date.UTC(2026, 10, 12, 23, 30))).toBe(0);
+    } finally {
+      split.mockRestore();
+    }
+  });
+
+  it('counts the due day in the reminder’s own time zone', () => {
+    expect.hasAssertions();
+    // 23:30 UTC on 12 November is already 13 November in Prague.
+    const lateEvening = Date.UTC(2026, 10, 12, 23, 30);
+    expect(reminderDay(keys, lateEvening)).toBe(0);
+    expect(reminderDay(keys, lateEvening - 3_600_000)).toBe(1);
   });
 });

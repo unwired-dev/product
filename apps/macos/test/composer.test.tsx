@@ -2,7 +2,6 @@ import { ok } from 'node:assert/strict';
 
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { Draft } from '@private-email/mail-core/drafts';
-import type { NativeMailTemplates } from '@private-email/mail-core/mail-templates';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
@@ -20,6 +19,11 @@ import {
   imageCharacter,
   imagesOf,
 } from '@private-email/mail-core/semantic-document';
+import {
+  createSendReminders,
+  reminderCity,
+  reminderTimes,
+} from '@private-email/mail-core/send-reminders';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createSyntheticGmail,
@@ -76,6 +80,7 @@ import {
   menuSections,
   submenuItems,
 } from './native-menu.ts';
+import { remindFromSendMenu } from './send-menu.tsx';
 
 // The shared CI runner takes seconds to warm up the first composer journey.
 jest.setTimeout(30_000);
@@ -121,22 +126,23 @@ function account(initial: RegistrationSnapshot) {
   };
 }
 
-// Mail Template storage on this device for `registration`'s account; `refusing` makes a write fail
-// as locked storage does.
-function templateStorage(registration: ReturnType<typeof account>) {
+// One encrypted document on this device for the synthetic account, as native code keeps Mail
+// Templates and Send Reminders; `refusing` makes a write fail as locked storage does.
+function documentStorage() {
   const state = {
     revision: 0,
     document: null as string | null,
     refusing: false,
   };
-  const native: NativeMailTemplates = {
-    openMailTemplates: () =>
+  return {
+    state,
+    open: () =>
       Promise.resolve({
         owner: 'synthetic-product-account',
         revision: state.revision,
         document: state.document,
       }),
-    commitMailTemplates: (owner, expectedRevision, document) => {
+    commit: (owner: string, expectedRevision: number, document: string) => {
       if (state.refusing || expectedRevision !== state.revision) {
         return Promise.reject(
           Object.assign(new Error('locked'), { code: 'locked' }),
@@ -146,7 +152,20 @@ function templateStorage(registration: ReturnType<typeof account>) {
       return Promise.resolve({ owner, revision: state.revision });
     },
   };
+}
+
+// Mail Template storage on this device for `registration`'s account.
+function templateStorage(registration: ReturnType<typeof account>) {
+  const { state, open, commit } = documentStorage();
+  const native = { openMailTemplates: open, commitMailTemplates: commit };
   return { state, store: createMailTemplates(native, registration) };
+}
+
+// Send Reminder storage on this device for `registration`'s account.
+function reminderStorage(registration: ReturnType<typeof account>) {
+  const { state, open, commit } = documentStorage();
+  const native = { openSendReminders: open, commitSendReminders: commit };
+  return { state, store: createSendReminders(native, registration) };
 }
 
 // A successful save shows no status, so wait for the store to finish saving instead.
@@ -318,11 +337,13 @@ function App({
   initialDraft,
   profile,
   mailTemplates,
+  sendReminders,
 }: {
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly mailTemplates?: ReturnType<typeof createMailTemplates>;
+  readonly sendReminders?: ReturnType<typeof createSendReminders>;
   readonly openAccount?: (destination?: string) => void;
   readonly onRebind?: (id: string) => void;
   readonly initialDraft?: string;
@@ -367,7 +388,8 @@ function App({
         <InboxProvider
           drafts={drafts}
           mailboxes={mailboxes}
-          mailTemplates={mailTemplates}>
+          mailTemplates={mailTemplates}
+          sendReminders={sendReminders}>
           <ProfileScope profile={profile}>
             <Mailboxes
               view={view}
@@ -448,7 +470,7 @@ const saveAndClose = async () => {
 };
 
 // Opens a Draft from alex's mailbox with the content `edit` gives it, beside Mail Template storage
-// holding what `seed` saves.
+// holding what `seed` saves and Send Reminder storage. `reopen` opens it again in a new composer.
 async function composeWithTemplates(
   edit: (draft: Draft) => Draft,
   seed?: (store: ReturnType<typeof createMailTemplates>) => Promise<void>,
@@ -458,6 +480,7 @@ async function composeWithTemplates(
   const drafts = createDrafts(storage.native, registration);
   await drafts.load();
   const templates = templateStorage(registration);
+  const reminders = reminderStorage(registration);
   await seed?.(templates.store);
   const created = await drafts.create({
     id: alex,
@@ -468,20 +491,25 @@ async function composeWithTemplates(
   const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
   ok(draft);
   await drafts.update(edit(draft), draft);
-  await render(
-    <App
-      drafts={drafts}
-      registration={registration}
-      initialDraft={id}
-      mailTemplates={templates.store}
-    />,
-  );
-  await screen.findByLabelText('Message body');
-  // The composer reads its templates after it opens.
-  await act(async () => {
-    await templates.store.templates(defaultProfile);
-  });
-  return templates;
+  const reopen = async () => {
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+        initialDraft={id}
+        mailTemplates={templates.store}
+        sendReminders={reminders.store}
+      />,
+    );
+    await screen.findByLabelText('Message body');
+    // The composer reads its templates and reminder after it opens.
+    await act(async () => {
+      await templates.store.templates(defaultProfile);
+      await reminders.store.reminders(defaultProfile);
+    });
+  };
+  await reopen();
+  return { ...templates, reminders, drafts, storage, id, reopen };
 }
 
 // Chooses New Template from This Message… and Save Template with `name`.
@@ -2635,6 +2663,337 @@ describe('composing Drafts', () => {
     );
     await expect(
       templates.store.templates(defaultProfile),
+    ).resolves.toStrictEqual([]);
+  });
+
+  it('sets, changes and removes a Draft’s Send Reminder from the Send menu without sending it', async () => {
+    expect.hasAssertions();
+    // Noon today, so the menu offers This Evening and Tomorrow Morning whenever the test runs.
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
+    try {
+      const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+      const times = reminderTimes(Date.now(), timeZone);
+      const tomorrow = times.at(-1);
+      ok(tomorrow);
+      const composed = await composeWithTemplates((draft) => ({
+        ...draft,
+        subject: 'Keys for the flat',
+      }));
+      const { reminders, drafts, id } = composed;
+      const stored = () => reminders.store.reminders(defaultProfile);
+      const banner = new RegExp(
+        `^Reminder for tomorrow, .+ \\(${reminderCity(timeZone)}\\)$`,
+        'u',
+      );
+
+      // Remind Me to Send… opens the reminder menu from Send: its times, then the note.
+      await remindFromSendMenu();
+      expect(menuSections()).toMatchObject([
+        {
+          items: [{ title: 'This Evening' }, { title: 'Tomorrow Morning' }],
+        },
+        {
+          items: [
+            {
+              title:
+                'One of your devices will remind you to finish this Draft. It won’t send it.',
+              disabled: true,
+            },
+          ],
+        },
+      ]);
+      // A reminder that storage refuses is reported and stores nothing.
+      reminders.state.refusing = true;
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText('The reminder could not be set. Try again.');
+      await expect(stored()).resolves.toStrictEqual([]);
+
+      // Choosing a time saves the Draft and stores its reminder; the composer stays open.
+      reminders.state.refusing = false;
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(banner);
+      expect(
+        screen.queryByText('The reminder could not be set. Try again.'),
+      ).toBeNull();
+      await expect(stored()).resolves.toStrictEqual([
+        { draft: id, profile: defaultProfile, dueAt: tomorrow.dueAt, timeZone },
+      ]);
+      await savedQuietly(drafts);
+      expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+        { id, subject: 'Keys for the flat' },
+      ]);
+      expect(screen.getByLabelText('Message body')).toBeOnTheScreen();
+
+      // Change opens the reminder menu again; reopening the Draft shows its reminder.
+      await press('Change');
+      expect(menuItems().map(({ title }) => title)).toContain(
+        'Tomorrow Morning',
+      );
+      await dismissMenu();
+      await screen.unmount();
+      await composed.reopen();
+      await screen.findByText(banner);
+
+      // Remove Reminder removes it once storage accepts the write.
+      reminders.state.refusing = true;
+      await press('Remove Reminder');
+      await screen.findByText('The reminder could not be removed. Try again.');
+      await expect(stored()).resolves.toHaveLength(1);
+      reminders.state.refusing = false;
+      await press('Remove Reminder');
+      await waitFor(() => {
+        expect(screen.queryByText(banner)).toBeNull();
+      });
+      await expect(stored()).resolves.toStrictEqual([]);
+
+      // Discarding the Draft removes the reminder set on it.
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(banner);
+      await press('Compose actions');
+      await chooseMenuItem('Discard');
+      await press('Discard Draft');
+      await waitFor(async () => {
+        await expect(stored()).resolves.toStrictEqual([]);
+      });
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('removes the reminder another window set when the Draft is discarded or closed empty', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const reminded = { dueAt: Date.now() + 3_600_000, timeZone };
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    const stored = () => subject.reminders.store.reminders(defaultProfile);
+
+    // Another window sets the reminder after this composer read its own.
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      ...reminded,
+    });
+    await press('Compose actions');
+    await chooseMenuItem('Discard');
+    await press('Discard Draft');
+    await waitFor(async () => {
+      await expect(stored()).resolves.toStrictEqual([]);
+    });
+    expect(draftsOf(subject.drafts.getSnapshot())).toHaveLength(0);
+    await screen.unmount();
+
+    // An empty Draft that Close removes loses its reminder too.
+    const empty = await composeWithTemplates((draft) => draft);
+    await empty.reminders.store.remind(defaultProfile, {
+      draft: empty.id,
+      ...reminded,
+    });
+    await press('Close');
+    await waitFor(async () => {
+      await expect(
+        empty.reminders.store.reminders(defaultProfile),
+      ).resolves.toStrictEqual([]);
+    });
+    expect(draftsOf(empty.drafts.getSnapshot())).toHaveLength(0);
+  });
+
+  it('ignores Remove Reminder while a reminder change is pending', async () => {
+    expect.hasAssertions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    const stored = () => subject.reminders.store.reminders(defaultProfile);
+    await remindFromSendMenu();
+    await chooseMenuItem('Tomorrow Morning');
+    await screen.findByText(/^Reminder for /u);
+    // Storage holds the save that Change makes before it stores the new time.
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Keys');
+    subject.storage.hold();
+    await press('Change');
+    await chooseMenuItem('Tomorrow Morning');
+    await press('Remove Reminder');
+    await expect(stored()).resolves.toHaveLength(1);
+    await act(async () => {
+      subject.storage.release();
+    });
+    await waitFor(async () => {
+      await expect(stored()).resolves.toHaveLength(1);
+    });
+    expect(screen.getByText(/^Reminder for /u)).toBeOnTheScreen();
+  });
+
+  it('keeps the reminder of newer content another window saved when a stale editor discards or closes empty', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const reminded = { dueAt: Date.now() + 3_600_000, timeZone };
+    // Another window saves newer content and sets its reminder while this editor shows the old one.
+    const savedElsewhere = async (
+      subject: Awaited<ReturnType<typeof composeWithTemplates>>,
+    ) => {
+      const [shown] = draftsOf(subject.drafts.getSnapshot());
+      ok(shown);
+      await act(async () => {
+        await subject.drafts.update({ ...shown, subject: 'Newer' }, shown);
+        await subject.reminders.store.remind(defaultProfile, {
+          draft: subject.id,
+          ...reminded,
+        });
+      });
+    };
+
+    const discarding = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await savedElsewhere(discarding);
+    await press('Compose actions');
+    await chooseMenuItem('Discard');
+    await press('Discard Draft');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Message body')).toBeNull();
+    });
+    expect(draftsOf(discarding.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Newer' },
+    ]);
+    await expect(
+      discarding.reminders.store.reminders(defaultProfile),
+    ).resolves.toMatchObject([{ draft: discarding.id }]);
+    await screen.unmount();
+
+    const closing = await composeWithTemplates((draft) => draft);
+    await savedElsewhere(closing);
+    await press('Close');
+    expect(draftsOf(closing.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Newer' },
+    ]);
+    await expect(
+      closing.reminders.store.reminders(defaultProfile),
+    ).resolves.toMatchObject([{ draft: closing.id }]);
+  });
+
+  it('stops offering the original’s reminder once a stale editor moves to its conflicting copy', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      dueAt: Date.now() + 3_600_000,
+      timeZone,
+    });
+    await screen.unmount();
+    await subject.reopen();
+    expect(screen.getByText(/^Reminder for /u)).toBeOnTheScreen();
+    // The conflicting copy's own reminder cannot be read.
+    const reading = jest
+      .spyOn(subject.reminders.store, 'reminders')
+      .mockResolvedValue(undefined);
+    const [shown] = draftsOf(subject.drafts.getSnapshot());
+    ok(shown);
+    await act(async () => {
+      await subject.drafts.update({ ...shown, subject: 'Other window' }, shown);
+    });
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'This window');
+    // While storage refuses the save, the editor stays open on its conflicting copy.
+    subject.storage.setLocked(true);
+    await saveAndClose();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'This window');
+    expect(screen.queryByText(/^Reminder for /u)).toBeNull();
+    reading.mockRestore();
+  });
+
+  it('removes the discarded Draft’s reminder when storage refuses the write after its removal', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      dueAt: Date.now() + 3_600_000,
+      timeZone,
+    });
+    const [shown] = draftsOf(subject.drafts.getSnapshot());
+    ok(shown);
+    // Storage stores the removal, then refuses every later write.
+    const { native } = subject.storage;
+    const commit = native.commitDrafts;
+    const committing = jest
+      .spyOn(native, 'commitDrafts')
+      .mockImplementation(async (...args) => {
+        const committed = await commit(...args);
+        subject.storage.setLocked(true);
+        return committed;
+      });
+    subject.storage.hold();
+    await press('Compose actions');
+    await chooseMenuItem('Discard');
+    await press('Discard Draft');
+    // An edit made meanwhile is kept as a copy, which the refused write cannot store.
+    await act(async () => {
+      void subject.drafts.update(
+        { ...shown, subject: 'Edited meanwhile' },
+        shown,
+      );
+      subject.storage.release();
+    });
+    await waitFor(() => {
+      expect(subject.drafts.getSnapshot()).toMatchObject({ save: 'locked' });
+    });
+    expect(draftsOf(subject.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Edited meanwhile', conflict: true },
+    ]);
+    await expect(
+      subject.reminders.store.reminders(defaultProfile),
+    ).resolves.toStrictEqual([]);
+    committing.mockRestore();
+  });
+
+  it('removes the discarded Draft’s reminder when an edit made meanwhile moves the editor to a conflicting copy', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const subject = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      dueAt: Date.now() + 3_600_000,
+      timeZone,
+    });
+    const [shown] = draftsOf(subject.drafts.getSnapshot());
+    ok(shown);
+    subject.storage.hold();
+    await press('Compose actions');
+    await chooseMenuItem('Discard');
+    await press('Discard Draft');
+    // Another window edits the Draft while its deletion is stored, which keeps the edit as a copy.
+    await act(async () => {
+      void subject.drafts.update(
+        { ...shown, subject: 'Edited meanwhile' },
+        shown,
+      );
+      subject.storage.release();
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Message body')).toBeNull();
+    });
+    expect(draftsOf(subject.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Edited meanwhile', conflict: true },
+    ]);
+    await expect(
+      subject.reminders.store.reminders(defaultProfile),
     ).resolves.toStrictEqual([]);
   });
 

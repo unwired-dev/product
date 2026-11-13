@@ -30,7 +30,8 @@ import type {
 import type { Registration } from './registration.ts';
 
 import { logNote } from './diagnostics.ts';
-import { searchedFolders } from './imap-actions.ts';
+import { gmailAction } from './gmail-actions.ts';
+import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import { createImapInbox } from './imap-inbox.ts';
 import { createBodyLoads, createInboxStore } from './inbox-store.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
@@ -479,6 +480,7 @@ export function createMailboxes(
   {
     removed,
     arrived,
+    screen,
   }: Readonly<{
     removed?: () => void;
     // New Inbox mail for a connection whose New Mail Notifications are on, while it still
@@ -491,6 +493,18 @@ export function createMailboxes(
       messages: readonly ArrivedMessage[],
       eligible: () => boolean,
     ) => void | Promise<void>;
+    // Which new Inbox mail the connection's current Mail Profile blocks, and which of it to move
+    // to Trash; see BlockedSenders' `screen`. Undefined lets every message through.
+    screen?: (
+      profile: string,
+      connection: string,
+      messages: ReadonlyArray<
+        ArrivedMessage & Readonly<{ receivedAt: string }>
+      >,
+    ) => Promise<
+      | Readonly<{ blocked: ReadonlySet<string>; move: readonly string[] }>
+      | undefined
+    >;
   }> = {},
 ) {
   const shared = createBodyLoads();
@@ -599,40 +613,89 @@ export function createMailboxes(
           )
         );
       };
+      // Mail from a Blocked Sender of the connection's current Mail Profile posts no notification,
+      // whether or not notifications are on, and moves to Trash through the reader's queued change.
       const report =
-        arrived === undefined
-          ? undefined
-          : (messages: readonly ArrivedMessage[]) => {
-              if (eligible()) {
-                return arrived(
-                  {
-                    account: productAccount,
-                    connection: id,
-                    epoch,
-                    address,
-                    // A connection moved to another Profile keeps its Inbox.
-                    profile: () =>
-                      mailboxesOf(registration.getSnapshot().snapshot).find(
-                        (mailbox) => mailbox.id === id,
-                      )?.profile,
-                  },
-                  messages,
-                  eligible,
-                );
-              }
-              return Effect.runPromise(
-                logNote(
-                  'New mail notifications not posted: connection closed or its notifications off',
-                ),
-              );
-            };
+        <M extends ArrivedMessage & Readonly<{ receivedAt: string }>>(
+          trash: (message: M) => void,
+        ) =>
+        async (arrivals: readonly M[]) => {
+          const profile = () =>
+            openMailboxes(registration.getSnapshot().snapshot).find(
+              (mailbox) => mailbox.id === id && mailbox.owner === owner,
+            )?.profile;
+          const screenedFor = profile();
+          const result =
+            screenedFor === undefined
+              ? undefined
+              : await screen?.(screenedFor, id, arrivals);
+          // A connection moved to another Profile meanwhile follows neither Profile's blocks.
+          const screened = profile() === screenedFor ? result : undefined;
+          for (const message of arrivals) {
+            if (screened?.move.includes(message.id) === true) {
+              trash(message);
+            }
+          }
+          const messages = arrivals.filter(
+            (message) => screened?.blocked.has(message.id) !== true,
+          );
+          if (arrived === undefined || messages.length === 0) {
+            return;
+          }
+          if (eligible()) {
+            return arrived(
+              {
+                account: productAccount,
+                connection: id,
+                epoch,
+                address,
+                // A connection moved to another Profile keeps its Inbox.
+                profile: () =>
+                  mailboxesOf(registration.getSnapshot().snapshot).find(
+                    (mailbox) => mailbox.id === id,
+                  )?.profile,
+              },
+              messages,
+              eligible,
+            );
+          }
+          return Effect.runPromise(
+            logNote(
+              'New mail notifications not posted: connection closed or its notifications off',
+            ),
+          );
+        };
+      // The Inbox open for this connection and owner, which the arrival's message came from.
+      const own = () => {
+        const entry = inboxes.get(id);
+        return entry?.owner === owner ? entry : undefined;
+      };
       const opened =
         provider === 'imap'
           ? {
               provider,
               inbox: createImapInbox(boundImap(native, id), {
                 removed,
-                arrived: report,
+                // Only a server that moves messages, to the Trash folder it declares or the
+                // person chose.
+                arrived: report<ImapMessage>((message) => {
+                  const entry = own();
+                  if (entry?.provider !== 'imap') {
+                    return;
+                  }
+                  const state = entry.inbox.getSnapshot();
+                  const destination =
+                    state.kind === 'ready' && state.capabilities?.moves === true
+                      ? imapRoleFolder(state.folders, 'trash')
+                      : undefined;
+                  if (destination !== undefined) {
+                    void entry.inbox.organize(
+                      message,
+                      { kind: 'trash', destination },
+                      { quiet: true },
+                    );
+                  }
+                }),
                 shared,
                 connection: id,
                 chosen: folders,
@@ -642,7 +705,15 @@ export function createMailboxes(
               provider,
               inbox: createInboxStore(bound(native, id), {
                 removed,
-                arrived: report,
+                // Microsoft without a Deleted Items folder offers no Trash, which changes nothing.
+                arrived: report<GmailMessage>((message) => {
+                  const entry = own();
+                  if (entry !== undefined && entry.provider !== 'imap') {
+                    void entry.inbox.organize(message, gmailAction.trash, {
+                      quiet: true,
+                    });
+                  }
+                }),
                 shared,
                 connection: id,
                 provider,

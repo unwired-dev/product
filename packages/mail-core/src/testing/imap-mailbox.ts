@@ -675,6 +675,7 @@ export function createSyntheticImap({
         raw?: string;
         received?: number;
         flags?: string[];
+        address?: string;
       }>,
     ) => {
       const current = folder(name);
@@ -686,7 +687,7 @@ export function createSyntheticImap({
         // Older than any recent working set, so only mail a test dates is prefetched.
         received: message.received ?? Date.UTC(2020, 0, 1, 9, uid),
         sender: 'Synthetic Sender',
-        address: 'sender@example.invalid',
+        address: message.address ?? 'sender@example.invalid',
         subject: message.subject,
         raw: message.raw ?? syntheticRaw(message.subject, message.body ?? ''),
       });

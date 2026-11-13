@@ -88,6 +88,12 @@ describe('headless Gmail freshness', () => {
         complete: true,
       }),
       completeWake,
+      // Arriving mail is screened against this device's Blocked Senders, of which there are none.
+      openBlockedSenders: async () => ({
+        owner: ownerOf(snapshot),
+        revision: 0,
+        document: null,
+      }),
       nextNotificationAction: jest
         .fn<Promise<unknown>, []>()
         .mockResolvedValueOnce({
