@@ -339,14 +339,19 @@ describe('organizing IMAP mail', () => {
     const imap = organizedServer();
     const archivedUid = imap.deliver('INBOX', { subject: 'Archived' });
     const openedUid = imap.deliver('INBOX', { subject: 'Opened' });
+    const refusedUid = imap.deliver('INBOX', { subject: 'Refused' });
     const inbox = createImapInbox(imap.native);
     await inbox.load();
     const state = inbox.getSnapshot();
     const archived = inboxMessage(state, 'Archived');
     await inbox.organize(archived, action(state, archived, 'archive'));
     const archiving = ready(inbox.getSnapshot()).notice;
+    // Two readers opening the same unread copy ask once.
     const opened = inboxMessage(inbox.getSnapshot(), 'Opened');
-    const reading = inbox.readOpened(opened);
+    const reading = Promise.all([
+      inbox.readOpened(opened),
+      inbox.readOpened(opened),
+    ]);
     expect(inbox.message(opened.id)?.unread).toBe(false);
     await reading;
     // A message already read is left alone.
@@ -356,6 +361,19 @@ describe('organizing IMAP mail', () => {
       `read INBOX ${openedUid}`,
     ]);
     expect(ready(inbox.getSnapshot())).toMatchObject({
+      notice: archiving,
+      undo: true,
+    });
+
+    // A refused read is not announced either.
+    const refused = inboxMessage(inbox.getSnapshot(), 'Refused');
+    imap.server.failure = 'offline';
+    await inbox.readOpened(refused);
+    imap.expunge('INBOX', refusedUid);
+    imap.server.failure = undefined;
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
       notice: archiving,
       undo: true,
     });

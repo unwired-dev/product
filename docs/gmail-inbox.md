@@ -418,11 +418,12 @@ Gmail's labels.
 
 Opening an unread message reads it ([#2080](https://github.com/unwired-dev/product/issues/2080)):
 once the reader can change the message, it makes the change **Mark as read** makes, for every
-provider: Gmail's `UNREAD`, Microsoft's `isRead` and IMAP's `\Seen`. The change is not
-announced and leaves the latest notice and its **Undo** in place. Each opening marks the
-message once, so **Mark as unread** stands while it stays open. Prefetch, body downloads and
-notifications leave read state alone. [#1992](https://github.com/unwired-dev/product/issues/1992)
-adds the preference for when opening reads mail.
+provider: Gmail's `UNREAD`, Microsoft's `isRead` and IMAP's `\Seen`. Neither the change nor
+a refusal of it is announced, and both leave the latest notice and its **Undo** in place.
+Each opening marks the message once, even when two windows show it, so **Mark as unread**
+stands while it stays open. Prefetch, body downloads and notifications leave read state
+alone. [#1992](https://github.com/unwired-dev/product/issues/1992) adds the preference for
+when opening reads mail.
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
@@ -571,8 +572,9 @@ Opening a listed message first reads the **Bounded Encrypted Body Cache** on thi
 device. A valid hit, including after an offline relaunch, contacts nothing and
 restores its rich presentation. A miss downloads through the authorized mailbox,
 saves the complete body when capacity permits, and shows it. An explicit open and
-prefetch of the same message share one load. Opening or prefetching never changes
-Gmail's read state.
+prefetch of the same message share one load. Loading a body never changes Gmail's
+read state; the reader marks an opened message read, as
+[Organizing mail](#organizing-mail) describes.
 
 The reader selects a renderable HTML alternative before plain text, decoded from
 the part's charset. Only a complete `charset` parameter outside comments and

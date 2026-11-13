@@ -3032,14 +3032,16 @@ export function createInboxStore(
         // Only the saved Inbox opens now, so nothing can be saved: the unsaved changes roll back
         // and organizing waits until Gmail access verifies again.
         removeQueued((item) => taken.includes(item));
-        const last = owned.at(-1);
-        if (taken.length > 0) {
+        // Quiet changes roll back unannounced, keeping the latest notice when only they were lost.
+        const announced = owned.filter(({ pending }) => pending.quiet !== true);
+        const last = announced.at(-1);
+        if (owned.length === 0 ? taken.length > 0 : announced.length > 0) {
           notice =
             last === undefined
               ? undefined
               : {
                   kind: 'unsaved',
-                  count: owned.length,
+                  count: announced.length,
                   action: last.pending.action,
                   message: last.pending.message,
                 };
@@ -3184,7 +3186,7 @@ export function createInboxStore(
     );
     // Keep rejection feedback if settlement loses its reply; a late read cannot restore the
     // previous owner's message, and forget() clears this notice while a commit is pending.
-    if (startedFor === ownership && !forgotten) {
+    if (startedFor === ownership && !forgotten && head.quiet !== true) {
       notice = { kind: 'rejected', ...head };
     }
     const saved = yield* commitOver(current.cache, current.document, next);
@@ -3267,7 +3269,7 @@ export function createInboxStore(
       head,
       Option.getOrUndefined(observed),
     );
-    if (Option.isNone(observed)) {
+    if (Option.isNone(observed) && head.quiet !== true) {
       notice = { kind: 'rejected', ...head };
     }
     const saved = yield* commitOver(current.cache, current.document, next);
@@ -3695,7 +3697,7 @@ export function createInboxStore(
     const requestedFor = ownership;
     queued.push({
       scope: shown.scope,
-      pending: { action, message },
+      pending: { action, message, ...(quiet ? { quiet: true as const } : {}) },
       ...(label === undefined ? {} : { label }),
     });
     // Every chosen outcome is announced; only a removal from the Inbox offers Undo.
@@ -3857,8 +3859,19 @@ export function createInboxStore(
     organize: (message: GmailMessage, action: GmailAction) =>
       organize(message, action),
     // Marks a message the person opened as read, as Mark as Read does, without announcing it.
+    // Another reader of the same message may have asked already, so it checks the changes the
+    // store holds, not the caller's copy.
     readOpened: (message: GmailMessage) =>
-      message.unread
+      [
+        ...(shown?.document?.pending ?? []),
+        ...queued.map(({ pending }) => pending),
+      ]
+        .filter((pending) => pending.message.id === message.id)
+        .reduce(
+          (labels, { action }) => relabel(labels, action),
+          labelsOf(message),
+        )
+        .includes('UNREAD')
         ? organize(message, gmailAction.read, { quiet: true })
         : Promise.resolve(),
     createLabel,

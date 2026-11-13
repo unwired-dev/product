@@ -74,6 +74,8 @@ const PendingSchema = Schema.Struct({
   message: ImapMessageSchema,
   // Persisted before dispatch: without a destination mapping, a move may not be replayed.
   attempts: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  // Opening the message asked for it, so neither its outcome nor a refusal is announced.
+  quiet: Schema.optionalKey(Schema.Literal(true)),
   // COPYUID is committed before the fallback may delete its source. Recovery finishes this copy.
   copied: Schema.optionalKey(
     Schema.Struct({ uidValidity: Validity, uid: Uid }),

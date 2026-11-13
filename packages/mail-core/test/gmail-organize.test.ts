@@ -718,9 +718,10 @@ describe('organizing Gmail mail', () => {
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Unread 0' });
     gmail.deliver({ subject: 'Unread 1' });
+    gmail.deliver({ subject: 'Unread 2' });
     const inbox = createInboxStore(gmail.native);
     await inbox.load();
-    const [opened = '', archived = ''] = ready(
+    const [refused = '', opened = '', archived = ''] = ready(
       inbox.getSnapshot(),
     ).messages.map(({ id }) => id);
     await inbox.organize(message(inbox, archived), gmailAction.archive);
@@ -730,8 +731,13 @@ describe('organizing Gmail mail', () => {
       action: gmailAction.archive,
     });
 
-    expect(message(inbox, opened).unread).toBe(true);
-    const reading = inbox.readOpened(message(inbox, opened));
+    // Two readers opening the same unread copy ask once.
+    const unread = message(inbox, opened);
+    expect(unread.unread).toBe(true);
+    const reading = Promise.all([
+      inbox.readOpened(unread),
+      inbox.readOpened(unread),
+    ]);
     expect(message(inbox, opened).unread).toBe(false);
     await reading;
     expect(gmail.labelsOf(opened)).not.toContain('UNREAD');
@@ -742,6 +748,16 @@ describe('organizing Gmail mail', () => {
     expect(gmail.modifies.filter(({ id }) => id === opened)).toStrictEqual([
       { id: opened, add: [], remove: ['UNREAD'] },
     ]);
+
+    // A refused read is not announced either.
+    gmail.failModify({ code: 'unavailable' });
+    await inbox.readOpened(message(inbox, refused));
+    gmail.remove(refused);
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      pending: 0,
+      notice: archiving,
+    });
   });
 
   it('reconciles refused, repeated and interrupted changes in order without losing later ones', async () => {
