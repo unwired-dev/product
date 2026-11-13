@@ -98,7 +98,8 @@ service-specific support evidence.
 Not run. Protected Outlook.com and Microsoft 365 test mailboxes are not
 available ([#1104](https://github.com/unwired-dev/product/issues/1104)), and no
 protected workflow runs an import probe. Microsoft tokens stay inside the native
-device boundary. With one synthetic mailbox of each type and IMAP enabled, the
+device boundary. With one synthetic personal mailbox and IMAP enabled (work/school
+accounts are not tested, per the [launch scope](product/power-user-launch.md)), the
 authorized operator:
 
 1. Builds synthetic EML fixtures with unique `Message-ID`s: plain text,
@@ -140,6 +141,6 @@ verdicts and hashes, never addresses or tokens. An authentication or policy
 error, or a failed control, makes the run inconclusive. A passing run demonstrates
 only the tested fixtures, sizes and mailbox policies. Record whether appended
 messages are not Drafts and preserve their folder, internal date, `\Seen`, MIME
-parts, attachment hashes and decoded source headers in both account types,
+parts, attachment hashes and decoded source headers,
 including every loss or normalization. It does not qualify general EML or MBOX
 import or change runtime scope.
