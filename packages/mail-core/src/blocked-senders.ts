@@ -207,10 +207,11 @@ export function createBlockedSenders(
       profile: string,
       connection: string,
       messages: ReadonlyArray<Readonly<{ id: string; address: string }>>,
-    ) =>
-      runLogged(
+    ) => {
+      const account = signedIn();
+      return runLogged(
         Effect.gen(function* () {
-          const stored = yield* opened(signedIn());
+          const stored = yield* opened(account);
           const blocked = new Set(
             messages
               .filter(({ address }) => {
@@ -252,7 +253,8 @@ export function createBlockedSenders(
             report(error).pipe(Effect.as(undefined)),
           ),
         ),
-      ),
+      );
+    },
     // Unblocks `address` for `profile` alone.
     unblock: (profile: string, address: string) =>
       changing(profile, address, (senders, normalized) =>

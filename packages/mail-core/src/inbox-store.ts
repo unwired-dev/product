@@ -3414,6 +3414,8 @@ export function createInboxStore(
       yield* restartLimit(restarts);
       const brought = providerReader.arrivals(next.value);
       ({ cache, document } = yield* commitOver(cache, document, next.value));
+      // New mail beyond the listed window can still be organized, as a Blocked Sender's to Trash.
+      claim(brought);
       yield* reportArrivals(arrived, brought);
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;

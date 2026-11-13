@@ -33,11 +33,7 @@ import { logNote } from './diagnostics.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import { createImapInbox } from './imap-inbox.ts';
-import {
-  createBodyLoads,
-  createInboxStore,
-  listedMessage,
-} from './inbox-store.ts';
+import { createBodyLoads, createInboxStore } from './inbox-store.ts';
 import { folded, queryWords } from './mailbox-matching.ts';
 import { newestFirst } from './mailbox-views.ts';
 import {
@@ -620,15 +616,17 @@ export function createMailboxes(
       const report =
         <M extends ArrivedMessage>(trash: (message: M) => void) =>
         async (arrivals: readonly M[]) => {
-          const profile = openMailboxes(
-            registration.getSnapshot().snapshot,
-          ).find(
-            (mailbox) => mailbox.id === id && mailbox.owner === owner,
-          )?.profile;
-          const screened =
-            profile === undefined
+          const profile = () =>
+            openMailboxes(registration.getSnapshot().snapshot).find(
+              (mailbox) => mailbox.id === id && mailbox.owner === owner,
+            )?.profile;
+          const screenedFor = profile();
+          const result =
+            screenedFor === undefined
               ? undefined
-              : await screen?.(profile, id, arrivals);
+              : await screen?.(screenedFor, id, arrivals);
+          // A connection moved to another Profile meanwhile follows neither Profile's blocks.
+          const screened = profile() === screenedFor ? result : undefined;
           for (const message of arrivals) {
             if (screened?.move.includes(message.id) === true) {
               trash(message);
@@ -703,18 +701,10 @@ export function createMailboxes(
               inbox: createInboxStore(bound(native, id), {
                 removed,
                 // Microsoft without a Deleted Items folder offers no Trash, which changes nothing.
-                arrived: report<GmailMessage>(({ id: message }) => {
+                arrived: report<GmailMessage>((message) => {
                   const entry = own();
-                  if (entry === undefined || entry.provider === 'imap') {
-                    return;
-                  }
-                  const state = entry.inbox.getSnapshot();
-                  const listed =
-                    state.kind === 'ready'
-                      ? listedMessage(state, message)
-                      : undefined;
-                  if (listed !== undefined) {
-                    void entry.inbox.organize(listed, gmailAction.trash, {
+                  if (entry !== undefined && entry.provider !== 'imap') {
+                    void entry.inbox.organize(message, gmailAction.trash, {
                       quiet: true,
                     });
                   }

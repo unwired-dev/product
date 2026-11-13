@@ -1562,6 +1562,8 @@ export function createImapInbox(
     });
     retireRestorations(name);
     if (name === inboxFolder) {
+      // Shows the new mail, and the folders and capabilities just listed, before reporting it.
+      render();
       yield* reportArrivals(
         arrived,
         arrivedMessages(cached, read, entry.cache),

@@ -333,4 +333,22 @@ describe('stored Blocked Senders', () => {
       store.screen('work', 'connection-1', arrivals),
     ).resolves.toBeUndefined();
   });
+
+  it('screens nothing for an account that signed in while the screening waited', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { state, store } = storage();
+    state.account = 'account-2';
+    await store.block('work', 'offers@growthleads.io');
+    const { document } = state;
+    state.account = 'account-1';
+    const waiting = store.block('home', 'offers@growthleads.io');
+    const screening = store.screen('work', 'connection-1', [
+      { id: 'blocked', address: 'offers@growthleads.io' },
+    ]);
+    state.account = 'account-2';
+    await waiting;
+    await expect(screening).resolves.toBeUndefined();
+    expect(state.document).toBe(document);
+  });
 });

@@ -19,6 +19,8 @@ const setup = async () => {
   const graph = createSyntheticGraph();
   const imap = createSyntheticImap();
   imap.addFolder('Trash', ['trash']);
+  // The Gmail connection's Mail Profile, which the person may change while mail is screened.
+  const gmailProfile = { current: defaultProfile };
   const registration = {
     getSnapshot: () => ({
       busy: false,
@@ -34,6 +36,7 @@ const setup = async () => {
             provider: 'gmail',
             state: 'connected',
             notifications: true,
+            profile: gmailProfile.current,
           },
           {
             id: 'graph',
@@ -82,6 +85,8 @@ const setup = async () => {
   // Another Profile's block changes nothing here.
   await blockedSenders.block('work', 'maya@example.invalid');
   const notified: string[] = [];
+  // Runs once each screening has read the Blocked Senders.
+  const screened: { after?: () => void } = {};
   const mailboxes = createMailboxes(
     syntheticConnections({ gmail, graph }, { imap: imap.native }),
     registration,
@@ -89,11 +94,24 @@ const setup = async () => {
       arrived: (_mailbox, messages) => {
         notified.push(...messages.map(({ subject }) => subject));
       },
-      screen: blockedSenders.screen,
+      screen: async (...args) => {
+        const result = await blockedSenders.screen(...args);
+        screened.after?.();
+        return result;
+      },
     },
   );
   await mailboxes.load();
-  return { gmail, graph, imap, storage, notified, mailboxes };
+  return {
+    gmail,
+    graph,
+    imap,
+    storage,
+    notified,
+    mailboxes,
+    gmailProfile,
+    screened,
+  };
 };
 
 describe("enforcing a Profile's Blocked Senders on new mail", () => {
@@ -160,5 +178,60 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     await mailboxes.load();
     expect(notified).toStrictEqual(['Unscreened offer']);
     expect(imap.server.changes).toStrictEqual([]);
+  });
+
+  it('moves new mail from a Blocked Sender beyond the listed Inbox window', async () => {
+    expect.hasAssertions();
+    const { gmail, notified, mailboxes } = await setup();
+    for (let index = 0; index < 200; index += 1) {
+      gmail.deliver({ subject: `Listed ${index}` });
+    }
+    await mailboxes.load();
+    // Delivered late, it is older than every listed message.
+    const offer = gmail.deliver({
+      from: `Growth Leads <${blocked}>`,
+      subject: 'Gmail offer',
+      at: Date.UTC(2026, 0, 1),
+    });
+    await mailboxes.load();
+    expect(notified).toHaveLength(200);
+    await vi.waitFor(() => {
+      expect(gmail.modifies).toStrictEqual([
+        { id: offer, add: ['TRASH'], remove: ['INBOX'] },
+      ]);
+    });
+  });
+
+  it("follows neither Profile's blocks for a connection moved while its mail was screened", async () => {
+    expect.hasAssertions();
+    const { gmail, notified, mailboxes, gmailProfile, screened } =
+      await setup();
+    screened.after = () => {
+      gmailProfile.current = 'work';
+    };
+    gmail.deliver({
+      from: `Growth Leads <${blocked}>`,
+      subject: 'Gmail offer',
+    });
+    await mailboxes.load();
+    expect(notified).toStrictEqual(['Gmail offer']);
+    expect(gmail.modifies).toStrictEqual([]);
+  });
+
+  it('moves new mail to a Trash folder listed in the same synchronization', async () => {
+    expect.hasAssertions();
+    const { imap, mailboxes } = await setup();
+    imap.removeFolder('Trash');
+    await mailboxes.load();
+    imap.addFolder('Trash', ['trash']);
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received: Date.now(),
+    });
+    await mailboxes.load();
+    await vi.waitFor(() => {
+      expect(imap.server.changes).toStrictEqual(['move INBOX 1 Trash']);
+    });
   });
 });
