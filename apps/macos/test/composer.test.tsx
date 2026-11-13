@@ -2804,6 +2804,55 @@ describe('composing Drafts', () => {
     expect(draftsOf(empty.drafts.getSnapshot())).toHaveLength(0);
   });
 
+  it('keeps the reminder of newer content another window saved when a stale editor discards or closes empty', async () => {
+    expect.hasAssertions();
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+    const reminded = { dueAt: Date.now() + 3_600_000, timeZone };
+    // Another window saves newer content and sets its reminder while this editor shows the old one.
+    const savedElsewhere = async (
+      subject: Awaited<ReturnType<typeof composeWithTemplates>>,
+    ) => {
+      const [shown] = draftsOf(subject.drafts.getSnapshot());
+      ok(shown);
+      await act(async () => {
+        await subject.drafts.update({ ...shown, subject: 'Newer' }, shown);
+        await subject.reminders.store.remind(defaultProfile, {
+          draft: subject.id,
+          ...reminded,
+        });
+      });
+    };
+
+    const discarding = await composeWithTemplates((draft) => ({
+      ...draft,
+      subject: 'Keys for the flat',
+    }));
+    await savedElsewhere(discarding);
+    await press('Compose actions');
+    await chooseMenuItem('Discard');
+    await press('Discard Draft');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Message body')).toBeNull();
+    });
+    expect(draftsOf(discarding.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Newer' },
+    ]);
+    await expect(
+      discarding.reminders.store.reminders(defaultProfile),
+    ).resolves.toMatchObject([{ draft: discarding.id }]);
+    await screen.unmount();
+
+    const closing = await composeWithTemplates((draft) => draft);
+    await savedElsewhere(closing);
+    await press('Close');
+    expect(draftsOf(closing.drafts.getSnapshot())).toMatchObject([
+      { subject: 'Newer' },
+    ]);
+    await expect(
+      closing.reminders.store.reminders(defaultProfile),
+    ).resolves.toMatchObject([{ draft: closing.id }]);
+  });
+
   it('keeps a stale editor on its own conflicting copy', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

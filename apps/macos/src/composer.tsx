@@ -2794,10 +2794,13 @@ function Editor({
     }
     return finishing(storeAndSave);
   };
-  // A sent or removed Draft `id` needs no reminder, whichever window set it; one storage could not
-  // remove stays harmless, as it names a Draft that no longer exists.
+  // A Draft `id` that Send or Discard removed needs no reminder, whichever window set it. Discard
+  // keeps another window's newer content under the same id, which keeps its reminder too. One
+  // storage could not remove stays harmless, as it names a Draft that no longer exists.
   const forgetReminder = (id: string) => {
-    void sendReminders.cancel(reminder?.profile ?? draftProfile, id);
+    if (draftOf(store.getSnapshot(), id) === undefined) {
+      void sendReminders.cancel(reminder?.profile ?? draftProfile, id);
+    }
   };
   // Close asks to save changes, including ones a failed Save left unsaved; an empty Draft is
   // removed and an unchanged one closes.
