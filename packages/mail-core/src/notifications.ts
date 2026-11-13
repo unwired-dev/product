@@ -661,6 +661,31 @@ const sendingTitle = (
       })
     : '';
 
+// Admits a saved reply to the Outbox; a connection replaced meanwhile gets it back in Drafts.
+// Resolves whether it waits to send.
+async function queuedReply(
+  { drafts, outbox }: Pick<Replies, 'drafts' | 'outbox'>,
+  {
+    draft,
+    sendable,
+    current,
+  }: Readonly<{
+    draft: string;
+    sendable: Draft | undefined;
+    current: () => boolean;
+  }>,
+) {
+  if (
+    sendable === undefined ||
+    (await outbox.send(
+      () => draftOf(drafts.getSnapshot(), draft) ?? sendable,
+    )) !== undefined
+  ) {
+    return false;
+  }
+  return current() || (await outbox.undo(draft, 'waiting')) === false;
+}
+
 // Queues `text` alone as a reply to the notified message, from the connection that received it,
 // through the Outbox and its Undo Send Window, and says so on a notification offering Undo until
 // the window ends. A message no longer listed or unreadable, or a Send the Outbox refuses, keeps
@@ -700,14 +725,10 @@ async function replyTyped(
     return;
   }
   const { draft, unsaved, sendable } = saved;
-  const admitted =
-    sendable !== undefined &&
-    (await outbox.send(
-      () => draftOf(drafts.getSnapshot(), draft) ?? sendable,
-    )) === undefined;
-  // A connection replaced while the Outbox admitted the reply gets it back in Drafts instead.
-  const queued =
-    admitted && (current() || (await outbox.undo(draft, 'waiting')) === false);
+  const queued = await queuedReply(
+    { drafts, outbox },
+    { draft, sendable, current },
+  );
   const { previews } = await runLogged(
     settingsOf(() => native.notificationSettings()).pipe(
       Effect.orElseSucceed(() => ({ previews: false })),
