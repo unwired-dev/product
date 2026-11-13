@@ -9,10 +9,13 @@ status: accepted
 The owner decided on 13 November 2026 that the approved frames win over this
 record: on compact layouts the composer is presented as a sheet over the screen
 it was started from, as the iPhone Compose frames draw it, and is no longer
-pushed into the navigation stack. This supersedes the two compact clauses below:
-that the mail shell pushes the composer into its existing navigation stack as
-an editor destination, and that the client does not use a sheet for these
-composer states.
+pushed into the navigation stack. For compact layouts this supersedes four
+statements below: that composing is navigation-owned editor state rather than
+modal presentation, that the mail shell pushes the composer into its existing
+navigation stack as an editor destination, that the client does not use a sheet
+for these composer states, and that compact iPhone omits the expansion control
+because the pushed editor already fills its navigation destination. The control
+is still omitted on compact iPhone, where the sheet has no second state.
 
 The sheet is the system's, with its own size, motion and gestures. Dismissing it
 is Close and passes the same guard: changed content is kept until the person
