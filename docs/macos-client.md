@@ -109,7 +109,8 @@ Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 **Settings**), the message list and the reader, as in the Figma Inbox frames. The
 Inbox and Settings windows hide their title and draw a transparent title bar over
 full-size content, so the window controls sit on the sidebar's glass. The title
-stays for the Window menu and accessibility. The reader's toolbar row holds the Command input at its
+stays for the Window menu and accessibility. Windows never merge into tabs: the app
+opts out of macOS window tabbing, so the View and Window menus carry no tab commands. The reader's toolbar row holds the Command input at its
 leading end beside the reader's glass groups; a reader too narrow for its label
 keeps only the input's symbol. In narrow readers, action groups wrap below the
 first row and stay clear of both the Command input and message content.
