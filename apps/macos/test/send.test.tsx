@@ -316,6 +316,49 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('keeps the reminder of a Draft another window saved when it sends its own conflicting copy', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(/^Reminder for tomorrow/u);
+      const reminded = await sender.reminders.reminders(defaultProfile);
+      expect(reminded).toHaveLength(1);
+      const [original] = draftsOf(sender.drafts.getSnapshot());
+      ok(original);
+
+      // Another window saves the Draft, then this stale composer edits and sends its copy.
+      await act(async () => {
+        await sender.drafts.update(
+          { ...original, subject: 'Keys from the other window' },
+          original,
+        );
+      });
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Keys, sent',
+      );
+      await press('Send');
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Message body')).toBeNull();
+      });
+      expect(draftsOf(sender.drafts.getSnapshot())).toMatchObject([
+        { id: original.id, subject: 'Keys from the other window' },
+      ]);
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toStrictEqual(reminded);
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
   it('accepts no edits while Send is pending, then closes once the message is admitted', async () => {
     expect.hasAssertions();
     const sender = device();

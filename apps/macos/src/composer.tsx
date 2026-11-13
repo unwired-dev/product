@@ -2794,6 +2794,11 @@ function Editor({
     }
     return finishing(storeAndSave);
   };
+  // A sent or removed Draft `id` needs no reminder, whichever window set it; one storage could not
+  // remove stays harmless, as it names a Draft that no longer exists.
+  const forgetReminder = (id: string) => {
+    void sendReminders.cancel(reminder?.profile ?? draftProfile, id);
+  };
   // Close asks to save changes, including ones a failed Save left unsaved; an empty Draft is
   // removed and an unchanged one closes.
   const close = async () => {
@@ -2802,12 +2807,16 @@ function Editor({
     }
     asked.current = false;
     if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
-      return finishing(() =>
-        store.discard(() => authored.current.id, {
+      return finishing(async () => {
+        const removed = await store.discard(() => authored.current.id, {
           onlyIfEmpty: true,
           expected: () => stored.current,
-        }),
-      );
+        });
+        if (removed) {
+          forgetReminder(authored.current.id);
+        }
+        return removed;
+      });
     }
     // Another window's failed save leaves this editor's untouched Draft alone.
     if (authored.current === stored.current && !unsaved.current) {
@@ -2885,13 +2894,6 @@ function Editor({
       format(mark);
     }
   };
-  // A sent or discarded Draft needs no reminder; one storage could not remove stays harmless, as
-  // it names a Draft that no longer exists.
-  const forgetReminder = (reminded: SendReminder | undefined) => {
-    if (reminded !== undefined) {
-      void sendReminders.cancel(reminded.profile, reminded.draft);
-    }
-  };
   // Saves the Draft as Save does, keeping it open, then stores its reminder at `dueAt`.
   const remind = async (dueAt: number, timeZone: string) => {
     if (discarded.current || lifetime.current.finishing > 0) {
@@ -2951,7 +2953,6 @@ function Editor({
     setClosing('saving');
     discarded.current = true;
     lifetime.current.finishing += 1;
-    const reminded = reminder;
     let removed = false;
     try {
       removed = await store.discard(() => authored.current.id, {
@@ -2961,7 +2962,7 @@ function Editor({
       // An unexpected storage rejection leaves the editor retryable too.
     }
     if (removed) {
-      forgetReminder(reminded);
+      forgetReminder(authored.current.id);
       await closeRecord(authored.current.id);
     } else {
       discarded.current = false;
@@ -2990,7 +2991,6 @@ function Editor({
       return;
     }
     const shown = authored.current;
-    const reminded = reminder;
     setRefused(undefined);
     setClosing('saving');
     pausedNow.current = true;
@@ -3021,7 +3021,7 @@ function Editor({
       // An unexpected rejection keeps the Draft open to send again.
     }
     if (refusal === undefined) {
-      forgetReminder(reminded);
+      forgetReminder(authored.current.id);
       await closeRecord(authored.current.id);
     } else {
       pausedNow.current = false;

@@ -2668,95 +2668,140 @@ describe('composing Drafts', () => {
 
   it('sets, changes and removes a Draft’s Send Reminder from the Send menu without sending it', async () => {
     expect.hasAssertions();
+    // Noon today, so the menu offers This Evening and Tomorrow Morning whenever the test runs.
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(noon.getTime());
+    try {
+      const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+      const times = reminderTimes(Date.now(), timeZone);
+      const tomorrow = times.at(-1);
+      ok(tomorrow);
+      const composed = await composeWithTemplates((draft) => ({
+        ...draft,
+        subject: 'Keys for the flat',
+      }));
+      const { reminders, drafts, id } = composed;
+      const stored = () => reminders.store.reminders(defaultProfile);
+      const banner = new RegExp(
+        `^Reminder for tomorrow, .+ \\(${reminderCity(timeZone)}\\)$`,
+        'u',
+      );
+
+      // Remind Me to Send… opens the reminder menu from Send: its times, then the note.
+      await remindFromSendMenu();
+      expect(menuSections()).toMatchObject([
+        {
+          items: [{ title: 'This Evening' }, { title: 'Tomorrow Morning' }],
+        },
+        {
+          items: [
+            {
+              title:
+                'One of your devices will remind you to finish this Draft. It won’t send it.',
+              disabled: true,
+            },
+          ],
+        },
+      ]);
+      // A reminder that storage refuses is reported and stores nothing.
+      reminders.state.refusing = true;
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText('The reminder could not be set. Try again.');
+      await expect(stored()).resolves.toStrictEqual([]);
+
+      // Choosing a time saves the Draft and stores its reminder; the composer stays open.
+      reminders.state.refusing = false;
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(banner);
+      expect(
+        screen.queryByText('The reminder could not be set. Try again.'),
+      ).toBeNull();
+      await expect(stored()).resolves.toStrictEqual([
+        { draft: id, profile: defaultProfile, dueAt: tomorrow.dueAt, timeZone },
+      ]);
+      await savedQuietly(drafts);
+      expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+        { id, subject: 'Keys for the flat' },
+      ]);
+      expect(screen.getByLabelText('Message body')).toBeOnTheScreen();
+
+      // Change opens the reminder menu again; reopening the Draft shows its reminder.
+      await press('Change');
+      expect(menuItems().map(({ title }) => title)).toContain(
+        'Tomorrow Morning',
+      );
+      await dismissMenu();
+      await screen.unmount();
+      await composed.reopen();
+      await screen.findByText(banner);
+
+      // Remove Reminder removes it once storage accepts the write.
+      reminders.state.refusing = true;
+      await press('Remove Reminder');
+      await screen.findByText('The reminder could not be removed. Try again.');
+      await expect(stored()).resolves.toHaveLength(1);
+      reminders.state.refusing = false;
+      await press('Remove Reminder');
+      await waitFor(() => {
+        expect(screen.queryByText(banner)).toBeNull();
+      });
+      await expect(stored()).resolves.toStrictEqual([]);
+
+      // Discarding the Draft removes the reminder set on it.
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(banner);
+      await press('Compose actions');
+      await chooseMenuItem('Discard');
+      await press('Discard Draft');
+      await waitFor(async () => {
+        await expect(stored()).resolves.toStrictEqual([]);
+      });
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('removes the reminder another window set when the Draft is discarded or closed empty', async () => {
+    expect.hasAssertions();
     const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
-    const times = reminderTimes(Date.now(), timeZone);
-    const timeTitles = {
-      thisEvening: 'This Evening',
-      tomorrowMorning: 'Tomorrow Morning',
-    };
-    const tomorrow = times.at(-1);
-    ok(tomorrow);
-    const composed = await composeWithTemplates((draft) => ({
+    const reminded = { dueAt: Date.now() + 3_600_000, timeZone };
+    const subject = await composeWithTemplates((draft) => ({
       ...draft,
       subject: 'Keys for the flat',
     }));
-    const { reminders, drafts, id } = composed;
-    const stored = () => reminders.store.reminders(defaultProfile);
-    const banner = new RegExp(
-      `^Reminder for tomorrow, .+ \\(${reminderCity(timeZone)}\\)$`,
-      'u',
-    );
+    const stored = () => subject.reminders.store.reminders(defaultProfile);
 
-    // Remind Me to Send… opens the reminder menu from Send: its times, then the note.
-    await remindFromSendMenu();
-    expect(menuSections()).toMatchObject([
-      {
-        items: times.map(({ time }) => ({ title: timeTitles[time] })),
-      },
-      {
-        items: [
-          {
-            title:
-              'One of your devices will remind you to finish this Draft. It won’t send it.',
-            disabled: true,
-          },
-        ],
-      },
-    ]);
-    // A reminder that storage refuses is reported and stores nothing.
-    reminders.state.refusing = true;
-    await chooseMenuItem('Tomorrow Morning');
-    await screen.findByText('The reminder could not be set. Try again.');
-    await expect(stored()).resolves.toStrictEqual([]);
-
-    // Choosing a time saves the Draft and stores its reminder; the composer stays open.
-    reminders.state.refusing = false;
-    await remindFromSendMenu();
-    await chooseMenuItem('Tomorrow Morning');
-    await screen.findByText(banner);
-    expect(
-      screen.queryByText('The reminder could not be set. Try again.'),
-    ).toBeNull();
-    await expect(stored()).resolves.toStrictEqual([
-      { draft: id, profile: defaultProfile, dueAt: tomorrow.dueAt, timeZone },
-    ]);
-    await savedQuietly(drafts);
-    expect(draftsOf(drafts.getSnapshot())).toMatchObject([
-      { id, subject: 'Keys for the flat' },
-    ]);
-    expect(screen.getByLabelText('Message body')).toBeOnTheScreen();
-
-    // Change opens the reminder menu again; reopening the Draft shows its reminder.
-    await press('Change');
-    expect(menuItems().map(({ title }) => title)).toContain('Tomorrow Morning');
-    await dismissMenu();
-    await screen.unmount();
-    await composed.reopen();
-    await screen.findByText(banner);
-
-    // Remove Reminder removes it once storage accepts the write.
-    reminders.state.refusing = true;
-    await press('Remove Reminder');
-    await screen.findByText('The reminder could not be removed. Try again.');
-    await expect(stored()).resolves.toHaveLength(1);
-    reminders.state.refusing = false;
-    await press('Remove Reminder');
-    await waitFor(() => {
-      expect(screen.queryByText(banner)).toBeNull();
+    // Another window sets the reminder after this composer read its own.
+    await subject.reminders.store.remind(defaultProfile, {
+      draft: subject.id,
+      ...reminded,
     });
-    await expect(stored()).resolves.toStrictEqual([]);
-
-    // Discarding the Draft removes the reminder set on it.
-    await remindFromSendMenu();
-    await chooseMenuItem('Tomorrow Morning');
-    await screen.findByText(banner);
     await press('Compose actions');
     await chooseMenuItem('Discard');
     await press('Discard Draft');
     await waitFor(async () => {
       await expect(stored()).resolves.toStrictEqual([]);
     });
-    expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+    expect(draftsOf(subject.drafts.getSnapshot())).toHaveLength(0);
+    await screen.unmount();
+
+    // An empty Draft that Close removes loses its reminder too.
+    const empty = await composeWithTemplates((draft) => draft);
+    await empty.reminders.store.remind(defaultProfile, {
+      draft: empty.id,
+      ...reminded,
+    });
+    await press('Close');
+    await waitFor(async () => {
+      await expect(
+        empty.reminders.store.reminders(defaultProfile),
+      ).resolves.toStrictEqual([]);
+    });
+    expect(draftsOf(empty.drafts.getSnapshot())).toHaveLength(0);
   });
 
   it('keeps a stale editor on its own conflicting copy', async () => {

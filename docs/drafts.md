@@ -775,11 +775,13 @@ reminder menu from Send: **This Evening** at 20:00 while that is still ahead and
 one saves the Draft as Save does, keeps the composer open and stores the
 reminder for the Draft's Mail Profile; a failed save or write is reported and
 stores nothing. The composer shows a stored reminder in a banner ("Reminder for
-tomorrow, 09:00 (Prague)") with **Change** and **Remove Reminder**, and sending
-or discarding the Draft from the composer removes it. Reminders are not
+tomorrow, 09:00 (Prague)") with **Change** and **Remove Reminder**. Sending,
+discarding or closing an empty Draft from the composer removes the reminder of
+the Draft it sent or removed, whichever window set it; a conflicting copy sent
+from a stale window leaves the original's reminder alone. Reminders are not
 synchronized and schedule no notification yet, iPhone and iPad offer none, and
-a reminder whose Draft is deleted elsewhere stays stored; later #658 slices add
-those.
+a reminder whose Draft is deleted elsewhere, or whose removal storage refused
+after Send or Discard, stays stored; later #658 slices add those.
 
 ## Verification
 
