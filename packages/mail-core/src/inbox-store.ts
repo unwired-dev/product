@@ -3414,6 +3414,8 @@ export function createInboxStore(
       yield* restartLimit(restarts);
       const brought = providerReader.arrivals(next.value);
       ({ cache, document } = yield* commitOver(cache, document, next.value));
+      // New mail beyond the listed window can still be organized, as a Blocked Sender's to Trash.
+      claim(brought);
       yield* reportArrivals(arrived, brought);
       // Committed Inbox pages make recent bodies eligible after Initial Mailbox Availability.
       yield* schedulePrefetch;
@@ -3872,8 +3874,13 @@ export function createInboxStore(
       publish(render());
       return load();
     },
-    organize: async (message: GmailMessage, action: GmailAction) => {
-      await organize(message, action);
+    // A quiet change, as moving a Blocked Sender's arrival to Trash, announces nothing.
+    organize: async (
+      message: GmailMessage,
+      action: GmailAction,
+      options?: Readonly<{ quiet?: boolean }>,
+    ) => {
+      await organize(message, action, options);
     },
     // Marks a message the person opened as read, as Mark as Read does, without announcing it.
     // Another reader of the same message may have asked already, so it checks the changes the
