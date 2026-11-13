@@ -534,7 +534,7 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
-- iPhone partial-height sheets have 34pt top corners and sit flush with the
+- iPhone sheets have 34pt top corners. Partial-height sheets sit flush with the
   screen's bottom edge.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
   radius. They are drawn without an arrow.
