@@ -56,6 +56,7 @@ catalog:
 
 patchedDependencies:
   '@expo/ui@58.0.28': patches/@expo__ui@58.0.28.patch
+  expo-dev-launcher@58.0.20: patches/expo-dev-launcher@58.0.20.patch
   expo-glass-effect@58.0.5: patches/expo-glass-effect@58.0.5.patch
   react-native-keyboard-controller@1.22.7: patches/react-native-keyboard-controller@1.22.7.patch
   react-native-macos@0.81.9: patches/react-native-macos@0.81.9.patch
@@ -96,7 +97,9 @@ minimumReleaseAgeExclude:
   - '@oxfmt/binding-win32-ia32-msvc@0.71.0'
   - '@oxfmt/binding-win32-x64-msvc@0.71.0'
   - oxfmt@0.71.0
-  # Exact Expo 58.0.24 patches required by `expo install --check` in CI for #1997.
+  # Exact Expo 58.0.24 patches required by `expo install --check` in CI for #1997, then the
+  # 2026-11-12 expo 58.0.25, expo-contacts 58.0.11 and expo-dev-client 58.0.20 patches (#1844).
+  # List one version per package: pnpm 11.5.2 applies only the first entry for a name.
   # Include their new transitive patches so the release-age delay cannot block installation.
   - '@expo/cli@58.1.20'
   - '@expo/config-plugins@58.0.13'
@@ -117,8 +120,9 @@ minimumReleaseAgeExclude:
   - expo-asset@58.0.21
   - expo-background-task@58.0.13
   - expo-constants@58.0.16
-  - expo-dev-client@58.0.19
-  - expo-dev-launcher@58.0.19
+  - expo-contacts@58.0.11
+  - expo-dev-client@58.0.20
+  - expo-dev-launcher@58.0.20
   - expo-dev-menu-interface@58.0.2
   - expo-dev-menu@58.0.13
   - expo-font@58.0.12
@@ -132,7 +136,7 @@ minimumReleaseAgeExclude:
   - expo-server@58.1.0
   - expo-status-bar@58.0.5
   - expo-task-manager@58.0.14
-  - expo@58.0.24
+  - expo@58.0.25
 
 catalogs:
   mobile:
@@ -145,13 +149,13 @@ catalogs:
     '@types/jest': '30.0.0'
     '@types/react': '19.3.0'
     'babel-preset-expo': '58.0.25'
-    'expo': '58.0.24'
+    'expo': '58.0.25'
     'expo-background-task': '58.0.13'
     'expo-build-properties': '58.0.12'
     'expo-clipboard': '58.0.4'
     'expo-constants': '58.0.16'
-    'expo-contacts': '58.0.10'
-    'expo-dev-client': '58.0.19'
+    'expo-contacts': '58.0.11'
+    'expo-dev-client': '58.0.20'
     'expo-glass-effect': '58.0.5'
     'expo-linking': '58.0.17'
     'expo-router': '58.0.31'
