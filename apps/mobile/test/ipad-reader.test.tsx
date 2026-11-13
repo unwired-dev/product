@@ -15,6 +15,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react-native';
 import { useState } from 'react';
@@ -134,6 +135,46 @@ describe('iPad reader', () => {
     expect(
       sections.flatMap(({ items }) => items.map(({ title }) => title)),
     ).toContain('Mark as Unread');
+  });
+
+  it('moves once from the system popover on Move, and a dismissal moves nothing', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Projects');
+    const uid = imap.deliver('INBOX', { subject: 'Project plans' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, 'imap-reader')}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            mailbox="imap-reader"
+            id={`7.${uid}.INBOX`}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
+    expect(screen.getByTestId('popover')).toBeVisible();
+    // Dismissing the popover, as a tap outside does, moves nothing.
+    await fireEvent(screen.getByTestId('popover'), 'accessibilityEscape');
+    expect(
+      screen.getByRole('button', { name: 'Folders', expanded: false }),
+    ).toBeVisible();
+    const moves = () =>
+      imap.server.changes.filter((change) => change.startsWith('move '));
+    expect(moves()).toStrictEqual([]);
+    await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
+    const projects = within(screen.getByTestId('move-panel')).getByRole(
+      'button',
+      { name: 'Move to Projects' },
+    );
+    // Choosing closes the popover and moves once, and the moved message leaves the reader.
+    await fireEvent.press(projects);
+    expect(screen.queryByTestId('popover')).toBeNull();
+    await waitFor(() => {
+      expect(moves()).toStrictEqual([`move INBOX ${uid} Projects`]);
+    });
   });
 
   it('opens another message in the same reader with its panels closed', async () => {

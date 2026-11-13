@@ -4,8 +4,9 @@ import type {
   ImapInbox,
 } from '@private-email/mail-core/imap-inbox';
 import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
-import type { ReactNode, RefObject } from 'react';
+import type { ReactElement, ReactNode, RefObject } from 'react';
 
+import { Host, Popover, RNHostView } from '@expo/ui/swift-ui';
 import {
   commandTarget,
   organizeCommands,
@@ -26,7 +27,7 @@ import {
   viewMessage,
 } from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
-import { ipadListScale, radius, spacing } from '@private-email/mail-core/theme';
+import { ipadListScale, spacing } from '@private-email/mail-core/theme';
 import {
   useEffect,
   useLayoutEffect,
@@ -58,22 +59,17 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
-import {
-  MovePanel,
-  movePanelRadius,
-  movePanelWidth,
-  MoveSheet,
-} from './move-sheet.tsx';
+import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { ActionButton } from './organize-action-button.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
-// iPhone moves in a system sheet; iPad in the popover beneath the toolbar's Move.
+// iPhone moves in a system sheet; iPad in a system popover on the toolbar's Move.
 const MovePicker = compact ? MoveSheet : MovePanel;
-const placed = (picker: ReactNode) =>
-  compact ? { sheet: picker } : { panel: picker, move: true as const };
+const placed = (picker: ReactElement) =>
+  compact ? { sheet: picker } : { popover: picker };
 
 // The toolbar panel a reader shows: the folders or labels to move to, or More's remaining actions.
 // Beside the iPhone Reply sheet, which offers those actions, it shows only the labels to add or
@@ -105,12 +101,6 @@ const styles = StyleSheet.create({
     top: readerToolbarInset + scaledToolbarHeight + spacing.s,
     right: spacing.l,
     gap: spacing.s,
-  },
-  // Move's popover starts 18.4pt before the frames' full 395.6pt toolbar, wherever the actions this
-  // message offers leave the toolbar's own leading edge.
-  movePanel: {
-    right:
-      spacing.l + 344 * ipadListScale + 16 * ipadListScale - movePanelWidth,
   },
   panel: { gap: 4, padding: spacing.l },
   labelRow: {
@@ -263,9 +253,7 @@ function ToolbarGroups({
 }: {
   readonly archive: (() => void) | undefined;
   readonly trash: Named | undefined;
-  readonly folders:
-    | Readonly<{ label: string; open: boolean; toggle: () => void }>
-    | undefined;
+  readonly folders: Parameters<typeof FoldersButton>[0]['folders'] | undefined;
   readonly respond: ReactNode;
   readonly more: ReactNode;
 }) {
@@ -291,14 +279,9 @@ function ToolbarGroups({
       />
     ),
     folders === undefined ? null : (
-      <ToolbarButton
+      <FoldersButton
         key="folders"
-        icon="folder"
-        label={folders.label}
-        expanded={folders.open}
-        onPress={() => {
-          folders.toggle();
-        }}
+        folders={folders}
       />
     ),
   ];
@@ -341,6 +324,50 @@ function ToolbarGroups({
         </GlassGroup>
       )}
     </View>
+  );
+}
+
+// The toolbar's Move, which toggles its folders or labels. On iPad, Move's destinations open in a
+// system popover on it, which closes on a tap outside and keeps itself clear of the keyboard.
+function FoldersButton({
+  folders,
+}: {
+  readonly folders: Readonly<{
+    label: string;
+    open: boolean;
+    toggle: () => void;
+    popover?: ReactElement;
+  }>;
+}) {
+  const button = (
+    <ToolbarButton
+      icon="folder"
+      label={folders.label}
+      expanded={folders.open}
+      onPress={() => {
+        folders.toggle();
+      }}
+    />
+  );
+  return folders.popover === undefined ? (
+    button
+  ) : (
+    <Host matchContents>
+      <Popover
+        isPresented={folders.open}
+        onIsPresentedChange={(presented) => {
+          if (!presented && folders.open) {
+            folders.toggle();
+          }
+        }}>
+        <Popover.Trigger>
+          <RNHostView matchContents>{button}</RNHostView>
+        </Popover.Trigger>
+        <Popover.Content>
+          <RNHostView matchContents>{folders.popover}</RNHostView>
+        </Popover.Content>
+      </Popover>
+    </Host>
   );
 }
 
@@ -578,19 +605,6 @@ const threadActions = (
     })),
 ];
 
-// Move's popover keeps the frame's rounder glass and its own place; More and the iPad Labels panel
-// keep the menu's.
-const panelRadius = (movePanel: boolean) =>
-  movePanel ? movePanelRadius : radius.menu;
-const isMovePanel = (
-  shownPanel: ReaderPanel | undefined,
-  folders: object | undefined,
-) =>
-  shownPanel === 'folders' &&
-  folders !== undefined &&
-  'move' in folders &&
-  folders.move === true;
-
 // The toolbar and the panel or sheet one of its buttons opened.
 function Toolbar({
   archive,
@@ -610,12 +624,10 @@ function Toolbar({
           // The Reply sheet's entry, which opens the destinations even when they are shown.
           show: Readonly<{ label: string; run: () => void }>;
         } & (
-          | {
-              panel: ReactNode;
-              // The panel is Move's popover, which keeps its own offset and corners.
-              move?: true;
-            }
+          | { panel: ReactNode }
           | { sheet: ReactNode }
+          // Move's destinations in the system popover on the toolbar's Move.
+          | { popover: ReactElement }
         )
       >
     | undefined;
@@ -658,7 +670,6 @@ function Toolbar({
   }
   const foldersPanel =
     shownPanel === 'folders' && folders !== undefined && 'panel' in folders;
-  const movePanel = isMovePanel(shownPanel, folders);
   return (
     <>
       <View
@@ -689,14 +700,8 @@ function Toolbar({
       <View
         pointerEvents="box-none"
         testID="reader-panels"
-        style={
-          compact
-            ? undefined
-            : [styles.floatingPanels, movePanel && styles.movePanel]
-        }>
-        <GlassPanel
-          open={foldersOpen || more.open}
-          cornerRadius={panelRadius(movePanel)}>
+        style={compact ? undefined : styles.floatingPanels}>
+        <GlassPanel open={foldersOpen || more.open}>
           {foldersPanel ? (
             folders.panel
           ) : (

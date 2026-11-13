@@ -472,10 +472,14 @@ knows it. A search lists the folders that can hold mail by their full path, such
 account; choosing the account returns to its folders. **Cancel**, Close or a swipe down
 closes the picker without moving anything. The system keeps the
 sheet above the keyboard, so search results and the no-match explanation stay reachable while
-typing. Choosing a folder closes the picker and moves the message once it has dismissed. More
+typing. Choosing a folder closes the picker and moves the message once it has dismissed. On iPad,
+**Folders**, or **Move to…** in **More**, opens the picker in a system popover on **Folders**: a
+search field, the account, then its folders as above. A tap outside or Escape closes it without
+moving anything, the system keeps it clear of the keyboard, and choosing a folder closes it and
+moves the message. More
 lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
 label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad; with Reduce Motion
-they only fade. The Reply sheet and the Move picker are system sheets and move as iOS presents
+they only fade. The Reply sheet and the Move picker are system presentations and move as iOS presents
 them. The action buttons and label checkboxes are keyboard-focusable
 and show the system keyboard focus indicator. After a removal, **Undo** appears in the Inbox. For every provider, a
 row that leaves the list collapses and fades in 200 ms while the rows below follow it up, and

@@ -385,6 +385,51 @@ final class InboxTests: XCTestCase {
       add(reopened)
       app.buttons["Close"].tap()
       XCTAssertTrue(caption.waitForNonExistence(timeout: 5))
+    } else {
+      // #1074: iPad's Move is a system popover on the toolbar's Folders. In landscape the system
+      // keeps its search and the no-match explanation clear of the keyboard; a tap outside closes
+      // it without moving the message, and More's Move to… opens it again.
+      XCUIDevice.shared.orientation = .landscapeLeft
+      let landscape = NSPredicate { _, _ in
+        app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+      }
+      XCTAssertEqual(
+        XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 5),
+        .completed)
+      let folders = app.buttons["Folders"]
+      XCTAssertTrue(folders.waitForExistence(timeout: 10))
+      folders.tap()
+      let search = app.textFields["Move to…"]
+      XCTAssertTrue(search.waitForExistence(timeout: 10))
+      search.tap()
+      let keyboard = app.keyboards.firstMatch
+      XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+      for character in "missing folder" { search.typeText(String(character)) }
+      let noMatch = text("No folders match your search.", in: app)
+      XCTAssertTrue(noMatch.waitForExistence(timeout: 5))
+      XCTAssertTrue(noMatch.isHittable)
+      XCTAssertLessThanOrEqual(noMatch.frame.maxY, keyboard.frame.minY)
+      XCTAssertLessThanOrEqual(search.frame.maxY, keyboard.frame.minY)
+      let popover = XCTAttachment(screenshot: app.screenshot())
+      popover.name = "Move popover no-match search above the keyboard"
+      popover.lifetime = .keepAlways
+      add(popover)
+      app.otherElements["PopoverDismissRegion"].tap()
+      XCTAssertTrue(search.waitForNonExistence(timeout: 5))
+      XCTAssertTrue(app.staticTexts["jordan@example.invalid"].exists)
+      XCUIDevice.shared.orientation = .portrait
+      app.buttons["More"].tap()
+      let moveTo = app.buttons["Move to…"]
+      XCTAssertTrue(moveTo.waitForExistence(timeout: 10))
+      moveTo.tap()
+      XCTAssertTrue(search.waitForExistence(timeout: 10))
+      let reopened = XCTAttachment(screenshot: app.screenshot())
+      reopened.name = "Move popover opened from More"
+      reopened.lifetime = .keepAlways
+      add(reopened)
+      app.otherElements["PopoverDismissRegion"].tap()
+      XCTAssertTrue(search.waitForNonExistence(timeout: 5))
     }
     app.terminate()
     app.launch()
