@@ -127,6 +127,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     setRemoteContentSettings: () => Promise.resolve(null),
     clearRemoteContent: () => Promise.resolve(null),
+    requestUnsubscribe: () => Promise.resolve({ outcome: 'failed' }),
     openMailTemplates: () =>
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
     commitMailTemplates: (owner, expectedRevision) =>
@@ -137,6 +138,11 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     openSendReminders: () =>
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
     commitSendReminders: (owner, expectedRevision) =>
+      Promise.resolve({ owner, revision: expectedRevision + 1 }),
+
+    openBlockedSenders: () =>
+      Promise.resolve({ owner: 'account', revision: 0, document: null }),
+    commitBlockedSenders: (owner, expectedRevision) =>
       Promise.resolve({ owner, revision: expectedRevision + 1 }),
     notificationSettings: async () => {
       settingsGate.started?.();

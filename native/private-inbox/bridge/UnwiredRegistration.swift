@@ -1746,6 +1746,27 @@ extension UnwiredRegistration {
         throw RegistrationError.unavailable
       }
       return try await $0.commitSendReminders(
+      owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
+  @objc(openBlockedSenders:rejecter:)
+  func openBlockedSenders(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openBlockedSenders", resolve, reject: reject) { try await $0.openBlockedSenders() }
+  }
+
+  @objc(commitBlockedSenders:expectedRevision:document:resolver:rejecter:)
+  func commitBlockedSenders(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitBlockedSenders", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitBlockedSenders(
         owner: owner, expectedRevision: revision, document: document)
     }
   }
@@ -2017,7 +2038,7 @@ extension UnwiredRegistration {
           #endif
         } catch RemoteContentError.refused {
           reject("refused", "The image cannot be loaded.", nil)
-        } catch RemoteContentError.unavailable {
+        } catch RemoteContentError.unavailable, RemoteContentError.unanswered {
           reject("unavailable", "The image could not be reached.", nil)
         } catch {
           Self.rejectMailbox("fetchRemoteContent", error, reject)
@@ -2056,6 +2077,32 @@ extension UnwiredRegistration {
     mailbox("clearRemoteContent", resolve, reject: reject) {
       try await $0.clearRemoteContent()
       return [:]
+    }
+  }
+
+  // Sends a one-click unsubscribe request once and resolves `{ outcome }`: sent, failed or
+  // uncertain. No mailbox credential or session takes part.
+  @objc(requestUnsubscribe:resolver:rejecter:)
+  func requestUnsubscribe(
+    _ url: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in
+      #if UNWIRED_REGISTRATION_MOCK || UNWIRED_ASSISTANCE_MOCK || UNWIRED_ASSISTANCE_QUALIFICATION
+        // Every mock scenario build stays deterministic and never reaches a real server.
+        let outcome = OneClickUnsubscribe.Outcome.failed
+      #else
+        let budget = RemoteContentBudget(bytes: 1024 * 1024)
+        let outcome =
+          if let target = URL(string: url) {
+            await OneClickUnsubscribe(
+              fetcher: RemoteContentFetcher(
+                exchange: { try await RemoteTransport(budget: budget).exchange($0) }, budget: budget)
+            ).send(target)
+          } else {
+            OneClickUnsubscribe.Outcome.failed
+          }
+      #endif
+      resolve(["outcome": outcome.rawValue])
     }
   }
 

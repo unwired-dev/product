@@ -434,6 +434,61 @@ struct DraftTests {
     #expect(!session.exists("mail-templates.enc"))
   }
 
+  // Blocked Senders are kept like Mail Templates, in their own sealed file that neither the Drafts
+  // nor the Mail Templates document opens as.
+  @Test @MainActor func blockedSendersStayEncryptedWithTheirProductAccount() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache) = (session.store, session.cache)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openBlockedSenders()
+    }
+    let owner = try await session.owner()
+    let opened = try await store.openBlockedSenders()
+    #expect(opened["owner"] as? String == owner && opened["revision"] as? Int == 0)
+    #expect(opened["document"] is NSNull)
+    let document = #"{"senders":[{"profile":"work","address":"offers@private.invalid"}]}"#
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitBlockedSenders(
+        owner: "another-account", expectedRevision: 0, document: document)
+    }
+    let committed = try await store.commitBlockedSenders(
+      owner: owner, expectedRevision: 0, document: document)
+    #expect(committed["revision"] as? Int == 1)
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.commitBlockedSenders(owner: owner, expectedRevision: 0, document: "{}")
+    }
+    let file = session.directory.appendingPathComponent("blocked-senders.enc")
+    let ciphertext = try Data(contentsOf: file)
+    #expect(ciphertext.range(of: Data("offers@private.invalid".utf8)) == nil)
+    #expect(try cache.openMailTemplateDocument(owner: owner).document == nil)
+
+    let tmp = session.directory.appendingPathComponent("tmp")
+    let relaunched = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { true })
+    #expect(try relaunched.openBlockedSenderDocument(owner: owner) == (1, document))
+    #expect(try relaunched.openBlockedSenderDocument(owner: "another-account") == (1, nil))
+    let locked = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { false })
+    #expect(throws: PrivateInboxError.locked) {
+      _ = try locked.commitBlockedSenderDocument(owner: owner, expectedRevision: 1, document: "{}")
+    }
+
+    // The Mail Templates document served in its place does not open.
+    _ = try cache.commitMailTemplateDocument(owner: owner, expectedRevision: 0, document: document)
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.copyItem(
+      at: session.directory.appendingPathComponent("mail-templates.enc"), to: file)
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try relaunched.openBlockedSenderDocument(owner: owner)
+    }
+
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("blocked-senders.enc"))
+  }
+
   // Send Reminders are kept like Mail Templates, in their own sealed file that neither the Drafts
   // nor the Mail Templates document opens as.
   @Test @MainActor func sendRemindersStayEncryptedWithTheirProductAccount() async throws {

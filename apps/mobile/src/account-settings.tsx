@@ -53,6 +53,7 @@ import {
   SettingsGroup,
   SettingsRow,
 } from './settings.tsx';
+import { SignatureSettings } from './signature-settings.tsx';
 import { SpamTrashFolders } from './spam-trash-settings.tsx';
 import { usePalette } from './theme.ts';
 import { TrustedDevices } from './trusted-devices.tsx';
@@ -885,6 +886,12 @@ export function AccountSettings({
         <MailProfilesSettings
           account={snapshot.productAccountId}
           profiles={profilesOf(snapshot)}
+          mailboxes={mailboxes}
+          store={store}
+        />
+      ) : null}
+      {destination === 'signatures' ? (
+        <SignatureSettings
           mailboxes={mailboxes}
           store={store}
         />
