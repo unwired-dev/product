@@ -451,14 +451,14 @@ extension UnwiredRegistration {
   func withdrawSendingReplies(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    let center = UNUserNotificationCenter.current()
-    center.getDeliveredNotifications { delivered in
+    // Settles once removed, so a reply this context posts afterwards is never swept.
+    performStep("withdrawSendingReplies", resolve, reject: reject) { _ in
+      let center = UNUserNotificationCenter.current()
       center.removeDeliveredNotifications(
-        withIdentifiers: delivered.filter {
+        withIdentifiers: await center.deliveredNotifications().filter {
           $0.request.content.categoryIdentifier == "reply-sending"
         }.map(\.request.identifier))
     }
-    resolve(NSNull())
   }
 
   @objc(nextOpenedNotification:reader:resolver:rejecter:)
