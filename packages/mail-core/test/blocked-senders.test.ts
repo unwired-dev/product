@@ -300,7 +300,7 @@ describe('stored Blocked Senders', () => {
       { id: 'other', address: 'maya@example.invalid', receivedAt },
     ];
     await expect(
-      store.screen('work', 'connection-1', arrivals),
+      store.screen('work', { id: 'connection-1', moves: true }, arrivals),
     ).resolves.toStrictEqual({
       blocked: new Set(['blocked']),
       move: ['blocked'],
@@ -308,26 +308,63 @@ describe('stored Blocked Senders', () => {
     // Reported again, as after a restore to the Inbox renamed it, it is still blocked but never
     // moved again.
     await expect(
-      relaunch().screen('work', 'connection-1', [
+      relaunch().screen('work', { id: 'connection-1', moves: true }, [
         { id: 'restored', address: 'offers@growthleads.io', receivedAt },
       ]),
     ).resolves.toStrictEqual({ blocked: new Set(['restored']), move: [] });
     // A receipt names its connection; another Profile's Blocked Senders never apply.
     await expect(
-      store.screen('work', 'connection-2', arrivals),
+      store.screen('work', { id: 'connection-2', moves: true }, arrivals),
     ).resolves.toStrictEqual({
       blocked: new Set(['blocked']),
       move: ['blocked'],
     });
     await expect(
-      store.screen('home', 'connection-3', arrivals),
+      store.screen('home', { id: 'connection-3', moves: true }, arrivals),
     ).resolves.toStrictEqual({ blocked: new Set(), move: [] });
     // Unblocking keeps the receipts.
     await store.unblock('work', 'offers@growthleads.io');
     await store.block('work', 'offers@growthleads.io');
     await expect(
-      store.screen('work', 'connection-1', arrivals),
+      store.screen('work', { id: 'connection-1', moves: true }, arrivals),
     ).resolves.toStrictEqual({ blocked: new Set(['blocked']), move: [] });
+  });
+
+  it('counts a Blocked Sender’s moves on the given connections since it was blocked', async () => {
+    expect.hasAssertions();
+    const { store } = storage();
+    await store.block('work', 'offers@growthleads.io');
+    const arrival = (id: string) => [
+      { id, address: 'offers@growthleads.io', receivedAt: `${id}T09:00:00Z` },
+    ];
+    await store.screen(
+      'work',
+      { id: 'connection-1', moves: true },
+      arrival('2026-11-08'),
+    );
+    await store.screen(
+      'work',
+      { id: 'connection-2', moves: true },
+      arrival('2026-11-09'),
+    );
+    // A connection without a Trash keeps the arrival unnotified but moves and counts nothing.
+    await expect(
+      store.screen(
+        'work',
+        { id: 'connection-1', moves: false },
+        arrival('2026-11-10'),
+      ),
+    ).resolves.toStrictEqual({ blocked: new Set(['2026-11-10']), move: [] });
+    await expect(
+      store.blockedSenders('work', ['connection-1']),
+    ).resolves.toMatchObject([{ moved: 1 }]);
+    // Blocked again later, it counts none of the moves from before.
+    vi.setSystemTime(november8 + 1000);
+    await store.unblock('work', 'offers@growthleads.io');
+    await store.block('work', 'offers@growthleads.io');
+    await expect(
+      store.blockedSenders('work', ['connection-1', 'connection-2']),
+    ).resolves.toMatchObject([{ blockedAt: november8 + 1000, moved: 0 }]);
   });
 
   it('moves nothing whose receipt cannot be written, and screens nothing it cannot read', async () => {
@@ -346,10 +383,10 @@ describe('stored Blocked Senders', () => {
       state.locked = true;
     };
     await expect(
-      store.screen('work', 'connection-1', arrivals),
+      store.screen('work', { id: 'connection-1', moves: true }, arrivals),
     ).resolves.toStrictEqual({ blocked: new Set(['blocked']), move: [] });
     await expect(
-      store.screen('work', 'connection-1', arrivals),
+      store.screen('work', { id: 'connection-1', moves: true }, arrivals),
     ).resolves.toBeUndefined();
   });
 
@@ -362,13 +399,17 @@ describe('stored Blocked Senders', () => {
     const { document } = state;
     state.account = 'account-1';
     const waiting = store.block('home', 'offers@growthleads.io');
-    const screening = store.screen('work', 'connection-1', [
-      {
-        id: 'blocked',
-        address: 'offers@growthleads.io',
-        receivedAt: '2026-11-08T09:00:00.000Z',
-      },
-    ]);
+    const screening = store.screen(
+      'work',
+      { id: 'connection-1', moves: true },
+      [
+        {
+          id: 'blocked',
+          address: 'offers@growthleads.io',
+          receivedAt: '2026-11-08T09:00:00.000Z',
+        },
+      ],
+    );
     state.account = 'account-2';
     await waiting;
     await expect(screening).resolves.toBeUndefined();

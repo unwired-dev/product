@@ -1643,7 +1643,6 @@
     "confirmTitle": "Block {{address}}?",
     "confirm_one": "New mail from this address goes to Trash in your {{profile}}. The {{count}} message you have now stays where it is, and the sender isn’t told.",
     "confirm_other": "New mail from this address goes to Trash in your {{profile}}. The {{count}} messages you have now stay where they are, and the sender isn’t told.",
-    "confirmNone": "New mail from this address goes to Trash in your {{profile}}. The sender isn’t told.",
     "action": "Block Sender",
     "blockFailed": "{{address}} couldn’t be blocked",
     "tryAgain": "Your Blocked Senders couldn’t be saved. Try again.",

@@ -47,6 +47,8 @@ const ReceiptSchema = Schema.Struct({
   connection: Schema.NonEmptyString,
   address: Schema.NonEmptyString,
   receivedAt: Schema.NonEmptyString,
+  // When this device recorded it; receipts recorded before #2141 have none.
+  at: Schema.optionalKey(Schema.Finite),
 });
 type Receipt = typeof ReceiptSchema.Type;
 
@@ -193,7 +195,8 @@ export function createBlockedSenders(
       };
     },
     // `profile`'s Blocked Senders, or undefined while storage cannot read them. `moved` counts the
-    // address's kept receipts on the Profile's `connections`.
+    // address's kept receipts on the Profile's `connections` since it was blocked; one recorded
+    // before receipts kept their time counts from the message's arrival.
     blockedSenders: (profile: string, connections: readonly string[] = []) =>
       runLogged(
         opened(signedIn()).pipe(
@@ -205,7 +208,9 @@ export function createBlockedSenders(
                 moved: receipts.filter(
                   (receipt) =>
                     receipt.address === sender.address &&
-                    connections.includes(receipt.connection),
+                    connections.includes(receipt.connection) &&
+                    (receipt.at ?? Date.parse(receipt.receivedAt)) >=
+                      sender.blockedAt,
                 ).length,
               })),
           ),
@@ -228,10 +233,11 @@ export function createBlockedSenders(
     // Which of a connection's newly arriving `messages` its Mail Profile `profile` blocks: `blocked`
     // names each, which gets no notification, and `move` those this call recorded a receipt for,
     // which the caller moves to Trash. An arrival with a kept receipt is not moved again, and a receipt
-    // storage refuses moves nothing. Undefined while storage cannot read the Blocked Senders.
+    // storage refuses moves nothing. A connection that `moves` nothing to Trash now records no
+    // receipt. Undefined while storage cannot read the Blocked Senders.
     screen: (
       profile: string,
-      connection: string,
+      connection: Readonly<{ id: string; moves: boolean }>,
       messages: ReadonlyArray<
         Readonly<{ id: string; address: string; receivedAt: string }>
       >,
@@ -244,12 +250,18 @@ export function createBlockedSenders(
             const address = blockedAddress(sender.address);
             return address !== undefined &&
               stored.senders.some(isProfileAddress(profile, address))
-              ? [{ id, receipt: { connection, address, receivedAt } }]
+              ? [
+                  {
+                    id,
+                    receipt: { connection: connection.id, address, receivedAt },
+                  },
+                ]
               : [];
           });
           const blocked = new Set(arrivals.map(({ id }) => id));
           const moving = arrivals.filter(
             ({ receipt }) =>
+              connection.moves &&
               !stored.receipts.some(
                 (kept) =>
                   kept.connection === receipt.connection &&
@@ -265,7 +277,7 @@ export function createBlockedSenders(
             senders: stored.senders,
             receipts: [
               ...stored.receipts,
-              ...moving.map(({ receipt }) => receipt),
+              ...moving.map(({ receipt }) => ({ ...receipt, at: Date.now() })),
             ].slice(-receiptLimit),
           }).pipe(
             Effect.as(true),

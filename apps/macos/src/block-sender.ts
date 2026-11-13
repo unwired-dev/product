@@ -19,23 +19,24 @@ export function useBlockSender() {
   const mailboxes = useMailboxes();
   const { t } = useLocalization();
   const { anchor, confirm } = useConfirmation();
-  const block = async (address: string) => {
-    // The Profile's mail from the address this device holds now, which blocking leaves in place.
-    const count = mailboxes
-      .flatMap(({ state }) =>
+  const block = async (address: string, open: string) => {
+    // The Profile's loaded Inbox mail from the address and the open message, which blocking leaves
+    // in place.
+    const count = new Set([
+      open,
+      ...mailboxes.flatMap(({ id, state }) =>
         state.kind === 'ready'
-          ? state.messages.map((each) => each.address)
+          ? state.messages
+              .filter((each) => blockedAddress(each.address) === address)
+              .map((each) => `${id}\n${each.id}`)
           : [],
-      )
-      .filter((each) => blockedAddress(each) === address).length;
+      ),
+    ]).size;
     const name = profileName(t, profile, account?.profiles ?? []);
     if (
       (await confirm({
         title: t('blockedSenders.confirmTitle', { address }),
-        detail:
-          count === 0
-            ? t('blockedSenders.confirmNone', { profile: name })
-            : t('blockedSenders.confirm', { profile: name, count }),
+        detail: t('blockedSenders.confirm', { profile: name, count }),
         cancel: t('common.cancel'),
         action: t('blockedSenders.action'),
         destructive: false,
@@ -49,8 +50,13 @@ export function useBlockSender() {
       }).answer;
     }
   };
-  // The menu item for `sender`, none unless it is one plain address.
-  const items = (sender: string): MenuItem[] => {
+  // The menu item for `sender` of the open message `message` of `connection`, none unless the
+  // sender is one plain address.
+  const items = (
+    sender: string,
+    connection: string,
+    message: string,
+  ): MenuItem[] => {
     const address = blockedAddress(sender);
     return address === undefined
       ? []
@@ -59,7 +65,7 @@ export function useBlockSender() {
             key: `block\n${address}`,
             title: t('blockedSenders.block'),
             symbol: 'hand.raised.slash',
-            run: () => block(address),
+            run: () => block(address, `${connection}\n${message}`),
           },
         ];
   };

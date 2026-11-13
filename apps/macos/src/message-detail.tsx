@@ -735,7 +735,13 @@ function MailboxMessage({
                             },
                           ],
                         },
-                        { items: blockItems(message.address) },
+                        {
+                          items: blockItems(
+                            message.address,
+                            mailbox?.id ?? '',
+                            message.id,
+                          ),
+                        },
                       ]}>
                       <Text style={{ color: colors.textSecondary }}>
                         <Text

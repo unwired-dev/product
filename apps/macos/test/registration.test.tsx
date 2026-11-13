@@ -1721,7 +1721,7 @@ describe('product registration', () => {
       store,
     );
     await blocked.block(defaultProfile, 'offers@growthleads.io');
-    await blocked.screen(defaultProfile, alex, [
+    await blocked.screen(defaultProfile, { id: alex, moves: true }, [
       {
         id: 'offer',
         address: 'offers@growthleads.io',
@@ -1754,10 +1754,11 @@ describe('product registration', () => {
     const offers = await settingsWindow().findByRole('button', {
       name: 'offers@growthleads.io',
     });
-    expect(settingsWindow().getByText('Primary Profile')).toBeVisible();
-    expect(
-      settingsWindow().getByText(/^Blocked .+ · 1 moved to Trash$/u),
-    ).toBeVisible();
+    expect({
+      group: settingsWindow().getByText('Primary Profile').props.children,
+      moved: settingsWindow().queryByText(/^Blocked .+ · 1 moved to Trash$/u)
+        ?.props.children,
+    }).toStrictEqual({ group: 'Primary Profile', moved: expect.any(String) });
     // A sender blocked from a reader while Settings is open joins the list, newest first.
     await act(async () => {
       await blocked.block(defaultProfile, 'noreply@crypto-daily.co');
@@ -1776,19 +1777,19 @@ describe('product registration', () => {
       rows: ['noreply@crypto-daily.co', 'offers@growthleads.io'],
       unblock: true,
     });
+    // A selected address unblocked elsewhere leaves − nothing to unblock.
+    await fireEvent.press(
+      settingsWindow().getByRole('button', { name: 'noreply@crypto-daily.co' }),
+    );
+    await act(async () => {
+      await blocked.unblock(defaultProfile, 'noreply@crypto-daily.co');
+    });
+    await waitFor(() => {
+      expect(unblock).toBeDisabled();
+    });
     await fireEvent.press(offers);
     await act(async () => {
       await fireEvent.press(unblock);
-    });
-    await waitFor(() => {
-      expect(
-        settingsWindow().queryByRole('button', {
-          name: 'offers@growthleads.io',
-        }),
-      ).toBeNull();
-    });
-    await act(async () => {
-      await blocked.unblock(defaultProfile, 'noreply@crypto-daily.co');
     });
     await expect(
       settingsWindow().findByText(

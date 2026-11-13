@@ -166,7 +166,8 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
 
   it('leaves a Blocked Sender’s mail unnotified where no Trash takes it, and notifies all while unreadable', async () => {
     expect.hasAssertions();
-    const { imap, storage, notified, mailboxes } = await setup();
+    const { imap, storage, notified, mailboxes, blockedSenders } =
+      await setup();
     imap.removeFolder('Trash');
     await mailboxes.load();
     imap.deliver('INBOX', {
@@ -176,6 +177,10 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     });
     await mailboxes.load();
     expect(notified).toStrictEqual([]);
+    // Settings counts no move that never happened.
+    await expect(
+      blockedSenders.blockedSenders(defaultProfile, ['imap']),
+    ).resolves.toMatchObject([{ moved: 0 }]);
 
     storage.locked = true;
     vi.spyOn(console, 'error').mockReturnValue();

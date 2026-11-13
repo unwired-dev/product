@@ -119,18 +119,26 @@ export function BlockedSenderSettings({
     return <SettingsGroup footer={t('blockedSenders.unavailable')} />;
   }
   const groups = listed.filter(({ senders }) => (senders?.length ?? 0) > 0);
+  // A selected address unblocked elsewhere is no longer selected.
+  const chosen = groups.some(
+    ({ profile, senders }) =>
+      profile === selected?.profile &&
+      senders?.some(({ address }) => address === selected.address),
+  )
+    ? selected
+    : undefined;
   if (groups.length === 0) {
     return <SettingsGroup footer={t('blockedSenders.none')} />;
   }
   const unblock = async () => {
-    if (selected === undefined) {
+    if (chosen === undefined) {
       return;
     }
     setFailed(undefined);
-    if (await store.unblock(selected.profile, selected.address)) {
+    if (await store.unblock(chosen.profile, chosen.address)) {
       setSelected(undefined);
     } else {
-      setFailed(`${selected.profile}\n${selected.address}`);
+      setFailed(`${chosen.profile}\n${chosen.address}`);
     }
   };
   return groups.map(({ profile, senders = [] }, index) => (
@@ -141,8 +149,8 @@ export function BlockedSenderSettings({
         index === groups.length - 1 ? t('blockedSenders.footer') : undefined
       }>
       {Arr.sort(senders, newestFirst).map(({ address, blockedAt, moved }) => {
-        const chosen =
-          selected?.profile === profile && selected.address === address;
+        const isChosen =
+          chosen?.profile === profile && chosen.address === address;
         const unblockFailed = failed === `${profile}\n${address}`;
         const blocked = date.format(blockedAt);
         const counted =
@@ -154,7 +162,7 @@ export function BlockedSenderSettings({
             key={address}
             accessibilityRole="button"
             accessibilityLabel={address}
-            accessibilityState={{ selected: chosen }}
+            accessibilityState={{ selected: isChosen }}
             onPress={() => {
               setSelected({ profile, address });
             }}>
@@ -172,14 +180,14 @@ export function BlockedSenderSettings({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('blockedSenders.unblock')}
-          disabled={selected?.profile !== profile}
+          disabled={chosen?.profile !== profile}
           onPress={() => {
             void unblock();
           }}
           style={({ pressed }) => [
             styles.remove,
             pressed && { backgroundColor: colors.accentSelectionSubtle },
-            selected?.profile !== profile && { opacity: 0.4 },
+            chosen?.profile !== profile && { opacity: 0.4 },
           ]}>
           <Text
             style={[
