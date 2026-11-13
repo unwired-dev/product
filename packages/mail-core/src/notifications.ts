@@ -736,19 +736,15 @@ async function replyTyped(
     await runLogged(logNote('Notification reply not saved or not sent'));
     return;
   }
-  const { previews } = await runLogged(
-    settingsOf(() => native.notificationSettings()).pipe(
-      Effect.orElseSucceed(() => ({ previews: false })),
-    ),
-  );
-  // Drafts that cannot open keep nothing; the person learns the text is gone.
+  // Drafts that cannot open keep nothing; the person learns the text is gone. It shows no mail,
+  // so it needs no preview choice.
   if (saved === undefined) {
     await postReply(native, t, {
       ...named,
       id: `${named.connection}.reply.${named.message}`,
       draft: '',
       profile,
-      previews,
+      previews: false,
       kind: 'failed',
       title: t('notifications.replyFailed'),
       body: t('notifications.replyLost'),
@@ -756,9 +752,15 @@ async function replyTyped(
     return;
   }
   const { draft, unsaved, sendable } = saved;
+  // Admitted before anything else is awaited, so no other editor's change is sent.
   const queued = await queuedReply(
     { drafts, outbox },
     { draft, sendable, current },
+  );
+  const { previews } = await runLogged(
+    settingsOf(() => native.notificationSettings()).pipe(
+      Effect.orElseSucceed(() => ({ previews: false })),
+    ),
   );
   const base = {
     ...named,

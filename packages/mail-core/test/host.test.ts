@@ -696,6 +696,34 @@ describe('the host assembly', () => {
     });
   });
 
+  it('sends the typed reply as prepared when its Draft changes while notification settings are read', async () => {
+    expect.hasAssertions();
+    const { host, answered, reply, drafts, settingsGate } =
+      await replyingHost();
+    const settings = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    settingsGate.held = settings.promise;
+    settingsGate.started = () => {
+      reading.resolve(undefined);
+    };
+
+    const replying = reply('reply', answered, 'Thursday works.');
+    await reading.promise;
+    // Another editor changes any Draft still listed meanwhile.
+    await Promise.all(
+      drafts().map(({ id }) =>
+        host.drafts.fill(id, (each) => ({ ...each, subject: 'Edited' }), []),
+      ),
+    );
+    settingsGate.held = undefined;
+    settingsGate.started = undefined;
+    settings.resolve(undefined);
+    await replying;
+    expect(
+      host.outbox.getSnapshot().map(({ draft }) => draft.subject),
+    ).toStrictEqual(['Re: Studio review']);
+  });
+
   it('says a typed reply was not kept when its Draft cannot be created', async () => {
     expect.hasAssertions();
     const { host, answered, named, reply, replied } = await replyingHost();
