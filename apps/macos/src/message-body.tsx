@@ -1033,14 +1033,12 @@ export function MessageBody({
           body={body.presentation.readable}
         />
       </AssistanceRow>
-      {imap ? null : (
-        <InvitationCard
-          inbox={inbox}
-          id={id}
-          connection={connection}
-          current={current}
-        />
-      )}
+      <InvitationCard
+        inbox={inbox}
+        id={id}
+        connection={connection}
+        current={current}
+      />
       <Presentation
         onCopy={(link) => {
           if (current()) {

@@ -110,6 +110,7 @@ import { inlineImageLimits } from './inline-images.ts';
 import { SyncFailure } from './mailbox-read.ts';
 import {
   bodyParts,
+  calendarPart,
   contentIdsOf,
   decodeBodyDocument,
   decodeCachedBody,
@@ -738,14 +739,27 @@ const describesReadablePart = (fields: HeaderFields) => {
   return described !== undefined && singleReadablePart(described);
 };
 
+// A meeting invitation's calendar text. Text that cannot decode leaves the message readable without
+// its invitation.
+const calendarText = (payload: GmailPart) => {
+  const part = calendarPart(payload);
+  return part === undefined
+    ? Effect.undefined
+    : partText(part, part.body?.data ?? '').pipe(
+        Effect.option,
+        Effect.map(Option.getOrUndefined),
+      );
+};
+
 // The body the reader presents: the readable alternatives, received attachments' metadata, the
-// headers Reply, Reply All and Forward read, and the inline images the HTML names within the
-// per-message bounds. Remote content is never fetched.
+// headers Reply, Reply All and Forward read, a meeting invitation's calendar text, and the inline
+// images the HTML names within the per-message bounds. Remote content is never fetched.
 const bodyDocument = Effect.fnUntraced(function* (
   id: string,
   payload: GmailPart,
 ) {
   const { html, text, path } = bodyParts(payload);
+  const calendar = yield* calendarText(payload);
   const body: BodyDocument = {
     version: 2,
     id,
@@ -758,6 +772,7 @@ const bodyDocument = Effect.fnUntraced(function* (
       }),
     ),
     headers: responseHeadersOf(payload),
+    ...(calendar === undefined ? {} : { calendar }),
     ...(text === undefined ? {} : { text: yield* textOf(text) }),
     ...(html === undefined ? {} : { html: yield* textOf(html) }),
   };

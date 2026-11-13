@@ -1,10 +1,13 @@
 import type { MailProvider } from '@private-email/mail-core/registration';
 
+import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 
+import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { OpenMessageContext } from '../src/invitation.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { GmailMessageBody } from '../src/message-body.tsx';
@@ -725,6 +728,74 @@ describe('meeting invitations in the iPhone and iPad reader', () => {
       expect(screen.getByText('invite.ics')).toBeOnTheScreen();
     } finally {
       await app.unmount();
+    }
+  });
+
+  it('shows an IMAP cancellation and offers no response to an IMAP invitation yet', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap({ address: me });
+    // An IMAP message carrying `calendar` as its text/calendar alternative.
+    const deliver = (subject: string, calendar: string) =>
+      imap.deliver('INBOX', {
+        subject,
+        raw: [
+          'From: Lena Fischer <lena@northwind.example>',
+          `To: ${me}`,
+          `Subject: ${subject}`,
+          'MIME-Version: 1.0',
+          'Content-Type: multipart/alternative; boundary="alt"',
+          '',
+          '--alt',
+          'Content-Type: text/plain; charset=utf-8',
+          '',
+          `${subject} body`,
+          '--alt',
+          'Content-Type: text/calendar; charset=utf-8',
+          '',
+          calendar,
+          '--alt--',
+        ].join('\r\n'),
+      });
+    const cancelled = deliver(
+      'Cancelled',
+      invitation(me, ['STATUS:CANCELLED'])
+        .replace('METHOD:REQUEST', 'METHOD:CANCEL')
+        .replace('SEQUENCE:0', 'SEQUENCE:1'),
+    );
+    const invited = deliver('Invited', invitation(me));
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const first = await render(
+      <ImapMessageBody
+        inbox={inbox}
+        id={`7.${cancelled}.INBOX`}
+      />,
+    );
+    try {
+      await expect(
+        screen.findByText('This meeting was cancelled'),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('Cancelled by Lena Fischer'),
+      ).toBeOnTheScreen();
+    } finally {
+      await first.unmount();
+    }
+    const second = await render(
+      <ImapMessageBody
+        inbox={inbox}
+        id={`7.${invited}.INBOX`}
+      />,
+    );
+    try {
+      await expect(
+        screen.findByText('Invited body'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText('Q4 roadmap review')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
+      expect(imap.smtp.accepted).toHaveLength(0);
+    } finally {
+      await second.unmount();
     }
   });
 });

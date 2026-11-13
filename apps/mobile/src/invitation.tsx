@@ -1,3 +1,4 @@
+import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type { GmailInbox } from '@private-email/mail-core/inbox-store';
 import type {
   EarlierResponse,
@@ -691,7 +692,7 @@ export function InvitationCard({
   connection,
   current,
 }: {
-  readonly inbox: InvitationInbox;
+  readonly inbox: InvitationInbox | ImapInbox;
   readonly id: string;
   readonly connection: string | undefined;
   readonly current: () => boolean;
@@ -791,6 +792,10 @@ export function InvitationCard({
         />
       </View>
     );
+  }
+  // An IMAP response goes through the Outbox, which #1279 adds; until then none is offered.
+  if ('openFolder' in inbox) {
+    return null;
   }
   return (
     <Invited
