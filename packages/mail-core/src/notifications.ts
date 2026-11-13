@@ -632,6 +632,14 @@ async function announceSending(
       .find((each) => each.id === draft && each.state === 'waiting');
     return entry === undefined ? 0 : entry.sendAt - Date.now();
   };
+  const withdraw = () =>
+    runLogged(
+      logged(
+        'Notification reply notification could not be withdrawn:',
+        call(() => native.withdrawNotification(id)),
+      ),
+    );
+  // An offer posted again after the window ended is withdrawn as it lands.
   const post = async () => {
     const seconds = Math.ceil(left() / 1000);
     if (seconds > 0) {
@@ -640,6 +648,9 @@ async function announceSending(
         kind: 'sending',
         body: t('notifications.replySending', { seconds, address }),
       });
+      if (sending.get(id) !== post) {
+        await withdraw();
+      }
     }
   };
   sending.set(id, post);
@@ -647,12 +658,7 @@ async function announceSending(
   setTimeout(
     () => {
       sending.delete(id);
-      void runLogged(
-        logged(
-          'Notification reply notification could not be withdrawn:',
-          call(() => native.withdrawNotification(id)),
-        ),
-      );
+      void withdraw();
     },
     Math.max(0, left()),
   );

@@ -623,6 +623,54 @@ describe('the host assembly', () => {
     ]);
   });
 
+  it('withdraws a repeated Undo offer that lands after the Undo Send Window ended', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const {
+      host,
+      native,
+      answered,
+      named,
+      reply,
+      withdrawn,
+      draftStorage,
+      notificationActions,
+    } = await replyingHost();
+
+    await reply('reply', answered, 'Thursday works.');
+    const draft = required(host.outbox.getSnapshot()[0]).id;
+    draftStorage.failNextCommit('unavailable');
+    // The Undo offer posted again waits until the window has ended.
+    const post = native.postReplyNotification;
+    const posting = Promise.withResolvers<undefined>();
+    const held = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'postReplyNotification').mockImplementationOnce(
+      async (...args) => {
+        posting.resolve(undefined);
+        await held.promise;
+        return post(...args);
+      },
+    );
+    const undoing = notificationActions.send({
+      id: 'undo',
+      ...named,
+      message: answered,
+      action: 'undo',
+      draft,
+    });
+    await posting.promise;
+    await vi.advanceTimersByTimeAsync(10_000);
+    held.resolve(undefined);
+    await undoing;
+    expect(withdrawn).toStrictEqual([
+      `${named.connection}.reply.${draft}`,
+      `${named.connection}.reply.${draft}`,
+    ]);
+  });
+
   it('leaves a typed reply whose delivery became uncertain to the Outbox on Undo', async () => {
     expect.hasAssertions();
     vi.useFakeTimers({ toFake: ['Date'] });
