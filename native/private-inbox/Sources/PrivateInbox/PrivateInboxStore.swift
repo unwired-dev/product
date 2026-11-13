@@ -69,6 +69,8 @@ public final class PrivateInboxStore: @unchecked Sendable {
   private let mailboxAssociatedData = Data("dev.unwired.private-inbox.mailbox.v1".utf8)
   private let draftsAssociatedData = Data("dev.unwired.private-inbox.drafts.v1".utf8)
   private let mailTemplatesAssociatedData = Data("dev.unwired.private-inbox.mail-templates.v1".utf8)
+  private let sendRemindersAssociatedData = Data(
+    "dev.unwired.private-inbox.send-reminders.v1".utf8)
   private let blockedSendersAssociatedData = Data(
     "dev.unwired.private-inbox.blocked-senders.v1".utf8)
   static let outgoingContentLimit = 100 * 1024 * 1024
@@ -301,7 +303,7 @@ public final class PrivateInboxStore: @unchecked Sendable {
     if let existing = try keychain.read("encryption-key") { return existing }
     for name in [
       "inbox.enc", "drafts.enc", "draft-assets", "composer-recovery", "mail-templates.enc",
-      "blocked-senders.enc", "mailbox.enc", "mailboxes", "bodies",
+      "send-reminders.enc", "blocked-senders.enc", "mailbox.enc", "mailboxes", "bodies",
     ] {
       guard !FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
       else { throw PrivateInboxError.unavailable }
@@ -390,6 +392,20 @@ public final class PrivateInboxStore: @unchecked Sendable {
       expectedRevision: expectedRevision, document: document)
   }
 
+  // The Product Account's Send Reminders, kept like its Mail Templates.
+  func openSendReminderDocument(owner: String) throws -> (revision: Int, document: String?) {
+    try openDocument(
+      "send-reminders.enc", authenticating: sendRemindersAssociatedData, owner: owner)
+  }
+
+  func commitSendReminderDocument(owner: String, expectedRevision: Int, document: String) throws
+    -> Int
+  {
+    try commitDocument(
+      "send-reminders.enc", authenticating: sendRemindersAssociatedData, owner: owner,
+      expectedRevision: expectedRevision, document: document)
+  }
+
   // The Product Account's Blocked Senders, kept like its Mail Templates.
   func openBlockedSenderDocument(owner: String) throws -> (revision: Int, document: String?) {
     try openDocument(
@@ -421,8 +437,10 @@ public final class PrivateInboxStore: @unchecked Sendable {
       guard (stored?.revision ?? 0) == expectedRevision else { throw PrivateInboxError.conflict }
       let next = DraftStore(revision: expectedRevision + 1, owner: owner, document: document)
       let plaintext = try JSONEncoder().encode(next)
-      // Escaping counts, with the AES-GCM nonce and tag.
-      guard plaintext.count + 28 <= Self.outgoingContentLimit else {
+      // Escaping counts, with the AES-GCM nonce and tag. Send Reminders share the Outgoing Content
+      // Store's limit.
+      let shared = file == "send-reminders.enc" ? try outgoingContentSize(replacing: file) : 0
+      guard plaintext.count + 28 + shared <= Self.outgoingContentLimit else {
         throw PrivateInboxError.unavailable
       }
       try write(
@@ -534,13 +552,15 @@ public final class PrivateInboxStore: @unchecked Sendable {
   }
 
   // The bytes the Outgoing Content Store's files take on disk, except `replacing`, the file a write
-  // replaces: the Drafts document, Draft assets and composer recovery records.
+  // replaces: the Drafts and Send Reminders documents, Draft assets and composer recovery records.
   private func outgoingContentSize(replacing: String) throws -> Int {
-    let drafts = (try? FileManager.default.attributesOfItem(
-      atPath: directory.appendingPathComponent("drafts.enc").path)[.size] as? Int) ?? 0
-    return try ["draft-assets", "composer-recovery"].flatMap { folder in
+    let documents = ["drafts.enc", "send-reminders.enc"].map { name in
+      (name, (try? FileManager.default.attributesOfItem(
+        atPath: directory.appendingPathComponent(name).path)[.size] as? Int) ?? 0)
+    }
+    return try (documents + ["draft-assets", "composer-recovery"].flatMap { folder in
       try files(in: folder).map { ("\(folder)/\($0.id)", $0.size) }
-    }.reduce(replacing == "drafts.enc" ? 0 : drafts) { $1.0 == replacing ? $0 : $0 + $1.1 }
+    }).reduce(0) { $1.0 == replacing ? $0 : $0 + $1.1 }
   }
 
   private func files(in name: String) throws -> [(id: String, url: URL, size: Int)] {
@@ -654,13 +674,14 @@ public final class PrivateInboxStore: @unchecked Sendable {
 
   // Every connection's cache, bodies and Downloaded Attachments, including the cache written
   // before connections, and the account's Drafts, their assets, its composer recovery records, its
-  // Mail Templates and Blocked Senders: everything an account purge removes from this store.
+  // Mail Templates, Send Reminders and Blocked Senders: everything an account purge removes from this
+  // store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
       try removeURLs(
         [
           "mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets", "composer-recovery",
-          "mail-templates.enc", "blocked-senders.enc",
+          "mail-templates.enc", "send-reminders.enc", "blocked-senders.enc",
         ].map { directory.appendingPathComponent($0) } + [attachments])
     }
   }

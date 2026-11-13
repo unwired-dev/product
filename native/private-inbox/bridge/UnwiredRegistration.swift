@@ -1729,6 +1729,27 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(openSendReminders:rejecter:)
+  func openSendReminders(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openSendReminders", resolve, reject: reject) { try await $0.openSendReminders() }
+  }
+
+  @objc(commitSendReminders:expectedRevision:document:resolver:rejecter:)
+  func commitSendReminders(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitSendReminders", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitSendReminders(
+      owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
   @objc(openBlockedSenders:rejecter:)
   func openBlockedSenders(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
