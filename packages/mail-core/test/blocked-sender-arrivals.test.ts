@@ -13,12 +13,17 @@ import { createSyntheticImap } from '../src/testing/imap-mailbox.ts';
 const blocked = 'offers@growthleads.io';
 
 // A Gmail, a Microsoft and an IMAP connection of the Default Profile, each with New Mail
-// Notifications on unless asked otherwise, and this device's Blocked Senders, which block `blocked` there.
-const setup = async ({ notifications = true } = {}) => {
+// Notifications on unless asked otherwise, Microsoft and IMAP with a Trash unless `trash` is false,
+// and this device's Blocked Senders, which block `blocked` there.
+const setup = async ({ notifications = true, trash = true } = {}) => {
   const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
   const graph = createSyntheticGraph();
   const imap = createSyntheticImap();
-  imap.addFolder('Trash', ['trash']);
+  if (trash) {
+    imap.addFolder('Trash', ['trash']);
+  } else {
+    graph.withoutFolder('deleteditems');
+  }
   // The Gmail connection's Mail Profile, which the person may change while mail is screened.
   const gmailProfile = { current: defaultProfile };
   const registration = {
@@ -166,21 +171,24 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
 
   it('leaves a Blocked Sender’s mail unnotified where no Trash takes it, and notifies all while unreadable', async () => {
     expect.hasAssertions();
-    const { imap, storage, notified, mailboxes, blockedSenders } =
-      await setup();
-    imap.removeFolder('Trash');
-    await mailboxes.load();
+    const { graph, imap, storage, notified, mailboxes, blockedSenders } =
+      await setup({ trash: false });
     imap.deliver('INBOX', {
       subject: 'Kept offer',
       address: blocked,
       received: Date.now(),
     });
+    graph.deliver({
+      from: { name: 'Growth Leads', address: blocked },
+      subject: 'Kept Microsoft offer',
+    });
     await mailboxes.load();
     expect(notified).toStrictEqual([]);
     // Settings counts no move that never happened.
     await expect(
-      blockedSenders.blockedSenders(defaultProfile, ['imap']),
+      blockedSenders.blockedSenders(defaultProfile, ['graph', 'imap']),
     ).resolves.toMatchObject([{ moved: 0 }]);
+    expect(graph.modifies).toStrictEqual([]);
 
     storage.locked = true;
     vi.spyOn(console, 'error').mockReturnValue();

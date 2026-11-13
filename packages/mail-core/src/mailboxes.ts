@@ -716,13 +716,20 @@ export function createMailboxes(
               inbox: createInboxStore(bound(native, id), {
                 removed,
                 // Microsoft without a Deleted Items folder offers no Trash, which changes nothing.
-                arrived: report<GmailMessage>(() => (message) => {
+                arrived: report<GmailMessage>(() => {
                   const entry = own();
-                  if (entry !== undefined && entry.provider !== 'imap') {
-                    void entry.inbox.organize(message, gmailAction.trash, {
-                      quiet: true,
-                    });
+                  if (entry === undefined || entry.provider === 'imap') {
+                    return undefined;
                   }
+                  const state = entry.inbox.getSnapshot();
+                  return state.kind === 'ready' &&
+                    state.unavailableActions?.includes('trash') !== true
+                    ? (message) => {
+                        void entry.inbox.organize(message, gmailAction.trash, {
+                          quiet: true,
+                        });
+                      }
+                    : undefined;
                 }),
                 shared,
                 connection: id,
