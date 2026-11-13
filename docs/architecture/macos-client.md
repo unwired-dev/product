@@ -32,7 +32,7 @@ view; opening another starts with no selection. AppKit separately owns one
 `settings-window` surface in the same runtime, without counting or guarding it as
 an Inbox window. Its gate retires targeted navigation with its Product Account
 and keeps registration activation and assistance loading alive when every Inbox
-window is closed. Reading leaves unread flags unchanged. Explicit read/unread actions persist
+window is closed. Opening an unread message marks it read once the reader can change it. Explicit read/unread actions persist
 and update all windows without changing their selections.
 
 The Edit menu omits native Undo and Redo because AppKit's undo stack for a text
