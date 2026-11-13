@@ -27,7 +27,7 @@ struct OneClickUnsubscribe: Sendable {
       } catch {
         return .uncertain
       }
-      guard let response = try? RemoteContentFetcher.response(raw) else { return .uncertain }
+      guard let response = try? Self.finalResponse(raw) else { return .uncertain }
       switch response.status {
       case 200..<300:
         return .sent
@@ -59,6 +59,18 @@ struct OneClickUnsubscribe: Sendable {
       defer { group.cancelAll() }
       guard let destination = try await group.next() else { throw RemoteContentError.unavailable }
       return destination
+    }
+  }
+
+  // The answer after any interim 1xx answers, which only precede it (RFC 9110 §15.2).
+  static func finalResponse(_ raw: Data) throws -> RemoteContentFetcher.Response {
+    var rest = raw
+    while true {
+      let response = try RemoteContentFetcher.response(rest)
+      guard (100..<200).contains(response.status),
+        let end = rest.firstRange(of: Data("\r\n\r\n".utf8))
+      else { return response }
+      rest = Data(rest[end.upperBound...])
     }
   }
 

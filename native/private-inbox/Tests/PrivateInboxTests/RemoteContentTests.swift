@@ -246,6 +246,10 @@ extension PrivateInboxTests {
       "/page": "HTTP/1.1 303 See Other\r\nLocation: /done\r\n\r\n",
       "/missing": "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
       "/garbled": "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc",
+      "/hints":
+        "HTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\n"
+        + "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+      "/interim": "HTTP/1.1 100 Continue\r\n\r\n",
     ]
     let requests = OSAllocatedUnfairLock(initialState: [String]())
     let unsubscribe = OneClickUnsubscribe(
@@ -277,6 +281,7 @@ extension PrivateInboxTests {
     for (path, outcome) in [
       ("/private", OneClickUnsubscribe.Outcome.failed), ("/loop", .failed), ("/missing", .failed),
       ("/down", .failed), ("/page", .uncertain), ("/lost", .uncertain), ("/garbled", .uncertain),
+      ("/hints", .sent), ("/interim", .uncertain),
     ] {
       #expect(try await send("https://lists.example\(path)") == outcome, "\(path)")
     }
@@ -300,15 +305,17 @@ extension PrivateInboxTests {
       SecCertificateCreateWithData(nil, Data(base64Encoded: Self.fixtureCertificate)! as CFData))
     func unsubscribe(_ server: ImageServer) async throws -> OneClickUnsubscribe.Outcome {
       let port = try await server.start()
+      // As in production, the request's budget sets the deadline the transport waits for.
+      let budget = RemoteContentBudget(bytes: 1024 * 1024, timeout: .seconds(2))
       return await OneClickUnsubscribe(
         fetcher: RemoteContentFetcher(
           resolve: { _ in [IPv4Address("127.0.0.1")!] }, admission: { _ in .admitted },
           exchange: {
             try await RemoteTransport(
               anchors: [anchor], verifyDate: Date(timeIntervalSince1970: 1_780_000_000),
-              timeout: .seconds(2)
+              budget: budget
             ).exchange($0)
-          })
+          }, budget: budget)
       ).send(try #require(URL(string: "https://images.test:\(port)/unsubscribe")))
     }
     let server = try ImageServer()

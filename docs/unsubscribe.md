@@ -63,7 +63,7 @@ The request ends in one of three outcomes:
 
 | Outcome     | When                                                                                                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sent`      | The server answered 2xx. Copy says only that the request was sent, never that mail stops.                                                                                           |
+| `sent`      | The server answered 2xx, after any interim 1xx answers. Copy says only that the request was sent, never that mail stops.                                                            |
 | `failed`    | Nothing was sent (the destination was refused, unresolvable or unreachable, or the deadline passed first), or the server answered with another status.                              |
 | `uncertain` | The request may have arrived without a usable answer: the answer was lost, cut off or unreadable, the deadline passed after sending, or the server redirected with 301, 302 or 303. |
 

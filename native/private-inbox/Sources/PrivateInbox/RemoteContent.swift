@@ -421,10 +421,10 @@ struct RemoteTransport: Sendable {
           connection.send(
             content: request,
             completion: .contentProcessed { [self] error in
-              if error != nil { finish(.failure(RemoteContentError.unanswered)) } else { receive() }
+              if error != nil { finish(.failure(RemoteContentError.unavailable)) } else { receive() }
             })
         case .failed, .waiting:
-          finish(.failure(sent ? RemoteContentError.unanswered : .unavailable))
+          finish(.failure(RemoteContentError.unavailable))
         case .cancelled:
           finish(.failure(CancellationError()))
         default:
@@ -449,7 +449,7 @@ struct RemoteTransport: Sendable {
         } else if complete {
           finish(.success(received))
         } else if error != nil {
-          finish(.failure(RemoteContentError.unanswered))
+          finish(.failure(RemoteContentError.unavailable))
         } else {
           receive()
         }
@@ -460,7 +460,11 @@ struct RemoteTransport: Sendable {
       guard let continuation else { return }
       self.continuation = nil
       connection.cancel()
-      continuation.resume(with: result)
+      // Once the request may have left, failing to reach the server means no answer came back.
+      continuation.resume(
+        with: result.mapError {
+          sent && $0 as? RemoteContentError == .unavailable ? RemoteContentError.unanswered : $0
+        })
     }
   }
 }
