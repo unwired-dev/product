@@ -55,9 +55,9 @@ library migration merely to satisfy this policy.
 
 Use DESIGN.md's tokens where the component supports customization. Prefer its
 system appearance and behavior over rebuilding it to reproduce a mockup's
-dimensions or animation curve. Product requirements still govern behavior and
-Draft safety. This policy does not authorize dropping required behavior to fit a
-component.
+dimensions or animation curve. The [frames rule](../../AGENTS.md#design) still
+decides what the component does, and Draft safety holds whatever it offers. This
+policy does not authorize dropping required behavior to fit a component.
 
 Layouts hold at window and screen sizes other than the frame's, keep 44pt touch
 targets on iPhone and iPad, and keep controls and final content rows clear of

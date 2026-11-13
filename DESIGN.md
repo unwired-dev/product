@@ -406,9 +406,8 @@ styles) so the file stays editable.
   Connection. Conditional [Outbox](docs/outbox.md#sending) follows Sent.
   Drafts opens its own screen: the Drafts list, grouped Needs Attention first, with
   the selected Draft editable beside it on Mac and iPad. On iPhone, where Drafts is
-  the last row of Mailboxes, selecting a Draft pushes the composer onto the
-  navigation stack, per the [composer requirements](docs/product/messages-and-delivery.md);
-  the approved frames show a sheet. Drafts shows a badge only
+  the last row of Mailboxes, selecting a Draft opens the composer as a sheet, per
+  the [composer requirements](docs/product/messages-and-delivery.md). Drafts shows a badge only
   when a Draft is offline or needs action, and the main screen's status capsule
   says when Drafts are not synced, as the approved #1269–#1276 frames show.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
@@ -474,7 +473,7 @@ styles) so the file stays editable.
   its own New Message window on the Mac
   ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).
   Compact
-  layouts push the composer onto the navigation stack. Order: body, attachments,
+  layouts present the composer as a sheet. Order: body, attachments,
   Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
   field reveals together. The sender is a From pop-up beside Send. The Send
   button's menu, a long press on iPhone and iPad and a right click on the Mac,
@@ -718,26 +717,44 @@ form accessories, keyboards, status bar).
 
 ## Known frame differences
 
-These frames predate the requirements or implementation they show, or show a
-decision the app has not built yet:
+Everywhere else the frames win over this document, as the
+[frames rule](AGENTS.md#design) says.
+
+These frames predate a requirement or leave out what the system does. Here the
+requirement or the system wins until the frame is redrawn:
 
 - **Sidebar:** the unified Archive frames in each platform's "Features ·
   Unified Mailboxes and backfill" section, on its Mailboxes and Inbox page,
   show the secondary mailboxes under Favorites and a connection without that
-  role; other mockups omit them. The iPhone Mailboxes frames' **Edit** beside
-  Account has no feature behind it yet.
+  role; other mockups omit them.
 - **Message list header:** the reference mockups show an earlier System Category
-  row with All selected. The iPhone frames' **…** menu and List/Chat toggle
-  beside the title have no feature behind them yet.
+  row with All selected.
 - **Search bar:** on iPhone the system toolbar's glass sits lower and further
   inset than the frames draw (#1534).
 - **Command Palette:** no compact iPad frame shows the command input in the
   reader and composer headers yet.
 - **Toolbar:** the reference mockups show only Archive, Delete, Move, Reply,
   Reply All, Forward, Pin and Snooze.
-- **Compose:** the reference mockups still show a 60% inline composer. The Send
-  menu's Remind Me to Send… waits for #658. The Mac New Message overflow keeps
-  Discard reachable.
+- **Compose:** the reference mockups still show a 60% inline composer. The Mac
+  New Message overflow keeps Discard reachable.
+- **iPad Settings height:** frames whose Settings sidebar lists more rows than
+  the screen holds are drawn 912pt tall to show the whole list. On the device
+  the sidebar scrolls.
+- **Message Row:** the reference mockups show a two-line preview.
+- **Profile Menu:** the reference frames' trailing counts are not drawn; the
+  system menu puts each Profile's unread count in its subtitle.
+
+These frames show a decision the app has not built yet. The frame wins, and the
+app follows under the issue named:
+
+- **Edit Favorites:** the sidebar's Edit mode, and **Edit** beside Account in the
+  iPhone Mailboxes frames, wait for #2106.
+- **Message list header:** the iPhone frames' List/Chat toggle beside the title
+  waits for #810. Their **…** menu waits for an issue that names what it offers.
+- **iPhone composer:** the frames draw the composer as a sheet, as
+  [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) now
+  decides. The app pushes it onto the navigation stack until #2113.
+- **Send menu:** Remind Me to Send… waits for #658.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
 - **Command Palette key cap:** the frames and the Layout section show ⌘K, as
@@ -747,9 +764,7 @@ decision the app has not built yet:
   The app lists its rows at the top of the Inbox column until #2101.
 - **Reader date:** the frames write `Today, 8:12`. The app writes a full UTC date
   until #2102.
-- **iPad Settings height:** frames whose Settings sidebar lists more rows than
-  the screen holds are drawn 912pt tall to show the whole list. On the device
-  the sidebar scrolls.
-- **Message Row:** the reference mockups show a two-line preview.
-- **Profile Menu:** the reference frames' trailing counts are not drawn; the
-  system menu puts each Profile's unread count in its subtitle.
+- **Trusted Devices:** the rows' device symbol, Current Device, last activity and
+  disclosure chevron wait for #2107.
+- **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for
+  #2108.

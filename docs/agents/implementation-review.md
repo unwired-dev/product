@@ -156,8 +156,8 @@ components, styles, copy, icons, motion, notifications and accessibility labels.
    accessibility labels change, update the native journey queries that find
    them; on macOS a disclosure needs the `button` role, not `header`.
 4. Fix confirmed deviations and recapture. Where a frame differs from a product
-   requirement, the requirement wins; list the difference in the PR as a design
-   follow-up. Record a capture you could not take as deferred.
+   requirement, follow the [frames rule](../../AGENTS.md#design). Record a
+   capture you could not take as deferred.
 
 ## Decisions
 
