@@ -11,6 +11,7 @@ export {
   gmailMailboxes,
   drafts,
   mailTemplates,
+  sendReminders,
   outbox,
   freshness,
   remoteContent,
