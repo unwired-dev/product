@@ -1730,6 +1730,12 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Replace your text with this rewrite"].waitForExistence(timeout: 20))
     XCTAssertFalse(app.staticTexts["Add a recipient before sending."].exists)
     app.buttons["Keep your text and close this suggestion"].tap()
+    // On iPad the text tool's review expanded the composer over the window (#2052), and it stays
+    // expanded until Collapse.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.buttons["Collapse"].tap()
+      XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
+    }
     XCUIDevice.shared.orientation = .portrait
     let restored = NSPredicate { _, _ in app.webViews.firstMatch.frame.width == portrait.width }
     XCTAssertEqual(
