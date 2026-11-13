@@ -101,6 +101,7 @@ describe('headless Gmail freshness', () => {
         })
         .mockResolvedValue(null),
       completeNotificationAction,
+      withdrawSendingReplies: async () => null,
     };
     const bridge = jest
       .spyOn(TurboModuleRegistry, 'getEnforcing')
