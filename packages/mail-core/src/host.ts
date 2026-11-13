@@ -287,6 +287,16 @@ export function createHost(
     }
   };
 
+  // Each Mail Profile's Blocked Senders, stored encrypted on this device.
+  const blockedSenders = createBlockedSenders(
+    {
+      openBlockedSenders: () => native().openBlockedSenders(),
+      commitBlockedSenders: (owner, expectedRevision, document) =>
+        native().commitBlockedSenders(owner, expectedRevision, document),
+    },
+    registration,
+  );
+
   // One Inbox per Mailbox Connection, from Gmail or Microsoft Graph; each forgets its mail when its
   // connection or owner leaves.
   const gmailMailboxes = createMailboxes(
@@ -395,6 +405,7 @@ export function createHost(
     {
       removed,
       arrived: notifications.arrived,
+      screen: blockedSenders.screen,
     },
   );
 
@@ -451,16 +462,6 @@ export function createHost(
           native().pushMailTemplate(owner, record),
       },
     },
-  );
-
-  // Each Mail Profile's Blocked Senders, stored encrypted on this device.
-  const blockedSenders = createBlockedSenders(
-    {
-      openBlockedSenders: () => native().openBlockedSenders(),
-      commitBlockedSenders: (owner, expectedRevision, document) =>
-        native().commitBlockedSenders(owner, expectedRevision, document),
-    },
-    registration,
   );
 
   // Messages sent on this device: each waits out the Undo Send Window, is claimed through Convex so no

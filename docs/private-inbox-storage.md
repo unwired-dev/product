@@ -545,7 +545,9 @@ The account's **Blocked Senders**
 Mail Templates, in their own sealed document that the Drafts and Mail Templates
 documents do not open as. TypeScript decodes each Blocked Sender and the Profile
 that owns it; another account reads none, and every account purge removes the
-document. They are not synchronized or enforced yet; see
+document. The same document holds this device's receipts for the arrivals it moved
+to Trash ([#2120](https://github.com/unwired-dev/product/issues/2120)). Blocked
+Senders are not synchronized yet; see
 [Mute and blocked senders](architecture/product/organization.md#mute-and-blocked-senders).
 
 Picked files on iPhone and iPad are protected temporary copies removed after

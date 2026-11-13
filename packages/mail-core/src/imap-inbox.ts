@@ -3344,8 +3344,11 @@ export function createImapInbox(
       cachedViews.set(messages, cached);
       return projectView(cached);
     },
-    organize: (message: ImapMessage, action: ImapAction) =>
-      organize(message, action),
+    organize: (
+      message: ImapMessage,
+      action: ImapAction,
+      options?: Readonly<{ quiet?: boolean }>,
+    ) => organize(message, action, options),
     // Marks a message the person opened as read, as Mark as Read does, without announcing it.
     // Another reader of the same message may have asked already, so it checks the changes the
     // store holds, not the caller's copy.

@@ -280,4 +280,57 @@ describe('stored Blocked Senders', () => {
       '{"senders":[{"profile":"work","address":"a..b@growthleads.io","blockedAt":0}]}';
     await expect(store.blockedSenders('work')).resolves.toBeUndefined();
   });
+
+  it("screens arrivals by their Profile's Blocked Senders and moves each one once", async () => {
+    expect.hasAssertions();
+    const { store, relaunch } = storage();
+    await store.block('work', 'offers@growthleads.io');
+    const arrivals = [
+      { id: 'blocked', address: ' Offers@GrowthLeads.io' },
+      { id: 'other', address: 'maya@example.invalid' },
+    ];
+    await expect(
+      store.screen('work', 'connection-1', arrivals),
+    ).resolves.toStrictEqual({
+      blocked: new Set(['blocked']),
+      move: ['blocked'],
+    });
+    // Reported again, as after a restore to the Inbox, it is still blocked but never moved again.
+    await expect(
+      relaunch().screen('work', 'connection-1', arrivals),
+    ).resolves.toStrictEqual({ blocked: new Set(['blocked']), move: [] });
+    // A receipt names its connection; another Profile's Blocked Senders never apply.
+    await expect(
+      store.screen('work', 'connection-2', arrivals),
+    ).resolves.toStrictEqual({
+      blocked: new Set(['blocked']),
+      move: ['blocked'],
+    });
+    await expect(
+      store.screen('home', 'connection-3', arrivals),
+    ).resolves.toStrictEqual({ blocked: new Set(), move: [] });
+    // Unblocking keeps the receipts.
+    await store.unblock('work', 'offers@growthleads.io');
+    await store.block('work', 'offers@growthleads.io');
+    await expect(
+      store.screen('work', 'connection-1', arrivals),
+    ).resolves.toStrictEqual({ blocked: new Set(['blocked']), move: [] });
+  });
+
+  it('moves nothing whose receipt cannot be written, and screens nothing it cannot read', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { state, store } = storage();
+    await store.block('work', 'offers@growthleads.io');
+    const arrivals = [{ id: 'blocked', address: 'offers@growthleads.io' }];
+    state.before = () => {
+      state.locked = true;
+    };
+    await expect(
+      store.screen('work', 'connection-1', arrivals),
+    ).resolves.toStrictEqual({ blocked: new Set(['blocked']), move: [] });
+    await expect(
+      store.screen('work', 'connection-1', arrivals),
+    ).resolves.toBeUndefined();
+  });
 });

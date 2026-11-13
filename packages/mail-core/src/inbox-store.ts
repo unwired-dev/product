@@ -3872,8 +3872,13 @@ export function createInboxStore(
       publish(render());
       return load();
     },
-    organize: async (message: GmailMessage, action: GmailAction) => {
-      await organize(message, action);
+    // A quiet change, as moving a Blocked Sender's arrival to Trash, announces nothing.
+    organize: async (
+      message: GmailMessage,
+      action: GmailAction,
+      options?: Readonly<{ quiet?: boolean }>,
+    ) => {
+      await organize(message, action, options);
     },
     // Marks a message the person opened as read, as Mark as Read does, without announcing it.
     // Another reader of the same message may have asked already, so it checks the changes the

@@ -39,8 +39,23 @@ const BlockedSenderSchema = Schema.Struct({
 });
 export type BlockedSender = typeof BlockedSenderSchema.Type;
 
+// A device-local receipt: this device took one blocked arrival of a connection to Trash, where the
+// connection has one, so an arrival reported again, as when the person restores it to the Inbox,
+// is never moved again.
+const ReceiptSchema = Schema.Struct({
+  connection: Schema.NonEmptyString,
+  message: Schema.NonEmptyString,
+});
+type Receipt = typeof ReceiptSchema.Type;
+
+// The newest receipts kept; an arrival older than all of them is not reported again.
+const receiptLimit = 1000;
+
 const DocumentSchema = Schema.fromJsonString(
-  Schema.Struct({ senders: Schema.Array(BlockedSenderSchema) }),
+  Schema.Struct({
+    senders: Schema.Array(BlockedSenderSchema),
+    receipts: Schema.optionalKey(Schema.Array(ReceiptSchema)),
+  }),
 );
 const OpenedSchema = Schema.Struct({
   owner: Schema.NonEmptyString,
@@ -78,8 +93,8 @@ const isProfileAddress =
   (profile: string, address: string) => (sender: BlockedSender) =>
     sender.profile === profile && sender.address === address;
 
-// Each Mail Profile's Blocked Senders, stored on this device without network access. They are not
-// synchronized or enforced yet.
+// Each Mail Profile's Blocked Senders, stored on this device without network access, and the
+// receipts of the arrivals they moved to Trash. They are not synchronized yet.
 export function createBlockedSenders(
   storage: NativeBlockedSenders,
   registration: Pick<Registration, 'getSnapshot'>,
@@ -98,7 +113,33 @@ export function createBlockedSenders(
       if (owner !== account || signedIn() !== account) {
         return yield* ownerMismatch();
       }
-      return { owner, revision, senders: document?.senders ?? [] };
+      return {
+        owner,
+        revision,
+        senders: document?.senders ?? [],
+        receipts: document?.receipts ?? [],
+      };
+    });
+
+  // Replaces the stored Blocked Senders and receipts from the revision `stored` read.
+  const commit = (
+    { owner, revision }: Readonly<{ owner: string; revision: number }>,
+    next: Readonly<{
+      senders: readonly BlockedSender[];
+      receipts: readonly Receipt[];
+    }>,
+  ) =>
+    Effect.gen(function* () {
+      const document = yield* Schema.encodeEffect(DocumentSchema)(next).pipe(
+        Effect.mapError(malformed),
+      );
+      const committed = yield* native(
+        () => storage.commitBlockedSenders(owner, revision, document),
+        CommittedSchema,
+      );
+      if (committed.owner !== owner) {
+        return yield* ownerMismatch();
+      }
     });
 
   // Resolves whether storage holds what `change` makes of the stored Blocked Senders; returning
@@ -118,20 +159,10 @@ export function createBlockedSenders(
     const account = signedIn();
     return runLogged(
       Effect.gen(function* () {
-        const { owner, revision, senders } = yield* opened(account);
-        const next = change(senders, normalized);
-        if (next === senders) {
-          return true;
-        }
-        const document = yield* Schema.encodeEffect(DocumentSchema)({
-          senders: next,
-        }).pipe(Effect.mapError(malformed));
-        const committed = yield* native(
-          () => storage.commitBlockedSenders(owner, revision, document),
-          CommittedSchema,
-        );
-        if (committed.owner !== owner) {
-          return yield* ownerMismatch();
+        const stored = yield* opened(account);
+        const next = change(stored.senders, normalized);
+        if (next !== stored.senders) {
+          yield* commit(stored, { senders: next, receipts: stored.receipts });
         }
         return true;
       }).pipe(
@@ -167,6 +198,60 @@ export function createBlockedSenders(
               ...senders,
               { profile, address: normalized, blockedAt: Date.now() },
             ],
+      ),
+    // Which of a connection's newly arriving `messages` its Mail Profile `profile` blocks: `blocked`
+    // names each, which gets no notification, and `move` those this call recorded a receipt for,
+    // which the caller moves to Trash. An arrival with a receipt is never moved again, and a receipt
+    // storage refuses moves nothing. Undefined while storage cannot read the Blocked Senders.
+    screen: (
+      profile: string,
+      connection: string,
+      messages: ReadonlyArray<Readonly<{ id: string; address: string }>>,
+    ) =>
+      runLogged(
+        Effect.gen(function* () {
+          const stored = yield* opened(signedIn());
+          const blocked = new Set(
+            messages
+              .filter(({ address }) => {
+                const normalized = blockedAddress(address);
+                return (
+                  normalized !== undefined &&
+                  stored.senders.some(isProfileAddress(profile, normalized))
+                );
+              })
+              .map(({ id }) => id),
+          );
+          const move = [...blocked].filter(
+            (id) =>
+              !stored.receipts.some(
+                (receipt) =>
+                  receipt.connection === connection && receipt.message === id,
+              ),
+          );
+          if (move.length === 0) {
+            return { blocked, move };
+          }
+          const recorded = yield* commit(stored, {
+            senders: stored.senders,
+            receipts: [
+              ...stored.receipts,
+              ...move.map((message) => ({ connection, message })),
+            ].slice(-receiptLimit),
+          }).pipe(
+            Effect.as(true),
+            Effect.catchTag('DraftStorageFailure', (error) =>
+              report(error).pipe(Effect.as(false)),
+            ),
+          );
+          return { blocked, move: recorded ? move : [] };
+        }).pipe(
+          semaphore.withPermit,
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('DraftStorageFailure', (error) =>
+            report(error).pipe(Effect.as(undefined)),
+          ),
+        ),
       ),
     // Unblocks `address` for `profile` alone.
     unblock: (profile: string, address: string) =>
