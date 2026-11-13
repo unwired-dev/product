@@ -37,7 +37,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
 import { ActivityIndicator, SectionList, Text, View } from 'react-native';
 
@@ -53,7 +52,7 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
-import { Button, Notice, SFSymbol } from './design.tsx';
+import { Button, Notice, SFSymbol, useNow } from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { FolderChoice } from './folder-choice.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
@@ -162,20 +161,6 @@ const rowContent = (item: Parameters<typeof rowKey>[0]) => {
   }
   return 'draft' in item ? item.draft : item.message;
 };
-
-// The minute the list reads its dividers and times by, so a day ends at midnight while it is open.
-const minute = 60_000;
-const subscribeMinute = (notify: () => void) => {
-  const timer = setInterval(notify, minute);
-  return () => {
-    clearInterval(timer);
-  };
-};
-const useNow = () =>
-  useSyncExternalStore(
-    subscribeMinute,
-    () => Math.floor(Date.now() / minute) * minute,
-  );
 
 // Names the mailbox a notice is about when the Inbox holds more than one.
 const about = (t: Translate, address: string | undefined, text: string) =>

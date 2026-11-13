@@ -35,12 +35,15 @@ import {
   drafts as defaultDrafts,
   mailTemplates as defaultMailTemplates,
   outbox as defaultOutbox,
+  sendReminders as defaultSendReminders,
 } from './registration.ts';
 
 export type MailTemplates = typeof defaultMailTemplates;
+export type SendReminders = typeof defaultSendReminders;
 
 const DraftsContext = createContext<Drafts>(defaultDrafts);
 const MailTemplatesContext = createContext(defaultMailTemplates);
+const SendRemindersContext = createContext(defaultSendReminders);
 const OutboxContext = createContext<Outbox>(defaultOutbox);
 // The Mail Profile whose mail the hooks below read.
 const ProfileContext = createContext(defaultProfile);
@@ -84,12 +87,14 @@ export function InboxProvider({
   mailboxes = defaultMailboxes,
   drafts = defaultDrafts,
   mailTemplates = defaultMailTemplates,
+  sendReminders = defaultSendReminders,
   outbox = defaultOutbox,
 }: {
   readonly children: ReactNode;
   readonly mailboxes?: MailboxList;
   readonly drafts?: Drafts;
   readonly mailTemplates?: MailTemplates | undefined;
+  readonly sendReminders?: SendReminders | undefined;
   // Sends the Drafts admitted to `drafts`' Outbox.
   readonly outbox?: Outbox;
 }) {
@@ -134,11 +139,13 @@ export function InboxProvider({
     <MailboxesContext value={mailboxes}>
       <DraftsContext value={drafts}>
         <MailTemplatesContext value={mailTemplates}>
-          <OutboxContext value={outbox}>
-            <ComposerNavigationContext value={navigation}>
-              {children}
-            </ComposerNavigationContext>
-          </OutboxContext>
+          <SendRemindersContext value={sendReminders}>
+            <OutboxContext value={outbox}>
+              <ComposerNavigationContext value={navigation}>
+                {children}
+              </ComposerNavigationContext>
+            </OutboxContext>
+          </SendRemindersContext>
         </MailTemplatesContext>
       </DraftsContext>
     </MailboxesContext>
@@ -147,6 +154,10 @@ export function InboxProvider({
 
 export function useMailTemplates() {
   return use(MailTemplatesContext);
+}
+
+export function useSendReminders() {
+  return use(SendRemindersContext);
 }
 
 export function useOutbox() {

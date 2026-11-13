@@ -6,7 +6,11 @@ import type { RegistrationSnapshot } from '@private-email/mail-core/registration
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createOutbox } from '@private-email/mail-core/outbox';
-import { mailboxesOf } from '@private-email/mail-core/registration';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import { createSendReminders } from '@private-email/mail-core/send-reminders';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync as createServer,
@@ -34,6 +38,7 @@ import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
 import { chooseMenuItem } from './native-menu.ts';
+import { remindFromSendMenu } from './send-menu.tsx';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const account = 'synthetic-product-account';
@@ -69,7 +74,19 @@ function device() {
     registration,
     claims: storage.delivery,
   });
-  return { gmail, drafts, mailboxes, outbox, storage };
+  // Send Reminder storage on this device, which always accepts a write.
+  const saved = { revision: 0, document: null as string | null };
+  const reminders = createSendReminders(
+    {
+      openSendReminders: () => Promise.resolve({ owner: account, ...saved }),
+      commitSendReminders: (owner, revision, document) => {
+        Object.assign(saved, { revision: revision + 1, document });
+        return Promise.resolve({ owner, revision: saved.revision });
+      },
+    },
+    registration,
+  );
+  return { gmail, drafts, mailboxes, outbox, storage, reminders };
 }
 
 // `listed` is the account's Mailbox Connections, as after one is removed.
@@ -98,6 +115,7 @@ function App({
         <InboxProvider
           drafts={sender.drafts}
           mailboxes={sender.mailboxes}
+          sendReminders={sender.reminders}
           outbox={sender.outbox}>
           <Inbox
             composing={composing}
@@ -266,6 +284,120 @@ describe('sending a Draft', () => {
       expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
       expect(sender.gmail.sends[0]?.raw).toContain('To: sam@example.invalid');
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('removes the reminder of a Draft it sends', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(/^Reminder for tomorrow/u);
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toHaveLength(1);
+
+      await press('Send');
+      await waitFor(async () => {
+        await expect(
+          sender.reminders.reminders(defaultProfile),
+        ).resolves.toStrictEqual([]);
+      });
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('keeps the reminder of a Draft another window saved when it sends its own conflicting copy', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(/^Reminder for tomorrow/u);
+      const reminded = await sender.reminders.reminders(defaultProfile);
+      expect(reminded).toHaveLength(1);
+      const [original] = draftsOf(sender.drafts.getSnapshot());
+      ok(original);
+
+      // Another window saves the Draft, then this stale composer edits and sends its copy.
+      await act(async () => {
+        await sender.drafts.update(
+          { ...original, subject: 'Keys from the other window' },
+          original,
+        );
+      });
+      await fireEvent.changeText(
+        screen.getByLabelText('Subject'),
+        'Keys, sent',
+      );
+      await press('Send');
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Message body')).toBeNull();
+      });
+      expect(draftsOf(sender.drafts.getSnapshot())).toMatchObject([
+        { id: original.id, subject: 'Keys from the other window' },
+      ]);
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toStrictEqual(reminded);
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('removes the sent Draft’s reminder when an edit made meanwhile moves the editor to a conflicting copy', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await remindFromSendMenu();
+      await chooseMenuItem('Tomorrow Morning');
+      await screen.findByText(/^Reminder for tomorrow/u);
+      await act(async () => {
+        await sender.drafts.save();
+      });
+      const [original] = draftsOf(sender.drafts.getSnapshot());
+      ok(original);
+      // Storage holds the admission while another window edits the Draft, which keeps the edit as
+      // a conflicting copy.
+      sender.storage.hold();
+      await act(async () => {
+        void fireEvent.press(screen.getByRole('button', { name: 'Send' }));
+      });
+      await act(async () => {
+        void sender.drafts.update(
+          { ...original, subject: 'Keys from the other window' },
+          original,
+        );
+        sender.storage.release();
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Message body')).toBeNull();
+      });
+      expect(draftsOf(sender.drafts.getSnapshot())).toMatchObject([
+        { subject: 'Keys from the other window', conflict: true },
+      ]);
+      await expect(
+        sender.reminders.reminders(defaultProfile),
+      ).resolves.toStrictEqual([]);
     } finally {
       sender.outbox.dispose();
     }
