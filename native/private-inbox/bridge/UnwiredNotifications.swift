@@ -385,7 +385,7 @@ extension UnwiredRegistration {
     }
   }
 
-  private static func holds(
+  @MainActor private static func holds(
     _ store: RegistrationStore, account: String, connection: String, epoch: String
   ) -> Bool {
     guard (try? store.mailboxAccount(connection).productAccountId) == account,
