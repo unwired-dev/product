@@ -9,7 +9,7 @@ import { radius, spacing } from '@private-email/mail-core/theme';
 import { useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Button, ContextMenu, showMenu } from './design.tsx';
+import { Button, ContextMenu, showMenu, useNow } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -23,13 +23,12 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.s },
 });
 
-// `at` in `timeZone`, as `options` name it in the person's language.
-const formatIn = (
+// `at` as `options`, with their time zone, name it in the person's language.
+const formatAt = (
   locale: string,
-  timeZone: string,
   at: number,
   options: Intl.DateTimeFormatOptions,
-) => new Intl.DateTimeFormat(locale, { ...options, timeZone }).format(at);
+) => new Intl.DateTimeFormat(locale, options).format(at);
 
 // Opens the reminder menu from an anchor: its times from now in the Mac's time zone, then the note
 // that a reminder never sends. Choosing a time calls `onRemind`.
@@ -37,9 +36,10 @@ function useReminderMenu(onRemind: (dueAt: number, timeZone: string) => void) {
   const { t, settings } = useLocalization();
   const colors = usePalette();
   return (anchor: View | null) => {
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
     const time = (at: number) =>
-      formatIn(settings.locale, timeZone, at, {
+      formatAt(settings.locale, at, {
+        timeZone,
         hour: 'numeric',
         minute: '2-digit',
       });
@@ -55,7 +55,8 @@ function useReminderMenu(onRemind: (dueAt: number, timeZone: string) => void) {
                 choice === 'thisEvening'
                   ? t('drafts.reminder.todayAt', { time: time(dueAt) })
                   : t('drafts.reminder.dayAt', {
-                      day: formatIn(settings.locale, timeZone, dueAt, {
+                      day: formatAt(settings.locale, dueAt, {
+                        timeZone,
                         weekday: 'short',
                       }),
                       time: time(dueAt),
@@ -156,16 +157,19 @@ export function ReminderBanner({
   const openReminders = useReminderMenu(onRemind);
   const { dueAt, timeZone } = reminder;
   const when = {
-    time: formatIn(settings.locale, timeZone, dueAt, {
+    time: formatAt(settings.locale, dueAt, {
+      timeZone,
       hour: '2-digit',
       minute: '2-digit',
     }),
     city: reminderCity(timeZone),
   };
-  const day = reminderDay(reminder, Date.now());
+  const now = useNow();
+  const day = reminderDay(reminder, now);
   let message = t('drafts.reminder.on', {
     ...when,
-    date: formatIn(settings.locale, timeZone, dueAt, {
+    date: formatAt(settings.locale, dueAt, {
+      timeZone,
       weekday: 'short',
       day: 'numeric',
       month: 'short',

@@ -37,7 +37,8 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
-import { chooseInSendMenu, chooseMenuItem } from './native-menu.ts';
+import { chooseMenuItem } from './native-menu.ts';
+import { remindFromSendMenu } from './send-menu.tsx';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const account = 'synthetic-product-account';
@@ -297,7 +298,7 @@ describe('sending a Draft', () => {
       });
       await render(<App sender={sender} />);
       await compose('Keys');
-      await chooseInSendMenu('Remind Me to Send…');
+      await remindFromSendMenu();
       await chooseMenuItem('Tomorrow Morning');
       await screen.findByText(/^Reminder for tomorrow/u);
       await expect(

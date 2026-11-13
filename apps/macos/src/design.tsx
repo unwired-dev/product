@@ -15,7 +15,14 @@ import type {
 
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -272,6 +279,20 @@ interface NativeMenu extends TurboModule {
     destructiveColor: ReturnType<typeof processColor>,
   ) => Promise<unknown>;
 }
+
+// The current minute, so what a view reads by the clock, such as a day, ends while it is open.
+const minute = 60_000;
+const subscribeMinute = (notify: () => void) => {
+  const timer = setInterval(notify, minute);
+  return () => {
+    clearInterval(timer);
+  };
+};
+export const useNow = () =>
+  useSyncExternalStore(
+    subscribeMinute,
+    () => Math.floor(Date.now() / minute) * minute,
+  );
 
 // Drops an AppKit menu of `sections` from `anchor`, as a pull-down button's does, and runs the
 // chosen item.

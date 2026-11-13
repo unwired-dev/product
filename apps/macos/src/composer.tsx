@@ -36,7 +36,7 @@ import type {
   NativeTranslation,
   TranslationLanguage,
 } from '@private-email/mail-core/translation';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import type {
   KeyEvent,
   StyleProp,
@@ -2145,6 +2145,42 @@ function useRecoveryJournal(
   return [close, write] as const;
 }
 
+// The Draft's Send Reminder banner, and the reminder change that last failed.
+function DraftReminder({
+  reminder,
+  failed,
+  ...banner
+}: Omit<ComponentProps<typeof ReminderBanner>, 'reminder'> & {
+  readonly reminder: SendReminder | undefined;
+  readonly failed: 'set' | 'remove' | undefined;
+}) {
+  const { t } = useLocalization();
+  return (
+    <>
+      {failed === undefined ? null : (
+        <View style={styles.alerts}>
+          <Alert
+            outcome
+            message={t(
+              failed === 'set'
+                ? 'drafts.reminder.setFailed'
+                : 'drafts.reminder.removeFailed',
+            )}
+          />
+        </View>
+      )}
+      {reminder === undefined ? null : (
+        <View style={styles.alerts}>
+          <ReminderBanner
+            reminder={reminder}
+            {...banner}
+          />
+        </View>
+      )}
+    </>
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -2867,12 +2903,12 @@ function Editor({
     }
     setReminderFailed(undefined);
     lifetime.current.finishing += 1;
-    let stored: SendReminder | undefined = undefined;
+    let set: SendReminder | undefined = undefined;
     try {
       if (await storeAndSave()) {
         const next = { draft: authored.current.id, dueAt, timeZone };
         if (await sendReminders.remind(draftProfile, next)) {
-          stored = { ...next, profile: draftProfile };
+          set = { ...next, profile: draftProfile };
         }
       }
     } catch {
@@ -2880,10 +2916,10 @@ function Editor({
     }
     finishOperation();
     if (lifetime.current.mounted) {
-      if (stored === undefined) {
+      if (set === undefined) {
         setReminderFailed('set');
       } else {
-        setReminder(stored);
+        setReminder(set);
       }
     }
   };
@@ -3298,32 +3334,17 @@ function Editor({
             setClosing(undefined);
           }}
         />
-        {reminderFailed === undefined ? null : (
-          <View style={styles.alerts}>
-            <Alert
-              outcome
-              message={t(
-                reminderFailed === 'set'
-                  ? 'drafts.reminder.setFailed'
-                  : 'drafts.reminder.removeFailed',
-              )}
-            />
-          </View>
-        )}
-        {reminder === undefined ? null : (
-          <View style={styles.alerts}>
-            <ReminderBanner
-              reminder={reminder}
-              disabled={paused}
-              onRemind={(dueAt, timeZone) => {
-                void remind(dueAt, timeZone);
-              }}
-              onRemove={() => {
-                void removeReminder();
-              }}
-            />
-          </View>
-        )}
+        <DraftReminder
+          reminder={reminder}
+          failed={reminderFailed}
+          disabled={paused}
+          onRemind={(dueAt, timeZone) => {
+            void remind(dueAt, timeZone);
+          }}
+          onRemove={() => {
+            void removeReminder();
+          }}
+        />
         {captured === undefined ? null : (
           <View style={styles.review}>
             <CapturedAssistance

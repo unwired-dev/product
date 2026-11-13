@@ -73,7 +73,6 @@ import { TranslationContext } from '../src/translation.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
 import { appleContacts } from './native-contacts.ts';
 import {
-  chooseInSendMenu,
   chooseMenuItem,
   chooseSubmenuItem,
   dismissMenu,
@@ -81,6 +80,7 @@ import {
   menuSections,
   submenuItems,
 } from './native-menu.ts';
+import { remindFromSendMenu } from './send-menu.tsx';
 
 // The shared CI runner takes seconds to warm up the first composer journey.
 jest.setTimeout(30_000);
@@ -2668,8 +2668,12 @@ describe('composing Drafts', () => {
 
   it('sets, changes and removes a Draft’s Send Reminder from the Send menu without sending it', async () => {
     expect.hasAssertions();
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
     const times = reminderTimes(Date.now(), timeZone);
+    const timeTitles = {
+      thisEvening: 'This Evening',
+      tomorrowMorning: 'Tomorrow Morning',
+    };
     const tomorrow = times.at(-1);
     ok(tomorrow);
     const composed = await composeWithTemplates((draft) => ({
@@ -2684,12 +2688,10 @@ describe('composing Drafts', () => {
     );
 
     // Remind Me to Send… opens the reminder menu from Send: its times, then the note.
-    await chooseInSendMenu('Remind Me to Send…');
+    await remindFromSendMenu();
     expect(menuSections()).toMatchObject([
       {
-        items: times.map(({ time }) => ({
-          title: time === 'thisEvening' ? 'This Evening' : 'Tomorrow Morning',
-        })),
+        items: times.map(({ time }) => ({ title: timeTitles[time] })),
       },
       {
         items: [
@@ -2709,7 +2711,7 @@ describe('composing Drafts', () => {
 
     // Choosing a time saves the Draft and stores its reminder; the composer stays open.
     reminders.state.refusing = false;
-    await chooseInSendMenu('Remind Me to Send…');
+    await remindFromSendMenu();
     await chooseMenuItem('Tomorrow Morning');
     await screen.findByText(banner);
     expect(
@@ -2745,7 +2747,7 @@ describe('composing Drafts', () => {
     await expect(stored()).resolves.toStrictEqual([]);
 
     // Discarding the Draft removes the reminder set on it.
-    await chooseInSendMenu('Remind Me to Send…');
+    await remindFromSendMenu();
     await chooseMenuItem('Tomorrow Morning');
     await screen.findByText(banner);
     await press('Compose actions');
