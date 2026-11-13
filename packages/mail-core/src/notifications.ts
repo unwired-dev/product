@@ -857,12 +857,13 @@ async function act(
 ) {
   const { account, connection, epoch, message } = chosen;
   const named = { account, connection, epoch, message };
+  // An action can launch the application before its Drafts and Outbox open; the connection is
+  // checked once they have.
+  await replies.drafts.load();
   const target = openedTarget(snapshot(), named);
   if (target === undefined) {
     return;
   }
-  // An action can launch the application before its Drafts and Outbox open.
-  await replies.drafts.load();
   if (chosen.action === 'undo') {
     await undoReply(native, replies.outbox, {
       sending,

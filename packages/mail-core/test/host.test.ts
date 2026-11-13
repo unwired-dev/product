@@ -716,6 +716,28 @@ describe('the host assembly', () => {
     expect(opened).toStrictEqual([{ draft, profile: defaultProfile }]);
   });
 
+  it('archives nothing when the connection is recreated while a notification action opens the Drafts', async () => {
+    expect.hasAssertions();
+    const { host, gmail, answered, named, notificationActions } =
+      await replyingHost();
+    const { load } = host.drafts;
+    host.drafts.load = async () => {
+      host.drafts.load = load;
+      await host.registration.removeMailbox(named.connection);
+      await host.registration.addMailbox();
+      await host.gmailMailboxes.load();
+      return load();
+    };
+
+    await notificationActions.send({
+      id: 'archive',
+      ...named,
+      message: answered,
+      action: 'archive',
+    });
+    expect(gmail.labelsOf(answered)).toContain('INBOX');
+  });
+
   it('sends and saves nothing from a notification of a recreated connection or another account', async () => {
     expect.hasAssertions();
     const { host, answered, named, drafts, replied, notificationActions } =

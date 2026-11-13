@@ -127,9 +127,11 @@ the time the Outbox admitted the reply. Undo returns the reply to Drafts only wh
 still waits out the window; one already handed to its provider stays in the Outbox, which
 warns before editing a message whose delivery is uncertain, and the notification is
 withdrawn. Undo and Open Draft need no open Inbox, and wait for this launch's Drafts to
-open. An Undo that cannot be saved posts the notification again with the time left. A
+open, and check the connection after that. An Undo that cannot be saved posts the notification again with the time left. A
 connection that changes while the reply is prepared sends nothing, and one that changes
-while the Outbox admits it gets the reply back in Drafts. With previews off the notification has no title, as a New Mail Notification. When
+while the Outbox admits it gets the reply back in Drafts. Once admitted, the reply follows
+the Outbox's rule for every Send: it names its connection by id, so removing the last
+connection mid-admission and adding it back can still send it (#2128). With previews off the notification has no title, as a New Mail Notification. When
 the message is no longer listed, or its body cannot be read, or the Outbox refuses
 the Send, the text stays in Drafts and **Couldn’t reply** offers **Open Draft**; when
 storage refuses the text it says so instead, and the Draft's composer reports the failed
@@ -188,7 +190,8 @@ retired readers and Reply. `host.test.ts` also covers notification Archive and M
 as Read, for Gmail and IMAP, and a typed Mac reply: sent with only its text, Undo,
 an Undo that cannot be saved, an Undo after delivery became uncertain, withdrawal after
 the window, text storage refused, a message no longer listed with Open Draft, Open Draft
-before the Drafts opened, and a recreated connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
+before the Drafts opened, an Archive whose connection is recreated while the Drafts open,
+and a recreated connection or another account; `commands.test.ts` covers Reply waiting for its reader. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
 appearance and grouping, and each action from a locked device and with the app not
