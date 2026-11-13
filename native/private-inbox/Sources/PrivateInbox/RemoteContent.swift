@@ -56,7 +56,9 @@ struct RemoteContentFetcher: Sendable {
     throw RemoteContentError.refused
   }
 
-  func destination(_ url: URL) async throws -> Destination {
+  func destination(
+    _ url: URL, request: (_ target: String, _ authority: String) -> String = imageRequest
+  ) async throws -> Destination {
     guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
       components.scheme?.lowercased() == "https", components.user == nil,
       components.password == nil, let rawHost = components.host, !rawHost.isEmpty,
@@ -86,11 +88,14 @@ struct RemoteContentFetcher: Sendable {
       throw RemoteContentError.refused
     }
     let authority = (host.contains(":") ? "[\(host)]" : host) + (port == 443 ? "" : ":\(port)")
-    let request =
-      "GET \(target) HTTP/1.1\r\nHost: \(authority)\r\n"
+    return Destination(
+      address: address, host: host, port: UInt16(port), request: Data(request(target, authority).utf8))
+  }
+
+  static func imageRequest(target: String, authority: String) -> String {
+    "GET \(target) HTTP/1.1\r\nHost: \(authority)\r\n"
       + "Accept: image/png,image/jpeg,image/gif,image/webp\r\nAccept-Encoding: identity\r\n"
       + "Connection: close\r\n\r\n"
-    return Destination(address: address, host: host, port: UInt16(port), request: Data(request.utf8))
   }
 
   struct Response {
@@ -175,6 +180,8 @@ enum RemoteContentError: Error {
   case refused
   // The server could not be reached or answered unreadably.
   case unavailable
+  // The request was sent but no complete answer came back, so it may have reached the server.
+  case unanswered
 }
 
 // One presentation's transfer budget, shared by every request and redirect. Reserve before a
@@ -376,7 +383,7 @@ struct RemoteTransport: Sendable {
       }
       group.addTask {
         try await Task.sleep(for: min(timeout, budget?.timeLeft ?? timeout))
-        throw RemoteContentError.unavailable
+        throw queue.sync { exchange.sent } ? RemoteContentError.unanswered : .unavailable
       }
       defer {
         group.cancelAll()
@@ -395,6 +402,8 @@ struct RemoteTransport: Sendable {
     private let limit = RemoteContentFetcher.byteLimit + RemoteContentFetcher.headerLimit + 64 * 1024
     private var received = Data()
     private var continuation: CheckedContinuation<Data, any Error>?
+    // Whether request bytes may have left; read on the exchange's queue.
+    private(set) var sent = false
 
     init(connection: NWConnection, request: Data, budget: RemoteContentBudget?) {
       self.connection = connection
@@ -408,6 +417,7 @@ struct RemoteTransport: Sendable {
       connection.stateUpdateHandler = { [self] state in
         switch state {
         case .ready:
+          sent = true
           connection.send(
             content: request,
             completion: .contentProcessed { [self] error in
@@ -450,7 +460,11 @@ struct RemoteTransport: Sendable {
       guard let continuation else { return }
       self.continuation = nil
       connection.cancel()
-      continuation.resume(with: result)
+      // Once the request may have left, failing to reach the server means no answer came back.
+      continuation.resume(
+        with: result.mapError {
+          sent && $0 as? RemoteContentError == .unavailable ? RemoteContentError.unanswered : $0
+        })
     }
   }
 }

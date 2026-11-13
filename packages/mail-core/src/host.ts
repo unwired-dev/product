@@ -21,6 +21,7 @@ import type { NativeNotifications } from './notifications.ts';
 import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativeRegistrationVault } from './registration-vault.ts';
 import type { NativeRemoteContent } from './remote-content.ts';
+import type { NativeUnsubscribe } from './unsubscribe.ts';
 
 import { createBlockedSenders } from './blocked-senders.ts';
 import { rejectionCode } from './diagnostics.ts';
@@ -74,6 +75,7 @@ export interface NativeHostModule
     NativeDeliveryClaim,
     NativeWakes,
     NativeRemoteContent,
+    NativeUnsubscribe,
     NativeNotifications {
   // Cancels a Gmail or Microsoft Graph read by its request name.
   readonly cancelGmailRequest: (request: string) => void;

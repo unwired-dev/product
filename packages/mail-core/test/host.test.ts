@@ -127,6 +127,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     setRemoteContentSettings: () => Promise.resolve(null),
     clearRemoteContent: () => Promise.resolve(null),
+    requestUnsubscribe: () => Promise.resolve({ outcome: 'failed' }),
     openMailTemplates: () =>
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
     commitMailTemplates: (owner, expectedRevision) =>

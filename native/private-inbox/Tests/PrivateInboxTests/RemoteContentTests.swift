@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 import Security
 import Testing
 
@@ -234,6 +235,101 @@ extension PrivateInboxTests {
     await #expect(throws: RemoteContentError.unavailable) { _ = try await expired.fetch(target) }
   }
 
+  // A one-click unsubscribe sends only the RFC 8058 POST, repeats it only for 307 and 308 after
+  // checking the new destination, and reports uncertain whenever the request may have arrived.
+  @Test func oneClickUnsubscribeReportsWhatTheServerAnswered() async throws {
+    let responses: [String: String] = [
+      "/ok": "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+      "/moved": "HTTP/1.1 307 Temporary\r\nLocation: /ok\r\n\r\n",
+      "/private": "HTTP/1.1 308 Permanent\r\nLocation: https://10.0.0.1/ok\r\n\r\n",
+      "/loop": "HTTP/1.1 307 Temporary\r\nLocation: /loop\r\n\r\n",
+      "/page": "HTTP/1.1 303 See Other\r\nLocation: /done\r\n\r\n",
+      "/missing": "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
+      "/garbled": "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc",
+      "/hints":
+        "HTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\n"
+        + "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+      "/interim": "HTTP/1.1 100 Continue\r\n\r\n",
+    ]
+    let requests = OSAllocatedUnfairLock(initialState: [String]())
+    let unsubscribe = OneClickUnsubscribe(
+      fetcher: RemoteContentFetcher(
+        resolve: { _ in [IPv4Address("93.184.216.34")!] },
+        exchange: { destination in
+          let request = String(decoding: destination.request, as: UTF8.self)
+          requests.withLock { $0.append(request) }
+          let path = String(request.split(separator: " ")[1].prefix { $0 != "?" })
+          switch path {
+          case "/lost": throw RemoteContentError.unanswered
+          case "/down": throw RemoteContentError.unavailable
+          default: return Data((responses[path] ?? "HTTP/1.1 500 Error\r\n\r\n").utf8)
+          }
+        }))
+    func send(_ url: String) async throws -> OneClickUnsubscribe.Outcome {
+      await unsubscribe.send(try #require(URL(string: url)))
+    }
+    #expect(try await send("https://lists.example/ok?u=1") == .sent)
+    let request = try #require(requests.withLock { $0.last })
+    #expect(
+      request
+        == "POST /ok?u=1 HTTP/1.1\r\nHost: lists.example\r\n"
+        + "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: 26\r\n"
+        + "Connection: close\r\n\r\nList-Unsubscribe=One-Click")
+    requests.withLock { $0.removeAll() }
+    #expect(try await send("https://lists.example/moved") == .sent)
+    #expect(requests.withLock { $0.map { $0.prefix(10) } } == ["POST /move", "POST /ok H"])
+    for (path, outcome) in [
+      ("/private", OneClickUnsubscribe.Outcome.failed), ("/loop", .failed), ("/missing", .failed),
+      ("/down", .failed), ("/page", .uncertain), ("/lost", .uncertain), ("/garbled", .uncertain),
+      ("/hints", .sent), ("/interim", .uncertain),
+    ] {
+      #expect(try await send("https://lists.example\(path)") == outcome, "\(path)")
+    }
+    requests.withLock { $0.removeAll() }
+    for refused in ["http://lists.example/ok", "https://user@lists.example/ok", "https://127.0.0.1/ok"] {
+      #expect(try await send(refused) == .failed, "\(refused)")
+    }
+    let expired = OneClickUnsubscribe(
+      fetcher: RemoteContentFetcher(
+        resolve: { _ in [IPv4Address("93.184.216.34")!] },
+        exchange: { _ in Data("HTTP/1.1 200 OK\r\n\r\n".utf8) },
+        budget: RemoteContentBudget(timeout: .zero)))
+    #expect(await expired.send(try #require(URL(string: "https://lists.example/ok"))) == .failed)
+    #expect(requests.withLock { $0.isEmpty })
+  }
+
+  // Over real TLS, the POST reaches the pinned address; a server that takes the request and never
+  // answers leaves the outcome uncertain.
+  @Test func oneClickUnsubscribeOverTheTransport() async throws {
+    let anchor = try #require(
+      SecCertificateCreateWithData(nil, Data(base64Encoded: Self.fixtureCertificate)! as CFData))
+    func unsubscribe(_ server: ImageServer) async throws -> OneClickUnsubscribe.Outcome {
+      let port = try await server.start()
+      // As in production, the request's budget sets the deadline the transport waits for.
+      let budget = RemoteContentBudget(bytes: 1024 * 1024, timeout: .seconds(2))
+      return await OneClickUnsubscribe(
+        fetcher: RemoteContentFetcher(
+          resolve: { _ in [IPv4Address("127.0.0.1")!] }, admission: { _ in .admitted },
+          exchange: {
+            try await RemoteTransport(
+              anchors: [anchor], verifyDate: Date(timeIntervalSince1970: 1_780_000_000),
+              budget: budget
+            ).exchange($0)
+          }, budget: budget)
+      ).send(try #require(URL(string: "https://images.test:\(port)/unsubscribe")))
+    }
+    let server = try ImageServer()
+    defer { server.stop() }
+    #expect(try await unsubscribe(server) == .sent)
+    let request = try #require(server.requests.first)
+    #expect(request.hasPrefix("POST /unsubscribe HTTP/1.1\r\n"))
+    #expect(request.hasSuffix("\r\n\r\nList-Unsubscribe=One-Click"))
+    let silent = try ImageServer(answers: false)
+    defer { silent.stop() }
+    #expect(try await unsubscribe(silent) == .uncertain)
+    #expect(silent.requests.count == 1)
+  }
+
   // Entries are sealed to their account, mailbox, message and destination; least recently shown
   // entries go first, displayed resources stay, and clearing or removing the mailbox deletes them.
   @Test @MainActor func authorizedRemoteContentCacheIsScopedAndBounded() async throws {
@@ -372,16 +468,18 @@ extension PrivateInboxTests {
     "MIIERAIBAzCCA/IGCSqGSIb3DQEHAaCCA+MEggPfMIID2zCCAooGCSqGSIb3DQEHBqCCAnswggJ3AgEAMIICcAYJKoZIhvcNAQcBMF8GCSqGSIb3DQEFDTBSMDEGCSqGSIb3DQEFDDAkBBAw0MVajieRY6Y4zbQogyr5AgIIADAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQAKmWWa+vrP47iCYWn4u+JoCCAgABUkd9bcsnid8c84axP2zKftOWO4hppXdi3wdE9TvFxmEvOofB9jTEG2tsF3yd8/vyDtoJjCnLEC+fa5dq2IkfFunCfwyBb3Of4AnoGhIUgKUgfCd+sH45qmXV8bfqOcP3DMugo0z3YCwVY8ocHU/Rz+PwRYyxgZTy4bFPdP8+M9r74X3w2ESVeMG6+Y+Am0HIVTKDv3LIuuc3lciwQKHSS/67bVD1ct6UnRYUpfFoQsZqfEnzM/ggeAClpdHBAg/8OMYqUt5/Gzjfqo28551OiU6fSK2wdT0fseVr2ZXHuG9ewbDoG4Bq6Yk2LUyTdmXo3qUjmXBMfnnNnspqGrjT5FHe49KjUQDSjcvWXfJaLza4V6cl+lXoQ9cinYjSUqywcqvZUYjKNYoKnawWCS7YbkFlulgfc0Dr08jENm5IQSEh8dBEink9s3Rj4qvyUZyAiiCtY844lgMa6GudWsn8Ybd6yHPmXHwQvXcUA/WcfyXM3vOTSp1aJZI24EIuqqPu+vliO1jM3X/C1JCu54knaJZDO35ey2/SNE7YQ9bwK1r1oKR0qT0qEk9Eyoy0+Reb+Q0WTmFXL40b7RxHoYzT6P5e5J2ZOqdDFEepv06AMrlcSJ5OkyZJsDkRsdRWeAZiHPwwWZ66FijFjrcMIUCi4tOtj5ZvL/pK5nCGf3g8zTCCAUkGCSqGSIb3DQEHAaCCAToEggE2MIIBMjCCAS4GCyqGSIb3DQEMCgECoIH3MIH0MF8GCSqGSIb3DQEFDTBSMDEGCSqGSIb3DQEFDDAkBBDq0AKCNtxEWNryb7u7LBk1AgIIADAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQBKgQQlI8g9vS1f3lnWWN3hQsICwSBkE0iqfuGr80IBxgc9wQE+r+ALev8FsTYhgazUAGVgkVkaFe7XewofE08cu4d6BSJAqkh2Uzv3QFphs6Y4RD7ravqVk7MbQbEt+zf1AOl79ByA7B6glGelJXlfbFAdMn6p9M473DmeM4lvn3orwvjXOj3Zy4Ued6NcrmBV0wpmxQCmvoGnpS2peA0RgkxjslEbTElMCMGCSqGSIb3DQEJFTEWBBRhPZcxWYVtRTgTJgt3vDT5MDxuGDBJMDEwDQYJYIZIAWUDBAIBBQAEIC8sgSb9k4IvniZ214Qdy3MeIK4np8w6IcwOOQteLCzVBBBDTfkgkUFfyY8zG1yw7hEXAgIIAA=="
 }
 
-// A loopback HTTPS server presenting the fixture identity, answering every request with one image
-// and recording the requests it received.
+// A loopback HTTPS server presenting the fixture identity, answering every request with one image,
+// or never when it does not answer, and recording the requests it received.
 private final class ImageServer: @unchecked Sendable {
   private let listener: NWListener
+  private let answers: Bool
   private let queue = DispatchQueue(label: "dev.unwired.remote-content.tests")
   private let lock = NSLock()
   private var received: [String] = []
   var requests: [String] { lock.withLock { received } }
 
-  init() throws {
+  init(answers: Bool = true) throws {
+    self.answers = answers
     var items: CFArray?
     let status = SecPKCS12Import(
       Data(base64Encoded: PrivateInboxTests.fixtureIdentity)! as CFData,
@@ -422,8 +520,16 @@ private final class ImageServer: @unchecked Sendable {
     connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) {
       [self] data, _, complete, error in
       let next = buffer + (data ?? Data())
-      if next.range(of: Data("\r\n\r\n".utf8)) != nil {
+      // A request is complete once its headers and any Content-Length body have arrived.
+      let head = next.range(of: Data("\r\n\r\n".utf8))
+      let length = head.flatMap { head in
+        String(decoding: next[..<head.lowerBound], as: UTF8.self).split(separator: "\r\n")
+          .first { $0.lowercased().hasPrefix("content-length:") }
+          .flatMap { Int($0.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) }
+      } ?? 0
+      if let head, next.count >= head.upperBound + length {
         lock.withLock { received.append(String(decoding: next, as: UTF8.self)) }
+        guard answers else { return }
         let reply = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 7\r\n\r\nPNGDATA"
         connection.send(
           content: Data(reply.utf8), isComplete: true,
