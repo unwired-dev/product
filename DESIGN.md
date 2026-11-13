@@ -759,8 +759,8 @@ app follows under the issue named:
   iPhone and iPad, Remind Me to Send… waits for #658.
 - **Reminder menu:** Choose Date and Time… waits for a frame of what it opens
   (#658). The Mac menu shows each time on the item's second line and the note
-  as a dimmed item, as AppKit draws them, where M3 draws the time trailing and
-  the note in small type. Until #658 schedules notifications, no device reminds
+  as a dimmed item on one line, as AppKit draws them, where M3 draws the time
+  trailing and the note wrapped in small type. Until #658 schedules notifications, no device reminds
   the person yet.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
