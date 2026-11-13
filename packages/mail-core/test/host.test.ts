@@ -14,7 +14,6 @@ import {
   mailboxesOf,
   profilesOf,
 } from '../src/registration.ts';
-import { typedBody } from '../src/responses.ts';
 import {
   createSyntheticDrafts,
   createSyntheticProductSync,
@@ -473,7 +472,7 @@ describe('the host assembly', () => {
     const { host, answered, named, reply, replied, sweeps } =
       await replyingHost();
 
-    await reply('reply', answered, 'Thursday works.');
+    await reply('reply', answered, 'Thursday works.\nSee you then.');
     // Sending notifications an earlier launch left are withdrawn before any action.
     expect(sweeps.count).toBe(1);
     const [queued] = host.outbox.getSnapshot();
@@ -484,13 +483,16 @@ describe('the host assembly', () => {
       subject: 'Re: Studio review',
       response: { kind: 'reply', inReplyTo: '<review@example.invalid>' },
     });
-    // No quote and no signature.
+    // No quote and no signature: a paragraph per typed line.
     expect({
       quoted: queued?.draft.quoted,
-      body: JSON.stringify(queued?.draft.body),
+      body: queued?.draft.body,
     }).toStrictEqual({
       quoted: undefined,
-      body: JSON.stringify(typedBody('Thursday works.')),
+      body: [
+        { kind: 'paragraph', spans: [{ text: 'Thursday works.' }] },
+        { kind: 'paragraph', spans: [{ text: 'See you then.' }] },
+      ],
     });
     const draft = required(queued).id;
     expect(replied).toStrictEqual([
@@ -694,6 +696,54 @@ describe('the host assembly', () => {
     });
   });
 
+  it('says a typed reply was not kept when its Draft cannot be created', async () => {
+    expect.hasAssertions();
+    const { host, answered, named, reply, replied } = await replyingHost();
+    host.drafts.create = async () => undefined;
+
+    await reply('reply', answered, 'Thursday works.');
+    expect({ outbox: host.outbox.getSnapshot(), replied }).toMatchObject({
+      outbox: [],
+      replied: [
+        {
+          id: `${named.connection}.reply.${answered}`,
+          draft: '',
+          kind: 'failed',
+          title: 'Couldn’t reply',
+          body: 'Your text couldn’t be saved. Open the message to reply again.',
+        },
+      ],
+    });
+  });
+
+  it('keeps another editor’s change to the new Draft and sends nothing', async () => {
+    expect.hasAssertions();
+    const { host, answered, reply, drafts, replied } = await replyingHost();
+    // Another editor completes the Draft while its creation saves.
+    const { create } = host.drafts;
+    host.drafts.create = async (...args) => {
+      const id = required(await create(...args));
+      await host.drafts.fill(id, (each) => ({ ...each, subject: 'Mine' }), []);
+      return id;
+    };
+
+    await reply('reply', answered, 'Thursday works.');
+    expect({
+      outbox: host.outbox.getSnapshot(),
+      drafts: drafts().map(({ subject, body }) => ({ subject, body })),
+      replied,
+    }).toMatchObject({
+      outbox: [],
+      drafts: [{ subject: 'Mine', body: [{ kind: 'paragraph', spans: [] }] }],
+      replied: [
+        {
+          kind: 'saved',
+          body: 'Your text couldn’t be saved. Open the Draft to try again.',
+        },
+      ],
+    });
+  });
+
   it('keeps a reply to a message no longer listed in Drafts, and opens it from Couldn’t reply', async () => {
     expect.hasAssertions();
     const {
@@ -713,10 +763,10 @@ describe('the host assembly', () => {
     await reply('gone', gone, 'Is this still on?');
     const saved = required(drafts()[0]);
     expect({
-      body: JSON.stringify(saved.body),
+      body: saved.body,
       outbox: host.outbox.getSnapshot(),
     }).toStrictEqual({
-      body: JSON.stringify(typedBody('Is this still on?')),
+      body: [{ kind: 'paragraph', spans: [{ text: 'Is this still on?' }] }],
       outbox: [],
     });
     expect(replied).toMatchObject([

@@ -17,7 +17,7 @@ import type {
 } from './registration-snapshot.ts';
 
 import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
-import { draftOf, draftSaveProblem } from './drafts.ts';
+import { draftOf, draftSaveProblem, isEmptyDraft } from './drafts.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder } from './imap-actions.ts';
 import { listedMessage } from './inbox-store.ts';
@@ -102,11 +102,12 @@ type ActionTitles = Readonly<
 >;
 
 // A reply typed into a notification, after Send: `sending` offers Undo while the Undo Send Window
-// runs, and `saved` says the text waits in Drafts and offers Open Draft.
+// runs, `saved` says the text waits in Drafts and offers Open Draft, and `failed`, with no Draft,
+// says it could not be kept.
 type ReplyPosted = Omit<OpenedNotification, 'action'> &
   Readonly<{
     id: string;
-    kind: 'sending' | 'saved';
+    kind: 'sending' | 'saved' | 'failed';
     title: string;
     body: string;
     previews: boolean;
@@ -544,7 +545,8 @@ const postReply = (
 
 // A Draft from `sender` holding only `text`: a reply to the message when its body was read, and
 // the text alone otherwise. `sendable` is the saved reply, unset when it is not one or did not save;
-// `unsaved` says storage refused the text, which the Draft's composer then reports.
+// `unsaved` says the text is not stored: storage refused it, which the Draft's composer then
+// reports, or another editor changed the new Draft first, whose content is kept.
 async function savedReply(
   drafts: Replies['drafts'],
   t: Translate,
@@ -581,12 +583,19 @@ async function savedReply(
           },
           text,
         );
+  const typed =
+    reply ?? ((each: Draft) => ({ ...each, body: typedBody(text) }));
+  let applied = false;
   const filled = await drafts.fill(
     draft,
-    reply ?? ((each) => ({ ...each, body: typedBody(text) })),
+    (each) => {
+      applied = isEmptyDraft(each);
+      return applied ? typed(each) : each;
+    },
     [],
   );
-  const unsaved = draftSaveProblem(drafts.getSnapshot()) !== undefined;
+  const unsaved =
+    !applied || draftSaveProblem(drafts.getSnapshot()) !== undefined;
   return {
     draft,
     unsaved,
@@ -723,19 +732,33 @@ async function replyTyped(
   const saved = current()
     ? await savedReply(drafts, t, { source, sender, identities, text })
     : undefined;
-  if (saved === undefined || !current()) {
+  if (!current()) {
     await runLogged(logNote('Notification reply not saved or not sent'));
+    return;
+  }
+  const { previews } = await runLogged(
+    settingsOf(() => native.notificationSettings()).pipe(
+      Effect.orElseSucceed(() => ({ previews: false })),
+    ),
+  );
+  // Drafts that cannot open keep nothing; the person learns the text is gone.
+  if (saved === undefined) {
+    await postReply(native, t, {
+      ...named,
+      id: `${named.connection}.reply.${named.message}`,
+      draft: '',
+      profile,
+      previews,
+      kind: 'failed',
+      title: t('notifications.replyFailed'),
+      body: t('notifications.replyLost'),
+    });
     return;
   }
   const { draft, unsaved, sendable } = saved;
   const queued = await queuedReply(
     { drafts, outbox },
     { draft, sendable, current },
-  );
-  const { previews } = await runLogged(
-    settingsOf(() => native.notificationSettings()).pipe(
-      Effect.orElseSucceed(() => ({ previews: false })),
-    ),
   );
   const base = {
     ...named,

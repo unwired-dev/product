@@ -395,8 +395,9 @@ extension UnwiredRegistration {
   }
 
   // A typed reply's notification, under its own identifier: `sending` offers Undo and `saved`
-  // Open Draft, titled by `actions`. Its routing data adds the reply's opaque Draft identifier.
-  // Like a New Mail Notification, it skips a connection this device no longer holds.
+  // Open Draft, titled by `actions`; `failed` has no Draft and no action. Its routing data adds
+  // the reply's opaque Draft identifier. Like a New Mail Notification, it skips a connection this
+  // device no longer holds.
   @objc(postReplyNotification:actions:resolver:rejecter:)
   func postReplyNotification(
     _ notification: [String: Any], actions: [String: String],
@@ -404,14 +405,14 @@ extension UnwiredRegistration {
   ) {
     performStep("postReplyNotification", resolve, reject: reject) { store in
       guard let id = notification["id"] as? String,
-        let kind = notification["kind"] as? String, ["sending", "saved"].contains(kind),
+        let kind = notification["kind"] as? String, ["sending", "saved", "failed"].contains(kind),
         let title = notification["title"] as? String,
         let body = notification["body"] as? String,
         let profile = notification["profile"] as? String, !profile.isEmpty,
         let connection = notification["connection"] as? String,
         id.hasPrefix(connection + "."),
         let message = notification["message"] as? String,
-        let draft = notification["draft"] as? String, !draft.isEmpty,
+        let draft = notification["draft"] as? String, kind == "failed" || !draft.isEmpty,
         let previews = notification["previews"] as? Bool,
         let account = notification["account"] as? String,
         let epoch = notification["epoch"] as? String,
