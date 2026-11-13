@@ -1545,8 +1545,9 @@ export function createDrafts(
       delivery,
       retaining: state.drafts,
     });
+    // Drafts closed meanwhile reopen from storage, which holds this write.
     if (!live(current) || state.kind !== 'ready') {
-      return false;
+      return true;
     }
     ({ revision } = committed);
     base = kept;
@@ -1677,7 +1678,8 @@ export function createDrafts(
   });
 
   // Moves the target's Draft into the Outbox in one write, as `expected` shows it. False, leaving
-  // the Draft in place, when another editor changed it meanwhile or storage refused the write.
+  // the Draft in place, when another editor changed it meanwhile or storage refused the write;
+  // true once stored, even when the Drafts closed meanwhile.
   const admitting = (
     target: () => string,
     current: number,
@@ -1703,7 +1705,7 @@ export function createDrafts(
           admit,
         });
         yield* settleSaving(current, account);
-        return admitted && live(current);
+        return admitted;
       }),
     );
 
