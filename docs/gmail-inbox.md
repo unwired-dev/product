@@ -515,7 +515,7 @@ and, outside Trash and Spam, **Delete** (Move to Trash), placed last on every pl
 Report spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state and flag,
 **Move to Inbox** in Trash and Spam, **Move Message** with the same destinations as
-the reader's Move to, and **Delete Message** outside Trash and Spam; its sender offers **Copy Address**. A link in the reader's link list
+the reader's Move to, and **Delete Message** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.

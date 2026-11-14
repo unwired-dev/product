@@ -240,6 +240,17 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+On iPhone and iPad, the default Gmail registration journey
+([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
+open message's sender, chooses **Block Sender…**, and confirms
+`Block rowan@example.invalid?` in the system alert. Settings › Blocked Senders
+then lists the address as `0 since`; **Edit** switches to **Done** and back, and
+a swipe's **Delete** leaves **No Blocked Senders**. The journey returns to the
+Inbox and reopens the message before the body-tap step that fails on iPhone and
+iPad ([#2169](https://github.com/unwired-dev/product/issues/2169)); iPad opens
+Settings through the Command Palette. The alert, the list and its edit mode are
+kept as attachments.
+
 `testAppearance` uses the same build and sign-in
 ([#2153](https://github.com/unwired-dev/product/issues/2153)). Settings ›
 Appearance lists Light, Dark and System above its footer. Choosing Dark, then

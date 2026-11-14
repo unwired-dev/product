@@ -46,6 +46,7 @@ import type { SettingsDestination } from './settings.tsx';
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
 import { AppearanceSettings } from './appearance-settings.tsx';
+import { BlockedSenderSettings } from './blocked-senders.tsx';
 import { Button, Glass, Notice } from './design.tsx';
 import {
   ErrorReportingContext,
@@ -406,6 +407,23 @@ function reportingDetail(destination: SettingsDestination | undefined): {
   return { destination, detail: undefined };
 }
 
+// Edit for a destination that is an editable list, Blocked Senders; `editing` names the
+// destination Edit switched to edit mode, so leaving it ends editing.
+function listEdit(
+  destination: SettingsDestination | undefined,
+  editing: SettingsDestination | undefined,
+  onEditing: (editing: SettingsDestination | undefined) => void,
+) {
+  return destination === 'blockedSenders'
+    ? {
+        editing: editing === destination,
+        onEdit: (edit: boolean) => {
+          onEditing(edit ? destination : undefined);
+        },
+      }
+    : undefined;
+}
+
 function SettingsPage({
   assistance,
   microsoft,
@@ -453,11 +471,15 @@ function SettingsPage({
   }
   const { destination: selectedDestination, detail } =
     reportingDetail(destination);
+  const [editing, setEditing] = useState<SettingsDestination>();
   const { copy, actions, identity } = screen;
   if (snapshot.kind === 'signed-out' || identity === undefined) {
     return null;
   }
   const button = settingsButton(busy);
+  const edit = actions.settings
+    ? listEdit(selectedDestination, editing, setEditing)
+    : undefined;
   const name = identity.name ?? t('settings.productAccount');
   return (
     <AccountPage onInbox={onInbox}>
@@ -467,6 +489,7 @@ function SettingsPage({
         destination={selectedDestination}
         onDestination={setDestination}
         detail={detail}
+        edit={edit}
         navigation={{ onBack, onInbox, disabled: busy }}
         accessory={
           busy ? (
@@ -511,6 +534,12 @@ function SettingsPage({
           destination={selectedDestination}
           onDestination={setDestination}
         />
+        {edit === undefined ? null : (
+          <BlockedSenderSettings
+            profiles={profilesOf(snapshot)}
+            editing={edit.editing}
+          />
+        )}
         {actions.settings && selectedDestination !== undefined ? (
           <AccountSettings
             assistance={assistance}

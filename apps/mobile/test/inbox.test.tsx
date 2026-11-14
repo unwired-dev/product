@@ -3552,7 +3552,8 @@ describe('context menus', () => {
       spam: true,
     });
 
-    // The open message's header offers its reader's actions; its sender offers Copy Address.
+    // The open message's header offers its reader's actions; its sender offers Copy Address
+    // and Block Sender….
     await fireEvent.press(row());
     await screen.findByRole('button', { name: 'Folders' });
     const sender = contextMenuOf(screen.getByText('oliver@example.invalid'));
@@ -3561,7 +3562,7 @@ describe('context menus', () => {
       sender: menuSections(sender),
       message: menuSections(message),
     }).toStrictEqual({
-      sender: [['Copy Address']],
+      sender: [['Copy Address'], ['Block Sender…']],
       message: [
         ['Mark as Unread', 'Unflag'],
         [['Move Message', ['Travel']], 'Delete Message'],

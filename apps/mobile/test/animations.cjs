@@ -241,6 +241,28 @@ jest.mock('@expo/ui/swift-ui', () => {
       children,
     );
   }
+  // A list row offers the system's Delete, as its swipe and edit mode do.
+  function List({ children }) {
+    return React.createElement(React.Fragment, null, children);
+  }
+  List.ForEach = function ForEach({ data, keyExtractor, onDelete, children }) {
+    return data.map((item, index) =>
+      React.createElement(
+        View,
+        {
+          key: keyExtractor(item, index),
+          accessibilityActions:
+            onDelete === undefined ? undefined : [{ name: 'delete' }],
+          onAccessibilityAction: ({ nativeEvent }) => {
+            if (nativeEvent.actionName === 'delete') {
+              onDelete([index]);
+            }
+          },
+        },
+        children({ item, index }),
+      ),
+    );
+  };
   return {
     Alert,
     BottomSheet,
@@ -252,6 +274,7 @@ jest.mock('@expo/ui/swift-ui', () => {
     HStack: Passthrough,
     Label: Labeled,
     LabeledContent: Labeled,
+    List,
     Picker,
     ProgressView: () => null,
     RNHostView: Passthrough,
@@ -274,11 +297,13 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   controlSize: (size) => ({ $type: 'controlSize', size }),
   labelStyle: (style) => ({ $type: 'labelStyle', style }),
   disabled: (disabled) => ({ $type: 'disabled', disabled }),
+  environment: (key, value) => ({ $type: 'environment', key, value }),
   fixedSize: (params) => ({ $type: 'fixedSize', ...params }),
   font: (params) => ({ $type: 'font', ...params }),
   foregroundStyle: (style) => ({ $type: 'foregroundStyle', style }),
   frame: (params) => ({ $type: 'frame', ...params }),
   listRowBackground: (color) => ({ $type: 'listRowBackground', color }),
+  listStyle: (style) => ({ $type: 'listStyle', style }),
   monospacedDigit: () => ({ $type: 'monospacedDigit' }),
   onAppear: (eventListener) => ({ $type: 'onAppear', eventListener }),
   padding: (params) => ({ $type: 'padding', ...params }),

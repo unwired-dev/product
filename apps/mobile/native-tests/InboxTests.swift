@@ -109,6 +109,8 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     rowan.tap()
     XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    blockSenderJourney(app)
+    blockedSendersJourney(app)
     // The opened body arrives from Gmail as text; its image is not loaded.
     XCTAssertTrue(
       text("Images in this message are not loaded.", in: app).waitForExistence(timeout: 15))
@@ -252,6 +254,90 @@ final class InboxTests: XCTestCase {
     shot.name = "Resumed Gmail registration"
     shot.lifetime = .keepAlways
     add(shot)
+  }
+
+  // #2166: a long press on the reader's sender opens its menu, whose Block Sender… asks in the
+  // system alert. Block Sender blocks the exact address and leaves the open message in place.
+  private func blockSenderJourney(_ app: XCUIApplication) {
+    let sender = app.staticTexts["rowan@example.invalid"].firstMatch
+    // Text in the header's menu host is never hittable, so the press goes to its place.
+    sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
+    let item = app.buttons["Block Sender…"]
+    XCTAssertTrue(item.waitForExistence(timeout: 10))
+    item.tap()
+    let alert = app.alerts["Block rowan@example.invalid?"]
+    XCTAssertTrue(alert.waitForExistence(timeout: 10))
+    XCTAssertEqual(
+      Set(alert.buttons.allElementsBoundByIndex.map(\.label)), ["Cancel", "Block Sender"])
+    let shot = XCTAttachment(screenshot: app.screenshot())
+    shot.name = "Block Sender alert"
+    shot.lifetime = .keepAlways
+    add(shot)
+    alert.buttons["Block Sender"].tap()
+    XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(sender.exists)
+  }
+
+  // #2166: Settings › Blocked Senders lists the address; Edit switches the list's edit mode, and a
+  // swipe's Delete unblocks it. It runs before the #2169 failure, then reopens the message.
+  private func blockedSendersJourney(_ app: XCUIApplication) {
+    // iPhone's account page is in the Mailboxes column, through Back; iPad's reader hides the
+    // sidebar, so the Command Palette's Account opens Settings.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      let query = app.textFields["Type a command"]
+      openPalette(app, header: query)
+      waitForFocus(query)
+      submit("Account", into: query, in: app)
+    } else {
+      let account = app.buttons["Account"]
+      for _ in 0..<3 where !(account.exists && account.isHittable) {
+        let mailboxes = app.buttons["Back to Mailboxes"]
+        if mailboxes.exists { mailboxes.tap() } else { app.navigationBars.buttons.firstMatch.tap() }
+        _ = account.waitForExistence(timeout: 5)
+      }
+      account.tap()
+    }
+    openSettings("Blocked Senders", in: app)
+    let row = app.cells.containing(NSPredicate(format: "label == %@", "rowan@example.invalid"))
+      .firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", " · 0 since")).firstMatch
+        .exists)
+    let listed = XCTAttachment(screenshot: app.screenshot())
+    listed.name = "Blocked Senders"
+    listed.lifetime = .keepAlways
+    add(listed)
+    app.buttons["Edit"].firstMatch.tap()
+    let done = app.buttons["Done"].firstMatch
+    XCTAssertTrue(done.waitForExistence(timeout: 5))
+    let editing = XCTAttachment(screenshot: app.screenshot())
+    editing.name = "Blocked Senders editing"
+    editing.lifetime = .keepAlways
+    add(editing)
+    done.tap()
+    XCTAssertTrue(app.buttons["Edit"].firstMatch.waitForExistence(timeout: 5))
+    row.swipeLeft()
+    let delete = app.buttons["Delete"].firstMatch
+    XCTAssertTrue(delete.waitForExistence(timeout: 5))
+    delete.tap()
+    XCTAssertTrue(
+      text("No Blocked Senders. Block one from the sender’s name in a message.", in: app)
+        .waitForExistence(timeout: 15))
+    // The list's bar offers Edit alone, so iPhone leaves from the list of destinations.
+    let back = app.navigationBars.buttons["BackButton"]
+    if UIDevice.current.userInterfaceIdiom == .phone && back.exists { back.tap() }
+    let exit = app.buttons[settingsExit]
+    XCTAssertTrue(exit.waitForExistence(timeout: 10))
+    exit.tap()
+    // iPad's Close Settings returns to the open message; iPhone reopens it from the Inbox.
+    let sender = app.staticTexts["rowan@example.invalid"]
+    if !sender.waitForExistence(timeout: 5) {
+      app.buttons.matching(
+        NSPredicate(format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring")
+      ).firstMatch.tap()
+    }
+    XCTAssertTrue(sender.waitForExistence(timeout: 10))
   }
 
   // Apple identifies the Product Account; each mailbox needs its own grant. Microsoft mail can be
