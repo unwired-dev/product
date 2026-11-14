@@ -2409,13 +2409,13 @@ final class InboxTests: XCTestCase {
     app.buttons["Connect"].tap()
     if phone {
       // #1929: the connection's actions are full-width rows below its address, which keeps the
-      // row's width.
+      // row's width. Edges are rounded: rows at large text sizes meet at fractional points.
       let enterPassword = app.buttons["Enter the password for \(address) again"]
       let remove = app.buttons["Remove \(address)"]
       XCTAssertTrue(enterPassword.waitForExistence(timeout: 15))
       let connection = app.staticTexts[address].firstMatch.frame
-      XCTAssertGreaterThanOrEqual(enterPassword.frame.minY, connection.maxY)
-      XCTAssertGreaterThanOrEqual(remove.frame.minY, enterPassword.frame.maxY)
+      XCTAssertGreaterThanOrEqual(enterPassword.frame.minY.rounded(), connection.maxY.rounded())
+      XCTAssertGreaterThanOrEqual(remove.frame.minY.rounded(), enterPassword.frame.maxY.rounded())
       XCTAssertGreaterThan(connection.width, app.windows.firstMatch.frame.width / 2)
       XCTAssertGreaterThan(remove.frame.width, app.windows.firstMatch.frame.width * 0.8)
       capture("Settings IMAP connection")
