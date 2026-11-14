@@ -11,6 +11,58 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad Send menu and Remind Me to Send, 2026-11-14
+
+[#2144](https://github.com/unwired-dev/product/issues/2144) adds a step to the
+`registration-apple` journey: before the Work Profile's new message is sent, a
+long press on Send opens the Send menu, **Remind Me to Send…** opens the reminder
+choices and **Tomorrow Morning** is set, from the iPhone sheet or with the iPad
+popover's **Set Reminder**. The composer stays open with the banner "Reminder for
+tomorrow, 08:00 (Prague)", **Change** and **Remove Reminder**, and Send then
+queues the message. The journey attaches a capture of each state. It ran on a
+`registration-apple` Release Simulator build of 63559b494 with Xcode 27.2
+(`27B52`) on the iOS 27.0 runtime, macOS 27.2, root lockfile SHA-256
+`6edc28256f6d5b5959967d7359653424c4be42264edbe4372d6ab7fadc91afe9`, on
+Saturday 14 November in Europe/Prague.
+From `apps/mobile`, with `DEVELOPER_DIR` set to Xcode 27.2:
+
+```sh
+UNWIRED_MOCK_SCENARIO=registration-apple mise exec -- pnpm native:generate
+xcodebuild build -workspace ios/UnwiredMail.xcworkspace -scheme UnwiredMail \
+  -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath ../../artifacts/expo-bootstrap/DerivedData-2144 \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+UNWIRED_APPEARANCE=light mise exec -- pnpm test:native \
+  "$PWD/../../artifacts/expo-bootstrap/DerivedData-2144/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+```
+
+The journey ran once per appearance (`dark` and `light`) and device type
+(`iPhone-18-Pro` and `iPad-Pro-11-inch-M5-12GB`).
+
+- iPhone 18 Pro, Dark and Light: the step passed. The sheet offered This Evening
+  18:00, Tomorrow Morning Sun 08:00 and Next Week Mon 16. 11., without This
+  Weekend on a Saturday. The journey later failed where Jordan Lee's message
+  should open after the Profile isolation step
+  ([#2146](https://github.com/unwired-dev/product/issues/2146)).
+- iPad Pro 11-inch (M5), Dark and Light: the step passed, with Tomorrow Morning
+  selected in the popover, Cancel and Set Reminder. The journey later failed
+  revealing the Mail Profile switcher
+  ([#2148](https://github.com/unwired-dev/product/issues/2148)); a run without
+  the new step fails there too. One Dark attempt stalled on app-idle waits and
+  was rerun.
+- The first iPhone run failed earlier: the Contacts prompt that recipient
+  suggestions raise interrupted typing a recipient
+  ([#2145](https://github.com/unwired-dev/product/issues/2145)). The runner now
+  denies the app Contacts access on its Simulators.
+- The captures match the states #2136 specifies, except that the choices' time
+  zone line reads "Times in Central (Prague)" on device
+  ([#2147](https://github.com/unwired-dev/product/issues/2147)). **The
+  comparison with the Figma frames is deferred**: the Figma MCP seat was at its
+  call limit.
+- Not covered: Change, Remove Reminder and reopening the Draft (Jest-only),
+  hardware keyboard, VoiceOver and the Mac.
+
 ## iPhone and iPad Settings › Signatures, 2026-11-12
 
 [#2059](https://github.com/unwired-dev/product/issues/2059) adds the Signatures

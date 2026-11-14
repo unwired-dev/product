@@ -398,7 +398,8 @@ describe('the host assembly', () => {
         'handed to the host: 1',
       ].filter((note) => !logged.includes(note)),
     ).toStrictEqual([]);
-    expect(logged).not.toMatch(
+    // A line's time and sequence prefix can contain the message id's digits, as in `03.102`.
+    expect(logged.replaceAll(/^\[[^\]]*\] \w+ \(#\d+\): /gmu, '')).not.toMatch(
       new RegExp(
         `Maya|example\\.invalid|Studio|permission|${connection}|${previewed}`,
         'u',

@@ -11,11 +11,14 @@ import type {
 import type { TurboModule } from 'react-native';
 
 import { english } from '@private-email/localization';
+import { createBlockedSenders } from '@private-email/mail-core/blocked-senders';
+import { ownerOf } from '@private-email/mail-core/drafts';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createNotifications } from '@private-email/mail-core/notifications';
 import {
   createRegistration,
+  defaultProfile,
   mailboxesOf,
 } from '@private-email/mail-core/registration';
 import { createRemoteContentSettings } from '@private-email/mail-core/remote-content';
@@ -56,6 +59,7 @@ import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { BlockedSendersContext } from '../src/blocked-senders.tsx';
 import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -1692,6 +1696,123 @@ describe('product registration', () => {
       notifying: [true, undefined],
       shown: true,
     });
+  });
+
+  it('lists the Profile’s Blocked Senders in Settings, newest first with their moves, and unblocks the selected one', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    await store.restoreOnce();
+    // Blocked Sender storage on this device, which always accepts a write.
+    const saved = { revision: 0, document: null as string | null };
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: () =>
+          Promise.resolve({
+            owner: ownerOf(store.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitBlockedSenders: (owner, revision, document) => {
+          Object.assign(saved, { revision: revision + 1, document });
+          return Promise.resolve({ owner, revision: saved.revision });
+        },
+      },
+      store,
+    );
+    await blocked.block(defaultProfile, 'offers@growthleads.io');
+    await blocked.screen(defaultProfile, { id: alex, moves: true }, [
+      {
+        id: 'offer',
+        address: 'offers@growthleads.io',
+        receivedAt: '2026-11-13T09:00:00Z',
+      },
+    ]);
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: createSyntheticGmail({ messages: 1 }).native },
+    });
+    await render(
+      <BlockedSendersContext value={blocked}>
+        <MacWindows store={store}>
+          <CommandPaletteProvider windowId="account">
+            <RegistrationGate
+              store={started(store)}
+              preview={false}>
+              <InboxProvider mailboxes={mailboxes}>
+                <Shell
+                  onSelect={() => undefined}
+                  selected={undefined}
+                />
+              </InboxProvider>
+            </RegistrationGate>
+          </CommandPaletteProvider>
+        </MacWindows>
+      </BlockedSendersContext>,
+    );
+    await openAccount();
+    await settings('Blocked Senders');
+    const offers = await settingsWindow().findByRole('button', {
+      name: 'offers@growthleads.io',
+    });
+    expect({
+      group: settingsWindow().getByText('Primary Profile').props.children,
+      moved: settingsWindow().queryByText(/^Blocked .+ · 1 moved to Trash$/u)
+        ?.props.children,
+    }).toStrictEqual({ group: 'Primary Profile', moved: expect.any(String) });
+    // A sender blocked from a reader while Settings is open joins the list, newest first.
+    const noreplyBlockedAt = Date.now() + 1000;
+    const blockedLater = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(noreplyBlockedAt);
+    await act(async () => {
+      await blocked.block(defaultProfile, 'noreply@crypto-daily.co');
+    });
+    blockedLater.mockRestore();
+    await expect(
+      settingsWindow().findByText(/^Blocked .+ · 0 since$/u),
+    ).resolves.toBeVisible();
+    const unblock = settingsWindow().getByRole('button', { name: 'Unblock' });
+    // − unblocks nothing until a row is selected.
+    expect({
+      rows: settingsWindow()
+        .getAllByRole('button', { name: /@/u })
+        .map((row) => row.props.accessibilityLabel),
+      unblock: unblock.props.accessibilityState?.disabled,
+    }).toStrictEqual({
+      rows: ['noreply@crypto-daily.co', 'offers@growthleads.io'],
+      unblock: true,
+    });
+    // A selected address unblocked elsewhere leaves − nothing to unblock.
+    await fireEvent.press(
+      settingsWindow().getByRole('button', { name: 'noreply@crypto-daily.co' }),
+    );
+    await act(async () => {
+      await blocked.unblock(defaultProfile, 'noreply@crypto-daily.co');
+    });
+    await waitFor(() => {
+      expect(unblock).toBeDisabled();
+    });
+    // Blocked again, even at the same instant, it is a new block that is not selected.
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(noreplyBlockedAt);
+    await act(async () => {
+      await blocked.block(defaultProfile, 'noreply@crypto-daily.co');
+    });
+    clock.mockRestore();
+    await expect(
+      settingsWindow().findByRole('button', {
+        name: 'noreply@crypto-daily.co',
+      }),
+    ).resolves.toHaveProp('accessibilityState', { selected: false });
+    await fireEvent.press(offers);
+    await act(async () => {
+      await fireEvent.press(unblock);
+      await blocked.unblock(defaultProfile, 'noreply@crypto-daily.co');
+    });
+    await expect(
+      settingsWindow().findByText(
+        'No Blocked Senders. Block one from the sender’s name in a message.',
+      ),
+    ).resolves.toBeVisible();
   });
 
   it('brings the open Settings window to a requested destination and opens afresh after closing', async () => {

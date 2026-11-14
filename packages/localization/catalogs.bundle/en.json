@@ -207,6 +207,7 @@
       "profiles": "Mail Profiles",
       "signatures": "Signatures",
       "notifications": "Notifications",
+      "blockedSenders": "Blocked Senders",
       "language": "Language",
       "privacy": "Privacy & Data",
       "errorReporting": "Error Reporting"
@@ -1086,8 +1087,16 @@
     },
     "reminder": {
       "remindMeToSend": "Remind Me to Send…",
+      "detail": "Keep it as a draft and remind me",
+      "title": "Remind Me to Send",
+      "explanation": "Keeps this message in Drafts and reminds you to send it. Nothing is sent automatically.",
+      "zone": "Times in {{zone}} ({{city}})",
+      "set": "Set Reminder",
+      "dateAt": "{{date}}, {{time}}",
       "thisEvening": "This Evening",
       "tomorrowMorning": "Tomorrow Morning",
+      "thisWeekend": "This Weekend",
+      "nextWeek": "Next Week",
       "todayAt": "Today, {{time}}",
       "dayAt": "{{day}} {{time}}",
       "note": "One of your devices will remind you to finish this Draft. It won’t send it.",
@@ -1636,5 +1645,21 @@
       "duplicateFooter": "Copies the name, color and icon into a new Mail Profile. Mailboxes, sign-ins, mail and Drafts are not copied.",
       "removeFooter": "Removing a Mail Profile also removes its mailboxes from Unwired Mail on all your devices, after you confirm. Their mail stays with the provider."
     }
+  },
+  "blockedSenders": {
+    "block": "Block Sender…",
+    "confirmTitle": "Block {{address}}?",
+    "confirm_one": "New mail from this address goes to Trash in your {{profile}}. The {{count}} message you have now stays where it is, and the sender isn’t told.",
+    "confirm_other": "New mail from this address goes to Trash in your {{profile}}. The {{count}} messages you have now stay where they are, and the sender isn’t told.",
+    "action": "Block Sender",
+    "blockFailed": "{{address}} couldn’t be blocked",
+    "tryAgain": "Your Blocked Senders couldn’t be saved. Try again.",
+    "blocked": "Blocked {{date}} · {{moved}} moved to Trash",
+    "blockedNone": "Blocked {{date}} · 0 since",
+    "unblock": "Unblock",
+    "unblockFailed": "Couldn’t unblock. Try again.",
+    "footer": "This Mac moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
+    "none": "No Blocked Senders. Block one from the sender’s name in a message.",
+    "unavailable": "Blocked Senders couldn’t be read. Try again later."
   }
 }
