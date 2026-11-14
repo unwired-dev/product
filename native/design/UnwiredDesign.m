@@ -1332,6 +1332,7 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     if (self.onPress) self.onPress(@{});
     return;
   }
+  if (sender.selectedSegment != 1) return;
   NSRect arrow = [_control convertRect:[self.window convertRectFromScreen:[_control.cell.accessibilityChildren.lastObject accessibilityFrame]]
                               fromView:nil];
   NSRect bounds = _control.bounds;
