@@ -89,42 +89,43 @@ const catalog = [
       'yahoo.fr',
     ],
     host: 'imap.mail.yahoo.com',
-    smtp: { host: 'smtp.mail.yahoo.com', port: 465, security: 'tls' },
+    smtp: { host: 'smtp.mail.yahoo.com', port: 465 },
   },
   {
     domains: ['aol.com'],
     host: 'imap.aol.com',
-    smtp: { host: 'smtp.aol.com', port: 465, security: 'tls' },
+    smtp: { host: 'smtp.aol.com', port: 465 },
   },
   {
     domains: ['gmx.com'],
     host: 'imap.gmx.com',
-    smtp: { host: 'mail.gmx.com', port: 465, security: 'tls' },
+    smtp: { host: 'mail.gmx.com', port: 465 },
   },
   {
     domains: ['gmx.net', 'gmx.de', 'gmx.at', 'gmx.ch'],
     host: 'imap.gmx.net',
-    smtp: { host: 'mail.gmx.net', port: 587, security: 'starttls' },
+    smtp: { host: 'mail.gmx.net', port: 465 },
   },
   {
     domains: ['web.de'],
     host: 'imap.web.de',
-    smtp: { host: 'smtp.web.de', port: 465, security: 'tls' },
+    smtp: { host: 'smtp.web.de', port: 465 },
   },
   {
     domains: ['mail.com'],
     host: 'imap.mail.com',
-    smtp: { host: 'smtp.mail.com', port: 465, security: 'tls' },
+    smtp: { host: 'smtp.mail.com', port: 465 },
   },
   {
     domains: ['seznam.cz', 'email.cz', 'post.cz'],
     host: 'imap.seznam.cz',
-    smtp: { host: 'smtp.seznam.cz', port: 465, security: 'tls' },
+    smtp: { host: 'smtp.seznam.cz', port: 465 },
   },
 ] as const;
 
 // The server fields a manual form fills in for an address at a catalogued domain. SMTP signs in
-// with the full address, so it needs its own user name only where IMAP uses a shorter one.
+// with the full address, so it needs its own user name only where IMAP uses a shorter one. Every
+// entry uses the security its SMTP port implies, which the form follows until the person chooses.
 export const catalogFields = (address: string) => {
   const trimmed = address.trim();
   const domain = trimmed.split('@')[1]?.toLowerCase() ?? '';
@@ -143,7 +144,6 @@ export const catalogFields = (address: string) => {
       username,
       smtpHost: entry.smtp.host,
       smtpPort: String(entry.smtp.port),
-      smtpSecurity: entry.smtp.security,
       smtpUsername: username === trimmed ? '' : trimmed,
     },
   };
@@ -156,7 +156,6 @@ const serverFields = [
   'username',
   'smtpHost',
   'smtpPort',
-  'smtpSecurity',
   'smtpUsername',
 ] as const;
 
@@ -164,6 +163,7 @@ const serverFields = [
 export const catalogDomain = (fields: ImapFields) => {
   const found = catalogFields(fields.address);
   return found !== undefined &&
+    fields.smtpSecurity === undefined &&
     serverFields.every((name) => fields[name] === found.fields[name])
     ? found.domain
     : undefined;

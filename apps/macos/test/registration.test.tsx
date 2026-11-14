@@ -574,7 +574,8 @@ describe('product registration', () => {
           'Found server settings for icloud.com. Port and security are filled in for you.',
         ],
       },
-      // A changed port keeps every server setting, whatever the address becomes.
+      // A changed port keeps every server setting, whatever the address becomes, and security
+      // still follows the port.
       edited: {
         'User name': 'mara',
         'IMAP server': 'imap.mail.me.com',
@@ -582,7 +583,7 @@ describe('product registration', () => {
         'SMTP server': 'smtp.mail.me.com',
         'SMTP port': '465',
         'SMTP user name, same as incoming if blank': 'mara@icloud.com',
-        security: 'STARTTLS',
+        security: 'SSL/TLS',
         found: [],
       },
       setups: [
@@ -595,7 +596,7 @@ describe('product registration', () => {
           smtp: {
             host: 'smtp.mail.me.com',
             port: 465,
-            security: 'starttls',
+            security: 'tls',
             username: 'mara@icloud.com',
           },
         },
