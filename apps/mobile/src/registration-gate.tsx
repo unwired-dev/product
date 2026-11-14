@@ -45,6 +45,7 @@ import type { SettingsDestination } from './settings.tsx';
 
 import { AccountPage } from './account-page.tsx';
 import { AccountActions, AccountSettings } from './account-settings.tsx';
+import { AppearanceSettings } from './appearance-settings.tsx';
 import { Button, Glass, Notice } from './design.tsx';
 import {
   ErrorReportingContext,
@@ -502,6 +503,7 @@ function SettingsPage({
             <SettingsGroup footer={copy.description} />
           </>
         ) : null}
+        {destination === 'appearance' ? <AppearanceSettings /> : null}
         {destination === 'language' ? (
           <LanguageSelector footer={t('language.deviceDetail')} />
         ) : null}

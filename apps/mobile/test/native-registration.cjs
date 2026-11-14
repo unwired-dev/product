@@ -8,9 +8,19 @@ const unwiredRegistration = {
   preference: () => Promise.resolve({ value: null }),
   setPreference: () => Promise.resolve({}),
 };
+// `SettingsManager` as the device's user defaults, empty when a test file starts.
+const userDefaults = {};
+const settingsManager = {
+  getConstants: () => ({ settings: userDefaults }),
+  setValues: (values) => Object.assign(userDefaults, values),
+};
 const { getEnforcing } = TurboModuleRegistry;
-TurboModuleRegistry.getEnforcing = (name) =>
-  name === 'UnwiredRegistration' ? unwiredRegistration : getEnforcing(name);
+TurboModuleRegistry.getEnforcing = (name) => {
+  if (name === 'UnwiredRegistration') {
+    return unwiredRegistration;
+  }
+  return name === 'SettingsManager' ? settingsManager : getEnforcing(name);
+};
 
 jest.mock('react-native-keyboard-controller', () =>
   require('react-native-keyboard-controller/jest'),
