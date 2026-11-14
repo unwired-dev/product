@@ -24,6 +24,21 @@ queues the message. The journey attaches a capture of each state. It ran on a
 (`27B52`) on the iOS 27.0 runtime, macOS 27.2, root lockfile SHA-256
 `6edc28256f6d5b5959967d7359653424c4be42264edbe4372d6ab7fadc91afe9`, on
 Saturday 14 November in Europe/Prague.
+From `apps/mobile`, with `DEVELOPER_DIR` set to Xcode 27.2:
+
+```sh
+UNWIRED_MOCK_SCENARIO=registration-apple mise exec -- pnpm native:generate
+xcodebuild build -workspace ios/UnwiredMail.xcworkspace -scheme UnwiredMail \
+  -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath ../../artifacts/expo-bootstrap/DerivedData-2144 \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+UNWIRED_APPEARANCE=light mise exec -- pnpm test:native \
+  "$PWD/../../artifacts/expo-bootstrap/DerivedData-2144/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+```
+
+The journey ran once per appearance (`dark` and `light`) and device type
+(`iPhone-18-Pro` and `iPad-Pro-11-inch-M5-12GB`).
 
 - iPhone 18 Pro, Dark and Light: the step passed. The sheet offered This Evening
   18:00, Tomorrow Morning Sun 08:00 and Next Week Mon 16. 11., without This

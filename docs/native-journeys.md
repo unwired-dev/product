@@ -285,6 +285,29 @@ Settings › Signatures then lists the IMAP Sending Identity with None
 made bold and stored when the editor is left; the row shows its first line, Delete
 clears it, and the list passes an accessibility audit.
 
+## iPhone and iPad Apple registration journey
+
+The Expo native journey for a `registration-apple` Release build signs in with
+Apple and connects the synthetic Microsoft and Gmail mailboxes; its steps are listed
+under [Expo setup](expo-client.md#validate). Build it with
+`UNWIRED_MOCK_SCENARIO=registration-apple` and run it once per appearance and device:
+
+```sh
+UNWIRED_APPEARANCE=light mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+```
+
+Before the Work Profile's new message is sent, a long press on Send opens the Send
+menu, **Remind Me to Send…** sets **Tomorrow Morning** from the iPhone sheet or with
+the iPad popover's **Set Reminder**, and the composer stays open with the Draft's
+banner, **Change** and **Remove Reminder**
+([#2144](https://github.com/unwired-dev/product/issues/2144)). The captures are
+named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
+Reminder". The journey fails later on iPhone
+([#2146](https://github.com/unwired-dev/product/issues/2146)) and iPad
+([#2148](https://github.com/unwired-dev/product/issues/2148)).
+
 ## iPhone and iPad keyboard and accessibility journey
 
 The Expo native journey for a `registration-performance` Release build drives
