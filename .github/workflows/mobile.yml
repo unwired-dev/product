@@ -66,7 +66,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.skip != 'true' }}
     runs-on: xcode-27
-    timeout-minutes: 34
+    timeout-minutes: 50
     defaults:
       run:
         shell: zsh -e -o pipefail {0}
@@ -99,9 +99,9 @@ jobs:
       - name: Verify native language matching and preferences
         run: node --test native/localization/test/native.test.mjs
       - name: Verify native encryption and credential removal
-        # Simulator boot and the probe build, which compiles SwiftMail and its NIO packages, take
-        # from 5 to over 14 minutes on hosted runners.
-        timeout-minutes: 26
+        # Simulator boot and the probe build, which compiles SwiftMail and its NIO packages, took
+        # from 14 to over 26 minutes on hosted runners in November 2026.
+        timeout-minutes: 40
         run: zsh native/private-inbox/integration/test.zsh ios
       - name: Verify ordinary native project generation with cleared scenario
         run: |
@@ -114,9 +114,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: expo-native-checks-${{ github.run_id }}-${{ github.run_attempt }}
+          # Named paths skip DerivedData, which a timed-out run can leave mid-deletion.
           path: |
-            artifacts/private-inbox/**/*.log
-            artifacts/private-inbox/**/*.xcresult/**
+            artifacts/private-inbox/*/*.log
+            artifacts/private-inbox/*/imap/*.log
+            artifacts/private-inbox/*/*.xcresult/**
           if-no-files-found: warn
           retention-days: 7
 
@@ -167,7 +169,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.skip != 'true' }}
     runs-on: xcode-27
-    timeout-minutes: 25
+    timeout-minutes: 35
     defaults:
       run:
         shell: zsh -e -o pipefail {0}
