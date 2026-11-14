@@ -2407,6 +2407,20 @@ final class InboxTests: XCTestCase {
     press("\n", in: app)
     XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
     app.buttons["Connect"].tap()
+    if phone {
+      // #1929: the connection's actions are full-width rows below its address, which keeps the
+      // row's width.
+      let enterPassword = app.buttons["Enter the password for \(address) again"]
+      let remove = app.buttons["Remove \(address)"]
+      XCTAssertTrue(enterPassword.waitForExistence(timeout: 15))
+      let connection = app.staticTexts[address].firstMatch.frame
+      XCTAssertGreaterThanOrEqual(enterPassword.frame.minY, connection.maxY)
+      XCTAssertGreaterThanOrEqual(remove.frame.minY, enterPassword.frame.maxY)
+      XCTAssertGreaterThan(connection.width, app.windows.firstMatch.frame.width / 2)
+      XCTAssertGreaterThan(remove.frame.width, app.windows.firstMatch.frame.width * 0.8)
+      capture("Settings IMAP connection")
+      try audit(app, "Email Accounts")
+    }
     let needed = "Spam and Trash not chosen · not in All Mail"
     _ = settingsRow("Choose Folders…", needed)
     capture("Settings folders not chosen")
@@ -2838,6 +2852,13 @@ final class InboxTests: XCTestCase {
       && issue.element == nil
       && issue.compactDescription == "Potentially inaccessible text":
       return "system popover"
+    // The iPhone Spam and Trash Folders sheet opens from Settings at half height, so the same
+    // happens to the Email Accounts rows it leaves in view above it.
+    case .elementDetection
+    where UIDevice.current.userInterfaceIdiom == .phone && screen == "Spam and Trash Folders"
+      && issue.element == nil
+      && issue.compactDescription == "Potentially inaccessible text":
+      return "system sheet"
     default:
       return nil
     }
