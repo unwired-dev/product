@@ -36,6 +36,7 @@ export type SettingsDestination =
   | 'profiles'
   | 'signatures'
   | 'notifications'
+  | 'appearance'
   | 'language'
   | 'privacy'
   | 'errorReporting';
@@ -54,6 +55,7 @@ const sections = [
   {
     title: 'application',
     items: [
+      { id: 'appearance', icon: 'paintbrush' },
       { id: 'language', icon: 'translate' },
       { id: 'privacy', icon: 'hand.raised' },
     ],

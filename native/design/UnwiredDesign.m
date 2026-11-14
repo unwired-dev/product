@@ -1417,6 +1417,27 @@ RCT_EXPORT_METHOD(retire:(nonnull NSNumber *)request)
   });
 }
 @end
+
+// UIKit asks for the status bar style again when iOS changes appearance, but not when the app
+// overrides it; Settings › Appearance asks here.
+@interface UnwiredStatusBar : NSObject <RCTBridgeModule>
+@end
+
+@implementation UnwiredStatusBar
+RCT_EXPORT_MODULE()
+
+- (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
+
+RCT_EXPORT_METHOD(refresh)
+{
+  for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+    if (![scene isKindOfClass:UIWindowScene.class]) continue;
+    for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+      [window.rootViewController setNeedsStatusBarAppearanceUpdate];
+    }
+  }
+}
+@end
 #endif
 
 #if !TARGET_OS_OSX
