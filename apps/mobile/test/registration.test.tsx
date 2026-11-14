@@ -793,18 +793,35 @@ describe('product registration', () => {
         await fireEvent.press(await screen.findByRole('button', { name }));
       });
     };
+    // More's system menu: its item titles, and choosing one as the system menu does.
+    const moreItems = async () => {
+      const sections: ReadonlyArray<{
+        items: ReadonlyArray<{ id: string; title: string }>;
+      }> = (await screen.findByLabelText('More')).props.sections;
+      return sections.flatMap(({ items }) => items);
+    };
+    const chooseMore = async (title: string) => {
+      const item = (await moreItems()).find((each) => each.title === title);
+      assert(item !== undefined, `Expected ${title} in More`);
+      await act(async () => {
+        await fireEvent(screen.getByLabelText('More'), 'select', {
+          nativeEvent: { id: item.id },
+        });
+      });
+    };
+    const moreTitles = async () =>
+      (await moreItems()).map(({ title }) => title);
 
     // Opening a message marks it read, at the server.
     await press(/Quarterly invoice/u);
     await expect(
       screen.findByRole('header', { name: 'Quarterly invoice' }),
     ).resolves.toBeVisible();
-    await press('More');
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
-    // Star sets the server's \Flagged flag, keeps the reader and More open and flags the row.
-    await press('Star');
+    // Flag sets the server's \Flagged flag, keeps the reader open and flags the row.
+    await chooseMore('Flag');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`flag INBOX ${invoice}`);
     });
@@ -814,17 +831,16 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
     ).resolves.toBeVisible();
-    await expect(
-      screen.findByRole('button', { name: 'Remove star' }),
-    ).resolves.toBeVisible();
-    await press('Remove star');
+    await waitFor(async () => {
+      expect(await moreTitles()).toContain('Unflag');
+    });
+    await chooseMore('Unflag');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
     });
-    await expect(
-      screen.findByRole('button', { name: 'Star' }),
-    ).resolves.toBeVisible();
-    await press('More');
+    await waitFor(async () => {
+      expect(await moreTitles()).toContain('Flag');
+    });
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
     await press('Archive');
@@ -854,11 +870,12 @@ describe('product registration', () => {
     // Trash offers Move to Inbox, which closes the reader and offers no Undo.
     await press('Deleted Messages. In alex@example.invalid');
     await press(/Recovered message/u);
-    await press('More');
-    for (const name of ['Archive', 'Move to Trash', 'Report spam']) {
-      expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    const recovered = await moreTitles();
+    for (const name of ['Delete Message', 'Report Spam']) {
+      expect(recovered).not.toContain(name);
     }
-    await press('Move to Inbox');
+    await chooseMore('Move to Inbox');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(
         `move Deleted Messages ${deleted} INBOX`,
