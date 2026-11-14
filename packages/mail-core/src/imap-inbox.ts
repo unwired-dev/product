@@ -803,8 +803,12 @@ export function createImapInbox(
     // Called after native code purged this device because another device removed it.
     removed?: (() => void) | undefined;
     // Called once a committed Inbox read brought unread mail newly into it; see arrivedMessages.
+    // `earlier` arrived beyond the cached window.
     arrived?:
-      | ((messages: readonly ImapMessage[]) => void | Promise<void>)
+      | ((
+          messages: readonly ImapMessage[],
+          earlier: readonly ImapMessage[],
+        ) => void | Promise<void>)
       | undefined;
     shared?: Readonly<ReturnType<typeof createBodyLoads>>;
     connection?: string;
@@ -1453,6 +1457,63 @@ export function createImapInbox(
       }
     }
   };
+  // The Inbox's arrivals from the checkpoint up to the oldest of the newest window `listed`, when
+  // more than it keeps arrived, read only for Blocked Sender screening. History reads page them by
+  // UID, newest first and at most a window at a time, so mail expunged meanwhile shifts nothing.
+  const readEarlier = Effect.fnUntraced(function* (
+    scope: Scope,
+    folder: string,
+    {
+      uidValidity,
+      checkpoint,
+      listed,
+    }: Readonly<{
+      uidValidity: number;
+      checkpoint: number;
+      listed: readonly Envelope[];
+    }>,
+  ) {
+    const earlier: ImapMessage[] = [];
+    if (
+      arrived === undefined ||
+      folder !== inboxFolder ||
+      listed.length === 0
+    ) {
+      return earlier;
+    }
+    // UIDs start at 1; a server that omits UIDNEXT leaves a checkpoint of 0.
+    const floor = Math.max(1, checkpoint);
+    const pageBelow = (below: number) =>
+      call(() =>
+        native.imapHistory(scope, {
+          folder,
+          above: floor,
+          below,
+          limit: window,
+          known: [],
+        }),
+      ).pipe(
+        Effect.flatMap((reply) =>
+          decodeHistoryRead(reply).pipe(Effect.mapError(malformed)),
+        ),
+      );
+    let below = Math.min(...listed.map(({ uid }) => uid));
+    while (below > floor) {
+      const end = below;
+      const page = yield* pageBelow(end);
+      // A new UIDVALIDITY lists the folder afresh next time; a cursor that does not move ends.
+      if (page.uidValidity !== uidValidity || page.below >= end) {
+        break;
+      }
+      earlier.push(
+        ...page.messages
+          .filter(({ uid }) => uid >= floor && uid < end)
+          .map((message) => listedMessage(folder, uidValidity, message)),
+      );
+      ({ below } = page);
+    }
+    return earlier;
+  });
   // Reads what changed in the folder since the cached checkpoint, or its newest messages afresh
   // without one at the folder's UIDVALIDITY.
   const readFolder = Effect.fnUntraced(function* (
@@ -1511,9 +1572,15 @@ export function createImapInbox(
         ? unlisted
         : Math.min(unlisted, next - Math.min(next, cached.uidNext));
     let messages: readonly Envelope[] = [];
+    let earlier: readonly ImapMessage[] = [];
     if (remaining > window) {
-      // More arrived than the window keeps: only the newest are read.
+      // More arrived than the window keeps: only the newest are listed.
       messages = yield* newest;
+      earlier = yield* readEarlier(scope, request.folder, {
+        uidValidity: selection.uidValidity,
+        checkpoint: cached.uidNext,
+        listed: messages,
+      });
     } else if (next === 0 || next > cached.uidNext) {
       // `UID n:*` always names the newest message, even one below n, so it is left out.
       messages = (yield* envelopes({
@@ -1527,6 +1594,7 @@ export function createImapInbox(
       reset: false,
       messages,
       flags,
+      earlier,
     } satisfies FolderRead;
   });
   const synchronizeFolder = Effect.fnUntraced(function* (name: string) {
@@ -1564,10 +1632,8 @@ export function createImapInbox(
     if (name === inboxFolder) {
       // Shows the new mail, and the folders and capabilities just listed, before reporting it.
       render();
-      yield* reportArrivals(
-        arrived,
-        arrivedMessages(cached, read, entry.cache),
-      );
+      const { listed, earlier } = arrivedMessages(cached, read, entry.cache);
+      yield* reportArrivals(arrived, listed, earlier);
     }
     yield* pruneBodies;
   });

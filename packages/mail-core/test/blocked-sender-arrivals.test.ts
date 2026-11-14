@@ -221,6 +221,73 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
     });
   });
 
+  it('moves new IMAP mail from a Blocked Sender that arrived beyond the Inbox read window', async () => {
+    expect.hasAssertions();
+    const { imap, notified, mailboxes } = await setup();
+    imap.deliver('INBOX', { subject: 'Known note', received: Date.now() });
+    await mailboxes.load();
+    notified.length = 0;
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received: Date.now(),
+    });
+    for (let index = 0; index < 450; index += 1) {
+      imap.deliver('INBOX', { subject: `Note ${index}`, received: Date.now() });
+    }
+    const envelopes = vi.spyOn(imap.native, 'imapEnvelopes');
+    const history = imap.native.imapHistory;
+    // Another client expunges the known message between the two history pages.
+    vi.spyOn(imap.native, 'imapHistory').mockImplementationOnce(
+      async (...args) => {
+        const page = await history(...args);
+        imap.expunge('INBOX', 1);
+        return page;
+      },
+    );
+    await mailboxes.load();
+
+    // Only the newest window is listed and notified; the older arrivals' envelopes are read in
+    // UID pages of at most a window, down to the checkpoint.
+    expect(notified).toHaveLength(200);
+    expect(
+      envelopes.mock.calls.map(([, request]) => ({ ...request, session: '' })),
+    ).toStrictEqual([{ session: '', newest: 200, total: 452 }]);
+    expect(
+      imap.server.reads.filter((read) => read.startsWith('history')),
+    ).toStrictEqual(['history INBOX 253', 'history INBOX 53']);
+    await vi.waitFor(() => {
+      expect(imap.server.changes).toStrictEqual(['move INBOX 2 Trash']);
+    });
+  });
+
+  it('keeps the checkpoint when the older arrivals cannot be read, and screens them on retry', async () => {
+    expect.hasAssertions();
+    const { imap, notified, mailboxes } = await setup();
+    imap.deliver('INBOX', { subject: 'Known note', received: Date.now() });
+    await mailboxes.load();
+    notified.length = 0;
+    imap.deliver('INBOX', {
+      subject: 'IMAP offer',
+      address: blocked,
+      received: Date.now(),
+    });
+    for (let index = 0; index < 250; index += 1) {
+      imap.deliver('INBOX', { subject: `Note ${index}`, received: Date.now() });
+    }
+    imap.server.historyFailure = 'offline';
+    await mailboxes.load();
+    expect(notified).toStrictEqual([]);
+    expect(imap.server.changes).toStrictEqual([]);
+
+    imap.server.historyFailure = undefined;
+    await mailboxes.load();
+    expect(notified).toHaveLength(200);
+    await vi.waitFor(() => {
+      expect(imap.server.changes).toStrictEqual(['move INBOX 2 Trash']);
+    });
+  });
+
   it("follows neither Profile's blocks for a connection moved while its mail was screened", async () => {
     expect.hasAssertions();
     const { gmail, notified, mailboxes, gmailProfile, screened } =

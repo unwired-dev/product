@@ -470,6 +470,10 @@ type Opened = Readonly<
   )
 >;
 
+// The messages screening moves to Trash, looked up once per arrival of a burst of any size.
+const movedBy = (screened: Readonly<{ move: readonly string[] }> | undefined) =>
+  new Set(screened?.move);
+
 // One Inbox per Mailbox Connection that can open, in the order the connections were added, read
 // from Gmail, Microsoft Graph or IMAP. Each keeps its own cache, changes, synchronization and
 // authorization; a connection that needs authorization again, is removed, or changes Product
@@ -617,11 +621,13 @@ export function createMailboxes(
       // Mail from a Blocked Sender of the connection's current Mail Profile posts no notification,
       // whether or not notifications are on, and moves to Trash through the reader's queued change.
       // `trashing` is how the connection takes a message to Trash now, or undefined without one.
+      // `earlier` arrivals, beyond the reader's window, are screened but never notified.
       const report =
         <M extends ArrivedMessage & Readonly<{ receivedAt: string }>>(
           trashing: () => ((message: M) => void) | undefined,
         ) =>
-        async (arrivals: readonly M[]) => {
+        async (listed: readonly M[], earlier: readonly M[] = []) => {
+          const arrivals = [...listed, ...earlier];
           const trash = trashing();
           const profile = () =>
             openMailboxes(registration.getSnapshot().snapshot).find(
@@ -638,13 +644,12 @@ export function createMailboxes(
                 );
           // A connection moved to another Profile meanwhile follows neither Profile's blocks.
           const screened = profile() === screenedFor ? result : undefined;
-          const moving = arrivals.filter(
-            (message) => screened?.move.includes(message.id) === true,
-          );
+          const move = movedBy(screened);
+          const moving = arrivals.filter((message) => move.has(message.id));
           for (const message of moving) {
             trash?.(message);
           }
-          const messages = arrivals.filter(
+          const messages = listed.filter(
             (message) => screened?.blocked.has(message.id) !== true,
           );
           if (arrived === undefined || messages.length === 0) {

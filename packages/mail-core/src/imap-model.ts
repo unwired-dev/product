@@ -293,13 +293,15 @@ export const decodeFlags = Schema.decodeUnknownEffect(
   Schema.Struct({ flags: Schema.Array(FlagsSchema) }),
 );
 // What a folder synchronization read: its identity, new or listed messages, and the flags of the
-// already-known messages that remain. `reset` lists the newest messages afresh.
+// already-known messages that remain. `reset` lists the newest messages afresh. `earlier` holds the
+// arrivals older than the newest window when more arrived than it keeps, which are never cached.
 export type FolderRead = Readonly<{
   uidValidity: number;
   uidNext: number;
   reset: boolean;
   messages: readonly Envelope[];
   flags: ReadonlyArray<typeof FlagsSchema.Type>;
+  earlier?: readonly ImapMessage[];
 }>;
 // One history read: the folder's UIDVALIDITY, UIDNEXT and message count, the newest messages of the
 // requested UID range, the exclusive cursor its next read starts below, and which of the known UIDs
@@ -443,7 +445,8 @@ export function applyFolderRead(
 // The unread mail a read brought newly into the folder: UIDs from the cached UIDNEXT on, under the
 // same UIDVALIDITY, with an INTERNALDATE no earlier than the previous read began. A first listing,
 // a reset or new UIDVALIDITY and refilled older mail never arrive, nor does mail moved in, which
-// keeps its INTERNALDATE, unless it reached another folder since the previous read.
+// keeps its INTERNALDATE, unless it reached another folder since the previous read. `listed` are in
+// the cache; `earlier` are the arrivals among the read's `earlier` messages.
 export function arrivedMessages(
   cached: FolderCache | undefined,
   read: FolderRead,
@@ -455,11 +458,13 @@ export function arrivedMessages(
     read.reset ||
     cached.uidValidity !== read.uidValidity
   ) {
-    return [];
+    return { listed: [], earlier: [] };
   }
   const since = newMailSince(cached.synchronizedAt);
-  return next.messages.filter(
-    ({ uid, unread, receivedAt }) =>
-      unread && uid >= cached.uidNext && receivedAt >= since,
-  );
+  const arrival = ({ uid, unread, receivedAt }: ImapMessage) =>
+    unread && uid >= cached.uidNext && receivedAt >= since;
+  return {
+    listed: next.messages.filter(arrival),
+    earlier: (read.earlier ?? []).filter(arrival),
+  };
 }
