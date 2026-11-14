@@ -83,6 +83,11 @@ const styles = StyleSheet.create({
   inlinePopUp: { height: 28, marginVertical: -4 },
   inlineSizing: { paddingLeft: 3, paddingRight: 24 },
   inlineSymbolSizing: { paddingLeft: 25, paddingRight: 17 },
+  // AppKit's split button is 75pt wider than its label, for the symbol, insets and arrow, and
+  // 14pt more than a name beside the arrow.
+  split: { flexDirection: 'row' },
+  splitSizing: { paddingLeft: 56, paddingRight: 19 },
+  splitMenuSizing: { paddingLeft: 14, paddingRight: 0 },
 });
 
 export const kindStyles: Record<BlockKind, TextStyle> = {
@@ -323,6 +328,90 @@ export function PopUp({
         style={StyleSheet.absoluteFill}
         symbol={icon}
         text={label}
+      />
+    </View>
+  );
+}
+
+const NativeSplitButton = requireNativeComponent<
+  ViewProps & {
+    readonly sections: ReadonlyArray<{ readonly items: NativePopUpItem[] }>;
+    readonly text: string;
+    readonly symbol: string;
+    readonly menuText: string | undefined;
+    readonly label: string;
+    readonly menuLabel: string;
+    readonly destructiveColor: ReturnType<typeof processColor>;
+    readonly enabled: boolean;
+    readonly onPress: () => void;
+    readonly onSelect: (event: NativeSyntheticEvent<{ id: string }>) => void;
+  }
+>('UnwiredSplitButton');
+
+// AppKit draws, focuses and tracks a split button: its label runs `onPress` and its arrow, which
+// can name a choice, opens the items. A press or choice runs the latest callback while mounted.
+export function SplitButton({
+  label,
+  accessibilityLabel,
+  icon,
+  onPress,
+  menuText,
+  menuAccessibilityLabel,
+  items,
+}: {
+  readonly label: string;
+  readonly accessibilityLabel: string;
+  readonly icon: string;
+  readonly onPress: () => void;
+  readonly menuText?: string | undefined;
+  readonly menuAccessibilityLabel: string;
+  readonly items: readonly PopUpItem[];
+}) {
+  const colors = usePalette();
+  const latest = useRef({ onPress, items });
+  useLayoutEffect(() => {
+    latest.current = { onPress, items };
+    return () => {
+      latest.current = { onPress: () => undefined, items: [] };
+    };
+  });
+  return (
+    <View style={[styles.popUp, styles.split]}>
+      {/* The hidden labels size the control, which AppKit draws over them. */}
+      <Text
+        numberOfLines={1}
+        style={[textStyles.body, styles.popUpSizing, styles.splitSizing]}>
+        {label}
+      </Text>
+      {menuText === undefined ? null : (
+        <Text
+          numberOfLines={1}
+          style={[textStyles.body, styles.popUpSizing, styles.splitMenuSizing]}>
+          {menuText}
+        </Text>
+      )}
+      {/* The accessibility props serve Testing Library; VoiceOver reads the AppKit segments. */}
+      <NativeSplitButton
+        accessible
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        destructiveColor={processColor(colors.statusDestructive)}
+        enabled
+        sections={[{ items: nativeItems(items) }]}
+        text={label}
+        symbol={icon}
+        menuText={menuText}
+        label={accessibilityLabel}
+        menuLabel={menuAccessibilityLabel}
+        onPress={() => {
+          latest.current.onPress();
+        }}
+        onSelect={({ nativeEvent }) => {
+          enabledItems(latest.current.items)
+            .find((item) => item.key === nativeEvent.id)
+            ?.run?.();
+        }}
+        style={StyleSheet.absoluteFill}
       />
     </View>
   );

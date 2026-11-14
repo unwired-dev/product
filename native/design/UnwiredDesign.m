@@ -1273,6 +1273,77 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 }
 @end
 
+// A split button that AppKit draws, focuses and tracks: its first segment shows `text` and `symbol`
+// and sends onPress; its second shows the menu indicator after an optional `menuText` and drops
+// the items below itself. AppKit's NSComboButton draws the same control but cannot name a choice
+// on its arrow side. React Native macOS 0.81.9 has no split button; remove this view when it
+// offers one.
+@interface UnwiredSplitButtonView : NSView
+@property (nonatomic, copy) NSArray<NSDictionary *> *sections;
+@property (nonatomic, copy) NSString *text;
+@property (nonatomic, copy) NSString *symbol;
+@property (nonatomic, copy) NSString *menuText;
+@property (nonatomic, copy) NSString *label;
+@property (nonatomic, copy) NSString *menuLabel;
+@property (nonatomic, copy) NSColor *destructiveColor;
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onPress;
+@property (nonatomic, copy) RCTDirectEventBlock onSelect;
+@end
+
+@implementation UnwiredSplitButtonView {
+  NSSegmentedControl *_control;
+  NSMenu *_menu;
+}
+- (instancetype)initWithFrame:(NSRect)frame
+{
+  if ((self = [super initWithFrame:frame])) {
+    _enabled = YES;
+    _control = [NSSegmentedControl segmentedControlWithLabels:@[@"", @""]
+                                                 trackingMode:NSSegmentSwitchTrackingMomentary
+                                                       target:self
+                                                       action:@selector(press:)];
+    _control.frame = self.bounds;
+    _control.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    // A segment's own menu opens only on press and hold, so the arrow opens it on a click.
+    [_control setShowsMenuIndicator:YES forSegment:1];
+    [self addSubview:_control];
+  }
+  return self;
+}
+- (BOOL)isAccessibilityElement { return NO; }
+// React Native applies the whole prop batch before rebuilding the menu.
+- (void)didSetProps:(NSArray<NSString *> *)changedProps
+{
+  [_control setLabel:self.text ?: @"" forSegment:0];
+  [_control setImage:self.symbol.length > 0 ? [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil] : nil
+          forSegment:0];
+  [_control setLabel:self.menuText ?: @"" forSegment:1];
+  _menu = UnwiredMenuOf(@"", self.sections ?: @[], self, self.destructiveColor ?: NSColor.systemRedColor);
+  _control.enabled = self.enabled;
+  // VoiceOver reads each segment as a button; the arrow has no title of its own.
+  NSArray *segments = _control.cell.accessibilityChildren;
+  [segments.firstObject setAccessibilityLabel:self.label];
+  [segments.lastObject setAccessibilityLabel:self.menuLabel];
+}
+- (void)press:(NSSegmentedControl *)sender
+{
+  if (sender.selectedSegment == 0) {
+    if (self.onPress) self.onPress(@{});
+    return;
+  }
+  NSRect arrow = [_control convertRect:[self.window convertRectFromScreen:[_control.cell.accessibilityChildren.lastObject accessibilityFrame]]
+                              fromView:nil];
+  NSRect bounds = _control.bounds;
+  CGFloat bottom = _control.isFlipped ? NSMaxY(bounds) : NSMinY(bounds);
+  [_menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(arrow), bottom) inView:_control];
+}
+- (void)select:(NSMenuItem *)sender
+{
+  if (self.onSelect) self.onSelect(@{@"id": sender.representedObject});
+}
+@end
+
 // A question in a sheet on its anchor's window, answering the chosen button's index. React Native
 // macOS's Alert asks over the key window and cannot withdraw a question its asker no longer owns.
 @interface UnwiredAlert : NSObject <RCTBridgeModule>
@@ -1522,5 +1593,23 @@ RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPopUpButtonView new]; }
+@end
+
+@interface UnwiredSplitButtonManager : RCTViewManager
+@end
+
+@implementation UnwiredSplitButtonManager
+RCT_EXPORT_MODULE(UnwiredSplitButton)
+RCT_EXPORT_VIEW_PROPERTY(sections, NSArray)
+RCT_EXPORT_VIEW_PROPERTY(text, NSString)
+RCT_EXPORT_VIEW_PROPERTY(symbol, NSString)
+RCT_EXPORT_VIEW_PROPERTY(menuText, NSString)
+RCT_EXPORT_VIEW_PROPERTY(label, NSString)
+RCT_EXPORT_VIEW_PROPERTY(menuLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
+- (UnwiredPlatformView *)view { return [UnwiredSplitButtonView new]; }
 @end
 #endif

@@ -117,12 +117,10 @@ const queuedPress = (label: string) => {
   throw new Error('Expected a rendered press handler');
 };
 
-// Chooses a target language from the reader's Translate control: a pull-down until a language is
-// chosen, then a pop-up naming it.
+// Chooses another target language from the arrow of the reader's Translate control, which names
+// the chosen one.
 const translateInto = async (language: string) => {
-  await fireEvent.press(
-    await screen.findByLabelText(/^Translate (?:this message|into )/u),
-  );
+  await fireEvent.press(await screen.findByLabelText(/^Translate [Ii]nto/u));
   await chooseMenuItem(language);
 };
 
@@ -140,15 +138,15 @@ describe('on-device translation in the reader', () => {
     announce.mockClear();
     try {
       const reads = gmail.requests.length;
-      // The native menu lists the device's languages; nothing is translated until one is chosen.
+      // The arrow lists the device's other languages, without the app language; opening it
+      // translates nothing.
       expect(screen.getByLabelText('Translate this message')).toHaveProp(
-        'pullsDown',
-        true,
+        'symbol',
+        'translate',
       );
-      await fireEvent.press(screen.getByLabelText('Translate this message'));
+      await fireEvent.press(screen.getByLabelText('Translate Into'));
       expect(menuItems()).toStrictEqual([
         expect.objectContaining({ title: 'Translate Into', disabled: true }),
-        expect.objectContaining({ title: 'English', checked: false }),
         expect.objectContaining({ title: 'German', checked: false }),
         expect.objectContaining({
           title: 'Spanish',
@@ -158,19 +156,36 @@ describe('on-device translation in the reader', () => {
       ]);
       await dismissMenu();
       expect(asked).toHaveLength(0);
-      await translateInto('Spanish');
+      // One click translates into the app language.
+      await fireEvent.press(screen.getByLabelText('Translate this message'));
       expect(asked).toHaveLength(1);
       expect(asked[0]?.input).toBe('Please confirm the venue by Friday.');
-      expect(asked[0]?.target).toBe('es');
+      expect(asked[0]?.target).toBe('en');
       asked[0]?.answer.resolve({
+        source: 'es',
+        text: 'Please confirm the venue by Friday, translated.',
+      });
+      await expect(
+        screen.findByText('Translation into English'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByLabelText('Translate Into')).toBeOnTheScreen();
+
+      await translateInto('Spanish');
+      expect(asked).toHaveLength(2);
+      expect(asked[1]?.target).toBe('es');
+      asked[1]?.answer.resolve({
         source: 'en',
         text: 'Confirma el lugar antes del viernes.',
       });
       await expect(
         screen.findByText('Confirma el lugar antes del viernes.'),
       ).resolves.toBeOnTheScreen();
-      // VoiceOver hears the result once, after current speech.
+      // VoiceOver hears each result once, after current speech.
       expect(announce.mock.calls).toStrictEqual([
+        [
+          'Translation into English\nPlease confirm the venue by Friday, translated.',
+          { queue: true },
+        ],
         [
           'Translation into Spanish\nConfirma el lugar antes del viernes.',
           { queue: true },
@@ -186,14 +201,10 @@ describe('on-device translation in the reader', () => {
         screen.getByText('Please confirm the venue by Friday.'),
       ).toBeOnTheScreen();
       expect(gmail.requests).toHaveLength(reads);
-      // The control now names the shown language, checked in its menu.
-      expect(screen.getByLabelText('Translate into Spanish')).toHaveProp(
-        'pullsDown',
-        false,
-      );
-      expect(screen.getByLabelText('Translate into Spanish')).toHaveProp(
-        'symbol',
-        'translate',
+      // The arrow now names the shown language, checked in its menu.
+      expect(screen.getByLabelText('Translate this message')).toHaveProp(
+        'menuText',
+        'Spanish',
       );
       await fireEvent.press(screen.getByLabelText('Translate into Spanish'));
       expect(menuItems()).toContainEqual(
@@ -368,9 +379,7 @@ describe('on-device translation in the reader', () => {
       translationLanguages: () => Promise.resolve([]),
     });
     try {
-      await fireEvent.press(
-        await screen.findByLabelText('Translate this message'),
-      );
+      await fireEvent.press(await screen.findByLabelText('Translate Into'));
       expect(menuItems().map(({ title }) => title)).toStrictEqual([
         'Translate Into',
         'Translation is not available on this device.',
@@ -435,7 +444,7 @@ describe('on-device translation in the reader', () => {
     );
     const app = await render(translated({}));
     try {
-      await translateInto('English');
+      await fireEvent.press(screen.getByLabelText('Translate this message'));
       await screen.findByLabelText('Cancel translation');
       await app.rerender(translated({}));
       expect(cancelled).toStrictEqual([asked[0]?.request]);
