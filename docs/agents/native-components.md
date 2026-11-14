@@ -99,6 +99,17 @@ through 58.0.4), so `SFSymbol` in `apps/mobile/src/design.tsx` keeps the iOS
 delete them and use `SymbolView` once a supported release renders at a given
 point size. The Mac `UnwiredSymbolView` is not part of this exception.
 
+**iPhone and iPad Settings › Appearance choice list.** The frames show Light,
+Dark and System as checkmark rows in a Settings group (#2168). `@expo/ui`
+58.0.28 `Picker` (`swift-ui/Picker`, `modifiers/pickerStyle.d.ts`) draws
+`pickerStyle('inline')` as a wheel outside a `Form` or `List`. Inside a `Form`
+it draws the checkmark rows, but a `Form` has no content height: in a
+`Host matchContents` within the Settings page's `ScrollView` it collapses to
+zero, and a fixed height breaks Dynamic Type. So `appearance-settings.tsx`
+keeps three `Pressable` rows with radio state and a checkmark. Delete them for
+the inline `Picker` once Settings pages are a native `Form` (#1053) or `Host`
+sizes a `Form` to its content.
+
 ## Skills
 
 For React, React Native or Expo implementation and review, load
