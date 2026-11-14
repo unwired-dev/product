@@ -37,6 +37,7 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { remindFromSendMenu } from './send-menu.tsx';
+import { choose } from './system-menu.tsx';
 import { chooseWritingTool, writingToolChoice } from './writing-tools.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
@@ -389,7 +390,6 @@ describe('sending a Draft', () => {
       });
       // These callbacks were dispatched before native received the read-only props.
       await press('Format');
-      await press('Send from alex@example.invalid');
       const changeSubject = screen.getByLabelText('Subject').props.onChangeText;
       const changeBody =
         screen.getByLabelText('Message body').props.onChangeText;
@@ -594,8 +594,7 @@ describe('sending a Draft', () => {
       await act(async () => {
         await sender.drafts.save();
       });
-      await press('Compose actions');
-      await press('Discard');
+      await choose('Compose actions', 'Discard');
       await press('Discard Draft');
       expect(screen.queryByLabelText('Subject')).toBeNull();
       await press('New Message');
@@ -763,8 +762,7 @@ describe('sending a Draft', () => {
           name: 'Add a recipient before sending.',
         }),
       ).toBeNull();
-      await press('Compose actions');
-      await press('Discard');
+      await choose('Compose actions', 'Discard');
       await press('Discard Draft');
       // Gmail refuses the first, keeps the second without answering, and answers the third with
       // a server error without keeping it.
@@ -783,8 +781,7 @@ describe('sending a Draft', () => {
       ).toBeOnTheScreen();
       await press('Edit');
       expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Refused');
-      await press('Compose actions');
-      await press('Discard');
+      await choose('Compose actions', 'Discard');
       await press('Discard Draft');
       await compose('Lost');
       await press('Send');

@@ -1,3 +1,4 @@
+import type { MenuSection } from '@private-email/mail-core/context-menu';
 import type {
   BlockKind,
   Link,
@@ -51,7 +52,6 @@ import {
 } from '@private-email/mail-core/theme';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  Animated,
   Keyboard,
   Platform,
   Pressable,
@@ -64,14 +64,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  Glass,
   GlassPanel,
   MenuButton,
   ScaledToolbar,
   scaledToolbar,
   SFSymbol,
   ToolbarButton,
-  useMenuMotion,
   useOutcomeAnnouncement,
 } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -221,8 +219,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.insetGroup - spacing.xs,
   },
-  // Keeps an open menu above the content that follows it.
-  menuAnchor: { zIndex: 1 },
   popUp: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -241,18 +237,7 @@ const styles = StyleSheet.create({
     paddingLeft: 0,
     paddingRight: 0,
   },
-  menuTrailing: { left: 'auto', right: 0 },
   popUpText: { ...textStyles.subheadline, flexShrink: 1 },
-  menu: {
-    position: 'absolute',
-    left: 0,
-    minWidth: 240,
-    padding: 6,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  menuBelow: { top: '100%', marginTop: spacing.xs },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -394,9 +379,7 @@ const blockGroups = {
   text: blockControls.slice(5),
 };
 
-// A pop-up control whose menu opens in flow beside it; the menu lists its children.
-// shortcut: the menu closes only from its control or an item, not from a tap elsewhere;
-// replace with a native menu once the hosts expose one.
+// A pop-up button whose system menu opens on tap and lists its items.
 export function PopUp({
   label,
   accessibilityLabel,
@@ -405,9 +388,7 @@ export function PopUp({
   quiet = false,
   disabled = false,
   selected = false,
-  open,
-  onToggle,
-  children,
+  items,
 }: {
   readonly label?: string;
   readonly accessibilityLabel: string;
@@ -417,21 +398,16 @@ export function PopUp({
   readonly disabled?: boolean;
   // Whether the shown choice is in effect, as a chosen sender is and a retained one is not.
   readonly selected?: boolean;
-  readonly open: boolean;
-  readonly onToggle: () => void;
-  readonly children: ReactNode;
+  readonly items: MenuSection['items'];
 }) {
   const colors = usePalette();
-  const motion = useMenuMotion(open, 'menu');
   return (
-    <View style={styles.menuAnchor}>
-      <Pressable
-        accessibilityLabel={accessibilityLabel}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open, disabled, selected }}
-        disabled={disabled}
-        hitSlop={quiet ? quietSlop : undefined}
-        onPress={onToggle}
+    <MenuButton
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected }}
+      disabled={disabled}
+      sections={[{ items }]}>
+      <View
         style={[
           styles.popUp,
           quiet && styles.quietPopUp,
@@ -464,30 +440,8 @@ export function PopUp({
             />
           </>
         )}
-      </Pressable>
-      {motion.shown ? (
-        <Animated.View
-          accessibilityRole="menu"
-          // A closing menu leaves VoiceOver and touch at once; only its picture fades.
-          accessibilityElementsHidden={!open}
-          pointerEvents={open ? 'auto' : 'none'}
-          style={[
-            motion.style,
-            styles.menu,
-            label === undefined ? styles.menuTrailing : null,
-            styles.menuBelow,
-            {
-              backgroundColor: colors.surfaceContent,
-              borderColor: colors.separator,
-              boxShadow: colors.menuShadow,
-              transformOrigin: `top ${label === undefined ? 'right' : 'left'}`,
-            },
-          ]}>
-          <Glass cornerRadius={radius.card} />
-          {children}
-        </Animated.View>
-      ) : null}
-    </View>
+      </View>
+    </MenuButton>
   );
 }
 
@@ -552,27 +506,21 @@ export function ComposerActions({
   readonly onDiscard: () => void;
 }) {
   const { t } = useLocalization();
-  const [open, setOpen] = useState(false);
   return (
     <PopUp
       accessibilityLabel={t('drafts.actions')}
       icon="ellipsis"
       disabled={disabled}
-      open={open}
-      onToggle={() => {
-        setOpen((current) => !current);
-      }}>
-      <MenuItem
-        destructive
-        disabled={disabled}
-        label={t('drafts.discard')}
-        selected={false}
-        onPress={() => {
-          setOpen(false);
-          onDiscard();
-        }}
-      />
-    </PopUp>
+      items={[
+        {
+          key: 'discard',
+          title: t('drafts.discard'),
+          symbol: 'trash',
+          destructive: true,
+          run: onDiscard,
+        },
+      ]}
+    />
   );
 }
 

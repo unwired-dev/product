@@ -457,6 +457,7 @@ const NativeMenuButton = requireNativeComponent<
 export function MenuButton({
   sections,
   disabled = false,
+  accessibilityState,
   children,
   style,
   ...props
@@ -468,8 +469,9 @@ export function MenuButton({
   return (
     <NativeMenuButton
       {...props}
+      accessible
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityState={{ ...accessibilityState, disabled }}
       enabled={!disabled}
       sections={menu.sections}
       onSelect={({ nativeEvent }) => {
