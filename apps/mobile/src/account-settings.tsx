@@ -208,6 +208,77 @@ function ActionRow({
   );
 }
 
+// A connection's Enter the Password… and Remove…, each absent while its form is open. iPhone gives
+// an IMAP connection's actions rows of their own below it, so its address keeps the row's width;
+// elsewhere they are push buttons in the connection's row.
+function ConnectionActions({
+  place,
+  imap,
+  address,
+  button,
+  busy,
+  repair,
+  remove,
+}: {
+  readonly place: 'row' | 'below';
+  readonly imap: boolean;
+  readonly address: string;
+  readonly button: SettingsButton;
+  readonly busy: boolean;
+  readonly repair: (() => void) | undefined;
+  readonly remove: (() => void) | undefined;
+}) {
+  const { t } = useLocalization();
+  const rows = imap && !settingsColumns;
+  if (rows !== (place === 'below')) {
+    return null;
+  }
+  const repairLabel = t('mailboxes.enterPassword', { address });
+  const removeLabel = t('mailboxes.remove', { address });
+  return rows ? (
+    <>
+      {repair === undefined ? null : (
+        <ActionRow
+          label={repairLabel}
+          title={t('settings.enterPassword')}
+          disabled={busy}
+          onPress={repair}
+        />
+      )}
+      {remove === undefined ? null : (
+        <ActionRow
+          label={removeLabel}
+          title={t('settings.remove')}
+          tone="destructive"
+          disabled={busy}
+          onPress={remove}
+        />
+      )}
+    </>
+  ) : (
+    <>
+      {repair === undefined
+        ? null
+        : button(
+            repairLabel,
+            async () => {
+              repair();
+            },
+            { title: t('settings.enterPassword') },
+          )}
+      {remove === undefined
+        ? null
+        : button(
+            removeLabel,
+            async () => {
+              remove();
+            },
+            { title: t('settings.remove') },
+          )}
+    </>
+  );
+}
+
 // Each Mailbox Connection with its state, adding another, and removal after confirmation.
 function Mailboxes({
   mailboxes,
@@ -251,9 +322,24 @@ function Mailboxes({
         const repairing = imap?.kind === 'repair' && imap.id === mailbox.id;
         // Saved before SMTP: entering the password again sets up sending.
         const receiveOnly = imapMailbox && mailbox.smtp === undefined;
-        // iPhone gives an IMAP connection's actions rows of their own, so its address keeps the
-        // row's width.
-        const actionRows = imapMailbox && !settingsColumns;
+        const actions = {
+          imap: imapMailbox,
+          address: mailbox.address,
+          button,
+          busy,
+          repair:
+            imapMailbox && !repairing
+              ? () => {
+                  setImap({ kind: 'repair', id: mailbox.id });
+                }
+              : undefined,
+          remove:
+            confirming === mailbox.id
+              ? undefined
+              : () => {
+                  setConfirming(mailbox.id);
+                },
+        };
         const updated = updatedFor(mailbox);
         return (
           <View key={mailbox.id}>
@@ -288,52 +374,15 @@ function Mailboxes({
                     { title: t('settings.signIn') },
                   )
                 : null}
-              {imapMailbox && !repairing && !actionRows
-                ? button(
-                    t('mailboxes.enterPassword', { address: mailbox.address }),
-                    async () => {
-                      setImap({ kind: 'repair', id: mailbox.id });
-                    },
-                    { title: t('settings.enterPassword') },
-                  )
-                : null}
-              {confirming === mailbox.id || actionRows
-                ? null
-                : button(
-                    t('mailboxes.remove', { address: mailbox.address }),
-                    async () => {
-                      setConfirming(mailbox.id);
-                    },
-                    { title: t('settings.remove') },
-                  )}
+              <ConnectionActions
+                place="row"
+                {...actions}
+              />
             </SettingsRow>
-            {actionRows ? (
-              <>
-                {repairing ? null : (
-                  <ActionRow
-                    label={t('mailboxes.enterPassword', {
-                      address: mailbox.address,
-                    })}
-                    title={t('settings.enterPassword')}
-                    disabled={busy}
-                    onPress={() => {
-                      setImap({ kind: 'repair', id: mailbox.id });
-                    }}
-                  />
-                )}
-                {confirming === mailbox.id ? null : (
-                  <ActionRow
-                    label={t('mailboxes.remove', { address: mailbox.address })}
-                    title={t('settings.remove')}
-                    tone="destructive"
-                    disabled={busy}
-                    onPress={() => {
-                      setConfirming(mailbox.id);
-                    }}
-                  />
-                )}
-              </>
-            ) : null}
+            <ConnectionActions
+              place="below"
+              {...actions}
+            />
             {receiveOnly || repairing || confirming === mailbox.id ? (
               <SettingsBlock>
                 {receiveOnly ? (
