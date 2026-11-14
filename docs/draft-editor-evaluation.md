@@ -309,10 +309,11 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 Metro builds the page when it loads its configuration for this scenario. Each
 journey signs in, turns on on-device assistance (this build's model and Translation
 are synthetic), starts **New Message**, types a paragraph into the page, rotates the
-device (iPhone, iPad) or narrows the window (Mac), then formats the paragraph (in the
-Format panel on iPhone) and steps **Undo** and **Redo**. On iPhone and iPad it opens a
-whole-body rewrite in landscape before rotating back; on iPad that review expands the
-composer over the window, and the journey chooses **Collapse** first. It chooses **Save Draft** on
+device (iPhone, iPad) or narrows the window (Mac). On iPhone and iPad it then opens a
+whole-body rewrite in landscape and rotates back; on iPad that review expands the
+composer over the window, and the journey chooses **Collapse** first. Each journey then
+formats the paragraph (in the Format panel on iPhone) and steps **Undo** and **Redo**.
+It chooses **Save Draft** on
 **Close**, relaunches and reopens this formatted Draft, checks bold and numbered-list selection state, then
 accepts selected-text and whole-body rewrites, selected-text translation, and a
 reply suggestion. Each operation checks the complete visible authored text after
