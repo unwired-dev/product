@@ -11,6 +11,32 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad composer From and Compose actions menus, 2026-11-14
+
+[#2160](https://github.com/unwired-dev/product/issues/2160) adds a step to the
+`registration-apple` journey's send step: **From** opens the system menu, which
+checks the Draft's sender, and choosing it closes the menu; on iPhone,
+**Compose actions** opens the system menu, whose **Discard** asks first and
+**Keep Editing** keeps the Draft. The journey attaches a capture of each menu.
+The full journey fails before its send step on main, on iPhone after the Profile
+isolation step ([#2146](https://github.com/unwired-dev/product/issues/2146)) and
+on iPad revealing the Mail Profile switcher
+([#2148](https://github.com/unwired-dev/product/issues/2148)), so the step ran in
+a probe: an uncommitted copy of the journey that opens New Message from the
+unified Inbox after setup, runs the step and ends. It printed `PROBE-2160`. It
+ran on a `registration-apple` Release Simulator build of a05405335 with the same
+commands as the entry below and the same Xcode 27.2 (`27B52`), iOS 27.0 runtime,
+macOS 27.2 and root lockfile, once per appearance and device type.
+
+- iPhone 18 Pro and iPad Pro 11-inch (M5), Dark and Light: the step passed.
+  From's menu listed casey@example.invalid, checked, and other@example.invalid;
+  iPhone's Compose actions menu showed the destructive Discard with its trash
+  symbol. The closed From pop-up keeps its capsule.
+- Two Dark iPhone attempts, at a 1-minute host load of 458 and 214, failed at
+  the launch screen before setup and were rerun.
+- Not covered: choosing another sender and the disabled states (Jest-only),
+  hardware keyboard, VoiceOver and the Mac.
+
 ## iPhone and iPad Send menu and Remind Me to Send, 2026-11-14
 
 [#2144](https://github.com/unwired-dev/product/issues/2144) adds a step to the
