@@ -1101,6 +1101,7 @@ final class InboxTests: XCTestCase {
       collapse.tap()
       XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
     }
+    systemComposerMenus(app)
     to.tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
     type("maya@example.invalid", into: to)
@@ -1152,6 +1153,40 @@ final class InboxTests: XCTestCase {
   // Reminder from the iPhone sheet or the iPad popover. The composer stays open with the Draft's
   // banner; Send then removes the reminder. It runs in the Work Profile's Draft, before the
   // journey's later steps.
+  // #2160: From opens the system menu, which checks the Draft's sender, and on iPhone Compose
+  // actions opens one whose Discard still asks first.
+  private func systemComposerMenus(_ app: XCUIApplication) {
+    let from = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send from ")).firstMatch
+    XCTAssertTrue(from.waitForExistence(timeout: 10))
+    let sender = from.label
+    let button = from.frame
+    from.tap()
+    // The menu item carries the button's spoken name.
+    let named = app.buttons.matching(NSPredicate(format: "label == %@", sender))
+    waitUntil { named.count == 2 }
+    let item = named.allElementsBoundByIndex.first { $0.frame != button }
+    XCTAssertEqual(item?.isSelected, true, "From's menu does not check \(sender)")
+    let menu = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    menu.name = "From system menu"
+    menu.lifetime = .keepAlways
+    add(menu)
+    item?.tap()
+    waitUntil { named.count == 1 }
+    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    app.buttons["Compose actions"].tap()
+    let discard = app.buttons["Discard"]
+    XCTAssertTrue(discard.waitForExistence(timeout: 10))
+    let actions = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    actions.name = "Compose actions system menu"
+    actions.lifetime = .keepAlways
+    add(actions)
+    discard.tap()
+    let keep = app.buttons["Keep Editing"]
+    XCTAssertTrue(keep.waitForExistence(timeout: 10))
+    keep.tap()
+    waitUntil { !keep.exists }
+  }
+
   private func sendReminderJourney(_ app: XCUIApplication) {
     let capture = { (name: String) in
       let shot = XCTAttachment(screenshot: app.screenshot())
