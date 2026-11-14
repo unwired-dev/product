@@ -19,6 +19,9 @@ TurboModuleRegistry.getEnforcing = (name) => {
   if (name === 'UnwiredRegistration') {
     return unwiredRegistration;
   }
+  if (name === 'UnwiredStatusBar') {
+    return { refresh: () => undefined };
+  }
   return name === 'SettingsManager' ? settingsManager : getEnforcing(name);
 };
 

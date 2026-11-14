@@ -1,5 +1,12 @@
+import type { TurboModule } from 'react-native';
+
 import { useState } from 'react';
-import { Appearance, Pressable, Settings } from 'react-native';
+import {
+  Appearance,
+  Pressable,
+  Settings,
+  TurboModuleRegistry,
+} from 'react-native';
 
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -16,8 +23,14 @@ function stored(): Choice {
   return value === 'light' || value === 'dark' ? value : 'system';
 }
 
+// UIKit keeps the status bar's style until the app asks again (native/design).
+const statusBar = TurboModuleRegistry.getEnforcing<
+  TurboModule & { readonly refresh: () => void }
+>('UnwiredStatusBar');
+
 function apply(choice: Choice) {
   Appearance.setColorScheme(choice === 'system' ? 'auto' : choice);
+  statusBar.refresh();
 }
 
 // Applies the kept choice at launch, before the first screen draws.

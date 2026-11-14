@@ -1,3 +1,21 @@
+diff --git a/ios/RNSScreen.mm b/ios/RNSScreen.mm
+index 049fd2242..e2a9c449d 100644
+--- a/ios/RNSScreen.mm
++++ b/ios/RNSScreen.mm
+@@ -1966,7 +1966,12 @@ - (UIViewController *)childViewControllerForStatusBarStyle
+ 
+ - (UIStatusBarStyle)preferredStatusBarStyle
+ {
+-  return [RNSScreenWindowTraits statusBarStyleForRNSStatusBarStyle:self.screenView.statusBarStyle];
++  // Unwired: resolve auto against this screen's traits, which follow the app's appearance choice.
++  __block UIStatusBarStyle style;
++  [self.traitCollection performAsCurrentTraitCollection:^{
++    style = [RNSScreenWindowTraits statusBarStyleForRNSStatusBarStyle:self.screenView.statusBarStyle];
++  }];
++  return style;
+ }
+ 
+ - (UIStatusBarAnimation)preferredStatusBarUpdateAnimation
 diff --git a/ios/gamma/split/RNSSplitHostController.mm b/ios/gamma/split/RNSSplitHostController.mm
 index c7d2db759..24684c9fb 100644
 --- a/ios/gamma/split/RNSSplitHostController.mm
