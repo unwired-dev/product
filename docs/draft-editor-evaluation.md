@@ -309,8 +309,11 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 Metro builds the page when it loads its configuration for this scenario. Each
 journey signs in, turns on on-device assistance (this build's model and Translation
 are synthetic), starts **New Message**, types a paragraph into the page, rotates the
-device (iPhone, iPad) or narrows the window (Mac), then formats the paragraph (in the
-Format panel on iPhone) and steps **Undo** and **Redo**. It chooses **Save Draft** on
+device (iPhone, iPad) or narrows the window (Mac). On iPhone and iPad it then opens a
+whole-body rewrite in landscape and rotates back; on iPad that review expands the
+composer over the window, and the journey chooses **Collapse** first. Each journey then
+formats the paragraph (in the Format panel on iPhone) and steps **Undo** and **Redo**.
+It chooses **Save Draft** on
 **Close**, relaunches and reopens this formatted Draft, checks bold and numbered-list selection state, then
 accepts selected-text and whole-body rewrites, selected-text translation, and a
 reply suggestion. Each operation checks the complete visible authored text after
@@ -393,6 +396,15 @@ failed with `pathname contains null byte` on both setup attempts
 (`artifacts/review-634-r7/mac-pods.log` and `artifacts/review-634-r7/mac-pods-retry.log`). The
 host still has no development signing identity, so the signed Mac journey remains
 outstanding.
+
+Rerun on 2026-11-13 for [#989](https://github.com/unwired-dev/product/issues/989), Apple
+M4 Mac mini, macOS 27.2 (26B123), Xcode 27.2 (27B52), iOS 27.0 Simulator runtime
+(24A434), Release `registration-draft-editor` build of `91362c12f`, Dark appearance.
+The iPad Pro 11-inch (M5) journey failed after the landscape rewrite: since #2052 a
+text tool's review leaves the composer expanded over the window, so the page never
+returned to its portrait width. With **Collapse** added to the journey, the iPad
+(`artifacts/expo-bootstrap/native-HRPtG8/`) and iPhone 18 Pro
+(`artifacts/expo-bootstrap/native-oKyg0t/`) journeys passed with zero failures.
 
 ### Formatting fidelity (#819)
 
