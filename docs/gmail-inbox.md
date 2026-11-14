@@ -893,6 +893,11 @@ is long and can be selected. Escape answers Cancel. A flagged link makes Cancel 
 default button too, and its Proceed reads as destructive.
 Other windows retain their independent selections and confirmations.
 
+On iPhone and iPad, confirmation is the system alert (`Alert` from `@expo/ui`),
+whose message ends with the full destination. Cancel has the cancel role, so the
+alert's dismissal answers it, and a flagged link's Proceed reads as destructive.
+The alert closes without acting when its body or reader changes.
+
 The accepted link inspection additionally compares URL-like visible anchor text
 with the destination and checks scheme mismatch, internationalized or numeric
 hosts, embedded credentials, bidirectional controls and cross-site redirect-query
@@ -1729,7 +1734,8 @@ label with an archived message, and a trashed message; its other views list them
 Gmail does. Each message has an HTML or plain-text body; label changes apply for the
 rest of that launch. Its synthetic layer enters only the selected test build.
 The packaged iPhone and iPad journeys confirm setup, open the synchronized Inbox,
-render the opened HTML body in WebKit, confirm and cancel a link destination,
+render the opened HTML body in WebKit, cancel an ordinary and a flagged link in
+the system alert, which shows each one's title, full destination and buttons,
 star and archive a message and undo the archive, relaunch from the encrypted
 cache and return to the account page. The reading steps and the organizing steps
 each passed on iOS 27 simulators before they were combined; the combined journey

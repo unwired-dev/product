@@ -310,6 +310,13 @@ describe('thread view', () => {
     await act(store.load);
     await layOut(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
     await screen.findByTestId('message-webview');
+    // The system alert is modal, so the toggles are found before it opens.
+    const toggle = (sender: string) =>
+      within(messageBy(sender)).getByRole('button', {
+        name: 'Show quoted text',
+      });
+    const otherToggle = toggle('Sam Lee');
+    const ownToggle = toggle('Alex Rivera');
     await act(async () => {
       await fireEvent.press(
         within(messageBy('Alex Rivera')).getByRole('link', {
@@ -320,21 +327,13 @@ describe('thread view', () => {
     expect(screen.getByText('Open this link in your browser?')).toBeVisible();
 
     await act(async () => {
-      await fireEvent.press(
-        within(messageBy('Sam Lee')).getByRole('button', {
-          name: 'Show quoted text',
-        }),
-      );
+      await fireEvent.press(otherToggle);
     });
     expect(screen.getByText('Open this link in your browser?')).toBeVisible();
 
     // Collapsing or expanding the link's own message discards it.
     await act(async () => {
-      await fireEvent.press(
-        within(messageBy('Alex Rivera')).getByRole('button', {
-          name: 'Show quoted text',
-        }),
-      );
+      await fireEvent.press(ownToggle);
     });
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
   });
