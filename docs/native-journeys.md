@@ -240,6 +240,14 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+`testAppearance` uses the same build and sign-in
+([#2153](https://github.com/unwired-dev/product/issues/2153)). Settings ›
+Appearance lists Light, Dark and System above its footer. Choosing Dark, then
+Light, turns the corner of both the Settings and the Inbox window dark, then
+light. After Dark is chosen again and the app relaunches, the Inbox window opens
+dark, and the journey chooses System at the end. Both Settings states and the
+relaunched Inbox are kept as attachments.
+
 ## Mac IMAP Spam and Trash folder journey
 
 The `testImapSpamAndTrashFolders` journey and its `Dark` variant use the same

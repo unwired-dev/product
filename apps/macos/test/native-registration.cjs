@@ -22,7 +22,6 @@ const userDefaults = {};
 const settingsManager = {
   getConstants: () => ({ settings: userDefaults }),
   setValues: (values) => Object.assign(userDefaults, values),
-  deleteValues: (keys) => keys.forEach((key) => delete userDefaults[key]),
 };
 const { getEnforcing } = TurboModuleRegistry;
 // `UnwiredMenu` and `UnwiredAlert` each track one menu or sheet at a time until the journey answers

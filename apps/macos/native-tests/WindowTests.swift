@@ -1821,6 +1821,79 @@ final class WindowTests: XCTestCase {
     attach(settings, "Settings › Blocked Senders empty")
   }
 
+  // #2153: Settings › Appearance switches every window to Light or Dark at once, and a relaunch
+  // opens in the saved choice before the first window draws.
+  func testAppearance() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let settings = app.windows["settings-window"]
+    func attach(_ element: XCUIElement, _ name: String) {
+      let attachment = XCTAttachment(screenshot: element.screenshot())
+      attachment.name = name
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    // The brightness of a window's empty lower-right corner, which shows its content surface.
+    func brightness(_ element: XCUIElement) throws -> CGFloat {
+      let bitmap = try XCTUnwrap(
+        element.screenshot().image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+      let color = try XCTUnwrap(
+        bitmap.colorAt(x: bitmap.pixelsWide * 9 / 10, y: bitmap.pixelsHigh * 9 / 10)?
+          .usingColorSpace(.deviceRGB))
+      return color.brightnessComponent
+    }
+    func choose(_ appearance: String) {
+      settings.radioButtons[appearance].click()
+    }
+    // AppKit redraws the windows after the click, so the corner is polled.
+    func expect(_ element: XCUIElement, dark: Bool) {
+      let drawn = XCTNSPredicateExpectation(
+        predicate: NSPredicate { _, _ in
+          guard let value = try? brightness(element) else { return false }
+          return dark ? value < 0.3 : value > 0.7
+        }, object: nil)
+      XCTAssertEqual(XCTWaiter().wait(for: [drawn], timeout: 10), .completed)
+    }
+
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Appearance"].click()
+    XCTAssertTrue(settings.radioButtons["System"].waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      text(
+        "System follows macOS. Increase Contrast and Reduce Transparency apply in every choice.",
+        in: settings
+      ).exists)
+    choose("Dark")
+    expect(settings, dark: true)
+    expect(window, dark: true)
+    attach(settings, "Settings › Appearance · Dark")
+    choose("Light")
+    expect(settings, dark: false)
+    expect(window, dark: false)
+    attach(settings, "Settings › Appearance · Light")
+    choose("Dark")
+    expect(settings, dark: true)
+
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(window.waitForExistence(timeout: 30))
+    expect(window, dark: true)
+    attach(window, "Inbox after relaunch · Dark")
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Appearance"].click()
+    XCTAssertTrue(settings.radioButtons["Dark"].waitForExistence(timeout: 10))
+    choose("System")
+  }
+
   // #1538: a window switched to a Mail Profile that owns no mailbox shows No Mailboxes, with
   // Manage Mail Profiles… opening Settings › Mail Profiles, in each appearance.
   func testMailProfileWithoutMailboxes() throws {
