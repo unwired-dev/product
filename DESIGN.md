@@ -398,7 +398,8 @@ styles) so the file stays editable.
   narrow window hides the sidebar. Compact layouts collapse the three destinations
   into native navigation, per the [organization requirements](docs/product/organization.md).
 - **iPad top row:** the sidebar's buttons, the Command Input with Select, and the
-  reader toolbar share one centre line, 68pt below the top of the screen.
+  reader toolbar share one centre line, 36pt below the top safe area. The
+  full-screen frames, with their 32pt status bar, draw it 68pt from the top.
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
   then the primary Unified Mailboxes (Inbox, Snoozed, Pins and Sent),
   secondary Archive, All Mail, Spam and Trash, one collapsible section per
