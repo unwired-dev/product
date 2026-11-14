@@ -1,5 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 
+import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import { buttonStyle, tint } from '@expo/ui/swift-ui/modifiers';
 import {
   ipadListScale,
   radius,
@@ -36,6 +38,7 @@ export type SettingsDestination =
   | 'profiles'
   | 'signatures'
   | 'notifications'
+  | 'blockedSenders'
   | 'language'
   | 'privacy'
   | 'errorReporting';
@@ -50,7 +53,13 @@ const sections = [
     ],
   },
   { title: 'composing', items: [{ id: 'signatures', icon: 'signature' }] },
-  { title: 'automation', items: [{ id: 'notifications', icon: 'bell' }] },
+  {
+    title: 'automation',
+    items: [
+      { id: 'notifications', icon: 'bell' },
+      { id: 'blockedSenders', icon: 'hand.raised.slash' },
+    ],
+  },
   {
     title: 'application',
     items: [
@@ -414,6 +423,7 @@ export function SettingsWorkspace({
   onWelcome,
   children,
   detail,
+  edit,
 }: {
   // The Product Account the account item names.
   readonly account: string;
@@ -435,19 +445,28 @@ export function SettingsWorkspace({
   // The selected destination's groups.
   readonly children: ReactNode;
   readonly detail?: ReactNode;
+  // The destination is a system list, which scrolls itself and whose edit mode Edit switches.
+  readonly edit?:
+    | Readonly<{ editing: boolean; onEdit: (editing: boolean) => void }>
+    | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
   const header = usePaletteHeader();
-  const content = (
-    // A control beside a field, such as the signature's Bold, acts on the first tap.
-    <ScrollView
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled">
-      {children}
-    </ScrollView>
-  );
+  const content =
+    edit === undefined ? (
+      // A control beside a field, such as the signature's Bold, acts on the first tap.
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled">
+        {children}
+      </ScrollView>
+    ) : (
+      <View style={styles.page}>{children}</View>
+    );
+  const editLabel = (editing: boolean) =>
+    t(editing ? 'common.done' : 'settings.edit');
   if (settingsColumns) {
     const selected = destination ?? 'account';
     return (
@@ -574,7 +593,25 @@ export function SettingsWorkspace({
             title={t(
               `settings.destinations.${onWelcome === undefined ? selected : 'privacy'}`,
             )}
-            accessory={accessory}
+            accessory={
+              <>
+                {accessory}
+                {edit === undefined ? null : (
+                  <Host matchContents>
+                    <SwiftUIButton
+                      label={editLabel(edit.editing)}
+                      modifiers={[
+                        buttonStyle('borderless'),
+                        tint(colors.textPrimary),
+                      ]}
+                      onPress={() => {
+                        edit.onEdit(!edit.editing);
+                      }}
+                    />
+                  </Host>
+                )}
+              </>
+            }
           />
           {content}
         </View>
@@ -726,7 +763,24 @@ export function SettingsWorkspace({
           testID="settings-destination"
           activityState={2}
           freezeOnBlur={false}
-          headerConfig={bar(t(`settings.destinations.${destination}`))}
+          headerConfig={{
+            ...bar(t(`settings.destinations.${destination}`)),
+            // An editable list's frames give its bar Edit alone.
+            ...(edit === undefined
+              ? {}
+              : {
+                  headerRightBarButtonItems: [
+                    {
+                      type: 'button' as const,
+                      title: editLabel(edit.editing),
+                      variant: edit.editing ? 'done' : 'plain',
+                      onPress: () => {
+                        edit.onEdit(!edit.editing);
+                      },
+                    },
+                  ],
+                }),
+          }}
           gestureEnabled
           onDismissed={() => {
             onDestination(undefined);
