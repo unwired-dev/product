@@ -51,15 +51,21 @@ import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
+// The menu items whose events name the window they were chosen in.
+type MenuEvent = 'refresh' | 'newMessage';
+
 const PaletteContext = createContext<
   Readonly<{
     registry: CommandRegistry;
     // The AppKit window whose Commands… menu item opens this palette.
     identifier: string;
+    // Whether a menu item was chosen for this window before it could run, once.
+    takePending: (event: MenuEvent) => boolean;
   }>
 >({
   registry: createCommandRegistry(),
   identifier: 'inbox-window-',
+  takePending: () => false,
 });
 
 // Closes the open palette; undefined while it is closed.
@@ -117,7 +123,7 @@ interface CommandMenu extends TurboModule {
   readonly finishClose: (window: string, allowed: boolean) => void;
 }
 
-// The Commands… menu item, Command-P, names the key window it was chosen in.
+// The Commands… menu item, Command-K, names the key window it was chosen in.
 const commandMenu = () =>
   TurboModuleRegistry.get<CommandMenu>('UnwiredCommands');
 
@@ -332,30 +338,34 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
   }, [identifier]);
 }
 
-// While mounted, View › Refresh, Command-R, chosen in this window runs `refresh`.
-export function useRefreshCommand(refresh: () => void) {
-  const { identifier } = use(PaletteContext);
-  const refreshNow = useRef(refresh);
+// While mounted, a menu item chosen in this window runs `run`: View › Refresh (Command-R), or
+// File › New Message (Command-N).
+export function useMenuCommand(event: MenuEvent, run: () => void) {
+  const { identifier, takePending } = use(PaletteContext);
+  const runNow = useRef(run);
   useLayoutEffect(() => {
-    refreshNow.current = refresh;
-  }, [refresh]);
+    runNow.current = run;
+  }, [run]);
   useEffect(() => {
     const menu = commandMenu();
     if (menu === null) {
       return undefined;
     }
     const subscription = new NativeEventEmitter(menu).addListener(
-      'refresh',
+      event,
       ({ window }: { readonly window: string }) => {
         if (window === identifier) {
-          refreshNow.current();
+          runNow.current();
         }
       },
     );
+    if (takePending(event)) {
+      runNow.current();
+    }
     return () => {
       subscription.remove();
     };
-  }, [identifier]);
+  }, [event, identifier, takePending]);
 }
 
 // Collects the commands the window's screens offer; every window has one, above every screen that
@@ -363,17 +373,31 @@ export function useRefreshCommand(refresh: () => void) {
 export function CommandPaletteProvider({
   windowId,
   identifier,
+  pending,
   children,
 }: {
   readonly windowId: string;
   // The AppKit window's identifier, when it is not a numbered Inbox window.
   readonly identifier?: string;
+  // A menu item chosen as AppKit opened the window, before its JavaScript listened.
+  readonly pending?: MenuEvent | undefined;
   readonly children: ReactNode;
 }) {
   const registry = useMemo(() => createCommandRegistry(), []);
   const window = identifier ?? `inbox-window-${windowId}`;
+  const waiting = useRef(pending);
   const value = useMemo(
-    () => ({ registry, identifier: window }),
+    () => ({
+      registry,
+      identifier: window,
+      takePending: (event: MenuEvent) => {
+        if (waiting.current !== event) {
+          return false;
+        }
+        waiting.current = undefined;
+        return true;
+      },
+    }),
     [registry, window],
   );
   const [outsideClose, setOutsideClose] = useState<() => void>();
@@ -544,7 +568,7 @@ export function CommandBar({
       }
     }
   }, [opened]);
-  // Opens the palette when this window's Commands… menu item, Command-P, is chosen.
+  // Opens the palette when this window's Commands… menu item, Command-K, is chosen.
   useEffect(() => {
     const menu = commandMenu();
     if (menu === null) {

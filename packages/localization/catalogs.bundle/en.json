@@ -108,6 +108,7 @@
     "hide": "Hide Unwired Mail",
     "quit": "Quit Unwired Mail",
     "file": "File",
+    "newMessage": "New Message",
     "newWindow": "New Window",
     "closeWindow": "Close Window",
     "edit": "Edit",
@@ -201,6 +202,7 @@
   "settings": {
     "back": "Back",
     "close": "Close Settings",
+    "edit": "Edit",
     "title": "Settings",
     "accountPrivateSync": "Account & Devices · Private Sync on",
     "sections": {
@@ -1352,6 +1354,7 @@
       "starttls": "Mail is sent through {{host}} on port {{port}}, which must switch to TLS with STARTTLS before any password is sent. Its certificate is checked too."
     },
     "incomplete": "Enter the email address, password, both servers, and ports between 1 and 65535.",
+    "found": "Found server settings for {{domain}}. Port and security are filled in for you.",
     "connect": "Connect",
     "connecting": "Connecting to the mail server",
     "cancel": "Cancel",
@@ -1380,7 +1383,7 @@
     "openPalette": "Open Command Palette",
     "close": "Close commands",
     "placeholder": "Type a command",
-    "shortcut": "⌘P",
+    "shortcut": "⌘K",
     "escape": "esc",
     "selection": "Selected Message",
     "selectionWith": "Selected Message · {{subject}}",
@@ -1668,6 +1671,8 @@
     "unblock": "Unblock",
     "unblockFailed": "Couldn’t unblock. Try again.",
     "footer": "This Mac moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
+    "footer_iphone": "This iPhone moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
+    "footer_ipad": "This iPad moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "none": "No Blocked Senders. Block one from the sender’s name in a message.",
     "unavailable": "Blocked Senders couldn’t be read. Try again later."
   }

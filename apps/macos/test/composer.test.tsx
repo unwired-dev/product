@@ -304,6 +304,17 @@ const windowHostWith = (host: TurboModule) => {
     );
 };
 
+// The native menu sends its events through the window host, which also guards closing.
+const menuHost = () => {
+  const host: TurboModule &
+    Readonly<{
+      addListener: typeof ignore;
+      removeListeners: typeof ignore;
+      guardClose: typeof ignore;
+    }> = { addListener: ignore, removeListeners: ignore, guardClose: ignore };
+  return windowHostWith(host);
+};
+
 // A save that throws once, as when storage fails unexpectedly, then saves normally.
 const failingOnce = (save: () => Promise<boolean>) => {
   let failed = false;
@@ -338,6 +349,7 @@ function App({
   profile,
   mailTemplates,
   sendReminders,
+  pending,
 }: {
   readonly mailboxes?: MailboxList;
   readonly registration: ReturnType<typeof account>;
@@ -348,6 +360,8 @@ function App({
   readonly onRebind?: (id: string) => void;
   readonly initialDraft?: string;
   readonly profile?: string;
+  // A menu item chosen as AppKit opened the window.
+  readonly pending?: 'newMessage';
 }) {
   const { snapshot } = useSyncExternalStore(
     registration.subscribe,
@@ -372,7 +386,9 @@ function App({
   const [selected, setSelected] = useState<Selection>();
   const [view, setView] = useState<MailboxView>({});
   return (
-    <CommandPaletteProvider windowId="composer">
+    <CommandPaletteProvider
+      windowId="composer"
+      pending={pending}>
       <CommandBar />
       <AccountContext
         value={{
@@ -3795,6 +3811,68 @@ describe('composing Drafts', () => {
       'nothing matches this',
     );
     expect(screen.queryByText('Drafts')).not.toBeOnTheScreen();
+  });
+
+  it('starts a Draft when File › New Message is chosen in its window', async () => {
+    expect.hasAssertions();
+    const host = menuHost();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const choose = async (window: string) => {
+      await act(async () => {
+        DeviceEventEmitter.emit('newMessage', { window });
+        await Promise.resolve();
+      });
+    };
+    try {
+      await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await expect(
+        screen.findByRole('button', { name: 'New Message' }),
+      ).resolves.toBeEnabled();
+      await choose('inbox-window-other');
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+      await choose('inbox-window-composer');
+      await expect(
+        screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+      ).resolves.toBeEnabled();
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    } finally {
+      host.mockRestore();
+    }
+  });
+
+  it('starts one Draft in a window File › New Message opened', async () => {
+    expect.hasAssertions();
+    const host = menuHost();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    try {
+      await render(
+        <StrictMode>
+          <App
+            drafts={drafts}
+            registration={registration}
+            pending="newMessage"
+          />
+        </StrictMode>,
+      );
+      await expect(
+        screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+      ).resolves.toBeEnabled();
+      await act(async () => {
+        await drafts.save();
+      });
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    } finally {
+      host.mockRestore();
+    }
   });
 
   it('creates one Draft when New Message is pressed again while it is pending', async () => {

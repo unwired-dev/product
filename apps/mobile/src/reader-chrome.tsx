@@ -16,10 +16,11 @@ import {
   View,
 } from 'react-native';
 
+import { useBlockSender } from './block-sender.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
 import { ContextMenu, Monogram, NavigationChrome } from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
-import { useInbox } from './mailbox.tsx';
+import { useInbox, useMailbox } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 // Every reading-column route reports the native column's width to the shell, which sizes the
@@ -155,6 +156,7 @@ export function MessageHeader({
   hanging = false,
 }: {
   readonly message: Readonly<{
+    id: string;
     sender: string;
     address: string;
     receivedAt: string;
@@ -171,6 +173,9 @@ export function MessageHeader({
   const { t } = useLocalization();
   const dateFormat = useMessageDateFormat();
   const fullDateFormat = useMessageDateFormat(true);
+  const connection = useMailbox()?.id ?? '';
+  const block = useBlockSender();
+  const blockItems = block.items(message.address, connection, message.id);
   const copyAddress = () => {
     void setStringAsync(message.address);
   };
@@ -193,16 +198,26 @@ export function MessageHeader({
               },
             ],
           },
+          { items: blockItems },
         ]}>
         <View style={ipad ? null : styles.fromTarget}>
           <View style={ipad ? styles.padIdentity : null}>
             <Text
               accessibilityActions={[
                 { name: 'copy', label: t('contextMenu.copyAddress') },
+                ...blockItems.map(({ key, title }) => ({
+                  name: key,
+                  label: title,
+                })),
               ]}
               onAccessibilityAction={({ nativeEvent }) => {
                 if (nativeEvent.actionName === 'copy') {
                   copyAddress();
+                }
+                for (const item of blockItems) {
+                  if (item.key === nativeEvent.actionName) {
+                    item.run();
+                  }
                 }
               }}
               accessibilityState={highlighted ? { selected: true } : undefined}
@@ -244,6 +259,7 @@ export function MessageHeader({
           ))}
         </View>
       </ContextMenu>
+      {block.alert}
       <Text
         accessibilityLabel={t('message.received', {
           date: fullDateFormat.format(new Date(message.receivedAt)),

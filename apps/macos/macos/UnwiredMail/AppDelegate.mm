@@ -56,6 +56,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 @property(nonatomic, weak) NSTextView *editedText;
 #endif
 - (NSWindow *)openWindowWithProfile:(NSString *)profile;
+- (NSWindow *)openWindowWithProfile:(NSString *)profile newMessage:(BOOL)newMessage;
 @end
 
 @implementation AppDelegate
@@ -183,8 +184,14 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [self openWindowWithProfile:nil];
 }
 
-// A new window names no Mail Profile, so it opens the Startup Profile.
 - (NSWindow *)openWindowWithProfile:(NSString *)profile
+{
+  return [self openWindowWithProfile:profile newMessage:NO];
+}
+
+// A new window names no Mail Profile, so it opens the Startup Profile. With `newMessage`, its
+// JavaScript starts a Draft once its New Message is first available.
+- (NSWindow *)openWindowWithProfile:(NSString *)profile newMessage:(BOOL)newMessage
 {
   self.nextWindowNumber += 1;
   NSString *windowID = [NSString stringWithFormat:@"%lu", (unsigned long)self.nextWindowNumber];
@@ -208,6 +215,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   UnwiredRecordWindowProfile(window.identifier, profile);
   NSMutableDictionary *properties = [@{@"windowId": windowID} mutableCopy];
   if (profile != nil) properties[@"profile"] = profile;
+  if (newMessage) properties[@"newMessage"] = @YES;
   NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredMail"
       initialProperties:properties];
   NSViewController *content = [NSViewController new];
@@ -374,12 +382,31 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [self.settingsWindow.window performClose:sender];
 }
 
-// Command-P opens the key Inbox window's Command Palette; its JavaScript listens for the window.
+// Command-K opens the key Inbox window's Command Palette; its JavaScript listens for the window.
 - (void)showCommands:(id)sender
 {
   NSWindow *window = NSApp.keyWindow;
   if (window.identifier == nil) return;
   [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredOpenCommandPalette" object:window.identifier];
+}
+
+// Command-N starts a Draft in the key Inbox window, as its New Message button does; its JavaScript
+// listens for the window. Chosen in another window, it first brings an Inbox forward as Show Inbox
+// does, or opens one that starts the Draft itself. An open sheet is answered first.
+- (void)newMessage:(id)sender
+{
+  NSWindow *window = NSApp.keyWindow;
+  if (window.sheetParent != nil) return;
+  if (![window.identifier hasPrefix:@"inbox-window-"]) {
+    if (self.inboxWindows.count == 0) {
+      [self openWindowWithProfile:nil newMessage:YES];
+      return;
+    }
+    [self focusInbox:sender];
+    window = self.inboxWindows.firstObject.window;
+    if (window.attachedSheet != nil) return;
+  }
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredNewMessage" object:window.identifier];
 }
 
 // Command-R synchronizes the key Inbox window's mailboxes; its JavaScript listens for the window.
@@ -546,7 +573,10 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   NSMenuItem *fileItem = [main addItemWithTitle:UnwiredNativeText(@"file") action:nil keyEquivalent:@""];
   NSMenu *file = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"file")];
   fileItem.submenu = file;
+  NSMenuItem *newMessage = [file addItemWithTitle:UnwiredNativeText(@"newMessage") action:@selector(newMessage:) keyEquivalent:@"n"];
+  newMessage.target = self;
   NSMenuItem *newItem = [file addItemWithTitle:UnwiredNativeText(@"newWindow") action:@selector(newWindow:) keyEquivalent:@"n"];
+  newItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
   newItem.target = self;
   [file addItemWithTitle:UnwiredNativeText(@"closeWindow") action:@selector(performClose:) keyEquivalent:@"w"];
 
@@ -563,7 +593,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   NSMenuItem *viewItem = [main addItemWithTitle:UnwiredNativeText(@"view") action:nil keyEquivalent:@""];
   NSMenu *view = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"view")];
   viewItem.submenu = view;
-  NSMenuItem *commands = [view addItemWithTitle:UnwiredNativeText(@"commands") action:@selector(showCommands:) keyEquivalent:@"p"];
+  NSMenuItem *commands = [view addItemWithTitle:UnwiredNativeText(@"commands") action:@selector(showCommands:) keyEquivalent:@"k"];
   commands.target = self;
   NSMenuItem *refresh = [view addItemWithTitle:UnwiredNativeText(@"refresh") action:@selector(refresh:) keyEquivalent:@"r"];
   refresh.target = self;

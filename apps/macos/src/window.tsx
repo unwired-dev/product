@@ -141,6 +141,8 @@ type WindowProps = Readonly<{
   windowId: string;
   // The Mail Profile AppKit restored with the window; a new window names none.
   profile?: string;
+  // Opened by File › New Message, so it starts a Draft once it can.
+  newMessage?: boolean;
 }>;
 
 // A switcher's Profile or a notification's targeted message, owned by the window above its gate
@@ -504,12 +506,14 @@ function WindowContents({
   );
 }
 
-export function InboxWindow({ windowId, profile }: WindowProps) {
+export function InboxWindow({ windowId, profile, newMessage }: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
   const savedChoices = useMemo(() => createWindowProfileChoices(), []);
   // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
-    <CommandPaletteProvider windowId={windowId}>
+    <CommandPaletteProvider
+      windowId={windowId}
+      pending={newMessage === true ? 'newMessage' : undefined}>
       <RegistrationGate>
         <ProfileWindow
           windowId={windowId}

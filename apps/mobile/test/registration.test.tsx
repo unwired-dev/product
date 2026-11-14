@@ -4,11 +4,14 @@ import type { Registration } from '@private-email/mail-core/registration';
 import type { RegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
 
 import { english } from '@private-email/localization';
+import { createBlockedSenders } from '@private-email/mail-core/blocked-senders';
+import { ownerOf } from '@private-email/mail-core/drafts';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
 import { createNotifications } from '@private-email/mail-core/notifications';
 import {
   createRegistration,
+  defaultProfile,
   mailboxesOf,
 } from '@private-email/mail-core/registration';
 import { createRemoteContentSettings } from '@private-email/mail-core/remote-content';
@@ -45,6 +48,7 @@ import type { Selection } from '../src/inbox.tsx';
 import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { BlockedSendersContext } from '../src/blocked-senders.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { MailboxesContext } from '../src/mailbox-state.ts';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -160,6 +164,27 @@ const openSettings = async (destination: string) => {
   const row = await screen.findByRole('button', { name: destination });
   await act(async () => {
     await fireEvent.press(row);
+  });
+};
+
+// Chooses `title` from the system context menu that UIKit presents from a long press on `element`.
+const chooseFromMenu = async (
+  element: ReturnType<typeof screen.getByText>,
+  title: string,
+) => {
+  let menu = element.parent;
+  while (menu !== null && menu.type !== 'UnwiredContextMenu') {
+    menu = menu.parent;
+  }
+  assert.ok(menu !== null);
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ id: string; title: string }>;
+  }> = menu.props.sections;
+  const item = sections
+    .flatMap(({ items }) => items)
+    .find((each) => each.title === title);
+  await act(async () => {
+    await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
   });
 };
 
@@ -3170,6 +3195,159 @@ describe('product registration', () => {
     expect(
       screen.queryByRole('header', { name: 'Spam and Trash Folders' }),
     ).toBeNull();
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  /* oxlint-disable vitest/max-expects -- One journey blocks a sender, lists it and unblocks it. */
+  it('blocks a sender from the reader’s sender menu after the system alert, and unblocks it in Settings › Blocked Senders', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    await store.restoreOnce();
+    // Blocked Sender storage on this device, which refuses the first block and the first unblock.
+    const saved = { revision: 0, document: null as string | null };
+    const locked = Object.assign(new Error('locked'), { code: 'locked' });
+    const commit = (owner: string, revision: number, document: string) => {
+      Object.assign(saved, { revision: revision + 1, document });
+      return Promise.resolve({ owner, revision: saved.revision });
+    };
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: () =>
+          Promise.resolve({
+            owner: ownerOf(store.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitBlockedSenders: jest
+          .fn(commit)
+          .mockRejectedValueOnce(locked)
+          .mockImplementationOnce(commit)
+          .mockRejectedValueOnce(locked),
+      },
+      store,
+    );
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <Oliver@Example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: gmail.native },
+    });
+    function Reading() {
+      const [selected, setSelected] = useState<Selection>();
+      return (
+        <InboxProvider mailboxes={mailboxes}>
+          <Shell
+            onSelect={setSelected}
+            selected={selected}
+          />
+          <MessageDetail
+            id={selected?.id}
+            mailbox={selected?.mailbox}
+          />
+        </InboxProvider>
+      );
+    }
+    await render(
+      <BlockedSendersContext value={blocked}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <Reading />
+        </RegistrationGate>
+      </BlockedSendersContext>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    await act(async () => {
+      await fireEvent.press(
+        await screen.findByRole('button', { name: /Oliver Park\. Saturday/u }),
+      );
+    });
+    const sender = await screen.findByText('Oliver@Example.invalid');
+    const block = async () => {
+      await chooseFromMenu(sender, 'Block Sender…');
+      return screen.findByRole('header', {
+        name: 'Block oliver@example.invalid?',
+      });
+    };
+    await block();
+    expect({
+      message: screen.getByText(
+        'New mail from this address goes to Trash in your Primary Profile. The 1 message you have now stays where it is, and the sender isn’t told.',
+      ),
+      // The system alert places Cancel and the destructive Block Sender.
+      buttons: screen
+        .getAllByRole('button', { name: /^(?:Cancel|Block Sender)$/u })
+        .map((button) => within(button).getByText(/./u).props.children),
+    }).toStrictEqual({
+      message: expect.anything(),
+      buttons: ['Cancel', 'Block Sender'],
+    });
+    await press('Cancel');
+    expect(
+      screen.queryByRole('header', { name: 'Block oliver@example.invalid?' }),
+    ).toBeNull();
+    await block();
+    await press('Block Sender');
+    await expect(
+      screen.findByRole('header', {
+        name: 'oliver@example.invalid couldn’t be blocked',
+      }),
+    ).resolves.toBeVisible();
+    await press('OK');
+    await block();
+    await press('Block Sender');
+    await waitFor(async () => {
+      await expect(
+        blocked.blockedSenders(defaultProfile),
+      ).resolves.toMatchObject([{ address: 'oliver@example.invalid' }]);
+    });
+    // Blocking leaves the open message in place.
+    expect(screen.getByText('Oliver@Example.invalid')).toBeVisible();
+
+    await openAccount();
+    await openSettings('Blocked Senders');
+    const row = await screen.findByText('oliver@example.invalid');
+    expect({
+      group: screen.getByText('Primary Profile').props.children,
+      detail: screen.getByText(/^Blocked .+ · 0 since$/u).props.children,
+      footer: screen.getByText(
+        'This iPhone moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.',
+      ),
+    }).toStrictEqual({
+      group: 'Primary Profile',
+      detail: expect.any(String),
+      footer: expect.anything(),
+    });
+    // Edit switches the list's edit mode, and Done ends it.
+    await press('Edit');
+    await press('Done');
+    await expect(
+      screen.findByRole('button', { name: 'Edit' }),
+    ).resolves.toBeVisible();
+    // The row's Delete, from its swipe or edit mode, unblocks it.
+    const unblock = async () => {
+      await act(async () => {
+        await fireEvent(row, 'accessibilityAction', {
+          nativeEvent: { actionName: 'delete' },
+        });
+      });
+    };
+    await unblock();
+    await expect(
+      screen.findByText('Couldn’t unblock. Try again.'),
+    ).resolves.toBeVisible();
+    await unblock();
+    await expect(
+      screen.findByText(
+        'No Blocked Senders. Block one from the sender’s name in a message.',
+      ),
+    ).resolves.toBeVisible();
   });
   /* oxlint-enable vitest/max-expects */
 

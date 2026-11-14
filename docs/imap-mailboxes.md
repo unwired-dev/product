@@ -65,6 +65,38 @@ IMAP ports are not offered. SMTP uses implicit TLS, or STARTTLS that the server 
 offer before any authentication; a server that offers neither is left before any
 credential is sent.
 
+### Catalogued providers
+
+[#2176](https://github.com/unwired-dev/product/issues/2176) fills in the Mac Other IMAP
+Account form from a bundled reviewed catalog, matched by the address's domain. Until
+the person changes a server setting, the servers, ports, security and user name follow
+the address: a catalogued domain fills them in and shows **Found server settings for
+_domain_. Port and security are filled in for you.**, and any other domain leaves them
+empty for manual entry. Once the person changes one, the address no longer changes
+them. The person still reviews both endpoints before **Connect**, and the lookup
+happens on the device. iPhone and iPad, and the [RFC 6186](https://www.rfc-editor.org/rfc/rfc6186.html)
+SRV lookup for other domains, are still open under
+[#2004](https://github.com/unwired-dev/product/issues/2004).
+
+Every entry comes from the provider's own settings page and signs in with the full
+address, except iCloud Mail's IMAP user name as in the table above. Where a provider
+offers both, SMTP uses implicit TLS on 465.
+
+| Domains                                                                           | IMAP server           | SMTP server, port and security      | Source                                                                                                     |
+| --------------------------------------------------------------------------------- | --------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `icloud.com`, `me.com`, `mac.com`                                                 | `imap.mail.me.com`    | `smtp.mail.me.com`, 587, STARTTLS   | [Apple](https://support.apple.com/en-us/102525)                                                            |
+| `fastmail.com`, `fastmail.fm`                                                     | `imap.fastmail.com`   | `smtp.fastmail.com`, 465, SSL/TLS   | [Fastmail](https://www.fastmail.help/hc/en-us/articles/1500000278342)                                      |
+| `yahoo.com`, `ymail.com`, `rocketmail.com`, `yahoo.co.uk`, `yahoo.de`, `yahoo.fr` | `imap.mail.yahoo.com` | `smtp.mail.yahoo.com`, 465, SSL/TLS | [Yahoo](https://help.yahoo.com/kb/SLN4075.html)                                                            |
+| `aol.com`                                                                         | `imap.aol.com`        | `smtp.aol.com`, 465, SSL/TLS        | [AOL](https://help.aol.com/articles/how-do-i-use-other-email-applications-to-send-and-receive-my-aol-mail) |
+| `gmx.com`                                                                         | `imap.gmx.com`        | `mail.gmx.com`, 465, SSL/TLS        | [GMX](https://support.gmx.com/pop-imap/imap/server.html)                                                   |
+| `gmx.net`, `gmx.de`, `gmx.at`, `gmx.ch`                                           | `imap.gmx.net`        | `mail.gmx.net`, 465, SSL/TLS        | [GMX](https://hilfe.gmx.net/pop-imap/imap/imap-serverdaten.html)                                           |
+| `web.de`                                                                          | `imap.web.de`         | `smtp.web.de`, 465, SSL/TLS         | [WEB.DE](https://hilfe.web.de/pop-imap/imap/imap-serverdaten.html)                                         |
+| `mail.com`                                                                        | `imap.mail.com`       | `smtp.mail.com`, 465, SSL/TLS       | [mail.com](https://support.mail.com/pop-imap/imap/server.html)                                             |
+| `seznam.cz`, `email.cz`, `post.cz`                                                | `imap.seznam.cz`      | `smtp.seznam.cz`, 465, SSL/TLS      | [Seznam](https://napoveda.seznam.cz/cz/email/imap-pop3-smtp/)                                              |
+
+Every IMAP server uses port 993. On 14 November 2026 each endpoint completed a TLS 1.2
+handshake whose certificate verified for its host name.
+
 **Connect** logs in to IMAP, then to SMTP on its own, and adds or repairs the connection
 only when both accept. Native code owns password custody. Passwords are supplied only
 when connecting or repairing a connection; they are never returned to JavaScript or

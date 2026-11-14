@@ -115,10 +115,10 @@ the AppKit sheet on Settings offers Cancel and Remove and closes with Escape and
 Return, its default Cancel, keeping the Mail Profile; Remove then removes it. It closes
 Settings with Command-W. It then opens the Gmail
 message **Garden plans for spring** with the pointer and clicks each link's keyboard control.
-Each link's AppKit alert sheet shows its title and full destination. Command-P stays closed
+Each link's AppKit alert sheet shows its title and full destination. Command-K stays closed
 behind the sheet, and Escape and Cancel close it. The flagged link's sheet closes with Escape
 and with Return, its default Cancel. The journey never opens or copies a link. Afterwards
-Command-P opens the palette again. It then searches for the
+Command-K opens the palette again. It then searches for the
 Microsoft message **Quarterly planning** and opens it. The reader's **Folders** AppKit
 menu closes with Escape and with a click outside, then Down and Return choose
 **Projects**, which moves the message and closes its reader. Before continuing, it
@@ -151,7 +151,7 @@ rewrite reports one differing detail with its row and **Use rewrite with changes
 the count line is one text element between the rewrite and the row
 ([#1902](https://github.com/unwired-dev/product/issues/1902)),
 and Keep original closes it with the reply unchanged. Both states are audited and
-kept as `Writing tools W1` and `Writing tools W2` attachments. Command-N opens a second Inbox with no
+kept as `Writing tools W1` and `Writing tools W2` attachments. Option-Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
 Draft into a New Message window, removes the overlay and omits Expand there.
@@ -240,6 +240,17 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+On iPhone and iPad, the default Gmail registration journey
+([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
+open message's sender, chooses **Block Sender…**, and confirms
+`Block rowan@example.invalid?` in the system alert. Settings › Blocked Senders
+then lists the address as `0 since`; **Edit** switches to **Done** and back, and
+a swipe's **Delete** leaves **No Blocked Senders**. The journey returns to the
+Inbox and reopens the message before the body-tap step that fails on iPhone and
+iPad ([#2169](https://github.com/unwired-dev/product/issues/2169)); iPad opens
+Settings through the Command Palette. The alert, the list and its edit mode are
+kept as attachments.
+
 `testAppearance` uses the same build and sign-in
 ([#2153](https://github.com/unwired-dev/product/issues/2153)). Settings ›
 Appearance lists Light, Dark and System above its footer. Choosing Dark, then
@@ -261,7 +272,10 @@ mise exec -- pnpm --filter @private-email/macos test:native \
   testImapSpamAndTrashFolders
 ```
 
-Settings › Email Accounts connects the
+Settings › Email Accounts first types an address at a
+[catalogued provider](imap-mailboxes.md#catalogued-providers) into Other IMAP Account:
+its servers are filled in and the found note shows, and clearing the address empties
+them again ([#2176](https://github.com/unwired-dev/product/issues/2176)). It then connects the
 [synthetic IMAP server](mock-mail-sessions.md), which marks no Spam or Trash folder,
 and lists it under Spam and Trash Folders as not chosen. All Mail shows the
 [not-included notice](imap-mailboxes.md) and leaves out its Inbox message. Choose
@@ -369,7 +383,7 @@ which reopens with both edits and the link's destination.
 These steps still use touch on iPhone and iPad:
 
 - Opening the palette, by the header swipe or the iPad command input. iOS
-  offers no Command-P without native key commands.
+  offers no Command-K without native key commands.
 - Opening a row.
 - Placing the caret in the reply. Reply focuses no field, and Tab does not
   reach one from there, and placing it again in the reopened Draft.
