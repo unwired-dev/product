@@ -794,23 +794,22 @@ describe('product registration', () => {
       });
     };
     // More's system menu: its item titles, and choosing one as the system menu does.
-    const moreItems = async () => {
+    const moreItems = () => {
       const sections: ReadonlyArray<{
         items: ReadonlyArray<{ id: string; title: string }>;
-      }> = (await screen.findByLabelText('More')).props.sections;
+      }> = screen.getByLabelText('More').props.sections;
       return sections.flatMap(({ items }) => items);
     };
     const chooseMore = async (title: string) => {
-      const item = (await moreItems()).find((each) => each.title === title);
-      assert(item !== undefined, `Expected ${title} in More`);
+      const item = moreItems().find((each) => each.title === title);
+      assert.ok(item !== undefined, `Expected ${title} in More`);
       await act(async () => {
         await fireEvent(screen.getByLabelText('More'), 'select', {
           nativeEvent: { id: item.id },
         });
       });
     };
-    const moreTitles = async () =>
-      (await moreItems()).map(({ title }) => title);
+    const moreTitles = () => moreItems().map(({ title }) => title);
 
     // Opening a message marks it read, at the server.
     await press(/Quarterly invoice/u);
@@ -831,15 +830,15 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
     ).resolves.toBeVisible();
-    await waitFor(async () => {
-      expect(await moreTitles()).toContain('Unflag');
+    await waitFor(() => {
+      expect(moreTitles()).toContain('Unflag');
     });
     await chooseMore('Unflag');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
     });
-    await waitFor(async () => {
-      expect(await moreTitles()).toContain('Flag');
+    await waitFor(() => {
+      expect(moreTitles()).toContain('Flag');
     });
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
@@ -871,7 +870,7 @@ describe('product registration', () => {
     await press('Deleted Messages. In alex@example.invalid');
     await press(/Recovered message/u);
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    const recovered = await moreTitles();
+    const recovered = moreTitles();
     for (const name of ['Delete Message', 'Report Spam']) {
       expect(recovered).not.toContain(name);
     }
