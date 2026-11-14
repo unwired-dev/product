@@ -536,6 +536,7 @@ final class InboxTests: XCTestCase {
     type("maya@example.invalid", into: to)
     subject.tap()
     type("Work report", into: subject)
+    sendReminderJourney(app)
     let sentAt = Date()
     app.buttons["Send"].tap()
     let outbox = app.staticTexts["Outbox"].firstMatch
@@ -1083,6 +1084,47 @@ final class InboxTests: XCTestCase {
       add(stuck)
       XCTFail("The sent message stayed in the Outbox")
     }
+  }
+
+  // #2144: a long press on Send opens its menu, and Remind Me to Send… sets the Draft's Send
+  // Reminder from the iPhone sheet or the iPad popover. The composer stays open with the Draft's
+  // banner; Send then removes the reminder. It runs in the Work Profile's Draft, before the
+  // journey's later steps.
+  private func sendReminderJourney(_ app: XCUIApplication) {
+    let capture = { (name: String) in
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = name
+      shot.lifetime = .keepAlways
+      self.add(shot)
+    }
+    let labelled = { (prefix: String) in
+      app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix))
+        .firstMatch
+    }
+    app.buttons["Send"].press(forDuration: 1.2)
+    let remind = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Remind Me to Send"))
+      .firstMatch
+    XCTAssertTrue(remind.waitForExistence(timeout: 15))
+    capture("Send menu")
+    remind.tap()
+    let tomorrow = labelled("Tomorrow Morning, ")
+    XCTAssertTrue(tomorrow.waitForExistence(timeout: 15))
+    XCTAssertTrue(labelled("Keeps this message in Drafts").exists)
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      // The popover selects Tomorrow Morning; Set Reminder sets it.
+      XCTAssertTrue(app.buttons["Cancel"].exists)
+      capture("Remind Me to Send popover")
+      app.buttons["Set Reminder"].tap()
+    } else {
+      capture("Remind Me to Send sheet")
+      tomorrow.tap()
+    }
+    let banner = labelled("Reminder for tomorrow, ")
+    XCTAssertTrue(banner.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.buttons["Change"].exists)
+    XCTAssertTrue(app.buttons["Remove Reminder"].exists)
+    XCTAssertTrue(app.otherElements["composer-overlay"].exists, "Setting a reminder closed the composer")
+    capture("Draft with a Send Reminder")
   }
 
   // Linking verifies both identities; the Gmail grant never becomes a sign-in method.

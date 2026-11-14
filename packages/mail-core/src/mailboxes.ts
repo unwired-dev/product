@@ -497,7 +497,8 @@ export function createMailboxes(
     // to Trash; see BlockedSenders' `screen`. Undefined lets every message through.
     screen?: (
       profile: string,
-      connection: string,
+      // `moves` says whether the connection can move them to Trash now.
+      connection: Readonly<{ id: string; moves: boolean }>,
       messages: ReadonlyArray<
         ArrivedMessage & Readonly<{ receivedAt: string }>
       >,
@@ -615,11 +616,13 @@ export function createMailboxes(
       };
       // Mail from a Blocked Sender of the connection's current Mail Profile posts no notification,
       // whether or not notifications are on, and moves to Trash through the reader's queued change.
+      // `trashing` is how the connection takes a message to Trash now, or undefined without one.
       const report =
         <M extends ArrivedMessage & Readonly<{ receivedAt: string }>>(
-          trash: (message: M) => void,
+          trashing: () => ((message: M) => void) | undefined,
         ) =>
         async (arrivals: readonly M[]) => {
+          const trash = trashing();
           const profile = () =>
             openMailboxes(registration.getSnapshot().snapshot).find(
               (mailbox) => mailbox.id === id && mailbox.owner === owner,
@@ -628,13 +631,18 @@ export function createMailboxes(
           const result =
             screenedFor === undefined
               ? undefined
-              : await screen?.(screenedFor, id, arrivals);
+              : await screen?.(
+                  screenedFor,
+                  { id, moves: trash !== undefined },
+                  arrivals,
+                );
           // A connection moved to another Profile meanwhile follows neither Profile's blocks.
           const screened = profile() === screenedFor ? result : undefined;
-          for (const message of arrivals) {
-            if (screened?.move.includes(message.id) === true) {
-              trash(message);
-            }
+          const moving = arrivals.filter(
+            (message) => screened?.move.includes(message.id) === true,
+          );
+          for (const message of moving) {
+            trash?.(message);
           }
           const messages = arrivals.filter(
             (message) => screened?.blocked.has(message.id) !== true,
@@ -678,23 +686,25 @@ export function createMailboxes(
                 removed,
                 // Only a server that moves messages, to the Trash folder it declares or the
                 // person chose.
-                arrived: report<ImapMessage>((message) => {
+                arrived: report<ImapMessage>(() => {
                   const entry = own();
                   if (entry?.provider !== 'imap') {
-                    return;
+                    return undefined;
                   }
                   const state = entry.inbox.getSnapshot();
                   const destination =
                     state.kind === 'ready' && state.capabilities?.moves === true
                       ? imapRoleFolder(state.folders, 'trash')
                       : undefined;
-                  if (destination !== undefined) {
-                    void entry.inbox.organize(
-                      message,
-                      { kind: 'trash', destination },
-                      { quiet: true },
-                    );
-                  }
+                  return destination === undefined
+                    ? undefined
+                    : (message) => {
+                        void entry.inbox.organize(
+                          message,
+                          { kind: 'trash', destination },
+                          { quiet: true },
+                        );
+                      };
                 }),
                 shared,
                 connection: id,
@@ -706,13 +716,20 @@ export function createMailboxes(
               inbox: createInboxStore(bound(native, id), {
                 removed,
                 // Microsoft without a Deleted Items folder offers no Trash, which changes nothing.
-                arrived: report<GmailMessage>((message) => {
+                arrived: report<GmailMessage>(() => {
                   const entry = own();
-                  if (entry !== undefined && entry.provider !== 'imap') {
-                    void entry.inbox.organize(message, gmailAction.trash, {
-                      quiet: true,
-                    });
+                  if (entry === undefined || entry.provider === 'imap') {
+                    return undefined;
                   }
+                  const state = entry.inbox.getSnapshot();
+                  return state.kind === 'ready' &&
+                    state.unavailableActions?.includes('trash') !== true
+                    ? (message) => {
+                        void entry.inbox.organize(message, gmailAction.trash, {
+                          quiet: true,
+                        });
+                      }
+                    : undefined;
                 }),
                 shared,
                 connection: id,
