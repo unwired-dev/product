@@ -718,11 +718,15 @@ form accessories, keyboards, status bar).
   The frames draw every alert one way: a glass card, 320pt wide on the Mac and
   310pt on iPhone and iPad, with an optional symbol tile, a centred title and
   message, and full-width stacked buttons, 28pt tall on the Mac and 48pt
-  capsules on iPhone and iPad. On the Mac the confirming action comes first in
-  the accent fill; when it is destructive, Cancel comes first and the
-  destructive action last, with a `status/destructive` label on the quiet fill.
-  On iPhone and iPad two short buttons may sit side by side, as the system
-  alert draws them. A popover that hangs from a control is neither.
+  capsules on iPhone and iPad. On the Mac the frames stack the confirming
+  action first in the accent fill; when it is destructive, Cancel comes first
+  and the destructive action last, with a `status/destructive` label on the
+  quiet fill. On iPhone and iPad the cards follow the system alert, which
+  places its buttons by role: stacked, Cancel is last, under the confirming
+  action; a destructive action keeps its `status/destructive` label on the
+  quiet fill and is never the filled button. Two short buttons may sit side by
+  side instead, Cancel at the leading side, whichever kind the action is. A
+  popover that hangs from a control is neither.
 - **Menu / Menu Item:** the system menu, which keeps its own size. The frames
   draw every Mac menu in one recipe: 12pt glass, 28pt items (40pt with a detail
   line) with a 13pt label, a check column where items can be checked, a 14pt
