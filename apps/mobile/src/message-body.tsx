@@ -22,6 +22,14 @@ import type {
 } from 'react-native-webview/lib/WebViewTypes';
 
 import {
+  Alert,
+  Button,
+  Host,
+  Spacer,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
+import { frame } from '@expo/ui/swift-ui/modifiers';
+import {
   inspectLink,
   messageLinkAt,
 } from '@private-email/mail-core/link-inspection';
@@ -45,17 +53,15 @@ import {
 import {
   ActivityIndicator,
   Linking,
-  Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { ContextMenu, Glass, Notice, SFSymbol } from './design.tsx';
+import { ContextMenu, Notice, SFSymbol } from './design.tsx';
 import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
@@ -100,18 +106,18 @@ async function openLink(href: string) {
 }
 
 // Confirms a link's full destination before the system opens it. A link with warning signs
-// explains them and offers copying it instead.
+// explains them and offers copying it instead. The system alert owns presentation, focus and
+// Escape; Cancel's role makes it the dismissal choice.
 function LinkConfirmation({
   link,
   current,
   onDone,
 }: {
   readonly link: BodyLink;
-  // Rechecked before revealing or opening the destination: the body or its Inbox may have closed.
+  // Rechecked before opening or copying the destination: the body or its Inbox may have closed.
   readonly current: () => boolean;
   readonly onDone: () => void;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const reasons = inspectLink(link.href, link.text);
   const proceed = () => {
@@ -120,100 +126,78 @@ function LinkConfirmation({
       void openLink(link.href);
     }
   };
-  const tones = {
-    primary: { fill: colors.accentFill, ink: colors.accentOnFill },
-    secondary: { fill: colors.fillQuiet, ink: colors.textPrimary },
-    destructive: { fill: colors.fillQuiet, ink: colors.statusDestructive },
-  };
-  const copyLink = () => {
-    void setStringAsync(link.href);
-  };
-  const choice = (
-    label: string,
-    onPress: () => void,
-    tone: keyof typeof tones,
-  ) => (
-    <Pressable
-      key={label}
-      accessibilityRole="button"
-      focusable
-      onPress={onPress}
-      style={[styles.choice, { backgroundColor: tones[tone].fill }]}>
-      <Text
-        style={[
-          styles.choiceLabel,
-          tone === 'primary' && styles.choiceEmphasized,
-          { color: tones[tone].ink },
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
+  const cancel = (
+    <Button
+      // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+      role="cancel"
+      label={t('common.cancel')}
+      onPress={onDone}
+    />
   );
   return (
-    <View
-      accessibilityLiveRegion="polite"
-      accessibilityViewIsModal
-      onAccessibilityEscape={onDone}
-      style={[styles.confirm, { backgroundColor: colors.surfaceContent }]}>
-      <Glass
-        cornerRadius={styles.confirm.borderRadius}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={[styles.iconTile, { backgroundColor: colors.fillQuiet }]}>
-        <SFSymbol
-          name={reasons.length === 0 ? 'link' : 'exclamationmark.shield'}
-          size={28}
-          color={
-            reasons.length === 0 ? colors.textSecondary : colors.statusWarning
-          }
-        />
-      </View>
-      {reasons.length === 0 ? null : (
-        <Text
-          accessibilityRole="header"
-          style={[styles.confirmTitle, { color: colors.textPrimary }]}>
-          {t('messageBody.cautionTitle')}
-        </Text>
-      )}
-      <Text style={[styles.confirmText, { color: colors.textPrimary }]}>
-        {reasons.length === 0
-          ? t('messageBody.confirmLink')
-          : t('messageBody.cautionLink')}
-      </Text>
-      {reasons.map((reason) => (
-        <Text
-          key={reason}
-          style={[styles.confirmText, { color: colors.textPrimary }]}>
-          {t('messageBody.warning', { warning: t(`linkWarnings.${reason}`) })}
-        </Text>
-      ))}
-      <Text
-        selectable
-        style={[styles.confirmText, { color: colors.textPrimary }]}>
-        {link.href}
-      </Text>
-      <View style={styles.choices}>
-        {reasons.length === 0
-          ? [
-              choice(t('messageBody.openLink'), proceed, 'primary'),
-              choice(t('common.cancel'), onDone, 'secondary'),
-            ]
-          : [
-              choice(t('common.cancel'), onDone, 'primary'),
-              choice(
-                t('messageBody.copyLink'),
-                () => {
+    <Host matchContents>
+      <Alert
+        testID="link-confirmation"
+        title={
+          reasons.length === 0
+            ? t('messageBody.confirmLink')
+            : t('messageBody.cautionTitle')
+        }
+        isPresented>
+        {/* SwiftUI drops an alert attached to an empty view, so it anchors on a zero-size spacer. */}
+        <Alert.Trigger>
+          <Spacer modifiers={[frame({ width: 0, height: 0 })]} />
+        </Alert.Trigger>
+        <Alert.Actions>
+          {reasons.length === 0 ? (
+            <>
+              <Button
+                label={t('messageBody.openLink')}
+                onPress={proceed}
+              />
+              {cancel}
+            </>
+          ) : (
+            <>
+              {cancel}
+              <Button
+                label={t('messageBody.copyLink')}
+                onPress={() => {
                   onDone();
                   if (current()) {
-                    copyLink();
+                    void setStringAsync(link.href);
                   }
-                },
-                'secondary',
-              ),
-              choice(t('messageBody.proceed'), proceed, 'destructive'),
-            ]}
-      </View>
-    </View>
+                }}
+              />
+              <Button
+                // oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI button role, not ARIA.
+                role="destructive"
+                label={t('messageBody.proceed')}
+                onPress={proceed}
+              />
+            </>
+          )}
+        </Alert.Actions>
+        <Alert.Message>
+          <SwiftUIText>
+            {[
+              ...(reasons.length === 0
+                ? []
+                : [
+                    t('messageBody.cautionLink'),
+                    ...reasons.map((reason) =>
+                      t('messageBody.warning', {
+                        warning: t(`linkWarnings.${reason}`),
+                      }),
+                    ),
+                    '',
+                  ]),
+              link.href,
+            ].join('\n')}
+          </SwiftUIText>
+        </Alert.Message>
+      </Alert>
+    </Host>
   );
 }
 
@@ -228,7 +212,6 @@ export function LinkConfirmationProvider({
   // The messages the reader shows.
   readonly ids: readonly string[];
 }) {
-  const colors = usePalette();
   const [pending, setPending] = useState<PendingLink>();
   // Compare the render owner too: layout cleanup has not invalidated the old reader yet.
   const shown = useSyncExternalStore(
@@ -241,36 +224,13 @@ export function LinkConfirmationProvider({
       <View style={styles.fill}>
         {children}
         {pending === undefined || !shown ? null : (
-          <Modal
-            visible
-            transparent
-            onRequestClose={() => {
+          <LinkConfirmation
+            link={pending.link}
+            current={pending.current}
+            onDone={() => {
               setPending((value) => (value === pending ? undefined : value));
             }}
-            supportedOrientations={[
-              'portrait',
-              'portrait-upside-down',
-              'landscape-left',
-              'landscape-right',
-            ]}>
-            <View
-              style={[
-                styles.modalBackdrop,
-                { backgroundColor: colors.scrimTouch },
-              ]}>
-              <ScrollView style={styles.alertScroll}>
-                <LinkConfirmation
-                  link={pending.link}
-                  current={pending.current}
-                  onDone={() => {
-                    setPending((value) =>
-                      value === pending ? undefined : value,
-                    );
-                  }}
-                />
-              </ScrollView>
-            </View>
-          </Modal>
+          />
         )}
       </View>
     </LinkConfirmationContext>

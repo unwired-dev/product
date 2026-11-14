@@ -120,11 +120,29 @@ final class InboxTests: XCTestCase {
       .matching(identifier: "message-link-control")
       .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch
     XCTAssertTrue(bodyLink.waitForExistence(timeout: 10))
-    bodyLink.tap()
-    XCTAssertTrue(app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 10))
-    app.buttons["Cancel"].tap()
-    XCTAssertTrue(
-      app.staticTexts["Open this link in your browser?"].waitForNonExistence(timeout: 10))
+    // #2155: a link asks in the system alert, which shows its full destination. One whose text
+    // shows another address lists its warnings and offers Copy link and Proceed instead.
+    func ask(_ link: XCUIElement, title: String, destination: String, buttons: [String]) {
+      link.tap()
+      let alert = app.alerts[title]
+      XCTAssertTrue(alert.waitForExistence(timeout: 10))
+      XCTAssertTrue(
+        alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", destination))
+          .firstMatch.exists)
+      XCTAssertEqual(Set(alert.buttons.allElementsBoundByIndex.map(\.label)), Set(buttons))
+      alert.buttons["Cancel"].tap()
+      XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
+    }
+    ask(
+      bodyLink, title: "Open this link in your browser?",
+      destination: "https://example.invalid/garden", buttons: ["Open link", "Cancel"])
+    ask(
+      app.descendants(matching: .any).matching(identifier: "message-link-control")
+        .matching(NSPredicate(format: "label == %@", "https://garden.example.invalid/order"))
+        .firstMatch,
+      title: "This link may not be what it seems",
+      destination: "https://seeds.example.invalid/order",
+      buttons: ["Cancel", "Copy link", "Proceed"])
     verifyRichBodyCanvas(app)
     // #966: a tap on the body closes an open panel without following the link. iPhone has no
     // More (#1404): its Reply sheet offers the actions and opens Gmail's labels in that panel.
@@ -143,8 +161,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(panelItem.waitForExistence(timeout: 5))
     bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     XCTAssertTrue(panelItem.waitForNonExistence(timeout: 5))
-    XCTAssertFalse(
-      app.staticTexts["Open this link in your browser?"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.alerts["Open this link in your browser?"].waitForExistence(timeout: 5))
     // Organizing goes through the packaged native Gmail modify: a star from the Reply sheet on
     // iPhone or the More panel on iPad, then an archive and Undo.
     app.buttons[phone ? "Reply" : "More"].tap()

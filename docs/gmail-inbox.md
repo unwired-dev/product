@@ -893,6 +893,11 @@ is long and can be selected. Escape answers Cancel. A flagged link makes Cancel 
 default button too, and its Proceed reads as destructive.
 Other windows retain their independent selections and confirmations.
 
+On iPhone and iPad, confirmation is the system alert (`Alert` from `@expo/ui`),
+whose message ends with the full destination. Cancel has the cancel role, so the
+alert's dismissal answers it, and a flagged link's Proceed reads as destructive.
+The alert closes without acting when its body or reader changes.
+
 The accepted link inspection additionally compares URL-like visible anchor text
 with the destination and checks scheme mismatch, internationalized or numeric
 hosts, embedded credentials, bidirectional controls and cross-site redirect-query
