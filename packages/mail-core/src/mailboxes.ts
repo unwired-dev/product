@@ -470,6 +470,10 @@ type Opened = Readonly<
   )
 >;
 
+// The messages screening moves to Trash, looked up once per arrival of a burst of any size.
+const movedBy = (screened: Readonly<{ move: readonly string[] }> | undefined) =>
+  new Set(screened?.move);
+
 // One Inbox per Mailbox Connection that can open, in the order the connections were added, read
 // from Gmail, Microsoft Graph or IMAP. Each keeps its own cache, changes, synchronization and
 // authorization; a connection that needs authorization again, is removed, or changes Product
@@ -640,7 +644,7 @@ export function createMailboxes(
                 );
           // A connection moved to another Profile meanwhile follows neither Profile's blocks.
           const screened = profile() === screenedFor ? result : undefined;
-          const move = new Set(screened?.move);
+          const move = movedBy(screened);
           const moving = arrivals.filter((message) => move.has(message.id));
           for (const message of moving) {
             trash?.(message);
