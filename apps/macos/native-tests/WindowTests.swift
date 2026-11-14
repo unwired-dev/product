@@ -1849,8 +1849,11 @@ final class WindowTests: XCTestCase {
           .usingColorSpace(.deviceRGB))
       return color.brightnessComponent
     }
+    // React Native macOS exposes a radio row as a group whose value reads its role and state.
+    func row(_ appearance: String) -> XCUIElement { settings.otherElements[appearance] }
     func choose(_ appearance: String) {
-      settings.radioButtons[appearance].click()
+      row(appearance).click()
+      XCTAssertEqual(row(appearance).value as? String, "radio button, checked")
     }
     // AppKit redraws the windows after the click, so the corner is polled.
     func expect(_ element: XCUIElement, dark: Bool) {
@@ -1865,7 +1868,8 @@ final class WindowTests: XCTestCase {
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.buttons["Appearance"].click()
-    XCTAssertTrue(settings.radioButtons["System"].waitForExistence(timeout: 10))
+    XCTAssertTrue(row("System").waitForExistence(timeout: 10))
+    XCTAssertEqual(row("System").value as? String, "radio button, checked")
     XCTAssertTrue(
       text(
         "System follows macOS. Increase Contrast and Reduce Transparency apply in every choice.",
@@ -1890,7 +1894,8 @@ final class WindowTests: XCTestCase {
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.buttons["Appearance"].click()
-    XCTAssertTrue(settings.radioButtons["Dark"].waitForExistence(timeout: 10))
+    XCTAssertTrue(row("Dark").waitForExistence(timeout: 10))
+    XCTAssertEqual(row("Dark").value as? String, "radio button, checked")
     choose("System")
   }
 
