@@ -746,12 +746,21 @@ form accessories, keyboards, status bar).
   sparkle or "AI" iconography. A provider tile in Add a Mailbox shows an SF
   Symbol (`envelope`, `icloud`, `building.2`, `at`), never a provider logo or a
   typed letter.
+- **App Icon:** "Horizon", the Icon Composer document
+  `native/app-icon/UnwiredMail.icon` that the iPhone, iPad and Mac hosts share.
+  It is an open envelope seen edge to edge: a pocket with a V-shaped lip in
+  front of the cinnabar seal, each a glass layer over the ground. Light has a
+  paper ground (`#FBFBFC` to `#D3D6DD`, top to bottom) and a graphite pocket
+  (`#3A3D44` to `#17191D`). Dark has a deep graphite ground (`#191B1F` to
+  `#0C0D0F`) and a lighter pocket (`#4A4E57` to `#25282E`). The seal runs
+  `#D9553C` to `#B23924`, around `brand/seal`, in both. In Clear and Tinted the
+  seal is white and the pocket 45% gray, so the seal stays the brightest shape.
 
 ## Do's and Don'ts
 
-- **Do** use cinnabar only for the On device seal and the Welcome "Continue"
-  action. **Don't** use it on routine or destructive actions; it sits too close
-  to system red.
+- **Do** use cinnabar only for the On device seal, the Welcome "Continue"
+  action and the app icon's seal. **Don't** use it on routine or destructive
+  actions; it sits too close to system red.
 - **Do** mark summaries, incoming translations and unaccepted assistance
   previews and suggestions with the On device marker. **Don't** keep the marker
   on accepted Draft content.
