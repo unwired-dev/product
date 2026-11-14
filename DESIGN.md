@@ -155,7 +155,7 @@ rounded:
   badge-mac: '4px'
   badge-touch: '8px'
   brand-panel: '24px'
-  ipad-sheet: '29.095px'
+  ipad-sheet: '25.3px'
   profile-switcher: '14px'
   close-question: '36px'
 spacing:
@@ -554,7 +554,8 @@ content.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
   radius. They are drawn without an arrow.
 - iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
-  centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 29.095pt.
+  centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 25.3pt:
+  the shared sheet's 22pt at the iPad's 1.15.
   iPhone's Profile Switcher above the Mailboxes groups uses `radius.profileSwitcher`,
   14pt.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
@@ -718,11 +719,15 @@ form accessories, keyboards, status bar).
   The frames draw every alert one way: a glass card, 320pt wide on the Mac and
   310pt on iPhone and iPad, with an optional symbol tile, a centred title and
   message, and full-width stacked buttons, 28pt tall on the Mac and 48pt
-  capsules on iPhone and iPad. On the Mac the confirming action comes first in
-  the accent fill; when it is destructive, Cancel comes first and the
-  destructive action last, with a `status/destructive` label on the quiet fill.
-  On iPhone and iPad two short buttons may sit side by side, as the system
-  alert draws them. A popover that hangs from a control is neither.
+  capsules on iPhone and iPad. On the Mac the frames stack the confirming
+  action first in the accent fill; when it is destructive, Cancel comes first
+  and the destructive action last, with a `status/destructive` label on the
+  quiet fill. On iPhone and iPad the cards follow the system alert, which
+  places its buttons by role: stacked, Cancel is last, under the confirming
+  action; a destructive action keeps its `status/destructive` label on the
+  quiet fill and is never the filled button. Two short buttons may sit side by
+  side instead, Cancel at the leading side, whichever kind the action is. A
+  popover that hangs from a control is neither.
 - **Menu / Menu Item:** the system menu, which keeps its own size. The frames
   draw every Mac menu in one recipe: 12pt glass, 28pt items (40pt with a detail
   line) with a 13pt label, a check column where items can be checked, a 14pt
@@ -742,12 +747,21 @@ form accessories, keyboards, status bar).
   sparkle or "AI" iconography. A provider tile in Add a Mailbox shows an SF
   Symbol (`envelope`, `icloud`, `building.2`, `at`), never a provider logo or a
   typed letter.
+- **App Icon:** "Horizon", the Icon Composer document
+  `native/app-icon/UnwiredMail.icon` that the iPhone, iPad and Mac hosts share.
+  It is an open envelope seen edge to edge: a pocket with a V-shaped lip in
+  front of the cinnabar seal, each a glass layer over the ground. Light has a
+  paper ground (`#FBFBFC` to `#D3D6DD`, top to bottom) and a graphite pocket
+  (`#3A3D44` to `#17191D`). Dark has a deep graphite ground (`#191B1F` to
+  `#0C0D0F`) and a lighter pocket (`#4A4E57` to `#25282E`). The seal runs
+  `#D9553C` to `#B23924`, around `brand/seal`, in both. In Clear and Tinted the
+  seal is white and the pocket 45% gray, so the seal stays the brightest shape.
 
 ## Do's and Don'ts
 
-- **Do** use cinnabar only for the On device seal and the Welcome "Continue"
-  action. **Don't** use it on routine or destructive actions; it sits too close
-  to system red.
+- **Do** use cinnabar only for the On device seal, the Welcome "Continue"
+  action and the app icon's seal. **Don't** use it on routine or destructive
+  actions; it sits too close to system red.
 - **Do** mark summaries, incoming translations and unaccepted assistance
   previews and suggestions with the On device marker. **Don't** keep the marker
   on accepted Draft content.
@@ -798,6 +812,9 @@ app follows under the issue named:
 - **Mac Settings › Appearance:** the page offers Light, Dark and System (#2153).
   The frame's Message list group, with its Preview lines pop-up, waits for a
   later slice of #1727.
+- **iPhone and iPad Settings › Appearance:** the page offers Light, Dark and
+  System (#2168). The frames' List density group and the compact Thread list
+  wait for a later slice of #1727.
 - **Reader More menu:** Move to Spam waits for #2132.
 - **Compact iPad window:** the Command input in the reader's navigation bar and
   on the composer's From row waits for #2133.
@@ -822,16 +839,18 @@ app follows under the issue named:
   All Mailboxes among them, wait for #2083. The iPhone heading's "All read"
   waits for #2068.
 - **Control sizes:** the Mac Welcome and Sign In buttons, the iPad Sign in
-  with Apple radius, the iPad Profile Switcher's 28pt monogram, and 28pt Mac
-  pop-up buttons and Command Palette Back, or a 28pt hit area around the
-  system control, wait for #2085.
+  with Apple radius, the iPad setup sheet's 25.3pt corners (the app's
+  `radius.ipadSheet` is 29.095), the iPad Profile Switcher's 28pt monogram, and
+  28pt Mac pop-up buttons and Command Palette Back, or a 28pt hit area around
+  the system control, wait for #2085.
 - **Search states:** the No Results empty state and the Searching indicator
   wait for #2090.
 - **Reader loading:** the reader's states for a message that is loading, failed
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
   and Failed states, wait for #2092.
-- **Add a Mailbox:** the Mac provider tiles' SF Symbols wait for #2093.
+- **Add a Mailbox:** the provider tiles' SF Symbols, on Mac, iPad and iPhone,
+  wait for #2093.
 - **Mac New Message window:** the compact Command Input waits for #2094.
 - **iPad Portrait:** the Thread, inline composer, Search Results and Settings
   layouts at 834×1210 wait for #2095.

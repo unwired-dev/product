@@ -139,7 +139,6 @@ import {
   kindStyles,
   LinkEditor,
   markStyle,
-  MenuItem,
   PopUp,
   useGeneratePrompt,
   useLinkEditor,
@@ -764,7 +763,6 @@ export function SendingMailbox({
 }) {
   const account = use(AccountContext);
   const { t } = useLocalization();
-  const [open, setOpen] = useState(false);
   const mailboxes = account?.mailboxes ?? [];
   const state = sendingStateOf(draft, mailboxes);
   // Only the Draft's own Mail Profile can send it.
@@ -788,34 +786,27 @@ export function SendingMailbox({
       accessibilityLabel={label}
       disabled={!editable}
       label={from}
-      open={open}
       prefix={t('drafts.fromLabel')}
       selected={state === 'available'}
-      onToggle={() => {
-        setOpen((current) => !current);
-      }}>
-      {senders.map((mailbox) => {
+      items={senders.map((mailbox) => {
         const address = clip(mailbox.address);
-        return (
-          <MenuItem
-            key={mailbox.id}
-            disabled={!editable}
-            accessibilityLabel={t(
-              address.length < mailbox.address.length
-                ? 'drafts.sendFromShortened'
-                : 'drafts.sendFrom',
-              { address },
-            )}
-            label={address}
-            selected={state === 'available' && mailbox.id === draft.connection}
-            onPress={() => {
-              setOpen(false);
-              onChange(mailbox);
-            }}
-          />
-        );
+        return {
+          key: mailbox.id,
+          title: address,
+          symbol: '',
+          accessibilityLabel: t(
+            address.length < mailbox.address.length
+              ? 'drafts.sendFromShortened'
+              : 'drafts.sendFrom',
+            { address },
+          ),
+          checked: state === 'available' && mailbox.id === draft.connection,
+          run: () => {
+            onChange(mailbox);
+          },
+        };
       })}
-    </PopUp>
+    />
   );
 }
 

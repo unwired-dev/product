@@ -39,6 +39,7 @@ export type SettingsDestination =
   | 'signatures'
   | 'notifications'
   | 'blockedSenders'
+  | 'appearance'
   | 'language'
   | 'privacy'
   | 'errorReporting';
@@ -63,6 +64,7 @@ const sections = [
   {
     title: 'application',
     items: [
+      { id: 'appearance', icon: 'paintbrush' },
       { id: 'language', icon: 'translate' },
       { id: 'privacy', icon: 'hand.raised' },
     ],
@@ -926,7 +928,7 @@ export function SettingsRow({
 }: {
   readonly icon?: string | ReactElement;
   readonly title: string;
-  readonly titleTone?: 'accent' | 'destructive';
+  readonly titleTone?: 'accent' | 'destructive' | undefined;
   readonly titleNumberOfLines?: number;
   readonly disabled?: boolean;
   readonly subtitle?: string | undefined;
