@@ -640,9 +640,8 @@ export function createMailboxes(
                 );
           // A connection moved to another Profile meanwhile follows neither Profile's blocks.
           const screened = profile() === screenedFor ? result : undefined;
-          const moving = arrivals.filter(
-            (message) => screened?.move.includes(message.id) === true,
-          );
+          const move = new Set(screened?.move);
+          const moving = arrivals.filter((message) => move.has(message.id));
           for (const message of moving) {
             trash?.(message);
           }
