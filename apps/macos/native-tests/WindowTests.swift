@@ -51,7 +51,7 @@ final class WindowTests: XCTestCase {
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
     performanceSetup(app, window: window)
-    app.typeKey("p", modifierFlags: .command)
+    app.typeKey("k", modifierFlags: .command)
     let query = window.textFields["Type a command"]
     XCTAssertTrue(query.waitForExistence(timeout: 15))
     let command = window.buttons["Reply. Select a conversation"]
@@ -511,7 +511,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(app.menuItems[sender].waitForExistence(timeout: 5))
     first.typeKey(.escape, modifierFlags: [])
     // A second window's Draft keeps its own text style.
-    app.typeKey("n", modifierFlags: .command)
+    app.typeKey("n", modifierFlags: [.command, .option])
     let second = app.windows["Inbox 2"]
     // A new window may open on the confirmed-setup account page (#1189).
     if second.buttons["Open Inbox"].waitForExistence(timeout: 10) { second.buttons["Open Inbox"].click() }
@@ -663,11 +663,12 @@ final class WindowTests: XCTestCase {
     // Saving later must not revive a cancelled Quit.
     saveOnClose(window)
     XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 10))
-    window.buttons["New Message"].click()
+    // File › New Message, Command-N, starts a Draft as the button does.
+    app.typeKey("n", modifierFlags: .command)
     XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
     window.textFields["Subject"].click()
     window.textFields["Subject"].typeText("First guarded window")
-    app.typeKey("n", modifierFlags: .command)
+    app.typeKey("n", modifierFlags: [.command, .option])
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.buttons["New Message"].waitForExistence(timeout: 15))
     second.buttons["New Message"].click()
@@ -935,7 +936,7 @@ final class WindowTests: XCTestCase {
   }
 
   // #1130: a link asks in an AppKit sheet on its own window, showing the full destination as
-  // selectable text. Escape and Cancel close it without acting, and Command-P stays closed behind
+  // selectable text. Escape and Cancel close it without acting, and Command-K stays closed behind
   // it. A flagged link's first button, Cancel, is the default and answers Escape too. Nothing is
   // opened or copied: either would reach the desktop's browser or pasteboard.
   private func linkSheetJourney(_ app: XCUIApplication, window: XCUIElement) throws {
@@ -958,7 +959,7 @@ final class WindowTests: XCTestCase {
     let garden = "https://example.invalid/garden"
     ask("garden plan", title: "Open this link in your browser?", destination: garden,
         buttons: ["Open link", "Cancel"])
-    app.typeKey("p", modifierFlags: .command)
+    app.typeKey("k", modifierFlags: .command)
     XCTAssertFalse(window.textFields["Type a command"].waitForExistence(timeout: 2))
     XCTAssertTrue(sheet.exists)
     app.typeKey(.escape, modifierFlags: [])
@@ -977,7 +978,7 @@ final class WindowTests: XCTestCase {
       XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
     }
     // Focus returns to the window, whose Command Palette opens again.
-    app.typeKey("p", modifierFlags: .command)
+    app.typeKey("k", modifierFlags: .command)
     XCTAssertTrue(window.textFields["Type a command"].waitForExistence(timeout: 10))
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(window.textFields["Type a command"].waitForNonExistence(timeout: 10))
@@ -1083,7 +1084,7 @@ final class WindowTests: XCTestCase {
     let first = app.windows["Inbox 1"]
     let firstLanguage = language(in: first)
     choose("English", from: firstLanguage)
-    app.typeKey("n", modifierFlags: .command)
+    app.typeKey("n", modifierFlags: [.command, .option])
     let second = app.windows["Inbox 2"]
     let secondLanguage = language(in: second)
     XCTAssertEqual(secondLanguage.value as? String, "English")
@@ -1196,7 +1197,7 @@ final class WindowTests: XCTestCase {
     first.buttons["Summarize this message"].click()
     let summary = NSPredicate(format: "value == %@", "Synthetic summary of local mail.")
     XCTAssertTrue(first.textViews.matching(summary).firstMatch.waitForExistence(timeout: 10))
-    app.typeKey("n", modifierFlags: .command)
+    app.typeKey("n", modifierFlags: [.command, .option])
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.waitForExistence(timeout: 10))
     let oliver = second.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Oliver Park"))
@@ -1664,7 +1665,7 @@ final class WindowTests: XCTestCase {
     lists(primary, gmail, without: microsoft)
 
     // A second window opens the Startup Profile, and its switcher's menu switches it to Work.
-    app.typeKey("n", modifierFlags: .command)
+    app.typeKey("n", modifierFlags: [.command, .option])
     let work = app.windows["Inbox 2"]
     let switcher = work.buttons["Mail Profile, Primary Profile"]
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
@@ -2014,7 +2015,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(row("Outlook update 003").waitForExistence(timeout: 15))
     // Escape closes the palette and hands focus back to the control that had it.
     let closed = window.screenshot()
-    app.typeKey("p", modifierFlags: .command)
+    app.typeKey("k", modifierFlags: .command)
     let command = window.textFields["Type a command"]
     waitForFocus(command)
     assertPaletteDrawn(in: window, beneath: command, over: closed)
@@ -2024,7 +2025,7 @@ final class WindowTests: XCTestCase {
     waitForFocus(search)
     // Down reaches Account, then two Up presses return to the interior Search Mail command.
     // If Up does nothing, Return opens Settings instead, so focus cannot return to search.
-    app.typeKey("p", modifierFlags: .command)
+    app.typeKey("k", modifierFlags: .command)
     waitForFocus(command)
     for key in [XCUIKeyboardKey.downArrow, .downArrow, .downArrow, .upArrow, .upArrow] {
       app.typeKey(key, modifierFlags: [])
@@ -2181,7 +2182,7 @@ final class WindowTests: XCTestCase {
     try detailCheckJourney(app, window: window, typed: typed, appearance: appearance)
 
     // Window commands: a new Inbox, cycling, Show Inbox and closing, each window with its own view.
-    app.typeKey("n", modifierFlags: .command)
+    app.typeKey("n", modifierFlags: [.command, .option])
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.waitForExistence(timeout: 15))
     XCTAssertTrue(
@@ -2427,7 +2428,7 @@ final class WindowTests: XCTestCase {
 
   // Opens the key window's Command Palette, narrows it to one command and runs it with Return.
   private func runCommand(_ name: String, in app: XCUIApplication) {
-    app.typeKey("p", modifierFlags: .command)
+    app.typeKey("k", modifierFlags: .command)
     let input = app.textFields.matching(NSPredicate(format: "label == %@", "Type a command")).firstMatch
     XCTAssertTrue(input.waitForExistence(timeout: 10))
     waitForFocus(input)

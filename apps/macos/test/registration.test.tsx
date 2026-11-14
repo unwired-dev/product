@@ -264,7 +264,7 @@ function Shell(props: Omit<Parameters<typeof Inbox>[0], 'view' | 'onView'>) {
   );
 }
 
-// The native Commands… menu, whose Command-P names the key window to every window's JavaScript.
+// The native Commands… menu, whose Command-K names the key window to every window's JavaScript.
 const commandMenu = () => {
   const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
   // The windows whose first responder the palette asked AppKit to keep, and to restore.
@@ -1590,7 +1590,7 @@ describe('product registration', () => {
         windows: [expect.anything()],
         selected: ['Email Accounts'],
       });
-      // Command-P in the Settings window opens its own palette, whose Inbox command brings an
+      // Command-K in the Settings window opens its own palette, whose Inbox command brings an
       // Inbox window forward.
       await act(async () => {
         DeviceEventEmitter.emit('openCommandPalette', {
@@ -1939,7 +1939,7 @@ describe('product registration', () => {
     }
   });
 
-  it('leaves Command-P without effect while setup shows no Command Palette bar', async () => {
+  it('leaves Command-K without effect while setup shows no Command Palette bar', async () => {
     expect.hasAssertions();
     const menu = commandMenu();
     try {

@@ -3797,6 +3797,45 @@ describe('composing Drafts', () => {
     expect(screen.queryByText('Drafts')).not.toBeOnTheScreen();
   });
 
+  it('starts a Draft when File › New Message is chosen in its window', async () => {
+    expect.hasAssertions();
+    // The native menu sends its events through the window host, which also guards closing.
+    const host = windowHostWith({
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+    });
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const choose = async (window: string) => {
+      await act(async () => {
+        DeviceEventEmitter.emit('newMessage', { window });
+        await Promise.resolve();
+      });
+    };
+    try {
+      await render(
+        <App
+          drafts={drafts}
+          registration={registration}
+        />,
+      );
+      await expect(
+        screen.findByRole('button', { name: 'New Message' }),
+      ).resolves.toBeEnabled();
+      await choose('inbox-window-other');
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
+      await choose('inbox-window-composer');
+      await expect(
+        screen.findByRole('button', { name: 'Send from alex@example.invalid' }),
+      ).resolves.toBeEnabled();
+      expect(draftsOf(drafts.getSnapshot())).toHaveLength(1);
+    } finally {
+      host.mockRestore();
+    }
+  });
+
   it('creates one Draft when New Message is pressed again while it is pending', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

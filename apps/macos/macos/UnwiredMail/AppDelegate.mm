@@ -374,12 +374,26 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [self.settingsWindow.window performClose:sender];
 }
 
-// Command-P opens the key Inbox window's Command Palette; its JavaScript listens for the window.
+// Command-K opens the key Inbox window's Command Palette; its JavaScript listens for the window.
 - (void)showCommands:(id)sender
 {
   NSWindow *window = NSApp.keyWindow;
   if (window.identifier == nil) return;
   [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredOpenCommandPalette" object:window.identifier];
+}
+
+// Command-N starts a Draft in the key Inbox window, as its New Message button does; its JavaScript
+// listens for the window. Chosen in another window, it first brings an Inbox forward as Show Inbox
+// does. An open sheet is answered first.
+- (void)newMessage:(id)sender
+{
+  NSWindow *window = NSApp.keyWindow;
+  if (window.sheetParent != nil) return;
+  if (![window.identifier hasPrefix:@"inbox-window-"]) {
+    [self focusInbox:sender];
+    window = self.inboxWindows.firstObject.window;
+  }
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredNewMessage" object:window.identifier];
 }
 
 // Command-R synchronizes the key Inbox window's mailboxes; its JavaScript listens for the window.
@@ -546,7 +560,10 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   NSMenuItem *fileItem = [main addItemWithTitle:UnwiredNativeText(@"file") action:nil keyEquivalent:@""];
   NSMenu *file = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"file")];
   fileItem.submenu = file;
+  NSMenuItem *newMessage = [file addItemWithTitle:UnwiredNativeText(@"newMessage") action:@selector(newMessage:) keyEquivalent:@"n"];
+  newMessage.target = self;
   NSMenuItem *newItem = [file addItemWithTitle:UnwiredNativeText(@"newWindow") action:@selector(newWindow:) keyEquivalent:@"n"];
+  newItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
   newItem.target = self;
   [file addItemWithTitle:UnwiredNativeText(@"closeWindow") action:@selector(performClose:) keyEquivalent:@"w"];
 
@@ -563,7 +580,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   NSMenuItem *viewItem = [main addItemWithTitle:UnwiredNativeText(@"view") action:nil keyEquivalent:@""];
   NSMenu *view = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"view")];
   viewItem.submenu = view;
-  NSMenuItem *commands = [view addItemWithTitle:UnwiredNativeText(@"commands") action:@selector(showCommands:) keyEquivalent:@"p"];
+  NSMenuItem *commands = [view addItemWithTitle:UnwiredNativeText(@"commands") action:@selector(showCommands:) keyEquivalent:@"k"];
   commands.target = self;
   NSMenuItem *refresh = [view addItemWithTitle:UnwiredNativeText(@"refresh") action:@selector(refresh:) keyEquivalent:@"r"];
   refresh.target = self;

@@ -117,7 +117,7 @@ interface CommandMenu extends TurboModule {
   readonly finishClose: (window: string, allowed: boolean) => void;
 }
 
-// The Commands… menu item, Command-P, names the key window it was chosen in.
+// The Commands… menu item, Command-K, names the key window it was chosen in.
 const commandMenu = () =>
   TurboModuleRegistry.get<CommandMenu>('UnwiredCommands');
 
@@ -332,30 +332,34 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
   }, [identifier]);
 }
 
-// While mounted, View › Refresh, Command-R, chosen in this window runs `refresh`.
-export function useRefreshCommand(refresh: () => void) {
+// While mounted, a menu item chosen in this window runs `run`: View › Refresh (Command-R), or
+// File › New Message (Command-N).
+export function useMenuCommand(
+  event: 'refresh' | 'newMessage',
+  run: () => void,
+) {
   const { identifier } = use(PaletteContext);
-  const refreshNow = useRef(refresh);
+  const runNow = useRef(run);
   useLayoutEffect(() => {
-    refreshNow.current = refresh;
-  }, [refresh]);
+    runNow.current = run;
+  }, [run]);
   useEffect(() => {
     const menu = commandMenu();
     if (menu === null) {
       return undefined;
     }
     const subscription = new NativeEventEmitter(menu).addListener(
-      'refresh',
+      event,
       ({ window }: { readonly window: string }) => {
         if (window === identifier) {
-          refreshNow.current();
+          runNow.current();
         }
       },
     );
     return () => {
       subscription.remove();
     };
-  }, [identifier]);
+  }, [event, identifier]);
 }
 
 // Collects the commands the window's screens offer; every window has one, above every screen that
@@ -544,7 +548,7 @@ export function CommandBar({
       }
     }
   }, [opened]);
-  // Opens the palette when this window's Commands… menu item, Command-P, is chosen.
+  // Opens the palette when this window's Commands… menu item, Command-K, is chosen.
   useEffect(() => {
     const menu = commandMenu();
     if (menu === null) {
