@@ -29,10 +29,8 @@ import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
-// The iPad popover's width in the Move to Folder frame; it starts 20pt before the toolbar.
-export const movePanelWidth = 322;
-// Its glass corners, the frame's 13.8pt menu radius at the iPad's 1.15 scale.
-export const movePanelRadius = 13.8 * ipadListScale;
+// The iPad popover's width in the Move to Folder frame.
+const movePanelWidth = 322;
 
 // The popover's rows: 32.2pt, their contents 9.2pt apart, with the label 24.7pt after the icon.
 const panelRowGap = 8 * ipadListScale;
@@ -682,15 +680,16 @@ export function MoveSheet({
   );
 }
 
-// iPad's Move picker, the popover beneath the reader toolbar's Move: a search over the folders,
-// the account they belong to, and its folders nested as the provider lists them, with the current
-// one and containers unavailable.
+// iPad's Move picker, the content of the system popover on the reader toolbar's Move: a search
+// over the folders, the account they belong to, and its folders nested as the provider lists them,
+// with the current one and containers unavailable. Choosing closes the popover, then moves.
 export function MovePanel({
   open,
   destinations,
   empty,
   limited,
   onMove,
+  onClose,
 }: {
   readonly open: boolean;
   readonly message: Readonly<{ sender: string; subject: string }>;
@@ -766,7 +765,12 @@ export function MovePanel({
                 key={row.id}
                 row={row}
                 dense
-                onChoose={onMove}
+                onChoose={(id) => {
+                  if (open) {
+                    onClose();
+                    onMove(id);
+                  }
+                }}
               />
             ))}
         {empty !== undefined && shown.length > 0 && nothingToChoose

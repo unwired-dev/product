@@ -378,7 +378,7 @@ The star is the server's `\Flagged` flag, so other mail apps show it as a flag: 
 Inbox row shows a flag, the context menus say **Flag** and **Unflag**, and a flag set
 or cleared elsewhere arrives with the next synchronization. Starring keeps the reader
 open and offers no Undo, like a read-state change.
-The folder listing keeps the server's hierarchy delimiter, so iPhone's Move picker nests
+The folder listing keeps the server's hierarchy delimiter, so the Move picker nests
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
 unavailable.
 Archive, Trash and Spam move the message to the folder the server declares with the
