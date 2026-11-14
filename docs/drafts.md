@@ -796,6 +796,10 @@ selected choice. A tap on Send
 still sends. Choosing a time, the banner, **Change**, **Remove Reminder** and the
 removal on Send, Discard or an empty Close behave as on the Mac, in the iPhone
 composer, the iPad card and the docked reply.
+The `registration-apple` native journey
+([#2144](https://github.com/unwired-dev/product/issues/2144)) opens the Send menu,
+sets Tomorrow Morning and checks the banner on iPhone and iPad; its results are in
+the [platform qualification](qualification/expo-react-native-client.md).
 
 Reminders are not synchronized and schedule no notification yet, and a reminder
 whose Draft is deleted elsewhere, or whose removal storage refused after Send or
