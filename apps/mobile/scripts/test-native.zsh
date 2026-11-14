@@ -61,6 +61,8 @@ for device_type in "${device_types[@]}"; do
     # A library photo for journeys that insert an image through the system Photos picker.
     xcrun simctl addmedia "$device_id" "$mobile_root/native-tests/photo.png"
     xcrun simctl install "$device_id" "$app_bundle"
+    # Contacts stays denied, so typing a recipient never raises its system prompt (#2145).
+    xcrun simctl privacy "$device_id" revoke contacts "$UNWIRED_BUNDLE_ID"
     "$repo_root/scripts/record-host-load.sh" "$run_dir/host-load.txt" "before $device_type attempt $attempt"
     test_exit=0
     xcodebuild test-without-building -project InboxProbe.xcodeproj -scheme InboxProbe \
