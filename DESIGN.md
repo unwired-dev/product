@@ -397,6 +397,9 @@ styles) so the file stays editable.
   pane uses 40pt side padding and starts below the toolbar at 72pt. A 900pt
   narrow window hides the sidebar. Compact layouts collapse the three destinations
   into native navigation, per the [organization requirements](docs/product/organization.md).
+- **iPad top row:** the sidebar's buttons, the Command Input with Select, and the
+  reader toolbar share one centre line, 36pt below the top safe area. The
+  full-screen frames, with their 32pt status bar, draw it 68pt from the top.
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
   then the primary Unified Mailboxes (Inbox, Snoozed, Pins and Sent),
   secondary Archive, All Mail, Spam and Trash, one collapsible section per
@@ -433,7 +436,8 @@ styles) so the file stays editable.
 - **Command Palette:** on the Mac a glass command input (command symbol,
   "Commands", ⌘K key cap) sits in the window's toolbar row: 36pt at the leading
   end of the Inbox reader's row, beside its glass groups, and 32pt at the trailing
-  end of the Settings title row and in the New Message toolbar; open,
+  end of the Settings title row and in the New Message toolbar, where it is 75pt
+  wide and drops the "Commands" label so the window title has room; open,
   it becomes the focused query with an esc key cap and a 460pt glass panel with
   the menu shadow beneath it.
   Rows are 28pt with an SF Symbol, the name, a disabled reason in secondary text
@@ -509,7 +513,13 @@ styles) so the file stays editable.
   arrow.
 - **Dates and times:** the system formatter writes them in the interface
   language's conventions, and one language never mixes formats. The English
-  reference frames write `13 Oct`, `Tue 13 Oct, 8:00` and `Today, 18:00`.
+  reference frames write `13 Oct`, `Tue 13 Oct, 8:00` and `Today, 18:00`; the
+  German ones `Heute, 8:12` and `So. 11. Okt., 21:14`.
+- **Translated strings:** interface strings, the system mailbox names and the
+  Mail View names follow the interface language. The person's own folders, Saved
+  Searches and Mail Profile names, and mail content, stay as written. Where a
+  longer string does not fit, the neighbouring control gives up width, the text
+  wraps, or it truncates with an ellipsis, as the German frames show.
 - **Spacing scale:** 4, 8, 12, 16, 20pt. Hit targets are at least 28pt on the Mac
   and 44pt on iPhone.
 
@@ -636,13 +646,20 @@ form accessories, keyboards, status bar).
   consent belong beside their message in the reader, per
   [translation](docs/message-translation.md#behavior) and
   [remote-content requirements](docs/gmail-inbox.md#links-and-blocked-remote-content);
-  authorization problems identify the affected Mailbox Connection.
+  authorization problems identify the affected Mailbox Connection. Schedule and
+  security notices (Figma: Schedule Banner) share the fill and radius. Stacked:
+  a 13pt medium label, a 13/16 summary, and up to three 28pt `fill/track`
+  capsule buttons or text links. Inline, for a notice without a title: a 13pt
+  symbol on the first line of the summary, which wraps beside it. A warning
+  tints the banner with `status/warning` at 12%. iPad draws both at 1.15.
 - **Toast / Outbox Row:** a toast is a Liquid Glass capsule with no fill of its
   own, 48pt tall with a 24pt radius, centred with its bottom edge 12pt above the
   search bar: 16pt leading and 20pt trailing padding, an 18pt symbol and the
   message in 15/20 semibold `text/primary`, and at most one action in 17/22
   semibold, `accent/ink` in Light and `text/primary` in Dark. On iPhone a
-  message that does not fit one line wraps to a 64pt two-line toast. The Undo
+  message that does not fit one line wraps to a 64pt two-line toast. A toast
+  that reports progress draws a 3pt bar 4pt above its bottom edge, `accent/fill`
+  on a `fill/track` track. The Undo
   Send toast offers Undo during the Undo Send Window. Window preferences follow the
   [delivery requirements](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
   [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
@@ -673,7 +690,9 @@ form accessories, keyboards, status bar).
   attachments. Keep reasons for blocked Send visible. No client shows save status;
   saving follows [Draft saving and asset availability](docs/drafts.md#saving).
 - **Compose recipients and sender:** Recipient Suggestions appear beneath the
-  active To/Cc/Bcc field; recipients are removable tokens. Entry, validation and
+  active To/Cc/Bcc field; recipients are removable tokens. A selected token
+  takes the accent fill with `accent/on-fill` text, and an invalid one
+  `status/destructive` text on a 14% tint of it. Entry, validation and
   From follow the
   [recipient and sender requirements](docs/product/messages-and-delivery.md#sending-identities-and-recipient-entry)
   and [Draft sender contract](docs/drafts.md#composing).
@@ -694,12 +713,35 @@ form accessories, keyboards, status bar).
   [Background-summary states](docs/catch-up.md#summaries) show a preview with
   Summary coming soon while pending, or a preview alone when assistance is disabled
   or unavailable.
+- **Alert / Sheet:** a dialog that only asks or tells is the system alert; one
+  that holds a form, a list or choices is a sheet. Both keep their native size.
+  The frames draw every alert one way: a glass card, 320pt wide on the Mac and
+  310pt on iPhone and iPad, with an optional symbol tile, a centred title and
+  message, and full-width stacked buttons, 28pt tall on the Mac and 48pt
+  capsules on iPhone and iPad. On the Mac the confirming action comes first in
+  the accent fill; when it is destructive, Cancel comes first and the
+  destructive action last, with a `status/destructive` label on the quiet fill.
+  On iPhone and iPad two short buttons may sit side by side, as the system
+  alert draws them. A popover that hangs from a control is neither.
+- **Menu / Menu Item:** the system menu, which keeps its own size. The frames
+  draw every Mac menu in one recipe: 12pt glass, 28pt items (40pt with a detail
+  line) with a 13pt label, a check column where items can be checked, a 14pt
+  symbol in `text/secondary`, and a trailing role, shortcut or submenu chevron.
+- **Key Cap:** Regular, 17pt tall with 10pt `text/secondary` type, is the hint
+  beside a command. Large, 22pt tall with 11pt semibold `text/primary` type, is
+  the key itself in Keyboard Shortcuts. Both have a 5pt radius.
+- **Pop-Up Button:** a control that picks a value shows the up-down chevron, as
+  the From Pop-up does. A pull-down that opens a menu of actions shows the down
+  chevron.
 - **Settings Row:** title, optional subtitle and icon, and one trailing control
-  (switch, pop-up, value, button or disclosure). The switch track uses the accent
-  fill when on and `fill/track` when off.
+  (switch, pop-up, value, button or disclosure). Within a group every row has a
+  leading icon or none, so the titles share one edge. The switch track uses the
+  accent fill when on and `fill/track` when off.
 - **Icons:** SF Symbols only, regular weight, tinted with a color token. The
   approved compose Writing tools control uses `sparkles`; other controls never use
-  sparkle or "AI" iconography.
+  sparkle or "AI" iconography. A provider tile in Add a Mailbox shows an SF
+  Symbol (`envelope`, `icloud`, `building.2`, `at`), never a provider logo or a
+  typed letter.
 
 ## Do's and Don'ts
 
@@ -776,3 +818,31 @@ app follows under the issue named:
   disclosure chevron wait for #2107.
 - **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for
   #2108.
+- **Copy:** one name per action, Spam, Thread and Title Case, All Inboxes and
+  All Mailboxes among them, wait for #2083. The iPhone heading's "All read"
+  waits for #2068.
+- **Control sizes:** the Mac Welcome and Sign In buttons, the iPad Sign in
+  with Apple radius, the iPad Profile Switcher's 28pt monogram, and 28pt Mac
+  pop-up buttons and Command Palette Back, or a 28pt hit area around the
+  system control, wait for #2085.
+- **Search states:** the No Results empty state and the Searching indicator
+  wait for #2090.
+- **Reader loading:** the reader's states for a message that is loading, failed
+  or unavailable wait for #2091.
+- **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
+  and Failed states, wait for #2092.
+- **Add a Mailbox:** the Mac provider tiles' SF Symbols wait for #2093.
+- **Mac New Message window:** the compact Command Input waits for #2094.
+- **iPad Portrait:** the Thread, inline composer, Search Results and Settings
+  layouts at 834×1210 wait for #2095.
+- **German strings:** no check lays the screens out at German lengths until
+  #2096.
+- **iPad top row and Settings groups:** the one centre line, and icons on every
+  row of a group or on none, wait for #2097.
+- **iPhone Outbox:** the rows have their recovery controls; drawing them as
+  44pt quiet capsules under a two-line reason waits for #2098.
+- **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
+  failing Mailbox Connection wait for #2099.
+- **iPhone alert, hint and Settings failure:** the two-sentence Trusted Device
+  removal message, the Command Palette swipe hint as the list's first item and
+  the empty state of a Settings page that failed to load wait for #2100.

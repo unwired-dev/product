@@ -2721,11 +2721,16 @@ describe('connected Gmail Inbox', () => {
       });
       await Promise.resolve();
     });
+    // The system alert's message lists every warning above the full destination.
     expect(
-      screen.getByText('Check this link before opening it:'),
+      within(screen.getByTestId('link-confirmation')).getByRole('header', {
+        name: 'This link may not be what it seems',
+      }),
     ).toBeVisible();
     expect(
-      screen.getByText('• The link text shows a different address.'),
+      screen.getByText(
+        'Check this link before opening it:\n• The link text shows a different address.\n\nhttps://PHISH.invalid:443',
+      ),
     ).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Open link' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));

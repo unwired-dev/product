@@ -115,11 +115,15 @@ describe('queued message link privacy', () => {
     const queuedNavigation =
       screen.getByTestId('message-webview').props.onShouldStartLoadWithRequest;
     const queuedFailure = screen.getByTestId('message-webview').props.onError;
-    await fireEvent.press(link);
-    expect(screen.getByText(oldHref)).toBeVisible();
-    await fireEvent.press(
+    // The system alert is modal, so collapsing arrives as input queued before it opened.
+    const queuedHide = pressHandler(
       screen.getByRole('button', { name: 'Hide quoted text' }),
     );
+    await fireEvent.press(link);
+    expect(screen.getByText(oldHref, { exact: false })).toBeVisible();
+    await act(() => {
+      queuedHide();
+    });
     await act(() => {
       queuedPress();
       queuedNavigation({
@@ -128,7 +132,7 @@ describe('queued message link privacy', () => {
       });
       queuedFailure();
     });
-    expect(screen.queryByText(oldHref)).toBeNull();
+    expect(screen.queryByText(oldHref, { exact: false })).toBeNull();
     expect(screen.getByTestId('message-webview').props.source.html).toContain(
       'New reply.',
     );
@@ -170,7 +174,7 @@ describe('queued message link privacy', () => {
           screen.getByTestId('message-webview').props
             .onShouldStartLoadWithRequest;
         await fireEvent.press(link);
-        expect(screen.getByText(oldHref)).toBeVisible();
+        expect(screen.getByText(oldHref, { exact: false })).toBeVisible();
         const queuedCopy = pressHandler(
           screen.getByRole('button', { name: 'Copy link' }),
         );
@@ -198,7 +202,7 @@ describe('queued message link privacy', () => {
           },
         };
         await transitions[transition]();
-        expect(screen.queryByText(oldHref)).toBeNull();
+        expect(screen.queryByText(oldHref, { exact: false })).toBeNull();
         await act(() => {
           queuedPress();
           queuedNavigation({
@@ -207,7 +211,7 @@ describe('queued message link privacy', () => {
           });
         });
         expect({
-          url: screen.queryByText(oldHref),
+          url: screen.queryByText(oldHref, { exact: false }),
           copy: screen.queryByRole('button', { name: 'Copy link' }),
           proceed: screen.queryByRole('button', { name: 'Proceed' }),
         }).toStrictEqual({ url: null, copy: null, proceed: null });
@@ -317,7 +321,7 @@ describe.each(['gmail', 'imap'] as const)(
             copied: [],
             opened: [],
           });
-          expect(screen.queryByText(oldHref)).toBeNull();
+          expect(screen.queryByText(oldHref, { exact: false })).toBeNull();
         } finally {
           await app.unmount();
           copy.mockRestore();
