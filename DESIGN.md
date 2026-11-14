@@ -723,9 +723,9 @@ form accessories, keyboards, status bar).
   and the destructive action last, with a `status/destructive` label on the
   quiet fill. On iPhone and iPad the cards follow the system alert, which
   places its buttons by role: stacked, Cancel is last, under the confirming
-  action in the accent fill or under a destructive action with its
-  `status/destructive` label on the quiet fill. Two short buttons may sit side
-  by side instead, Cancel at the leading side, whichever kind the action is. A
+  action; a destructive action keeps its `status/destructive` label on the
+  quiet fill and is never the filled button. Two short buttons may sit side by
+  side instead, Cancel at the leading side, whichever kind the action is. A
   popover that hangs from a control is neither.
 - **Menu / Menu Item:** the system menu, which keeps its own size. The frames
   draw every Mac menu in one recipe: 12pt glass, 28pt items (40pt with a detail
