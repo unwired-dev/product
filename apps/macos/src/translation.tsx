@@ -517,16 +517,6 @@ function ReaderTranslation({
     except: settings.language,
   });
   const retrying = menu.retried && menu.languages === 'loading';
-  if (target === undefined && (menu.languages === 'failed' || retrying)) {
-    return (
-      <LanguagesFailed
-        loading={retrying}
-        onRetry={() => {
-          menu.retry();
-        }}
-      />
-    );
-  }
   // Another chosen language, which the arrow names.
   const other =
     target === undefined || isAppLanguage(target.code, settings.language)
@@ -534,34 +524,44 @@ function ReaderTranslation({
       : target;
   return (
     <>
-      {/* Translate is into the app language; the arrow chooses another. */}
-      <SplitButton
-        icon="translate"
-        label={t('translation.translate')}
-        accessibilityLabel={t('translation.translateMessageLabel')}
-        onPress={() => {
-          translateInto({
-            code: settings.language,
-            name:
-              appLanguages.find(({ code }) => code === settings.language)
-                ?.name ?? settings.language,
-          });
-        }}
-        menuText={other?.name}
-        menuAccessibilityLabel={
-          other === undefined
-            ? t('translation.menuHeading')
-            : t('translation.targetLabel', { language: other.name })
-        }
-        items={[
-          {
-            key: 'heading',
-            title: t('translation.menuHeading'),
-            disabled: true,
-          },
-          ...menu.items,
-        ]}
-      />
+      {/* Translate is into the app language; the arrow chooses another. A language list the
+          device could not give takes the control's place, beside any shown translation. */}
+      {menu.languages === 'failed' || retrying ? (
+        <LanguagesFailed
+          loading={retrying}
+          onRetry={() => {
+            menu.retry();
+          }}
+        />
+      ) : (
+        <SplitButton
+          icon="translate"
+          label={t('translation.translate')}
+          accessibilityLabel={t('translation.translateMessageLabel')}
+          onPress={() => {
+            translateInto({
+              code: settings.language,
+              name:
+                appLanguages.find(({ code }) => code === settings.language)
+                  ?.name ?? settings.language,
+            });
+          }}
+          menuText={other?.name}
+          menuAccessibilityLabel={
+            other === undefined
+              ? t('translation.menuHeading')
+              : t('translation.targetLabel', { language: other.name })
+          }
+          items={[
+            {
+              key: 'heading',
+              title: t('translation.menuHeading'),
+              disabled: true,
+            },
+            ...menu.items,
+          ]}
+        />
+      )}
       {target === undefined ? null : (
         <TranslationPanel
           label={t('translation.messageRegion')}

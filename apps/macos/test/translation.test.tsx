@@ -371,6 +371,34 @@ describe('on-device translation in the reader', () => {
     }
   });
 
+  it('shows a language list failure that arrives after one-click Translate', async () => {
+    expect.hasAssertions();
+    const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
+    const list = deferred();
+    const { native, asked } = scriptedTranslation();
+    const { app } = await openReader({
+      ...native,
+      translationLanguages: () => list.promise,
+    });
+    try {
+      await fireEvent.press(screen.getByLabelText('Translate this message'));
+      expect(asked.map(({ target }) => target)).toStrictEqual(['en']);
+      await act(async () => {
+        list.reject(new Error('Translation is busy'));
+        await Promise.resolve();
+      });
+      // The failure takes the control's place; the requested translation stays.
+      await expect(
+        screen.findByText('Translation languages couldn’t be loaded.'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByLabelText('Translate this message')).toBeNull();
+      expect(screen.getByLabelText('Cancel translation')).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      logged.mockRestore();
+    }
+  });
+
   it('keeps a device without translation languages free of Try Again', async () => {
     expect.hasAssertions();
     const { native } = scriptedTranslation();
