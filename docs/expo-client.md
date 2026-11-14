@@ -394,6 +394,17 @@ block merging. A failed build skips the journey jobs, and GitHub accepts skipped
 required checks, so requiring only the journeys would not enforce a successful
 build.
 
+## Appearance
+
+Settings' **Appearance** page ([#2168](https://github.com/unwired-dev/product/issues/2168),
+a slice of [#1727](https://github.com/unwired-dev/product/issues/1727)) offers
+Light, Dark and System on iPhone and iPad. Light and Dark override the app's
+windows, so screens, native bars and menus switch at once; System, the default,
+follows iOS again. Increase Contrast and Reduce Transparency apply in every
+choice. The choice is a Device-Local Preference kept in this device's user
+defaults (`UnwiredAppearance`, as on the Mac), and the root layout applies it
+before the first screen draws.
+
 ## Interface language
 
 The Sign In page and Settings' **Language** offer a Language menu picker with System Default and a

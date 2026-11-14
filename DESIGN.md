@@ -155,7 +155,7 @@ rounded:
   badge-mac: '4px'
   badge-touch: '8px'
   brand-panel: '24px'
-  ipad-sheet: '29.095px'
+  ipad-sheet: '25.3px'
   profile-switcher: '14px'
   close-question: '36px'
 spacing:
@@ -554,7 +554,8 @@ content.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
   radius. They are drawn without an arrow.
 - iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
-  centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 29.095pt.
+  centred setup sheet, as Add a Mailbox draws it, `radius.ipadSheet`, 25.3pt:
+  the shared sheet's 22pt at the iPad's 1.15.
   iPhone's Profile Switcher above the Mailboxes groups uses `radius.profileSwitcher`,
   14pt.
 - Pills and chips are fully rounded (14pt at 28pt tall). Catch Up bubbles are
@@ -811,6 +812,9 @@ app follows under the issue named:
 - **Mac Settings › Appearance:** the page offers Light, Dark and System (#2153).
   The frame's Message list group, with its Preview lines pop-up, waits for a
   later slice of #1727.
+- **iPhone and iPad Settings › Appearance:** the page offers Light, Dark and
+  System (#2168). The frames' List density group and the compact Thread list
+  wait for a later slice of #1727.
 - **Reader More menu:** Move to Spam waits for #2132.
 - **Compact iPad window:** the Command input in the reader's navigation bar and
   on the composer's From row waits for #2133.
@@ -835,16 +839,18 @@ app follows under the issue named:
   All Mailboxes among them, wait for #2083. The iPhone heading's "All read"
   waits for #2068.
 - **Control sizes:** the Mac Welcome and Sign In buttons, the iPad Sign in
-  with Apple radius, the iPad Profile Switcher's 28pt monogram, and 28pt Mac
-  pop-up buttons and Command Palette Back, or a 28pt hit area around the
-  system control, wait for #2085.
+  with Apple radius, the iPad setup sheet's 25.3pt corners (the app's
+  `radius.ipadSheet` is 29.095), the iPad Profile Switcher's 28pt monogram, and
+  28pt Mac pop-up buttons and Command Palette Back, or a 28pt hit area around
+  the system control, wait for #2085.
 - **Search states:** the No Results empty state and the Searching indicator
   wait for #2090.
 - **Reader loading:** the reader's states for a message that is loading, failed
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
   and Failed states, wait for #2092.
-- **Add a Mailbox:** the Mac provider tiles' SF Symbols wait for #2093.
+- **Add a Mailbox:** the provider tiles' SF Symbols, on Mac, iPad and iPhone,
+  wait for #2093.
 - **Mac New Message window:** the compact Command Input waits for #2094.
 - **iPad Portrait:** the Thread, inline composer, Search Results and Settings
   layouts at 834×1210 wait for #2095.

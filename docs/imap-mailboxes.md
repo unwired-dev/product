@@ -140,7 +140,10 @@ opens Settings on **Email Accounts**, where the connection can be repaired
 immediately without relaunching, including when **Open Inbox** has deferred
 Recovery Key setup. Password entry is also available for an IMAP connection awaiting a
 password on this device. Other failures keep its saved Inbox open from this device;
-Email Accounts labels it as saved mail awaiting another server check.
+Email Accounts labels it as saved mail awaiting another server check. On iPhone, an IMAP
+connection's **Enter the Password…** and **Remove…** are rows of their own below its
+address, so the address and summary keep the row's width; iPad keeps them as buttons in
+the connection's row.
 
 ## Synchronization
 

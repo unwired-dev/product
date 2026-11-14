@@ -36,6 +36,7 @@ import { Split } from 'react-native-screens/experimental';
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
 
+import { restoreAppearance } from '../src/appearance-settings.tsx';
 import { CategorizationSpike } from '../src/categorization-spike.ts';
 import {
   CommandPaletteProvider,
@@ -104,6 +105,8 @@ if (!previewInbox) {
 }
 void scheduleGmailFreshness();
 pollGmailWhileActive();
+// The kept Light or Dark choice, before the first screen draws.
+restoreAppearance();
 
 interface AssistanceModule
   extends TurboModule, NativeAssistance, NativeTranslation {}

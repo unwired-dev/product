@@ -298,6 +298,9 @@ as the iPhone row's value and as the iPad row's summary beside its button. Close
 dismisses the sheet and Save saves it; the iPhone row opens the sheet from Settings,
 the iPad row's Change… button does. Each step's capture is named with the
 appearance, for comparison with the approved frames. VoiceOver speech is not covered.
+On iPhone, the new connection's Enter the Password… and Remove… are full-width rows
+below its address, and Email Accounts passes an accessibility audit
+([#1929](https://github.com/unwired-dev/product/issues/1929)).
 
 Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
