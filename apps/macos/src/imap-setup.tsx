@@ -11,6 +11,8 @@ import type {
 import type { ComponentProps, ReactNode } from 'react';
 
 import {
+  catalogDomain,
+  catalogFields,
   imapFields,
   imapPresetOf,
   imapSetup,
@@ -21,7 +23,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
-import { AnnouncedAlert } from './design.tsx';
+import { AnnouncedAlert, SFSymbol } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { ProviderList, ProviderRow } from './onboarding.tsx';
@@ -58,6 +60,14 @@ const formStyles = StyleSheet.create({
   },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.s },
   notes: { ...textStyles.subheadline },
+  found: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: spacing.s,
+    borderRadius: 8,
+  },
 });
 
 // The form's text fields; SMTP security is chosen separately.
@@ -190,6 +200,29 @@ export function ImapForm({
     store.getSnapshot,
   );
   const [fields, setFields] = useState<ImapFields>(() => imapFields(repair));
+  const manual = provider === 'other' && repair === undefined;
+  // Until the person changes a server setting, a new manual connection's servers follow its
+  // address: a catalogued domain's reviewed endpoints, or empty ones to enter by hand.
+  const [edited, setEdited] = useState(false);
+  const update = (patch: Partial<ImapFields>) => {
+    const { address } = patch;
+    if (manual && !edited && address !== undefined) {
+      setFields((current) => ({
+        ...imapFields(),
+        ...catalogFields(address)?.fields,
+        address,
+        password: current.password,
+        smtpPassword: current.smtpPassword,
+      }));
+      return;
+    }
+    if (
+      !('address' in patch || 'password' in patch || 'smtpPassword' in patch)
+    ) {
+      setEdited(true);
+    }
+    setFields((current) => ({ ...current, ...patch }));
+  };
   const field: Field = ({ name, label, visible = label, input = {} }) => (
     <View style={formStyles.row}>
       <Text
@@ -203,7 +236,7 @@ export function ImapForm({
         autoCapitalize="none"
         autoCorrect={false}
         onChangeText={(value) => {
-          setFields((current) => ({ ...current, [name]: value }));
+          update({ [name]: value });
         }}
         placeholder={label}
         placeholderTextColor={colors.textSecondary}
@@ -224,7 +257,6 @@ export function ImapForm({
   const forgetPassword = () => {
     setFields((current) => ({ ...current, password: '', smtpPassword: '' }));
   };
-  const manual = provider === 'other' && repair === undefined;
   return (
     <View style={styles.device}>
       <Label
@@ -289,11 +321,12 @@ export function ImapForm({
           field={field}
           security={smtpSecurityOf(fields)}
           onSecurity={(security) => {
-            setFields((current) => ({ ...current, smtpSecurity: security }));
+            update({ smtpSecurity: security });
           }}
         />
       ) : null}
       <FormNotes
+        found={manual ? catalogDomain(fields) : undefined}
         provider={guidance}
         review={setup}
         failure={imapFailure}
@@ -319,10 +352,13 @@ export function ImapForm({
 
 // What connecting needs and does, and why the latest attempt failed.
 function FormNotes({
+  found,
   provider,
   review,
   failure,
 }: {
+  // The catalogued domain whose endpoints the form filled in.
+  readonly found: string | undefined;
   readonly provider: ImapProvider;
   // The endpoints a complete form connects to.
   readonly review:
@@ -338,6 +374,22 @@ function FormNotes({
   const { t } = useLocalization();
   return (
     <>
+      {found === undefined ? null : (
+        <View style={[formStyles.found, { backgroundColor: colors.fillQuiet }]}>
+          <SFSymbol
+            name="checkmark"
+            size={11}
+            color={colors.accentInk}
+          />
+          <Label
+            style={[
+              formStyles.notes,
+              { flex: 1, color: colors.textSecondary },
+            ]}>
+            {t('imap.found', { domain: found })}
+          </Label>
+        </View>
+      )}
       {provider === 'other' ? null : (
         <Label style={[formStyles.notes, { color: colors.textSecondary }]}>
           {t('imap.appPassword', {

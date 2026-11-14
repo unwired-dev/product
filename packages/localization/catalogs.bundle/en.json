@@ -1354,6 +1354,7 @@
       "starttls": "Mail is sent through {{host}} on port {{port}}, which must switch to TLS with STARTTLS before any password is sent. Its certificate is checked too."
     },
     "incomplete": "Enter the email address, password, both servers, and ports between 1 and 65535.",
+    "found": "Found server settings for {{domain}}. Port and security are filled in for you.",
     "connect": "Connect",
     "connecting": "Connecting to the mail server",
     "cancel": "Cancel",

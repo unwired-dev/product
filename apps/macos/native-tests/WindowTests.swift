@@ -1517,6 +1517,25 @@ final class WindowTests: XCTestCase {
     openSettings()
     settings.buttons["Add an IMAP mailbox"].click()
     settings.buttons["Other IMAP Account"].click()
+    // #2176: an address at a catalogued provider fills in its servers and says so; clearing it
+    // empties them again for manual entry.
+    let email = settings.textFields["Email address"]
+    XCTAssertTrue(email.waitForExistence(timeout: 15))
+    email.click()
+    email.typeText("pat@seznam.cz")
+    let found = text("Found server settings for seznam.cz.", in: settings)
+    XCTAssertTrue(found.waitForExistence(timeout: 15))
+    XCTAssertEqual(settings.textFields["IMAP server"].value as? String, "imap.seznam.cz")
+    XCTAssertEqual(settings.textFields["SMTP server"].value as? String, "smtp.seznam.cz")
+    // The note is below the fold of the Settings window.
+    let page = settings.scrollViews.firstMatch
+    page.scroll(byDeltaX: 0, deltaY: -400)
+    attach(settings, "Catalogued provider found")
+    page.scroll(byDeltaX: 0, deltaY: 400)
+    email.typeKey("a", modifierFlags: .command)
+    email.typeKey(.delete, modifierFlags: [])
+    XCTAssertTrue(found.waitForNonExistence(timeout: 15))
+    XCTAssertEqual(settings.textFields["IMAP server"].value as? String, "")
     for (label, value) in [
       ("Email address", address), ("User name", "pat"), ("IMAP server", "imap.example.invalid"),
       ("SMTP server", "smtp.example.invalid"),
@@ -2533,7 +2552,8 @@ final class WindowTests: XCTestCase {
     "November",
     "pat@example.invalid isn’t included",
     "Its server doesn’t say which folders hold Spam and Trash, so All Mail can’t leave them out. Its folders are still listed under it in the sidebar.",
-    "Accounts", "Application", "Automation", "Email Accounts", "Mailbox Connections", "Gmail",
+    "Accounts", "Application", "Automation", "Composing", "Email Accounts", "Mailbox Connections",
+    "Gmail",
     "Microsoft", "casey@example.invalid", "other@example.invalid", "pat@example.invalid",
     "Each mailbox keeps its own access and saved mail on this device. The Inbox shows them together or one at a time.",
     "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you",
