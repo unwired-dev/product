@@ -753,6 +753,9 @@ app follows under the issue named:
   trailing and the note wrapped in small type. Until #658 schedules
   notifications, no device reminds the person yet.
 - **Mail Views:** the row of Mail View chips in the Inbox list waits for #2131.
+- **Mac Settings › Appearance:** the page offers Light, Dark and System (#2153).
+  The frame's Message list group, with its Preview lines pop-up, waits for a
+  later slice of #1727.
 - **Reader More menu:** Move to Spam waits for #2132.
 - **Compact iPad window:** the Command input in the reader's navigation bar and
   on the composer's From row waits for #2133.

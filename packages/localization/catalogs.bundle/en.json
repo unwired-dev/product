@@ -88,6 +88,13 @@
     "preparingForward": "Preparing to forward…",
     "respondFailed": "A reply or forward could not be started. Try again."
   },
+  "appearance": {
+    "title": "Appearance",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "detail": "System follows macOS. Increase Contrast and Reduce Transparency apply in every choice."
+  },
   "language": {
     "title": "Language",
     "systemDefault": "System Default",
@@ -208,6 +215,7 @@
       "signatures": "Signatures",
       "notifications": "Notifications",
       "blockedSenders": "Blocked Senders",
+      "appearance": "Appearance",
       "language": "Language",
       "privacy": "Privacy & Data",
       "errorReporting": "Error Reporting"

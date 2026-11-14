@@ -17,12 +17,21 @@ const unwiredRegistration = {
   preference: () => Promise.resolve({ value: null }),
   setPreference: () => Promise.resolve({}),
 };
+// `SettingsManager` as the Mac's user defaults, empty when a test file starts.
+const userDefaults = {};
+const settingsManager = {
+  getConstants: () => ({ settings: userDefaults }),
+  setValues: (values) => Object.assign(userDefaults, values),
+};
 const { getEnforcing } = TurboModuleRegistry;
 // `UnwiredMenu` and `UnwiredAlert` each track one menu or sheet at a time until the journey answers
 // it. They load with the journey, once Testing Library can.
 TurboModuleRegistry.getEnforcing = (name) => {
   if (name === 'UnwiredRegistration') {
     return unwiredRegistration;
+  }
+  if (name === 'SettingsManager') {
+    return settingsManager;
   }
   if (name === 'UnwiredAlert') {
     return require('./native-alert.ts').unwiredAlert;
