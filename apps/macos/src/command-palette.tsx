@@ -51,15 +51,21 @@ import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
+// The menu items whose events name the window they were chosen in.
+type MenuEvent = 'refresh' | 'newMessage';
+
 const PaletteContext = createContext<
   Readonly<{
     registry: CommandRegistry;
     // The AppKit window whose Commands… menu item opens this palette.
     identifier: string;
+    // Whether a menu item was chosen for this window before it could run, once.
+    takePending: (event: MenuEvent) => boolean;
   }>
 >({
   registry: createCommandRegistry(),
   identifier: 'inbox-window-',
+  takePending: () => false,
 });
 
 // Closes the open palette; undefined while it is closed.
@@ -334,11 +340,8 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
 
 // While mounted, a menu item chosen in this window runs `run`: View › Refresh (Command-R), or
 // File › New Message (Command-N).
-export function useMenuCommand(
-  event: 'refresh' | 'newMessage',
-  run: () => void,
-) {
-  const { identifier } = use(PaletteContext);
+export function useMenuCommand(event: MenuEvent, run: () => void) {
+  const { identifier, takePending } = use(PaletteContext);
   const runNow = useRef(run);
   useLayoutEffect(() => {
     runNow.current = run;
@@ -356,10 +359,13 @@ export function useMenuCommand(
         }
       },
     );
+    if (takePending(event)) {
+      runNow.current();
+    }
     return () => {
       subscription.remove();
     };
-  }, [event, identifier]);
+  }, [event, identifier, takePending]);
 }
 
 // Collects the commands the window's screens offer; every window has one, above every screen that
@@ -367,17 +373,31 @@ export function useMenuCommand(
 export function CommandPaletteProvider({
   windowId,
   identifier,
+  pending,
   children,
 }: {
   readonly windowId: string;
   // The AppKit window's identifier, when it is not a numbered Inbox window.
   readonly identifier?: string;
+  // A menu item chosen as AppKit opened the window, before its JavaScript listened.
+  readonly pending?: MenuEvent | undefined;
   readonly children: ReactNode;
 }) {
   const registry = useMemo(() => createCommandRegistry(), []);
   const window = identifier ?? `inbox-window-${windowId}`;
+  const waiting = useRef(pending);
   const value = useMemo(
-    () => ({ registry, identifier: window }),
+    () => ({
+      registry,
+      identifier: window,
+      takePending: (event: MenuEvent) => {
+        if (waiting.current !== event) {
+          return false;
+        }
+        waiting.current = undefined;
+        return true;
+      },
+    }),
     [registry, window],
   );
   const [outsideClose, setOutsideClose] = useState<() => void>();

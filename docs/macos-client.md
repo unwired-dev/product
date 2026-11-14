@@ -193,8 +193,9 @@ The View menu's Commands… item (Command-K) opens the key window's
 [Command Palette](command-palette.md). File › New Message (Command-N) starts a
 Draft in the key Inbox window exactly as its New Message button does, and does
 nothing while that button is unavailable. Chosen in Settings or a New Message
-window, it first brings an Inbox window forward as Show Inbox does, and with no
-Inbox window it only opens one; while a sheet is open, answer it first.
+window, it first brings an Inbox window forward as Show Inbox does; with no
+Inbox window it opens one, which starts the Draft once its New Message is
+available. While a sheet is open on either window, answer it first.
 Command-P is kept for Print
 ([#854](https://github.com/unwired-dev/product/issues/854)). Native menus use AppKit accessibility. Message buttons expose labels and selected
 state, support keyboard focus, and show a focus border. React Native macOS 0.81.9 does
