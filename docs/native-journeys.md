@@ -290,7 +290,8 @@ clears it, and the list passes an accessibility audit.
 The Expo native journey for a `registration-apple` Release build signs in with
 Apple and connects the synthetic Microsoft and Gmail mailboxes; its steps are listed
 under [Expo setup](expo-client.md#validate). Build it with
-`UNWIRED_MOCK_SCENARIO=registration-apple` and run it once per appearance and device:
+`UNWIRED_MOCK_SCENARIO=registration-apple` and, from the repository root, run it once
+per appearance and device:
 
 ```sh
 UNWIRED_APPEARANCE=light mise exec -- pnpm --filter @private-email/mobile test:native \
