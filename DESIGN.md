@@ -646,9 +646,11 @@ form accessories, keyboards, status bar).
   [translation](docs/message-translation.md#behavior) and
   [remote-content requirements](docs/gmail-inbox.md#links-and-blocked-remote-content);
   authorization problems identify the affected Mailbox Connection. Schedule and
-  security notices (Figma: Schedule Banner) share the fill and radius: a 13pt
-  medium label, a 13/16 summary, and up to three 28pt `fill/track` capsule
-  buttons or text links. A warning tints the banner with `status/warning` at 12%.
+  security notices (Figma: Schedule Banner) share the fill and radius. Stacked:
+  a 13pt medium label, a 13/16 summary, and up to three 28pt `fill/track`
+  capsule buttons or text links. Inline, for a notice without a title: a 13pt
+  symbol on the first line of the summary, which wraps beside it. A warning
+  tints the banner with `status/warning` at 12%. iPad draws both at 1.15.
 - **Toast / Outbox Row:** a toast is a Liquid Glass capsule with no fill of its
   own, 48pt tall with a 24pt radius, centred with its bottom edge 12pt above the
   search bar: 16pt leading and 20pt trailing padding, an 18pt symbol and the
@@ -818,8 +820,10 @@ app follows under the issue named:
 - **Copy:** one name per action, Spam, Thread and Title Case, All Inboxes and
   All Mailboxes among them, wait for #2083. The iPhone heading's "All read"
   waits for #2068.
-- **Control sizes:** the Mac Welcome and Sign In buttons, 28pt Mac pop-up
-  buttons and the iPad Profile Switcher's 28pt monogram wait for #2085.
+- **Control sizes:** the Mac Welcome and Sign In buttons, the iPad Sign in
+  with Apple radius, the iPad Profile Switcher's 28pt monogram, and 28pt Mac
+  pop-up buttons and Command Palette Back, or a 28pt hit area around the
+  system control, wait for #2085.
 - **Search states:** the No Results empty state and the Searching indicator
   wait for #2090.
 - **Reader loading:** the reader's states for a message that is loading, failed
@@ -834,7 +838,8 @@ app follows under the issue named:
   #2096.
 - **iPad top row and Settings groups:** the one centre line, and icons on every
   row of a group or on none, wait for #2097.
-- **iPhone Outbox:** the rows' recovery controls wait for #2098.
+- **iPhone Outbox:** the rows have their recovery controls; drawing them as
+  44pt quiet capsules under a two-line reason waits for #2098.
 - **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
   failing Mailbox Connection wait for #2099.
 - **iPhone alert, hint and Settings failure:** the two-sentence Trusted Device
