@@ -29,13 +29,15 @@ export const blockedAddress = (address: string) => {
 };
 
 // A Blocked Sender: an exact normalized address, the Mail Profile that blocks it and when, in
-// milliseconds since the epoch.
+// milliseconds since the epoch, and how many arrivals this device moved to Trash for it since then;
+// a block stored before #2141 has no count.
 const BlockedSenderSchema = Schema.Struct({
   profile: Schema.NonEmptyString,
   address: Schema.String.check(
     Schema.makeFilter((address) => blockedAddress(address) === address),
   ),
   blockedAt: Schema.Finite,
+  moved: Schema.optionalKey(Schema.Int),
 });
 export type BlockedSender = typeof BlockedSenderSchema.Type;
 
@@ -91,6 +93,16 @@ const report = (
     ? Effect.void
     : Effect.logError('Blocked Sender storage failed:', error.diagnostic);
 
+// A sender's move count. One stored before senders kept it counts its kept receipts that arrived
+// since it was blocked.
+const movedFor = (sender: BlockedSender, receipts: readonly Receipt[]) =>
+  sender.moved ??
+  receipts.filter(
+    (receipt) =>
+      receipt.address === sender.address &&
+      Date.parse(receipt.receivedAt) >= sender.blockedAt,
+  ).length;
+
 const isProfileAddress =
   (profile: string, address: string) => (sender: BlockedSender) =>
     sender.profile === profile && sender.address === address;
@@ -102,6 +114,13 @@ export function createBlockedSenders(
   registration: Pick<Registration, 'getSnapshot'>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  // Told after each change this device stores, such as a block or a receipt.
+  const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const listener of listeners) {
+      listener();
+    }
+  };
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The Blocked Senders of `account`, the Product Account signed in when the action was called, so
   // an action that waited, or whose read finished, while another account signed in reads and
@@ -142,6 +161,7 @@ export function createBlockedSenders(
       if (committed.owner !== owner) {
         return yield* ownerMismatch();
       }
+      changed();
     });
 
   // Resolves whether storage holds what `change` makes of the stored Blocked Senders; returning
@@ -178,12 +198,23 @@ export function createBlockedSenders(
   };
 
   return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     // `profile`'s Blocked Senders, or undefined while storage cannot read them.
     blockedSenders: (profile: string) =>
       runLogged(
         opened(signedIn()).pipe(
-          Effect.map(({ senders }) =>
-            senders.filter((sender) => sender.profile === profile),
+          Effect.map(({ senders, receipts }) =>
+            senders
+              .filter((sender) => sender.profile === profile)
+              .map((sender) => ({
+                ...sender,
+                moved: movedFor(sender, receipts),
+              })),
           ),
           // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
           Effect.catchTag('DraftStorageFailure', (error) =>
@@ -198,16 +229,17 @@ export function createBlockedSenders(
           ? senders
           : [
               ...senders,
-              { profile, address: normalized, blockedAt: Date.now() },
+              { profile, address: normalized, blockedAt: Date.now(), moved: 0 },
             ],
       ),
     // Which of a connection's newly arriving `messages` its Mail Profile `profile` blocks: `blocked`
     // names each, which gets no notification, and `move` those this call recorded a receipt for,
     // which the caller moves to Trash. An arrival with a kept receipt is not moved again, and a receipt
-    // storage refuses moves nothing. Undefined while storage cannot read the Blocked Senders.
+    // storage refuses moves nothing. A connection that `moves` nothing to Trash now records no
+    // receipt. Undefined while storage cannot read the Blocked Senders.
     screen: (
       profile: string,
-      connection: string,
+      connection: Readonly<{ id: string; moves: boolean }>,
       messages: ReadonlyArray<
         Readonly<{ id: string; address: string; receivedAt: string }>
       >,
@@ -220,12 +252,18 @@ export function createBlockedSenders(
             const address = blockedAddress(sender.address);
             return address !== undefined &&
               stored.senders.some(isProfileAddress(profile, address))
-              ? [{ id, receipt: { connection, address, receivedAt } }]
+              ? [
+                  {
+                    id,
+                    receipt: { connection: connection.id, address, receivedAt },
+                  },
+                ]
               : [];
           });
           const blocked = new Set(arrivals.map(({ id }) => id));
           const moving = arrivals.filter(
             ({ receipt }) =>
+              connection.moves &&
               !stored.receipts.some(
                 (kept) =>
                   kept.connection === receipt.connection &&
@@ -238,7 +276,18 @@ export function createBlockedSenders(
             return { blocked, move };
           }
           const recorded = yield* commit(stored, {
-            senders: stored.senders,
+            // A count outlives the receipts, which only keep an arrival from moving twice, so every
+            // sender's is stored before older receipts are dropped.
+            senders: stored.senders.map((sender) => ({
+              ...sender,
+              moved:
+                movedFor(sender, stored.receipts) +
+                moving.filter(
+                  ({ receipt }) =>
+                    sender.profile === profile &&
+                    receipt.address === sender.address,
+                ).length,
+            })),
             receipts: [
               ...stored.receipts,
               ...moving.map(({ receipt }) => receipt),

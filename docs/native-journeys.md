@@ -232,6 +232,14 @@ no mailbox is listed. The window's capture is kept as an attachment and the
 accessibility audit runs on it. **Manage Mail Profiles…** opens Settings › Mail
 Profiles. It sets Light; `testMailProfileWithoutMailboxesDark` runs it in Dark.
 
+`testBlockSender` uses the same build and sign-in
+([#2141](https://github.com/unwired-dev/product/issues/2141)). It opens Gmail
+update 001 and chooses **Block Sender…** from its sender's menu; the sheet asks
+`Block sender001@example.invalid?` and **Block Sender** confirms it. Settings ›
+Blocked Senders then lists the address as `0 since`, and selecting it and choosing
+− leaves **No Blocked Senders**. The sheet and both Settings states are kept as
+attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
+
 ## Mac IMAP Spam and Trash folder journey
 
 The `testImapSpamAndTrashFolders` journey and its `Dark` variant use the same
@@ -284,6 +292,30 @@ Settings › Signatures then lists the IMAP Sending Identity with None
 ([#2059](https://github.com/unwired-dev/product/issues/2059)). Its signature is typed,
 made bold and stored when the editor is left; the row shows its first line, Delete
 clears it, and the list passes an accessibility audit.
+
+## iPhone and iPad Apple registration journey
+
+The Expo native journey for a `registration-apple` Release build signs in with
+Apple and connects the synthetic Microsoft and Gmail mailboxes; its steps are listed
+under [Expo setup](expo-client.md#validate). Build it with
+`UNWIRED_MOCK_SCENARIO=registration-apple` and, from the repository root, run it once
+per appearance and device:
+
+```sh
+UNWIRED_APPEARANCE=light mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+```
+
+Before the Work Profile's new message is sent, a long press on Send opens the Send
+menu, **Remind Me to Send…** sets **Tomorrow Morning** from the iPhone sheet or with
+the iPad popover's **Set Reminder**, and the composer stays open with the Draft's
+banner, **Change** and **Remove Reminder**
+([#2144](https://github.com/unwired-dev/product/issues/2144)). The captures are
+named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
+Reminder". The journey fails later on iPhone
+([#2146](https://github.com/unwired-dev/product/issues/2146)) and iPad
+([#2148](https://github.com/unwired-dev/product/issues/2148)).
 
 ## iPhone and iPad keyboard and accessibility journey
 
