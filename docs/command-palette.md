@@ -86,10 +86,10 @@ results never appear in the palette. The vocabulary lives in the
 
 - **Mac:** a command input stays visible in a bar at the top of each window,
   the Settings window and account page included.
-  Clicking it, or choosing View › Commands… (Command-P), opens the palette
+  Clicking it, or choosing View › Commands… (Command-K), opens the palette
   beneath it without shifting the window's layout, with the query focused. Up and
   Down select a command and scroll it into view, Return runs it, Escape closes the palette or leaves the
-  picker; the footer names these keys. The bar shows the Command-P shortcut.
+  picker; the footer names these keys. The bar shows the Command-K shortcut.
   Per-command shortcuts appear only once the keyboard shortcuts of
   [#849](https://github.com/unwired-dev/product/issues/849) exist.
   While a link confirmation sheet is open, answer it before opening the palette in
@@ -117,7 +117,7 @@ results never appear in the palette. The vocabulary lives in the
   top of a reader, Thread or composer that is loading, cannot open its storage
   or has no message or Draft to show, so one is on screen in every size class,
   including compact layouts that show only the reader or composer; tapping it
-  or the header swipe opens the palette. Command-P from a hardware keyboard is
+  or the header swipe opens the palette. Command-K from a hardware keyboard is
   deferred: React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen
@@ -138,7 +138,7 @@ Component tests cover opening from each entry, including the Thread reader,
 the fixed order, fuzzy narrowing, running Archive and Move to… on the open
 message with Undo, the disabled reasons, Search Mail leaving the reader and
 bringing the list forward from Mailboxes, New Message following the floating
-bar's button, the Account entry and the way back to the Inbox from Settings, Command-P
+bar's button, the Account entry and the way back to the Inbox from Settings, Command-K
 opening the Mac palette only while its window shows the bar, an open palette leaving with its
 screen when registration replaces it, Back, Escape and the Mac's outside click,
 the Mac Draft commands in an Inbox window and a New Message window,
@@ -152,7 +152,7 @@ mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx tes
 mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx test/registration.test.tsx test/composer.test.tsx
 ```
 
-The Command-P menu item, the saved hint preference and the header swipe are
+The Command-K menu item, the saved hint preference and the header swipe are
 native and need a built host: the [Mac host](macos-client.md) and the
 [Expo app](expo-client.md). The swipe's arbitration with the scrolling content
 beneath each header, and the accessibility actions, remain to be qualified on

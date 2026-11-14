@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { RegisterCommands } from './command-palette.tsx';
+import { RegisterCommands, useMenuCommand } from './command-palette.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
@@ -79,6 +79,12 @@ const styles = StyleSheet.create({
   },
 });
 
+// File › New Message, Command-N, chosen in this window runs `compose`.
+function NewMessageMenuCommand({ compose }: { readonly compose: () => void }) {
+  useMenuCommand('newMessage', compose);
+  return null;
+}
+
 // The New Message control of the floating search bar.
 function NewMessageButton({
   onCompose,
@@ -134,13 +140,20 @@ function NewMessageButton({
   return (
     <>
       {disabled ? null : (
-        <RegisterCommands
-          offer={() => [
-            composeCommand(t, () => {
+        <>
+          <RegisterCommands
+            offer={() => [
+              composeCommand(t, () => {
+                void compose();
+              }),
+            ]}
+          />
+          <NewMessageMenuCommand
+            compose={() => {
               void compose();
-            }),
-          ]}
-        />
+            }}
+          />
+        </>
       )}
       <GlassGroup
         style={{

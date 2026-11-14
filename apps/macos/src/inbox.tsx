@@ -45,7 +45,7 @@ import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
 import { Action } from './action.tsx';
-import { RegisterCommands, useRefreshCommand } from './command-palette.tsx';
+import { RegisterCommands, useMenuCommand } from './command-palette.tsx';
 import {
   DraftHeading,
   DraftList,
@@ -924,7 +924,7 @@ export function Inbox({
   const synchronize = (loaded: readonly InboxMailbox[]) =>
     account === undefined ? load(loaded)() : account.refreshInbox(load(loaded));
   const [refreshing, setRefreshing] = useState(false);
-  useRefreshCommand(() => {
+  useMenuCommand('refresh', () => {
     const refresh = async () => {
       setRefreshing(true);
       try {

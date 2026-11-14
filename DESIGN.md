@@ -824,9 +824,6 @@ app follows under the issue named:
   and #2118.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
-- **Command Palette key cap:** the frames and the Layout section show ⌘K, as
-  [ADR 0077](docs/adr/0077-remove-friction-that-privacy-does-not-require.md)
-  decides. The app opens the palette with ⌘P until #1993.
 - **Outbox:** the frames draw the conditional Outbox as a sidebar row after Sent.
   The app lists its rows at the top of the Inbox column until #2101.
 - **Reader date:** the frames write `Today, 8:12`. The app writes a full UTC date
