@@ -1734,7 +1734,8 @@ label with an archived message, and a trashed message; its other views list them
 Gmail does. Each message has an HTML or plain-text body; label changes apply for the
 rest of that launch. Its synthetic layer enters only the selected test build.
 The packaged iPhone and iPad journeys confirm setup, open the synchronized Inbox,
-render the opened HTML body in WebKit, confirm and cancel a link destination,
+render the opened HTML body in WebKit, cancel an ordinary and a flagged link in
+the system alert, which shows each one's title, full destination and buttons,
 star and archive a message and undo the archive, relaunch from the encrypted
 cache and return to the account page. The reading steps and the organizing steps
 each passed on iOS 27 simulators before they were combined; the combined journey
