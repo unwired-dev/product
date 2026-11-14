@@ -74,6 +74,101 @@ export const imapPresetOf = (
       imapProviders[preset].port === endpoint.port,
   ) ?? 'other';
 
+// Reviewed endpoints for an address's domain, from each provider's own settings page
+// (docs/imap-mailboxes.md). They sign in with the full address unless the provider says otherwise.
+const catalog = [
+  { domains: ['icloud.com', 'me.com', 'mac.com'], ...imapProviders.icloud },
+  { domains: ['fastmail.com', 'fastmail.fm'], ...imapProviders.fastmail },
+  {
+    domains: [
+      'yahoo.com',
+      'ymail.com',
+      'rocketmail.com',
+      'yahoo.co.uk',
+      'yahoo.de',
+      'yahoo.fr',
+    ],
+    host: 'imap.mail.yahoo.com',
+    smtp: { host: 'smtp.mail.yahoo.com', port: 465, security: 'tls' },
+  },
+  {
+    domains: ['aol.com'],
+    host: 'imap.aol.com',
+    smtp: { host: 'smtp.aol.com', port: 465, security: 'tls' },
+  },
+  {
+    domains: ['gmx.com'],
+    host: 'imap.gmx.com',
+    smtp: { host: 'mail.gmx.com', port: 465, security: 'tls' },
+  },
+  {
+    domains: ['gmx.net', 'gmx.de', 'gmx.at', 'gmx.ch'],
+    host: 'imap.gmx.net',
+    smtp: { host: 'mail.gmx.net', port: 587, security: 'starttls' },
+  },
+  {
+    domains: ['web.de'],
+    host: 'imap.web.de',
+    smtp: { host: 'smtp.web.de', port: 465, security: 'tls' },
+  },
+  {
+    domains: ['mail.com'],
+    host: 'imap.mail.com',
+    smtp: { host: 'smtp.mail.com', port: 465, security: 'tls' },
+  },
+  {
+    domains: ['seznam.cz', 'email.cz', 'post.cz'],
+    host: 'imap.seznam.cz',
+    smtp: { host: 'smtp.seznam.cz', port: 465, security: 'tls' },
+  },
+] as const;
+
+// The server fields a manual form fills in for an address at a catalogued domain. SMTP signs in
+// with the full address, so it needs its own user name only where IMAP uses a shorter one.
+export const catalogFields = (address: string) => {
+  const trimmed = address.trim();
+  const domain = trimmed.split('@')[1]?.toLowerCase() ?? '';
+  const entry = catalog.find((provider) =>
+    (provider.domains as readonly string[]).includes(domain),
+  );
+  if (entry === undefined) {
+    return undefined;
+  }
+  const username = 'username' in entry ? entry.username(trimmed) : trimmed;
+  return {
+    domain,
+    fields: {
+      host: entry.host,
+      port: '993',
+      username,
+      smtpHost: entry.smtp.host,
+      smtpPort: String(entry.smtp.port),
+      smtpSecurity: entry.smtp.security,
+      smtpUsername: username === trimmed ? '' : trimmed,
+    },
+  };
+};
+
+// The server fields a catalog entry fills in.
+const serverFields = [
+  'host',
+  'port',
+  'username',
+  'smtpHost',
+  'smtpPort',
+  'smtpSecurity',
+  'smtpUsername',
+] as const;
+
+// The catalogued domain whose endpoints a form still holds, for the note that says they were found.
+export const catalogDomain = (fields: ImapFields) => {
+  const found = catalogFields(fields.address);
+  return found !== undefined &&
+    serverFields.every((name) => fields[name] === found.fields[name])
+    ? found.domain
+    : undefined;
+};
+
 // The setup to try once more when the server refuses this one: iCloud Mail accepts the full
 // address where it refuses the name part, as Apple's mail settings direct.
 export const imapFallback = (setup: ImapSetup): ImapSetup | undefined =>

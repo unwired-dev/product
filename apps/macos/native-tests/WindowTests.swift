@@ -1516,6 +1516,21 @@ final class WindowTests: XCTestCase {
     openSettings()
     settings.buttons["Add an IMAP mailbox"].click()
     settings.buttons["Other IMAP Account"].click()
+    // #2176: an address at a catalogued provider fills in its servers and says so; clearing it
+    // empties them again for manual entry.
+    let email = settings.textFields["Email address"]
+    XCTAssertTrue(email.waitForExistence(timeout: 15))
+    email.click()
+    email.typeText("pat@seznam.cz")
+    let found = text("Found server settings for seznam.cz.", in: settings)
+    XCTAssertTrue(found.waitForExistence(timeout: 15))
+    XCTAssertEqual(settings.textFields["IMAP server"].value as? String, "imap.seznam.cz")
+    XCTAssertEqual(settings.textFields["SMTP server"].value as? String, "smtp.seznam.cz")
+    attach(settings, "Catalogued provider found")
+    email.typeKey("a", modifierFlags: .command)
+    email.typeKey(.delete, modifierFlags: [])
+    XCTAssertTrue(found.waitForNonExistence(timeout: 15))
+    XCTAssertEqual(settings.textFields["IMAP server"].value as? String, "")
     for (label, value) in [
       ("Email address", address), ("User name", "pat"), ("IMAP server", "imap.example.invalid"),
       ("SMTP server", "smtp.example.invalid"),

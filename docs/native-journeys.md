@@ -261,7 +261,10 @@ mise exec -- pnpm --filter @private-email/macos test:native \
   testImapSpamAndTrashFolders
 ```
 
-Settings › Email Accounts connects the
+Settings › Email Accounts first types an address at a
+[catalogued provider](imap-mailboxes.md#catalogued-providers) into Other IMAP Account:
+its servers are filled in and the found note shows, and clearing the address empties
+them again ([#2176](https://github.com/unwired-dev/product/issues/2176)). It then connects the
 [synthetic IMAP server](mock-mail-sessions.md), which marks no Spam or Trash folder,
 and lists it under Spam and Trash Folders as not chosen. All Mail shows the
 [not-included notice](imap-mailboxes.md) and leaves out its Inbox message. Choose

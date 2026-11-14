@@ -477,6 +477,132 @@ describe('product registration', () => {
     }
   });
 
+  it("fills in a catalogued provider's servers from the address until the person changes one", async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const setups: unknown[] = [];
+    const store = createRegistration({
+      ...synthetic.vault,
+      connectImap: (imap) => {
+        setups.push(imap);
+        return synthetic.vault.connectImap(imap);
+      },
+    });
+    await render(
+      <MacWindows store={store}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </MacWindows>,
+    );
+    const press = async (name: string) => {
+      await act(async () => {
+        await fireEvent.press(await screen.findByRole('button', { name }));
+      });
+    };
+    const type = async (label: string, value: string) => {
+      await fireEvent.changeText(screen.getByLabelText(label), value);
+    };
+    // The form's server settings and the note that says they were found.
+    const form = () => ({
+      ...Object.fromEntries(
+        [
+          'User name',
+          'IMAP server',
+          'Port',
+          'SMTP server',
+          'SMTP port',
+          'SMTP user name, same as incoming if blank',
+        ].map((label) => [label, screen.getByLabelText(label).props.value]),
+      ),
+      security: screen.getByRole('button', { name: 'SMTP security' }).props
+        .accessibilityValue?.text,
+      found: screen
+        .queryAllByText(/^Found server settings for/u)
+        .map(({ props }) => props.children),
+    });
+    await openAccount();
+    await settings('Email Accounts');
+    await press('Add an IMAP mailbox');
+    await press('Other IMAP Account');
+    await type('Email address', 'mara@Seznam.cz');
+    const seznam = form();
+    await type('Email address', 'mara@example.org');
+    const manual = form();
+    await type('Email address', 'mara@icloud.com');
+    const icloud = form();
+    await type('SMTP port', '465');
+    await type('Email address', 'mara@seznam.cz');
+    const edited = form();
+    await type('Password', synthetic.imap.password);
+    await press('Connect');
+    expect({ seznam, manual, icloud, edited, setups }).toStrictEqual({
+      seznam: {
+        'User name': 'mara@Seznam.cz',
+        'IMAP server': 'imap.seznam.cz',
+        Port: '993',
+        'SMTP server': 'smtp.seznam.cz',
+        'SMTP port': '465',
+        'SMTP user name, same as incoming if blank': '',
+        security: 'SSL/TLS',
+        found: [
+          'Found server settings for seznam.cz. Port and security are filled in for you.',
+        ],
+      },
+      manual: {
+        'User name': '',
+        'IMAP server': '',
+        Port: '993',
+        'SMTP server': '',
+        'SMTP port': '465',
+        'SMTP user name, same as incoming if blank': '',
+        security: 'SSL/TLS',
+        found: [],
+      },
+      icloud: {
+        'User name': 'mara',
+        'IMAP server': 'imap.mail.me.com',
+        Port: '993',
+        'SMTP server': 'smtp.mail.me.com',
+        'SMTP port': '587',
+        'SMTP user name, same as incoming if blank': 'mara@icloud.com',
+        security: 'STARTTLS',
+        found: [
+          'Found server settings for icloud.com. Port and security are filled in for you.',
+        ],
+      },
+      // A changed port keeps every server setting, whatever the address becomes.
+      edited: {
+        'User name': 'mara',
+        'IMAP server': 'imap.mail.me.com',
+        Port: '993',
+        'SMTP server': 'smtp.mail.me.com',
+        'SMTP port': '465',
+        'SMTP user name, same as incoming if blank': 'mara@icloud.com',
+        security: 'STARTTLS',
+        found: [],
+      },
+      setups: [
+        {
+          address: 'mara@seznam.cz',
+          host: 'imap.mail.me.com',
+          port: 993,
+          username: 'mara',
+          password: synthetic.imap.password,
+          smtp: {
+            host: 'smtp.mail.me.com',
+            port: 465,
+            security: 'starttls',
+            username: 'mara@icloud.com',
+          },
+        },
+      ],
+    });
+  });
+
   it.each([
     {
       host: 'imap.example.invalid',
