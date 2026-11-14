@@ -66,6 +66,13 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 {
   // Mail has no tabs: without this AppKit adds its tab commands and merges windows into tabs.
   NSWindow.allowsAutomaticWindowTabbing = NO;
+  // Settings › Appearance (appearance-settings.tsx) stores Light or Dark; System leaves AppKit's.
+  NSString *appearance = [NSUserDefaults.standardUserDefaults stringForKey:@"UnwiredAppearance"];
+  if ([appearance isEqualToString:@"light"]) {
+    NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+  } else if ([appearance isEqualToString:@"dark"]) {
+    NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  }
   [(Class<UnwiredNotifications>)NSClassFromString(@"UnwiredNotifications") start];
   self.dependencyProvider = [RCTAppDependencyProvider new];
   self.reactFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];

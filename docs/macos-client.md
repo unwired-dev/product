@@ -395,6 +395,17 @@ English override in a native pop-up, which also titles the native menus and wind
 [interface translations](localization.md) for catalogs, adding languages, native
 menu behavior, and language verification.
 
+## Appearance
+
+Settings' **Appearance** page ([#2153](https://github.com/unwired-dev/product/issues/2153),
+a first slice of [#1727](https://github.com/unwired-dev/product/issues/1727))
+offers Light, Dark and System. Light and Dark set the application's appearance,
+so every window and its native chrome switch at once; System, the default,
+follows macOS again. Increase Contrast and Reduce Transparency apply in every
+choice. The choice is a Device-Local Preference kept in this Mac's user defaults
+(`UnwiredAppearance`), and the app delegate applies it before the first window
+opens.
+
 ## Settings
 
 Settings is one 900×720 AppKit window. The app menu's **Settings…** (Command-,),
