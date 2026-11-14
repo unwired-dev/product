@@ -93,6 +93,8 @@ const styles = StyleSheet.create({
     height: scaledToolbar.height,
     alignItems: 'center',
   },
+  // The iPhone toolbar's More, sized as its other buttons.
+  compactMoreButton: { width: 44, height: 44, alignItems: 'center' },
   groups: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 * ipadListScale },
   // Panels open above a bottom toolbar and below a top one; the reader positions the whole.
   panels: { maxHeight: 280, flexGrow: 0 },
@@ -394,46 +396,29 @@ export function MessageActionsNotice({ id }: { readonly id: string }) {
   ) : null;
 }
 
-// More's panel. Beside the iPhone Reply sheet, which offers its actions, it lists only the labels,
-// and VoiceOver's escape gesture closes it, as there is no More button to.
+// More's panel: Gmail's labels to add or remove on iPhone, which More's menu or the Reply sheet
+// opens. VoiceOver's escape gesture closes it, as no button toggles it.
 function MorePanel({
-  actions,
   labels,
-  replySheet,
   onPanel,
 }: {
-  readonly actions: readonly Named[];
   readonly labels: ReactNode;
-  readonly replySheet: boolean;
   readonly onPanel: PanelState['onPanel'];
 }) {
   return (
     <ScrollView style={styles.panels}>
       <View
         style={styles.panel}
-        onAccessibilityEscape={
-          replySheet
-            ? () => {
-                onPanel(undefined);
-              }
-            : undefined
-        }>
-        {replySheet
-          ? null
-          : actions.map(({ name, label, run }) => (
-              <ActionButton
-                key={name}
-                label={label}
-                onPress={run}
-              />
-            ))}
+        onAccessibilityEscape={() => {
+          onPanel(undefined);
+        }}>
         {labels}
       </View>
     </ScrollView>
   );
 }
 
-// The iPad More menu's titles and symbols, as the row menu names the same actions.
+// The More menu's titles and symbols, as the row menu names the same actions.
 const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
   ({
     read: [t('contextMenu.read'), 'envelope.open'],
@@ -442,17 +427,17 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
     unstar: [t('contextMenu.unstar'), 'flag.slash'],
     restore: [t('contextMenu.restore'), 'tray.and.arrow.down'],
     spam: [t('contextMenu.spam'), 'xmark.bin'],
+    trash: [t('contextMenu.trashMessage'), 'trash'],
   }) as const;
 
-// More: on iPhone its panel above the bottom toolbar; on iPad the system menu the frames draw:
-// read state, the flag and Move to…, then the actions that take the message elsewhere. Gmail's
-// Labels, which toggle in place, open More's panel.
+// More: the system menu the iPad frames draw: read state, the flag and Move to…, then the actions
+// that take the message elsewhere. Gmail's Labels, which toggle in place, open More's panel. The
+// iPhone toolbar has no Delete, so its menu ends with it.
 function MoreButton({
   more,
   folders,
 }: {
   readonly more: Readonly<{
-    open: boolean;
     toggle: () => void;
     actions: readonly Named[];
     labels?: ReactNode;
@@ -464,18 +449,6 @@ function MoreButton({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  if (compact) {
-    return (
-      <ToolbarButton
-        icon="ellipsis"
-        label={t('message.more')}
-        expanded={more.open}
-        onPress={() => {
-          more.toggle();
-        }}
-      />
-    );
-  }
   const titled = menuActions(t);
   const items = (names: ReadonlyArray<keyof typeof titled>) =>
     names.flatMap((name) =>
@@ -483,13 +456,19 @@ function MoreButton({
         .filter((action) => action.name === name)
         .map(({ run }) => {
           const [title, symbol] = titled[name];
-          return { key: name, title, symbol, run };
+          return {
+            key: name,
+            title,
+            symbol,
+            destructive: name === 'trash',
+            run,
+          };
         }),
     );
   return (
     <MenuButton
       accessibilityLabel={t('message.more')}
-      hitSlop={scaledToolbarSlop}
+      hitSlop={compact ? undefined : scaledToolbarSlop}
       sections={[
         {
           items: [
@@ -521,11 +500,12 @@ function MoreButton({
                 ]),
           ],
         },
+        ...(compact ? [{ items: items(['trash']) }] : []),
       ]}
-      style={styles.moreButton}>
+      style={compact ? styles.compactMoreButton : styles.moreButton}>
       <SFSymbol
         name="ellipsis"
-        size={scaledToolbar.symbol}
+        size={compact ? 20 : scaledToolbar.symbol}
         color={colors.textPrimary}
       />
     </MenuButton>
@@ -706,9 +686,7 @@ function Toolbar({
             folders.panel
           ) : (
             <MorePanel
-              actions={more.actions}
               labels={more.labels}
-              replySheet={replySheet}
               onPanel={onPanel}
             />
           )}

@@ -6534,7 +6534,7 @@ describe('replying to and forwarding from the reader', () => {
     );
     await screen.findByRole('button', { name: 'Reply' });
     // The Reply sheet offers More's actions, so the toolbar has no More.
-    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(screen.queryByLabelText('More')).toBeNull();
     await press('Reply');
     expect(screen.getAllByRole('button', { name: 'Report Spam' })).toHaveLength(
       1,
@@ -6669,21 +6669,21 @@ describe('replying to and forwarding from the reader', () => {
       await screen.findByLabelText('Opening message');
       // Each prerequisite keeps Reply unavailable when it is the last one still loading.
       expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
-      expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+      expect(screen.queryByLabelText('More')).toBeNull();
       expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
       await act(() => {
         prerequisites[first].release(undefined);
       });
       await prerequisites[first].wait();
       expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
-      expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+      expect(screen.queryByLabelText('More')).toBeNull();
       await act(() => {
         prerequisites[last].release(undefined);
       });
       await waitFor(() => {
         expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled();
       });
-      expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+      expect(screen.queryByLabelText('More')).toBeNull();
     },
   );
 
@@ -6710,9 +6710,7 @@ describe('replying to and forwarding from the reader', () => {
       />,
     );
     // The Thread actions stay reachable without the Reply sheet that would hold them.
-    await expect(
-      screen.findByRole('button', { name: 'More' }),
-    ).resolves.toBeEnabled();
+    await expect(screen.findByLabelText('More')).resolves.toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
   });
 

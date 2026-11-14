@@ -1750,19 +1750,20 @@ describe('connected Gmail Inbox', () => {
     expect(
       screen.queryByText('Marked as read: “Saturday, by the river?”.'),
     ).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(
-      screen.getByRole('button', { name: 'Mark as unread' }),
-    ).toBeVisible();
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
-    });
-    expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+    // On iPhone, More is the system menu iPad's frames draw, ending with Delete.
+    expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
+      ['Mark as Unread', 'Flag', 'Move to…'],
+      ['Report Spam', 'Labels'],
+      ['Delete Message'],
+    ]);
+    await chooseFromMenu(screen.getByLabelText('More'), 'Flag');
+    expect(menuSections(screen.getByLabelText('More'))[0]).toContain('Unflag');
     // Every outcome is stated, not only removals that can be undone.
     expect(
       screen.getByText('Starred: “Saturday, by the river?”.'),
     ).toBeVisible();
-    // On iPhone, More lists the labels to add or remove, since Move is a picker.
+    // On iPhone, More's Labels opens the labels to add or remove, since Move is a picker.
+    await chooseFromMenu(screen.getByLabelText('More'), 'Labels');
     expect(screen.getByRole('header', { name: 'Labels' })).toBeVisible();
     await act(async () => {
       await fireEvent.press(
@@ -1926,10 +1927,9 @@ describe('connected Gmail Inbox', () => {
       ).toBeVisible();
       await fireEvent.press(receipt);
       await expect(screen.findByText('Paid in full.')).resolves.toBeVisible();
-      await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-      expect(
-        screen.getByRole('button', { name: 'Move to Trash' }),
-      ).toBeVisible();
+      expect(menuSections(screen.getByLabelText('More')).flat()).toContain(
+        'Delete Message',
+      );
     },
   );
 
@@ -1982,12 +1982,7 @@ describe('connected Gmail Inbox', () => {
     await fireEvent.press(trashed);
     // Trashed mail moves back to the Inbox instead of being archived again.
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Move to Inbox' }),
-      );
-    });
+    await chooseFromMenu(screen.getByLabelText('More'), 'Move to Inbox');
     expect(
       screen.getByText('Moved back to the Inbox: “Old receipt”.'),
     ).toBeVisible();
@@ -2015,8 +2010,9 @@ describe('connected Gmail Inbox', () => {
       await screen.findByRole('button', { name: /Lunch on Friday/u }),
     );
     expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(screen.queryByRole('button', { name: 'Move to Inbox' })).toBeNull();
+    expect(menuSections(screen.getByLabelText('More')).flat()).not.toContain(
+      'Move to Inbox',
+    );
 
     // A cached label-only message found online still has no Inbox organizing actions.
     await fireEvent.changeText(field, 'Flight');
@@ -2027,7 +2023,7 @@ describe('connected Gmail Inbox', () => {
       await screen.findByRole('button', { name: /Flight to Zagreb/u }),
     );
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+    expect(screen.queryByLabelText('More')).toBeNull();
   });
 
   it('shows how much of All Mail has downloaded and asks to try again when its download pauses', async () => {
@@ -2239,15 +2235,16 @@ describe('connected Gmail Inbox', () => {
     );
     await fireEvent.press(row);
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(screen.getByRole('button', { name: 'Move to Trash' })).toBeVisible();
+    expect(menuSections(screen.getByLabelText('More')).flat()).toContain(
+      'Delete Message',
+    );
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     expect(
       screen.getByText('This Microsoft mailbox has no folders of its own yet.'),
     ).toBeVisible();
   });
 
-  it('closes More on a tap outside it without running an action', async () => {
+  it('runs only the action chosen from More, which opens no panel', async () => {
     expect.hasAssertions();
     const graph = createSyntheticGraph({ address: 'casey@example.invalid' });
     const plans = graph.deliver({ subject: 'Garden plans' });
@@ -2257,29 +2254,16 @@ describe('connected Gmail Inbox', () => {
         name: 'Unread. Rowan Hale. Garden plans',
       }),
     );
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(screen.getByRole('button', { name: 'Report spam' })).toBeVisible();
-    await fireEvent.press(screen.getByTestId('reader-panel-dismissal'));
-    expect(
-      screen.getByRole('button', { name: 'More', expanded: false }),
-    ).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
+    // The system menu owns its presentation and dismissal; no reader panel opens behind it.
     expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
     // Only opening the message changed it: it is read.
     expect(graph.modifies).toStrictEqual([{ message: plans, read: true }]);
-    expect(graph.folderOf(plans)).toBe('inbox');
-
-    // More reopens, and its actions still work.
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Mark as unread' }),
-      );
-    });
+    await chooseFromMenu(screen.getByLabelText('More'), 'Mark as Unread');
     expect(graph.modifies).toStrictEqual([
       { message: plans, read: true },
       { message: plans, read: false },
     ]);
+    expect(graph.folderOf(plans)).toBe('inbox');
   });
 
   it('organizes Microsoft mail with its folders, without Gmail labels or star', async () => {
@@ -2309,18 +2293,16 @@ describe('connected Gmail Inbox', () => {
       }),
     );
     expect(
-      ['Archive', 'Folders', 'More'].map((name) =>
+      ['Archive', 'Folders'].map((name) =>
         screen.getByRole('button', { name }),
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'More' }));
-    expect(
-      ['Mark as unread', 'Move to Trash', 'Report spam'].map((name) =>
-        screen.getByRole('button', { name }),
-      ),
-    ).toHaveLength(3);
-    expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
+    expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
+      ['Mark as Unread', 'Move to…'],
+      ['Report Spam'],
+      ['Delete Message'],
+    ]);
 
     // A Microsoft message is in one folder: it moves, with no label to add.
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));

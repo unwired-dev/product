@@ -451,7 +451,11 @@ with the message's pending label change without waiting for synchronization. iPa
 over the bottom of the reader holds **Archive**, **Folders** and **Reply**, beside a
 separate circular New Message button; it has no **More**, because the Reply sheet offers
 the same actions. Mail without Reply, such as IMAP mail or mail in a mailbox that cannot send,
-keeps **More** after **Folders**. Reply
+keeps **More** after **Folders**. It opens the system menu iPad's **More** opens, titled
+as the row menu titles its actions: **Mark as Read** or **Mark as Unread**, **Flag** or
+**Unflag**, **Move to…**; then **Move to Inbox**, **Report Spam** and **Labels** for Gmail;
+and last, since the iPhone toolbar has no Delete, **Delete Message**. Dismissing the
+menu runs nothing. Reply
 opens a native sheet on the opaque content surface: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — star and read state, then
@@ -476,9 +480,9 @@ typing. Choosing a folder closes the picker and moves the message once it has di
 **Folders**, or **Move to…** in **More**, opens the picker in a system popover on **Folders**: a
 search field, the account, then its folders as above. A tap outside or Escape closes it without
 moving anything, the system keeps it clear of the keyboard, and choosing a folder closes it and
-moves the message. More
-lists the remaining actions as text buttons; for Gmail on iPhone it also lists the
-label checkboxes under a **Labels** heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad; with Reduce Motion
+moves the message. On
+iPhone, **Labels** in More's menu opens the same label checkboxes under a **Labels**
+heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad; with Reduce Motion
 they only fade. The Reply sheet and the Move picker are system presentations and move as iOS presents
 them. The action buttons and label checkboxes are keyboard-focusable
 and show the system keyboard focus indicator. After a removal, **Undo** appears in the Inbox. For every provider, a
