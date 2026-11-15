@@ -1502,7 +1502,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('undoes only the latest of two mailboxes’ organizing actions when Edit › Undo is chosen', async () => {
+  it('undoes only the latest of two mailboxes’ organizing actions when Edit › Undo is chosen after navigation', async () => {
     expect.hasAssertions();
     const host: TurboModule &
       Readonly<{
@@ -1545,6 +1545,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
             { nativeEvent: { actionName: 'archive' } },
           );
         });
+      }
+      expect(first.getAllByRole('button', { name: 'Undo' })).toHaveLength(2);
+      // Showing the older notice again after navigation keeps the newer action the latest.
+      for (const row of [
+        'Inbox. In synthetic-connection-other',
+        'All inboxes',
+      ]) {
+        await fireEvent.press(await first.findByRole('button', { name: row }));
       }
       expect(first.getAllByRole('button', { name: 'Undo' })).toHaveLength(2);
       await act(async () => {

@@ -32,6 +32,8 @@ import {
 } from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
 import { palette, radius, spacing } from '@private-email/mail-core/theme';
+import * as Arr from 'effect/Array';
+import * as Order from 'effect/Order';
 import {
   useEffect,
   useLayoutEffect,
@@ -753,9 +755,17 @@ function GmailMessageActions({
 // Each notice object is announced once, whichever provider's store made it.
 const announced = new WeakSet();
 
-// Each window's offered Undos by notice, oldest first. All Inboxes shows a notice per mailbox, and
-// Edit › Undo (Command-Z) undoes only the window's latest organizing action.
+// Each window's offered Undos by notice, oldest action first. All Inboxes shows a notice per
+// mailbox, and Edit › Undo (Command-Z) undoes only the window's latest organizing action. A notice
+// keeps the order it was first offered in, so showing it again after navigation does not make its
+// action the latest.
 const offeredUndos = new Map<string, readonly object[]>();
+const offerOrder = new WeakMap<object, number>();
+let offers = 0;
+const offeredFirst = Order.mapInput(
+  Order.Number,
+  (notice: object) => offerOrder.get(notice) ?? 0,
+);
 
 // The Undo notice's button, which Edit › Undo chosen in this window also presses while `notice` is
 // the newest one offered there.
@@ -769,7 +779,13 @@ function UndoButton({
   const { t } = useLocalization();
   const window = useWindowIdentifier();
   useEffect(() => {
-    offeredUndos.set(window, [...(offeredUndos.get(window) ?? []), notice]);
+    if (!offerOrder.has(notice)) {
+      offerOrder.set(notice, (offers += 1));
+    }
+    offeredUndos.set(
+      window,
+      Arr.sort([...(offeredUndos.get(window) ?? []), notice], offeredFirst),
+    );
     return () => {
       const offered = (offeredUndos.get(window) ?? []).filter(
         (each) => each !== notice,
