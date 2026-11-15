@@ -239,6 +239,30 @@ the export compliance documentation goes to App Store Connect, the approved
 code is set as `ITSEncryptionExportComplianceCode`, and any territory
 declarations the determination names are filed before release.
 
+Release builds generate `ThirdPartyNotices.txt` and its hashed JSON coverage
+record inside the app resources before Xcode signs the app. The mobile Expo
+plugin appends this step to the JavaScript bundle phase; the Mac project
+runs it after Hermes compilation. `scripts/bundle-third-party-notices.sh`
+uses that build's source map, Pods and resolved Swift checkouts. It honours
+`SOURCEMAP_FILE` and the optional `UNWIRED_SOURCE_PACKAGES` override; otherwise
+Swift packages come from the standard DerivedData location beside `BUILD_DIR`.
+Debug builds do not bundle these release resources.
+
+`node scripts/third-party-notices.mjs <bundle.map> <Pods> <SourcePackages> <resources>`
+combines installed full texts with the exact-version/revision supplements in
+`scripts/third-party-licences/index.json`. Every supplement hash is checked.
+Nested vendor text remains distinct from parent coverage. Unknown versions of
+known composite libraries and unresolved attribution stay in the JSON's
+`unresolved` list. These are coverage observations, not legal clearance.
+
+`archive-inventory` reads the actual packaged text and verifies its hash against
+the packaged JSON. `thirdPartyNotices` records its path, hash, component IDs and
+unresolved obligations; a partial, malformed or tampered pair fails inventory.
+An absent pair is `null`. `reporting` records only the release channel, native
+qualification boolean and whether a backend URL is configured, without the URL.
+These facts distinguish the native collector gate from reachable JavaScript
+reporting. See the [dated engineering record](compliance/archive-review-2026-11-15.md).
+
 Each host also writes `<host>-licences.json` from the archive's JavaScript source
 map before export; a failed licence inventory refuses the upload. The Xcode
 archive only supplies that source map; the Node script reads the packages and
@@ -249,7 +273,7 @@ third-party npm package with sources in the bundle: name, version, the `license`
 its `package.json` declares (`null` when that is missing or not a string) and
 the `LICENSE`, `LICENCE`, `COPYING` or `NOTICE` files it ships. Packages without
 a declared licence are listed under `undeclared`, and packages without a
-licence or notice file under `withoutLicenceFile`. Workspace sources are not
+nonempty root licence or notice file under `withoutLicenceFile`. Workspace sources are not
 listed, and an unreadable source map or `package.json` fails the command. The
 inventory records declarations. It does not decide licence compatibility or
 produce the notices the build owes
@@ -264,7 +288,8 @@ the inventory. Run it on macOS with
 `node scripts/native-licence-inventory.mjs <Pods> <SourcePackages>`. Each pod
 in the `Manifest.lock` `PODS` section is listed with its version, the licence
 CocoaPods acknowledged or a path or Git pod's podspec declares (`null` when
-neither does) and whether it has licence text: CocoaPods found it, or the pod
+neither does) and whether it has licence text: a nonempty CocoaPods
+`FooterText` supplies it, or the pod
 is installed from a local `:path:` whose folder, or a parent folder up to the
 one with the npm package's `package.json`, holds a `LICENSE`, `LICENCE`,
 `COPYING` or `NOTICE` file. Pods from a `:podspec:`, Git or remote source rely
@@ -286,7 +311,10 @@ them and owns the record. Run it with
 an unreadable inventory fails the command and refuses the upload. The record
 repeats the archive's build identity. Its `findings` list npm packages, pods
 and Swift packages without a declared licence (`undeclared-licence`) or licence
-text (`missing-licence-text`), each subject prefixed `npm`, `pod` or `swift`, an app without its own privacy manifest
+text (`missing-licence-text`), each subject prefixed `npm`, `pod` or `swift`.
+When packaged notices exist, their unresolved coverage supplies the text findings;
+the raw declaration inventories stay unchanged. An absent notice pair adds
+`missing-bundled-notices`. It also lists an app without its own privacy manifest
 (`missing-app-privacy-manifest`), each manifest that declares tracking,
 tracking domains or a data type used for tracking (`tracking-declared`), a missing
 `ITSAppUsesNonExemptEncryption` (`missing-encryption-declaration`) and each

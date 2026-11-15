@@ -1,11 +1,13 @@
 // Print the licence each third-party npm package with sources in a JavaScript
 // bundle's source map declares. This records declarations; it does not decide
 // licence compatibility or produce the notices the build owes (#1960).
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argv, cwd, exit, stderr, stdout } from 'node:process';
 
 import * as Schema from 'effect/Schema';
+
+import { noticeFiles } from './notice-files.mjs';
 
 const SourceMap = Schema.Struct({ sources: Schema.Array(Schema.String) });
 // A legacy object or array `license` is not a declared licence string.
@@ -34,6 +36,7 @@ if (!argv.at(2)) {
   fail('usage: licence-inventory.mjs <main.jsbundle.map>');
 }
 const map = path.resolve(argv.at(2));
+const includeText = argv.includes('--include-text');
 // A package is the innermost node_modules folder holding a source, so
 // workspace sources, which Metro lists by their real paths, are not packages.
 const roots = new Set(
@@ -58,9 +61,10 @@ for (const root of roots) {
     name,
     version,
     licence: typeof license === 'string' ? license : null,
-    licenceFiles: readdirSync(root)
-      .filter((file) => /^(?:licen[cs]e|copying|notice)(?:$|[.-])/iu.test(file))
+    licenceFiles: noticeFiles(root)
+      .map(({ file }) => file)
       .toSorted(),
+    ...(includeText ? { noticeTexts: noticeFiles(root, true) } : {}),
   });
 }
 // Order by name, then version, in code units, independent of the locale.

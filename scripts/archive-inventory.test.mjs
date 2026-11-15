@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   mkdirSync,
@@ -142,6 +143,12 @@ test(
         commit: 'a'.repeat(40),
         platform: 'ios',
       });
+      assert.equal(report.thirdPartyNotices, null);
+      assert.deepEqual(report.reporting, {
+        channel: null,
+        nativeQualified: false,
+        backendConfigured: false,
+      });
       assert.deepEqual(report.encryption, {
         usesNonExemptEncryption: false,
         exportComplianceCode: null,
@@ -208,6 +215,27 @@ test(
           ],
         ],
       );
+
+      const noticeText = 'Preserved third-party notice';
+      const sha256 = createHash('sha256').update(noticeText).digest('hex');
+      writeFileSync(path.join(app, 'ThirdPartyNotices.txt'), noticeText);
+      writeFileSync(
+        path.join(app, 'ThirdPartyNotices.json'),
+        JSON.stringify({
+          sha256,
+          components: [{ id: 'npm:example@1' }],
+          unresolved: ['npm:example@1'],
+        }),
+      );
+      assert.deepEqual(decodeJson(inventory(app).stdout).thirdPartyNotices, {
+        path: 'ThirdPartyNotices.txt',
+        sha256,
+        components: ['npm:example@1'],
+        unresolved: ['npm:example@1'],
+      });
+      writeFileSync(path.join(app, 'ThirdPartyNotices.txt'), 'changed');
+      assert.match(inventory(app).stderr, /notice text hash mismatch/u);
+      writeFileSync(path.join(app, 'ThirdPartyNotices.txt'), noticeText);
 
       writeFileSync(
         path.join(app, 'Frameworks/Unsigned.framework/Unsigned'),

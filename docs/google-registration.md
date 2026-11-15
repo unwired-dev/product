@@ -283,6 +283,34 @@ data before submission. This documentation slice does not qualify either.
   [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
   including the Limited Use requirements.
 
+### Google SDK privacy and retention
+
+GoogleSignIn 10.0.0's bundled manifest declares linked Name, Email Address,
+Phone Number and Coarse Location for App Functionality; User ID and Other Data
+Types for App Functionality and Analytics; Device ID and Other Usage Data for
+Analytics. All are declared not used for tracking. These partner practices are
+included in the proposed [App Privacy answers](app-privacy.md), independently of
+Unwired's future product analytics. They do not imply that Unwired stores all
+these types in readable form or requests a phone-number scope.
+
+The SDK adds the existing basic `email` and `profile` scopes and sends SDK version
+and execution-environment metadata with OAuth requests. Google describes
+IP-derived general location for fraud prevention. Its SDK disclosure does not
+explain every manifest category or set per-type retention deadlines; the general
+policy permits longer retention for security and fraud prevention. Clearing the
+SDK's local cache is not proof of provider deletion. Retain the broader partner
+disclosures until version/configuration-specific evidence supports narrowing them.
+[Google SDK disclosure](https://developers.google.com/identity/sign-in/ios/app-privacy),
+[Google retention policy](https://policies.google.com/technologies/retention),
+[pinned source evidence](compliance/app-privacy-2026-11-15.md#google-sign-in).
+
+A read-only aggregate on 15 November found zero readable `emailAddress` rows in
+both `mailProviderConnections` and `gmailPushVerificationSignals` on the production
+backend deployed by the reviewed TestFlight run. This is a dated observation,
+not a historical or infrastructure-log guarantee. The final archive's backend
+still needs matching because its configured URL is masked in the retained logs.
+[Observed counts and limits](compliance/app-privacy-2026-11-15.md#production-observations).
+
 ### Remaining owner actions
 
 The owner confirmed #668 complete on 2026-10-28. The checklist below remains the

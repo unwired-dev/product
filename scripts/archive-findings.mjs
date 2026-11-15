@@ -41,6 +41,9 @@ const Inventory = Schema.Struct({
     }),
   ),
   withoutPrivacyManifest: Strings,
+  thirdPartyNotices: Schema.optional(
+    Schema.NullOr(Schema.Struct({ unresolved: Strings })),
+  ),
 });
 const Licences = Schema.Struct({
   undeclared: Strings,
@@ -108,10 +111,16 @@ const findings = [
     ...licences.undeclared.map((id) => `npm ${id}`),
     ...native.undeclared.map(nativeKind),
   ]),
-  ...each('missing-licence-text', [
-    ...licences.withoutLicenceFile.map((id) => `npm ${id}`),
-    ...native.withoutLicenceText.map(nativeKind),
-  ]),
+  ...each(
+    'missing-licence-text',
+    inventory.thirdPartyNotices
+      ? inventory.thirdPartyNotices.unresolved.map((id) => id.replace(':', ' '))
+      : [
+          ...licences.withoutLicenceFile.map((id) => `npm ${id}`),
+          ...native.withoutLicenceText.map(nativeKind),
+        ],
+  ),
+  ...each('missing-bundled-notices', inventory.thirdPartyNotices ? [] : ['.']),
   ...each(
     'missing-app-privacy-manifest',
     inventory.withoutPrivacyManifest.filter((code) => code === '.'),
