@@ -751,7 +751,8 @@ const grownHeight = (
     : [];
 };
 
-// Inside a box of sender width, a width cannot exceed it and content-sized widths are removed.
+// Inside a box of sender width, a width cannot exceed it; content-sized widths and inherited
+// ones, which can copy an outer box's wider declared width, are removed.
 const boundedWidth = ([name, value]: readonly [string, string]) => {
   if (name !== 'width' && name !== 'min-width') {
     return [[name, value] as const];
@@ -759,7 +760,9 @@ const boundedWidth = ([name, value]: readonly [string, string]) => {
   if (definite(value)) {
     return [[name, `min(100%, ${value})`] as const];
   }
-  return /content|stretch/iu.test(value) ? [] : [[name, value] as const];
+  return /content|stretch|inherit/iu.test(value)
+    ? []
+    : [[name, value] as const];
 };
 
 // Sender boxes keep their text inside them, where a later image or button fill could cover it

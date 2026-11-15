@@ -830,7 +830,8 @@ their heights. An element holding text whose line height is shorter than its fon
 gets a line height of 1.2, the system font's normal spacing, while image-only
 lines keep a zero line height, so
 sliced-image tables stay seamless. Inside a box with a sender width, widths and
-minimum widths are bounded by that box, and content-sized widths are removed.
+minimum widths are bounded by that box, and content-sized and inherited widths
+are removed.
 A table squeezed below its minimum content width can still overflow one cell into
 the next. Large positive margins and indents (at least 320 CSS
 pixels after unit resolution) are normalized to zero, and padding or border-width declarations with a token of at least 320
