@@ -1,8 +1,9 @@
 # Implementation and review
 
-One agent implements a change and owns it through delivery. One independent
-reviewer checks it before the PR opens. CI and the automated PR reviewers
-(CodeRabbit, Codex) follow under [PR delivery](pull-request-babysitting.md).
+One agent implements a change and owns it through delivery with the global
+`full-stop` skill. Sol reviews it in a `sol-loop` before the PR opens. CI and
+the automated PR reviewers (CodeRabbit, Codex) follow under
+[PR delivery](pull-request-babysitting.md).
 
 ## Implement
 
@@ -21,32 +22,16 @@ reviewer checks it before the PR opens. CI and the automated PR reviewers
 
 ## Review
 
-Start one reviewer in a fresh context, as a subagent. Give it the request or
-issue, the acceptance criteria, the base commit to diff against, the checks
-you ran with their results, and anything deferred. Give it the code, not your
-conclusions about it.
+Run the `sol-loop` skill on the committed snapshot. Add to its round 1 brief
+the request or issue, the acceptance criteria, anything deferred, the
+architecture notes and ADRs for the area, and the [checklist](#review-checklist)
+with the instruction to apply it. Sol reads the code, not your conclusions
+about it. When T3 delegation or Sol is unavailable, the review is incomplete:
+report the blocker.
 
-Start the reviewer through T3 Code delegation (`delegate_task` with the `review`
-role) on `gpt-6.1-sol` with `high` reasoning; pass both settings explicitly,
-including when the implementer runs on another model. When T3 delegation or the
-model is unavailable, the review is incomplete: do not fall back to native
-subagents, the Codex CLI, another model or a self-review.
-
-The reviewer reads the whole diff, the callers, owning modules and tests it
-touches, and the architecture notes and ADRs for that area. It applies the
-[checklist](#review-checklist) and returns findings ranked by severity, each
-with `path:line`, the input or state that triggers it, and what goes wrong. The
-reviewer reports; the implementer is the only writer in the checkout. A
-subagent returns its report as text, and the implementer saves it with the
-evidence; when a resumed reviewer reports again, its latest report replaces the
-earlier one.
-
-The implementer validates each finding, fixes the confirmed ones (including
-every other instance of the same defect), reruns the checks and records a
-disposition per finding for the PR. Run a second review when the fixes change
-behavior beyond the findings themselves. When a second review still finds
-blocking defects, stop patching: write down why the approach keeps failing,
-then pick a different one or ask the user.
+Save Sol's final report and the ledger with the evidence; each finding's
+disposition goes in the PR. A confirmed finding is fixed in every other
+instance of the same defect too.
 
 User-visible changes also pass the [design review](#design-review).
 

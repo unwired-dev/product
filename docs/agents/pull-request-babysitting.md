@@ -9,24 +9,26 @@ skips review and blocks [automatic merge](#automatic-merge).
 
 An implementation request authorizes full delivery unless it sets an explicit
 limit such as "do not push"; then stop before the excluded stage and report what
-was done and left undone. After the
-[implementation review](implementation-review.md#review) finishes, the implementer:
+was done and left undone. Deliver with the global `full-stop` skill: it files
+the PR with `file-pr`, babysits it with `babysit-pr` and stops at its gate. This
+repository adds:
 
-1. Commits the reviewed changes (preserving unrelated work) on the task branch
-   created or selected before implementation, and pushes the branch.
-2. Updates the task's open PR, or opens one to `main` referencing its issue,
-   with the body from the `pr` skill and any owner decisions. In T3 Code, link the PR to the thread with `link_pull_request`.
-   - Mark the PR ready for review: promote a draft and drop a `[WIP]` title marker.
-   - When the request forbids merging, make it a draft instead (convert a reused
-     ready PR back) and end delivery with the report, without babysitting.
-   - A `[skip review]` or `Version packages` title, `do-not-review` label or bot
-     author also blocks automatic merge. Leave it in place and report the blocker.
-   - A PR that builds on another unmerged PR is a stacked PR: create and update
-     it with the `gh-stack` skill.
-3. Invokes the `babysit-pr` skill for that PR alone and keeps it until the PR is
-   merged or closed. In T3 Code, call `watch_pull_request` and end the turn;
-   each wakeup runs one pass. Without T3 watching, report that and use the
-   host's PR watcher or the skill's monitoring, never a recurring schedule.
+- **Merging**: the [automatic merger](#automatic-merge) is the owner's merge
+  path. Leave it on; full-stop's "prevent automatic merging" step does not
+  apply to it. Agents never approve, merge or enable GitHub auto-merge.
+- **The PR**: commit the reviewed changes (preserving unrelated work) on the
+  task branch and open the PR to `main`, referencing its issue and listing owner
+  decisions. In T3 Code, link it with `link_pull_request`. A request that says
+  the PR must not merge gets a draft instead (convert a reused ready PR back),
+  and delivery ends with the report.
+- A `[skip review]` or `Version packages` title, `do-not-review` label or bot
+  author blocks automatic merge. Leave it in place and report the blocker.
+- A PR that builds on another unmerged PR is a stacked PR: create and update
+  it with the `gh-stack` skill.
+- **Gate**: full-stop's "ready to merge" means every
+  [automatic merge](#automatic-merge) condition holds on the head except
+  CodeRabbit's approval, which stays advisory: the merger's 2-hour fallback
+  covers it.
 
 For [CI-only native reproduction](native-validation.md#report-what-the-evidence-proves),
 unreviewed diagnostic commits may go on a separate non-draft `[WIP]` PR that is
@@ -47,16 +49,14 @@ Each babysitting pass:
   `main` itself is red, it also files or updates the issue that owns the failure.
 - Treats a failing check that exercises files the PR changed as blocking, even
   when it is not required.
-- Gets a fresh [review](implementation-review.md#review) for any behavior change
-  made while babysitting before pushing it.
+- Runs a fresh `sol-loop` [review](implementation-review.md#review) on any
+  behavior change made while babysitting before pushing it.
 - Never comments to trigger CodeRabbit or Codex: Codex reviews each push on its
   own, and a comment restarts the merger's 2-hour quiet period.
 - Ends once it has handled the feedback and gate state available now.
 
-When the PR is merged or closed, call `unwatch_pull_request` in T3 Code and
-report the outcome. A missing credential or permission is a blocker to report,
-not a reason to stop babysitting other gates. Agents never approve or merge pull
-requests; the automatic merger does.
+A missing credential or permission is a blocker to report, not a reason to stop
+babysitting other gates.
 
 ## Automatic merge
 
