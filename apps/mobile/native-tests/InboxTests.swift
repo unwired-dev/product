@@ -314,6 +314,13 @@ final class InboxTests: XCTestCase {
     closeSettings()
     expect(dark: runner == .dark)
     let comfortable = settledFrame(of: welcome).height
+    // System follows a later change of the device's appearance, in the Inbox and Settings.
+    XCUIDevice.shared.appearance = .light
+    expect(dark: false)
+    attach("Inbox · System, device Light")
+    XCUIDevice.shared.appearance = .dark
+    expect(dark: true)
+    attach("Inbox · System, device Dark")
     openAppearance()
     XCTAssertTrue(row("System").waitForExistence(timeout: 10))
     checked("System")
@@ -325,7 +332,6 @@ final class InboxTests: XCTestCase {
       ).exists)
     XCTAssertTrue(text("Compact shows one preview line. Rows grow with Text Size.", in: app).exists)
     attach("Settings › Appearance")
-    // System follows a later change of the device's appearance.
     XCUIDevice.shared.appearance = .light
     expect(dark: false)
     attach("Settings › Appearance · System, device Light")
@@ -342,7 +348,7 @@ final class InboxTests: XCTestCase {
     // The fixture's subject fits one line on iPhone, where Compact's row keeps its height.
     let compact = settledFrame(of: welcome).height
     if phone {
-      XCTAssertGreaterThanOrEqual(compact, comfortable)
+      XCTAssertEqual(compact, comfortable, accuracy: 0.5)
     } else {
       XCTAssertGreaterThan(compact, comfortable, "Compact does not wrap the subject")
     }
