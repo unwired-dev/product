@@ -247,6 +247,146 @@ final class InboxTests: XCTestCase {
     shot.name = "Resumed Gmail registration"
     shot.lifetime = .keepAlways
     add(shot)
+    appearanceJourney(app)
+  }
+
+  // #2210: Settings › Appearance turns the app Light or Dark, and System follows the device; List
+  // density's Compact wraps a subject that Comfortable cuts short. Both are kept across relaunch.
+  private func appearanceJourney(_ app: XCUIApplication) {
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let welcome = app.buttons
+      .matching(NSPredicate(format: "label CONTAINS %@", "Welcome to your synthetic Inbox"))
+      .firstMatch
+    func attach(_ name: String) {
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = name
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+    // Each cell of a capture scaled down to 8 by 8 pixels, so the sidebar, list and reader on iPad
+    // each have to follow the appearance.
+    func cells() -> [Bool] {
+      guard let image = XCUIScreen.main.screenshot().image.cgImage else { return [] }
+      var rgba = [UInt8](repeating: 0, count: 8 * 8 * 4)
+      rgba.withUnsafeMutableBytes { bytes in
+        CGContext(
+          data: bytes.baseAddress, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 32,
+          space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )?.draw(image, in: CGRect(x: 0, y: 0, width: 8, height: 8))
+      }
+      return stride(from: 0, to: rgba.count, by: 4).map {
+        Int(rgba[$0]) + Int(rgba[$0 + 1]) + Int(rgba[$0 + 2]) < 3 * 128
+      }
+    }
+    func expect(dark expected: Bool) {
+      waitUntil(
+        {
+          let dark = cells()
+          return !dark.isEmpty && !dark.contains(!expected)
+        }, timeout: 10)
+    }
+    // React Native announces a radio row's role and state as its value.
+    func row(_ name: String) -> XCUIElement {
+      app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label == %@ AND value BEGINSWITH %@", name, "radio button"))
+        .firstMatch
+    }
+    func checked(_ name: String) {
+      waitUntil({ row(name).value as? String == "radio button, checked" }, timeout: 10)
+    }
+    func choose(_ name: String) {
+      row(name).tap()
+      checked(name)
+    }
+    // iPad opens Settings from its sidebar: after the Command Palette's software keyboard showed
+    // with the device and the app in different appearances, XCUITest never saw the app idle again.
+    func openAppearance() {
+      if phone { openAccount(app) } else { app.buttons["Settings"].firstMatch.tap() }
+      openSettings("Appearance", in: app)
+    }
+    func closeSettings() {
+      let back = app.navigationBars.buttons["BackButton"]
+      if phone && back.exists { back.tap() }
+      let exit = app.buttons[settingsExit]
+      XCTAssertTrue(exit.waitForExistence(timeout: 10))
+      exit.tap()
+      XCTAssertTrue(welcome.waitForExistence(timeout: 15))
+    }
+    let runner = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE"] == "light"
+      ? XCUIDevice.Appearance.light : .dark
+
+    // System and Comfortable are the defaults.
+    closeSettings()
+    expect(dark: runner == .dark)
+    let comfortable = settledFrame(of: welcome).height
+    // System follows a later change of the device's appearance, in the Inbox and Settings.
+    XCUIDevice.shared.appearance = .light
+    expect(dark: false)
+    attach("Inbox · System, device Light")
+    XCUIDevice.shared.appearance = .dark
+    expect(dark: true)
+    attach("Inbox · System, device Dark")
+    openAppearance()
+    XCTAssertTrue(row("System").waitForExistence(timeout: 10))
+    checked("System")
+    checked("Comfortable")
+    XCTAssertTrue(
+      text(
+        "System follows iOS. Increase Contrast and Reduce Transparency apply in every choice.",
+        in: app
+      ).exists)
+    XCTAssertTrue(text("Compact shows one preview line. Rows grow with Text Size.", in: app).exists)
+    attach("Settings › Appearance")
+    XCUIDevice.shared.appearance = .light
+    expect(dark: false)
+    attach("Settings › Appearance · System, device Light")
+    XCUIDevice.shared.appearance = .dark
+    expect(dark: true)
+    attach("Settings › Appearance · System, device Dark")
+    // Light and Dark hold against the opposite device appearance, in Settings and the Inbox.
+    choose("Light")
+    expect(dark: false)
+    attach("Settings › Appearance · Light")
+    choose("Compact")
+    closeSettings()
+    expect(dark: false)
+    // The fixture's subject fits one line on iPhone, where Compact's row keeps its height.
+    let compact = settledFrame(of: welcome).height
+    if phone {
+      XCTAssertEqual(compact, comfortable, accuracy: 0.5)
+    } else {
+      XCTAssertGreaterThan(compact, comfortable, "Compact does not wrap the subject")
+    }
+    attach("Compact Inbox · Light")
+    XCUIDevice.shared.appearance = .light
+    openAppearance()
+    choose("Dark")
+    expect(dark: true)
+    attach("Settings › Appearance · Dark")
+    closeSettings()
+    expect(dark: true)
+    attach("Compact Inbox · Dark")
+
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(welcome.waitForExistence(timeout: 20))
+    expect(dark: true)
+    XCTAssertEqual(settledFrame(of: welcome).height, compact, accuracy: 0.5)
+    attach("Compact Inbox after relaunch · Dark")
+    openAppearance()
+    checked("Dark")
+    checked("Compact")
+    attach("Settings › Appearance after relaunch")
+    XCUIDevice.shared.appearance = runner
+    choose("System")
+    choose("Comfortable")
+    expect(dark: runner == .dark)
+    attach("Settings › Appearance · System and Comfortable")
+    closeSettings()
+    expect(dark: runner == .dark)
+    XCTAssertEqual(settledFrame(of: welcome).height, comfortable, accuracy: 0.5)
+    attach("Comfortable Inbox")
   }
 
   // #2166: a long press on the reader's sender opens its menu, whose Block Sender… asks in the
