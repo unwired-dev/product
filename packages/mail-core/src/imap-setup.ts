@@ -300,6 +300,20 @@ export const imapFields = (
   };
 };
 
+// A form with the endpoints discovered for `address` filled in, unless its address or a server
+// setting changed since the lookup began, which discards the answer.
+export const withDiscovered = (
+  fields: ImapFields,
+  address: string,
+  found: FoundServers,
+): ImapFields => {
+  const blank = imapFields();
+  return fields.address === address &&
+    foundDomain(fields, { domain: found.domain, fields: blank }) !== undefined
+    ? { ...fields, ...found.fields }
+    : fields;
+};
+
 // A port and host as entered, or undefined while either is malformed.
 const hostAndPort = (host: string, port: string) => {
   const number = Number(port.trim());

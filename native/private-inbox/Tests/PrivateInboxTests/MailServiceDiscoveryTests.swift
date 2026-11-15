@@ -27,14 +27,25 @@ struct MailServiceDiscoveryTests {
     }
   }
 
-  @Test func choosesTheLowestPriorityThenTheHighestWeight() {
+  @Test func choosesAmongTheLowestPriorityInProportionToWeight() {
     let records = [
       MailServiceDiscovery.Record(priority: 10, weight: 50, port: 993, target: "backup.example.org"),
-      .init(priority: 0, weight: 5, port: 993, target: "light.example.org"),
       .init(priority: 0, weight: 20, port: 993, target: "imap.example.org"),
+      .init(priority: 0, weight: 5, port: 993, target: "light.example.org"),
+      .init(priority: 0, weight: 0, port: 993, target: "spare.example.org"),
     ]
+    // The draw runs over 0...25: 0 picks the weight-0 record, 1–5 the light one, 6–25 the other.
+    let hosts = [0, 1, 5, 6, 25].map { draw in
+      MailServiceDiscovery.endpoint(records) { range in
+        #expect(range == 0...25)
+        return draw
+      }?.host
+    }
     #expect(
-      MailServiceDiscovery.endpoint(records) == .init(host: "imap.example.org", port: 993))
+      hosts == [
+        "spare.example.org", "light.example.org", "light.example.org", "imap.example.org",
+        "imap.example.org",
+      ])
     #expect(MailServiceDiscovery.endpoint([]) == nil)
   }
 

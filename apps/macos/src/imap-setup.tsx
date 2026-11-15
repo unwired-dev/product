@@ -19,6 +19,7 @@ import {
   imapPresetOf,
   imapSetup,
   smtpSecurityOf,
+  withDiscovered,
 } from '@private-email/mail-core/imap-setup';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
@@ -224,7 +225,7 @@ export function ImapForm({
         const found = await store.discoverImap(lookup);
         if (current && found !== undefined) {
           setDiscovered(found);
-          setFields((previous) => ({ ...previous, ...found.fields }));
+          setFields((previous) => withDiscovered(previous, lookup, found));
         }
       })();
     }, 500);

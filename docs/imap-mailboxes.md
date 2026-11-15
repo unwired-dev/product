@@ -81,8 +81,9 @@ For a domain the catalog does not list, [#2200](https://github.com/unwired-dev/p
 looks up the domain's [RFC 6186](https://www.rfc-editor.org/rfc/rfc6186.html) SRV records
 through the system resolver once the address has stopped changing for half a second:
 `_imaps._tcp` for IMAP, and `_submissions._tcp` ([RFC 8314](https://www.rfc-editor.org/rfc/rfc8314.html))
-or else `_submission._tcp` for SMTP, each taking the record with the lowest priority and then
-the highest weight. A target of `.` means the service is not offered. When both are found,
+or else `_submission._tcp` for SMTP, each choosing among the records of the lowest priority at
+random in proportion to their weights, as [RFC 2782](https://www.rfc-editor.org/rfc/rfc2782.html)
+describes. A target of `.` means the service is not offered. When both are found,
 the form fills in the servers and ports, signs in with the full address, takes security from
 the SMTP port and shows the same note; otherwise it stays empty for manual entry. A server
 setting the person changed, or a later address, discards an answer still on its way. Only the

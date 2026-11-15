@@ -29,12 +29,24 @@ enum MailServiceDiscovery {
     return (imap, smtp)
   }
 
-  // The record a client tries first: the lowest priority, then the highest weight (RFC 2782).
-  static func endpoint(_ records: [Record]) -> Endpoint? {
+  // The record a client tries first (RFC 2782): among the lowest priority, chosen at random in
+  // proportion to weight, with weight-0 records first so they are picked only when all are 0.
+  // `random` draws from 0 through the total weight.
+  static func endpoint(
+    _ records: [Record], random: (ClosedRange<Int>) -> Int = { Int.random(in: $0) }
+  ) -> Endpoint? {
     guard !records.contains(where: { $0.target.isEmpty || $0.port == 0 }),
-      let first = records.min(by: { ($0.priority, ~$0.weight) < ($1.priority, ~$1.weight) })
+      let priority = records.map(\.priority).min()
     else { return nil }
-    return Endpoint(host: first.target, port: Int(first.port))
+    let candidates = records.filter { $0.priority == priority }.sorted { $0.weight < $1.weight }
+    let draw = random(0...candidates.reduce(0) { $0 + Int($1.weight) })
+    var total = 0
+    let chosen =
+      candidates.first {
+        total += Int($0.weight)
+        return total >= draw
+      } ?? candidates[0]
+    return Endpoint(host: chosen.target, port: Int(chosen.port))
   }
 
   // An SRV record's data: priority, weight and port, then the uncompressed target name. Only
