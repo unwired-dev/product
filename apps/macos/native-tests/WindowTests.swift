@@ -209,7 +209,7 @@ final class WindowTests: XCTestCase {
     resumed.buttons["Sign in with Google"].click()
     XCTAssertTrue(text("Approve this device", in: resumed).waitForExistence(timeout: 15))
     XCTAssertFalse(recoveryKey(in: resumed).exists)
-    resumed.buttons["Delete Product Account"].click()
+    resumed.buttons["Delete Unwired Account"].click()
     XCTAssertTrue(text("cannot be undone", in: resumed).waitForExistence(timeout: 15))
     resumed.buttons["Delete permanently"].click()
     // The deletion's reply is lost (#1173). After relaunch, retrying it confirms the deletion and
@@ -221,10 +221,10 @@ final class WindowTests: XCTestCase {
     let pending = app.windows["Inbox 1"]
     XCTAssertTrue(text("Confirm account deletion", in: pending).waitForExistence(timeout: 20))
     pending.buttons["Delete permanently"].click()
-    XCTAssertTrue(text("Product Account deleted", in: pending).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Unwired account deleted", in: pending).waitForExistence(timeout: 15))
     // The deleted account cannot be reopened, and this device keeps nothing of it.
     pending.buttons["Sign in with Google"].click()
-    XCTAssertTrue(text("Product Account deleted", in: pending).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Unwired account deleted", in: pending).waitForExistence(timeout: 15))
   }
 
   private func registrationJourney(_ app: XCUIApplication, first: XCUIElement, apple: Bool) {
@@ -917,7 +917,7 @@ final class WindowTests: XCTestCase {
     entry.typeText("100G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG")
     first.buttons["Unlock with Recovery Key"].click()
     XCTAssertTrue(
-      text("does not unlock this Product Account", in: first).waitForExistence(timeout: 15))
+      text("does not unlock this Unwired account", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Approve this device", in: first).exists)
     entry.click()
     entry.typeKey("a", modifierFlags: .command)
@@ -1044,9 +1044,9 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(first.buttons["Gmail"].waitForExistence(timeout: 15))
     first.buttons["Gmail"].click()
     XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
-    XCTAssertTrue(text("Only Apple opens this Product Account", in: first).exists)
+    XCTAssertTrue(text("Only Apple opens this Unwired account", in: first).exists)
     first.buttons["Link Google sign-in"].click()
-    let linked = "Sign in with Apple or Google to open this Product Account."
+    let linked = "Sign in with Apple or Google to open this Unwired account."
     XCTAssertTrue(text(linked, in: first).waitForExistence(timeout: 15))
     XCTAssertFalse(first.buttons["Link Google sign-in"].exists)
     app.terminate()

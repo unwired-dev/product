@@ -1298,10 +1298,10 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(
       app.staticTexts.matching(
-        NSPredicate(format: "label CONTAINS %@", "Only Apple opens this Product Account")
+        NSPredicate(format: "label CONTAINS %@", "Only Apple opens this Unwired account")
       ).firstMatch.exists)
     app.buttons["Link Google sign-in"].tap()
-    let linked = app.staticTexts["Sign in with Apple or Google to open this Product Account."]
+    let linked = app.staticTexts["Sign in with Apple or Google to open this Unwired account."]
     XCTAssertTrue(linked.waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Link Google sign-in"].exists)
     app.terminate()
@@ -1805,7 +1805,7 @@ final class InboxTests: XCTestCase {
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
-    app.buttons["Delete Product Account"].tap()
+    app.buttons["Delete Unwired Account"].tap()
     XCTAssertTrue(text("cannot be undone", in: app).waitForExistence(timeout: 15))
     app.buttons["Delete permanently"].tap()
     // The deletion's reply is lost (#1173). After relaunch, retrying it confirms the deletion and
@@ -1815,14 +1815,14 @@ final class InboxTests: XCTestCase {
     app.launch()
     XCTAssertTrue(app.staticTexts["Confirm account deletion"].waitForExistence(timeout: 20))
     app.buttons["Delete permanently"].tap()
-    XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Unwired account deleted"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 20))
     // The deleted account cannot be reopened, and this device keeps nothing of it.
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["Product Account deleted"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Unwired account deleted"].waitForExistence(timeout: 15))
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Deleted Product Account"
     shot.lifetime = .keepAlways

@@ -198,7 +198,7 @@ describe('registration screen', () => {
     ).toMatchObject({
       link: { provider: 'apple' },
       failure: expect.stringMatching(
-        /That Apple sign-in already belongs to another Product Account/u,
+        /That Apple sign-in already belongs to another Unwired account/u,
       ),
     });
   });
