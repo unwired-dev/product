@@ -88,13 +88,16 @@ final class WindowTests: XCTestCase {
 
   // A composer's first recipient keystroke asks for Apple Contacts in a UserNotificationCenter
   // alert, which takes keyboard focus and outlives the app; each run's disposable identity asks
-  // again (#2198). Decline it, so suggestions stay synthetic, then type the rest.
+  // again (#2198). Decline only this app's prompt, so suggestions stay synthetic and another
+  // app's permission stays untouched, then type the rest.
   private func typeRecipient(_ field: XCUIElement, _ text: String) {
     field.click()
     field.typeText(String(text.prefix(1)))
     let prompt = XCUIApplication(bundleIdentifier: "com.apple.UserNotificationCenter").dialogs
       .containing(
-        NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "contacts", "contacts")
+        NSPredicate(
+          format: "(label CONTAINS %@ AND label CONTAINS[c] %@) OR (value CONTAINS %@ AND value CONTAINS[c] %@)",
+          "Unwired Mail", "contacts", "Unwired Mail", "contacts")
       ).firstMatch
     if prompt.waitForExistence(timeout: 10) {
       prompt.buttons.matching(NSPredicate(format: "title BEGINSWITH %@", "Don")).firstMatch.click()
