@@ -276,6 +276,11 @@ run. Signing credentials are build prerequisites, never synthetic provider input
 The journey also preserves existing multi-window, last-window-close, reopen and
 Quit coverage. The original desktop app and its data remain untouched.
 
+A disposable identity has never decided Apple Contacts access, so the first
+character a Mac journey types into a recipient field raises the system's Contacts
+prompt. The journey declines it, keeping Recipient Suggestions synthetic and
+leaving no prompt on screen ([#2198](https://github.com/unwired-dev/product/issues/2198)).
+
 ## Ownership, evidence and cleanup
 
 Each invocation records `ownership.json` before copying the app. It records the

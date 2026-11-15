@@ -86,6 +86,24 @@ final class WindowTests: XCTestCase {
       .firstMatch
   }
 
+  // A composer's first recipient keystroke asks for Apple Contacts in a UserNotificationCenter
+  // alert, which takes keyboard focus and outlives the app; each run's disposable identity asks
+  // again (#2198). Decline it, so suggestions stay synthetic, then type the rest.
+  private func typeRecipient(_ field: XCUIElement, _ text: String) {
+    field.click()
+    field.typeText(String(text.prefix(1)))
+    let prompt = XCUIApplication(bundleIdentifier: "com.apple.UserNotificationCenter").dialogs
+      .containing(
+        NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "contacts", "contacts")
+      ).firstMatch
+    if prompt.waitForExistence(timeout: 10) {
+      prompt.buttons.matching(NSPredicate(format: "title BEGINSWITH %@", "Don")).firstMatch.click()
+      XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
+      field.click()
+    }
+    field.typeText(String(text.dropFirst()))
+  }
+
   // Selectable keys are native text views holding the grouped characters as their value.
   // Enrollment codes display their groups separated by spaces so they wrap; Recovery Keys keep
   // hyphens.
@@ -642,8 +660,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(webText("Resumed", in: window).waitForExistence(timeout: 10))
     // A refused Save must also return typing to the body, rather than an unfocused WebView.
     let to = window.textFields["To"]
-    to.click()
-    to.typeText("invalid-address")
+    typeRecipient(to, "invalid-address")
     body.click()
     window.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(sheet.buttons["Save"].waitForExistence(timeout: 10))
@@ -1755,8 +1772,7 @@ final class WindowTests: XCTestCase {
     work.buttons["New Message"].click()
     let recipient = work.textFields["To"]
     XCTAssertTrue(recipient.waitForExistence(timeout: 30))
-    recipient.click()
-    recipient.typeText("maya@example.invalid")
+    typeRecipient(recipient, "maya@example.invalid")
     subject.click()
     subject.typeText("Work report")
     let sentAt = Date()
@@ -2275,8 +2291,7 @@ final class WindowTests: XCTestCase {
     // Both native exits must reach the regular editor's save question and recipient guard (#1609).
     let to = composer.textFields.matching(NSPredicate(format: "label == %@", "To")).firstMatch
     XCTAssertTrue(to.waitForExistence(timeout: 10))
-    to.click()
-    to.typeText("unfinished")
+    typeRecipient(to, "unfinished")
     waitUntil { to.value as? String == "unfinished" }
     let question = composer.sheets.firstMatch
     composer.typeKey("w", modifierFlags: .command)
