@@ -161,15 +161,15 @@ function OpenedNotifications() {
   useEffect(
     () =>
       followOpenedDrafts((draft, profile) => {
-        void leave(draft).then((allowed) => {
-          if (allowed) {
+        void (async () => {
+          if (await leave(draft)) {
             close();
             router.navigate({
               pathname: '/compose/[draft]',
               params: { draft, profileId: profile },
             });
           }
-        });
+        })();
       }),
     [leave, close],
   );

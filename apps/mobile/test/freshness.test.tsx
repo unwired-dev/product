@@ -338,8 +338,11 @@ describe('headless Gmail freshness', () => {
       [{ kind: string; draft: string }]
     >(async () => null);
     const holdDelivery = jest.fn(
-      // oxlint-disable-next-line promise/avoid-new -- Native background time outlasts this journey.
-      () => new Promise<never>(() => undefined),
+      () =>
+        // oxlint-disable-next-line promise/avoid-new -- Native background time outlasts this journey.
+        new Promise<never>(() => {
+          // Never released, denied or expired.
+        }),
     );
     const native = {
       getConstants: () => ({}),
