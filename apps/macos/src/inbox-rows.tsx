@@ -35,10 +35,9 @@ const noActions: readonly RowAction[] = [];
 
 // Rows grow with macOS's sidebar icon size, as AppKit's sidebar rows do: 2pt less above and below at
 // Small, 2pt more at Large. Medium, the default, is the design's row.
-const sidebarInset = () => {
-  const size: unknown = Settings.get('NSTableViewDefaultSizeMode');
-  return size === 1 ? -2 : size === 3 ? 2 : 0;
-};
+const sidebarInsets: Readonly<Record<string, number>> = { 1: -2, 3: 2 };
+const sidebarInset = () =>
+  sidebarInsets[String(Settings.get('NSTableViewDefaultSizeMode'))] ?? 0;
 
 export function MessageRow({
   message,

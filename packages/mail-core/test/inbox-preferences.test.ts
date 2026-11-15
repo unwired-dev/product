@@ -237,7 +237,7 @@ describe('synchronized Inbox preferences', () => {
     const { mac, phone } = devices();
     const initial = mac.store.previewLines('work');
     const stored = await mac.store.setPreviewLines(['default', 'work'], 3);
-    const commits = mac.state.commits;
+    const { commits } = mac.state;
     const relaunched = mac.relaunch();
     await relaunched.load();
     await mac.store.synchronize();
