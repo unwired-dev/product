@@ -43,9 +43,22 @@ offsets leave, and an inline block without a width gets that as its maximum. A
 compatibility render left padded fixed-width columns, centred containers, nested
 wrappers, narrow icon boxes and the #2204 fixtures pixel-identical. A box set to
 the full width of its container, with its own padding, no longer runs past the
-container's edge. A table inside such a box, or a box narrower than one glyph,
-can still push text out of it
-([#2213](https://github.com/unwired-dev/product/issues/2213)).
+container's edge.
+
+A third follow-up ([#2213](https://github.com/unwired-dev/product/issues/2213))
+keeps tables and glyphs inside such a box. A table there is no wider than its
+margins leave of the box, and each column gets an equal share of the box after
+the cell spacing; spacing that would leave less than one glyph per column
+becomes zero, and cell offsets are fitted to the cell's share. Other elements
+with a table display become blocks. A word with more glyphs than fit on a line
+of its box, at one font size per glyph, may break anywhere, so it cannot widen a
+table; it still breaks only where it would overflow its line. Text with a font
+larger than its box shrinks to the box, but not below the 4 px readable minimum,
+and a box narrower than that which holds text widens to it. A compatibility
+render at 320, 393 and 800 pt left the #2204 and #2209 fixtures, nested columns
+and narrow icon boxes pixel-identical. Tables nested in fixed-width columns move
+slightly: product grid columns shift by a few points because long words no
+longer set their minimum width, and an order summary moves by a pixel.
 
 ## Amendment — 2026-11-11
 

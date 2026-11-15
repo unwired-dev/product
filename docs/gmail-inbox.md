@@ -841,8 +841,16 @@ what its kept offsets leave of the box, and an inline block without a width gets
 that as its maximum width. A text indent or letter spacing, its own or inherited,
 that would leave less than one glyph also becomes zero. Offsets in viewport units
 have no bound at the narrowest width, so inside such a box they always become
-zero. A table inside such a box, or a box narrower than one glyph, can still push
-text out of it ([#2213](https://github.com/unwired-dev/product/issues/2213)).
+zero. Tables and glyphs stay inside such a box too
+([#2213](https://github.com/unwired-dev/product/issues/2213)). A table's width
+is bounded by what its margins leave of the box, and each column gets an equal
+share of the box after the cell spacing, which becomes zero where it would leave
+less than one glyph per column. Cell offsets, including `cellpadding` and the
+`border` attribute, are fitted to the cell's share. Other elements with a table
+display become blocks. A word with more glyphs than fit on a line of its box, at
+one font size per glyph, is wrapped in a span with `overflow-wrap: anywhere`.
+Text with a font larger than its box shrinks to the box, but not below 4 px, and
+a box narrower than 4 px that holds text gets `min-width: 4px`.
 A table squeezed below its minimum content width can still overflow one cell into
 the next. Large positive margins and indents (at least 320 CSS
 pixels after unit resolution) are normalized to zero, and padding or border-width declarations with a token of at least 320

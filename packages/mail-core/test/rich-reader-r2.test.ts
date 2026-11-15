@@ -872,9 +872,9 @@ describe('rich-reader review regressions', () => {
         '<p style="line-height: 0; margin: 0">',
         'style="line-height: 1.2"',
         '<div style="width: min(100%, 250px); min-width: min(100%, 200px)">',
-        '<div>Wide</div>',
-        '<div style="width: 100%">Inherited</div>',
-        '<div style="display: inline-block; width: 100%">Inline</div>',
+        '<div><span style="overflow-wrap: anywhere">Wide</span></div>',
+        '<div style="width: 100%"><span style="overflow-wrap: anywhere">Inherited</span></div>',
+        '<div style="display: inline-block; width: 100%"><span style="overflow-wrap: anywhere">Inline</span></div>',
         'Line one<br>Line two',
         '<td style="height: 1px; line-height: 0; width: 250px">',
         'height: 60px',
@@ -988,6 +988,60 @@ describe('rich-reader review regressions', () => {
           .filter((style) => !document.includes(style))
           .map((style) => ({ html, style }));
       }),
+    ).toStrictEqual([]);
+  });
+
+  it('keeps tables and glyphs inside sender boxes so text cannot overflow onto a button fill', () => {
+    expect.hasAssertions();
+    const label = 'paypal.com.evil.example';
+    const inBox = (inner: string, box = 'width:20px') =>
+      `<table><tr><td><div style="${box}">${inner}</div></td><td style="background-color:#3A3D44;padding:8px 120px"><a href="https://x.example/">x</a></td></tr></table>`;
+    const broken = (text: string) =>
+      `<span style="overflow-wrap: anywhere">${text}</span>`;
+    const zero =
+      'margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; border-left-width: 0; border-right-width: 0';
+    const { document, links } = sanitizeHtml(
+      [
+        // The issue's examples: a table inside the box, and a box narrower than a glyph.
+        inBox(
+          `<table><tr><td><a href="https://evil.example/1">${label}</a></td></tr></table>`,
+        ),
+        inBox('<a href="https://evil.example/2">ppommp</a>', 'width:4px'),
+        // Table widths, cell padding and spacing share the box; a larger font shrinks to it, and
+        // a box too narrow for readable text widens to hold it.
+        inBox(
+          '<table width="200" cellpadding="10" cellspacing="4" border="1"><tr><td>a</td><td>b</td></tr></table>',
+          'width:60px',
+        ),
+        inBox(`<span style="font-size:60px">Large</span>`),
+        inBox(
+          '<a href="https://evil.example/3">ppommp</a>',
+          'width:0;overflow:hidden',
+        ),
+        // Words that fit their box do not break.
+        '<div style="width:120px">Shipping and returns</div>',
+      ].join(''),
+    );
+    expect(links.map(({ text }) => text)).toStrictEqual([
+      label,
+      'x',
+      'ppommp',
+      'x',
+      'x',
+      'x',
+      'ppommp',
+      'x',
+    ]);
+    expect(
+      [
+        `<a href="about:blank#unwired-link-0" rel="noreferrer noopener">${broken(label)}</a>`,
+        `<a style="${zero}; font-size: 4px" href="about:blank#unwired-link-2" rel="noreferrer noopener">${broken('ppommp')}</a>`,
+        '<table width="200" cellpadding="10" cellspacing="4" border="1" style="width: min(100%, 200px)">',
+        `<td style="${zero}">a</td>`,
+        `<span style="${zero}; font-size: 20px">${broken('Large')}</span>`,
+        '<div style="width: 0; box-sizing: content-box; min-width: 4px">',
+        '<div style="width: 120px">Shipping and returns</div>',
+      ].filter((style) => !document.includes(style)),
     ).toStrictEqual([]);
   });
 
