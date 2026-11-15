@@ -34,6 +34,7 @@ import { AccountContext } from './registration-gate.tsx';
 import {
   blockedSenders,
   drafts as defaultDrafts,
+  inboxPreferences,
   mailTemplates as defaultMailTemplates,
   outbox as defaultOutbox,
   sendReminders as defaultSendReminders,
@@ -105,14 +106,17 @@ export function InboxProvider({
     void drafts.load();
     void mailTemplates.synchronize();
     void blockedSenders.synchronize();
-    // Returning picks up other devices' Draft, Mail Template and Blocked Sender changes; leaving
-    // publishes this device's.
+    void inboxPreferences.load();
+    void inboxPreferences.synchronize();
+    // Returning picks up other devices' Draft, Mail Template, Blocked Sender and Inbox preference
+    // changes; leaving publishes this device's.
     return followOnce(drafts, () => {
       const subscription = AppState.addEventListener('change', (state) => {
         if (state === 'active' || state === 'background') {
           void drafts.syncInBackground();
           void mailTemplates.synchronize();
           void blockedSenders.synchronize();
+          void inboxPreferences.synchronize();
         }
       });
       return () => {

@@ -232,6 +232,38 @@ describe('synchronized Inbox preferences', () => {
     expect(mac.store.listDensity('work')).toBe('comfortable');
   });
 
+  it("sets several Profiles' preview length in one write, kept across a relaunch and carried to another device", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const initial = mac.store.previewLines('work');
+    const stored = await mac.store.setPreviewLines(['default', 'work'], 3);
+    const commits = mac.state.commits;
+    const relaunched = mac.relaunch();
+    await relaunched.load();
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    expect({
+      initial,
+      stored,
+      commits,
+      relaunched: [
+        relaunched.previewLines('default'),
+        relaunched.previewLines('work'),
+        relaunched.previewLines('home'),
+      ],
+      phone: [
+        phone.store.previewLines('work'),
+        phone.store.listDensity('work'),
+      ],
+    }).toStrictEqual({
+      initial: undefined,
+      stored: true,
+      commits: 1,
+      relaunched: [3, 3, undefined],
+      phone: [3, 'comfortable'],
+    });
+  });
+
   it.each([
     ['the Mac', ['mac', 'phone', 'mac']],
     ['the phone', ['phone', 'mac', 'phone']],

@@ -102,6 +102,14 @@
     "compact": "Compact",
     "footer": "Compact shows one preview line. Rows grow with Text Size."
   },
+  "previewLines": {
+    "group": "Message list",
+    "title": "Preview lines",
+    "none": "None",
+    "lines_one": "{{count}} line",
+    "lines_other": "{{count}} lines",
+    "footer": "Row height follows the macOS sidebar icon size."
+  },
   "language": {
     "title": "Language",
     "systemDefault": "System Default",

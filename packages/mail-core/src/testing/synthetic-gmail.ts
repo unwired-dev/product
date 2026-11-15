@@ -128,7 +128,8 @@ const syntheticPerformance: Readonly<Record<string, SyntheticGmailMessage>> =
     Array.from({ length: syntheticPerformanceCount }, (_, index) => {
       const number = String(index + 1).padStart(3, '0');
       const text = `Gmail update ${number} body. Nothing here came from a real mailbox.`;
-      const snippet = `Gmail update ${number} preview.`;
+      // Long enough to wrap onto three preview lines in the Mac's list.
+      const snippet = `Gmail update ${number} preview. Nothing here came from a real mailbox; the sentence runs on so a row that shows more preview lines wraps it.`;
       return [
         `19a0c0ffee${(0x10_00_00 + index).toString(16)}`,
         {

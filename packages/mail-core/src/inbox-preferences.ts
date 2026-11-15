@@ -20,6 +20,10 @@ import { ownerOf } from './drafts.ts';
 export const ListDensitySchema = Schema.Literals(['comfortable', 'compact']);
 export type ListDensity = typeof ListDensitySchema.Type;
 const isListDensity = Schema.is(ListDensitySchema);
+// How many preview lines a Mac Inbox row shows: none to three.
+export const PreviewLinesSchema = Schema.Literals([0, 1, 2, 3]);
+export type PreviewLines = typeof PreviewLinesSchema.Type;
+const isPreviewLines = Schema.is(PreviewLinesSchema);
 
 // One preference's latest value and when it was chosen, in milliseconds since the epoch. A field
 // this build does not know is kept and published as it was.
@@ -317,6 +321,45 @@ export function createInboxPreferences(
 
   const synchronize = preferencePasses('Inbox preference', pass, sync);
 
+  // Sets field `name` of each of `profiles` to `value`, after the value it replaces even when the
+  // clock went back. Resolves whether storage holds it, and then publishes it.
+  const choose = async (
+    profiles: readonly string[],
+    name: string,
+    value: ListDensity | PreviewLines,
+  ) => {
+    const scopes = profiles.filter((profile) => profile !== '');
+    if (scopes.length === 0) {
+      return false;
+    }
+    const stored = await runLogged(
+      changed(signedIn(), (kept) =>
+        scopes.reduce((next, profile) => {
+          const fields = fieldsOf(next, profile);
+          const field = fields[name];
+          return field?.value === value
+            ? next
+            : withFields(next, profile, {
+                ...fields,
+                [name]: {
+                  value,
+                  at: Math.max(Date.now(), (field?.at ?? 0) + 1),
+                },
+              });
+        }, kept),
+      ).pipe(
+        Effect.as(true),
+        Effect.catchTag('DraftStorageFailure', (error) =>
+          report(error).pipe(Effect.as(false)),
+        ),
+      ),
+    );
+    if (stored) {
+      void synchronize();
+    }
+    return stored;
+  };
+
   return {
     subscribe: (listener: () => void) => {
       listeners.add(listener);
@@ -333,7 +376,8 @@ export function createInboxPreferences(
           : undefined;
       return isListDensity(value) ? value : 'comfortable';
     },
-    // Reads the signed-in account's preferences for `listDensity`; signed out, there are none.
+    // Reads the signed-in account's preferences for `listDensity` and `previewLines`; signed out,
+    // there are none.
     load: async () => {
       const account = signedIn();
       if (account !== undefined) {
@@ -345,37 +389,22 @@ export function createInboxPreferences(
         );
       }
     },
+    // `profile`'s preview length as last read; undefined until it is read, while storage cannot read
+    // it, or when none was chosen.
+    previewLines: (profile: string): PreviewLines | undefined => {
+      const value =
+        shown.account === signedIn()
+          ? fieldsOf(shown.profiles, profile).previewLines?.value
+          : undefined;
+      return isPreviewLines(value) ? value : undefined;
+    },
     // Chooses `profile`'s Thread-list density, after the choice it replaces even when the clock
     // went back. Resolves whether storage holds it, and then publishes it.
-    setListDensity: async (profile: string, density: ListDensity) => {
-      if (profile === '') {
-        return false;
-      }
-      const stored = await runLogged(
-        changed(signedIn(), (profiles) => {
-          const fields = fieldsOf(profiles, profile);
-          const kept = fields.density;
-          return kept?.value === density
-            ? profiles
-            : withFields(profiles, profile, {
-                ...fields,
-                density: {
-                  value: density,
-                  at: Math.max(Date.now(), (kept?.at ?? 0) + 1),
-                },
-              });
-        }).pipe(
-          Effect.as(true),
-          Effect.catchTag('DraftStorageFailure', (error) =>
-            report(error).pipe(Effect.as(false)),
-          ),
-        ),
-      );
-      if (stored) {
-        void synchronize();
-      }
-      return stored;
-    },
+    setListDensity: (profile: string, density: ListDensity) =>
+      choose([profile], 'density', density),
+    // Chooses the preview length of each of `profiles` in one write, as `setListDensity` does.
+    setPreviewLines: (profiles: readonly string[], lines: PreviewLines) =>
+      choose(profiles, 'previewLines', lines),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,
