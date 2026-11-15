@@ -981,6 +981,7 @@ export function createSyntheticVault(
         return null;
       }),
     readsAsRecoveryKey: (entry) => Promise.resolve(entry.length > 0),
+    discoverImap: () => Promise.resolve(null),
     adoptIdentity: () =>
       attempt(() => {
         adoptIdentity();

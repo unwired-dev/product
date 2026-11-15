@@ -6,7 +6,7 @@ import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { ImapSetup } from './imap-setup.ts';
+import type { FoundServers, ImapSetup } from './imap-setup.ts';
 import type {
   ChosenFolders,
   MailboxConnection,
@@ -26,6 +26,11 @@ import {
   rejectionDiagnostic,
   runLogged,
 } from './diagnostics.ts';
+import {
+  DiscoveredServersSchema,
+  discoveredFields,
+  discoveryDomain,
+} from './imap-setup.ts';
 import { createRegistrationFlow } from './registration-flow.ts';
 import {
   RegistrationSnapshotSchema,
@@ -721,6 +726,27 @@ export function createRegistration(vault: NativeRegistrationVault) {
         }),
         { imapSetup: setup },
       ),
+    // The endpoints an uncatalogued address's domain names in its SRV records, or undefined when it
+    // names none or the lookup fails, which leaves the form to manual entry. It runs beside other
+    // registration work and changes no state.
+    discoverImap: (address: string): Promise<FoundServers | undefined> => {
+      const domain = discoveryDomain(address);
+      return domain === undefined
+        ? Promise.resolve(undefined)
+        : runLogged(
+            Effect.tryPromise(() => vault.discoverImap(domain)).pipe(
+              Effect.flatMap(
+                Schema.decodeUnknownEffect(DiscoveredServersSchema),
+              ),
+              Effect.map((servers) =>
+                servers === null
+                  ? undefined
+                  : discoveredFields(address, servers),
+              ),
+              Effect.orElseSucceed(() => undefined),
+            ),
+          );
+    },
     removeMailbox: (connection: string) =>
       execute(
         // The removal can apply before its reply fails, so only a connection still saved failed.

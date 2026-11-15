@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import * as Vitest from '@effect/vitest';
 import * as Predicate from 'effect/Predicate';
 
-import { imapFields, imapSetup } from '../src/imap-setup.ts';
+import {
+  discoveredFields,
+  imapFields,
+  imapSetup,
+  smtpSecurityOf,
+  withDiscovered,
+} from '../src/imap-setup.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createRegistration, mailboxesOf } from '../src/registration.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
@@ -326,5 +332,48 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
       smtpSecurity: 'starttls',
       smtpUsername: 'alex@icloud.example.invalid',
     });
+  });
+
+  // An answer that arrives after the person typed on, before the form drops the lookup (#2200).
+  it('fills discovered endpoints only into the untouched form they were looked up for', () => {
+    expect.hasAssertions();
+    const address = 'mara@posteo.de';
+    const found = discoveredFields(address, {
+      imap: { host: 'posteo.de', port: 993 },
+      smtp: { host: 'posteo.de', port: 465, security: 'tls' },
+    });
+    const untouched = { ...imapFields(), address, password: 'secret' };
+    const edited = { ...untouched, host: 'imap.posteo.de' };
+    const secured = { ...untouched, smtpSecurity: 'starttls' as const };
+    const moved = { ...untouched, address: 'mara@example.org' };
+    expect([
+      withDiscovered(untouched, address, found),
+      withDiscovered(edited, address, found),
+      withDiscovered(secured, address, found),
+      withDiscovered(moved, address, found),
+    ]).toStrictEqual([
+      { ...untouched, ...found.fields },
+      edited,
+      secured,
+      moved,
+    ]);
+  });
+
+  // `_submissions` is implicit TLS on any port; `_submission` leaves security to the port (#2200).
+  it('keeps the security of the SMTP service a domain names', () => {
+    expect.hasAssertions();
+    const security = (port: number, service: 'tls' | 'starttls') =>
+      smtpSecurityOf(
+        discoveredFields('mara@example.org', {
+          imap: { host: 'imap.example.org', port: 993 },
+          smtp: { host: 'smtp.example.org', port, security: service },
+        }).fields,
+      );
+    expect([
+      security(2465, 'tls'),
+      security(465, 'tls'),
+      security(587, 'starttls'),
+      security(465, 'starttls'),
+    ]).toStrictEqual(['tls', 'tls', 'starttls', 'tls']);
   });
 });

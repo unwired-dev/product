@@ -23,10 +23,14 @@ export type ImapSetup = Readonly<{
   smtp: SmtpSetup;
 }>;
 
-// A connection's reviewed endpoint as native storage projects it; never its password.
-export const ImapEndpointSchema = Schema.Struct({
+// A server's host name and port.
+const ServerSchema = Schema.Struct({
   host: Schema.NonEmptyString,
   port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 })),
+});
+// A connection's reviewed endpoint as native storage projects it; never its password.
+export const ImapEndpointSchema = Schema.Struct({
+  ...ServerSchema.fields,
   username: Schema.NonEmptyString,
 });
 export const SmtpEndpointSchema = Schema.Struct({
@@ -123,12 +127,23 @@ const catalog = [
   },
 ] as const;
 
+// The server fields a form fills in for an address, and the domain they were found for.
+export type FoundServers = Readonly<{
+  domain: string;
+  fields: Pick<ImapFields, (typeof serverFields)[number]>;
+}>;
+
+const hostPattern =
+  /^[\da-z](?:[\da-z-]{0,61}[\da-z])?(?:\.[\da-z](?:[\da-z-]{0,61}[\da-z])?)+$/u;
+const domainOf = (address: string) =>
+  address.trim().split('@')[1]?.toLowerCase() ?? '';
+
 // The server fields a manual form fills in for an address at a catalogued domain. SMTP signs in
 // with the full address, so it needs its own user name only where IMAP uses a shorter one. Every
 // entry uses the security its SMTP port implies, which the form follows until the person chooses.
-export const catalogFields = (address: string) => {
+export const catalogFields = (address: string): FoundServers | undefined => {
   const trimmed = address.trim();
-  const domain = trimmed.split('@')[1]?.toLowerCase() ?? '';
+  const domain = domainOf(address);
   const entry = catalog.find((provider) =>
     (provider.domains as readonly string[]).includes(domain),
   );
@@ -149,7 +164,7 @@ export const catalogFields = (address: string) => {
   };
 };
 
-// The server fields a catalog entry fills in.
+// The server fields the catalog or a discovery fills in.
 const serverFields = [
   'host',
   'port',
@@ -157,17 +172,62 @@ const serverFields = [
   'smtpHost',
   'smtpPort',
   'smtpUsername',
+  'smtpSecurity',
 ] as const;
 
-// The catalogued domain whose endpoints a form still holds, for the note that says they were found.
-export const catalogDomain = (fields: ImapFields) => {
-  const found = catalogFields(fields.address);
-  return found !== undefined &&
-    fields.smtpSecurity === undefined &&
-    serverFields.every((name) => fields[name] === found.fields[name])
-    ? found.domain
+// The endpoints an uncatalogued domain's RFC 6186 SRV records name, as the native lookup reports
+// them: IMAP over implicit TLS, and SMTP submission with the security of the service it found,
+// `_submissions` (implicit TLS) or `_submission` (STARTTLS).
+export const DiscoveredServersSchema = Schema.NullOr(
+  Schema.Struct({
+    imap: ServerSchema,
+    smtp: Schema.Struct({
+      ...ServerSchema.fields,
+      security: Schema.Literals(['tls', 'starttls']),
+    }),
+  }),
+);
+
+// The domain an address's servers are looked up for in DNS: one the catalog does not list.
+export const discoveryDomain = (address: string) => {
+  const domain = domainOf(address);
+  return /^[^\s@]+@[^\s@]+$/u.test(address.trim()) &&
+    hostPattern.test(domain) &&
+    catalogFields(address) === undefined
+    ? domain
     : undefined;
 };
+
+// The server fields a form fills in from the endpoints discovered for an address's domain, which
+// sign in with the full address. `_submissions` is implicit TLS on any port; a `_submission` port
+// keeps the security its port implies, as some domains list implicit TLS on 465 there.
+export const discoveredFields = (
+  address: string,
+  servers: NonNullable<typeof DiscoveredServersSchema.Type>,
+): FoundServers => ({
+  domain: domainOf(address),
+  fields: {
+    host: servers.imap.host,
+    port: String(servers.imap.port),
+    username: address.trim(),
+    smtpHost: servers.smtp.host,
+    smtpPort: String(servers.smtp.port),
+    smtpUsername: '',
+    ...(servers.smtp.security === 'tls'
+      ? { smtpSecurity: servers.smtp.security }
+      : {}),
+  },
+});
+
+// The domain whose found endpoints a form still holds, for the note that says they were found.
+export const foundDomain = (
+  fields: ImapFields,
+  found: FoundServers | undefined,
+) =>
+  found !== undefined &&
+  serverFields.every((name) => fields[name] === found.fields[name])
+    ? found.domain
+    : undefined;
 
 // The setup to try once more when the server refuses this one: iCloud Mail accepts the full
 // address where it refuses the name part, as Apple's mail settings direct.
@@ -251,8 +311,20 @@ export const imapFields = (
   };
 };
 
-const hostPattern =
-  /^[\da-z](?:[\da-z-]{0,61}[\da-z])?(?:\.[\da-z](?:[\da-z-]{0,61}[\da-z])?)+$/u;
+// A form with the endpoints discovered for `address` filled in, unless its address or a server
+// setting changed since the lookup began, which discards the answer.
+export const withDiscovered = (
+  fields: ImapFields,
+  address: string,
+  found: FoundServers,
+): ImapFields => {
+  const blank = imapFields();
+  return fields.address === address &&
+    foundDomain(fields, { domain: found.domain, fields: blank }) !== undefined
+    ? { ...fields, ...found.fields }
+    : fields;
+};
+
 // A port and host as entered, or undefined while either is malformed.
 const hostAndPort = (host: string, port: string) => {
   const number = Number(port.trim());

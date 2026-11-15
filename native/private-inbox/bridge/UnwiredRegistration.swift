@@ -666,6 +666,26 @@ final class UnwiredRegistration: NSObject {
         smtpPassword: smtp["password"] as? String)
     }
   }
+  // The endpoints `domain`'s SRV records name, or null. It reads no registration state, so it
+  // runs beside the operations queue.
+  @objc(discoverImap:resolver:rejecter:)
+  func discoverImap(
+    _ domain: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject _: @escaping RCTPromiseRejectBlock
+  ) {
+    Task { @MainActor in
+      guard let servers = await MailServiceDiscovery.servers(domain: domain) else {
+        return resolve(NSNull())
+      }
+      resolve([
+        "imap": ["host": servers.imap.host, "port": servers.imap.port],
+        "smtp": [
+          "host": servers.smtp.host, "port": servers.smtp.port,
+          "security": servers.implicitTLS ? "tls" : "starttls",
+        ],
+      ])
+    }
+  }
   @objc(verifyImap:resolver:rejecter:)
   func verifyImap(
     _ connection: String, resolve: @escaping RCTPromiseResolveBlock,

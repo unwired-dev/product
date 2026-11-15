@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { Registration } from '@private-email/mail-core/registration';
 import type { RegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
@@ -372,16 +373,32 @@ describe('product registration', () => {
     }
   });
 
-  it("fills in a catalogued provider's servers from the address until the person changes one (#2189)", async () => {
+  it("fills in a catalogued or discovered provider's servers from the address until the person changes one (#2189, #2200)", async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
     const vault = synthetic.relaunch();
     const setups: unknown[] = [];
+    const lookups: string[] = [];
     const store = createRegistration({
       ...vault,
       connectImap: (imap) => {
         setups.push(imap);
         return vault.connectImap(imap);
+      },
+      // posteo.de names its servers in SRV records; example.org names none.
+      discoverImap: (domain) => {
+        lookups.push(domain);
+        return Promise.resolve(
+          (
+            {
+              'posteo.de': {
+                imap: { host: 'posteo.de', port: 993 },
+                smtp: { host: 'posteo.de', port: 465, security: 'tls' },
+              },
+              'example.org': null,
+            } as Readonly<Record<string, unknown>>
+          )[domain],
+        );
       },
     });
     await render(
@@ -422,18 +439,35 @@ describe('product registration', () => {
     await openSettings('Email Accounts');
     await press('Add an IMAP mailbox');
     await press('Other IMAP Account');
+    // Longer than the form waits before it looks an address up.
+    const pause = () => act(() => sleep(600));
     await type('Email address', 'mara@Seznam.cz');
     const seznam = form();
+    // The lookup waits until the address stops changing.
+    await type('Email address', 'mara@posteo.de');
     await type('Email address', 'mara@example.org');
+    await pause();
     const manual = form();
+    await type('Email address', 'mara@posteo.de');
+    await pause();
+    const discovered = form();
     await type('Email address', 'mara@icloud.com');
     const icloud = form();
     await type('SMTP port', '465');
-    await type('Email address', 'mara@seznam.cz');
+    await type('Email address', 'mara@posteo.de');
+    await pause();
     const edited = form();
     await type('Password', 'synthetic-app-password');
     await press('Connect');
-    expect({ seznam, manual, icloud, edited, setups }).toStrictEqual({
+    expect({
+      seznam,
+      manual,
+      discovered,
+      icloud,
+      edited,
+      lookups,
+      setups,
+    }).toStrictEqual({
       seznam: {
         'User name': 'mara@Seznam.cz',
         'IMAP server': 'imap.seznam.cz',
@@ -455,6 +489,18 @@ describe('product registration', () => {
         'SMTP user name, same as incoming if blank': '',
         security: ['SMTP security: SSL/TLS'],
         found: [],
+      },
+      discovered: {
+        'User name': 'mara@posteo.de',
+        'IMAP server': 'posteo.de',
+        Port: '993',
+        'SMTP server': 'posteo.de',
+        'SMTP port': '465',
+        'SMTP user name, same as incoming if blank': '',
+        security: ['SMTP security: SSL/TLS'],
+        found: [
+          'Found server settings for posteo.de. Port and security are filled in for you.',
+        ],
       },
       icloud: {
         'User name': 'mara',
@@ -480,9 +526,12 @@ describe('product registration', () => {
         security: ['SMTP security: SSL/TLS'],
         found: [],
       },
+      // Only an uncatalogued address the person stopped at is looked up, and not once a server
+      // setting changed.
+      lookups: ['example.org', 'posteo.de'],
       setups: [
         {
-          address: 'mara@seznam.cz',
+          address: 'mara@posteo.de',
           host: 'imap.mail.me.com',
           port: 993,
           username: 'mara',
