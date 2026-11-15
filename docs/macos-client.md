@@ -42,7 +42,7 @@ native dependency requires an explicit update to `scripts/verify-native.ts`.
 The generated project currently also compiles `native/design`, the first-party
 SF Symbol and Liquid Glass views shared with the iPhone/iPad host, the Mac-only
 `UnwiredMenu` and `UnwiredAlert` presenters, `UnwiredAppleIDButton`,
-`UnwiredPushButton`, `UnwiredPopUpButton`, `UnwiredPopover` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
+`UnwiredPushButton`, `UnwiredPopUpButton`, `UnwiredSplitButton`, `UnwiredPopover` and `UnwiredSidebar`. Pop-up controls are AppKit `NSPopUpButton`s through
 `UnwiredPopUpButton`. Settings rows, the IMAP security field and the composer's From
 and Text style show their current choice and open their menu over it, with the choice
 checked. The reader's Folders and More and the composer's actions and Writing tools are
@@ -52,7 +52,11 @@ dismissal. VoiceOver reads a pop-up button with its label and current choice, or
 menu button with its label.
 Writing tools retain their localized selection/body descriptions for accessibility.
 React Native macOS 0.81.9 has no pop-up button; remove the adapter when it offers one
-with checked, disabled and destructive items. Other menus, such as the Profile
+with checked, disabled and destructive items. The reader's **Translate** is a split
+button through `UnwiredSplitButton`: an AppKit `NSSegmentedControl` whose first segment
+translates and whose arrow segment opens the language menu on the first click and can
+name the chosen language, which AppKit's `NSComboButton` cannot. VoiceOver reads both
+segments as buttons. Remove it when React Native macOS offers a split button. Other menus, such as the Profile
 Switcher's, open from their own control through `UnwiredMenu` and drop
 below it. React Native macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or
 destructive items. Remove the presenter when the host provides an anchored menu with

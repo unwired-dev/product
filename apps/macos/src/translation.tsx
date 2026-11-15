@@ -10,6 +10,7 @@ import type {
 import type { ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 
+import { languages as appLanguages } from '@private-email/localization';
 import { draftTextIssue } from '@private-email/mail-core/assistance';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
@@ -42,7 +43,7 @@ import {
 import type { PopUpItem } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { PopUp } from './composer-controls.tsx';
+import { SplitButton } from './composer-controls.tsx';
 import { OnDeviceMarker, SFSymbol, useOutcomeAnnouncement } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
@@ -155,13 +156,24 @@ function useLanguages(translation: NativeTranslation | undefined) {
   return [languages, reload] as const;
 }
 
-// The device's target languages as native menu items, the chosen one checked. The list and its
-// Try Again come back too, so the reader can show a failure in place of its menu. Only a failure
-// after Try Again is announced, so opening a message or Draft stays quiet.
+// Whether a device language is the app language, in any region or script.
+const isAppLanguage = (code: string, app: string) =>
+  code.split('-')[0]?.toLowerCase() === app.split('-')[0]?.toLowerCase();
+
+// The device's target languages as native menu items, the chosen one checked, leaving out the
+// language `except` names; `choose` runs for the item picked. The list and its Try Again come back too, so the reader can show a
+// failure in place of its menu. Only a failure after Try Again is announced, so opening a message
+// or Draft stays quiet.
 function useLanguageMenu(
   translation: NativeTranslation | undefined,
   selected: TranslationLanguage | undefined,
-  choose: (language: TranslationLanguage) => void,
+  {
+    choose,
+    except,
+  }: {
+    readonly choose: (language: TranslationLanguage) => void;
+    readonly except?: string;
+  },
 ) {
   const { t } = useLocalization();
   const [languages, reload] = useLanguages(translation);
@@ -205,17 +217,22 @@ function useLanguageMenu(
         },
       ];
     }
-    return languages.map((language) => ({
-      key: `language:${language.code}`,
-      title: language.name,
-      accessibilityLabel: t('translation.targetLabel', {
-        language: language.name,
-      }),
-      checked: selected?.code === language.code,
-      run: () => {
-        choose(language);
-      },
-    }));
+    return languages
+      .filter(
+        (language) =>
+          except === undefined || !isAppLanguage(language.code, except),
+      )
+      .map((language) => ({
+        key: `language:${language.code}`,
+        title: language.name,
+        accessibilityLabel: t('translation.targetLabel', {
+          language: language.name,
+        }),
+        checked: selected?.code === language.code,
+        run: () => {
+          choose(language);
+        },
+      }));
   };
   return { languages, retried, retry, items: items() };
 }
@@ -226,7 +243,7 @@ export function useTargetLanguages(
   selected: TranslationLanguage | undefined,
   choose: (language: TranslationLanguage) => void,
 ): PopUpItem[] {
-  return useLanguageMenu(translation, selected, choose).items;
+  return useLanguageMenu(translation, selected, { choose }).items;
 }
 
 const idle: TranslationState = { kind: 'idle' };
@@ -477,7 +494,7 @@ function ReaderTranslation({
   readonly translator: NativeTranslation;
   readonly body: ReaderText;
 }) {
-  const { t } = useLocalization();
+  const { t, settings } = useLocalization();
   // Each shown translation owns its queued native input; Show Original retires it before rendering.
   const session = useRef(0);
   const generation = session.current;
@@ -488,45 +505,63 @@ function ReaderTranslation({
       : messageTranslationInput(body, target.code);
   const current = () => generation === session.current;
   const translation = useTranslation(translator, input, current);
-  const menu = useLanguageMenu(translator, target, (language) => {
+  const translateInto = (language: TranslationLanguage) => {
     if (!current()) {
       return;
     }
     setTarget(language);
     translation.start(messageTranslationInput(body, language.code));
+  };
+  const menu = useLanguageMenu(translator, target, {
+    choose: translateInto,
+    except: settings.language,
   });
   const retrying = menu.retried && menu.languages === 'loading';
-  if (target === undefined && (menu.languages === 'failed' || retrying)) {
-    return (
-      <LanguagesFailed
-        loading={retrying}
-        onRetry={() => {
-          menu.retry();
-        }}
-      />
-    );
-  }
+  // Another chosen language, which the arrow names.
+  const other =
+    target === undefined || isAppLanguage(target.code, settings.language)
+      ? undefined
+      : target;
   return (
     <>
-      {/* A pull-down until a language is chosen, then a pop-up naming it. */}
-      <PopUp
-        icon="translate"
-        pullsDown={target === undefined}
-        label={target === undefined ? t('translation.translate') : target.name}
-        accessibilityLabel={
-          target === undefined
-            ? t('translation.translateMessageLabel')
-            : t('translation.targetLabel', { language: target.name })
-        }
-        items={[
-          {
-            key: 'heading',
-            title: t('translation.menuHeading'),
-            disabled: true,
-          },
-          ...menu.items,
-        ]}
-      />
+      {/* Translate is into the app language; the arrow chooses another. A language list the
+          device could not give takes the control's place, beside any shown translation. */}
+      {menu.languages === 'failed' || retrying ? (
+        <LanguagesFailed
+          loading={retrying}
+          onRetry={() => {
+            menu.retry();
+          }}
+        />
+      ) : (
+        <SplitButton
+          icon="translate"
+          label={t('translation.translate')}
+          accessibilityLabel={t('translation.translateMessageLabel')}
+          onPress={() => {
+            translateInto({
+              code: settings.language,
+              name:
+                appLanguages.find(({ code }) => code === settings.language)
+                  ?.name ?? settings.language,
+            });
+          }}
+          menuText={other?.name}
+          menuAccessibilityLabel={
+            other === undefined
+              ? t('translation.menuHeading')
+              : t('translation.targetLabel', { language: other.name })
+          }
+          items={[
+            {
+              key: 'heading',
+              title: t('translation.menuHeading'),
+              disabled: true,
+            },
+            ...menu.items,
+          ]}
+        />
+      )}
       {target === undefined ? null : (
         <TranslationPanel
           label={t('translation.messageRegion')}

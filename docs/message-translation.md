@@ -116,7 +116,9 @@ only an allow-listed native code or decode path, never mail or translated text.
   drive the real reader with the real Gmail store and a synthetic Gmail mailbox:
   translating reads only the local text and makes no Gmail request, an uninstalled
   language leaves the message readable, cancellation, and switching message,
-  mailbox store or account drops a late or shown result.
+  mailbox store or account drops a late or shown result. On Mac they also cover
+  **Translate** into the app language in one click and the arrow's menu, which
+  leaves the app language out and is named after another chosen language.
 - The composer tests in both hosts select Draft text, review a translation, apply
   it as one undoable edit without touching recipients, keep the original, and drop
   a pending translation when the body is edited.

@@ -1197,6 +1197,21 @@ final class WindowTests: XCTestCase {
     first.buttons["Summarize this message"].click()
     let summary = NSPredicate(format: "value == %@", "Synthetic summary of local mail.")
     XCTAssertTrue(first.textViews.matching(summary).firstMatch.waitForExistence(timeout: 10))
+    // Translate is one click into the app language; its arrow chooses another, which it names.
+    func shows(_ text: String) -> Bool {
+      first.textViews.matching(NSPredicate(format: "value == %@", text)).firstMatch
+        .waitForExistence(timeout: 10)
+    }
+    first.buttons["Translate this message"].click()
+    XCTAssertTrue(shows("Translation into English"))
+    XCTAssertTrue(shows("Synthetic translation of local mail."))
+    first.buttons["Translate Into"].click()
+    XCTAssertFalse(app.menuItems["Translate into English"].exists)
+    app.menuItems["Translate into German"].click()
+    XCTAssertTrue(shows("Translation into German"))
+    XCTAssertTrue(first.buttons["Translate into German"].exists)
+    first.buttons["Show the original message and forget the translation"].click()
+    XCTAssertTrue(first.buttons["Translate Into"].waitForExistence(timeout: 10))
     app.typeKey("n", modifierFlags: [.command, .option])
     let second = app.windows["Inbox 2"]
     XCTAssertTrue(second.waitForExistence(timeout: 10))

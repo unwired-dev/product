@@ -35,3 +35,39 @@ export function NativePopUpButton({
     />
   );
 }
+
+// `UnwiredSplitButton` at the Jest native boundary: pressing it runs its label, and its arrow,
+// labelled `menuLabel`, opens its AppKit menu as `NativePopUpButton` does.
+export function NativeSplitButton({
+  sections,
+  enabled,
+  menuLabel,
+  onPress,
+  onSelect,
+  ...props
+}: ComponentProps<typeof Pressable> & {
+  readonly sections: Parameters<typeof unwiredMenu.show>[1];
+  readonly enabled: boolean;
+  readonly menuLabel: string;
+  readonly onPress: () => void;
+  readonly onSelect: (event: {
+    readonly nativeEvent: { readonly id: string };
+  }) => void;
+}) {
+  return (
+    <>
+      <Pressable
+        {...props}
+        disabled={!enabled}
+        onPress={onPress}
+      />
+      <NativePopUpButton
+        accessibilityLabel={menuLabel}
+        accessibilityRole="button"
+        sections={sections}
+        enabled={enabled}
+        onSelect={onSelect}
+      />
+    </>
+  );
+}
