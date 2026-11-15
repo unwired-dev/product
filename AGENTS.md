@@ -13,7 +13,8 @@ relevant entries of the [domain index](GLOSSARY.md) and the nearest nested
 read those too: they explain why the code is shaped the way it is.
 
 Follow the [implementation and review workflow](docs/agents/implementation-review.md):
-implement, get one independent review, open a PR.
+implement, review in a `sol-loop`, then deliver with the global `full-stop`
+skill.
 
 ## Coding principles
 

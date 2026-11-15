@@ -1,12 +1,14 @@
 ---
 name: implement-issue
-description: Implement a GitHub issue in this repository when asked to implement, fix, or work on an issue by URL or number, or to implement the next unblocked issue ranked by native priority or priority label, then oldest first. Carry it through verification and a ready-for-review pull request, then invoke babysit-pr. Do not use for issue triage, explanation, or planning-only requests.
+description: Implement a GitHub issue in this repository when asked to implement, fix, or work on an issue by URL or number, or to implement the next unblocked issue ranked by native priority or priority label, then oldest first. Select and claim it, then deliver it with the full-stop skill. Do not use for issue triage, explanation, or planning-only requests.
 ---
 
 # Implement issue
 
 Use the current checkout, its GitHub remote, authenticated `gh` and the project
-toolchain. The [implementation workflow](../../../docs/agents/implementation-review.md)
+toolchain. This skill selects and claims the issue; the global `full-stop` skill
+(`~/.agents/skills/full-stop/SKILL.md`) delivers it, and an implementation
+request authorizes it. The [implementation workflow](../../../docs/agents/implementation-review.md)
 owns review and [decision authority](../../../docs/agents/implementation-review.md#decisions);
 report unavailable prerequisites as blockers.
 
@@ -96,58 +98,58 @@ Select exactly one issue; this mode does not drain the backlog.
    [Establish the issue and scope](#establish-the-issue-and-scope); the branch,
    worktree, baseline and claim must name it before the first edit.
 
-## Implement, verify, and review
+## Deliver with full-stop
 
-Follow the coding principles in the root `AGENTS.md`. In a fresh worktree run
-`mise exec -- pnpm install --frozen-lockfile`. For code changes, run
-`mise exec -- scripts/pre-handoff.sh --baseline` on the starting revision and
-record existing failures; it runs in a detached worktree, so you can edit
-meanwhile, but start no native build or journey until it finishes. A
-`+uncommitted` verdict is not a baseline. Integrate the target base before
-substantial work and before the review; when widening a shared type, inspect
-consumers added upstream.
+Read `full-stop` and follow it from its first step, with the repository rules
+below and in [PR delivery](../../../docs/agents/pull-request-babysitting.md#implementer-pr-delivery)
+taking precedence.
 
-For a look the Figma frames do not show yet, follow
-[design approval](../../../docs/agents/implementation-review.md#design-approval)
-before writing design-dependent code.
-
-Complete the requested behavior, affected documentation and any required
-changeset. Settle a required decision, such as an ADR, before runtime code. File
-or link a defect that fails a criterion before fixing it; fix it here only on
-the issue's own surface, recording that in the PR and both issues, otherwise
-make it a native blocker and deliver the rest with a non-closing reference.
-Before naming an external interface (URL or deep-link parameter, initial prop,
-storage key, API argument), reuse an existing documented contract and cite it.
-
-Verify as in the workflow's
-[Implement](../../../docs/agents/implementation-review.md#implement) step and the
-[native validation guide](../../../docs/agents/native-validation.md#report-what-the-evidence-proves),
-then get the [review](../../../docs/agents/implementation-review.md#review) and,
-for user-visible changes, the
-[design review](../../../docs/agents/implementation-review.md#design-review).
-
-## Publish and hand off
-
-Follow [PR delivery and babysitting](../../../docs/agents/pull-request-babysitting.md#implementer-pr-delivery)
-and the [issue policy](../../../docs/agents/issue-tracker.md).
-Use a closing reference only when the PR fully resolves the issue; a slice's PR
-closes its sub-issue and refers to the parent with `Refs #<parent>`. Before
-handing off, recheck the criteria against the final diff and evidence, confirm
-the remote PR head holds the reviewed changes, and treat required CI and review
-as separate gates.
+- **Before work**: in a fresh worktree run
+  `mise exec -- pnpm install --frozen-lockfile`. For code changes, run
+  `mise exec -- scripts/pre-handoff.sh --baseline` on the starting revision and
+  record existing failures; it runs in a detached worktree, so you can edit
+  meanwhile, but start no native build or journey until it finishes. A
+  `+uncommitted` verdict is not a baseline. Integrate the target base before
+  substantial work and before the review; when widening a shared type, inspect
+  consumers added upstream.
+- **Design**: for a look the Figma frames do not show yet, follow
+  [design approval](../../../docs/agents/implementation-review.md#design-approval)
+  before writing design-dependent code.
+- **Scope**: complete the requested behavior, affected documentation and any
+  required changeset. Settle a required decision, such as an ADR, before runtime
+  code. File or link a defect that fails a criterion before fixing it; fix it
+  here only on the issue's own surface, recording that in the PR and both
+  issues, otherwise make it a native blocker and deliver the rest with a
+  non-closing reference. Before naming an external interface (URL or deep-link
+  parameter, initial prop, storage key, API argument), reuse an existing
+  documented contract and cite it.
+- **Proof**: verify as in the workflow's
+  [Implement](../../../docs/agents/implementation-review.md#implement) step and
+  the [native validation guide](../../../docs/agents/native-validation.md#report-what-the-evidence-proves);
+  for user-visible changes, add the
+  [design review](../../../docs/agents/implementation-review.md#design-review).
+- **Feedback**: full-stop's `sol-loop` step is the
+  [review](../../../docs/agents/implementation-review.md#review), with its
+  checklist in the brief.
+- **PR**: follow the [issue policy](../../../docs/agents/issue-tracker.md). Use a
+  closing reference only when the PR fully resolves the issue; a slice's PR
+  closes its sub-issue and refers to the parent with `Refs #<parent>`.
 
 An investigation without a diff ends in an issue comment with its cases,
 evidence, remaining checks and recommendation, and a report that no PR opened.
 Close the issue as completed when done, as not planned only on an authorized
 decision, otherwise leave it open with its readiness label.
 
-Keep the claim while you own the work, including while the PR is open. When
-ownership ends, run
-`scripts/issue-claim release <number> --outcome merged|closed|abandoned|handed-back|blocked`,
-adding `--remaining "<text>"` for a sub-issue. After merging a PR with a
-closing reference, confirm the issue closed (`gh issue view <number> --json
-state`) and close it if it did not. Apply the readiness policy
-to any human-only remainder. Close a parent only when no criterion or open
-sub-issue remains.
+## Hand off
 
-Report the PR URL, verification results and ownership and monitoring state.
+At full-stop's handoff, recheck the criteria against the final diff and
+evidence and confirm the remote PR head holds the reviewed changes. Then end
+ownership with `scripts/issue-claim release <number> --outcome <outcome>` from
+the task branch: `handed-back` when the PR is ready or waits only on human
+approval and closes the issue (its open closing PR keeps `scripts/next-issue`
+off the issue; a `Refs` PR keeps the claim instead), otherwise
+`blocked`, `abandoned` or `closed`. Add `--remaining "<text>"` for a sub-issue.
+Apply the readiness policy to any human-only remainder. Close a parent only
+when no criterion or open sub-issue remains.
+
+Add to full-stop's report the issue URL and the claim release.
