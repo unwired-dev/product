@@ -1614,7 +1614,7 @@ describe('composing Drafts', () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-    const openAccount = jest.fn<undefined, [string?, (() => void)?]>();
+    const openAccount = jest.fn<undefined, [string?, (() => void)?, string?]>();
     await render(
       <App
         drafts={createDrafts(storage.native, registration)}
@@ -1653,7 +1653,11 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Settings opens over the Inbox, so the Draft stays open beneath it.
     await press('Account');
-    expect(openAccount).toHaveBeenCalledWith(undefined, expect.any(Function));
+    expect(openAccount).toHaveBeenCalledWith(
+      undefined,
+      expect.any(Function),
+      defaultProfile,
+    );
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Asking again replaces the notice; the next refused Save Draft offers Try again.
     await saveDraft();
@@ -1753,10 +1757,13 @@ describe('composing Drafts', () => {
     expect(subjects()).toStrictEqual([]);
   });
 
-  // The password repair opens Settings on Email Accounts.
+  // The password repair opens Settings on Email Accounts; both name the window's Mail Profile.
   it.each([
-    ['Account', [undefined, expect.any(Function)]],
-    ['Enter the password for imap@example.invalid again', ['mailboxes']],
+    ['Account', [undefined, expect.any(Function), defaultProfile]],
+    [
+      'Enter the password for imap@example.invalid again',
+      ['mailboxes', undefined, defaultProfile],
+    ],
   ] as const)(
     'opens %s in Settings over an open composer',
     async (destination, settings) => {
@@ -1793,7 +1800,10 @@ describe('composing Drafts', () => {
         getSnapshot: connections.getConnections,
       };
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
-      const openAccount = jest.fn<undefined, [string?, (() => void)?]>();
+      const openAccount = jest.fn<
+        undefined,
+        [string?, (() => void)?, string?]
+      >();
       await render(
         <App
           drafts={createDrafts(storage.native, registration)}

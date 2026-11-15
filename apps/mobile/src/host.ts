@@ -44,6 +44,7 @@ export const {
   mailTemplates,
   sendReminders,
   blockedSenders,
+  inboxPreferences,
   outbox,
   freshness,
   remoteContent,

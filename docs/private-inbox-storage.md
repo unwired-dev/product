@@ -551,6 +551,14 @@ addresses each Profile unblocked, which Private Sync merges
 ([#2184](https://github.com/unwired-dev/product/issues/2184)); see
 [Mute and blocked senders](architecture/product/organization.md#mute-and-blocked-senders).
 
+The account's **Inbox preferences**
+([#2202](https://github.com/unwired-dev/product/issues/2202)), such as each Mail
+Profile's Thread-list density, are kept like its Blocked Senders, in their own sealed
+document that no other document opens as. TypeScript decodes each Profile's
+preferences; another account reads none, and every account purge removes the
+document. A choice made offline applies at once and is published by compare-and-set
+once Private Sync is reachable.
+
 The account's **Send Reminders**
 ([#2074](https://github.com/unwired-dev/product/issues/2074)) are kept like its
 Mail Templates, in their own sealed document that neither the Drafts nor the Mail

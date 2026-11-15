@@ -405,6 +405,14 @@ choice. The choice is a Device-Local Preference kept in this device's user
 defaults (`UnwiredAppearance`, as on the Mac), and the root layout applies it
 before the first screen draws.
 
+Below it, **List density**
+([#2202](https://github.com/unwired-dev/product/issues/2202)) offers Comfortable,
+the default, and Compact for the window's Mail Profile. Compact lets a Thread-list
+row's subject wrap and keeps one preview line at every text size; Comfortable keeps
+the row the core Inbox frames draw. Density is a synchronized Mail Workflow
+Preference: it is stored encrypted on the device and reaches the Profile's other
+Trusted Devices through [Private Sync](private-product-sync.md).
+
 ## Interface language
 
 The Sign In page and Settings' **Language** offer a Language menu picker with System Default and a

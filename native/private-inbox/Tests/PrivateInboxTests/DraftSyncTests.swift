@@ -173,6 +173,30 @@ struct DraftSyncTests {
     #expect(sendersRecords.first?["id"] as? String == "work")
     #expect(sendersRecords.first?["senders"] as? String == senders)
 
+    // A Profile's Inbox preferences record is ciphertext under an identifier that does not name the
+    // Profile, and a Blocked Senders record moved there does not open.
+    let preferences = #"{"profile":"work","fields":{"density":{"value":"compact","at":1}}}"#
+    let preferred = try await phone.push(
+      InboxPreferencesRecord(id: "work", version: 1, content: preferences), expected: nil)
+    #expect(preferred["committed"] as? Bool == true)
+    let preferencesIdentifier = try phone.identifier(InboxPreferencesRecord.self, "work")
+    #expect(
+      preferencesIdentifier.hasPrefix("profile-inbox-preferences.")
+        && !preferencesIdentifier.contains("work"))
+    let sealedPreferences = try #require(backend.records[owner]?[preferencesIdentifier])
+    let preferencesCiphertext = try #require(
+      Data(base64Encoded: sealedPreferences.encryptedPayload.ciphertextBase64))
+    #expect(preferencesCiphertext.range(of: Data("compact".utf8)) == nil)
+    let movedPreferences = try phone.identifier(InboxPreferencesRecord.self, "home")
+    backend.records[owner]?[movedPreferences] = StoredPayload(
+      payloadIdentifier: movedPreferences, encryptedPayload: sealedSenders.encryptedPayload,
+      updatedAt: updatedAt)
+    let pulledPreferences = try await mac.pull(InboxPreferencesRecord.self, known: ["home"])
+    #expect(pulledPreferences["unreadable"] as? [String] == ["home"])
+    let preferencesRecords = try #require(pulledPreferences["records"] as? [[String: Any]])
+    #expect(preferencesRecords.count == 1)
+    #expect(preferencesRecords.first?["preferences"] as? String == preferences)
+
     // A file spanning several chunks downloads only as the exact verified bytes.
     let bytes = Data((0..<(DraftSync.chunkSize * 2 + 100)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
     let imported = try await store.importDraftAsset(

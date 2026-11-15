@@ -96,6 +96,12 @@
     "detail": "System follows macOS. Increase Contrast and Reduce Transparency apply in every choice.",
     "iosDetail": "System follows iOS. Increase Contrast and Reduce Transparency apply in every choice."
   },
+  "listDensity": {
+    "title": "List density",
+    "comfortable": "Comfortable",
+    "compact": "Compact",
+    "footer": "Compact shows one preview line. Rows grow with Text Size."
+  },
   "language": {
     "title": "Language",
     "systemDefault": "System Default",

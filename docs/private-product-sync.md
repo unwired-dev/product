@@ -271,6 +271,12 @@ from the Profile's, holding each address's latest block or unblock and when it w
 so sender addresses reach Convex only as ciphertext. Devices merge the changes address
 by address, the later one winning, and write by compare-and-set; a record that does not
 open, or names another Profile, is never adopted or overwritten.
+Each Mail Profile's Inbox preferences, today its Thread-list density
+([#2202](https://github.com/unwired-dev/product/issues/2202)), synchronize as one sealed
+`profile-inbox-preferences.` record under an identifier derived from the Profile's,
+holding each preference's latest value and when it was chosen
+([ADR 0019](adr/0019-sync-mail-workflow-preferences-not-device-state.md)). Devices
+merge them preference by preference, the later choice winning, in the same way.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about
