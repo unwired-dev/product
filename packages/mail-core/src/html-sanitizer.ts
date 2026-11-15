@@ -719,30 +719,36 @@ const senderSized = ({ retained }: FilteredStyle) =>
     return definite(value) || value?.startsWith('min(') === true;
   });
 
+// A percentage of an auto-height container resolves to zero, even inside max(), so a mixed
+// pair keeps its absolute length.
+const minimumHeight = (height: string, minimum: string | undefined) => {
+  if (minimum === undefined || !definite(minimum)) {
+    return height;
+  }
+  if (height.endsWith('%') === minimum.endsWith('%')) {
+    return `max(${height}, ${minimum})`;
+  }
+  return height.endsWith('%') ? minimum : height;
+};
+
 // Outside tables, a fixed height becomes a minimum and a maximum height is dropped.
 const grownHeight = (
   name: string,
   value: string,
   retained: ReadonlyMap<string, string>,
 ): ReadonlyArray<readonly [string, string]> | undefined => {
-  const minimum = retained.get('min-height');
-  switch (name) {
-    case 'height':
-      return definite(value)
-        ? [
-            [
-              'min-height',
-              definite(minimum) ? `max(${value}, ${minimum})` : value,
-            ],
-          ]
-        : [];
-    case 'min-height':
-      return definite(retained.get('height')) ? [] : [[name, value]];
-    case 'max-height':
-      return [];
-    default:
-      return undefined;
+  if (name === 'max-height') {
+    return [];
   }
+  if (name === 'min-height') {
+    return definite(retained.get('height')) ? [] : [[name, value]];
+  }
+  if (name !== 'height') {
+    return undefined;
+  }
+  return definite(value)
+    ? [['min-height', minimumHeight(value, retained.get('min-height'))]]
+    : [];
 };
 
 // Inside a box of sender width, a width cannot exceed it and content-sized widths are removed.
@@ -2064,18 +2070,20 @@ const lineHeightIn = (
 };
 
 // A line height in pixels; normal is never shorter than its font.
-const lineHeightPixels = (height: LineHeight, font: number) =>
-  'pixels' in height
-    ? height.pixels
-    : 'factor' in height
-      ? height.factor * font
-      : Infinity;
+const lineHeightPixels = (height: LineHeight, font: number) => {
+  if ('pixels' in height) {
+    return height.pixels;
+  }
+  return 'factor' in height ? height.factor * font : Infinity;
+};
 
-// Whether the element itself holds text other than spacing, rather than only descendants.
+// Whether the element itself holds visible text, rather than only descendants.
 const ownText = (element: Element) =>
   element.childNodes.some(
     (node) =>
-      node.nodeName === '#text' && 'value' in node && /\S/u.test(node.value),
+      node.nodeName === '#text' &&
+      'value' in node &&
+      hasVisibleText(node.value),
   );
 
 // Glyphs overflow a line shorter than their font onto the next box; image-only cells keep
@@ -2084,8 +2092,7 @@ const ownText = (element: Element) =>
 const fittedLines = (
   style: FilteredStyle,
   element: Element,
-  parent: LineHeight,
-  font: number,
+  { parent, font }: Readonly<{ parent: LineHeight; font: number }>,
 ) =>
   font >= minimumTextPixels &&
   ownText(element) &&
@@ -2636,8 +2643,7 @@ function walk(
     const normalized = fittedLines(
       containedBox(spaced, { tag: node.tagName, display, bounded }),
       node,
-      lineHeight,
-      fontPixels,
+      { parent: lineHeight, font: fontPixels },
     );
     const parentBounded = bounded;
     bounded = boundedIn(display, normalized, bounded);

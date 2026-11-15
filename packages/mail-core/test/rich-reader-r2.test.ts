@@ -838,7 +838,9 @@ describe('rich-reader review regressions', () => {
         `<p style="line-height:0;margin:0"><a href="https://evil.example/3">${label}</a></p>${button}`,
         '<p style="line-height:.5;font-family:Georgia">Line one<br>Line two</p>',
         `<table><tr><td><div style="width:20px"><div style="width:250px;min-width:200px"><a href="https://evil.example/4">${label}</a></div><div style="width:max-content">Wide</div></div></td>`,
-        '<td style="height:1px;line-height:0;width:250px"><img src="cid:sliced" alt="" style="height:60px">&nbsp;</td></tr></table>',
+        '<td style="height:1px;line-height:0;width:250px"><img src="cid:sliced" alt="" style="height:60px">&nbsp;</td>',
+        '<td style="line-height:0"><img src="cid:sliced" alt="">&#8203;</td></tr></table>',
+        '<div style="height:100px;min-height:0%"></div><div style="height:50%;min-height:20px"></div>',
       ].join(''),
       new Map([
         [
@@ -874,9 +876,12 @@ describe('rich-reader review regressions', () => {
         'Line one<br>Line two',
         '<td style="height: 1px; line-height: 0; width: 250px">',
         'height: 60px',
+        '<td style="line-height: 0"><img',
+        // A percentage minimum of an auto-height box resolves to zero, even inside max().
+        '<div style="min-height: 100px"></div><div style="min-height: 20px"></div>',
       ].filter((style) => !document.includes(style)),
     ).toStrictEqual([]);
-    expect(document).not.toContain('max-height: 1px');
+    expect(document).not.toMatch(/max-height: 1px|min-height: max\(/u);
   });
 
   it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
