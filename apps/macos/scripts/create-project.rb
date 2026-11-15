@@ -136,9 +136,11 @@ bundle.shell_script = <<~SH
   set -e
   if [ "$CONFIGURATION" = "Debug" ]; then exit 0; fi
   cd "$SRCROOT/.."
+  export SOURCEMAP_FILE="${SOURCEMAP_FILE:-$DERIVED_FILE_DIR/Unwired-main.jsbundle.map}"
   pnpm build
   pnpm verify:bundle
   /bin/sh scripts/compile-hermes-bundle.sh
+  /bin/sh ../../scripts/bundle-third-party-notices.sh
 SH
 bundle.always_out_of_date = '1'
 project.save

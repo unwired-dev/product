@@ -74,6 +74,7 @@ function fixture(scenario, { dotenv = false } = {}) {
     'testflight-env.mjs',
     'archive-inventory.mjs',
     'licence-inventory.mjs',
+    'notice-files.mjs',
     'native-licence-inventory.mjs',
     'archive-findings.mjs',
   ]) {
@@ -199,9 +200,9 @@ if (command === 'xcodebuild') {
   const pods = path.join(path.dirname(value('-workspace')), 'Pods');
   fs.mkdirSync(path.join(pods, 'Target Support Files/Pods-UnwiredMail'), { recursive: true });
   fs.writeFileSync(path.join(pods, 'Manifest.lock'), scenario === 'native-licence-failure' ? 'unreadable' : 'PODS:\\n  - AppAuth (3.0.0)\\n\\nCOCOAPODS: 1.17.0\\n');
-  fs.writeFileSync(path.join(pods, 'Target Support Files/Pods-UnwiredMail/Pods-UnwiredMail-acknowledgements.plist'), '<?xml version="1.0"?><plist version="1.0"><dict><key>PreferenceSpecifiers</key><array><dict><key>Title</key><string>AppAuth</string><key>License</key><string>Apache-2.0</string></dict></array></dict></plist>');
+  fs.writeFileSync(path.join(pods, 'Target Support Files/Pods-UnwiredMail/Pods-UnwiredMail-acknowledgements.plist'), '<?xml version="1.0"?><plist version="1.0"><dict><key>PreferenceSpecifiers</key><array><dict><key>Title</key><string>AppAuth</string><key>License</key><string>Apache-2.0</string><key>FooterText</key><string>Apache permission text</string></dict></array></dict></plist>');
   fs.mkdirSync(path.join(derived, 'SourcePackages/checkouts/swift-log'), { recursive: true });
-  fs.writeFileSync(path.join(derived, 'SourcePackages/checkouts/swift-log/LICENSE.txt'), '');
+  fs.writeFileSync(path.join(derived, 'SourcePackages/checkouts/swift-log/LICENSE.txt'), 'Apache permission text');
   fs.writeFileSync(path.join(derived, 'SourcePackages/workspace-state.json'), JSON.stringify({ object: { dependencies: [{ packageRef: { identity: 'swift-log', location: 'https://github.com/apple/swift-log.git' }, state: { checkoutState: { revision: 'c'.repeat(40), version: '1.6.4' } }, subpath: 'swift-log' }] } }));
   if (scenario === 'archive-failure') { console.log('unexpected ordinary signing failure'); process.exit(65); }
   if (scenario === 'interrupted') { process.kill(process.ppid, 'SIGTERM'); process.exit(143); }
@@ -311,6 +312,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
             'testflight-env.mjs',
             'archive-inventory.mjs',
             'licence-inventory.mjs',
+            'notice-files.mjs',
             'native-licence-inventory.mjs',
             'archive-findings.mjs',
           ]) {
@@ -467,6 +469,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
               [
                 'missing-licence-text npm react@1.0.0',
                 'missing-licence-text npm react-native@1.0.0',
+                'missing-bundled-notices .',
                 'missing-encryption-declaration ITSAppUsesNonExemptEncryption',
               ],
             );
@@ -476,7 +479,7 @@ for (const [scenario, platform, expected, workflowRevision] of [
               .split('\n')
               .filter((line) => line.startsWith('Findings:')),
             hosts.map(
-              (host) => `Findings: ${host}; 3 unresolved, 3 owner submissions`,
+              (host) => `Findings: ${host}; 4 unresolved, 3 owner submissions`,
             ),
           );
           assert.ok(

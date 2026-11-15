@@ -84,6 +84,7 @@ const inventory = (overrides = {}) => ({
     },
   ],
   withoutPrivacyManifest: ['Frameworks/Plain.framework'],
+  thirdPartyNotices: { unresolved: [] },
   ...overrides,
 });
 
@@ -155,6 +156,7 @@ test('an archive without findings still lists every owner submission and claims 
 
 test('inventory gaps become findings', () => {
   const archive = inventory({
+    thirdPartyNotices: null,
     encryption: { usesNonExemptEncryption: null, exportComplianceCode: null },
     privacyManifests: [
       manifest('Frameworks/Ads.framework/PrivacyInfo.xcprivacy', {
@@ -191,6 +193,7 @@ test('inventory gaps become findings', () => {
       { kind: 'missing-licence-text', subject: 'npm inner@0.1.0' },
       { kind: 'missing-licence-text', subject: 'pod Pod@1.0.0' },
       { kind: 'missing-licence-text', subject: 'swift swift-log@1.6.0' },
+      { kind: 'missing-bundled-notices', subject: '.' },
       { kind: 'missing-app-privacy-manifest', subject: '.' },
       {
         kind: 'tracking-declared',
@@ -240,4 +243,26 @@ test('an unreadable inventory fails', () => {
     /^archive-findings: unreadable .*ios-inventory\.json/u,
   );
   assert.equal(result.stdout, '');
+});
+
+test('bundled notice coverage resolves recovered text and preserves unresolved components', () => {
+  const missing = inventory({ thirdPartyNotices: null });
+  assert.ok(
+    findings({ archive: missing }).findings.some(
+      ({ kind }) => kind === 'missing-bundled-notices',
+    ),
+  );
+  const covered = inventory({
+    thirdPartyNotices: { unresolved: ['npm:standard-navigation@0.0.5'] },
+  });
+  assert.deepEqual(
+    findings({ archive: covered, npm: { withoutLicenceFile: ['recovered@1'] } })
+      .findings,
+    [
+      {
+        kind: 'missing-licence-text',
+        subject: 'npm standard-navigation@0.0.5',
+      },
+    ],
+  );
 });

@@ -48,7 +48,9 @@ completion status. Publication of a plan does not prove implementation or releas
 - [Sign-out and Product Account deletion](account-removal.md)
 - [Interface translations and language preferences](localization.md)
 - [Opt-in error reporting and planned analytics](telemetry.md)
-- [Draft App Store Connect App Privacy answers](app-privacy.md)
+- [Proposed App Store Connect App Privacy answers](app-privacy.md)
+- [Encryption technical annex](compliance/encryption-annex.md)
+- [Archive compliance engineering record](compliance/archive-review-2026-11-15.md)
 - [Confirmed interaction motion goals and tracked coverage gaps](product/interaction-motion.md)
 - [Dedicated Gmail test accounts and protected qualification](gmail-provider-test-tenant.md)
 
