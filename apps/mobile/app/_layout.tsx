@@ -158,6 +158,11 @@ function OpenedNotifications() {
       });
     }
   }, [leave, registry, close]);
+  // The palette's `close` changes as it opens; a pending Open Draft outlives that.
+  const closing = useRef(close);
+  useLayoutEffect(() => {
+    closing.current = close;
+  }, [close]);
   useEffect(() => {
     let stopped = false;
     const stop = followOpenedDrafts((draft, profile) => {
@@ -166,7 +171,7 @@ function OpenedNotifications() {
         if (profile() !== undefined && (await leave(draft))) {
           const profileId = stopped ? undefined : profile();
           if (profileId !== undefined) {
-            close();
+            closing.current();
             router.navigate({
               pathname: '/compose/[draft]',
               params: { draft, profileId },
@@ -179,7 +184,7 @@ function OpenedNotifications() {
       stopped = true;
       stop();
     };
-  }, [leave, close]);
+  }, [leave]);
   return null;
 }
 

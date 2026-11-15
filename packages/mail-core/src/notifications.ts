@@ -765,6 +765,9 @@ async function replyTyped(
   const { draft, unsaved, sendable } = saved;
   // Admitted before anything else is awaited, so no other editor's change is sent.
   const queued = await queuedReply(outbox, { draft, sendable, current });
+  if (queued) {
+    admitted();
+  }
   const { previews } = await runLogged(
     settingsOf(() => native.notificationSettings()).pipe(
       Effect.orElseSucceed(() => ({ previews: false })),
@@ -778,7 +781,6 @@ async function replyTyped(
     previews,
   };
   if (queued) {
-    admitted();
     await announceSending(
       native,
       { outbox, t, sending },
