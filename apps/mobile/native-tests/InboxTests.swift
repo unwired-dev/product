@@ -2492,10 +2492,10 @@ final class InboxTests: XCTestCase {
     if app.keyboards.firstMatch.exists { press("\n", in: app) }
     for _ in 0..<5 where !found.isHittable { app.swipeUp() }
     capture("Catalogued provider found")
-    // Tapping the field's trailing end leaves the caret after the address.
-    for _ in 0..<5 where !email.isHittable { app.swipeDown() }
+    // Tapping the field scrolls it back into view (a swipe down would dismiss Settings); tapping
+    // its trailing end then leaves the caret after the address.
+    focus(email) { self.hasFocus(email) }
     email.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-    waitUntil { self.hasFocus(email) }
     // An empty field's value is its placeholder.
     for _ in 0..<catalogued.count + 3
     where !["", "Email address"].contains(email.value as? String ?? "") {
