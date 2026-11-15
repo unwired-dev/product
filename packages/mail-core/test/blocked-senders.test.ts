@@ -1,16 +1,98 @@
-import type { NativeBlockedSenders } from '@private-email/mail-core/blocked-senders';
+import type {
+  NativeBlockedSenderSync,
+  NativeBlockedSenders,
+} from '@private-email/mail-core/blocked-senders';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
 import {
   blockedAddress,
   createBlockedSenders,
 } from '@private-email/mail-core/blocked-senders';
+import * as Option from 'effect/Option';
+import * as Schema from 'effect/Schema';
+
+import type { SyntheticProductSync } from '../src/testing/drafts.ts';
+
+import { createSyntheticProductSync } from '../src/testing/drafts.ts';
 
 const november8 = Date.UTC(2026, 10, 8);
 
+const openRecord = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      id: Schema.String,
+      version: Schema.Finite,
+      senders: Schema.String,
+    }),
+  ),
+);
+
+// Product Sync as native code moves Blocked Sender records for `owner`: one record per Mail
+// Profile under an identifier derived from its own.
+const remote = (server: SyntheticProductSync): NativeBlockedSenderSync => ({
+  pullBlockedSenders: (owner, known) => {
+    const refused = server.reach();
+    if (refused !== undefined) {
+      return Promise.reject(refused);
+    }
+    const opened = server
+      .list(owner, 'profile-blocked-senders.')
+      .map(({ identifier, sealed, updatedAt }) => {
+        const record = Option.getOrUndefined(
+          openRecord(server.open(sealed, owner, identifier) ?? ''),
+        );
+        return record === undefined ||
+          identifier !== `profile-blocked-senders.${record.id}`
+          ? { identifier }
+          : { identifier, record: { ...record, updatedAt } };
+      });
+    return Promise.resolve({
+      owner,
+      records: opened.flatMap(({ record }) =>
+        record === undefined ? [] : [record],
+      ),
+      unreadable: known.filter((id) =>
+        opened.some(
+          ({ identifier, record }) =>
+            identifier === `profile-blocked-senders.${id}` &&
+            record === undefined,
+        ),
+      ),
+    });
+  },
+  pushBlockedSenders: async (
+    owner,
+    { id, version, senders, expectedUpdatedAt },
+  ) => {
+    const refused = server.reach();
+    if (refused !== undefined) {
+      throw refused;
+    }
+    const identifier = `profile-blocked-senders.${id}`;
+    return {
+      owner,
+      ...server.put(owner, identifier, {
+        sealed: server.seal(
+          owner,
+          identifier,
+          JSON.stringify({ id, version, senders }),
+        ),
+        expected: expectedUpdatedAt,
+      }),
+    };
+  },
+});
+
 // Native Blocked Sender storage as the store sees it: one document for the signed-in account,
-// replaced only from the revision read. The clock starts on 8 November.
-const storage = () => {
+// replaced only from the revision read. The clock starts on 8 November. With `server`, the store
+// also synchronizes through it as `sync`.
+const storage = (
+  server?: SyntheticProductSync,
+  hooks: Readonly<{
+    removed?: () => void;
+    adoptKeyRotation?: () => Promise<unknown>;
+  }> = {},
+) => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(november8);
   onTestFinished(() => {
@@ -75,8 +157,14 @@ const storage = () => {
       failed: false,
     }),
   };
-  const relaunch = () => createBlockedSenders(native, registration);
-  return { state, store: relaunch(), relaunch };
+  const sync = server === undefined ? undefined : remote(server);
+  const relaunch = () =>
+    createBlockedSenders(
+      native,
+      registration,
+      sync === undefined ? undefined : { native: sync, ...hooks },
+    );
+  return { state, store: relaunch(), relaunch, sync };
 };
 
 describe('blocked sender addresses', () => {
@@ -428,9 +516,10 @@ describe('stored Blocked Senders', () => {
     // Blocked again later, it counts none of the moves from before.
     vi.setSystemTime(november8 + 1000);
     await store.unblock('work', 'offers@growthleads.io');
+    vi.setSystemTime(november8 + 2000);
     await store.block('work', 'offers@growthleads.io');
     await expect(store.blockedSenders('work')).resolves.toMatchObject([
-      { blockedAt: november8 + 1000, moved: 0 },
+      { blockedAt: november8 + 2000, moved: 0 },
     ]);
   });
 
@@ -481,5 +570,244 @@ describe('stored Blocked Senders', () => {
     await waiting;
     await expect(screening).resolves.toBeUndefined();
     expect(state.document).toBe(document);
+  });
+});
+
+describe('synchronized Blocked Senders', () => {
+  // Two Trusted Devices of one Product Account sharing Product Sync.
+  const devices = () => {
+    const server = createSyntheticProductSync();
+    return { server, mac: storage(server), phone: storage(server) };
+  };
+  const offers = 'offers@growthleads.io';
+  const deals = 'deals@growthleads.io';
+
+  it('carries a block and its unblock to another device in the same Profile only', async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    await mac.store.block('work', 'Offers@GrowthLeads.io');
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    await expect(phone.store.blockedSenders('work')).resolves.toStrictEqual([
+      { profile: 'work', address: offers, blockedAt: november8, moved: 0 },
+    ]);
+    await expect(phone.store.blockedSenders('home')).resolves.toStrictEqual([]);
+    // Convex names the record by its Profile alone, never by a sender.
+    expect(server.identifiers('account-1')).toStrictEqual([
+      'profile-blocked-senders.work',
+    ]);
+
+    // A move count stays with the device that moved the mail.
+    await mac.store.screen('work', { id: 'connection-1', moves: true }, [
+      { id: 'a', address: offers, receivedAt: '2026-11-08T09:00:00.000Z' },
+    ]);
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.block('work', deals);
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    await expect(mac.store.blockedSenders('work')).resolves.toStrictEqual([
+      { profile: 'work', address: offers, blockedAt: november8, moved: 1 },
+      {
+        profile: 'work',
+        address: deals,
+        blockedAt: november8 + 1000,
+        moved: 0,
+      },
+    ]);
+
+    vi.setSystemTime(november8 + 2000);
+    await phone.store.unblock('work', offers);
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    await expect(mac.store.blockedSenders('work')).resolves.toStrictEqual([
+      {
+        profile: 'work',
+        address: deals,
+        blockedAt: november8 + 1000,
+        moved: 0,
+      },
+    ]);
+  });
+
+  it('keeps offline changes on the device and publishes them once Product Sync is back', async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    server.setReachable(false);
+    await expect(mac.store.block('work', offers)).resolves.toBe(true);
+    await mac.store.synchronize();
+    await expect(mac.store.blockedSenders('work')).resolves.toStrictEqual([
+      { profile: 'work', address: offers, blockedAt: november8, moved: 0 },
+    ]);
+    expect(server.identifiers('account-1')).toStrictEqual([]);
+
+    server.setReachable(true);
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    await expect(phone.store.blockedSenders('work')).resolves.toStrictEqual([
+      { profile: 'work', address: offers, blockedAt: november8, moved: 0 },
+    ]);
+  });
+
+  it.each([
+    ['the Mac', 'the phone', ['mac', 'phone', 'mac']],
+    ['the phone', 'the Mac', ['phone', 'mac', 'phone']],
+  ] as const)(
+    'converges on the later change of each address when %s synchronizes before %s',
+    async (_first, _second, order) => {
+      expect.hasAssertions();
+      const { server, mac, phone } = devices();
+      await mac.store.block('work', offers);
+      await mac.store.synchronize();
+      await phone.store.synchronize();
+
+      server.setReachable(false);
+      vi.setSystemTime(november8 + 10);
+      await phone.store.unblock('work', offers);
+      vi.setSystemTime(november8 + 20);
+      await mac.store.unblock('work', offers);
+      await mac.store.block('work', deals);
+      vi.setSystemTime(november8 + 30);
+      await mac.store.block('work', offers);
+      vi.setSystemTime(november8 + 40);
+      await phone.store.block('work', deals);
+      vi.setSystemTime(november8 + 50);
+      await phone.store.unblock('work', deals);
+
+      server.setReachable(true);
+      const named = { mac, phone };
+      for (const device of order) {
+        await named[device].store.synchronize();
+      }
+      const converged = [
+        {
+          profile: 'work',
+          address: offers,
+          blockedAt: november8 + 30,
+          moved: 0,
+        },
+      ];
+      await expect(mac.store.blockedSenders('work')).resolves.toStrictEqual(
+        converged,
+      );
+      await expect(phone.store.blockedSenders('work')).resolves.toStrictEqual(
+        converged,
+      );
+    },
+  );
+
+  it('writes again from the newer record when another device wrote meanwhile', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.store.block('work', offers);
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    // The Mac writes the record between the phone's read and its write.
+    const pull = phone.sync!.pullBlockedSenders;
+    vi.spyOn(phone.sync!, 'pullBlockedSenders').mockImplementationOnce(
+      async (owner, known) => {
+        const stale = await pull(owner, known);
+        await mac.store.block('work', deals);
+        await mac.store.synchronize();
+        return stale;
+      },
+    );
+    const push = vi.spyOn(phone.sync!, 'pushBlockedSenders');
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.block('work', 'news@growthleads.io');
+    await phone.store.synchronize();
+    await expect(
+      Promise.all(push.mock.results.map(({ value }) => value)),
+    ).resolves.toMatchObject([{ committed: false }, { committed: true }]);
+    await mac.store.synchronize();
+    for (const device of [mac, phone]) {
+      const senders = await device.store.blockedSenders('work');
+      expect(new Set(senders?.map(({ address }) => address))).toStrictEqual(
+        new Set([offers, deals, 'news@growthleads.io']),
+      );
+    }
+  });
+
+  it('changes nothing for a record that does not open or names another Profile, and keeps it', async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    await mac.store.block('work', offers);
+    await mac.store.block('home', deals);
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+
+    // The work record served under the home Profile's identifier.
+    const work = String(
+      server.get('account-1', 'profile-blocked-senders.work')?.sealed,
+    );
+    server.replace('account-1', 'profile-blocked-senders.home', work);
+    // A record that opens but names another Profile.
+    server.replace(
+      'account-1',
+      'profile-blocked-senders.work',
+      server.seal(
+        'account-1',
+        'profile-blocked-senders.work',
+        JSON.stringify({
+          id: 'work',
+          version: 9,
+          senders: JSON.stringify({
+            profile: 'home',
+            changes: [{ address: offers, blocked: false, at: november8 + 5 }],
+          }),
+        }),
+      ),
+    );
+    const replaced = server.get(
+      'account-1',
+      'profile-blocked-senders.work',
+    )?.sealed;
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.block('home', 'news@growthleads.io');
+    await phone.store.synchronize();
+    await expect(phone.store.blockedSenders('work')).resolves.toStrictEqual([
+      { profile: 'work', address: offers, blockedAt: november8, moved: 0 },
+    ]);
+    await expect(phone.store.blockedSenders('home')).resolves.toMatchObject([
+      { address: deals },
+      { address: 'news@growthleads.io' },
+    ]);
+    expect(
+      server.get('account-1', 'profile-blocked-senders.home')?.sealed,
+    ).toBe(work);
+    expect(
+      server.get('account-1', 'profile-blocked-senders.work')?.sealed,
+    ).toBe(replaced);
+  });
+
+  it('adopts a newer key epoch and publishes the change it held', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const adoptKeyRotation = vi.fn<() => Promise<unknown>>(() =>
+      Promise.resolve(),
+    );
+    const { store, sync } = storage(server, { adoptKeyRotation });
+    vi.spyOn(sync!, 'pushBlockedSenders').mockRejectedValueOnce(
+      Object.assign(new Error('rotated'), { code: 'key-rotation-required' }),
+    );
+    await store.block('work', offers);
+    await store.synchronize();
+    expect(adoptKeyRotation.mock.calls).toStrictEqual([[]]);
+    expect(server.identifiers('account-1')).toStrictEqual([
+      'profile-blocked-senders.work',
+    ]);
+  });
+
+  it('reports a device removal native code found while synchronizing', async () => {
+    expect.hasAssertions();
+    const removed = vi.fn<() => void>();
+    const { store, sync } = storage(createSyntheticProductSync(), {
+      removed,
+    });
+    vi.spyOn(sync!, 'pullBlockedSenders').mockRejectedValue(
+      Object.assign(new Error('revoked'), { code: 'mailbox-revoked' }),
+    );
+    vi.spyOn(console, 'error').mockReturnValue();
+    await store.synchronize();
+    expect(removed).toHaveBeenCalledWith();
   });
 });

@@ -1022,6 +1022,34 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(pullBlockedSenders:known:resolver:rejecter:)
+  func pullBlockedSenders(
+    _ owner: String, known: [String],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pullBlockedSenders", owner: owner, resolve, reject: reject) { _, sync in
+      try await sync.pull(BlockedSendersRecord.self, known: known)
+    }
+  }
+
+  // `record` carries the Mail Profile's identifier, the record's write count, its JSON and the
+  // revision it replaces.
+  @objc(pushBlockedSenders:record:resolver:rejecter:)
+  func pushBlockedSenders(
+    _ owner: String, record: [String: Any],
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    syncDrafts("pushBlockedSenders", owner: owner, resolve, reject: reject) { _, sync in
+      guard let id = record["id"] as? String, !id.isEmpty, id.count <= 200,
+        let version = (record["version"] as? Double).flatMap({ Int(exactly: $0) }), version >= 1,
+        let senders = record["senders"] as? String
+      else { throw RegistrationError.unavailable }
+      return try await sync.push(
+        BlockedSendersRecord(id: id, version: version, content: senders),
+        expected: record["expectedUpdatedAt"] as? Double)
+    }
+  }
+
   @objc(uploadDraftAsset:asset:resolver:rejecter:)
   func uploadDraftAsset(
     _ owner: String, asset: [String: Any],

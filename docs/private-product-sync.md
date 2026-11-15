@@ -265,6 +265,12 @@ Each [Mail Template](drafts.md) synchronizes as a sealed `profile-template.` rec
 under an identifier derived from the template's, holding its Profile, name, subject,
 body and a random write identifier, with a sealed tombstone once removed. Writes use compare-and-set, and a
 record that does not open under its own template's identifier is never adopted.
+Each Mail Profile's [Blocked Senders](architecture/product/organization.md#mute-and-blocked-senders)
+synchronize as one sealed `profile-blocked-senders.` record under an identifier derived
+from the Profile's, holding each address's latest block or unblock and when it was made,
+so sender addresses reach Convex only as ciphertext. Devices merge the changes address
+by address, the later one winning, and write by compare-and-set; a record that does not
+open, or names another Profile, is never adopted or overwritten.
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

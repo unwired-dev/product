@@ -546,8 +546,9 @@ Mail Templates, in their own sealed document that the Drafts and Mail Templates
 documents do not open as. TypeScript decodes each Blocked Sender and the Profile
 that owns it; another account reads none, and every account purge removes the
 document. The same document holds this device's receipts for the arrivals it moved
-to Trash ([#2120](https://github.com/unwired-dev/product/issues/2120)). Blocked
-Senders are not synchronized yet; see
+to Trash ([#2120](https://github.com/unwired-dev/product/issues/2120)) and the
+addresses each Profile unblocked, which Private Sync merges
+([#2184](https://github.com/unwired-dev/product/issues/2184)); see
 [Mute and blocked senders](architecture/product/organization.md#mute-and-blocked-senders).
 
 The account's **Send Reminders**

@@ -102,6 +102,88 @@ export const notifyRemoval = (
   }
 };
 
+// For a synced Profile preference such as Mail Templates or Blocked Senders, named by `what`: locked
+// storage is expected while the device is locked, and Private Sync is expected to be unavailable
+// without keys or a session or after a removal moved the key epoch; anything else is logged.
+export const reportPreference =
+  (what: string) =>
+  (
+    error: Readonly<Pick<DraftStorageFailure, 'kind' | 'cause' | 'diagnostic'>>,
+  ) =>
+    error.kind === 'locked' ||
+    ['unavailable', 'key-rotation-required'].includes(
+      rejectionCode(error.cause) ?? '',
+    )
+      ? Effect.void
+      : Effect.logError(`${what} storage failed:`, error.diagnostic);
+
+// Synchronizes a synced Profile preference by `pass`, which resolves whether another device's
+// write overtook it. Passes run one at a time; a request during one runs another after it, and an
+// overtaken pass runs again, at most three times. The result logs an unexpected defect rather than
+// rejecting, so lifecycle and change requests need no handler.
+export const preferencePasses = <Remote>(
+  what: string,
+  pass: (remote: Remote) => Effect.Effect<boolean, DraftStorageFailure>,
+  sync:
+    | Readonly<{
+        native: Remote;
+        removed?: () => void;
+        adoptKeyRotation?: () => Promise<unknown>;
+      }>
+    | undefined,
+) => {
+  const report = reportPreference(what);
+  let passing: Promise<void> | undefined = undefined;
+  let requested = false;
+  const passes = async (remote: Remote) => {
+    requested = true;
+    passing ??= (async () => {
+      try {
+        while (requested) {
+          requested = false;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            let needsAdoption = false;
+            const conflicted = await runLogged(
+              pass(remote).pipe(
+                Effect.catchTag('DraftStorageFailure', (error) => {
+                  notifyRemoval(error, sync?.removed);
+                  needsAdoption =
+                    rejectionCode(error.cause) === 'key-rotation-required';
+                  return report(error).pipe(Effect.as(false));
+                }),
+              ),
+            );
+            // Registration owns its Effect run; adopt outside this pass's run, then pass again.
+            if (needsAdoption) {
+              await sync?.adoptKeyRotation?.();
+            } else if (!conflicted) {
+              break;
+            }
+          }
+        }
+      } finally {
+        passing = undefined;
+      }
+    })();
+    await passing;
+  };
+  return async () => {
+    if (sync === undefined) {
+      return;
+    }
+    try {
+      await passes(sync.native);
+    } catch (error) {
+      await runLogged(
+        Effect.logError(
+          `${what} synchronization failed:`,
+          rejectionDiagnostic(error),
+        ),
+      );
+    }
+  };
+};
+
 // Without keys or a session, Product Sync is expected to be unavailable, and a write sealed under an
 // earlier key epoch is expected after a removal; the next pass retries.
 const quietly = (

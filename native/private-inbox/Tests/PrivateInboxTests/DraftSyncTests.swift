@@ -148,6 +148,31 @@ struct DraftSyncTests {
     #expect(templateTombstone["version"] as? Int == 2)
     #expect(templateTombstone["template"] is NSNull)
 
+    // A Profile's Blocked Senders record is ciphertext under an identifier that names neither the
+    // Profile nor a sender, and a template record moved there does not open.
+    let senders =
+      #"{"profile":"work","changes":[{"address":"offers@growthleads.io","blocked":true,"at":1}]}"#
+    let blocked = try await phone.push(
+      BlockedSendersRecord(id: "work", version: 1, content: senders), expected: nil)
+    #expect(blocked["committed"] as? Bool == true)
+    let sendersIdentifier = try phone.identifier(BlockedSendersRecord.self, "work")
+    #expect(
+      sendersIdentifier.hasPrefix("profile-blocked-senders.") && !sendersIdentifier.contains("work"))
+    let sealedSenders = try #require(backend.records[owner]?[sendersIdentifier])
+    let sendersCiphertext = try #require(
+      Data(base64Encoded: sealedSenders.encryptedPayload.ciphertextBase64))
+    #expect(sendersCiphertext.range(of: Data("growthleads".utf8)) == nil)
+    let movedSenders = try phone.identifier(BlockedSendersRecord.self, "home")
+    backend.records[owner]?[movedSenders] = StoredPayload(
+      payloadIdentifier: movedSenders, encryptedPayload: sealedTemplate.encryptedPayload,
+      updatedAt: updatedAt)
+    let pulledSenders = try await mac.pull(BlockedSendersRecord.self, known: ["home"])
+    #expect(pulledSenders["unreadable"] as? [String] == ["home"])
+    let sendersRecords = try #require(pulledSenders["records"] as? [[String: Any]])
+    #expect(sendersRecords.count == 1)
+    #expect(sendersRecords.first?["id"] as? String == "work")
+    #expect(sendersRecords.first?["senders"] as? String == senders)
+
     // A file spanning several chunks downloads only as the exact verified bytes.
     let bytes = Data((0..<(DraftSync.chunkSize * 2 + 100)).map { UInt8(truncatingIfNeeded: $0 &* 31) })
     let imported = try await store.importDraftAsset(
