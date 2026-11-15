@@ -825,6 +825,67 @@ describe('rich-reader review regressions', () => {
     ).toStrictEqual([]);
   });
 
+  it('keeps text inside sender boxes so it cannot overflow onto an image or a button fill', () => {
+    expect.hasAssertions();
+    const label = 'paypal.com.evil.example';
+    const button =
+      '<table><tr><td style="background-color:#3A3D44;padding:8px 160px"><a href="https://x.example/">x</a></td></tr></table>';
+    const { document, links } = sanitizeHtml(
+      [
+        '<style>@media (max-width:600px){.short{height:2px}}</style>',
+        `<div style="height:1px"><a href="https://evil.example/1">${label}</a></div>${button}`,
+        `<div class="short" style="max-height:1px"><a href="https://evil.example/2">${label}</a></div>`,
+        `<p style="line-height:0;margin:0"><a href="https://evil.example/3">${label}</a></p>${button}`,
+        '<p style="line-height:.5;font-family:Georgia">Line one<br>Line two</p>',
+        `<table><tr><td><div style="width:20px"><div style="width:250px;min-width:200px"><a href="https://evil.example/4">${label}</a></div><div style="width:max-content">Wide</div></div><div style="width:250px;max-width:20px"><div style="width:inherit">Inherited</div><div style="display:inline-block;width:inherit;min-width:inherit">Inline</div></div></td>`,
+        '<td style="height:1px;line-height:0;width:250px"><img src="cid:sliced" alt="" style="height:60px">&nbsp;</td>',
+        '<td style="line-height:0"><img src="cid:sliced" alt="">&#8203;</td></tr></table>',
+        '<div style="height:100px;min-height:0%"></div><div style="height:50%;min-height:20px"></div>',
+      ].join(''),
+      new Map([
+        [
+          'sliced',
+          {
+            contentId: 'sliced',
+            mimeType: 'image/png' as const,
+            data: 'AA==',
+            width: 120,
+            height: 60,
+          },
+        ],
+      ]),
+    );
+    expect(links.map(({ text }) => text)).toStrictEqual([
+      label,
+      'x',
+      label,
+      label,
+      'x',
+      label,
+    ]);
+    // Heights become minimums and lines fit their font; a box of sender width bounds its
+    // children. Table cells, images and image-only lines keep their sizes.
+    expect(
+      [
+        '<div style="min-height: 1px">',
+        '{min-height:2px!important}',
+        '<p style="line-height: 0; margin: 0">',
+        'style="line-height: 1.2"',
+        '<div style="width: min(100%, 250px); min-width: min(100%, 200px)">',
+        '<div>Wide</div>',
+        '<div style="width: 100%">Inherited</div>',
+        '<div style="display: inline-block; width: 100%">Inline</div>',
+        'Line one<br>Line two',
+        '<td style="height: 1px; line-height: 0; width: 250px">',
+        'height: 60px',
+        '<td style="line-height: 0"><img',
+        // A percentage minimum of an auto-height box resolves to zero, even inside max().
+        '<div style="min-height: 100px"></div><div style="min-height: 20px"></div>',
+      ].filter((style) => !document.includes(style)),
+    ).toStrictEqual([]);
+    expect(document).not.toMatch(/max-height: 1px|min-height: max\(/u);
+  });
+
   it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
     expect.hasAssertions();
     for (const blocker of ['display:none', 'opacity:0']) {
@@ -1419,8 +1480,9 @@ describe('rich-reader review regressions', () => {
     expect(result.document).not.toMatch(/10000px|625em/u);
     expect(result.document).not.toContain('height="10000"');
     expect(result.document).toContain('<td height="200">Cell control</td>');
+    // An ordinary height stays, as a minimum the text can grow past.
     expect(result.document).toContain(
-      'height: 200px; min-height: 120px; margin-bottom: 40px',
+      'min-height: max(200px, 120px); margin-bottom: 40px',
     );
   });
 

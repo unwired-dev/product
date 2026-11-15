@@ -704,6 +704,103 @@ const normalizeMargins = (
   };
 };
 
+// Table boxes already grow to their content, and spacer cells keep heights that ignore
+// `min-height`.
+const tableBox = /^table(?!-caption$)/u;
+
+// A length or percentage, as opposed to a keyword or an emitted expression.
+const definite = (value: string | undefined) =>
+  lengthPixels(value, { font: 1, percent: 1 }) !== undefined;
+
+// Whether a box has a sender width its descendants must stay inside.
+const senderSized = ({ retained }: FilteredStyle) =>
+  ['width', 'max-width'].some((name) => {
+    const value = retained.get(name);
+    return definite(value) || value?.startsWith('min(') === true;
+  });
+
+// A percentage of an auto-height container resolves to zero, even inside max(), so a mixed
+// pair keeps its absolute length.
+const minimumHeight = (height: string, minimum: string | undefined) => {
+  if (minimum === undefined || !definite(minimum)) {
+    return height;
+  }
+  if (height.endsWith('%') === minimum.endsWith('%')) {
+    return `max(${height}, ${minimum})`;
+  }
+  return height.endsWith('%') ? minimum : height;
+};
+
+// Outside tables, a fixed height becomes a minimum and a maximum height is dropped.
+const grownHeight = (
+  name: string,
+  value: string,
+  retained: ReadonlyMap<string, string>,
+): ReadonlyArray<readonly [string, string]> | undefined => {
+  if (name === 'max-height') {
+    return [];
+  }
+  if (name === 'min-height') {
+    return definite(retained.get('height')) ? [] : [[name, value]];
+  }
+  if (name !== 'height') {
+    return undefined;
+  }
+  return definite(value)
+    ? [['min-height', minimumHeight(value, retained.get('min-height'))]]
+    : [];
+};
+
+// Inside a box of sender width, a width cannot exceed it and content-sized widths are removed.
+// An inherited width can copy the box's declared width past its maximum, so it fills the box
+// instead; an inline block without one would shrink to its longest word.
+const boundedWidth = ([name, value]: readonly [string, string]) => {
+  if (name !== 'width' && name !== 'min-width') {
+    return [[name, value] as const];
+  }
+  if (definite(value)) {
+    return [[name, `min(100%, ${value})`] as const];
+  }
+  if (name === 'width' && /^inherit$/iu.test(value)) {
+    return [[name, '100%'] as const];
+  }
+  return /content|stretch|inherit/iu.test(value)
+    ? []
+    : [[name, value] as const];
+};
+
+// Sender boxes keep their text inside them, where a later image or button fill could cover it
+// (#2204). Images keep their sizes.
+const containedBox = (
+  style: FilteredStyle,
+  {
+    tag,
+    display,
+    bounded,
+  }: Readonly<{ tag: string; display: string; bounded: boolean }>,
+): FilteredStyle => {
+  if (tag === 'img' || tableBox.test(display)) {
+    return style;
+  }
+  const declarations = [...style.retained].flatMap(
+    ([name, value]) =>
+      grownHeight(name, value, style.retained) ?? [[name, value] as const],
+  );
+  const retained = new Map(
+    bounded ? declarations.flatMap(boundedWidth) : declarations,
+  );
+  return {
+    ...style,
+    retained,
+    css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
+  };
+};
+
+// Whether a box's descendants sit inside a sender width: a table cell grows to its content.
+const boundedIn = (display: string, style: FilteredStyle, parent: boolean) =>
+  !tableBox.test(display) &&
+  ((display !== 'inline' && senderSized(style)) || parent);
+
 const offsetTokens = new Map([
   ['margin', 4],
   ['margin-top', 1],
@@ -1979,6 +2076,40 @@ const lineHeightIn = (
   return resolved === undefined || resolved < 0 ? parent : { pixels: resolved };
 };
 
+// A line height in pixels; normal is never shorter than its font.
+const lineHeightPixels = (height: LineHeight, font: number) => {
+  if ('pixels' in height) {
+    return height.pixels;
+  }
+  return 'factor' in height ? height.factor * font : Infinity;
+};
+
+// Whether the element itself holds visible text, rather than only descendants.
+const ownText = (element: Element) =>
+  element.childNodes.some(
+    (node) =>
+      node.nodeName === '#text' &&
+      'value' in node &&
+      hasVisibleText(node.value),
+  );
+
+// Glyphs overflow a line shorter than their font onto the next box; image-only cells keep
+// their zero line height (#2204). The system font's normal spacing keeps the break allowance
+// finite for sender fonts, whose normal metrics are unknown.
+const fittedLines = (
+  style: FilteredStyle,
+  element: Element,
+  { parent, font }: Readonly<{ parent: LineHeight; font: number }>,
+) =>
+  font >= minimumTextPixels &&
+  ownText(element) &&
+  lineHeightPixels(
+    lineHeightIn(style.retained.get('line-height'), parent, font),
+    font,
+  ) < font
+    ? withProperties(style, [['line-height', '1.2']])
+    : style;
+
 const contentSecurityPolicy =
   "default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -2103,6 +2234,8 @@ function walk(
   // Off-canvas text boxes, and inherited font size and indent states.
   let direction = 'ltr';
   let margins: ReadonlyMap<string, string> = new Map();
+  // Whether the containing block has a sender width, outside any table.
+  let bounded = false;
   let fontPixels = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
@@ -2506,7 +2639,7 @@ function walk(
     direction = directionIn(node, direction);
     const display = displayOf(node.tagName, sizedStyle);
     const ownMargins = textMargins(node, sizedStyle);
-    const normalized = normalizeMargins(sizedStyle, ownMargins, {
+    const spaced = normalizeMargins(sizedStyle, ownMargins, {
       display:
         node.tagName === 'img' && display === 'inline'
           ? 'inline-block'
@@ -2514,6 +2647,13 @@ function walk(
       directional: direction === 'rtl' || parentDirection === 'rtl',
       font: fontPixels,
     });
+    const normalized = fittedLines(
+      containedBox(spaced, { tag: node.tagName, display, bounded }),
+      node,
+      { parent: lineHeight, font: fontPixels },
+    );
+    const parentBounded = bounded;
+    bounded = boundedIn(display, normalized, bounded);
     margins = ownMargins;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
@@ -2531,6 +2671,7 @@ function walk(
     );
     ancestorLinePixels = linePixels();
     run(normalized);
+    bounded = parentBounded;
     ancestorLinePixels = parentAncestorLinePixels;
     lineHeight = parentLineHeight;
     direction = parentDirection;
