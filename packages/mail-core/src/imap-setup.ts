@@ -133,6 +133,8 @@ export type FoundServers = Readonly<{
   fields: Pick<ImapFields, (typeof serverFields)[number]>;
 }>;
 
+const hostPattern =
+  /^[\da-z](?:[\da-z-]{0,61}[\da-z])?(?:\.[\da-z](?:[\da-z-]{0,61}[\da-z])?)+$/u;
 const domainOf = (address: string) =>
   address.trim().split('@')[1]?.toLowerCase() ?? '';
 
@@ -298,8 +300,6 @@ export const imapFields = (
   };
 };
 
-const hostPattern =
-  /^[\da-z](?:[\da-z-]{0,61}[\da-z])?(?:\.[\da-z](?:[\da-z-]{0,61}[\da-z])?)+$/u;
 // A port and host as entered, or undefined while either is malformed.
 const hostAndPort = (host: string, port: string) => {
   const number = Number(port.trim());

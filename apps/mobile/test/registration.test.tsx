@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { Registration } from '@private-email/mail-core/registration';
 import type { RegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
@@ -384,16 +385,19 @@ describe('product registration', () => {
         setups.push(imap);
         return vault.connectImap(imap);
       },
-      // posteo.de names its servers in SRV records; no other domain does.
+      // posteo.de names its servers in SRV records; example.org names none.
       discoverImap: (domain) => {
         lookups.push(domain);
         return Promise.resolve(
-          domain === 'posteo.de'
-            ? {
+          (
+            {
+              'posteo.de': {
                 imap: { host: 'posteo.de', port: 993 },
                 smtp: { host: 'posteo.de', port: 465 },
-              }
-            : null,
+              },
+              'example.org': null,
+            } as Readonly<Record<string, unknown>>
+          )[domain],
         );
       },
     });
@@ -436,8 +440,7 @@ describe('product registration', () => {
     await press('Add an IMAP mailbox');
     await press('Other IMAP Account');
     // Longer than the form waits before it looks an address up.
-    const pause = () =>
-      act(() => new Promise((resolve) => setTimeout(resolve, 600)));
+    const pause = () => act(() => sleep(600));
     await type('Email address', 'mara@Seznam.cz');
     const seznam = form();
     // The lookup waits until the address stops changing.

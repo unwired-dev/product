@@ -224,12 +224,14 @@ export function ImapForm({
       return undefined;
     }
     let current = true;
-    const timer = setTimeout(async () => {
-      const found = await store.discoverImap(lookup);
-      if (current && found !== undefined) {
-        setDiscovered(found);
-        setFields((previous) => ({ ...previous, ...found.fields }));
-      }
+    const timer = setTimeout(() => {
+      void (async () => {
+        const found = await store.discoverImap(lookup);
+        if (current && found !== undefined) {
+          setDiscovered(found);
+          setFields((previous) => ({ ...previous, ...found.fields }));
+        }
+      })();
     }, 500);
     return () => {
       current = false;
