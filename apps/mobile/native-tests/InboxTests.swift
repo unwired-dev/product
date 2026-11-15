@@ -293,6 +293,12 @@ final class InboxTests: XCTestCase {
       row(name).tap()
       checked(name)
     }
+    // iPad opens Settings from its sidebar: after the Command Palette's software keyboard showed
+    // with the device and the app in different appearances, XCUITest never saw the app idle again.
+    func openAppearance() {
+      if phone { openAccount(app) } else { app.buttons["Settings"].firstMatch.tap() }
+      openSettings("Appearance", in: app)
+    }
     func closeSettings() {
       let back = app.navigationBars.buttons["BackButton"]
       if phone && back.exists { back.tap() }
@@ -308,8 +314,7 @@ final class InboxTests: XCTestCase {
     closeSettings()
     expect(dark: runner == .dark)
     let comfortable = settledFrame(of: welcome).height
-    openAccount(app)
-    openSettings("Appearance", in: app)
+    openAppearance()
     XCTAssertTrue(row("System").waitForExistence(timeout: 10))
     checked("System")
     checked("Comfortable")
@@ -343,8 +348,7 @@ final class InboxTests: XCTestCase {
     }
     attach("Compact Inbox · Light")
     XCUIDevice.shared.appearance = .light
-    openAccount(app)
-    openSettings("Appearance", in: app)
+    openAppearance()
     choose("Dark")
     expect(dark: true)
     attach("Settings › Appearance · Dark")
@@ -358,8 +362,7 @@ final class InboxTests: XCTestCase {
     expect(dark: true)
     XCTAssertEqual(settledFrame(of: welcome).height, compact, accuracy: 0.5)
     attach("Compact Inbox after relaunch · Dark")
-    openAccount(app)
-    openSettings("Appearance", in: app)
+    openAppearance()
     checked("Dark")
     checked("Compact")
     attach("Settings › Appearance after relaunch")
