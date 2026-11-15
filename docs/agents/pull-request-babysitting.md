@@ -28,8 +28,9 @@ repository adds:
 - **Gate**: full-stop's "ready to merge" means full-send's merge gate plus
   every [automatic merge](#automatic-merge) condition on the head, except that
   CodeRabbit need not approve the head: the merger's 2-hour fallback covers
-  that once CodeRabbit has reviewed the PR at least once. A PR CodeRabbit has
-  never reviewed is not ready; report it as blocked on CodeRabbit.
+  that once CodeRabbit has approved or requested changes on the PR. A PR with
+  no such CodeRabbit review (none, or only comments) is not ready; report it as
+  blocked on CodeRabbit.
 
 For [CI-only native reproduction](native-validation.md#report-what-the-evidence-proves),
 unreviewed diagnostic commits may go on a separate non-draft `[WIP]` PR that is

@@ -146,7 +146,8 @@ At full-stop's handoff, recheck the criteria against the final diff and
 evidence and confirm the remote PR head holds the reviewed changes. Then end
 ownership with `scripts/issue-claim release <number> --outcome <outcome>` from
 the task branch: `handed-back` when the PR is ready or waits only on human
-approval (the open PR keeps `scripts/next-issue` off the issue), otherwise
+approval and closes the issue (its open closing PR keeps `scripts/next-issue`
+off the issue; a `Refs` PR keeps the claim instead), otherwise
 `blocked`, `abandoned` or `closed`. Add `--remaining "<text>"` for a sub-issue.
 Apply the readiness policy to any human-only remainder. Close a parent only
 when no criterion or open sub-issue remains.
