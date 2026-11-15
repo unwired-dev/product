@@ -214,7 +214,7 @@ const merged = (changes: readonly Change[]) => {
 const sameChanges = Schema.toEquivalence(Schema.Array(ChangeSchema));
 
 // `stored` with `remote`, another device's changes of `profile`, merged in. A Blocked Sender that
-// stays blocked keeps this device's move count, and one blocked elsewhere starts at none.
+// stays blocked keeps this device's move count; one blocked again or elsewhere starts at none.
 const adopt = (stored: Stored, profile: string, remote: readonly Change[]) => {
   const local = merged(changesOf(stored, profile));
   const next = merged([...local, ...remote]);
@@ -230,9 +230,12 @@ const adopt = (stored: Stored, profile: string, remote: readonly Change[]) => {
           return [sender];
         }
         const change = latest.get(sender.address);
-        return change?.blocked === true
-          ? [{ ...sender, blockedAt: change.at }]
-          : [];
+        if (change?.blocked !== true) {
+          return [];
+        }
+        return change.at === sender.blockedAt
+          ? [sender]
+          : [{ ...sender, blockedAt: change.at, moved: 0 }];
       }),
       ...next
         .filter(

@@ -629,6 +629,30 @@ describe('synchronized Blocked Senders', () => {
     ]);
   });
 
+  it('counts the moves of a sender blocked again on another device from the new block', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.store.block('work', offers);
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    await mac.store.screen('work', { id: 'connection-1', moves: true }, [
+      { id: 'a', address: offers, receivedAt: '2026-11-08T09:00:00.000Z' },
+    ]);
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.unblock('work', offers);
+    await phone.store.block('work', offers);
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    await expect(mac.store.blockedSenders('work')).resolves.toStrictEqual([
+      {
+        profile: 'work',
+        address: offers,
+        blockedAt: november8 + 1001,
+        moved: 0,
+      },
+    ]);
+  });
+
   it('keeps offline changes on the device and publishes them once Product Sync is back', async () => {
     expect.hasAssertions();
     const { server, mac, phone } = devices();

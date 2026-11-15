@@ -1670,9 +1670,9 @@
     "blockedNone": "Blocked {{date}} · 0 since",
     "unblock": "Unblock",
     "unblockFailed": "Couldn’t unblock. Try again.",
-    "footer": "This Mac moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
-    "footer_iphone": "This iPhone moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
-    "footer_ipad": "This iPad moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
+    "footer": "This Mac moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
+    "footer_iphone": "This iPhone moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
+    "footer_ipad": "This iPad moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "none": "No Blocked Senders. Block one from the sender’s name in a message.",
     "unavailable": "Blocked Senders couldn’t be read. Try again later."
   }
