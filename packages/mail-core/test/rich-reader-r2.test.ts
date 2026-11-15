@@ -783,6 +783,48 @@ describe('rich-reader review regressions', () => {
     ).toMatch(/^\s*Brand\s+https:\/\/bank.invalid/u);
   });
 
+  it('lets no sender style pull text over an inline image or a button fill', () => {
+    expect.hasAssertions();
+    const ink = {
+      contentId: 'ink',
+      mimeType: 'image/png' as const,
+      data: 'AA==',
+      width: 120,
+      height: 60,
+    };
+    const label = 'paypal.com.evil.example';
+    const { document, links } = sanitizeHtml(
+      [
+        '<style>@media (max-width:600px){.lift{margin:-60px 0 0 -10px;text-indent:-40px;white-space:nowrap}}</style>',
+        `<p><a href="https://evil.example/1">${label}</a></p>`,
+        '<img src="cid:ink" alt="" style="display:block;margin-top:-60px;margin-left:150px">',
+        `<p><a href="https://evil.example/2">${label}</a></p>`,
+        '<table style="margin-top:-40px;margin-left:85px"><tr><td style="background-color:#3A3D44;padding:8px 60px"><a href="https://x.example/">x</a></td></tr></table>',
+        `<table><tr><td><div class="lift" style="width:20px;white-space:nowrap;overflow-wrap:normal"><a href="https://evil.example/3">${label}</a></div></td>`,
+        '<td style="background-color:#3A3D44;padding:8px 120px"><a href="https://x.example/">x</a></td></tr></table>',
+        '<pre style="white-space:PRE;text-indent:-2em;word-wrap:normal">Preformatted</pre>',
+      ].join(''),
+      new Map([['ink', ink]]),
+    );
+    expect(links.map(({ text }) => text)).toStrictEqual([
+      label,
+      label,
+      'x',
+      label,
+      'x',
+    ]);
+    // Negative offsets become zero and text wraps inside its box, inline and in narrow rules.
+    expect(
+      [
+        'style="display: block; margin-top: 0; margin-left: 150px"',
+        '<table style="margin-top: 0; margin-left: 85px">',
+        'style="width: 20px; white-space: normal"',
+        'margin:0 0 0 0!important;text-indent:0!important;width:20px!important;white-space:normal!important',
+        '<pre style="white-space: pre-wrap; text-indent: 0">',
+      ].filter((style) => !document.includes(style)),
+    ).toStrictEqual([]);
+  });
+
   it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
     expect.hasAssertions();
     for (const blocker of ['display:none', 'opacity:0']) {
@@ -2196,7 +2238,8 @@ describe('rich-reader review regressions', () => {
       'display:inline-block;border-left:10000px hsl(200,30%,40%)solid',
       'display:inline-block;padding-left:calc (10000px)',
     ];
-    // The wrapping form is a native-layout negative control; nowrap makes the large pad mask.
+    // The wrapping form is a native-layout negative control; nowrap would make the large pad mask,
+    // so it is emitted in its wrapping form.
     const examples = masks.flatMap((style, index) =>
       ['', 'white-space:nowrap'].map(
         (wrapping) =>
@@ -2243,7 +2286,7 @@ describe('rich-reader review regressions', () => {
         'border: 1px solid rgb(20, 30, 40)',
         'border-left: 1px solid hsl(200, 30%, 40%)',
         'border-left: rgb(20,30,40)1px solid',
-        'white-space: nowrap',
+        'white-space: normal',
       ]),
     );
     expect(result.document).not.toContain('rgb (');

@@ -589,24 +589,12 @@ const marginEdges = (
   return edges;
 };
 
-// Negative offsets whose clipping depends on unknown geometry are normalized in the output.
-// Even a large offset can leave compensated or wrapped text visible, so it cannot by itself
-// justify omitting a label. Small hanging indents and trailing LTR margins remain intact.
-const offCanvas = (value: string | undefined, font: number) =>
-  (lengthPixels(value, { font, percent: narrowestReaderPixels }) ?? 0) <=
-    -narrowestReaderPixels ||
-  /^-(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?(?:%|ex|ch|vw|vh|vmin|vmax)$/iu.test(
-    value ?? '',
-  );
-
 // Large positive spacing pushes content past the reader's right edge, or a whole label below
-// the viewport; whether glyphs stay visible depends on wrapping, so it is normalized as well.
+// the viewport; whether glyphs stay visible depends on wrapping, so it is normalized. Even a
+// large offset can leave wrapped text visible, so it cannot by itself justify omitting a label.
 const farRight = (value: string | undefined, font: number) =>
   (lengthPixels(value, { font, percent: narrowestReaderPixels }) ?? 0) >=
   narrowestReaderPixels;
-
-const displaces = (value: string | undefined, font: number) =>
-  offCanvas(value, font) || farRight(value, font);
 
 // Padding and border widths take no negative values; any large token drops the declaration.
 const spacingProperties = new Set([
@@ -631,7 +619,7 @@ const spacingProperties = new Set([
 const colorFunctions = /\b(?:rgba?|hsla?)\([^()]*\)/giu;
 
 const normalizeTextSpacing = (retained: Map<string, string>, font: number) => {
-  if (displaces(retained.get('text-indent'), font)) {
+  if (farRight(retained.get('text-indent'), font)) {
     retained.set('text-indent', '0');
   }
   for (const name of ['vertical-align', 'letter-spacing']) {
@@ -700,7 +688,7 @@ const normalizeMargins = (
   const retained = normalizeSpacing(style.retained, font);
   for (const edge of ['left', 'right', 'top', 'bottom']) {
     if (
-      displaces(margins.get(edge), font) &&
+      farRight(margins.get(edge), font) &&
       (edge === 'right' ? directional : !/^table-(?!caption$)/u.test(display))
     ) {
       margins.set(edge, '0');
@@ -1146,6 +1134,40 @@ export const parseDeclarations = (style: string) => {
   return { declared, unsafe, limited, important, rejected };
 };
 
+// Values that keep text wrapping inside its box; `nowrap` and `pre` become their wrapping forms.
+const unwrapped = new Map([
+  ['nowrap', 'normal'],
+  ['pre', 'pre-wrap'],
+]);
+const wrapping = new Map([
+  [
+    'white-space',
+    /^(?:normal|pre-wrap|pre-line|break-spaces|inherit|initial|unset)$/u,
+  ],
+  ['overflow-wrap', /^(?:break-word|anywhere|inherit|unset)$/u],
+  ['word-wrap', /^(?:break-word|anywhere|inherit|unset)$/u],
+]);
+
+// Sender CSS cannot pull content over other content, where opaque sender pixels or a button's
+// fill could hide the reader's ink (#2029): negative margins and indents become zero, and text
+// wraps inside its box rather than overflowing onto a neighbour.
+const withoutOverlap = ([name, value]: readonly [string, string]) => {
+  if (offsetTokens.has(name)) {
+    const offsets = value
+      .trim()
+      .split(/\s+/u)
+      .map((token) => (token.startsWith('-') ? '0' : token));
+    return [[name, offsets.join(' ')] as const];
+  }
+  const allowed = wrapping.get(name);
+  if (allowed === undefined) {
+    return [[name, value] as const];
+  }
+  const keyword = value.toLowerCase();
+  const wraps = unwrapped.get(keyword) ?? keyword;
+  return allowed.test(wraps) ? [[name, wraps] as const] : [];
+};
+
 function filterDeclarations(
   {
     declared,
@@ -1157,10 +1179,12 @@ function filterDeclarations(
   tag = '',
 ): FilteredStyle {
   const retained = new Map(
-    [...declared].filter(
-      (declaration) =>
-        !unsafe.has(declaration[0]) && keptDeclaration(declaration),
-    ),
+    [...declared]
+      .filter(
+        (declaration) =>
+          !unsafe.has(declaration[0]) && keptDeclaration(declaration),
+      )
+      .flatMap(withoutOverlap),
   );
   const tableDisplay = tableDisplays.get(tag);
   if (
