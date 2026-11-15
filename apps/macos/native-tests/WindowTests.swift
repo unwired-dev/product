@@ -1009,8 +1009,8 @@ final class WindowTests: XCTestCase {
   // that Escape and Return answer; only Remove removes it.
   private func profileRemovalJourney(_ app: XCUIApplication, settings: XCUIElement) {
     let sheet = settings.sheets.firstMatch
-    settings.buttons["Mail Profiles"].click()
-    settings.buttons["Add Mail Profile…"].click()
+    settings.buttons["Profiles"].click()
+    settings.buttons["Add Profile…"].click()
     XCTAssertTrue(sheet.waitForExistence(timeout: 10))
     sheet.textFields.firstMatch.click()
     sheet.typeText("Travel")
@@ -1031,7 +1031,7 @@ final class WindowTests: XCTestCase {
       item.click()
       waitUntil { popUp.value as? String == to }
     }
-    let remove = settings.buttons["Remove Mail Profile…"]
+    let remove = settings.buttons["Remove Profile…"]
     func ask() {
       XCTAssertTrue(remove.waitForExistence(timeout: 15))
       remove.click()
@@ -1693,7 +1693,7 @@ final class WindowTests: XCTestCase {
     // Settings › Mail Profiles moves the Microsoft mailbox out of the selected Profile.
     func move(from source: String, to target: String) {
       settings.buttons[source].click()
-      let popUp = settings.popUpButtons["Mail Profile for \(microsoft.0)"]
+      let popUp = settings.popUpButtons["Profile for \(microsoft.0)"]
       XCTAssertTrue(popUp.waitForExistence(timeout: 15))
       popUp.click()
       app.menuItems[target].click()
@@ -1708,8 +1708,8 @@ final class WindowTests: XCTestCase {
 
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
-    settings.buttons["Mail Profiles"].click()
-    settings.buttons["Add Mail Profile…"].click()
+    settings.buttons["Profiles"].click()
+    settings.buttons["Add Profile…"].click()
     let sheet = settings.sheets.firstMatch
     XCTAssertTrue(sheet.waitForExistence(timeout: 10))
     sheet.textFields.firstMatch.click()
@@ -1724,12 +1724,12 @@ final class WindowTests: XCTestCase {
     // A second window opens the Startup Profile, and its switcher's menu switches it to Work.
     app.typeKey("n", modifierFlags: [.command, .option])
     let work = app.windows["Inbox 2"]
-    let switcher = work.buttons["Mail Profile, Primary Profile"]
+    let switcher = work.buttons["Profile, Primary Profile"]
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
     switcher.click()
     // Each Profile Menu item adds its connections and unread count to the Profile's name.
     app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "Work, Microsoft")).firstMatch.click()
-    XCTAssertTrue(work.buttons["Mail Profile, Work"].waitForExistence(timeout: 15))
+    XCTAssertTrue(work.buttons["Profile, Work"].waitForExistence(timeout: 15))
     // Each window takes its own half of the screen, so both stay in view side by side. The new
     // window starts in front, offset below the first's title bar: narrow it and move it right,
     // then drag the first by its uncovered title bar to the left and narrow it.
@@ -1799,7 +1799,7 @@ final class WindowTests: XCTestCase {
 
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
-    settings.buttons["Mail Profiles"].click()
+    settings.buttons["Profiles"].click()
     move(from: "Work", to: "Primary Profile")
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
@@ -2009,8 +2009,8 @@ final class WindowTests: XCTestCase {
     let settings = app.windows["settings-window"]
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
-    settings.buttons["Mail Profiles"].click()
-    settings.buttons["Add Mail Profile…"].click()
+    settings.buttons["Profiles"].click()
+    settings.buttons["Add Profile…"].click()
     let sheet = settings.sheets.firstMatch
     XCTAssertTrue(sheet.waitForExistence(timeout: 10))
     sheet.textFields.firstMatch.click()
@@ -2020,16 +2020,16 @@ final class WindowTests: XCTestCase {
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
 
-    window.buttons["Mail Profile, Primary Profile"].click()
+    window.buttons["Profile, Primary Profile"].click()
     app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "Work")).firstMatch.click()
-    XCTAssertTrue(window.buttons["Mail Profile, Work"].waitForExistence(timeout: 15))
+    XCTAssertTrue(window.buttons["Profile, Work"].waitForExistence(timeout: 15))
     func labelled(_ label: String) -> XCUIElement {
       window.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
     }
     // The heading names the Profile's scope, not Gmail, and the sidebar keeps Favorites only.
     XCTAssertTrue(labelled("All Inboxes. No mailboxes").waitForExistence(timeout: 30))
     XCTAssertTrue(labelled("No Mailboxes").exists)
-    XCTAssertTrue(labelled("Move a mailbox into Work from its current Mail Profile.").exists)
+    XCTAssertTrue(labelled("Move a mailbox into Work from its current Profile.").exists)
     // No mailbox section header or Inbox row names either account.
     XCTAssertFalse(
       window.descendants(matching: .any)
@@ -2040,9 +2040,9 @@ final class WindowTests: XCTestCase {
     add(attachment)
     try audit(app, "Mail Profile without mailboxes")
 
-    window.buttons["Manage Mail Profiles…"].click()
+    window.buttons["Manage Profiles…"].click()
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
-    XCTAssertTrue(settings.buttons["Add Mail Profile…"].waitForExistence(timeout: 10))
+    XCTAssertTrue(settings.buttons["Add Profile…"].waitForExistence(timeout: 10))
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
   }
@@ -2706,7 +2706,7 @@ final class WindowTests: XCTestCase {
   }
 
   private static let privateCloudFooter =
-    "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Mail Profile on this Mac. Other devices and accounts keep their own choices."
+    "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Profile on this Mac. Other devices and accounts keep their own choices."
 
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
   private func knownAccessibilityGap(

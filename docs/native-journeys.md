@@ -108,7 +108,7 @@ focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
 the pop-up shows the choice. In Language it checks that the interface-language pop-up shows
-System Default. In Mail Profiles it adds a **Travel** Mail Profile, checks its Color and
+System Default. In Profiles it adds a **Travel** Profile, checks its Color and
 Icon pop-ups show Graphite and First Letter, and chooses Blue and Airplane from their AppKit
 menus. It then asks to remove the Mail Profile:
 the AppKit sheet on Settings offers Cancel and Remove and closes with Escape and with
@@ -219,7 +219,7 @@ mise exec -- pnpm --filter @private-email/macos test:native \
   testMailProfileIsolation
 ```
 
-In Settings › Mail Profiles it adds a **Work** Mail Profile and moves the Microsoft
+In Settings › Profiles it adds a **Work** Profile and moves the Microsoft
 mailbox into it from the Primary Profile. A second window switches to Work through
 its Profile Switcher. The journey tiles the two windows side by side, each on its
 own half of the screen, and checks they do not overlap; it skips on a display
@@ -239,7 +239,7 @@ window to it while it owns no mailbox
 ([#1538](https://github.com/unwired-dev/product/issues/1538)). The heading reads
 `All Inboxes. No mailboxes`, the list shows **No Mailboxes** with its message and
 no mailbox is listed. The window's capture is kept as an attachment and the
-accessibility audit runs on it. **Manage Mail Profiles…** opens Settings › Mail
+accessibility audit runs on it. **Manage Profiles…** opens Settings ›
 Profiles. It sets Light; `testMailProfileWithoutMailboxesDark` runs it in Dark.
 
 `testBlockSender` uses the same build and sign-in
