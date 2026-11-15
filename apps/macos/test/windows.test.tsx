@@ -1537,7 +1537,8 @@ describe('mac windows over a connected Gmail mailbox', () => {
     );
     try {
       const first = within(app.getByTestId('inbox-window-first'));
-      for (const subject of [/Lunch on Friday/u, /Dinner on Saturday/u]) {
+      // The latest action is in the first mailbox listed, not the last.
+      for (const subject of [/Dinner on Saturday/u, /Lunch on Friday/u]) {
         await act(async () => {
           await fireEvent(
             await first.findByRole('button', { name: subject }),
@@ -1549,7 +1550,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       expect(first.getAllByRole('button', { name: 'Undo' })).toHaveLength(2);
       // Showing the older notice again after navigation keeps the newer action the latest.
       for (const row of [
-        'Inbox. In synthetic-connection-other',
+        'Inbox. In synthetic-connection-alex',
         'All inboxes',
       ]) {
         await fireEvent.press(await first.findByRole('button', { name: row }));
@@ -1559,17 +1560,17 @@ describe('mac windows over a connected Gmail mailbox', () => {
         DeviceEventEmitter.emit('undo', { window: 'inbox-window-first' });
         await Promise.resolve();
       });
-      await first.findByRole('button', { name: /Dinner on Saturday/u });
+      await first.findByRole('button', { name: /Lunch on Friday/u });
       expect(
         [alexGmail, otherGmail].map(({ modifies }) =>
           modifies.map(({ add, remove }) => [add, remove]),
         ),
       ).toStrictEqual([
-        [[[], ['INBOX']]],
         [
           [[], ['INBOX']],
           [['INBOX'], []],
         ],
+        [[[], ['INBOX']]],
       ]);
     } finally {
       await app.unmount();
