@@ -138,7 +138,8 @@ storage refuses the text, or another editor changed the new Draft first and keep
 content, it says the text couldn't be saved instead; for refused storage the Draft's composer
 also reports the failed save. When the Drafts cannot open at all, **Couldn’t reply** has no Draft to offer and says to
 open the message, which its tap does, to reply again. On the Mac, Open Draft opens it in its own New Message window; on iPhone and iPad it
-opens the app and, once Registration admits the mail shell, the Draft in the composer, after the open Draft's Save/Discard/Cancel exit. A connection that is gone, recreated or another
+opens the app and, once Registration admits the mail shell, the Draft in the composer, after the open Draft's Save/Discard/Cancel exit, in its connection's
+current Profile, rechecked after that exit. A connection that is gone, recreated or another
 Product Account's sends and saves nothing. The offline outcome and a locked Profile come in later #1672 slices.
 
 On iPhone and iPad, iOS may launch the app in the background to read a typed reply.
@@ -198,7 +199,7 @@ writes. `notifications.test.ts` covers account/incarnation routing, Draft exit g
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark
 as Read, for Gmail and IMAP, and a typed reply: sent with only its text and reported as admitted, Undo,
 an Undo that cannot be saved, an Undo after delivery became uncertain, withdrawal after
-the window, an Undo while another reply reads its message, sending notifications left by an earlier launch, text storage refused, a Draft that cannot be created, a new Draft another editor changed first, a message no longer listed with Open Draft, Open Draft
+the window, an Undo while another reply reads its message, sending notifications left by an earlier launch, text storage refused, a Draft that cannot be created, a new Draft another editor changed first, a message no longer listed with Open Draft and its Profile asked again after a move or removal, Open Draft
 before the Drafts opened, an Archive whose connection is recreated while the Drafts open,
 and a recreated connection or another account; `commands.test.ts` covers Reply waiting for its reader. The mobile `freshness.test.tsx` journey
 imports the app entry in the background: a typed reply holds delivery time, one kept in Drafts

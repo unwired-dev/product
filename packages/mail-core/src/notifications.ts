@@ -485,7 +485,13 @@ type Replies = Readonly<{
     getSnapshot: () => readonly OutboxEntry[];
   }>;
   translate: () => Translate;
-  openDraft: (draft: string, profile: string) => void;
+  // Opens a Draft in `profile`; `current` names its Profile again later, undefined once it no
+  // longer belongs to the notification's connection.
+  openDraft: (
+    draft: string,
+    profile: string,
+    current: () => string | undefined,
+  ) => void;
   // A typed reply the Outbox admitted, which iPhone and iPad give background delivery time.
   admitted: () => void;
 }>;
@@ -904,11 +910,19 @@ async function act(
     return;
   }
   if (chosen.action === 'open-draft') {
-    if (
-      draftOf(replies.drafts.getSnapshot(), chosen.draft)?.connection ===
-      target.mailbox
-    ) {
-      replies.openDraft(chosen.draft, target.profile);
+    // The Profile the Draft opens in while it still belongs to this connection, asked again
+    // once an open composer has left.
+    const profile = () => {
+      const now = openedTarget(snapshot(), named);
+      return now !== undefined &&
+        draftOf(replies.drafts.getSnapshot(), chosen.draft)?.connection ===
+          now.mailbox
+        ? now.profile
+        : undefined;
+    };
+    const opened = profile();
+    if (opened !== undefined) {
+      replies.openDraft(chosen.draft, opened, profile);
     }
     return;
   }

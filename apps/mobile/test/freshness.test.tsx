@@ -425,10 +425,11 @@ describe('headless Gmail freshness', () => {
         const { followOpenedDrafts } = jest.requireActual<{
           readonly followOpenedDrafts: typeof FollowOpenedDrafts;
         }>('../src/freshness.ts');
-        const opened = jest.fn<undefined, [string, string]>();
+        const opened = jest.fn<undefined, [string, () => string | undefined]>();
         const stop = followOpenedDrafts(opened);
         stop();
-        expect(opened).toHaveBeenCalledWith(draft, defaultProfile);
+        expect(opened).toHaveBeenCalledWith(draft, expect.any(Function));
+        expect(opened.mock.calls[0]?.[1]()).toBe(defaultProfile);
       } finally {
         outbox.dispose();
         // The new Drafts synchronize once edits pause; let that finish over this bridge.

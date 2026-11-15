@@ -246,10 +246,13 @@ async function replyingHost() {
     mailboxesOf(host.registration.getSnapshot().snapshot)[0],
   );
   const opened: unknown[] = [];
+  // The latest Open Draft's Profile, asked again.
+  const reopened = { profile: (): string | undefined => undefined };
   const admitted = { count: 0 };
   host.followNotificationActions(
-    (draft, profile) => {
+    (draft, profile, current) => {
       opened.push({ draft, profile });
+      reopened.profile = current;
     },
     () => {
       admitted.count += 1;
@@ -278,6 +281,7 @@ async function replyingHost() {
     gone,
     named,
     opened,
+    reopened,
     admitted,
     reply,
     drafts,
@@ -884,6 +888,7 @@ describe('the host assembly', () => {
       drafts,
       replied,
       opened,
+      reopened,
       admitted,
       notificationActions,
     } = await replyingHost();
@@ -919,6 +924,18 @@ describe('the host assembly', () => {
     expect(opened).toStrictEqual([
       { draft: saved.id, profile: defaultProfile },
     ]);
+    // Asked again once a composer leaves, it follows the connection's Profile, and a removed
+    // connection opens nothing.
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(named.connection, work);
+    expect(reopened.profile()).toBe(work);
+    await host.registration.removeMailbox(named.connection);
+    expect(reopened.profile()).toBeUndefined();
   });
 
   it('opens a typed reply’s Draft chosen on a notification before the Drafts opened', async () => {

@@ -537,7 +537,11 @@ export function createHost(
     // Read, and a typed reply, whose Open Draft `openDraft` opens; `admitted` hears each typed
     // reply the Outbox admits.
     followNotificationActions: (
-      openDraft: (draft: string, profile: string) => void = () => undefined,
+      openDraft: (
+        draft: string,
+        profile: string,
+        current: () => string | undefined,
+      ) => void = () => undefined,
       admitted: () => void = () => undefined,
     ) => {
       if (!followingActions) {

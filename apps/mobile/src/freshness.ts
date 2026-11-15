@@ -32,13 +32,12 @@ defineTask(task, async () => {
   }
 });
 
-// Open Draft on a typed reply's notification waits until the mail shell can open it.
-let openDraft: ((draft: string, profile: string) => void) | undefined =
-  undefined;
-let waitingDraft: readonly [string, string] | undefined = undefined;
-export const followOpenedDrafts = (
-  open: (draft: string, profile: string) => void,
-) => {
+// Open Draft on a typed reply's notification waits until the mail shell can open it; `profile`
+// names the Draft's Profile when asked, undefined once it no longer belongs to its connection.
+type OpenDraft = (draft: string, profile: () => string | undefined) => void;
+let openDraft: OpenDraft | undefined = undefined;
+let waitingDraft: Parameters<OpenDraft> | undefined = undefined;
+export const followOpenedDrafts = (open: OpenDraft) => {
   openDraft = open;
   if (waitingDraft !== undefined) {
     open(...waitingDraft);
@@ -57,7 +56,7 @@ if (!previewInbox) {
   followWakes();
   // Likewise Archive, Mark as Read and a typed reply chosen on a notification, without opening the
   // app.
-  followNotificationActions((draft, profile) => {
+  followNotificationActions((draft, _, profile) => {
     if (openDraft === undefined) {
       waitingDraft = [draft, profile];
     } else {

@@ -158,21 +158,28 @@ function OpenedNotifications() {
       });
     }
   }, [leave, registry, close]);
-  useEffect(
-    () =>
-      followOpenedDrafts((draft, profile) => {
-        void (async () => {
-          if (await leave(draft)) {
+  useEffect(() => {
+    let stopped = false;
+    const stop = followOpenedDrafts((draft, profile) => {
+      void (async () => {
+        // As for a tap, the composer may leave first, and the Draft must still be valid afterwards.
+        if (profile() !== undefined && (await leave(draft))) {
+          const profileId = stopped ? undefined : profile();
+          if (profileId !== undefined) {
             close();
             router.navigate({
               pathname: '/compose/[draft]',
-              params: { draft, profileId: profile },
+              params: { draft, profileId },
             });
           }
-        })();
-      }),
-    [leave, close],
-  );
+        }
+      })();
+    });
+    return () => {
+      stopped = true;
+      stop();
+    };
+  }, [leave, close]);
   return null;
 }
 
