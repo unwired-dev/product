@@ -1034,6 +1034,26 @@ describe('rich-reader review regressions', () => {
     }
   });
 
+  it('keeps sender box widths and offsets when regex results omit named groups on Hermes', () => {
+    expect.hasAssertions();
+    const spy = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(withoutNamedGroups);
+    try {
+      const { document } = sanitizeHtml(
+        '<div style="width:300px"><span style="display:inline-block;width:600px">Short</span><div style="width:100%;padding-left:20px">Padded</div></div>',
+      );
+      expect(document).toContain(
+        '<span style="display: inline-block; width: min(100%, 600px)">',
+      );
+      expect(document).toContain(
+        '<div style="width: min(calc(100% - 20px), 100%); padding-left: 20px">',
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('retains admitted remote placeholder geometry without collecting tracking pixels', () => {
     expect.hasAssertions();
     const result = sanitizeHtml(

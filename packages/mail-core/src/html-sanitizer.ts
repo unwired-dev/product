@@ -805,7 +805,8 @@ const horizontalEdges = (
   name: string,
   value: string,
 ): ReadonlyArray<readonly [string, string]> => {
-  const { box, side, part } = horizontalEdge.exec(name)?.groups ?? {};
+  // Hermes omits named groups from results, so captures are read by position.
+  const [, box, side, part] = horizontalEdge.exec(name) ?? [];
   if (box === undefined) {
     return [];
   }
@@ -854,7 +855,7 @@ const offsetPixels = (value: string, font: number, percent: number) =>
 
 // A width as the sender set it, before a wide one was bounded by the reader.
 const senderWidth = (value: string) =>
-  value.replace(/^min\(100%,\s*(?<width>.+)\)$/u, '$<width>');
+  value.replace(/^min\(100%,\s*(?<width>.+)\)$/u, '$1');
 
 // What a box's offsets leave of its containing block.
 const widthLeft = (offsets: readonly string[]) =>
