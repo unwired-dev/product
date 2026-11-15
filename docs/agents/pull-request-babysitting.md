@@ -25,10 +25,11 @@ repository adds:
   author blocks automatic merge. Leave it in place and report the blocker.
 - A PR that builds on another unmerged PR is a stacked PR: create and update
   it with the `gh-stack` skill.
-- **Gate**: full-stop's "ready to merge" means every
-  [automatic merge](#automatic-merge) condition holds on the head except
-  CodeRabbit's approval, which stays advisory: the merger's 2-hour fallback
-  covers it.
+- **Gate**: full-stop's "ready to merge" means full-send's merge gate plus
+  every [automatic merge](#automatic-merge) condition on the head, except that
+  CodeRabbit need not approve the head: the merger's 2-hour fallback covers
+  that once CodeRabbit has reviewed the PR at least once. A PR CodeRabbit has
+  never reviewed is not ready; report it as blocked on CodeRabbit.
 
 For [CI-only native reproduction](native-validation.md#report-what-the-evidence-proves),
 unreviewed diagnostic commits may go on a separate non-draft `[WIP]` PR that is
