@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,6 +16,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import * as Schema from 'effect/Schema';
+
+import thirdPartyNotices from '../apps/mobile/plugins/third-party-notices.cjs';
 
 const decode = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const root = path.join(import.meta.dirname, '..');
@@ -38,6 +41,10 @@ test(
       write(
         path.join(npm, 'vendor/LICENSE'),
         'Vendor copyright and permission\n',
+      );
+      write(
+        path.join(npm, 'THIRD_PARTY_NOTICES.md'),
+        'Bundled npm vendor notice',
       );
       const map = path.join(directory, 'bundle.map');
       write(map, JSON.stringify({ sources: [path.join(npm, 'index.js')] }));
@@ -77,6 +84,10 @@ test(
         path.join(swift, 'checkouts/example-swift/LICENSE'),
         'Swift copyright and permission',
       );
+      write(
+        path.join(swift, 'checkouts/example-swift/THIRD_PARTY_NOTICES.md'),
+        'KSCrash, fishhook and Apple vendor terms',
+      );
       const output = path.join(directory, 'resources');
       const result = spawnSync(
         process.execPath,
@@ -91,6 +102,8 @@ test(
       assert.match(text, /Vendor copyright and permission/u);
       assert.match(text, /Pod copyright and permission/u);
       assert.match(text, /Swift copyright and permission/u);
+      assert.match(text, /KSCrash, fishhook and Apple vendor terms/u);
+      assert.match(text, /Bundled npm vendor notice/u);
       const report = decode(
         readFileSync(path.join(output, 'ThirdPartyNotices.json'), 'utf8'),
       );
@@ -236,5 +249,63 @@ test('pinned licence source bytes remain intact', () => {
       entry.sha256,
       entry.file,
     );
+  }
+});
+
+test('mobile bundle failure cannot be replaced by a successful notice command', async () => {
+  const directory = mkdtempSync(path.join(root, 'scratchpad/notice-phase-'));
+  try {
+    const phase = {
+      name: '"Bundle React Native code and images"',
+      shellScript: JSON.stringify('/bin/sh "$BUNDLER_SCRIPT"'),
+    };
+    const apply = async () => {
+      const config = thirdPartyNotices({ name: 'Fixture', slug: 'fixture' });
+      await config.mods.ios.xcodeproj({
+        ...config,
+        modRequest: { platform: 'ios', modName: 'xcodeproj' },
+        modResults: {
+          hash: {
+            project: { objects: { PBXShellScriptBuildPhase: { phase } } },
+          },
+        },
+      });
+    };
+    await apply();
+    await apply();
+    const phaseScript = Schema.decodeSync(Schema.fromJsonString(Schema.String))(
+      phase.shellScript,
+    );
+    const marker = path.join(directory, 'notice-generated');
+    const bundler = path.join(directory, 'bundler.sh');
+    const derived = path.join(directory, 'derived');
+    // A preceding build left a usable source map. Successful notice generation
+    // must still be unreachable when the next Metro/Hermes process fails.
+    write(path.join(derived, 'Unwired-main.jsbundle.map'), '{"sources":[]}');
+    write(
+      path.join(directory, 'scripts/bundle-third-party-notices.sh'),
+      'printf generated > "$NOTICES_MARKER"',
+    );
+    const run = () =>
+      spawnSync('/bin/sh', ['-c', phaseScript], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          SRCROOT: path.join(directory, 'apps/mobile/ios'),
+          DERIVED_FILE_DIR: derived,
+          BUNDLER_SCRIPT: bundler,
+          NOTICES_MARKER: marker,
+        },
+      });
+    mkdirSync(path.join(directory, 'apps/mobile/ios'), { recursive: true });
+    write(bundler, 'exit 17');
+    assert.equal(run().status, 17);
+    assert.equal(existsSync(marker), false);
+    write(bundler, 'exit 0');
+    assert.equal(run().status, 0);
+    assert.equal(readFileSync(marker, 'utf8'), 'generated');
+    assert.equal(phaseScript.split('# Unwired third-party notices').length, 2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });

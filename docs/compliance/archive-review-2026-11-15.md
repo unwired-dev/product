@@ -54,7 +54,7 @@ recognised unresolved obligations stay explicit under the existing TestFlight
 policy that findings do not themselves block beta upload.
 
 The generator preserves full CocoaPods `FooterText`, local licence texts and
-nested vendor notices. Empty files and a licence-type string alone cannot supply
+nested vendor notices, including Sentry's `THIRD_PARTY_NOTICES.md`. Empty files and a licence-type string alone cannot supply
 notice text. Exact-version/revision supplements recover missing root notices and
 vendored terms, including the different BoringSSL revisions and Hermes terms.
 Each supplied file has an immutable source URL and a checked hash in
@@ -86,7 +86,7 @@ privacy plist have matching disclosure types and purposes.
 The local arm64 Mac Release build passes with Xcode 27.2 and the macOS 27.2 SDK. Generation inside
 the native bundle phase produced 138 components and no unresolved notice text.
 The actual app resource hash is
-`38382aabfd78918d013a14e3940120b1659adddc2a51fa835ae9d2f19dc039a9`.
+`9ad86b38bd6d86612eaa5b1e41c095d4e2c7326e5d688b15f3eb26e384ad4889`.
 After local ad hoc signing, `codesign --verify --deep --strict` passes and archive
 inventory/findings contain no unresolved findings. This app is build `1`, has no
 stamped commit and has no configured backend. It is local packaging evidence,
@@ -100,7 +100,7 @@ options. No warning suppression was added to the product build scripts.
 The arm64 iOS Simulator 27.2 Release build also passes. Its native bundle phase
 packages 216 components; only `standard-navigation@0.0.5` remains unresolved.
 The notice text hash is
-`4d5213516abf3606b5979dea99117624bd44e45607872fdb824f8c30c8c4cfda`.
+`90c069819060afc2fba14ec42c9ac2177dbdf2a7a6d9874fd9ba992252023324`.
 Ad hoc signature verification passes. Both hosts' text and JSON provenance
 resources reproduce byte-for-byte from the final generator and installed inputs.
 Both local builds resolve SwiftNIO-SSL 2.37.5 at

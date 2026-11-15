@@ -1,10 +1,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-const isNoticeFile = (name) =>
-  /^(?:licen[cs]e|copying|notice|unlicense)(?:$|[._-])/iu.test(name);
+const isNoticeFile = (name, includeVendor) =>
+  /^(?:licen[cs]e|copying|notice|unlicense)(?:$|[._-])/iu.test(name) ||
+  (includeVendor &&
+    /^third[ _-]?party[ _-]?(?:notices?|licen[cs]es?)(?:$|[._-])/iu.test(name));
 
-// Keep embedded vendor notices, but never descend into another npm dependency.
+// Root coverage excludes vendor-only files. Recursive collection keeps their
+// text, but never descends into another npm dependency.
 export function noticeFiles(directory, recursive = false, relative = '') {
   return readdirSync(path.join(directory, relative), { withFileTypes: true })
     .toSorted((a, b) => (a.name < b.name ? -1 : Number(a.name > b.name)))
@@ -13,7 +16,7 @@ export function noticeFiles(directory, recursive = false, relative = '') {
       if (entry.isDirectory()) {
         return true;
       }
-      return entry.isFile() && isNoticeFile(entry.name);
+      return entry.isFile() && isNoticeFile(entry.name, recursive);
     })
     .flatMap((entry) => {
       const file = path.join(relative, entry.name);

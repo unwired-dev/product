@@ -246,7 +246,8 @@ runs it after Hermes compilation. `scripts/bundle-third-party-notices.sh`
 uses that build's source map, Pods and resolved Swift checkouts. It honours
 `SOURCEMAP_FILE` and the optional `UNWIRED_SOURCE_PACKAGES` override; otherwise
 Swift packages come from the standard DerivedData location beside `BUILD_DIR`.
-Debug builds do not bundle these release resources.
+The mobile hook preserves a failed Metro/Hermes exit status before generating
+notices. Debug builds do not bundle these release resources.
 
 `node scripts/third-party-notices.mjs <bundle.map> <Pods> <SourcePackages> <resources>`
 combines installed full texts with the exact-version/revision supplements in

@@ -24,6 +24,8 @@ module.exports = function thirdPartyNotices(config) {
         ...(original.includes(map) ? [] : [map]),
         original,
         marker,
+        'unwired_bundle_status=$?',
+        'if [ "$unwired_bundle_status" -ne 0 ]; then exit "$unwired_bundle_status"; fi',
         '/bin/sh "$SRCROOT/../../../scripts/bundle-third-party-notices.sh"',
       ].join('\n'),
     );
