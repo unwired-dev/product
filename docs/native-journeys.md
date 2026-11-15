@@ -253,11 +253,13 @@ On iPhone and iPad, the default Gmail registration journey
 open message's sender, chooses **Block Sender…**, and confirms
 `Block rowan@example.invalid?` in the system alert. Settings › Blocked Senders
 then lists the address as `0 since`; **Edit** switches to **Done** and back, and
-a swipe's **Delete** leaves **No Blocked Senders**. The journey returns to the
-Inbox and reopens the message before the body-tap step that fails on iPhone and
-iPad ([#2169](https://github.com/unwired-dev/product/issues/2169)); iPad opens
-Settings through the Command Palette. The alert, the list and its edit mode are
-kept as attachments.
+a swipe's **Delete** leaves **No Blocked Senders**. Closing Settings returns to
+the open message on iPad; iPhone reopens it from the Inbox. iPad opens Settings
+through the Command Palette, as it does again after the relaunch
+([#989](https://github.com/unwired-dev/product/issues/989)). The body tap that
+closes an open panel goes to the link in the rendered body, clear of iPhone's
+Labels panel ([#2169](https://github.com/unwired-dev/product/issues/2169)). The
+alert, the list and its edit mode are kept as attachments.
 
 `testAppearance` uses the same build and sign-in
 ([#2153](https://github.com/unwired-dev/product/issues/2153)). Settings ›
