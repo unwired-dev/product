@@ -123,6 +123,39 @@ test(
         ).unresolved,
         [],
       );
+      for (const suffix of [
+        'Build/Products',
+        'Build/Intermediates.noindex/ArchiveIntermediates/UnwiredMail/BuildProductsPath',
+      ]) {
+        const buildDir = path.join(directory, suffix);
+        mkdirSync(buildDir, { recursive: true });
+        const bundled = spawnSync(
+          '/bin/sh',
+          [path.join(root, 'scripts/bundle-third-party-notices.sh')],
+          {
+            encoding: 'utf8',
+            env: {
+              ...process.env,
+              CONFIGURATION: 'Release',
+              BUILD_DIR: buildDir,
+              UNWIRED_SOURCE_PACKAGES: '',
+              SOURCEMAP_FILE: map,
+              PODS_ROOT: pods,
+              TARGET_BUILD_DIR: output,
+              UNLOCALIZED_RESOURCES_FOLDER_PATH: 'Fixture.app',
+              NODE_BINARY: process.execPath,
+            },
+          },
+        );
+        assert.equal(bundled.status, 0, bundled.stderr);
+        assert.match(
+          readFileSync(
+            path.join(output, 'Fixture.app/ThirdPartyNotices.txt'),
+            'utf8',
+          ),
+          /KSCrash, fishhook and Apple vendor terms/u,
+        );
+      }
       const stateFile = path.join(swift, 'workspace-state.json');
       const originalState = readFileSync(stateFile, 'utf8');
       const unknown = decode(originalState);

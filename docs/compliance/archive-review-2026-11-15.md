@@ -83,11 +83,13 @@ text, missing parent versus nested notices, supplement hash rejection, generated
 resources and archive hash verification. The mobile Expo configuration and Mac
 privacy plist have matching disclosure types and purposes.
 
-The local arm64 Mac Release build passes with Xcode 27.2 and the macOS 27.2 SDK. Generation inside
+The local arm64 Mac Release build and an actual `.xcarchive` both pass with
+Xcode 27.2 and the macOS 27.2 SDK. Generation inside
 the native bundle phase produced 138 components and no unresolved notice text.
 The actual app resource hash is
 `9ad86b38bd6d86612eaa5b1e41c095d4e2c7326e5d688b15f3eb26e384ad4889`.
-After local ad hoc signing, `codesign --verify --deep --strict` passes and archive
+After local ad hoc signing, `codesign --verify --deep --strict` passes for both
+the built app and archived app, and archive
 inventory/findings contain no unresolved findings. This app is build `1`, has no
 stamped commit and has no configured backend. It is local packaging evidence,
 not the historical production candidate.
@@ -124,3 +126,12 @@ filing, App Store Connect answers and legal notice approval remain owner actions
 No legal document, government filing, store answer or upstream message was
 submitted by this engineering work. The supplied company extract remains private
 and outside the repository and notice resources.
+
+The archive check also verified Xcode's actual `BUILD_DIR`, which changes to
+`Build/Intermediates.noindex/ArchiveIntermediates/UnwiredMail/BuildProductsPath`.
+The notice script locates the resolved package state through the directory's
+ancestors, with an explicit override for a custom package checkout. A regression
+fixture exercises both ordinary and archive layouts through the real shell
+wrapper and inventory readers. The archived notice resources match the ordinary
+build byte-for-byte. This local archive was built unsigned and then ad hoc signed;
+it was not exported or uploaded for distribution.

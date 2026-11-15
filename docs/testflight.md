@@ -245,7 +245,9 @@ plugin appends this step to the JavaScript bundle phase; the Mac project
 runs it after Hermes compilation. `scripts/bundle-third-party-notices.sh`
 uses that build's source map, Pods and resolved Swift checkouts. It honours
 `SOURCEMAP_FILE` and the optional `UNWIRED_SOURCE_PACKAGES` override; otherwise
-Swift packages come from the standard DerivedData location beside `BUILD_DIR`.
+the script searches `BUILD_DIR` ancestors for the resolved
+`SourcePackages/workspace-state.json`. This supports ordinary build products
+and Xcode's deeper `ArchiveIntermediates` layout.
 The mobile hook preserves a failed Metro/Hermes exit status before generating
 notices. Debug builds do not bundle these release resources.
 
