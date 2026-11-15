@@ -413,6 +413,10 @@ the row the core Inbox frames draw. Density is a synchronized Mail Workflow
 Preference: it is stored encrypted on the device and reaches the Profile's other
 Trusted Devices through [Private Sync](private-product-sync.md).
 
+The default Gmail registration journey checks both pages on iPhone and iPad,
+across a change of the device's appearance and a relaunch
+([native journeys](native-journeys.md), [#2210](https://github.com/unwired-dev/product/issues/2210)).
+
 ## Interface language
 
 The Sign In page and Settings' **Language** offer a Language menu picker with System Default and a
