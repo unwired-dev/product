@@ -822,9 +822,17 @@ margin and text indent, inline or in a media rule, becomes zero, so hanging
 indents no longer hang. Text wraps inside its box: `white-space: nowrap` becomes
 `normal`, `pre` becomes `pre-wrap`, and only `overflow-wrap` values that still
 break a long word remain, so short no-wrap runs such as dates and prices can
-wrap in a narrow reader. Fixed heights, zero line heights and nested fixed
-widths can still overflow a box
-([#2204](https://github.com/unwired-dev/product/issues/2204)). Large positive margins and indents (at least 320 CSS
+wrap in a narrow reader. Text also stays inside the box that holds it
+([#2204](https://github.com/unwired-dev/product/issues/2204)). Outside tables, a
+fixed height becomes a minimum height the content can grow past, and a maximum
+height is removed; table boxes already grow to their content, and images keep
+their heights. An element holding text whose line height is shorter than its font
+gets a line height of 1.2, the system font's normal spacing, while image-only
+lines keep a zero line height, so
+sliced-image tables stay seamless. Inside a box with a sender width, widths and
+minimum widths are bounded by that box, and content-sized widths are removed.
+A table squeezed below its minimum content width can still overflow one cell into
+the next. Large positive margins and indents (at least 320 CSS
 pixels after unit resolution) are normalized to zero, and padding or border-width declarations with a token of at least 320
 CSS pixels are removed, because they can push a label past the reader's right
 edge or below the viewport. This includes vertical sides and table border spacing.

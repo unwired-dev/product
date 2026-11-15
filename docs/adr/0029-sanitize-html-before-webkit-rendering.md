@@ -19,9 +19,19 @@ normalized only large or unresolvable negative offsets, and the negative-margin
 image clauses of the prior decision. A real-mail compatibility render showed
 three costs: hanging list indents no longer hang, short no-wrap runs such as
 dates and prices can wrap in a narrow reader, and preformatted text wraps rather
-than running past the right edge. Fixed heights, zero line heights and nested
-fixed widths can still overflow a box; they are tracked in
-[#2204](https://github.com/unwired-dev/product/issues/2204).
+than running past the right edge.
+
+A follow-up ([#2204](https://github.com/unwired-dev/product/issues/2204)) applies
+the same choice to boxes text can overflow. Outside tables, a fixed height
+becomes a minimum height and a maximum height is removed; table boxes already grow
+to their content, and spacer cells keep heights that `min-height` would not set.
+An element holding text whose line height is shorter than its font gets a line
+height of 1.2, while image-only lines keep a zero line height. Inside a box with a
+sender width, widths and minimum widths cannot exceed that box. A compatibility
+render left spacer cells, sliced-image tables and fixed-width columns
+pixel-identical; lines set tighter than their font open up to 1.2. A
+table squeezed below its minimum content width can still overflow one cell into
+the next.
 
 ## Amendment — 2026-11-11
 

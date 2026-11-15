@@ -704,6 +704,57 @@ const normalizeMargins = (
   };
 };
 
+// Table boxes already grow to their content, and spacer cells keep heights that ignore
+// `min-height`.
+const tableBox = /^table(?!-caption$)/u;
+
+// A length or percentage, as opposed to a keyword or an emitted expression.
+const definite = (value: string | undefined) =>
+  lengthPixels(value, { font: 1, percent: 1 }) !== undefined;
+
+// Whether a box has a sender width its descendants must stay inside.
+const senderSized = ({ retained }: FilteredStyle) =>
+  ['width', 'max-width'].some((name) => {
+    const value = retained.get(name);
+    return definite(value) || value?.startsWith('min(') === true;
+  });
+
+// Sender boxes keep their text inside them, where a later image or button fill could cover it
+// (#2204). Outside tables, a fixed height becomes a minimum and a maximum height is dropped.
+// Inside a box of sender width, a width cannot exceed its container.
+const containedBox = (
+  style: FilteredStyle,
+  { display, bounded }: Readonly<{ display: string; bounded: boolean }>,
+): FilteredStyle => {
+  if (tableBox.test(display)) {
+    return style;
+  }
+  const retained = new Map(style.retained);
+  const height = retained.get('height');
+  const minimum = retained.get('min-height');
+  retained.delete('height');
+  retained.delete('max-height');
+  if (definite(height)) {
+    retained.set(
+      'min-height',
+      definite(minimum) ? `max(${height}, ${minimum})` : (height ?? ''),
+    );
+  }
+  for (const name of bounded ? ['width', 'min-width'] : []) {
+    const value = retained.get(name);
+    if (definite(value)) {
+      retained.set(name, `min(100%, ${value})`);
+    } else if (/content|stretch/iu.test(value ?? '')) {
+      retained.delete(name);
+    }
+  }
+  return {
+    ...style,
+    retained,
+    css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
+  };
+};
+
 const offsetTokens = new Map([
   ['margin', 4],
   ['margin-top', 1],
@@ -1979,6 +2030,21 @@ const lineHeightIn = (
   return resolved === undefined || resolved < 0 ? parent : { pixels: resolved };
 };
 
+// A line height in pixels; normal is never shorter than its font.
+const lineHeightPixels = (height: LineHeight, font: number) =>
+  'pixels' in height
+    ? height.pixels
+    : 'factor' in height
+      ? height.factor * font
+      : Infinity;
+
+// Whether the element itself holds text other than spacing, rather than only descendants.
+const ownText = (element: Element) =>
+  element.childNodes.some(
+    (node) =>
+      node.nodeName === '#text' && 'value' in node && /\S/u.test(node.value),
+  );
+
 const contentSecurityPolicy =
   "default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -2103,6 +2169,8 @@ function walk(
   // Off-canvas text boxes, and inherited font size and indent states.
   let direction = 'ltr';
   let margins: ReadonlyMap<string, string> = new Map();
+  // Whether the containing block has a sender width, outside any table.
+  let bounded = false;
   let fontPixels = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
@@ -2506,7 +2574,7 @@ function walk(
     direction = directionIn(node, direction);
     const display = displayOf(node.tagName, sizedStyle);
     const ownMargins = textMargins(node, sizedStyle);
-    const normalized = normalizeMargins(sizedStyle, ownMargins, {
+    const spaced = normalizeMargins(sizedStyle, ownMargins, {
       display:
         node.tagName === 'img' && display === 'inline'
           ? 'inline-block'
@@ -2514,6 +2582,28 @@ function walk(
       directional: direction === 'rtl' || parentDirection === 'rtl',
       font: fontPixels,
     });
+    const boxed =
+      node.tagName === 'img'
+        ? spaced
+        : containedBox(spaced, { display, bounded });
+    // Glyphs overflow a line shorter than their font onto the next box; image-only
+    // cells keep their zero line height (#2204). The system font's normal spacing keeps
+    // the break allowance finite for sender fonts, whose normal metrics are unknown.
+    const normalized =
+      fontPixels >= minimumTextPixels &&
+      ownText(node) &&
+      lineHeightPixels(
+        lineHeightIn(boxed.retained.get('line-height'), lineHeight, fontPixels),
+        fontPixels,
+      ) < fontPixels
+        ? withProperties(boxed, [['line-height', '1.2']])
+        : boxed;
+    const parentBounded = bounded;
+    if (tableBox.test(display)) {
+      bounded = false;
+    } else if (display !== 'inline' && senderSized(normalized)) {
+      bounded = true;
+    }
     margins = ownMargins;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
@@ -2531,6 +2621,7 @@ function walk(
     );
     ancestorLinePixels = linePixels();
     run(normalized);
+    bounded = parentBounded;
     ancestorLinePixels = parentAncestorLinePixels;
     lineHeight = parentLineHeight;
     direction = parentDirection;
