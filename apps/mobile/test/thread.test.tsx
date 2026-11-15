@@ -511,7 +511,10 @@ describe('thread view', () => {
   it('keeps Back, the cached unread count and the truncated subject on a landscape iPhone', async () => {
     expect.hasAssertions();
     const window = Dimensions.get('window');
-    Dimensions.set({ window: { ...window, width: 844, height: 390 } });
+    // At the default text size: Jest's window reports an accessibility size, which wraps the subject.
+    Dimensions.set({
+      window: { ...window, width: 844, height: 390, fontScale: 1 },
+    });
     try {
       const { native, middle } = threadMailbox();
       const store = createInboxStore(native);

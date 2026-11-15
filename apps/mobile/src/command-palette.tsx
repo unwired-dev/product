@@ -53,7 +53,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Glass, SFSymbol, useMenuMotion } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { native } from './registration.ts';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 const PaletteContext = createContext<
   Readonly<{
@@ -235,12 +235,13 @@ const styles = StyleSheet.create({
   dimmed: { opacity: 0.35 },
   detail: { ...textStyles.footnote },
   empty: { ...textStyles.subheadline, padding: spacing.l },
-  // 36pt as the iPad frames draw the command input; its hit slop keeps a 44pt touch target.
+  // 36pt as the iPad frames draw the command input, taller rather than cutting its label with larger
+  // text; its hit slop keeps a 44pt touch target.
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    height: 36,
+    minHeight: 36,
     paddingHorizontal: spacing.m,
     borderRadius: 18,
     borderCurve: 'continuous',
@@ -268,6 +269,10 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   hintText: { flex: 1, gap: 2 },
+  // At accessibility text sizes the symbol, text and Dismiss stack, giving the text the full width.
+  hintStacked: { flexDirection: 'column', alignItems: 'flex-start' },
+  hintTextStacked: { flex: 0, alignSelf: 'stretch' },
+  dismissStacked: { alignSelf: 'flex-end' },
   hintTitle: { ...textStyles.subheadline, fontWeight: '600' },
   hintDetail: { ...textStyles.footnote },
   dismiss: {
@@ -943,6 +948,7 @@ export function usePaletteHeader(): Readonly<{
 export function PaletteHint() {
   const due = useSyncExternalStore(hint.subscribe, hint.getSnapshot);
   const colors = usePalette();
+  const large = useLargeText();
   const { t } = useLocalization();
   if (!due) {
     return null;
@@ -951,6 +957,7 @@ export function PaletteHint() {
     <View
       style={[
         styles.hint,
+        large && styles.hintStacked,
         {
           backgroundColor: colors.surfaceContent,
           boxShadow: colors.menuShadow,
@@ -961,7 +968,7 @@ export function PaletteHint() {
         color={colors.accentInk}
         size={22}
       />
-      <View style={styles.hintText}>
+      <View style={[styles.hintText, large && styles.hintTextStacked]}>
         <Text style={[styles.hintTitle, { color: colors.textPrimary }]}>
           {t('commands.hint')}
         </Text>
@@ -975,7 +982,7 @@ export function PaletteHint() {
         onPress={() => {
           void hint.dismiss();
         }}
-        style={styles.dismiss}>
+        style={[styles.dismiss, large && styles.dismissStacked]}>
         <View
           style={[styles.dismissCircle, { backgroundColor: colors.fillQuiet }]}>
           <SFSymbol

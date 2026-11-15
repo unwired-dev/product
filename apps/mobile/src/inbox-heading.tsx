@@ -12,7 +12,6 @@ import {
 
 import {
   CommandInput,
-  PaletteHint,
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
@@ -20,11 +19,13 @@ import { NavigationChrome } from './design.tsx';
 import { barInset, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { SidebarToggle, SidebarToggleContext } from './sidebar-toggle.tsx';
-import { usePalette } from './theme.ts';
+import { useLargeText, usePalette } from './theme.ts';
 
 const pad = Platform.OS === 'ios' && Platform.isPad;
 
-// The Inbox's title and status line, centered in iPhone's navigation bar clear of its Back.
+// The Inbox's title and status line, centered in iPhone's navigation bar clear of its Back. The
+// bar keeps them at its own size, as UIKit's bar titles do; elsewhere they take up to two lines at
+// accessibility text sizes.
 export function HeadingTitle({
   title,
   subtitle,
@@ -37,6 +38,9 @@ export function HeadingTitle({
   const colors = usePalette();
   const header = usePaletteHeader();
   const { width } = useWindowDimensions();
+  // The heading stays put above the list, so a long folder name leaves the list room.
+  const lines = useLargeText() && !bar ? 2 : 1;
+  const scale = bar ? 1 : undefined;
   const text = (
     // The bar takes one native view as its title, so layout must not flatten this one away.
     <View
@@ -48,7 +52,8 @@ export function HeadingTitle({
       }>
       <Text
         accessibilityRole="header"
-        numberOfLines={1}
+        maxFontSizeMultiplier={scale}
+        numberOfLines={lines}
         style={[styles.title, { color: colors.textPrimary }]}
         {...header.action}>
         {title}
@@ -56,7 +61,8 @@ export function HeadingTitle({
       <View style={styles.subtitle}>
         <Text
           accessibilityLiveRegion="polite"
-          numberOfLines={1}
+          maxFontSizeMultiplier={scale}
+          numberOfLines={lines}
           style={[styles.subtitleText, { color: colors.textSecondary }]}>
           {subtitle}
         </Text>
@@ -112,8 +118,8 @@ export function SearchScope({
 }
 
 // The Inbox heading, which opens the Command Palette by a downward swipe, its accessibility
-// action or, on iPad, its command input, with the one-time hint beneath it; and the app-wide and
-// navigation commands the Inbox offers while each of their controls is available.
+// action or, on iPad, its command input; and the app-wide and navigation commands the Inbox offers
+// while each of their controls is available.
 export function InboxHeading({
   children,
   detail,
@@ -197,7 +203,6 @@ export function InboxHeading({
         ) : null}
         {inBar ? null : children}
       </View>
-      <PaletteHint />
     </>
   );
 }

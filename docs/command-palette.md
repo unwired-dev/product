@@ -101,8 +101,9 @@ results never appear in the palette. The vocabulary lives in the
   which stay put while the content scrolls) opens the palette; swipes that start in the content scroll
   it as usual. There is no visible entry button. Settings pages pushed over the list
   show the system navigation bar's title, which takes no swipe; their Back returns to
-  the list's title. A one-time hint under the
-  Inbox heading says Swipe down on the header for commands, and goes away once
+  the list's title. A one-time hint at the top of the
+  Inbox list, scrolling with the messages so that larger text never leaves them
+  without room, says Swipe down on the header for commands, and goes away once
   dismissed or after the palette first opens; the choice is kept in the
   device's preferences. Each header's title also exposes an Open Command
   Palette accessibility action for VoiceOver and other assistive controls; while

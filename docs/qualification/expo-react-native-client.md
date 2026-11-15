@@ -11,6 +11,33 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad Inbox and reader at the largest text size, 2026-11-15
+
+[#2191](https://github.com/unwired-dev/product/issues/2191), part of
+[#2007](https://github.com/unwired-dev/product/issues/2007), adds a step to the
+Inbox journey: it relaunches at the default text size and at Accessibility
+XXXL, runs the XCTest audit for clipped text and Dynamic Type on the Inbox and
+the reader at the largest size, and checks that the plain body grows more than
+1.5 times. It ran on an `open-read-relaunch` Release Simulator build of
+28dabd006 with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2, in
+Dark. Host load was 60–430 from other work.
+
+- iPhone 18 Pro and iPad Pro 11-inch (M5) passed the whole journey, with no
+  audit issue at the largest size.
+- HTML bodies follow the text size: a probe (an uncommitted copy of the
+  `registration-thread` journey that opens the field guide at both sizes)
+  measured its first paragraph at 23pt tall by default and 145pt at the
+  largest size on iPhone. It printed `PROBE2191`.
+- On iPad, Mailboxes, the list and the reader stay side by side at their usual
+  widths, so single words such as "Archive" break between characters; the audit
+  does not report it. That layout is left to
+  [#2193](https://github.com/unwired-dev/product/issues/2193).
+- a9add0813 then caps the fixed reader subject at three lines and the iPad Inbox
+  heading at two, after review. The journey's short subjects do not reach the
+  cap; the PR's `Expo native E2E` jobs run the journey at that head.
+- **Light appearance, landscape, VoiceOver and physical devices at these sizes
+  are deferred.**
+
 ## iPhone and iPad composer From and Compose actions menus, 2026-11-14
 
 [#2160](https://github.com/unwired-dev/product/issues/2160) adds a step to the

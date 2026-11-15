@@ -3,9 +3,15 @@ import {
   profilePalette,
   typography,
 } from '@private-email/mail-core/theme';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, useWindowDimensions } from 'react-native';
 
 export const textStyles = { ...typography.ios, reading: typography.reading };
+
+// Whether the system text size is one of the accessibility sizes, where single lines would cut text
+// short: rows wrap and side-by-side text stacks.
+export function useLargeText() {
+  return useWindowDimensions().fontScale > 1.4;
+}
 
 // The current appearance, Light unless the system reports Dark.
 export function useAppearance() {
