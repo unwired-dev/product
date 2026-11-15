@@ -1734,14 +1734,14 @@ const fittedText = (
       percent: font,
     }),
   };
-  const fits = (pixels: number) =>
-    room === undefined || pixels <= 0 || pixels + font <= room;
-  const removed = [
+  const fits = (offset: number) =>
+    room === undefined || offset <= 0 || offset + font <= room;
+  const zeroed = [
     ...(fits(own.indent) ? [] : [['text-indent', '0'] as const]),
     ...(fits(own.spacing) ? [] : [['letter-spacing', '0'] as const]),
   ];
   return {
-    style: removed.length === 0 ? style : withProperties(style, removed),
+    style: zeroed.length === 0 ? style : withProperties(style, zeroed),
     indent: fits(own.indent) ? own.indent : 0,
     spacing: fits(own.spacing) ? own.spacing : 0,
   };
@@ -2903,7 +2903,7 @@ function walk(
       used: placed.used,
       font: fontPixels,
     });
-    const text = fittedText(
+    const fittedState = fittedText(
       fittedLines(
         containedBox(placed.style, {
           tag: node.tagName,
@@ -2915,8 +2915,8 @@ function walk(
       ),
       { room, font: fontPixels, indent, spacing },
     );
-    const normalized = text.style;
-    ({ indent, spacing } = text);
+    const normalized = fittedState.style;
+    ({ indent, spacing } = fittedState);
     margins = ownMargins;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
