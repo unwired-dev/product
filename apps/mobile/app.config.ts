@@ -112,25 +112,36 @@ const config: ExpoConfig = {
     },
     // The App Privacy answers in docs/app-privacy.md; the Mac manifest declares the same types.
     privacyManifests: {
-      NSPrivacyCollectedDataTypes: [
-        'UserID',
-        'DeviceID',
-        'ProductInteraction',
-        'OtherDataTypes',
-        'EmailAddress',
-      ].map((type) => ({
+      NSPrivacyCollectedDataTypes: Object.entries({
+        UserID: ['AppFunctionality', 'Analytics'],
+        DeviceID: ['AppFunctionality', 'Analytics'],
+        ProductInteraction: ['AppFunctionality'],
+        OtherDataTypes: ['AppFunctionality', 'Analytics'],
+        EmailAddress: ['AppFunctionality'],
+        Name: ['AppFunctionality'],
+        PhoneNumber: ['AppFunctionality'],
+        CoarseLocation: ['AppFunctionality'],
+        OtherUsageData: ['Analytics'],
+        EmailsOrTextMessages: ['AppFunctionality'],
+        PhotosorVideos: ['AppFunctionality'],
+        OtherUserContent: ['AppFunctionality'],
+        CrashData: ['AppFunctionality'],
+        PerformanceData: ['AppFunctionality'],
+        OtherDiagnosticData: ['AppFunctionality'],
+      }).map(([type, purposes]) => ({
         NSPrivacyCollectedDataType: `NSPrivacyCollectedDataType${type}`,
         NSPrivacyCollectedDataTypeLinked: true,
         NSPrivacyCollectedDataTypeTracking: false,
-        NSPrivacyCollectedDataTypePurposes: [
-          'NSPrivacyCollectedDataTypePurposeAppFunctionality',
-        ],
+        NSPrivacyCollectedDataTypePurposes: purposes.map(
+          (purpose) => `NSPrivacyCollectedDataTypePurpose${purpose}`,
+        ),
       })),
     },
   },
   plugins: [
     'expo-router',
     './plugins/private-inbox.cjs',
+    './plugins/third-party-notices.cjs',
     './plugins/localization.cjs',
     './plugins/design.cjs',
     './plugins/categorization-spike.cjs',

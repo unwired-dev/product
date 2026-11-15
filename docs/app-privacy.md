@@ -1,12 +1,12 @@
 # App Privacy answers for App Store Connect
 
-Status: draft answers for Unwired Mail on iPhone, iPad and Mac, recorded in
-[issue #1966](https://github.com/unwired-dev/product/issues/1966) from the code at
-commit `135d15ba4`. This is not a submission and not legal advice. The account
-owner submits the answers in App Store Connect, and the
-[app privacy notice](https://github.com/unwired-dev/product/issues/1946) must
-reconcile with them before release. Revise this page with any change to the data
-flows it cites.
+Status: proposed answers reconciled on 15 November 2026 for
+[issue #2217](https://github.com/unwired-dev/product/issues/2217), following
+[#1966](https://github.com/unwired-dev/product/issues/1966). The
+[dated evidence record](compliance/app-privacy-2026-11-15.md) distinguishes source,
+archive, current production and deferred runtime checks. The account owner submits
+the answers in App Store Connect. The [app privacy notice](https://github.com/unwired-dev/product/issues/1946)
+must reconcile with them before release. Revise this page when its data flows change.
 
 ## Apple's terms
 
@@ -23,13 +23,11 @@ The answers follow Apple's
 - **Tracking** means linking app data with other companies' data for advertising or
   advertising measurement, or sharing it with a data broker.
 
-Apple's page does not address end-to-end encryption. These answers treat
-ciphertext the backend cannot decrypt as not readable, so not collected. That is
-an interpretation for the owner to confirm, not a claim that the data is
-anonymous: the ciphertext still exists, is tied to a Product Account and is
-deleted with it.
-If the owner rejects it, Emails or Text Messages, Photos or Videos and Other
-User Content become collected and linked, for App Functionality.
+On 15 November 2026 the owner selected broader disclosure for synchronized
+Drafts, photos, files and mailbox descriptions. These answers include that content
+as collected and linked for App Functionality. This disclosure preserves
+end-to-end encryption and device-held keys; it does not authorize readable
+content on the backend.
 
 ## On-device processing and encrypted sync
 
@@ -81,27 +79,54 @@ Trusted Devices keep the generic `Apple mobile device` or `Mac` name
 [Product Account deletion](account-removal.md) removes the account's records and
 keeps the tombstone.
 
+## Google SDK collection
+
+GoogleSignIn 10.0.0 declares linked Name, Email Address, Phone Number and Coarse
+Location for App Functionality; User ID and Other Data Types for App Functionality
+and Analytics; Device ID and Other Usage Data for Analytics. All are declared
+not used for tracking. The answers retain these partner declarations. They do not
+assert that Unwired stores every type in readable form. Google's SDK adds the
+basic `email` and `profile` scopes and sends SDK/version environment metadata;
+Unwired requests no phone-number scope. Google describes IP-derived general
+location for fraud prevention, which does not require location permission.
+[Google SDK disclosure](https://developers.google.com/identity/sign-in/ios/app-privacy),
+[pinned-source reconciliation](compliance/app-privacy-2026-11-15.md#google-sign-in).
+
+The SDK privacy page does not explain every category in its broader manifest or
+give per-type retention limits. The proposed answers retain those categories and
+purposes until version/configuration-specific evidence supports narrowing them.
+Google's Analytics purposes are separate from Unwired's unimplemented product
+analytics. Clearing the SDK's local sign-in cache does not establish provider
+deletion. [Google retention policy](https://policies.google.com/technologies/retention).
+
 ## Opt-in error reporting
 
 [Error reporting](telemetry.md#error-reporting-implementation) is off by default,
 including for upgrades, and turns on only after the person enables it. The app
-sends reports to Convex, which forwards them to PostHog EU with GeoIP disabled.
-A report carries a random installation id unrelated to the Product Account,
-predefined failure codes, approved constant messages, stack addresses, up to 50
-operation stages with elapsed milliseconds and HTTP status, and the app version,
-build, OS version, platform and release channel. No mail, account identity or
-free text is sent. Unsent reports expire on the device after 24 hours, and
-**Delete my error reports** deletes delivered reports at PostHog.
+sends allowlisted reports to Convex, which forwards them to PostHog EU with GeoIP
+disabled. Reports carry an installation id independent of the Product Account,
+predefined failure codes, approved constant messages, stack addresses, bounded
+operation stages, timings and status, and app/build/OS/platform/channel metadata.
+Unsent reports expire locally after 24 hours. **Delete my error reports** uses the
+receiver's verified remote-deletion path; signed-device and vendor qualification
+remain deferred.
 
-The code ships, but no reporting service is provisioned and release
-qualification has not passed. Native collection stays off until
-`UNWIRED_NATIVE_ERROR_REPORTING_QUALIFIED` is enabled after
-[#1050](https://github.com/unwired-dev/product/issues/1050), and the receiver
-fails closed until the `POSTHOG_*` Convex variables are configured. Apple requires
-disclosing data collected on an ongoing basis after one permission request, so
-the diagnostics answers below apply from the first build that connects the
-service. Until then, leave them out of the answers and the
-[privacy manifests](#privacy-manifests).
+Normal non-mock Release builds with a Convex URL can offer JavaScript reporting.
+Debug builds require `UNWIRED_ERROR_REPORTING_QUALIFICATION`.
+`UNWIRED_NATIVE_ERROR_REPORTING_QUALIFIED` gates only the disconnected local
+Sentry collector and remains off pending
+[#1050](https://github.com/unwired-dev/product/issues/1050). Sentry's own transport
+is blocked; only its allowlisted projection may use the app's reporting path.
+The application's installation identifier makes these diagnostics linked,
+regardless of Sentry's unlinked vendor-manifest declarations.
+
+On 15 November, the production backend deployed by the reviewed TestFlight run
+had all three `POSTHOG_*` service variables configured. Configuration does not
+prove ingestion, deletion or runtime qualification, and the signed archive's
+backend still needs matching. The proposed answers include diagnostics because
+JavaScript reporting is reachable; the native flag is not a reporting-wide gate.
+Recurring collection after one opt-in requires disclosure.
+[Observed configuration and limits](compliance/app-privacy-2026-11-15.md#production-observations).
 
 Product analytics, cloud mail assistance through Private Cloud Compute
 ([#1451](https://github.com/unwired-dev/product/issues/1451)), customer support
@@ -111,69 +136,60 @@ Each needs new answers before it is enabled.
 
 ## Draft answers
 
-Data used to track you: **none**. No data is used for third-party advertising,
-developer advertising or marketing, analytics or product personalization.
+Data used to track you: **none**. No Third-Party Advertising, Developer
+Advertising or Marketing, or Product Personalization purpose is declared.
+Analytics below reflects Google's SDK declarations.
 
-| Category     | Data type               | Collected                                | Linked | Purpose           | Evidence                                                                              |
-| ------------ | ----------------------- | ---------------------------------------- | ------ | ----------------- | ------------------------------------------------------------------------------------- |
-| Identifiers  | User ID                 | Yes                                      | Yes    | App Functionality | Sign-in issuer and subject                                                            |
-| Identifiers  | Device ID               | Yes                                      | Yes    | App Functionality | Trusted Device identifier, APNs token; installation id once reporting connects        |
-| Usage Data   | Product Interaction     | Yes                                      | Yes    | App Functionality | Send claim times, scheduled-send times and states, account and device last-seen times |
-| Other Data   | Other Data Types        | Yes                                      | Yes    | App Functionality | Sign-in tokens kept while account-deletion revocation retries                         |
-| Contact      | Email Address           | Yes                                      | Yes    | App Functionality | Keyed Gmail address digest, which Apple counts as a hashed email address              |
-| Diagnostics  | Crash Data              | When reporting connects                  | Yes    | App Functionality | Exception names, codes and stack addresses                                            |
-| Diagnostics  | Performance Data        | When reporting connects                  | Yes    | App Functionality | Operation elapsed milliseconds                                                        |
-| Diagnostics  | Other Diagnostic Data   | When reporting connects                  | Yes    | App Functionality | Breadcrumb stages, HTTP status, app, build, OS version and channel                    |
-| User Content | Emails or Text Messages | No: device-local or end-to-end encrypted | —      | —                 | Mail and Drafts; see the encryption interpretation above                              |
-| User Content | Photos or Videos        | No: end-to-end encrypted                 | —      | —                 | Photos attached to or inserted in Drafts (Draft Assets)                               |
-| User Content | Other User Content      | No: device-local or end-to-end encrypted | —      | —                 | Mailbox descriptions, files attached to Drafts                                        |
+All rows are collected, linked and not used for tracking. Partner categories are
+conservative proposed disclosures, not claims that runtime capture observed every
+type.
 
-Every other data type is not collected: name, phone number, physical address,
-health, financial, location, sensitive information, contacts, audio,
-browsing and search history, purchases and advertising data.
+| Category     | Data type               | Purposes                     | Evidence                                                                |
+| ------------ | ----------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| Contact      | Name                    | App Functionality            | Google SDK declaration and basic profile                                |
+| Contact      | Email Address           | App Functionality            | Google SDK, keyed Gmail routing digest, encrypted synced address fields |
+| Contact      | Phone Number            | App Functionality            | Google SDK declaration; no app phone scope                              |
+| Location     | Coarse Location         | App Functionality            | Google SDK declaration and IP-derived fraud prevention                  |
+| Identifiers  | User ID                 | App Functionality, Analytics | Sign-in issuer/subject; Google SDK                                      |
+| Identifiers  | Device ID               | App Functionality, Analytics | Trusted Device/APNs/reporting installation identifiers; Google SDK      |
+| Usage Data   | Product Interaction     | App Functionality            | Send claims, scheduling state and last-seen times                       |
+| Usage Data   | Other Usage Data        | Analytics                    | Google SDK declaration                                                  |
+| Other Data   | Other Data Types        | App Functionality, Analytics | Retained Apple revocation material; Google SDK                          |
+| User Content | Emails or Text Messages | App Functionality            | Synchronized Draft subject, sender, recipients and body                 |
+| User Content | Photos or Videos        | App Functionality            | Synchronized Draft photos and images                                    |
+| User Content | Other User Content      | App Functionality            | Synchronized Draft files and mailbox descriptions                       |
+| Diagnostics  | Crash Data              | App Functionality            | Consented exceptions, codes and stack frames                            |
+| Diagnostics  | Performance Data        | App Functionality            | Elapsed operation timings attached to failures                          |
+| Diagnostics  | Other Diagnostic Data   | App Functionality            | Allowlisted stages, HTTP status and build/OS/channel metadata           |
 
-Three answers are conservative choices for the owner:
+The remaining categories have no positive collection evidence in this reviewed
+scope. Contacts and on-device assistance remain device-local. Other Data Types
+includes Apple authorization material retained across failed revocation retries,
+so its real-time processing exemption does not apply. Diagnostics are linked to
+an installation even though they are independent of the Product Account.
 
-- **Email Address** is declared because the routing digest is a keyed hash of
-  the address, tied to the Product Account. Declaring nothing would rely on the
-  backend-held key making the digest unlike a plain hash, which Apple's page does
-  not address.
-- **Other Data Types** covers the Sign in with Apple authorization code or
-  tokens a deletion request stores; Google sign-in stores none. When Apple revocation times out or fails retryably,
-  the request ends and the material stays in
-  `productAccountDeletionRequests` until a retry revokes it
-  (`packages/convex/convex/productAccountDeletion.ts`), so the real-time
-  exemption does not apply.
-- **Diagnostics are linked** because the installation id identifies a device,
-  though it is not tied to the Product Account. Apple treats data as unlinked only
-  when direct identifiers are removed before collection.
-
-Not collected under Apple's definition: identity tokens and Gmail push addresses
-verified and discarded in the same request. IP addresses are not stored in the
-schema; the owner confirms that Convex and PostHog logs do not retain them in a
-readable form beyond servicing requests.
+The schema does not store client IP addresses. That alone does not prove how
+Convex or PostHog infrastructure logs handle them. Processor log retention and
+actual PostHog project settings remain deferred. PostHog Free event retention is
+one year without a guaranteed physical deletion deadline; person profiles remain
+until explicit deletion. The local 24-hour queue limit is separate.
+[Processor evidence and remaining checks](compliance/app-privacy-2026-11-15.md#remaining-checks).
 
 ## Privacy manifests
 
-Each app's own privacy manifest declares the five collected types above as
-linked, not used for tracking, for App Functionality:
-`apps/macos/macos/PrivacyInfo.xcprivacy` on the Mac, and `ios.privacyManifests`
-in `apps/mobile/app.config.ts`, which Expo writes into the generated
-`PrivacyInfo.xcprivacy` on iPhone and iPad. Change both with the answers. The
-[archive inventory](testflight.md#what-the-script-does) records what each
-archive declares.
-
-The build that connects error reporting adds
-`NSPrivacyCollectedDataTypeCrashData`,
-`NSPrivacyCollectedDataTypePerformanceData` and
-`NSPrivacyCollectedDataTypeOtherDiagnosticData` to both manifests, also linked,
-not tracking, for App Functionality.
+Each app's own privacy manifest declares the 15 rows above as linked and not used
+for tracking, with the listed purposes: `apps/macos/macos/PrivacyInfo.xcprivacy`
+and `ios.privacyManifests` in `apps/mobile/app.config.ts`. Expo writes the latter
+into the generated iPhone/iPad manifest. Vendor manifests remain intact. Change
+both app manifests with these answers. The
+[archive inventory](testflight.md#what-the-script-does) records each archive's
+actual declarations; the reviewed historical archive predates this correction.
 
 ## Differences to resolve
 
-| Source                                                                            | Difference                                                                                                                                                                           | Resolution                                                                                                                                              |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Provisional privacy notice](https://www.unwired.dev/privacy)                     | Covers only the website, Product Waitlist and bookings and says nothing about the app.                                                                                               | [#1946](https://github.com/unwired-dev/product/issues/1946) publishes the app notice from this inventory.                                               |
-| [Google user data disclosure](google-registration.md#google-user-data-disclosure) | Lists Gmail history ids as stored. The relay keeps received ids for 10 minutes and the last verified id on each connection, which conflicts with ADR 0002's transient push payloads. | The owner resolves the retention conflict ([owner action 1](google-registration.md#remaining-owner-actions)), then updates both pages.                  |
-| [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)          | Legacy Gmail rows registered before opaque routing keep a readable `emailAddress` until their device registers again.                                                                | Before submission, the owner confirms the production deployment has no `mailProviderConnections` or `gmailPushVerificationSignals` row with an address. |
-| [Opt-in error reporting](telemetry.md)                                            | Code ships with the receiver disconnected and native collection off.                                                                                                                 | Add the diagnostics answers and manifest types in the release that connects the service.                                                                |
+| Source                                                                            | Difference                                                                                                          | Resolution                                                                                                                                                   |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Provisional privacy notice](https://www.unwired.dev/privacy)                     | Covers the website, Product Waitlist and bookings.                                                                  | [#1946](https://github.com/unwired-dev/product/issues/1946) publishes the app notice using this inventory, including partner and encrypted-sync disclosures. |
+| [Google user data disclosure](google-registration.md#google-user-data-disclosure) | Gmail history retention differs from ADR 0002's transient push payloads.                                            | Resolve the existing [retention decision](google-registration.md#remaining-owner-actions).                                                                   |
+| [ADR 0002](adr/0002-device-held-mail-provider-tokens-with-push-relay.md)          | Legacy rows can retain a readable address until re-registration.                                                    | The checked production deployment had zero such rows on 15 November. Match the final archive's backend and recheck if different.                             |
+| [Error reporting](telemetry.md)                                                   | Native capture is unqualified; JavaScript reporting is reachable and the checked backend has service configuration. | Include diagnostics; complete signed-device, vendor and processor checks without enabling native capture early.                                              |

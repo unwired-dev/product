@@ -4,7 +4,8 @@
 // records declarations; it does not decide compliance, export exemptions or
 // App Privacy answers (#1958, #1964).
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, realpathSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argv, exit, stderr, stdout } from 'node:process';
 
@@ -218,6 +219,38 @@ for (const { category, reasons } of manifests.flatMap(
 
 // Embedded code is every nested framework, dylib, extension and helper, plus the app itself.
 const appManifest = `${contents}${macos ? 'Resources/' : ''}PrivacyInfo.xcprivacy`;
+// Read the resource itself, rather than trusting the generator's build log.
+const noticesPath = `${contents}${macos ? 'Resources/' : ''}ThirdPartyNotices`;
+const noticeText = path.join(app, `${noticesPath}.txt`);
+const noticeReport = path.join(app, `${noticesPath}.json`);
+let thirdPartyNotices = null;
+if (existsSync(noticeText) || existsSync(noticeReport)) {
+  try {
+    const metadata = Schema.decodeSync(
+      Schema.fromJsonString(
+        Schema.Struct({
+          sha256: Schema.String,
+          components: Schema.Array(Schema.Struct({ id: Schema.String })),
+          unresolved: Schema.Array(Schema.String),
+        }),
+      ),
+    )(readFileSync(noticeReport, 'utf8'));
+    const sha256 = createHash('sha256')
+      .update(readFileSync(noticeText))
+      .digest('hex');
+    if (sha256 !== metadata.sha256) {
+      throw new Error('notice text hash mismatch');
+    }
+    thirdPartyNotices = {
+      path: `${noticesPath}.txt`,
+      sha256,
+      components: metadata.components.map(({ id }) => id),
+      unresolved: metadata.unresolved,
+    };
+  } catch (error) {
+    fail(`unreadable third-party notices: ${error.message}`);
+  }
+}
 const embedded = entries.filter((entry) =>
   /\.(?:framework|dylib|appex|xpc|app)$/u.test(entry),
 );
@@ -278,6 +311,18 @@ stdout.write(
         exportComplianceCode:
           declaration.ITSEncryptionExportComplianceCode ?? null,
       },
+      reporting: {
+        channel: ['production', 'testflight', 'qualification'].includes(
+          info.UnwiredErrorReportingChannel,
+        )
+          ? info.UnwiredErrorReportingChannel
+          : null,
+        nativeQualified: info.UnwiredNativeErrorReportingQualified === true,
+        backendConfigured:
+          typeof info.UnwiredConvexURL === 'string' &&
+          info.UnwiredConvexURL.length > 0,
+      },
+      thirdPartyNotices,
       privacyManifests: manifests,
       requiredReasonApis: sortedKeys(requiredReasonApis),
       permissions: sortedKeys(

@@ -16,10 +16,10 @@ const write = (file, text = '') => {
   writeFileSync(file, text);
 };
 
-const specifier = (title, licence) =>
+const specifier = (title, licence, text) =>
   `<dict><key>Title</key><string>${title}</string>${
     licence ? `<key>License</key><string>${licence}</string>` : ''
-  }</dict>`;
+  }${text === undefined ? '' : `<key>FooterText</key><string>${text}</string>`}</dict>`;
 
 // An installed Pods folder with a remote pod CocoaPods acknowledged, path pods
 // with string, object and missing podspec licences, and a remote pod without
@@ -34,7 +34,10 @@ function fixture() {
   );
   write(path.join(directory, 'package.json'), '{}');
   write(path.join(directory, 'node_modules/react-native/package.json'), '{}');
-  write(path.join(directory, 'node_modules/react-native/LICENSE'));
+  write(
+    path.join(directory, 'node_modules/react-native/LICENSE'),
+    'MIT permission text',
+  );
   write(
     path.join(
       directory,
@@ -42,7 +45,10 @@ function fixture() {
     ),
   );
   write(path.join(directory, 'node_modules/expo-font/package.json'), '{}');
-  write(path.join(directory, 'node_modules/expo-font/ios/LICENSE.md'));
+  write(
+    path.join(directory, 'node_modules/expo-font/ios/LICENSE.md'),
+    'MIT permission text',
+  );
   write(path.join(directory, 'ios/build/generated/ios/ReactCodegen.podspec'));
   mkdirSync(path.join(directory, 'ios/build/generated/ios/LICENSE'));
   const pods = path.join(directory, 'ios/Pods');
@@ -89,8 +95,9 @@ function fixture() {
     ),
     `<?xml version="1.0"?><plist version="1.0"><dict><key>PreferenceSpecifiers</key><array>${[
       specifier('Acknowledgements'),
-      specifier('AppAuth', 'Apache-2.0'),
-      specifier('RCT-Folly', 'Apache License, Version 2.0'),
+      specifier('AppAuth', 'Apache-2.0', 'Apache permission text'),
+      specifier('GoogleUtilities', 'MIT', '   '),
+      specifier('RCT-Folly', undefined, 'Apache permission text'),
       specifier(''),
     ].join('')}</array></dict></plist>`,
   );
@@ -108,7 +115,10 @@ function fixture() {
   const packages = path.join(directory, 'SourcePackages');
   const dependency = (identity, checkoutState, ...files) => {
     for (const file of ['Package.swift', ...files]) {
-      write(path.join(packages, 'checkouts', identity, file));
+      write(
+        path.join(packages, 'checkouts', identity, file),
+        'Swift permission text',
+      );
     }
     return {
       packageRef: {
@@ -141,8 +151,10 @@ function fixture() {
   return { directory, pods, packages, state };
 }
 
-const inventory = (pods, packages) =>
-  spawnSync(process.execPath, [script, pods, packages], { encoding: 'utf8' });
+const inventory = (pods, packages, ...options) =>
+  spawnSync(process.execPath, [script, pods, packages, ...options], {
+    encoding: 'utf8',
+  });
 
 // The acknowledgements are a property list, read with macOS plutil.
 test(
@@ -176,7 +188,7 @@ test(
           {
             name: 'GoogleUtilities',
             version: '8.1.4',
-            licence: null,
+            licence: 'MIT',
             licenceText: false,
           },
           {
@@ -215,7 +227,7 @@ test(
             licenceFiles: ['LICENSE.txt', 'NOTICE.txt'],
           },
         ],
-        undeclared: ['GoogleUtilities@8.1.4', 'Yoga@0.0.0'],
+        undeclared: ['Yoga@0.0.0'],
         withoutLicenceText: [
           'DoubleConversion@1.1.6',
           'GoogleUtilities@8.1.4',
@@ -223,6 +235,66 @@ test(
           `sentry-cocoa@${'b'.repeat(40)}`,
         ],
       });
+
+      const vendorFile = path.join(
+        packages,
+        'checkouts/swift-nio/Sources/Vendor/UNLICENSE',
+      );
+      write(vendorFile, 'Vendored permission text');
+      write(
+        path.join(packages, 'checkouts/swift-nio/.git/LICENSE'),
+        'Git metadata',
+      );
+      const withText = inventory(pods, packages, '--include-text');
+      assert.equal(withText.status, 0, withText.stderr);
+      const texts = decodeJson(withText.stdout);
+      assert.equal(
+        texts.pods.find((item) => item.name === 'AppAuth').noticeTexts[0].text,
+        'Apache permission text',
+      );
+      assert.equal(
+        texts.pods.find((item) => item.name === 'GoogleUtilities').noticeTexts
+          .length,
+        0,
+      );
+      assert.ok(
+        texts.swiftPackages
+          .find((item) => item.identity === 'swift-nio')
+          .noticeTexts.some(
+            (notice) =>
+              notice.file === vendorFile &&
+              notice.text === 'Vendored permission text',
+          ),
+      );
+      assert.ok(
+        texts.swiftPackages.every((item) =>
+          item.noticeTexts.every((notice) => !notice.file.includes('/.git/')),
+        ),
+      );
+
+      for (const file of [
+        'node_modules/react-native/LICENSE',
+        'node_modules/expo-font/ios/LICENSE.md',
+        'SourcePackages/checkouts/swift-nio/LICENSE.txt',
+        'SourcePackages/checkouts/swift-nio/NOTICE.txt',
+      ]) {
+        write(path.join(directory, file), '   \n');
+      }
+      const emptyResult = inventory(pods, packages);
+      assert.equal(emptyResult.status, 0, emptyResult.stderr);
+      const empty = decodeJson(emptyResult.stdout);
+      assert.ok(
+        empty.pods
+          .filter((item) =>
+            ['React-Core', 'ExpoFont', 'Yoga'].includes(item.name),
+          )
+          .every((item) => !item.licenceText),
+      );
+      assert.deepEqual(
+        empty.swiftPackages.find((item) => item.identity === 'swift-nio')
+          .licenceFiles,
+        [],
+      );
 
       rmSync(path.join(directory, 'node_modules/expo-font'), {
         recursive: true,
@@ -234,7 +306,10 @@ test(
         /missing pod path .*node_modules\/expo-font\/ios/u,
       );
       assert.equal(missingPath.stdout, '');
-      write(path.join(directory, 'node_modules/expo-font/ios/LICENSE.md'));
+      write(
+        path.join(directory, 'node_modules/expo-font/ios/LICENSE.md'),
+        'MIT permission text',
+      );
 
       rmSync(path.join(packages, 'checkouts/swift-nio'), { recursive: true });
       const missing = inventory(pods, packages);

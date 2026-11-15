@@ -28,6 +28,10 @@ is also in scope, with the coverage limits below. General debug-log collection,
 session replay and automatic interaction capture are outside this scope.
 
 The selected initial service is PostHog Cloud in the EU region on its Free plan.
+A [15 November 2026 configuration check](compliance/app-privacy-2026-11-15.md#production-observations)
+found the receiver's three service variables configured on the production backend
+deployed by the reviewed TestFlight run. This does not establish the actual
+PostHog plan, successful ingestion/deletion or signed-device qualification.
 No paid telemetry subscription, Convex upgrade for telemetry, automatic overage,
 or self-hosted service is authorized by this decision.
 
@@ -297,6 +301,13 @@ and TestFlight use their corresponding channel and the same default-off consent.
 UNWIRED_NATIVE_ERROR_REPORTING_QUALIFIED defaults to 0; keep it there until the
 per-platform checks in #1050 pass. No Sentry service DSN is configured.
 
+The native qualification flag gates only native collection. Normal non-mock
+Release builds with a Convex URL can expose JavaScript reporting independently of
+that flag. Missing vendor configuration blocks forwarding captures, but the
+receiver's enable/revoke/delete/status endpoints can still retain minimal
+installation state. Do not describe the whole receiver as disconnected based on
+the native flag or missing release qualification.
+
 Sentry Cocoa 9.30.2 is used solely as a disconnected local native collector.
 Every SDK request must remain blocked; only the approved projection may reach
 PostHog through the application receiver. Revocation closes the collector and
@@ -308,9 +319,12 @@ revoke/crash and off/on relaunch without resurrection using the disconnected
 collector. This is feasibility evidence only. Signed iPhone, iPad and Mac app
 crashes, complete consent races, native-to-receiver forwarding, source-map and
 native-symbol readability, 24-hour expiry, live PostHog deletion and quota
-behavior remain protected release checks under #1050. A vendor login was not
-available in this implementation session; deterministic receiver tests do not
-stand in for those checks.
+behavior remain protected release checks under #1050. The original implementation
+session had no vendor login. The later read-only configuration check confirmed
+service variables but received HTTP 403 when reading PostHog project settings:
+the existing person/deletion key lacks `project:read`. Use separate authorized
+read-only administration access; do not widen the deletion key. Deterministic
+receiver tests and configured keys do not stand in for these checks.
 
 ### Release symbols
 

@@ -28,7 +28,7 @@ function fixture() {
   const install = (folder, manifest, ...files) => {
     write(path.join(folder, 'package.json'), JSON.stringify(manifest));
     for (const file of files) {
-      write(path.join(folder, file));
+      write(path.join(folder, file), `${file} licence text`);
     }
     return path.join(folder, 'index.js');
   };
@@ -130,6 +130,32 @@ test('licence inventory records bundled third-party packages', () => {
 
     writeFileSync(map, 'not a source map');
     assert.equal(inventory(map, directory).status, 1);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('text mode preserves vendor notices without counting them as a parent licence', () => {
+  const { directory, map, outer } = fixture();
+  try {
+    write(path.join(outer, 'vendor/example/LICENSE'), 'Vendor terms');
+    write(path.join(outer, 'LICENCE-APACHE'), '');
+    const result = spawnSync(
+      process.execPath,
+      [script, map, '--include-text'],
+      {
+        cwd: directory,
+        encoding: 'utf8',
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const data = decodeJson(result.stdout);
+    const item = data.packages.find((entry) => entry.name === 'outer');
+    assert.deepEqual(item.licenceFiles, []);
+    assert.deepEqual(item.noticeTexts, [
+      { file: 'vendor/example/LICENSE', text: 'Vendor terms' },
+    ]);
+    assert.ok(data.withoutLicenceFile.includes('outer@2.0.0'));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
