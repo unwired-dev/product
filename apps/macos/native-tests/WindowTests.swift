@@ -2545,7 +2545,7 @@ final class WindowTests: XCTestCase {
         capture.lifetime = .keepAlways
         self.add(capture)
       }
-      let gap = self.knownAccessibilityGap(issue, screen: screen, textFocused: textFocused)
+      let gap = self.knownAccessibilityGap(issue, in: app, screen: screen, textFocused: textFocused)
       print("ACCESSIBILITY " + self.json([
         "screen": screen, "audit": issue.compactDescription, "textFocused": textFocused,
         "elementType": issue.element?.elementType.rawValue ?? -1,
@@ -2555,54 +2555,54 @@ final class WindowTests: XCTestCase {
     }
   }
 
+  // XCTest's contrast audit flags text whose drawn pixels pass, and text that another window or
+  // view covers, or an AppKit sheet dims (#1550). Covered text is audited where it is uncovered;
+  // other text passes when its own capture measures at least WCAG AA's 4.5:1.
+  private func drawnContrastGap(_ text: XCUIElement, in app: XCUIApplication) -> String? {
+    let sheet = app.sheets.firstMatch
+    if sheet.exists && !sheet.frame.contains(text.frame) { return "Dimmed by a sheet" }
+    if !text.isHittable { return "Covered" }
+    guard let contrast = drawnContrast(text), contrast >= 4.5 else { return nil }
+    return String(format: "Drawn at %.2f:1", contrast)
+  }
+
+  // The WCAG contrast of a text as drawn: its capture's most common colour, the background,
+  // against the captured colour farthest from it.
+  private func drawnContrast(_ element: XCUIElement) -> Double? {
+    guard
+      let image = element.screenshot().image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    else { return nil }
+    let bitmap = NSBitmapImageRep(cgImage: image)
+    func linear(_ channel: Int) -> Double {
+      let value = Double(channel) / 255
+      return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+    }
+    var counts: [Int: Int] = [:]
+    for y in 0..<bitmap.pixelsHigh {
+      for x in 0..<bitmap.pixelsWide {
+        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+        let rgb = [color.redComponent, color.greenComponent, color.blueComponent]
+          .map { Int(($0 * 255).rounded()) }
+        counts[rgb[0] << 16 | rgb[1] << 8 | rgb[2], default: 0] += 1
+      }
+    }
+    func luminance(_ key: Int) -> Double {
+      0.2126 * linear(key >> 16 & 255) + 0.7152 * linear(key >> 8 & 255) + 0.0722 * linear(key & 255)
+    }
+    guard let background = counts.max(by: { $0.value < $1.value })?.key else { return nil }
+    let base = luminance(background)
+    return counts.keys.map { key in
+      let other = luminance(key)
+      return (max(base, other) + 0.05) / (min(base, other) + 0.05)
+    }.max()
+  }
+
   private static let privateCloudFooter =
     "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this Mac. Each choice applies only to its Mail Profile on this Mac. Other devices and accounts keep their own choices."
 
-  // Labels #1550 flags while a Spam and Trash sheet is in front: the sheets' own secondary text,
-  // then the Inbox and Settings labels behind them. All Mail's sidebar row varies with its unread count.
-  private static let folderSheetContrastGaps: Set<String> = [
-    "Not marked by its server", "Chosen by you",
-    "pat@example.invalid doesn’t say which of its folders hold Spam and Trash. Choose them so All Mail can leave those messages out. Unwired Mail doesn’t guess from folder names.",
-    "Until both are chosen, pat@example.invalid isn’t included in All Mail. Its folders stay in the sidebar.",
-    "Saving updates which messages All Mail leaves out, including ones already synced. Until then, your current folders stay in use.",
-    "November",
-    "pat@example.invalid isn’t included",
-    "Its server doesn’t say which folders hold Spam and Trash, so All Mail can’t leave them out. Its folders are still listed under it in the sidebar.",
-    "Accounts", "Application", "Automation", "Composing", "Email Accounts", "Mailbox Connections",
-    "Gmail",
-    "Microsoft", "casey@example.invalid", "other@example.invalid", "pat@example.invalid",
-    "Each mailbox keeps its own access and saved mail on this device. The Inbox shows them together or one at a time.",
-    "Spam: Bulk Mail · Trash: Deleted Messages · chosen by you",
-    "Its server doesn’t mark these folders, so you chose them. All Mail leaves out messages in Spam and Trash.",
-  ]
-
-  // Text the contrast audit still flags after #1195's solid colours, by the issue that owns it. The
-  // audits cover every open window, so these list labels rather than screens.
-  private let contrastGaps: [String: Set<String>] = [
-    // Light's primary hint on popover glass renders about 5:1 where the popover overlaps a dark
-    // window behind, yet the audit flags it.
-    "#1794": ["Enter a web, email or phone link for the selected text."],
-    // Their captured pixels pass, yet the audit flags them: the Inbox window's labels while
-    // Settings or a sheet is in front, small text, including AppKit's own, and the Command
-    // Palette's headers on its glass panel.
-    "#1550": [
-      "", "16 September 2025 at 00:20 UTC", "30 September 2025 at 08:00 UTC", "App",
-      "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
-      "Colleague 003, colleague003@example.invalid", "Favorites",
-      "Go To", "Known Tracking Pixels stay blocked for every remote-content policy.",
-      "Loading remote images shows the sender your device's IP address and when you opened a message. Known tracking pixels are never loaded. These choices apply to this device only.",
-      "Mailboxes", "Microsoft · casey@example.invalid", "October 2025", "On-device assistance is off.",
-      "Rowan Hale, rowan@example.invalid", "Search. 1 message · All inboxes",
-      "Select a message to start reading.", "Selected Message", "September 2025",
-      WindowTests.privateCloudFooter,
-      "Your product data is end-to-end encrypted. Only your trusted devices can read it.",
-      "casey@example.invalid, other@example.invalid are connected on this device.",
-    ],
-  ]
-
   // The issue that owns each accessibility gap the audits still find, or why it is not the app's.
   private func knownAccessibilityGap(
-    _ issue: XCUIAccessibilityAuditIssue, screen: String, textFocused: Bool
+    _ issue: XCUIAccessibilityAuditIssue, in app: XCUIApplication, screen: String, textFocused: Bool
   ) -> String? {
     let type = issue.element?.elementType
     let label = issue.element?.label ?? ""
@@ -2610,25 +2610,18 @@ final class WindowTests: XCTestCase {
     let touchBar =
       type == .touchBar || (type == .popUpButton && ["list style", "text alignment"].contains(label))
     switch issue.auditType {
-    // #1550 covers this Inbox header only while Settings or a sheet dims its window.
-    // Keep the foreground Inbox audit unexempted for #1574.
-    case .contrast where type == .staticText && label == "Gmail · other@example.invalid":
-      return ["Settings", "Privacy & Data", "Language", "Link sheet"].contains(screen) ? "#1550" : nil
-    // The Spam and Trash sheets' secondary text measures 5.5:1 or more in Light and Dark captures;
-    // the other labels belong to the dimmed windows behind the sheets.
-    case .contrast
-    where type == .staticText
-      && ["Choose Spam and Trash Folders", "Spam and Trash Folders"].contains(screen)
-      && (WindowTests.folderSheetContrastGaps.contains(label)
-        || label.hasPrefix("All Mail. All mailboxes · ")):
-      return "#1550"
     // Private Cloud's row is dimmed until Mail Assistance is on; WCAG exempts inactive controls.
     case .contrast
     where type == .staticText && screen == "Privacy & Data"
       && ["Use Private Cloud", "Turn on Mail Assistance above to use Private Cloud."].contains(label):
       return "Inactive control"
+    // Light's primary hint on popover glass renders about 5:1 where the popover overlaps a dark
+    // window behind, yet the audit flags it.
+    case .contrast
+    where type == .staticText && label == "Enter a web, email or phone link for the selected text.":
+      return "#1794"
     case .contrast where type == .staticText:
-      return contrastGaps.first { $0.value.contains(label) }?.key
+      return issue.element.flatMap { drawnContrastGap($0, in: app) }
     case .action where touchBar, .sufficientElementDescription where touchBar:
       return "AppKit Touch Bar"
     // The candidate bar's suggestion buttons report a parent that does not list them on these

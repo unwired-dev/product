@@ -180,15 +180,17 @@ Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader,
 composer and Link Editor, and prints each issue as an `ACCESSIBILITY` JSON line
 in `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
 audits still report. These are the Link Editor hint on popover glass ([#1794](https://github.com/unwired-dev/product/issues/1794)),
-labels the contrast audit flags although their captured pixels pass, that
-fail only while another window or an AppKit sheet dims their window, or that sit
-on the Command Palette's glass panel
-([#1550](https://github.com/unwired-dev/product/issues/1550)),
 AppKit's text Touch Bar, email or web addresses used as labels, Private Cloud's
 row while Mail Assistance is off (an inactive control), and the false "Label
 duplicates role description" finding on the Link Editor hint, Private Cloud's
-explanation and the Writing tools privacy note, sentences containing "text". The contrast gaps list
-the labels each owner covers in either appearance. Any other issue fails
+explanation and the Writing tools privacy note, sentences containing "text".
+The contrast audit also flags text whose drawn pixels pass and text that is not
+in front ([#1550](https://github.com/unwired-dev/product/issues/1550)). So a
+flagged text outside an open AppKit sheet counts as dimmed by the sheet, and
+one that is not hittable counts as covered; both are audited on the screens
+where they are in front. Any other flagged text fails unless its own capture
+measures at least 4.5:1 between its most common colour and the colour farthest
+from it. The `knownGap` field records the class or the measured ratio. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
 composer audits observed on the Mac host, while a text input has keyboard focus. Retain each run's xcresult captures
