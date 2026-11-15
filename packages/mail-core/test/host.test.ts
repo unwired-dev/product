@@ -154,6 +154,9 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       Promise.resolve({ owner: 'account', revision: 0, document: null }),
     commitBlockedSenders: (owner, expectedRevision) =>
       Promise.resolve({ owner, revision: expectedRevision + 1 }),
+    pullBlockedSenders: (owner) =>
+      Promise.resolve({ owner, records: [], unreadable: [] }),
+    pushBlockedSenders: (owner) => Promise.resolve({ owner, committed: false }),
     notificationSettings: async () => {
       settingsGate.started?.();
       await settingsGate.held;

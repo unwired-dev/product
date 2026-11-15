@@ -8,7 +8,10 @@ import { english } from '@private-email/localization';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
-import type { NativeBlockedSenders } from './blocked-senders.ts';
+import type {
+  NativeBlockedSenderSync,
+  NativeBlockedSenders,
+} from './blocked-senders.ts';
 import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
 import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
@@ -75,6 +78,7 @@ export interface NativeHostModule
     NativeMailTemplateSync,
     NativeSendReminders,
     NativeBlockedSenders,
+    NativeBlockedSenderSync,
     NativeDeliveryClaim,
     NativeWakes,
     NativeRemoteContent,
@@ -290,7 +294,8 @@ export function createHost(
     }
   };
 
-  // Each Mail Profile's Blocked Senders, stored encrypted on this device.
+  // Each Mail Profile's Blocked Senders, stored encrypted on this device and synchronized through
+  // Product Sync with its other Trusted Devices.
   const blockedSenders = createBlockedSenders(
     {
       openBlockedSenders: () => native().openBlockedSenders(),
@@ -298,6 +303,16 @@ export function createHost(
         native().commitBlockedSenders(owner, expectedRevision, document),
     },
     registration,
+    {
+      removed,
+      adoptKeyRotation: () => registration.adoptKeyRotation(),
+      native: {
+        pullBlockedSenders: (owner, known) =>
+          native().pullBlockedSenders(owner, known),
+        pushBlockedSenders: (owner, record) =>
+          native().pushBlockedSenders(owner, record),
+      },
+    },
   );
 
   // One Inbox per Mailbox Connection, from Gmail or Microsoft Graph; each forgets its mail when its

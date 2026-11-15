@@ -3,17 +3,16 @@ import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { DraftStorageFailure } from './draft-native.ts';
 import type { Registration } from './registration.ts';
 import type { SemanticDocument, Selection } from './semantic-document.ts';
 
-import {
-  rejectionCode,
-  rejectionDiagnostic,
-  runLogged,
-} from './diagnostics.ts';
+import { runLogged } from './diagnostics.ts';
 import { malformed, native, ownerMismatch } from './draft-native.ts';
-import { notifyRemoval, PushedSchema } from './draft-sync.ts';
+import {
+  preferencePasses,
+  PushedSchema,
+  reportPreference,
+} from './draft-sync.ts';
 import { ownerOf } from './drafts.ts';
 import {
   imagesOf,
@@ -157,18 +156,7 @@ export interface NativeMailTemplateSync {
   ) => Promise<unknown>;
 }
 
-// Locked storage is expected while the device is locked, and Private Sync is expected to be
-// unavailable without keys or a session or after a removal moved the key epoch; anything else is
-// logged.
-const report = (
-  error: Readonly<Pick<DraftStorageFailure, 'kind' | 'cause' | 'diagnostic'>>,
-) =>
-  error.kind === 'locked' ||
-  ['unavailable', 'key-rotation-required'].includes(
-    rejectionCode(error.cause) ?? '',
-  )
-    ? Effect.void
-    : Effect.logError('Mail Template storage failed:', error.diagnostic);
+const report = reportPreference('Mail Template');
 
 const byId = <T extends Readonly<{ id: string }>>(items: readonly T[] = []) =>
   new Map(items.map((item) => [item.id, item]));
@@ -529,58 +517,7 @@ export function createMailTemplates(
     return conflicted;
   });
 
-  // Passes run one at a time; a request during one runs another after it. A pass another device's
-  // write overtook runs again, at most three times.
-  let passing: Promise<void> | undefined = undefined;
-  let requested = false;
-  const passes = async (remote: NativeMailTemplateSync) => {
-    requested = true;
-    passing ??= (async () => {
-      try {
-        while (requested) {
-          requested = false;
-          for (let attempt = 0; attempt < 3; attempt += 1) {
-            let needsAdoption = false;
-            const conflicted = await runLogged(
-              pass(remote).pipe(
-                Effect.catchTag('DraftStorageFailure', (error) => {
-                  notifyRemoval(error, sync?.removed);
-                  needsAdoption =
-                    rejectionCode(error.cause) === 'key-rotation-required';
-                  return report(error).pipe(Effect.as(false));
-                }),
-              ),
-            );
-            // Registration owns its Effect run; adopt outside this pass's run, then pass again.
-            if (needsAdoption) {
-              await sync?.adoptKeyRotation?.();
-            } else if (!conflicted) {
-              break;
-            }
-          }
-        }
-      } finally {
-        passing = undefined;
-      }
-    })();
-    await passing;
-  };
-  // Logs an unexpected defect rather than rejecting, so lifecycle and change requests need no handler.
-  const synchronize = async () => {
-    if (sync === undefined) {
-      return;
-    }
-    try {
-      await passes(sync.native);
-    } catch (error) {
-      await runLogged(
-        Effect.logError(
-          'Mail Template synchronization failed:',
-          rejectionDiagnostic(error),
-        ),
-      );
-    }
-  };
+  const synchronize = preferencePasses('Mail Template', pass, sync);
   const changingThenPublishing = async (
     change: (document: Templates) => Templates | undefined,
   ) => {

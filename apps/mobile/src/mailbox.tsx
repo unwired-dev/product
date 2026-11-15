@@ -40,6 +40,7 @@ import {
 import { mailboxes as defaultMailboxes } from './private-storage.ts';
 import { AccountContext } from './registration-gate.tsx';
 import {
+  blockedSenders,
   drafts as defaultDrafts,
   mailTemplates as defaultMailTemplates,
   outbox as defaultOutbox,
@@ -102,12 +103,14 @@ export function InboxProvider({
   useEffect(() => {
     void drafts.load();
     void mailTemplates.synchronize();
-    // Returning picks up other devices' Draft and Mail Template changes; leaving publishes this
-    // device's.
+    void blockedSenders.synchronize();
+    // Returning picks up other devices' Draft, Mail Template and Blocked Sender changes; leaving
+    // publishes this device's.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active' || state === 'background') {
         void drafts.syncInBackground();
         void mailTemplates.synchronize();
+        void blockedSenders.synchronize();
       }
     });
     return () => {

@@ -144,6 +144,8 @@ RCT_EXTERN_METHOD(pullDrafts:(NSString *)owner known:(NSArray *)known resolver:(
 RCT_EXTERN_METHOD(pushDraft:(NSString *)owner record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pullMailTemplates:(NSString *)owner known:(NSArray *)known resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pushMailTemplate:(NSString *)owner record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(pullBlockedSenders:(NSString *)owner known:(NSArray *)known resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(pushBlockedSenders:(NSString *)owner record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(uploadDraftAsset:(NSString *)owner asset:(NSDictionary *)asset resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(downloadDraftAsset:(NSString *)owner asset:(NSDictionary *)asset resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(claimDraftDelivery:(NSString *)owner id:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

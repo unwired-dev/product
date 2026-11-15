@@ -3317,7 +3317,7 @@ describe('product registration', () => {
       group: screen.getByText('Primary Profile').props.children,
       detail: screen.getByText(/^Blocked .+ · 0 since$/u).props.children,
       footer: screen.getByText(
-        'This iPhone moves new mail from these addresses to Trash; your other devices don’t yet. Unblock to get new mail in the Inbox again; mail already in Trash stays there.',
+        'This iPhone moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.',
       ),
     }).toStrictEqual({
       group: 'Primary Profile',

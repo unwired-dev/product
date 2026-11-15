@@ -49,9 +49,27 @@ struct MailTemplateRecord: SyncedRecord, Equatable {
   }
 }
 
-// The signed-in Trusted Device's Product Sync of its Drafts and Mail Templates: everything it needs,
-// read once under the registration gate, so network work runs without holding Draft storage or
-// Gmail. TypeScript merges them; this only seals, opens and moves records and asset chunks.
+// One Mail Profile's Blocked Senders record: each address's latest block or unblock, as JSON naming
+// the Profile, whose identifier is the record's.
+struct BlockedSendersRecord: SyncedRecord, Equatable {
+  static let kind = "profile-blocked-senders"
+  static let field = "senders"
+  static let schemaVersion = 1
+  let id: String
+  let version: Int
+  let senders: String?
+  var content: String? { senders }
+  init(id: String, version: Int, content: String?) {
+    self.id = id
+    self.version = version
+    senders = content
+  }
+}
+
+// The signed-in Trusted Device's Product Sync of its Drafts, Mail Templates and Blocked Senders:
+// everything it needs, read once under the registration gate, so network work runs without holding
+// Draft storage or Gmail. TypeScript merges them; this only seals, opens and moves records and
+// asset chunks.
 @MainActor struct DraftSync {
   // Chunks stay well within a Convex document once sealed and base64-encoded.
   static let chunkSize = 512 * 1024
