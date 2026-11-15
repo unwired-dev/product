@@ -2568,9 +2568,10 @@ final class WindowTests: XCTestCase {
     if sheet.exists && front.frame.contains(text.frame) && !sheet.frame.contains(text.frame) {
       return "Dimmed by a sheet"
     }
-    // The list fades its last 72pt into the search bar's scroll edge (inbox-bar.tsx).
+    // The list fades its last 72pt into the search bar's scroll edge (inbox-bar.tsx); text that
+    // reaches above it is measured.
     if front.textFields["Search senders and subjects"].exists
-      && text.frame.maxY > front.frame.maxY - 72
+      && text.frame.minY >= front.frame.maxY - 72
       && front.scrollViews.allElementsBoundByIndex.contains(where: {
         $0.frame.maxY == front.frame.maxY && $0.frame.contains(text.frame)
       })
@@ -2587,15 +2588,22 @@ final class WindowTests: XCTestCase {
   // of it. A thin stroke that never reaches its ink at 1x so counts with its neighbours, while
   // weaker text sharing the element, such as a secondary run, is its own words.
   private func weakestWord(_ element: XCUIElement) -> Double? {
+    // Drawing the capture into an sRGB context converts it from its own colour space.
     guard
-      let image = element.screenshot().image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+      let image = element.screenshot().image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+      let context = CGContext(
+        data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+        bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
     else { return nil }
-    let bitmap = NSBitmapImageRep(cgImage: image)
-    let width = bitmap.pixelsWide
-    let height = bitmap.pixelsHigh
+    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    guard let data = context.data else { return nil }
+    let bytes = data.bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
+    let width = image.width
+    let height = image.height
     let scale = Double(width) / element.frame.width
-    func linear(_ channel: CGFloat) -> Double {
-      let value = Double(channel)
+    func linear(_ channel: UInt8) -> Double {
+      let value = Double(channel) / 255
       return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
     }
     func contrast(_ first: Double, _ second: Double) -> Double {
@@ -2603,14 +2611,10 @@ final class WindowTests: XCTestCase {
     }
     var colors = [Int](repeating: 0, count: width * height)
     var luminances = [Double](repeating: 0, count: width * height)
-    for y in 0..<height {
-      for x in 0..<width {
-        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
-        let channels = [color.redComponent, color.greenComponent, color.blueComponent]
-        colors[y * width + x] = channels.reduce(0) { $0 << 8 | Int(($1 * 255).rounded()) }
-        luminances[y * width + x] =
-          0.2126 * linear(channels[0]) + 0.7152 * linear(channels[1]) + 0.0722 * linear(channels[2])
-      }
+    for pixel in colors.indices {
+      let (red, green, blue) = (bytes[pixel * 4], bytes[pixel * 4 + 1], bytes[pixel * 4 + 2])
+      colors[pixel] = Int(red) << 16 | Int(green) << 8 | Int(blue)
+      luminances[pixel] = 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
     }
     // The luminance of the most common colour among these pixels.
     func backdrop(_ pixels: [Int]) -> Double? {

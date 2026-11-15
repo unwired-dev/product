@@ -187,15 +187,17 @@ explanation and the Writing tools privacy note, sentences containing "text".
 The contrast audit also flags text whose drawn pixels pass and text that is not
 in front ([#1550](https://github.com/unwired-dev/product/issues/1550)). So a
 flagged text that is not hittable counts as covered, one in the front window
-outside its open sheet counts as dimmed by the sheet, and one in the last 72pt
-of the message list counts as faded by the scroll edge under the search bar; all
+outside its open sheet counts as dimmed by the sheet, and one wholly in the last
+72pt of the message list counts as faded by the scroll edge under the search bar; all
 three are audited on the screens where they are in front. Any other flagged text fails unless its
 own capture is drawn at 4.5:1. Pixels that stand out from the capture's most
 common colour by 1.1:1 are ink, and ink within 2.5pt along a line forms a word.
 Every word's strongest pixel must reach 4.5:1 against its own backdrop, the most
 common colour within 1pt of it. A thin stroke that never reaches its ink at 1x so
 counts with its neighbours, while weaker text sharing the element, or text over
-a different backdrop, is its own words. Text fainter than 1.1:1 is not found. The
+a different backdrop, is its own words. Text fainter than 1.1:1 is not found,
+and a backdrop patch within 2.5pt of other text joins its words; no Mac text
+draws over such a patch. The
 `knownGap` field records the class or the weakest word's ratio. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
