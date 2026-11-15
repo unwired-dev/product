@@ -719,41 +719,74 @@ const senderSized = ({ retained }: FilteredStyle) =>
     return definite(value) || value?.startsWith('min(') === true;
   });
 
+// Outside tables, a fixed height becomes a minimum and a maximum height is dropped.
+const grownHeight = (
+  name: string,
+  value: string,
+  retained: ReadonlyMap<string, string>,
+): ReadonlyArray<readonly [string, string]> | undefined => {
+  const minimum = retained.get('min-height');
+  switch (name) {
+    case 'height':
+      return definite(value)
+        ? [
+            [
+              'min-height',
+              definite(minimum) ? `max(${value}, ${minimum})` : value,
+            ],
+          ]
+        : [];
+    case 'min-height':
+      return definite(retained.get('height')) ? [] : [[name, value]];
+    case 'max-height':
+      return [];
+    default:
+      return undefined;
+  }
+};
+
+// Inside a box of sender width, a width cannot exceed it and content-sized widths are removed.
+const boundedWidth = ([name, value]: readonly [string, string]) => {
+  if (name !== 'width' && name !== 'min-width') {
+    return [[name, value] as const];
+  }
+  if (definite(value)) {
+    return [[name, `min(100%, ${value})`] as const];
+  }
+  return /content|stretch/iu.test(value) ? [] : [[name, value] as const];
+};
+
 // Sender boxes keep their text inside them, where a later image or button fill could cover it
-// (#2204). Outside tables, a fixed height becomes a minimum and a maximum height is dropped.
-// Inside a box of sender width, a width cannot exceed its container.
+// (#2204). Images keep their sizes.
 const containedBox = (
   style: FilteredStyle,
-  { display, bounded }: Readonly<{ display: string; bounded: boolean }>,
+  {
+    tag,
+    display,
+    bounded,
+  }: Readonly<{ tag: string; display: string; bounded: boolean }>,
 ): FilteredStyle => {
-  if (tableBox.test(display)) {
+  if (tag === 'img' || tableBox.test(display)) {
     return style;
   }
-  const retained = new Map(style.retained);
-  const height = retained.get('height');
-  const minimum = retained.get('min-height');
-  retained.delete('height');
-  retained.delete('max-height');
-  if (definite(height)) {
-    retained.set(
-      'min-height',
-      definite(minimum) ? `max(${height}, ${minimum})` : (height ?? ''),
-    );
-  }
-  for (const name of bounded ? ['width', 'min-width'] : []) {
-    const value = retained.get(name);
-    if (definite(value)) {
-      retained.set(name, `min(100%, ${value})`);
-    } else if (/content|stretch/iu.test(value ?? '')) {
-      retained.delete(name);
-    }
-  }
+  const declarations = [...style.retained].flatMap(
+    ([name, value]) =>
+      grownHeight(name, value, style.retained) ?? [[name, value] as const],
+  );
+  const retained = new Map(
+    bounded ? declarations.flatMap(boundedWidth) : declarations,
+  );
   return {
     ...style,
     retained,
     css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
   };
 };
+
+// Whether a box's descendants sit inside a sender width: a table cell grows to its content.
+const boundedIn = (display: string, style: FilteredStyle, parent: boolean) =>
+  !tableBox.test(display) &&
+  ((display !== 'inline' && senderSized(style)) || parent);
 
 const offsetTokens = new Map([
   ['margin', 4],
@@ -2045,6 +2078,24 @@ const ownText = (element: Element) =>
       node.nodeName === '#text' && 'value' in node && /\S/u.test(node.value),
   );
 
+// Glyphs overflow a line shorter than their font onto the next box; image-only cells keep
+// their zero line height (#2204). The system font's normal spacing keeps the break allowance
+// finite for sender fonts, whose normal metrics are unknown.
+const fittedLines = (
+  style: FilteredStyle,
+  element: Element,
+  parent: LineHeight,
+  font: number,
+) =>
+  font >= minimumTextPixels &&
+  ownText(element) &&
+  lineHeightPixels(
+    lineHeightIn(style.retained.get('line-height'), parent, font),
+    font,
+  ) < font
+    ? withProperties(style, [['line-height', '1.2']])
+    : style;
+
 const contentSecurityPolicy =
   "default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -2582,28 +2633,14 @@ function walk(
       directional: direction === 'rtl' || parentDirection === 'rtl',
       font: fontPixels,
     });
-    const boxed =
-      node.tagName === 'img'
-        ? spaced
-        : containedBox(spaced, { display, bounded });
-    // Glyphs overflow a line shorter than their font onto the next box; image-only
-    // cells keep their zero line height (#2204). The system font's normal spacing keeps
-    // the break allowance finite for sender fonts, whose normal metrics are unknown.
-    const normalized =
-      fontPixels >= minimumTextPixels &&
-      ownText(node) &&
-      lineHeightPixels(
-        lineHeightIn(boxed.retained.get('line-height'), lineHeight, fontPixels),
-        fontPixels,
-      ) < fontPixels
-        ? withProperties(boxed, [['line-height', '1.2']])
-        : boxed;
+    const normalized = fittedLines(
+      containedBox(spaced, { tag: node.tagName, display, bounded }),
+      node,
+      lineHeight,
+      fontPixels,
+    );
     const parentBounded = bounded;
-    if (tableBox.test(display)) {
-      bounded = false;
-    } else if (display !== 'inline' && senderSized(normalized)) {
-      bounded = true;
-    }
+    bounded = boundedIn(display, normalized, bounded);
     margins = ownMargins;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
