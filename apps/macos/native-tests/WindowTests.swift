@@ -2558,8 +2558,9 @@ final class WindowTests: XCTestCase {
   }
 
   // XCTest's contrast audit flags text whose drawn pixels pass, and text that another window or
-  // view covers, or that a sheet dims in the window it belongs to (#1550). Covered and dimmed text
-  // is audited where it is in front; other text passes when its own capture is drawn at WCAG AA.
+  // view covers, that a sheet dims in the window it belongs to, or that the list fades under the
+  // search bar (#1550). Such text is audited where it is in front; other text passes when its own
+  // capture is drawn at WCAG AA.
   private func drawnContrastGap(_ text: XCUIElement, in app: XCUIApplication) -> String? {
     if !text.isHittable { return "Covered" }
     let front = app.windows.firstMatch
@@ -2567,15 +2568,24 @@ final class WindowTests: XCTestCase {
     if sheet.exists && front.frame.contains(text.frame) && !sheet.frame.contains(text.frame) {
       return "Dimmed by a sheet"
     }
+    // The list fades its last 72pt into the search bar's scroll edge (inbox-bar.tsx).
+    if front.textFields["Search senders and subjects"].exists
+      && text.frame.maxY > front.frame.maxY - 72
+      && front.scrollViews.allElementsBoundByIndex.contains(where: {
+        $0.frame.maxY == front.frame.maxY && $0.frame.contains(text.frame)
+      })
+    {
+      return "Faded by the scroll edge"
+    }
     guard let weakest = weakestWord(text), weakest >= 4.5 else { return nil }
     return String(format: "Weakest word drawn at %.2f:1", weakest)
   }
 
-  // The WCAG contrast of a text's weakest drawn word against its capture's most common colour, the
-  // background. A glyph is a connected run of pixels that stand out from the background;
-  // glyphs within 2.5pt of each other on a line form a word, measured by its strongest pixel. A
-  // thin stroke that never reaches its ink at 1x so counts with its neighbours, while weaker text
-  // sharing the element, such as a secondary run, is its own words.
+  // The WCAG contrast of a text's weakest drawn word. Pixels that stand out from the capture's most
+  // common colour by 1.1:1 are ink, and ink within 2.5pt along a line forms a word. A word is
+  // measured by its strongest pixel against its own backdrop, the most common colour within 1pt
+  // of it. A thin stroke that never reaches its ink at 1x so counts with its neighbours, while
+  // weaker text sharing the element, such as a secondary run, is its own words.
   private func weakestWord(_ element: XCUIElement) -> Double? {
     guard
       let image = element.screenshot().image.cgImage(forProposedRect: nil, context: nil, hints: nil)
@@ -2588,9 +2598,11 @@ final class WindowTests: XCTestCase {
       let value = Double(channel)
       return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
     }
+    func contrast(_ first: Double, _ second: Double) -> Double {
+      (max(first, second) + 0.05) / (min(first, second) + 0.05)
+    }
     var colors = [Int](repeating: 0, count: width * height)
     var luminances = [Double](repeating: 0, count: width * height)
-    var counts: [Int: Int] = [:]
     for y in 0..<height {
       for x in 0..<width {
         guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return nil }
@@ -2598,56 +2610,49 @@ final class WindowTests: XCTestCase {
         colors[y * width + x] = channels.reduce(0) { $0 << 8 | Int(($1 * 255).rounded()) }
         luminances[y * width + x] =
           0.2126 * linear(channels[0]) + 0.7152 * linear(channels[1]) + 0.0722 * linear(channels[2])
-        counts[colors[y * width + x], default: 0] += 1
       }
     }
-    guard let background = counts.max(by: { $0.value < $1.value })?.key,
-      let sample = colors.firstIndex(of: background)
-    else { return nil }
-    let base = luminances[sample]
-    let contrast = luminances.map { (max($0, base) + 0.05) / (min($0, base) + 0.05) }
-    var seen = [Bool](repeating: false, count: contrast.count)
-    var words: [(box: CGRect, size: Int, strongest: Double)] = []
-    for start in contrast.indices where !seen[start] && contrast[start] >= 1.5 {
+    // The luminance of the most common colour among these pixels.
+    func backdrop(_ pixels: [Int]) -> Double? {
+      var counts: [Int: (count: Int, pixel: Int)] = [:]
+      for pixel in pixels { counts[colors[pixel], default: (0, pixel)].count += 1 }
+      return counts.values.max { $0.count < $1.count }.map { luminances[$0.pixel] }
+    }
+    guard let background = backdrop(Array(colors.indices)) else { return nil }
+    let ink = luminances.map { contrast($0, background) >= 1.1 }
+    let reach = Int((2.5 * scale).rounded())
+    let margin = Int(scale.rounded())
+    var seen = [Bool](repeating: false, count: ink.count)
+    var weakest: Double?
+    for start in ink.indices where ink[start] && !seen[start] {
       seen[start] = true
       var stack = [start]
-      var glyph = (box: CGRect.null, size: 0, strongest: 1.0)
-      while let index = stack.popLast() {
-        let (x, y) = (index % width, index / width)
-        glyph.box = glyph.box.union(CGRect(x: x, y: y, width: 1, height: 1))
-        glyph.size += 1
-        glyph.strongest = max(glyph.strongest, contrast[index])
+      var word: [Int] = []
+      while let pixel = stack.popLast() {
+        word.append(pixel)
+        let (x, y) = (pixel % width, pixel / width)
         for nextY in max(0, y - 1)...min(height - 1, y + 1) {
-          for nextX in max(0, x - 1)...min(width - 1, x + 1) {
+          for nextX in max(0, x - reach)...min(width - 1, x + reach) {
             let next = nextY * width + nextX
-            if !seen[next] && contrast[next] >= 1.5 {
+            if ink[next] && !seen[next] {
               seen[next] = true
               stack.append(next)
             }
           }
         }
       }
-      words.append(glyph)
+      // Smaller specks are anti-aliasing fringes and separators such as a middle dot, not words.
+      guard Double(word.count) >= 8 * scale * scale else { continue }
+      let xs = word.map { $0 % width }
+      let ys = word.map { $0 / width }
+      let columns = max(0, xs.min()! - margin)...min(width - 1, xs.max()! + margin)
+      let around = (max(0, ys.min()! - margin)...min(height - 1, ys.max()! + margin))
+        .flatMap { y in columns.map { y * width + $0 } }
+      guard let local = backdrop(around) else { continue }
+      let strongest = word.map { contrast(luminances[$0], local) }.max()!
+      weakest = min(weakest ?? strongest, strongest)
     }
-    var merged = true
-    while merged {
-      merged = false
-      search: for first in words.indices {
-        for second in words.indices where second > first
-          && words[first].box.insetBy(dx: -2.5 * scale, dy: 0).intersects(words[second].box)
-        {
-          let other = words.remove(at: second)
-          words[first] = (
-            words[first].box.union(other.box), words[first].size + other.size,
-            max(words[first].strongest, other.strongest)
-          )
-          merged = true
-          break search
-        }
-      }
-    }
-    // Smaller specks are anti-aliasing fringes and separators such as a middle dot, not words.
-    return words.filter { Double($0.size) >= 8 * scale * scale }.map(\.strongest).min()
+    return weakest
   }
 
   private static let privateCloudFooter =
