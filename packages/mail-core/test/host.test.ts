@@ -228,7 +228,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
 }
 
 // A synthetic host following notification actions, with an answerable and a removable message in
-// its Gmail Inbox, previews on, and the Drafts and Open Draft requests it holds.
+// its Gmail Inbox, previews on, and the Drafts, Open Draft requests and admitted replies it holds.
 async function replyingHost() {
   const synthetic = syntheticHost(undefined, true);
   const { host, gmail } = synthetic;
@@ -246,9 +246,15 @@ async function replyingHost() {
     mailboxesOf(host.registration.getSnapshot().snapshot)[0],
   );
   const opened: unknown[] = [];
-  host.followNotificationActions((draft, profile) => {
-    opened.push({ draft, profile });
-  });
+  const admitted = { count: 0 };
+  host.followNotificationActions(
+    (draft, profile) => {
+      opened.push({ draft, profile });
+    },
+    () => {
+      admitted.count += 1;
+    },
+  );
   const named = {
     account: 'account-synthetic-product-subject',
     connection: mailbox.id,
@@ -266,7 +272,16 @@ async function replyingHost() {
     const state = host.drafts.getSnapshot();
     return state.kind === 'ready' ? state.drafts : [];
   };
-  return { ...synthetic, answered, gone, named, opened, reply, drafts };
+  return {
+    ...synthetic,
+    answered,
+    gone,
+    named,
+    opened,
+    admitted,
+    reply,
+    drafts,
+  };
 }
 
 describe('the host assembly', () => {
@@ -468,9 +483,9 @@ describe('the host assembly', () => {
     );
   });
 
-  it('sends a reply typed into a Mac notification from the receiving connection, with only the typed text', async () => {
+  it('sends a reply typed into a notification from the receiving connection, with only the typed text', async () => {
     expect.hasAssertions();
-    const { host, answered, named, reply, replied, sweeps } =
+    const { host, answered, named, reply, replied, sweeps, admitted } =
       await replyingHost();
 
     await reply('reply', answered, 'Thursday works.\nSee you then.');
@@ -510,6 +525,8 @@ describe('the host assembly', () => {
         actions: { undo: 'Undo', openDraft: 'Open Draft' },
       },
     ]);
+    // The host hears the admission, which iPhone and iPad give background delivery time.
+    expect(admitted.count).toBe(1);
   });
 
   it('returns a typed reply to Drafts on Undo, and otherwise withdraws its notification once the Undo Send Window ends', async () => {
@@ -867,6 +884,7 @@ describe('the host assembly', () => {
       drafts,
       replied,
       opened,
+      admitted,
       notificationActions,
     } = await replyingHost();
     gmail.remove(gone);
@@ -877,9 +895,11 @@ describe('the host assembly', () => {
     expect({
       body: saved.body,
       outbox: host.outbox.getSnapshot(),
+      admitted: admitted.count,
     }).toStrictEqual({
       body: [{ kind: 'paragraph', spans: [{ text: 'Is this still on?' }] }],
       outbox: [],
+      admitted: 0,
     });
     expect(replied).toMatchObject([
       {

@@ -69,6 +69,7 @@ const journey = async (
     releases: jest.Mock;
     end: (released: unknown) => void;
     deliver: () => Promise<unknown>;
+    admit: () => void;
     lock: (locked: boolean) => void;
   }) => Promise<void>,
   grant?: (end: (released: unknown) => void) => void,
@@ -128,7 +129,9 @@ const journey = async (
     try {
       const firstListener = jest.mocked(AppState.addEventListener).mock.calls
         .length;
-      jest.requireActual('../src/delivery.ts');
+      const { deliverAdmitted } = jest.requireActual<{
+        deliverAdmitted: () => void;
+      }>('../src/delivery.ts');
       const { defineTask } = jest.requireMock<{
         defineTask: typeof DefineTask;
       }>('expo-task-manager');
@@ -181,6 +184,7 @@ const journey = async (
         releases,
         end,
         deliver,
+        admit: deliverAdmitted,
         lock: storage.setLocked,
       });
     } finally {
@@ -371,6 +375,47 @@ describe('application-owned Outbox execution', () => {
         expect(gmail.sends).toHaveLength(1);
         // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
         expect(holds).toHaveBeenCalledTimes(1);
+      },
+    );
+  });
+
+  it('finishes a reply admitted from a notification in the background within background time, then releases it', async () => {
+    expect.hasAssertions();
+    await journey(
+      'background',
+      async ({ host, gmail, send, admit, holds, releases }) => {
+        await send();
+        expect(holds).not.toHaveBeenCalled();
+        admit();
+        await jest.advanceTimersByTimeAsync(undoSendWindow - 1000);
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+        expect(holds).toHaveBeenCalledTimes(1);
+        expect(gmail.sends).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(2000);
+        expect(gmail.sends).toHaveLength(1);
+        expect(host.drafts.getOutbox()).toStrictEqual([]);
+        expect(releases).toHaveBeenCalledWith();
+      },
+    );
+  });
+
+  it('keeps a reply admitted from a notification queued when background time expires before its deadline', async () => {
+    expect.hasAssertions();
+    await journey(
+      'background',
+      async ({ host, gmail, send, admit, holds, end }) => {
+        const id = await send();
+        admit();
+        await jest.advanceTimersByTimeAsync(undoSendWindow / 2);
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+        expect(holds).toHaveBeenCalledTimes(1);
+        end(false);
+        await jest.advanceTimersByTimeAsync(undoSendWindow);
+        await host.outbox.process();
+        expect(gmail.sends).toHaveLength(0);
+        expect(host.drafts.getOutbox()).toMatchObject([
+          { id, state: 'waiting' },
+        ]);
       },
     );
   });

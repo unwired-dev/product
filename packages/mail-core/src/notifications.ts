@@ -91,7 +91,7 @@ type Posted = Omit<OpenedNotification, 'action'> &
     body: string;
     previews: boolean;
     profile: string;
-    // The Mac's Reply field placeholder, which names the receiving address.
+    // The Reply field's placeholder, which names the receiving address.
     reply: string;
   }>;
 
@@ -486,6 +486,8 @@ type Replies = Readonly<{
   }>;
   translate: () => Translate;
   openDraft: (draft: string, profile: string) => void;
+  // A typed reply the Outbox admitted, which iPhone and iPad give background delivery time.
+  admitted: () => void;
 }>;
 
 // The listed message `id`, with the body and headers a reply starts from once its body reads.
@@ -708,7 +710,7 @@ async function queuedReply(
 // the connection is no longer the one the notification named.
 async function replyTyped(
   native: ReplyNative,
-  { drafts, outbox, translate }: Replies,
+  { drafts, outbox, translate, admitted }: Replies,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Inbox stores and the sending map are mutable; only their actions are called.
   {
     open,
@@ -770,6 +772,7 @@ async function replyTyped(
     previews,
   };
   if (queued) {
+    admitted();
     await announceSending(
       native,
       { outbox, t, sending },

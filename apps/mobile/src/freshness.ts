@@ -8,6 +8,7 @@ import {
 import { defineTask } from 'expo-task-manager';
 import { AppState } from 'react-native';
 
+import { deliverAdmitted } from './delivery.ts';
 import {
   followNotificationActions,
   followWakes,
@@ -31,12 +32,38 @@ defineTask(task, async () => {
   }
 });
 
+// Open Draft on a typed reply's notification waits until the mail shell can open it.
+let openDraft: ((draft: string, profile: string) => void) | undefined =
+  undefined;
+let waitingDraft: readonly [string, string] | undefined = undefined;
+export const followOpenedDrafts = (
+  open: (draft: string, profile: string) => void,
+) => {
+  openDraft = open;
+  if (waitingDraft !== undefined) {
+    open(...waitingDraft);
+    waitingDraft = undefined;
+  }
+  return () => {
+    if (openDraft === open) {
+      openDraft = undefined;
+    }
+  };
+};
+
 // A content-free push wake, including one that launches the app in the background, synchronizes
 // only its routed mailbox once registration verifies.
 if (!previewInbox) {
   followWakes();
-  // Likewise Archive and Mark as Read chosen on a notification, without opening the app.
-  followNotificationActions();
+  // Likewise Archive, Mark as Read and a typed reply chosen on a notification, without opening the
+  // app.
+  followNotificationActions((draft, profile) => {
+    if (openDraft === undefined) {
+      waitingDraft = [draft, profile];
+    } else {
+      openDraft(draft, profile);
+    }
+  }, deliverAdmitted);
 }
 
 export const scheduleGmailFreshness = async () => {

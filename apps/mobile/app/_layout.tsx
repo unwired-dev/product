@@ -46,6 +46,7 @@ import {
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import {
+  followOpenedDrafts,
   pollGmailWhileActive,
   scheduleGmailFreshness,
 } from '../src/freshness.ts';
@@ -122,7 +123,8 @@ startAssistanceQualification(() => ({
 }));
 
 // A tapped New Mail Notification opens its message once Registration admits the shell; its Reply
-// then starts a reply as soon as the message's reader offers one.
+// then starts a reply as soon as the message's reader offers one. Open Draft on a typed reply's
+// notification opens that Draft in the composer.
 function OpenedNotifications() {
   const leave = useLeaveComposer();
   const registry = useCommandRegistry();
@@ -156,6 +158,21 @@ function OpenedNotifications() {
       });
     }
   }, [leave, registry, close]);
+  useEffect(
+    () =>
+      followOpenedDrafts((draft, profile) => {
+        void leave(draft).then((allowed) => {
+          if (allowed) {
+            close();
+            router.navigate({
+              pathname: '/compose/[draft]',
+              params: { draft, profileId: profile },
+            });
+          }
+        });
+      }),
+    [leave, close],
+  );
   return null;
 }
 

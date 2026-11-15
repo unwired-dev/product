@@ -2,6 +2,7 @@ import type { RegistrationSnapshot } from '@private-email/mail-core/registration
 
 import {
   createRegistration,
+  defaultProfile,
   mailboxesOf,
 } from '@private-email/mail-core/registration';
 import {
@@ -25,6 +26,7 @@ import { defineTask } from 'expo-task-manager';
 import { AppState, TurboModuleRegistry } from 'react-native';
 
 import type {
+  followOpenedDrafts as FollowOpenedDrafts,
   pollGmailWhileActive as PollGmailWhileActive,
   scheduleGmailFreshness as ScheduleGmailFreshness,
 } from '../src/freshness.ts';
@@ -307,6 +309,128 @@ describe('headless Gmail freshness', () => {
     } finally {
       bridge.mockRestore();
       output.mockRestore();
+    }
+  });
+
+  it('holds background delivery time for a reply typed into a notification, and keeps Open Draft until the mail shell opens it', async () => {
+    expect.hasAssertions();
+    jest.resetModules();
+    const { vault } = createSyntheticVault();
+    const flow = createRegistration(vault);
+    await flow.register('google');
+    await flow.addMailbox();
+    const { snapshot } = flow.getSnapshot();
+    const storage = createSyntheticDrafts(() => ownerOf(snapshot), {
+      server: createSyntheticProductSync(),
+    });
+    const gmail = createSyntheticGmail();
+    const answered = gmail.deliver({ subject: 'Studio review' });
+    const id = syntheticMailboxes['alex@example.invalid'];
+    const named = {
+      account: ownerOf(snapshot),
+      connection: id,
+      epoch: mailboxesOf(snapshot).find((mailbox) => mailbox.id === id)?.epoch,
+    };
+    const openDraft = Promise.withResolvers<unknown>();
+    const completeNotificationAction = jest.fn<undefined, [string]>();
+    const postReplyNotification = jest.fn<
+      Promise<null>,
+      [{ kind: string; draft: string }]
+    >(async () => null);
+    const holdDelivery = jest.fn(
+      // oxlint-disable-next-line promise/avoid-new -- Native background time outlasts this journey.
+      () => new Promise<never>(() => undefined),
+    );
+    const native = {
+      getConstants: () => ({}),
+      ...vault,
+      ...storage.native,
+      ...storage.sync,
+      ...storage.delivery,
+      ...syntheticConnections({ [id]: gmail }),
+      nextWake: async () => null,
+      openBlockedSenders: async () => ({
+        owner: ownerOf(snapshot),
+        revision: 0,
+        document: null,
+      }),
+      notificationSettings: async () => ({
+        authorization: 'authorized',
+        previews: false,
+      }),
+      postReplyNotification,
+      withdrawNotification: async () => null,
+      withdrawSendingReplies: async () => null,
+      holdDelivery,
+      releaseDelivery: jest.fn(),
+      nextNotificationAction: jest
+        .fn<Promise<unknown>, []>()
+        .mockResolvedValueOnce({
+          ...named,
+          id: 'reply-1',
+          message: answered,
+          action: 'reply',
+          text: 'Thursday works.',
+        })
+        .mockResolvedValueOnce({
+          ...named,
+          id: 'reply-2',
+          message: 'gone-message',
+          action: 'reply',
+          text: 'Is this still on?',
+        })
+        .mockReturnValueOnce(openDraft.promise)
+        .mockResolvedValue(null),
+      completeNotificationAction,
+    };
+    const bridge = jest
+      .spyOn(TurboModuleRegistry, 'getEnforcing')
+      .mockReturnValue(native);
+    // iOS launched the app in the background to read the reply.
+    const initial = AppState.currentState;
+    AppState.currentState = 'background';
+    try {
+      const { outbox } = jest.requireActual<{
+        readonly outbox: typeof HostOutbox;
+      }>('../src/registration.ts');
+      try {
+        jest.requireActual('../index.js');
+        await waitFor(() => {
+          expect(completeNotificationAction).toHaveBeenCalledWith('reply-2');
+        });
+        // Only the admitted reply asks for time; the one kept in Drafts does not.
+        // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+        expect(holdDelivery).toHaveBeenCalledTimes(1);
+        expect(outbox.getSnapshot()).toMatchObject([{ state: 'waiting' }]);
+        const saved = postReplyNotification.mock.calls
+          .map(([posted]) => posted)
+          .find(({ kind }) => kind === 'saved');
+        const draft = saved?.draft;
+        expect(draft).toBeDefined();
+
+        openDraft.resolve({
+          ...named,
+          id: 'open-1',
+          message: 'gone-message',
+          action: 'open-draft',
+          draft,
+        });
+        await waitFor(() => {
+          expect(completeNotificationAction).toHaveBeenCalledWith('open-1');
+        });
+        const { followOpenedDrafts } = jest.requireActual<{
+          readonly followOpenedDrafts: typeof FollowOpenedDrafts;
+        }>('../src/freshness.ts');
+        const opened = jest.fn<undefined, [string, string]>();
+        const stop = followOpenedDrafts(opened);
+        stop();
+        expect(opened).toHaveBeenCalledWith(draft, defaultProfile);
+      } finally {
+        outbox.dispose();
+      }
+    } finally {
+      AppState.currentState = initial;
+      bridge.mockRestore();
     }
   });
 });

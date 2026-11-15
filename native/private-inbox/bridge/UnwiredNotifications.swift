@@ -51,8 +51,8 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
     return [.banner, .list, .sound]
   }
 
-  // A tap or Reply opens the message; Archive, Mark as Read, a reply typed on the Mac, and Undo
-  // and Open Draft on that reply's notification act through JavaScript, with no window opened.
+  // A tap opens the message; Archive, Mark as Read, a typed reply, and Undo and Open Draft on that
+  // reply's notification act through JavaScript, with no window opened.
   func userNotificationCenter(
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
   ) async {
@@ -95,26 +95,24 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
 
   // Reply, Archive and Mark as Read, in the order each platform's design lists them. Archive and
   // Mark as Read act in the background only once the device is unlocked: protected storage stays
-  // closed while it is locked. On the Mac, Reply is a field whose placeholder names the
-  // connection's receiving address, so each connection has its own category.
+  // closed while it is locked. Reply is a field whose placeholder names the connection's receiving
+  // address, so each connection has its own category.
   static func newMail(_ titles: [String: String], connection: String, placeholder: String)
     -> UNNotificationCategory
   {
     let archive = action("archive", titles["archive"], "archivebox", .authenticationRequired)
     let read = action("read", titles["read"], "envelope.open", .authenticationRequired)
+    let reply = UNTextInputNotificationAction(
+      identifier: "reply", title: titles["reply"] ?? "", options: .authenticationRequired,
+      icon: UNNotificationActionIcon(systemImageName: "arrowshape.turn.up.left"),
+      textInputButtonTitle: titles["send"] ?? "", textInputPlaceholder: placeholder)
     #if os(iOS)
-      let reply = action("reply", titles["reply"], "arrowshape.turn.up.left", .foreground)
-      return UNNotificationCategory(
-        identifier: "new-mail", actions: [reply, archive, read], intentIdentifiers: [])
+      let actions = [reply, archive, read]
     #else
-      let reply = UNTextInputNotificationAction(
-        identifier: "reply", title: titles["reply"] ?? "", options: .authenticationRequired,
-        icon: UNNotificationActionIcon(systemImageName: "arrowshape.turn.up.left"),
-        textInputButtonTitle: titles["send"] ?? "", textInputPlaceholder: placeholder)
-      return UNNotificationCategory(
-        identifier: "new-mail.\(connection)", actions: [archive, read, reply],
-        intentIdentifiers: [])
+      let actions = [archive, read, reply]
     #endif
+    return UNNotificationCategory(
+      identifier: "new-mail.\(connection)", actions: actions, intentIdentifiers: [])
   }
 
   // A typed reply's notification: Undo while it waits to send, or Open Draft once it was kept in
@@ -359,11 +357,7 @@ extension UnwiredRegistration {
         content.title = title
         content.body = body
         content.sound = .default
-        #if os(iOS)
-          content.categoryIdentifier = "new-mail"
-        #else
-          content.categoryIdentifier = "new-mail.\(connection)"
-        #endif
+        content.categoryIdentifier = "new-mail.\(connection)"
         content.threadIdentifier = profile
         content.userInfo = ["account": account, "epoch": epoch, "connection": connection, "message": message]
         do {

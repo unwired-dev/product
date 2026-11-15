@@ -534,9 +534,11 @@ export function createHost(
       }
     },
     // Reads the actions chosen on notifications for the life of the process: Archive, Mark as
-    // Read, and on the Mac a typed reply, whose Open Draft `openDraft` opens.
+    // Read, and a typed reply, whose Open Draft `openDraft` opens; `admitted` hears each typed
+    // reply the Outbox admits.
     followNotificationActions: (
       openDraft: (draft: string, profile: string) => void = () => undefined,
+      admitted: () => void = () => undefined,
     ) => {
       if (!followingActions) {
         followingActions = true;
@@ -559,7 +561,7 @@ export function createHost(
               gmailMailboxes
                 .getConnections()
                 .find(({ id }) => id === connection),
-            replies: { drafts, outbox, translate, openDraft },
+            replies: { drafts, outbox, translate, openDraft, admitted },
           },
         );
       }
