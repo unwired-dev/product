@@ -56,7 +56,7 @@ with checked, disabled and destructive items. The reader's **Translate** is a sp
 button through `UnwiredSplitButton`: an AppKit `NSSegmentedControl` whose first segment
 translates and whose arrow segment opens the language menu on the first click and can
 name the chosen language, which AppKit's `NSComboButton` cannot. VoiceOver reads both
-segments as buttons. Remove it when React Native macOS offers a split button. Other menus, such as the Profile
+segments as buttons in a group named for the control's title. Remove it when React Native macOS offers a split button. Other menus, such as the Profile
 Switcher's, open from their own control through `UnwiredMenu` and drop
 below it. React Native macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or
 destructive items. Remove the presenter when the host provides an anchored menu with
