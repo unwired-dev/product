@@ -679,7 +679,10 @@ final class UnwiredRegistration: NSObject {
       }
       resolve([
         "imap": ["host": servers.imap.host, "port": servers.imap.port],
-        "smtp": ["host": servers.smtp.host, "port": servers.smtp.port],
+        "smtp": [
+          "host": servers.smtp.host, "port": servers.smtp.port,
+          "security": servers.implicitTLS ? "tls" : "starttls",
+        ],
       ])
     }
   }

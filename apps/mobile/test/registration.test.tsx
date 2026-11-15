@@ -393,7 +393,7 @@ describe('product registration', () => {
             {
               'posteo.de': {
                 imap: { host: 'posteo.de', port: 993 },
-                smtp: { host: 'posteo.de', port: 465 },
+                smtp: { host: 'posteo.de', port: 465, security: 'tls' },
               },
               'example.org': null,
             } as Readonly<Record<string, unknown>>

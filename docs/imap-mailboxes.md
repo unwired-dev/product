@@ -84,9 +84,10 @@ through the system resolver once the address has stopped changing for half a sec
 or else `_submission._tcp` for SMTP, each choosing among the records of the lowest priority at
 random in proportion to their weights, as [RFC 2782](https://www.rfc-editor.org/rfc/rfc2782.html)
 describes. A target of `.` means the service is not offered. When both are found,
-the form fills in the servers and ports, signs in with the full address, takes security from
-the SMTP port and shows the same note; otherwise it stays empty for manual entry. A server
-setting the person changed, or a later address, discards an answer still on its way. Only the
+the form fills in the servers and ports, signs in with the full address and shows the same
+note; otherwise it stays empty for manual entry. SMTP found through `_submissions` uses SSL/TLS
+on whatever port it names; SMTP found through `_submission` takes security from its port, since
+some domains list implicit TLS on 465 there. A server setting the person changed, or a later address, discards an answer still on its way. Only the
 system resolver sees the domain, and Secure Mail Transport checks the discovered host's
 certificate as it does any other. On 15 November 2026 the lookup filled in `posteo.de`,
 `migadu.com` and `purelymail.com`, and left `mailbox.org` and `example.org`, which publish

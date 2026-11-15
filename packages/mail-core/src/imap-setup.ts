@@ -172,12 +172,20 @@ const serverFields = [
   'smtpHost',
   'smtpPort',
   'smtpUsername',
+  'smtpSecurity',
 ] as const;
 
 // The endpoints an uncatalogued domain's RFC 6186 SRV records name, as the native lookup reports
-// them: IMAP over implicit TLS, and SMTP submission.
+// them: IMAP over implicit TLS, and SMTP submission with the security of the service it found,
+// `_submissions` (implicit TLS) or `_submission` (STARTTLS).
 export const DiscoveredServersSchema = Schema.NullOr(
-  Schema.Struct({ imap: ServerSchema, smtp: ServerSchema }),
+  Schema.Struct({
+    imap: ServerSchema,
+    smtp: Schema.Struct({
+      ...ServerSchema.fields,
+      security: Schema.Literals(['tls', 'starttls']),
+    }),
+  }),
 );
 
 // The domain an address's servers are looked up for in DNS: one the catalog does not list.
@@ -191,7 +199,8 @@ export const discoveryDomain = (address: string) => {
 };
 
 // The server fields a form fills in from the endpoints discovered for an address's domain, which
-// sign in with the full address.
+// sign in with the full address. `_submissions` is implicit TLS on any port; a `_submission` port
+// keeps the security its port implies, as some domains list implicit TLS on 465 there.
 export const discoveredFields = (
   address: string,
   servers: NonNullable<typeof DiscoveredServersSchema.Type>,
@@ -204,6 +213,9 @@ export const discoveredFields = (
     smtpHost: servers.smtp.host,
     smtpPort: String(servers.smtp.port),
     smtpUsername: '',
+    ...(servers.smtp.security === 'tls'
+      ? { smtpSecurity: servers.smtp.security }
+      : {}),
   },
 });
 
@@ -213,7 +225,6 @@ export const foundDomain = (
   found: FoundServers | undefined,
 ) =>
   found !== undefined &&
-  fields.smtpSecurity === undefined &&
   serverFields.every((name) => fields[name] === found.fields[name])
     ? found.domain
     : undefined;

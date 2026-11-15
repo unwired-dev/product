@@ -7,6 +7,7 @@ import {
   discoveredFields,
   imapFields,
   imapSetup,
+  smtpSecurityOf,
   withDiscovered,
 } from '../src/imap-setup.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
@@ -339,7 +340,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     const address = 'mara@posteo.de';
     const found = discoveredFields(address, {
       imap: { host: 'posteo.de', port: 993 },
-      smtp: { host: 'posteo.de', port: 465 },
+      smtp: { host: 'posteo.de', port: 465, security: 'tls' },
     });
     const untouched = { ...imapFields(), address, password: 'secret' };
     const edited = { ...untouched, host: 'imap.posteo.de' };
@@ -356,5 +357,23 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
       secured,
       moved,
     ]);
+  });
+
+  // `_submissions` is implicit TLS on any port; `_submission` leaves security to the port (#2200).
+  it('keeps the security of the SMTP service a domain names', () => {
+    expect.hasAssertions();
+    const security = (port: number, service: 'tls' | 'starttls') =>
+      smtpSecurityOf(
+        discoveredFields('mara@example.org', {
+          imap: { host: 'imap.example.org', port: 993 },
+          smtp: { host: 'smtp.example.org', port, security: service },
+        }).fields,
+      );
+    expect([
+      security(2465, 'tls'),
+      security(465, 'tls'),
+      security(587, 'starttls'),
+      security(465, 'starttls'),
+    ]).toStrictEqual(['tls', 'tls', 'starttls', 'tls']);
   });
 });

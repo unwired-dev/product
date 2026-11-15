@@ -18,15 +18,17 @@ enum MailServiceDiscovery {
   }
 
   // IMAP over implicit TLS, and SMTP over implicit TLS (RFC 8314) or else submission with
-  // STARTTLS; nil unless the domain names both.
-  static func servers(domain: String) async -> (imap: Endpoint, smtp: Endpoint)? {
+  // STARTTLS, which `implicitTLS` tells apart; nil unless the domain names both.
+  static func servers(domain: String) async -> (imap: Endpoint, smtp: Endpoint, implicitTLS: Bool)?
+  {
     async let imaps = records("_imaps._tcp.\(domain)")
     async let submissions = records("_submissions._tcp.\(domain)")
     async let submission = records("_submission._tcp.\(domain)")
     let (imap, implicit, starttls) = await (imaps, submissions, submission)
-    guard let imap = endpoint(imap), let smtp = endpoint(implicit) ?? endpoint(starttls)
-    else { return nil }
-    return (imap, smtp)
+    guard let imap = endpoint(imap) else { return nil }
+    if let smtp = endpoint(implicit) { return (imap, smtp, true) }
+    guard let smtp = endpoint(starttls) else { return nil }
+    return (imap, smtp, false)
   }
 
   // The record a client tries first (RFC 2782): among the lowest priority, chosen at random in
