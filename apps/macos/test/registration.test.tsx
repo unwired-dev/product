@@ -3520,14 +3520,14 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     // The Gmail grant is a Mailbox Connection, not a Linked Sign-In.
     expect(
-      screen.getByText(/Only Apple opens this Product Account/u),
+      screen.getByText(/Only Apple opens this Unwired account/u),
     ).toBeVisible();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Link Google sign-in' }),
       );
     });
-    const linked = 'Sign in with Apple or Google to open this Product Account.';
+    const linked = 'Sign in with Apple or Google to open this Unwired account.';
     await expect(screen.findByText(linked)).resolves.toBeVisible();
     await first.unmount();
     await render(
@@ -3570,7 +3570,7 @@ describe('product registration', () => {
     });
     await expect(
       screen.findByRole('alert', {
-        name: /That Apple sign-in already belongs to another Product Account/u,
+        name: /That Apple sign-in already belongs to another Unwired account/u,
       }),
     ).resolves.toBeVisible();
   });
@@ -3857,7 +3857,7 @@ describe('product registration', () => {
     });
     await press('Unlock with Recovery Key');
     expect(screen.getByRole('alert')).toHaveTextContent(
-      /does not unlock this Product Account/u,
+      /does not unlock this Unwired account/u,
     );
     expect(
       screen.getByRole('header', { name: 'Approve this device' }),
@@ -4383,7 +4383,7 @@ describe('product registration', () => {
       );
     });
     expect(screen.getByRole('alert')).toHaveTextContent(
-      /does not unlock this Product Account/u,
+      /does not unlock this Unwired account/u,
     );
     await act(async () => {
       await fireEvent.changeText(
@@ -4723,7 +4723,7 @@ describe('product registration', () => {
       },
       title: 'Confirm account deletion',
       action: english('accountRemoval.deletePermanently'),
-      result: 'Product Account deleted',
+      result: 'Unwired account deleted',
     },
   ])(
     'resumes a pending $removalPending after relaunch without offering mailbox or sign-in work',
@@ -4810,7 +4810,7 @@ describe('product registration', () => {
       await fireEvent.press(screen.getByRole('button', permanently));
     });
     await expect(
-      screen.findByRole('header', { name: 'Product Account deleted' }),
+      screen.findByRole('header', { name: 'Unwired account deleted' }),
     ).resolves.toBeVisible();
     expect(
       screen.getByText(/Your mail in Gmail is not affected/u),
@@ -4822,7 +4822,7 @@ describe('product registration', () => {
       );
     });
     expect(
-      screen.getByRole('header', { name: 'Product Account deleted' }),
+      screen.getByRole('header', { name: 'Unwired account deleted' }),
     ).toBeVisible();
   });
 

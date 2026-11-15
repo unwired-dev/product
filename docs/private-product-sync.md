@@ -88,7 +88,7 @@ authorization. Its screen, **Add this device**, explains that an existing device
 or the Recovery Key must authorize it. It shows **Approve this device** with a
 one-time [Enrollment Code](domain/identity.md) of 56 Crockford base32 characters in
 fourteen groups, **Check for approval**, **Use your Recovery Key**, sign-out and
-**Delete Product Account**. Copy the code or enter it on the trusted device. The
+**Delete Unwired Account**. Copy the code or enter it on the trusted device. The
 code stays on the device; Convex never receives it. A Pending Device can delete
 the Product Account only after a recent interactive Product Sign-In.
 
