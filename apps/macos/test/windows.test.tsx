@@ -1407,6 +1407,71 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
+  it('undoes the latest organizing action when Edit › Undo is chosen in a window', async () => {
+    expect.hasAssertions();
+    const host: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        setWindowProfile: () => void;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      setWindowProfile: () => undefined,
+    };
+    const module = commandModule(host);
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    const choose = async (window: string) => {
+      await act(async () => {
+        DeviceEventEmitter.emit('undo', { window });
+        await Promise.resolve();
+      });
+    };
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      const lunch = /Lunch on Friday/u;
+      await first.findByRole('button', { name: lunch });
+      // With no Undo notice, Command-Z changes nothing.
+      await choose('inbox-window-first');
+      await act(async () => {
+        await fireEvent(
+          second.getByRole('button', { name: lunch }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      expect(first.queryByRole('button', { name: lunch })).toBeNull();
+      // Chosen in another window, it leaves these alone; here it presses this window's Undo, once.
+      await choose('inbox-window-other');
+      expect(first.getByRole('button', { name: 'Undo' })).toBeVisible();
+      await choose('inbox-window-first');
+      await first.findByRole('button', { name: lunch });
+      await expect(
+        second.findByRole('button', { name: lunch }),
+      ).resolves.toBeVisible();
+      await choose('inbox-window-second');
+      expect(
+        gmail.modifies.map(({ add, remove }) => [add, remove]),
+      ).toStrictEqual([
+        [[], ['INBOX']],
+        [['INBOX'], []],
+      ]);
+    } finally {
+      await app.unmount();
+      module.mockRestore();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
   it('uses Inbox actions for online results while another window caches a Gmail label', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

@@ -299,7 +299,8 @@ final class WindowTests: XCTestCase {
     resumed.typeKey("j", modifierFlags: [])
     XCTAssertTrue(seedOrder.waitForExistence(timeout: 5))
     XCTAssertEqual(app.state, .runningForeground)
-    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo.
+    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo,
+    // chosen as Edit › Undo, Command-Z (#2188).
     resumed.buttons["Star"].click()
     XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
     assertProviderActionsSettled(resumed)
@@ -311,7 +312,7 @@ final class WindowTests: XCTestCase {
     assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons["Undo"].exists)
     XCTAssertFalse(resumed.buttons[starred].exists)
-    resumed.buttons["Undo"].click()
+    app.typeKey("z", modifierFlags: .command)
     XCTAssertTrue(resumed.buttons[starred].waitForExistence(timeout: 15))
     assertProviderActionsSettled(resumed)
     XCTAssertTrue(resumed.buttons[starred].exists)

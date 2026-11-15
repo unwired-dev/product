@@ -50,7 +50,7 @@ import {
 
 import type { PopUpItem } from './composer-controls.tsx';
 
-import { RegisterCommands } from './command-palette.tsx';
+import { RegisterCommands, useMenuCommand } from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
 import {
   askForText,
@@ -749,6 +749,20 @@ function GmailMessageActions({
 // Each notice object is announced once, whichever provider's store made it.
 const announced = new WeakSet();
 
+// The Undo notice's button, which Edit › Undo (Command-Z) chosen in this window also presses.
+function UndoButton({ undo }: { readonly undo: () => void }) {
+  const { t } = useLocalization();
+  useMenuCommand('undo', undo);
+  return (
+    <View style={styles.bar}>
+      <ActionButton
+        label={t('gmailActions.undo')}
+        onPress={undo}
+      />
+    </View>
+  );
+}
+
 // The latest organizing outcome for the mailbox's provider, and changes that still wait for it.
 export function OrganizeStatus() {
   const store = useInboxActions();
@@ -795,14 +809,11 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
         </View>
       )}
       {imap.undo ? (
-        <View style={styles.bar}>
-          <ActionButton
-            label={t('gmailActions.undo')}
-            onPress={() => {
-              void inbox.undo();
-            }}
-          />
-        </View>
+        <UndoButton
+          undo={() => {
+            void inbox.undo();
+          }}
+        />
       ) : null}
       {imap.blocked === undefined ? null : (
         <ActionButton
@@ -870,14 +881,11 @@ function GmailOrganizeStatus() {
         </View>
       )}
       {notice?.kind === 'done' && undo !== undefined ? (
-        <View style={styles.bar}>
-          <ActionButton
-            label={t('gmailActions.undo')}
-            onPress={() => {
-              void store.organize(notice.message, undo);
-            }}
-          />
-        </View>
+        <UndoButton
+          undo={() => {
+            void store.organize(notice.message, undo);
+          }}
+        />
       ) : null}
       {state.saving > 0 ? (
         <Text

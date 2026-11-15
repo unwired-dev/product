@@ -172,6 +172,7 @@ does.
 | Window > Inbox number                  | Focus that window                                   |
 | Dock/Finder reopen                     | Focus an existing Inbox or create one               |
 | Unwired Mail > Quit, Command-Q         | End the process                                     |
+| Edit > Undo, Command-Z                 | Undo the Inbox's last Archive, Trash or Move        |
 | Edit > Cut, Copy, Paste, Select All    | Edit the focused text field or text view            |
 
 When the system keeps windows at quit (System Settings, Desktop & Dock, with
@@ -226,7 +227,13 @@ never reports typed text, so the IMAP form's password never reaches JavaScript
 microsoft/react-native-macos#3141. The Mac IMAP Spam and Trash folder journey
 types into the password field.
 
-The Edit menu has no Undo or Redo. The composer body keeps its own Command-Z and
+Edit › Undo (Command-Z) does what the key Inbox window's Undo notice does after
+Archive, Trash or Move ([#2188](https://github.com/unwired-dev/product/issues/2188)),
+and does nothing while the window offers no Undo. It is unavailable in Settings
+and New Message windows, while a sheet is open and while a text field or text
+view has focus, so the key reaches the field: the native undo stack goes stale
+when JavaScript sets a field's text. Text fields have no Undo or Redo, and the
+Edit menu no Redo. The composer body keeps its own Command-Z and
 Shift-Command-Z history.
 
 Link confirmations are AppKit alert sheets, which own their keyboard focus,
