@@ -41,6 +41,7 @@ import type { useGmailSearch } from './mailbox.tsx';
 import type { InboxMailbox } from './private-storage.ts';
 import type { MailboxView } from './sidebar.tsx';
 
+import { PaletteHint } from './command-palette.tsx';
 import {
   DraftHeading,
   DraftList,
@@ -1029,77 +1030,6 @@ export function Inbox({
               />
             </SearchHeading>
           </InboxHeading>
-          <View style={styles.notices}>
-            {failure === undefined ? null : (
-              <Notice
-                icon="exclamationmark.triangle"
-                iconColor={colors.statusWarning}
-                message={failure}
-                messageRole="alert"
-              />
-            )}
-            {missing.map(({ mailbox, detail }) => (
-              <Notice
-                key={`missing\n${mailbox.id}`}
-                icon="exclamationmark.triangle.fill"
-                iconColor={colors.statusWarning}
-                message={t('mailboxes.notIncluded', {
-                  mailbox: mailbox.address ?? mailbox.id,
-                })}
-                detail={t(detail, {
-                  view: folderName,
-                  ...(ipad ? {} : { context: 'iphone' }),
-                })}>
-                {account !== undefined &&
-                detail === 'mailboxes.notIncludedSpamTrash' &&
-                mailbox.state.kind === 'ready' &&
-                'folders' in mailbox.state ? (
-                  <FolderChoice
-                    address={mailbox.address ?? mailbox.state.address}
-                    folders={mailbox.state.folders}
-                    marked={mailbox.state.marked}
-                    saved={
-                      account.mailboxes.find(({ id }) => id === mailbox.id)
-                        ?.folders
-                    }
-                    onSave={(chosen) =>
-                      account.chooseFolders(mailbox.id, chosen)
-                    }
-                  />
-                ) : null}
-              </Notice>
-            ))}
-            {shown.map((mailbox) => (
-              <MailboxScope
-                key={mailbox.id}
-                id={mailbox.id}>
-                <MailboxStatus
-                  address={several ? mailbox.address : undefined}
-                />
-              </MailboxScope>
-            ))}
-            {waiting.map((mailbox) =>
-              mailbox.provider === 'imap' ? (
-                <ImapAuthorizationNeeded
-                  key={mailbox.id}
-                  address={mailbox.address}
-                  onRepair={() => {
-                    account?.openAccount('mailboxes');
-                  }}
-                />
-              ) : (
-                <AuthorizationNeeded
-                  key={mailbox.id}
-                  address={mailbox.address}
-                  provider={mailbox.provider}
-                  onAllow={async () => {
-                    await account?.authorizeMailbox(mailbox.id);
-                    await reload();
-                  }}
-                />
-              ),
-            )}
-          </View>
           <SectionList
             accessibilityLabel={t('inbox.messages')}
             automaticallyAdjustKeyboardInsets
@@ -1173,7 +1103,86 @@ export function Inbox({
             extraData={rows}
             keyExtractor={rowKey}
             ListHeaderComponent={
-              onCompose === undefined ? undefined : <DraftList />
+              // The one-time hint and notices scroll with the messages, so larger text never
+              // leaves the list without room.
+              <>
+                <View style={styles.listLead}>
+                  <PaletteHint />
+                  <View style={styles.notices}>
+                    {failure === undefined ? null : (
+                      <Notice
+                        icon="exclamationmark.triangle"
+                        iconColor={colors.statusWarning}
+                        message={failure}
+                        messageRole="alert"
+                      />
+                    )}
+                    {missing.map(({ mailbox, detail }) => (
+                      <Notice
+                        key={`missing\n${mailbox.id}`}
+                        icon="exclamationmark.triangle.fill"
+                        iconColor={colors.statusWarning}
+                        message={t('mailboxes.notIncluded', {
+                          mailbox: mailbox.address ?? mailbox.id,
+                        })}
+                        detail={t(detail, {
+                          view: folderName,
+                          ...(ipad ? {} : { context: 'iphone' }),
+                        })}>
+                        {account !== undefined &&
+                        detail === 'mailboxes.notIncludedSpamTrash' &&
+                        mailbox.state.kind === 'ready' &&
+                        'folders' in mailbox.state ? (
+                          <FolderChoice
+                            address={mailbox.address ?? mailbox.state.address}
+                            folders={mailbox.state.folders}
+                            marked={mailbox.state.marked}
+                            saved={
+                              account.mailboxes.find(
+                                ({ id }) => id === mailbox.id,
+                              )?.folders
+                            }
+                            onSave={(chosen) =>
+                              account.chooseFolders(mailbox.id, chosen)
+                            }
+                          />
+                        ) : null}
+                      </Notice>
+                    ))}
+                    {shown.map((mailbox) => (
+                      <MailboxScope
+                        key={mailbox.id}
+                        id={mailbox.id}>
+                        <MailboxStatus
+                          address={several ? mailbox.address : undefined}
+                        />
+                      </MailboxScope>
+                    ))}
+                    {waiting.map((mailbox) =>
+                      mailbox.provider === 'imap' ? (
+                        <ImapAuthorizationNeeded
+                          key={mailbox.id}
+                          address={mailbox.address}
+                          onRepair={() => {
+                            account?.openAccount('mailboxes');
+                          }}
+                        />
+                      ) : (
+                        <AuthorizationNeeded
+                          key={mailbox.id}
+                          address={mailbox.address}
+                          provider={mailbox.provider}
+                          onAllow={async () => {
+                            await account?.authorizeMailbox(mailbox.id);
+                            await reload();
+                          }}
+                        />
+                      ),
+                    )}
+                  </View>
+                </View>
+                {onCompose === undefined ? null : <DraftList />}
+              </>
             }
             ListFooterComponent={
               searching ? (

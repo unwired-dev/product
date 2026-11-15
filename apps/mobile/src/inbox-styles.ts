@@ -16,6 +16,10 @@ const subheadline = ipad
   ? typography.ipadList.subheadline
   : textStyles.subheadline;
 
+// The list's insets around its rows.
+const listSide = ipad ? 6 * scale : spacing.l;
+const listTop = ipad ? 0 : 12 + spacing.s;
+
 // The bar's title keeps clear of its 44pt Back, and of the same width at the trailing edge.
 export const barInset = spacing.l + 44 + spacing.m;
 
@@ -87,12 +91,18 @@ export const styles = StyleSheet.create({
   // Rows scroll under the floating bar. The iPhone frames open the list with 20pt above its first
   // divider.
   list: {
-    paddingHorizontal: ipad ? 6 * scale : spacing.l,
-    paddingTop: ipad ? 0 : 12 + spacing.s,
+    paddingHorizontal: listSide,
+    paddingTop: listTop,
     paddingBottom: 72,
     flexGrow: 1,
   },
   listFooter: { flexGrow: 1 },
+  // The hint and notices lead the list's content at the full width and place they had above it.
+  listLead: {
+    marginHorizontal: -listSide,
+    marginTop: -listTop,
+    paddingBottom: listTop,
+  },
   // iPhone rows stand 8pt apart, their hairline 2pt above the next row, outside the row's menu
   // preview.
   rowSpacing: { marginBottom: ipad ? 0 : spacing.s },
@@ -120,7 +130,10 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     gap: ipad ? 4 * scale : 6,
   },
+  // At accessibility text sizes the sender takes the full width, its flag and date beneath it.
+  rowHeadingWrap: { flexWrap: 'wrap' },
   sender: { ...(ipad ? body : textStyles.headline), flex: 1 },
+  senderWrap: { flexBasis: '100%' },
   date: { ...subheadline, flexShrink: 1 },
   subject: { ...body },
   // A search's matched words.

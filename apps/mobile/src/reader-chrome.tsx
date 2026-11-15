@@ -21,7 +21,7 @@ import { usePaletteHeader } from './command-palette.tsx';
 import { ContextMenu, Monogram, NavigationChrome } from './design.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { useInbox, useMailbox } from './mailbox.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 // Every reading-column route reports the native column's width to the shell, which sizes the
 // window bar's edge and the composer overlay from it.
@@ -85,6 +85,9 @@ const styles = StyleSheet.create({
   padAddress: { ...typography.ipadList.body, flexShrink: 3 },
   padSecondary: { ...typography.ipadList.subheadline },
   padRecipients: { marginTop: 2 * ipadListScale },
+  // At accessibility text sizes the sender, address and date stack at the full width.
+  stacked: { flexDirection: 'column', alignItems: 'stretch' },
+  stackedText: { flex: 0 },
   // Centred in the reader's 46pt leading inset, so the text keeps the body's edge.
   hangingAvatar: { position: 'absolute', left: -(40 * ipadListScale + 36) / 2 },
 });
@@ -101,6 +104,7 @@ export function ReaderHeader({ subject }: { readonly subject: string }) {
       ? state.messages.filter((message) => message.unread).length
       : 0;
   const count = unread > 99 ? '99+' : String(unread);
+  const large = useLargeText();
   return (
     <View
       style={styles.header}
@@ -120,7 +124,7 @@ export function ReaderHeader({ subject }: { readonly subject: string }) {
       />
       <Text
         accessibilityRole="header"
-        numberOfLines={1}
+        numberOfLines={large ? 0 : 1}
         style={[styles.headerTitle, { color: colors.textPrimary }]}
         {...header.action}>
         {subject}
@@ -180,13 +184,22 @@ export function MessageHeader({
     void setStringAsync(message.address);
   };
   const secondary = ipad ? styles.padSecondary : styles.secondary;
+  const large = useLargeText();
+  const lines = large ? 0 : 1;
   return (
-    <View style={[styles.from, ipad && styles.padFrom]}>
-      <View style={hanging && styles.hangingAvatar}>
-        <Monogram name={message.sender} />
-      </View>
+    <View
+      style={[styles.from, ipad && styles.padFrom, large && styles.stacked]}>
+      {/* Stacked, the initials would sit alone above the sender; hanging, they stay in the inset. */}
+      {large && !hanging ? null : (
+        <View style={hanging && styles.hangingAvatar}>
+          <Monogram name={message.sender} />
+        </View>
+      )}
       <ContextMenu
-        style={ipad ? styles.padFromText : styles.fromText}
+        style={[
+          ipad ? styles.padFromText : styles.fromText,
+          large && styles.stackedText,
+        ]}
         sections={[
           {
             items: [
@@ -201,7 +214,11 @@ export function MessageHeader({
           { items: blockItems },
         ]}>
         <View style={ipad ? null : styles.fromTarget}>
-          <View style={ipad ? styles.padIdentity : null}>
+          <View
+            style={[
+              ipad && styles.padIdentity,
+              ipad && large && styles.stacked,
+            ]}>
             <Text
               accessibilityActions={[
                 { name: 'copy', label: t('contextMenu.copyAddress') },
@@ -221,7 +238,7 @@ export function MessageHeader({
                 }
               }}
               accessibilityState={highlighted ? { selected: true } : undefined}
-              numberOfLines={1}
+              numberOfLines={lines}
               style={[
                 ipad ? styles.padSender : styles.sender,
                 { color: colors.textPrimary },
@@ -232,7 +249,7 @@ export function MessageHeader({
               which Copy Address still offers. */}
             {ipad || recipients.length === 0 ? (
               <Text
-                numberOfLines={1}
+                numberOfLines={lines}
                 style={[
                   ipad ? styles.padAddress : styles.secondary,
                   { color: colors.textSecondary },
@@ -248,7 +265,7 @@ export function MessageHeader({
           ]).map((line) => (
             <Text
               key={line}
-              numberOfLines={ipad ? 2 : 1}
+              numberOfLines={large ? 0 : ipad ? 2 : 1}
               style={[
                 secondary,
                 ipad && styles.padRecipients,

@@ -685,7 +685,9 @@ export function Monogram({
           borderColor: colors.separator,
         },
       ]}>
+      {/* The initials keep the circle's size, which does not grow with the text. */}
       <Text
+        allowFontScaling={false}
         style={[
           size === 48 ? textStyles.headline : styles.monogramText,
           { color: colors.textSecondary },

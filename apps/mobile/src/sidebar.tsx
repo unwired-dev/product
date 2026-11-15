@@ -53,7 +53,12 @@ import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { SidebarToggle } from './sidebar-toggle.tsx';
-import { textStyles, usePalette, useProfilePalette } from './theme.ts';
+import {
+  textStyles,
+  useLargeText,
+  usePalette,
+  useProfilePalette,
+} from './theme.ts';
 
 // What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, or a
 // Unified Mailbox of every mailbox. The Inbox folder is the default of a mailbox.
@@ -293,6 +298,8 @@ function Item({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  // At accessibility text sizes labels wrap, as UIKit's sidebar lists do.
+  const large = useLargeText();
   const value =
     status ?? (count === 0 ? undefined : t('mailboxes.unread', { count }));
   return (
@@ -316,7 +323,7 @@ function Item({
         />
       </View>
       <Text
-        numberOfLines={1}
+        numberOfLines={large ? 0 : 1}
         style={[
           compact ? styles.compactLabel : styles.label,
           selected && { fontWeight: '600' },
@@ -352,10 +359,11 @@ function Item({
 
 function SectionHeader({ label }: { readonly label: string }) {
   const colors = usePalette();
+  const large = useLargeText();
   return (
     <Text
       accessibilityRole="header"
-      numberOfLines={1}
+      numberOfLines={large ? 0 : 1}
       style={[
         styles.section,
         compact && styles.compactSection,

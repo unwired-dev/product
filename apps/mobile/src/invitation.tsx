@@ -58,7 +58,6 @@ import {
   Platform,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -66,7 +65,7 @@ import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailboxes, useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 // Opens another message of the reader's mailbox in its place, such as an invitation's newer
 // version; a reader without it opens none.
@@ -362,8 +361,6 @@ function Status({
 // A row of native push buttons: the three choices share the width, the other actions keep theirs.
 // From the first accessibility text size the buttons stack at full width, since a row would cut
 // their labels short.
-const useStacked = () => useWindowDimensions().fontScale > 1.4;
-
 function Actions({
   fill = false,
   children,
@@ -376,7 +373,7 @@ function Actions({
   // which then reports its first size, so the row is measured again.
   const [row, setRow] = useState(0);
   const [room, setRoom] = useState(Infinity);
-  const stacked = useStacked() || (fill && row > room + 1);
+  const stacked = useLargeText() || (fill && row > room + 1);
   return (
     <View
       onLayout={
@@ -427,7 +424,7 @@ function Action({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
-  const large = useStacked();
+  const large = useLargeText();
   const wide = fill || large;
   // A choice keeps its title on one line, so a row that cannot fit them stacks (#1883). A finite
   // maximum makes the chosen one, widened by its checkmark, the least flexible button, so the row

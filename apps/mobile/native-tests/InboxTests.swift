@@ -2876,13 +2876,16 @@ final class InboxTests: XCTestCase {
   // ACCESSIBILITY line and fails on one that no known gap explains. The screenshot locates issues
   // the audit reports without an element. Each of the `monograms` in view hides initials that repeat
   // the sender name beside it, which the audit reports once as text it locates no element for.
-  private func audit(_ app: XCUIApplication, _ screen: String, monograms: Int = 0) throws {
+  private func audit(
+    _ app: XCUIApplication, _ screen: String, monograms: Int = 0,
+    for types: XCUIAccessibilityAuditType = .all
+  ) throws {
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Audited \(screen)"
     shot.lifetime = .keepAlways
     add(shot)
     var unlocatedText = 0
-    try app.performAccessibilityAudit { issue in
+    try app.performAccessibilityAudit(for: types) { issue in
       var gap = self.knownAccessibilityGap(issue, on: screen)
       if gap == nil && issue.auditType == .elementDetection && issue.element == nil
         && issue.compactDescription == "Potentially inaccessible text"
@@ -3084,6 +3087,37 @@ final class InboxTests: XCTestCase {
     committed.lifetime = .keepAlways
     add(committed)
     verifyReadStateAfterRelaunch(app)
+    try verifyLargestText(app)
+  }
+
+  // #2191: at the largest accessibility text size the Inbox and the reader clip no text, and the
+  // plain body grows with the system text size.
+  private func verifyLargestText(_ app: XCUIApplication) throws {
+    var bodies: [CGFloat] = []
+    for size in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+      let largest = size.hasSuffix("AccessibilityXXXL")
+      app.terminate()
+      app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
+      app.launch()
+      let maya = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Maya Chen"))
+        .firstMatch
+      XCTAssertTrue(maya.waitForExistence(timeout: 20))
+      if largest {
+        try audit(app, "Inbox at the largest text size", for: [.textClipped, .dynamicType])
+      }
+      for _ in 0..<5 where !maya.isHittable {
+        app.swipeDown()
+      }
+      maya.tap()
+      let body = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Hi Alex,"))
+        .firstMatch
+      XCTAssertTrue(body.waitForExistence(timeout: 10))
+      if largest {
+        try audit(app, "Reader at the largest text size", for: [.textClipped, .dynamicType])
+      }
+      bodies.append(body.frame.height)
+    }
+    XCTAssertGreaterThan(bodies[1], bodies[0] * 1.5)
   }
 
   private func verifyReadStateAfterRelaunch(_ app: XCUIApplication) {

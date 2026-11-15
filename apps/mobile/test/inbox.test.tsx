@@ -283,11 +283,13 @@ describe('preview Inbox', () => {
     const row = await screen.findByRole('button', {
       name: 'Unread. Oliver Park. Saturday, by the river?',
     });
+    // Jest's window reports fontScale 2, an accessibility text size, where the preview takes two
+    // lines.
     expect(
       within(row).getByText(
         'The forecast looks good. Coffee first, then the long way home.',
       ),
-    ).toHaveProp('numberOfLines', 1);
+    ).toHaveProp('numberOfLines', 2);
     const field = screen.getByLabelText('Search senders and subjects');
     await fireEvent(field, 'focus');
     // Before typing, search shows neither the Inbox heading nor its rows.

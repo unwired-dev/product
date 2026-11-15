@@ -23,7 +23,7 @@ import {
   useMessageDateFormat,
   useMessageListDateFormats,
 } from './localization.ts';
-import { usePalette } from './theme.ts';
+import { useLargeText, usePalette } from './theme.ts';
 
 // A row's organizing action at its provider.
 export type RowAction = Readonly<{
@@ -100,6 +100,8 @@ export function MessageRow({
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
   const [previewing, setPreviewing] = useState(false);
+  // At accessibility text sizes the row wraps rather than cutting each line short.
+  const large = useLargeText();
   const registry = useCommandRegistry();
   const offered = useSyncExternalStore(
     reader === undefined ? noSubscription : registry.subscribe,
@@ -167,17 +169,18 @@ export function MessageRow({
         ]}>
         {({ pressed }) => (
           <>
-            <View style={styles.rowHeading}>
+            <View style={[styles.rowHeading, large && styles.rowHeadingWrap]}>
               <Text
                 style={[
                   styles.sender,
+                  large && styles.senderWrap,
                   {
                     color: primaryColor,
                     fontWeight:
                       query === undefined && message.unread ? '600' : '400',
                   },
                 ]}
-                numberOfLines={1}>
+                numberOfLines={large ? 0 : 1}>
                 <Marked
                   text={message.sender}
                   query={query}
@@ -205,7 +208,7 @@ export function MessageRow({
                     query === undefined && message.unread ? '600' : '400',
                 },
               ]}
-              numberOfLines={1}>
+              numberOfLines={large ? 0 : 1}>
               <Marked
                 text={message.subject}
                 query={query}
@@ -213,7 +216,7 @@ export function MessageRow({
             </Text>
             <Text
               style={[styles.preview, { color: secondaryColor }]}
-              numberOfLines={1}>
+              numberOfLines={large ? 2 : 1}>
               {message.preview}
             </Text>
             {mailbox === undefined ? null : (
