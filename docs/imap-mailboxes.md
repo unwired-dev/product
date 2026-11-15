@@ -67,15 +67,16 @@ credential is sent.
 
 ### Catalogued providers
 
-[#2176](https://github.com/unwired-dev/product/issues/2176) fills in the Mac Other IMAP
-Account form from a bundled reviewed catalog, matched by the address's domain. Until
+[#2176](https://github.com/unwired-dev/product/issues/2176) on the Mac and
+[#2189](https://github.com/unwired-dev/product/issues/2189) on iPhone and iPad fill in the
+Other IMAP Account form from a bundled reviewed catalog, matched by the address's domain. Until
 the person changes a server setting, the servers, ports, security and user name follow
 the address: a catalogued domain fills them in and shows **Found server settings for
 _domain_. Port and security are filled in for you.**, and any other domain leaves them
 empty for manual entry. Once the person changes one, the address no longer changes
 them. The person still reviews both endpoints before **Connect**, and the lookup
-happens on the device. iPhone and iPad, and the [RFC 6186](https://www.rfc-editor.org/rfc/rfc6186.html)
-SRV lookup for other domains, are still open under
+happens on the device. The [RFC 6186](https://www.rfc-editor.org/rfc/rfc6186.html)
+SRV lookup for other domains is still open under
 [#2004](https://github.com/unwired-dev/product/issues/2004).
 
 Every entry comes from the provider's own settings page and signs in with the full

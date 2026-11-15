@@ -2480,6 +2480,29 @@ final class InboxTests: XCTestCase {
     app.buttons["Add an IMAP mailbox"].tap()
     XCTAssertTrue(app.buttons["Other IMAP Account"].waitForExistence(timeout: 15))
     app.buttons["Other IMAP Account"].tap()
+    // #2189: an address at a catalogued provider fills in its servers and says so; clearing it
+    // empties them again for manual entry.
+    let email = app.textFields["Email address"]
+    let catalogued = "pat@seznam.cz"
+    enter(catalogued, into: email, in: app)
+    let found = text("Found server settings for seznam.cz.", in: app)
+    XCTAssertTrue(found.waitForExistence(timeout: 15))
+    XCTAssertEqual(app.textFields["IMAP server"].value as? String, "imap.seznam.cz")
+    XCTAssertEqual(app.textFields["SMTP server"].value as? String, "smtp.seznam.cz")
+    if app.keyboards.firstMatch.exists { press("\n", in: app) }
+    for _ in 0..<5 where !found.isHittable { app.swipeUp() }
+    capture("Catalogued provider found")
+    // Tapping the field scrolls it back into view (a swipe down would dismiss Settings); tapping
+    // its trailing end then leaves the caret after the address.
+    focus(email) { self.hasFocus(email) }
+    email.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+    // An empty field's value is its placeholder.
+    for _ in 0..<catalogued.count + 3
+    where !["", "Email address"].contains(email.value as? String ?? "") {
+      email.typeText(XCUIKeyboardKey.delete.rawValue)
+    }
+    XCTAssertTrue(found.waitForNonExistence(timeout: 15))
+    XCTAssertNotEqual(app.textFields["IMAP server"].value as? String, "imap.seznam.cz")
     for (field, value) in [
       ("Email address", address), ("User name", "pat"), ("IMAP server", "imap.example.invalid"),
       ("SMTP server", "smtp.example.invalid"),

@@ -304,7 +304,8 @@ and then iPad Pro 11-inch (M5); pass one, such as
 device.
 
 It then checks the steps of the [Mac journey](#mac-imap-spam-and-trash-folder-journey)
-on iPhone and iPad, with these differences. Settings names the connection's folders
+on iPhone and iPad, including the catalogued provider's filled-in servers and found note
+([#2189](https://github.com/unwired-dev/product/issues/2189)), with these differences. Settings names the connection's folders
 as the iPhone row's value and as the iPad row's summary beside its button. Close
 dismisses the sheet and Save saves it; the iPhone row opens the sheet from Settings,
 the iPad row's Change… button does. Each step's capture is named with the
