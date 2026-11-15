@@ -186,11 +186,15 @@ duplicates role description" finding on the Link Editor hint, Private Cloud's
 explanation and the Writing tools privacy note, sentences containing "text".
 The contrast audit also flags text whose drawn pixels pass and text that is not
 in front ([#1550](https://github.com/unwired-dev/product/issues/1550)). So a
-flagged text outside an open AppKit sheet counts as dimmed by the sheet, and
-one that is not hittable counts as covered; both are audited on the screens
-where they are in front. Any other flagged text fails unless its own capture
-measures at least 4.5:1 between its most common colour and the colour farthest
-from it. The `knownGap` field records the class or the measured ratio. Any other issue fails
+flagged text that is not hittable counts as covered, and one in the front window
+outside its open sheet counts as dimmed by the sheet; both are audited
+on the screens where they are in front. Any other flagged text fails unless its
+own capture is drawn at 4.5:1. A glyph is a connected run of pixels that stands
+out from the capture's most common colour; glyphs within 2.5pt of each other on a
+line form a word, measured by its strongest pixel, and every word must reach
+4.5:1. A thin stroke that never reaches its ink at 1x so counts with its
+neighbours, while weaker text sharing the element is its own words. The
+`knownGap` field records the class or the weakest word's ratio. Any other issue fails
 the journey; remove a gap once its owner fixes it. The AppKit Touch Bar's unlocated
 `Parent/Child mismatch` exception covers only the Command Palette, reader and
 composer audits observed on the Mac host, while a text input has keyboard focus. Retain each run's xcresult captures
@@ -284,7 +288,8 @@ and lists it under Spam and Trash Folders as not chosen. All Mail shows the
 Folders… opens the sheet with nothing chosen and Save disabled; Escape cancels it. Choosing
 Bulk Mail and Deleted Messages and pressing Return saves them. All Mail then lists the
 Inbox message but not Spam's or Trash's. Settings names both folders, and Change…
-opens them pre-filled; Escape keeps them. Both sheets pass an accessibility audit. Each
+opens them pre-filled; Escape keeps them. Both sheets pass an accessibility audit, and so do
+the All Mail notice and Email Accounts behind them, audited without a sheet in front. Each
 step's capture is kept as an attachment. VoiceOver speech is not covered.
 
 ## iPhone and iPad IMAP Spam and Trash folder journey
