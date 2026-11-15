@@ -832,7 +832,8 @@ const horizontalOffsets = (
     ...[...retained]
       .filter(
         ([name, value]) =>
-          name.startsWith('margin') || !/(?:^|\s)-/u.test(value),
+          name.startsWith('margin') ||
+          !/(?:^|\s)-/u.test(value.replaceAll(colorFunctions, ' ')),
       )
       .flatMap(([name, value]) => horizontalEdges(name, value)),
   ]);

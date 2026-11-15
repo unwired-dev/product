@@ -925,6 +925,11 @@ describe('rich-reader review regressions', () => {
         offset('border-left:100px solid;border-left-width:-1px'),
         [`<div style="border-left: 100px solid; ${zero}">`],
       ],
+      // A negative color channel is clamped, so this border stays too.
+      [
+        offset('border-left:100px solid rgb(0, -1, 0)'),
+        [`<div style="border-left: 100px solid rgb(0, -1, 0); ${zero}">`],
+      ],
       [offset('text-indent:100px'), ['<div style="text-indent: 0">']],
       // Offsets that add up, browser defaults, inherited spacing and an unsized inline block.
       [
