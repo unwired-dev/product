@@ -263,9 +263,10 @@ final class InboxTests: XCTestCase {
       shot.lifetime = .keepAlways
       add(shot)
     }
-    // The screen's mean brightness, from a capture scaled down to 8 by 8 pixels.
-    func dark() -> Bool {
-      guard let image = XCUIScreen.main.screenshot().image.cgImage else { return false }
+    // Each cell of a capture scaled down to 8 by 8 pixels, so the sidebar, list and reader on iPad
+    // each have to follow the appearance.
+    func cells() -> [Bool] {
+      guard let image = XCUIScreen.main.screenshot().image.cgImage else { return [] }
       var rgba = [UInt8](repeating: 0, count: 8 * 8 * 4)
       rgba.withUnsafeMutableBytes { bytes in
         CGContext(
@@ -274,11 +275,16 @@ final class InboxTests: XCTestCase {
           bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )?.draw(image, in: CGRect(x: 0, y: 0, width: 8, height: 8))
       }
-      let channels = rgba.enumerated().filter { $0.offset % 4 != 3 }.map { Int($0.element) }
-      return channels.reduce(0, +) < channels.count * 128
+      return stride(from: 0, to: rgba.count, by: 4).map {
+        Int(rgba[$0]) + Int(rgba[$0 + 1]) + Int(rgba[$0 + 2]) < 3 * 128
+      }
     }
     func expect(dark expected: Bool) {
-      waitUntil({ dark() == expected }, timeout: 10)
+      waitUntil(
+        {
+          let dark = cells()
+          return !dark.isEmpty && !dark.contains(!expected)
+        }, timeout: 10)
     }
     // React Native announces a radio row's role and state as its value.
     func row(_ name: String) -> XCUIElement {
