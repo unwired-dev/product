@@ -24,8 +24,8 @@ import { useLargeText, usePalette } from './theme.ts';
 const pad = Platform.OS === 'ios' && Platform.isPad;
 
 // The Inbox's title and status line, centered in iPhone's navigation bar clear of its Back. The
-// bar keeps them at its own size, as UIKit's bar titles do; elsewhere they wrap at accessibility
-// text sizes.
+// bar keeps them at its own size, as UIKit's bar titles do; elsewhere they take up to two lines at
+// accessibility text sizes.
 export function HeadingTitle({
   title,
   subtitle,
@@ -38,7 +38,8 @@ export function HeadingTitle({
   const colors = usePalette();
   const header = usePaletteHeader();
   const { width } = useWindowDimensions();
-  const lines = useLargeText() && !bar ? 0 : 1;
+  // The heading stays put above the list, so a long folder name leaves the list room.
+  const lines = useLargeText() && !bar ? 2 : 1;
   const scale = bar ? 1 : undefined;
   const text = (
     // The bar takes one native view as its title, so layout must not flatten this one away.

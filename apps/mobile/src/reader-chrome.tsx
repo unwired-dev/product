@@ -124,7 +124,8 @@ export function ReaderHeader({ subject }: { readonly subject: string }) {
       />
       <Text
         accessibilityRole="header"
-        numberOfLines={large ? 0 : 1}
+        // The header stays put above the scrolling body, so a long subject leaves the body room.
+        numberOfLines={large ? 3 : 1}
         style={[styles.headerTitle, { color: colors.textPrimary }]}
         {...header.action}>
         {subject}
