@@ -148,6 +148,9 @@ final class InboxTests: XCTestCase {
     verifyRichBodyCanvas(app)
     // #966: a tap on the body closes an open panel without following the link. iPhone has no
     // More (#1404): its Reply sheet offers the actions and opens Gmail's labels in that panel.
+    // The tap goes to the link in the rendered body: the link control beneath it can lie under
+    // the open panel (#2169).
+    let bodyText = app.webViews.links["garden plan"].firstMatch
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let labels = app.staticTexts["Labels"]
     // iPad's More is the system menu, titled as the row menu names its actions.
@@ -161,7 +164,7 @@ final class InboxTests: XCTestCase {
       app.buttons["More"].tap()
     }
     XCTAssertTrue(panelItem.waitForExistence(timeout: 5))
-    bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    bodyText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     XCTAssertTrue(panelItem.waitForNonExistence(timeout: 5))
     XCTAssertFalse(app.alerts["Open this link in your browser?"].waitForExistence(timeout: 5))
     // Organizing goes through the packaged native Gmail modify: a star from the Reply sheet on
@@ -178,7 +181,7 @@ final class InboxTests: XCTestCase {
     assertGmailActionsSettled(app)
     XCTAssertTrue(unstar.exists)
     if !phone {
-      bodyLink.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+      bodyText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
       XCTAssertTrue(unstar.waitForNonExistence(timeout: 5))
     }
     // The starred row names its flag; opening it read it.
@@ -231,17 +234,7 @@ final class InboxTests: XCTestCase {
     app.launch()
     // Relaunch reopens the encrypted cache, then setup stays reachable from the Inbox.
     waitWithoutWelcome(for: starred, in: app)
-    // The account page opens from the Mailboxes column; on iPhone that column is one Back away.
-    let account = app.buttons["Account"]
-    if !account.waitForExistence(timeout: 5) || !account.isHittable {
-      if UIDevice.current.userInterfaceIdiom == .phone {
-        app.buttons["Back to Mailboxes"].tap()
-      } else {
-        app.navigationBars.buttons.firstMatch.tap()
-      }
-    }
-    XCTAssertTrue(account.waitForExistence(timeout: 10))
-    account.tap()
+    openAccount(app)
     openSettings("Account & Devices", in: app)
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
@@ -279,24 +272,9 @@ final class InboxTests: XCTestCase {
   }
 
   // #2166: Settings › Blocked Senders lists the address; Edit switches the list's edit mode, and a
-  // swipe's Delete unblocks it. It runs before the #2169 failure, then reopens the message.
+  // swipe's Delete unblocks it, then the journey reopens the message.
   private func blockedSendersJourney(_ app: XCUIApplication) {
-    // iPhone's account page is in the Mailboxes column, through Back; iPad's reader hides the
-    // sidebar, so the Command Palette's Account opens Settings.
-    if UIDevice.current.userInterfaceIdiom == .pad {
-      let query = app.textFields["Type a command"]
-      openPalette(app, header: query)
-      waitForFocus(query)
-      submit("Account", into: query, in: app)
-    } else {
-      let account = app.buttons["Account"]
-      for _ in 0..<3 where !(account.exists && account.isHittable) {
-        let mailboxes = app.buttons["Back to Mailboxes"]
-        if mailboxes.exists { mailboxes.tap() } else { app.navigationBars.buttons.firstMatch.tap() }
-        _ = account.waitForExistence(timeout: 5)
-      }
-      account.tap()
-    }
+    openAccount(app)
     openSettings("Blocked Senders", in: app)
     let row = app.cells.containing(NSPredicate(format: "label == %@", "rowan@example.invalid"))
       .firstMatch
@@ -2882,6 +2860,25 @@ final class InboxTests: XCTestCase {
       XCTWaiter.wait(
         for: [XCTNSPredicateExpectation(predicate: focused, object: element)], timeout: 10),
       .completed, "\(element) never took keyboard focus", file: file, line: line)
+  }
+
+  // iPhone's account page is in the Mailboxes column, through Back; iPad's reader hides the
+  // sidebar, so the Command Palette's Account opens Settings.
+  private func openAccount(_ app: XCUIApplication) {
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      let query = app.textFields["Type a command"]
+      openPalette(app, header: query)
+      waitForFocus(query)
+      submit("Account", into: query, in: app)
+    } else {
+      let account = app.buttons["Account"]
+      for _ in 0..<3 where !(account.exists && account.isHittable) {
+        let mailboxes = app.buttons["Back to Mailboxes"]
+        if mailboxes.exists { mailboxes.tap() } else { app.navigationBars.buttons.firstMatch.tap() }
+        _ = account.waitForExistence(timeout: 5)
+      }
+      account.tap()
+    }
   }
 
   // iPad taps the command input; iPhone swipes down on the screen's header.
