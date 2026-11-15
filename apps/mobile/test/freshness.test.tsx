@@ -392,6 +392,7 @@ describe('headless Gmail freshness', () => {
     // iOS launched the app in the background to read the reply.
     const initial = AppState.currentState;
     AppState.currentState = 'background';
+    jest.useFakeTimers();
     try {
       const { outbox } = jest.requireActual<{
         readonly outbox: typeof HostOutbox;
@@ -430,9 +431,12 @@ describe('headless Gmail freshness', () => {
         expect(opened).toHaveBeenCalledWith(draft, defaultProfile);
       } finally {
         outbox.dispose();
+        // The new Drafts synchronize once edits pause; let that finish over this bridge.
+        await jest.advanceTimersByTimeAsync(2000);
       }
     } finally {
       AppState.currentState = initial;
+      jest.useRealTimers();
       bridge.mockRestore();
     }
   });
