@@ -751,23 +751,136 @@ const grownHeight = (
     : [];
 };
 
-// Inside a box of sender width, a width cannot exceed it and content-sized widths are removed.
-// An inherited width can copy the box's declared width past its maximum, so it fills the box
-// instead; an inline block without one would shrink to its longest word.
-const boundedWidth = ([name, value]: readonly [string, string]) => {
-  if (name !== 'width' && name !== 'min-width') {
-    return [[name, value] as const];
-  }
-  if (definite(value)) {
-    return [[name, `min(100%, ${value})`] as const];
-  }
-  if (name === 'width' && /^inherit$/iu.test(value)) {
-    return [[name, '100%'] as const];
-  }
-  return /content|stretch|inherit/iu.test(value)
-    ? []
-    : [[name, value] as const];
+// Browser default horizontal offsets of admitted elements.
+const defaultOffsets = new Map<
+  string,
+  ReadonlyArray<readonly [string, string]>
+>([
+  [
+    'blockquote',
+    [
+      ['margin-left', '40px'],
+      ['margin-right', '40px'],
+    ],
+  ],
+  ['dd', [['margin-left', '40px']]],
+  ['ol', [['padding-left', '40px']]],
+  ['ul', [['padding-left', '40px']]],
+]);
+
+const borderKeywords = new Map([
+  ['thin', '1px'],
+  ['medium', '3px'],
+  ['thick', '5px'],
+]);
+const borderStyles =
+  /^(?:none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset)$/iu;
+const horizontalEdge =
+  /^(?<box>margin|padding|border)(?:-(?<side>left|right))?(?:-(?<part>width|style))?$/u;
+
+// One side of a top, right, bottom, left shorthand.
+const sideOf = (value: string, side: string) => {
+  const [top = '0', right = top, , left = right] = value.split(/\s+/u);
+  return side === 'left' ? left : right;
 };
+
+// The style and width a border shorthand sets; omitted, they are none and medium.
+const borderSide = (
+  value: string,
+  side: string,
+): ReadonlyArray<readonly [string, string]> => {
+  const tokens = value.replaceAll(colorFunctions, ' ').split(/\s+/u);
+  const style = tokens.find((token) => borderStyles.test(token));
+  const width = tokens.find(
+    (token) => borderKeywords.has(token.toLowerCase()) || definite(token),
+  );
+  return [
+    [`border-${side}-style`, style ?? 'none'],
+    [`border-${side}-width`, width ?? 'medium'],
+  ];
+};
+
+// The left and right edges one declaration sets, such as `padding-left` from `padding`.
+const horizontalEdges = (
+  name: string,
+  value: string,
+): ReadonlyArray<readonly [string, string]> => {
+  const { box, side, part } = horizontalEdge.exec(name)?.groups ?? {};
+  if (box === undefined) {
+    return [];
+  }
+  return (side === undefined ? ['left', 'right'] : [side]).flatMap((edge) => {
+    const own =
+      side === undefined && name !== 'border' ? sideOf(value, edge) : value;
+    if (box === 'border' && part === undefined) {
+      return borderSide(own, edge);
+    }
+    return [[`${box}-${edge}${part === undefined ? '' : `-${part}`}`, own]];
+  });
+};
+
+// A box's horizontal margins, borders and paddings over the browser's defaults, as nonzero
+// lengths. A later longhand overrides a shorthand, and a border without a style has no width.
+const horizontalOffsets = (
+  retained: ReadonlyMap<string, string>,
+  tag: string,
+) => {
+  const edges = new Map([
+    ...(defaultOffsets.get(tag) ?? []),
+    ...[...retained].flatMap(([name, value]) => horizontalEdges(name, value)),
+  ]);
+  return ['left', 'right']
+    .flatMap((side) => [
+      edges.get(`margin-${side}`),
+      edges.get(`padding-${side}`),
+      /^(?:none|hidden)?$/iu.test(edges.get(`border-${side}-style`) ?? '')
+        ? undefined
+        : edges.get(`border-${side}-width`),
+    ])
+    .map((value) => borderKeywords.get(value?.toLowerCase() ?? '') ?? value)
+    .filter(
+      (value): value is string =>
+        value !== undefined &&
+        !/^(?:auto|-.*)$/iu.test(value) &&
+        lengthPixels(value, { font: 1, percent: 1 }) !== 0,
+    );
+};
+
+// Viewport lengths grow past the reader's narrowest width, so they have no pixel bound here.
+const offsetPixels = (value: string, font: number, percent: number) =>
+  /v(?:w|h|min|max)$/iu.test(value)
+    ? Infinity
+    : (lengthPixels(value, { font, percent }) ?? Infinity);
+
+// A width as the sender set it, before a wide one was bounded by the reader.
+const senderWidth = (value: string) =>
+  value.replace(/^min\(100%,\s*(?<width>.+)\)$/u, '$<width>');
+
+// What a box's offsets leave of its containing block.
+const widthLeft = (offsets: readonly string[]) =>
+  offsets.length === 0 ? '100%' : `calc(100% - ${offsets.join(' - ')})`;
+
+// Inside a box of sender width, a width cannot exceed what its offsets leave of it, and
+// content-sized widths are removed. An inherited width can copy the box's declared width past
+// its maximum, so it fills the box instead; an inline block without one would shrink to its
+// longest word.
+const boundedWidth =
+  (offsets: readonly string[]) =>
+  ([name, declared]: readonly [string, string]) => {
+    if (!['width', 'min-width', 'max-width'].includes(name)) {
+      return [[name, declared] as const];
+    }
+    const value = senderWidth(declared);
+    if (definite(value)) {
+      return [[name, `min(${widthLeft(offsets)}, ${value})`] as const];
+    }
+    if (name === 'width' && /^inherit$/iu.test(value)) {
+      return [[name, widthLeft(offsets)] as const];
+    }
+    return /content|stretch|inherit/iu.test(value)
+      ? []
+      : [[name, value] as const];
+  };
 
 // Sender boxes keep their text inside them, where a later image or button fill could cover it
 // (#2204). Images keep their sizes.
@@ -776,8 +889,12 @@ const containedBox = (
   {
     tag,
     display,
-    bounded,
-  }: Readonly<{ tag: string; display: string; bounded: boolean }>,
+    offsets,
+  }: Readonly<{
+    tag: string;
+    display: string;
+    offsets: readonly string[] | undefined;
+  }>,
 ): FilteredStyle => {
   if (tag === 'img' || tableBox.test(display)) {
     return style;
@@ -787,8 +904,17 @@ const containedBox = (
       grownHeight(name, value, style.retained) ?? [[name, value] as const],
   );
   const retained = new Map(
-    bounded ? declarations.flatMap(boundedWidth) : declarations,
+    offsets === undefined
+      ? declarations
+      : declarations.flatMap(boundedWidth(offsets)),
   );
+  if (
+    offsets !== undefined &&
+    display === 'inline-block' &&
+    !senderSized({ ...style, retained })
+  ) {
+    retained.set('max-width', widthLeft(offsets));
+  }
   return {
     ...style,
     retained,
@@ -796,10 +922,32 @@ const containedBox = (
   };
 };
 
-// Whether a box's descendants sit inside a sender width: a table cell grows to its content.
-const boundedIn = (display: string, style: FilteredStyle, parent: boolean) =>
-  !tableBox.test(display) &&
-  ((display !== 'inline' && senderSized(style)) || parent);
+// The width a box leaves its text, at the reader's narrowest: a sender width, and inside a box
+// of one, what offsets leave of it. A table cell grows to its content.
+const roomIn = (
+  display: string,
+  style: FilteredStyle,
+  {
+    parent,
+    used,
+    font,
+  }: Readonly<{ parent: number | undefined; used: number; font: number }>,
+) => {
+  if (tableBox.test(display)) {
+    return undefined;
+  }
+  const percent = (parent ?? narrowestReaderPixels) - used;
+  const widths = ['width', 'max-width'].map((name) => {
+    const value = senderWidth(style.retained.get(name) ?? '');
+    return /^inherit$/iu.test(value)
+      ? percent
+      : (lengthPixels(value, { font, percent }) ?? Infinity);
+  });
+  const own = display === 'inline' ? Infinity : Math.min(...widths);
+  return own === Infinity && parent === undefined
+    ? undefined
+    : Math.min(own, percent);
+};
 
 const offsetTokens = new Map([
   ['margin', 4],
@@ -1505,6 +1653,97 @@ const withProperties = (
     ...style,
     retained,
     css: [...retained].map(([key, value]) => `${key}: ${value}`).join('; '),
+  };
+};
+
+const zeroOffsets = ['margin', 'padding', 'border'].flatMap((box) =>
+  ['left', 'right'].map(
+    (side) =>
+      [
+        box === 'border' ? `border-${side}-width` : `${box}-${side}`,
+        '0',
+      ] as const,
+  ),
+);
+
+// Inside a box of sender width, offsets that would leave less than one glyph of it are removed
+// (#2209). Table cells and images keep theirs.
+const fittedOffsets = (
+  style: FilteredStyle,
+  {
+    tag,
+    display,
+    room,
+    font,
+  }: Readonly<{
+    tag: string;
+    display: string;
+    room: number | undefined;
+    font: number;
+  }>,
+) => {
+  if (room === undefined || tag === 'img' || display.startsWith('table-')) {
+    return { style, offsets: undefined, used: 0 };
+  }
+  const offsets = horizontalOffsets(style.retained, tag);
+  const used = offsets.reduce(
+    (total, value) => total + offsetPixels(value, font, room),
+    0,
+  );
+  return used + font <= room
+    ? { style, offsets, used }
+    : { style: withProperties(style, zeroOffsets), offsets: [], used: 0 };
+};
+
+// A text indent or letter spacing in pixels: its own, resolved where it is declared, or the
+// inherited one.
+const textOffset = (
+  value: string | undefined,
+  parent: number,
+  { font, percent }: Readonly<{ font: number; percent: number }>,
+) => {
+  if (value === undefined || /^inherit$/iu.test(value)) {
+    return parent;
+  }
+  return /^normal$/iu.test(value) ? 0 : offsetPixels(value, font, percent);
+};
+
+// A text indent or letter spacing, own or inherited, that would leave less than one glyph of
+// a sender box is removed (#2209).
+const fittedText = (
+  style: FilteredStyle,
+  {
+    room,
+    font,
+    indent,
+    spacing,
+  }: Readonly<{
+    room: number | undefined;
+    font: number;
+    indent: number;
+    spacing: number;
+  }>,
+) => {
+  const own = {
+    indent: textOffset(style.retained.get('text-indent'), indent, {
+      font,
+      percent: room ?? narrowestReaderPixels,
+    }),
+    spacing: textOffset(style.retained.get('letter-spacing'), spacing, {
+      font,
+      percent: font,
+    }),
+  };
+  const fits = (pixels: number) =>
+    room === undefined || pixels <= 0 || pixels + font <= room;
+  const removed = [
+    ...(fits(own.indent) ? [] : [['text-indent', '0'] as const]),
+    ...(fits(own.spacing) ? [] : [['letter-spacing', '0'] as const]),
+  ];
+  return {
+    style: removed.length === 0 ? style : withProperties(style, removed),
+    indent: fits(own.indent) ? own.indent : 0,
+    spacing: fits(own.spacing) ? own.spacing : 0,
   };
 };
 
@@ -2234,8 +2473,11 @@ function walk(
   // Off-canvas text boxes, and inherited font size and indent states.
   let direction = 'ltr';
   let margins: ReadonlyMap<string, string> = new Map();
-  // Whether the containing block has a sender width, outside any table.
-  let bounded = false;
+  // The width a sender box leaves its text, outside any table, and the inherited text indent
+  // and letter spacing that use it up.
+  let room: number | undefined = undefined;
+  let indent = 0;
+  let spacing = 0;
   let fontPixels = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
@@ -2647,13 +2889,34 @@ function walk(
       directional: direction === 'rtl' || parentDirection === 'rtl',
       font: fontPixels,
     });
-    const normalized = fittedLines(
-      containedBox(spaced, { tag: node.tagName, display, bounded }),
-      node,
-      { parent: lineHeight, font: fontPixels },
+    const placed = fittedOffsets(spaced, {
+      tag: node.tagName,
+      display,
+      room,
+      font: fontPixels,
+    });
+    const parentRoom = room;
+    const parentIndent = indent;
+    const parentSpacing = spacing;
+    room = roomIn(display, placed.style, {
+      parent: room,
+      used: placed.used,
+      font: fontPixels,
+    });
+    const text = fittedText(
+      fittedLines(
+        containedBox(placed.style, {
+          tag: node.tagName,
+          display,
+          offsets: placed.offsets,
+        }),
+        node,
+        { parent: lineHeight, font: fontPixels },
+      ),
+      { room, font: fontPixels, indent, spacing },
     );
-    const parentBounded = bounded;
-    bounded = boundedIn(display, normalized, bounded);
+    const normalized = text.style;
+    ({ indent, spacing } = text);
     margins = ownMargins;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
@@ -2671,7 +2934,9 @@ function walk(
     );
     ancestorLinePixels = linePixels();
     run(normalized);
-    bounded = parentBounded;
+    room = parentRoom;
+    indent = parentIndent;
+    spacing = parentSpacing;
     ancestorLinePixels = parentAncestorLinePixels;
     lineHeight = parentLineHeight;
     direction = parentDirection;

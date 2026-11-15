@@ -831,7 +831,18 @@ gets a line height of 1.2, the system font's normal spacing, while image-only
 lines keep a zero line height, so
 sliced-image tables stay seamless. Inside a box with a sender width, widths and
 minimum widths are bounded by that box, content-sized widths are removed and an
-inherited width fills the box.
+inherited width fills the box. Offsets inside such a box stay within it too
+([#2209](https://github.com/unwired-dev/product/issues/2209)). The sanitizer
+estimates, at the reader's narrowest width, how much of the box each descendant
+leaves. When an element's horizontal margins, borders and paddings, including
+the browser's default list, quote and definition indents, would leave less than
+one glyph (its font size), they become zero. An element's widths are bounded by
+what its kept offsets leave of the box, and an inline block without a width gets
+that as its maximum width. A text indent or letter spacing, its own or inherited,
+that would leave less than one glyph also becomes zero. Offsets in viewport units
+have no bound at the narrowest width, so inside such a box they always become
+zero. A table inside such a box, or a box narrower than one glyph, can still push
+text out of it ([#2213](https://github.com/unwired-dev/product/issues/2213)).
 A table squeezed below its minimum content width can still overflow one cell into
 the next. Large positive margins and indents (at least 320 CSS
 pixels after unit resolution) are normalized to zero, and padding or border-width declarations with a token of at least 320

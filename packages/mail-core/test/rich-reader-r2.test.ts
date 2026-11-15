@@ -886,6 +886,61 @@ describe('rich-reader review regressions', () => {
     expect(document).not.toMatch(/max-height: 1px|min-height: max\(/u);
   });
 
+  it('keeps offsets inside sender boxes so text cannot overflow onto a button fill', () => {
+    expect.hasAssertions();
+    const label = 'paypal.com.evil.example';
+    const inBox = (inner: string, box = 'width:20px') =>
+      `<table><tr><td><div style="${box}">${inner}</div></td><td style="background-color:#3A3D44;padding:8px 120px"><a href="https://x.example/">x</a></td></tr></table>`;
+    const offset = (style: string) =>
+      inBox(
+        `<div style="${style}"><a href="https://evil.example/">${label}</a></div>`,
+      );
+    const zero =
+      'margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; border-left-width: 0; border-right-width: 0';
+    const { document } = sanitizeHtml(
+      [
+        // The issue's examples, then the same offsets through shorthands, borders and indents.
+        offset('padding-left:100px'),
+        offset('width:250px;padding-left:100px'),
+        offset('margin-left:100px'),
+        offset('padding:0 0 0 100px'),
+        offset('border-style:solid;border-width:0 0 0 100px'),
+        offset('border-left:100px solid transparent'),
+        offset('text-indent:100px'),
+        // Offsets that add up, browser defaults, inherited spacing and an unsized inline block.
+        inBox(
+          `<div style="padding-left:16px"><div style="padding-left:16px">${label}</div></div>`,
+          'width:40px',
+        ),
+        inBox(`<blockquote>${label}</blockquote>`),
+        `<div style="letter-spacing:100px">${inBox(label)}</div>`,
+        inBox(`<div style="display:inline-block">${label}</div>`),
+        // Offsets that fit stay, and a box's width makes room for them.
+        inBox(
+          `<div style="width:100%;padding:0 20px;border-left:2px solid">Fits</div><p style="text-indent:2em;letter-spacing:1px">Indented</p><div style="border-left-width:100px">No border style</div>`,
+          'max-width:600px;margin:0 auto',
+        ),
+      ].join(''),
+    );
+    expect(
+      [
+        `<div style="${zero}">`,
+        `<div style="width: min(100%, 250px); ${zero}">`,
+        `<div style="padding: 0 0 0 100px; ${zero}">`,
+        `<div style="border-style: solid; border-width: 0 0 0 100px; ${zero}">`,
+        `<div style="border-left: 100px solid transparent; ${zero}">`,
+        '<div style="text-indent: 0">',
+        `<div style="padding-left: 16px"><div style="${zero}">`,
+        `<blockquote style="${zero}">`,
+        '<div style="width: 20px; letter-spacing: 0">',
+        '<div style="display: inline-block; max-width: 100%">',
+        '<div style="width: min(calc(100% - 20px - 2px - 20px), 100%); padding: 0 20px; border-left: 2px solid">',
+        '<p style="text-indent: 2em; letter-spacing: 1px">',
+        '<div style="border-left-width: 100px">',
+      ].filter((style) => !document.includes(style)),
+    ).toStrictEqual([]);
+  });
+
   it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
     expect.hasAssertions();
     for (const blocker of ['display:none', 'opacity:0']) {
