@@ -30,7 +30,9 @@ import type {
   InboxStore,
   MailboxList,
 } from './private-storage.ts';
+import type { SettingsDestination } from './settings.tsx';
 
+import { InboxPreferencesContext } from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailboxesContext,
@@ -91,6 +93,7 @@ export function InboxProvider({
   readonly sendReminders?: SendReminders | undefined;
 }) {
   const account = use(AccountContext);
+  const inboxPreferences = use(InboxPreferencesContext);
   const navigation = useMemo(() => createComposerNavigation(), []);
   useEffect(() => {
     mountedNavigation = navigation;
@@ -104,19 +107,22 @@ export function InboxProvider({
     void drafts.load();
     void mailTemplates.synchronize();
     void blockedSenders.synchronize();
-    // Returning picks up other devices' Draft, Mail Template and Blocked Sender changes; leaving
-    // publishes this device's.
+    void inboxPreferences.load();
+    void inboxPreferences.synchronize();
+    // Returning picks up other devices' Draft, Mail Template, Blocked Sender and Inbox preference
+    // changes; leaving publishes this device's.
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active' || state === 'background') {
         void drafts.syncInBackground();
         void mailTemplates.synchronize();
         void blockedSenders.synchronize();
+        void inboxPreferences.synchronize();
       }
     });
     return () => {
       subscription.remove();
     };
-  }, [drafts, mailTemplates]);
+  }, [drafts, mailTemplates, inboxPreferences]);
   useEffect(() => {
     void mailboxes.load();
     const subscription = AppState.addEventListener('change', (state) => {
@@ -175,7 +181,8 @@ export function useDrafts() {
   return useSyncExternalStore(drafts.subscribe, drafts.getSnapshot);
 }
 
-// Scopes the Inbox hooks below to one Mail Profile, such as a window's or a deep link's.
+// Scopes the Inbox hooks below to one Mail Profile, such as a window's or a deep link's, and the
+// Settings they open to its preferences.
 export function ProfileScope({
   profile,
   children,
@@ -184,12 +191,28 @@ export function ProfileScope({
   readonly children: ReactNode;
 }) {
   const owner = readingProfile(profile);
+  const account = use(AccountContext);
+  const scoped = useMemo(
+    () =>
+      account && {
+        ...account,
+        openAccount: (
+          destination?: SettingsDestination,
+          onInbox?: () => void,
+        ) => {
+          account.openAccount(destination, onInbox, owner);
+        },
+      },
+    [account, owner],
+  );
   return (
-    <ProfileContext
-      key={owner}
-      value={owner}>
-      {children}
-    </ProfileContext>
+    <AccountContext value={scoped}>
+      <ProfileContext
+        key={owner}
+        value={owner}>
+        {children}
+      </ProfileContext>
+    </AccountContext>
   );
 }
 

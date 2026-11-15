@@ -66,10 +66,28 @@ struct BlockedSendersRecord: SyncedRecord, Equatable {
   }
 }
 
-// The signed-in Trusted Device's Product Sync of its Drafts, Mail Templates and Blocked Senders:
-// everything it needs, read once under the registration gate, so network work runs without holding
-// Draft storage or Gmail. TypeScript merges them; this only seals, opens and moves records and
-// asset chunks.
+// One Mail Profile's Inbox presentation preferences record (ADR 0019's
+// `mail-workflow-preferences:inbox`): each field's latest value, as JSON naming the Profile, whose
+// identifier is the record's.
+struct InboxPreferencesRecord: SyncedRecord, Equatable {
+  static let kind = "profile-inbox-preferences"
+  static let field = "preferences"
+  static let schemaVersion = 1
+  let id: String
+  let version: Int
+  let preferences: String?
+  var content: String? { preferences }
+  init(id: String, version: Int, content: String?) {
+    self.id = id
+    self.version = version
+    preferences = content
+  }
+}
+
+// The signed-in Trusted Device's Product Sync of its Drafts, Mail Templates, Blocked Senders and
+// Inbox preferences: everything it needs, read once under the registration gate, so network work
+// runs without holding Draft storage or Gmail. TypeScript merges them; this only seals, opens and
+// moves records and asset chunks.
 @MainActor struct DraftSync {
   // Chunks stay well within a Convex document once sealed and base64-encoded.
   static let chunkSize = 512 * 1024

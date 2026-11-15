@@ -18,11 +18,13 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useCommandRegistry } from './command-palette.tsx';
 import { ContextMenu, SFSymbol } from './design.tsx';
 import { ipad, styles } from './inbox-styles.ts';
+import { useListDensity } from './list-density.tsx';
 import {
   useLocalization,
   useMessageDateFormat,
   useMessageListDateFormats,
 } from './localization.ts';
+import { useProfile } from './mailbox.tsx';
 import { useLargeText, usePalette } from './theme.ts';
 
 // A row's organizing action at its provider.
@@ -102,6 +104,10 @@ export function MessageRow({
   const [previewing, setPreviewing] = useState(false);
   // At accessibility text sizes the row wraps rather than cutting each line short.
   const large = useLargeText();
+  // Compact wraps the subject and keeps one preview line at every text size.
+  const compact = useListDensity(useProfile()) === 'compact';
+  const subjectLines = large || compact ? 0 : 1;
+  const previewLines = large && !compact ? 2 : 1;
   const registry = useCommandRegistry();
   const offered = useSyncExternalStore(
     reader === undefined ? noSubscription : registry.subscribe,
@@ -208,7 +214,7 @@ export function MessageRow({
                     query === undefined && message.unread ? '600' : '400',
                 },
               ]}
-              numberOfLines={large ? 0 : 1}>
+              numberOfLines={subjectLines}>
               <Marked
                 text={message.subject}
                 query={query}
@@ -216,7 +222,7 @@ export function MessageRow({
             </Text>
             <Text
               style={[styles.preview, { color: secondaryColor }]}
-              numberOfLines={large ? 2 : 1}>
+              numberOfLines={previewLines}>
               {message.preview}
             </Text>
             {mailbox === undefined ? null : (

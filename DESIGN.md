@@ -812,9 +812,6 @@ app follows under the issue named:
 - **Mac Settings › Appearance:** the page offers Light, Dark and System (#2153).
   The frame's Message list group, with its Preview lines pop-up, waits for a
   later slice of #1727.
-- **iPhone and iPad Settings › Appearance:** the page offers Light, Dark and
-  System (#2168). The frames' List density group and the compact Thread list
-  wait for a later slice of #1727.
 - **Reader More menu:** Move to Spam waits for #2132.
 - **Compact iPad window:** the Command input in the reader's navigation bar and
   on the composer's From row waits for #2133.

@@ -22,6 +22,7 @@ import {
   runWhenOffered,
 } from '@private-email/mail-core/commands';
 import { createDrafts } from '@private-email/mail-core/drafts';
+import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import {
@@ -60,6 +61,7 @@ import type { useCommandRegistry as UseCommandRegistry } from '../src/command-pa
 import type { MailboxList } from '../src/private-storage.ts';
 
 import RootLayout from '../app/_layout.tsx';
+import { InboxPreferencesContext } from '../src/list-density.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Observe only the external animation boundary; the shell, Inbox and stores stay real.
@@ -1240,6 +1242,69 @@ describe('the mobile Profile Switcher', () => {
       await expect(
         screen.findByLabelText('Mail Profile, Work'),
       ).resolves.toBeVisible();
+    } finally {
+      store.restore();
+      mode.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('chooses List density in Settings for the window’s Mail Profile only', async () => {
+    expect.hasAssertions();
+    const { registration, work: workId } = await createTwoProfileRegistration();
+    const { snapshot } = registration.getSnapshot();
+    ok(snapshot.kind !== 'signed-out');
+    const owner = snapshot.productAccountId;
+    const kept = { revision: 0, document: null as string | null };
+    const preferences = createInboxPreferences(
+      {
+        openInboxPreferences: async () => ({ owner, ...kept }),
+        commitInboxPreferences: async (account, expectedRevision, document) => {
+          Object.assign(kept, { revision: expectedRevision + 1, document });
+          return { owner: account, revision: kept.revision };
+        },
+      },
+      registration,
+    );
+    const mode = jest.replaceProperty(
+      jest.requireMock<{ previewInbox: boolean }>(
+        '@private-email/mail-core/registration-mode',
+      ),
+      'previewInbox',
+      false,
+    );
+    const store = jest.replaceProperty(
+      jest.requireMock<{ registration: typeof registration }>(
+        '../src/registration.ts',
+      ),
+      'registration',
+      registration,
+    );
+    try {
+      savedPreferences(new Map());
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(
+        <InboxPreferencesContext value={preferences}>
+          <RootLayout />
+        </InboxPreferencesContext>,
+      );
+      await screen.findByLabelText('Mail Profile, Primary Profile');
+      await choose('Mail Profile, Primary Profile', `profile\n${workId}`);
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Account' }),
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Appearance' }),
+      );
+      await fireEvent.press(screen.getByRole('radio', { name: 'Compact' }));
+      await waitFor(() => {
+        expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
+      });
+      expect([
+        preferences.listDensity(workId),
+        preferences.listDensity(defaultProfile),
+      ]).toStrictEqual(['compact', 'comfortable']);
     } finally {
       store.restore();
       mode.restore();

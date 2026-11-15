@@ -16,6 +16,10 @@ import type { NativeDrafts, NativeDraftSync } from './drafts.ts';
 import type { NativeErrorReporting } from './error-reporting.ts';
 import type { NativeWakes } from './freshness.ts';
 import type {
+  NativeInboxPreferenceSync,
+  NativeInboxPreferences,
+} from './inbox-preferences.ts';
+import type {
   NativeMailTemplateSync,
   NativeMailTemplates,
 } from './mail-templates.ts';
@@ -32,6 +36,7 @@ import { rejectionCode } from './diagnostics.ts';
 import { createDrafts } from './drafts.ts';
 import { createErrorReporting } from './error-reporting.ts';
 import { createFreshness, followWakes } from './freshness.ts';
+import { createInboxPreferences } from './inbox-preferences.ts';
 import { createMailTemplates } from './mail-templates.ts';
 import { createMailboxes } from './mailboxes.ts';
 import {
@@ -79,6 +84,8 @@ export interface NativeHostModule
     NativeSendReminders,
     NativeBlockedSenders,
     NativeBlockedSenderSync,
+    NativeInboxPreferences,
+    NativeInboxPreferenceSync,
     NativeDeliveryClaim,
     NativeWakes,
     NativeRemoteContent,
@@ -482,6 +489,27 @@ export function createHost(
     },
   );
 
+  // Each Mail Profile's Inbox preferences, such as its Thread-list density, stored encrypted on this
+  // device and synchronized through Product Sync with its other Trusted Devices.
+  const inboxPreferences = createInboxPreferences(
+    {
+      openInboxPreferences: () => native().openInboxPreferences(),
+      commitInboxPreferences: (owner, expectedRevision, document) =>
+        native().commitInboxPreferences(owner, expectedRevision, document),
+    },
+    registration,
+    {
+      removed,
+      adoptKeyRotation: () => registration.adoptKeyRotation(),
+      native: {
+        pullInboxPreferences: (owner, known) =>
+          native().pullInboxPreferences(owner, known),
+        pushInboxPreferences: (owner, record) =>
+          native().pushInboxPreferences(owner, record),
+      },
+    },
+  );
+
   // Each Draft's Send Reminder, stored encrypted on this device.
   const sendReminders = createSendReminders(
     {
@@ -525,6 +553,7 @@ export function createHost(
     mailTemplates,
     sendReminders,
     blockedSenders,
+    inboxPreferences,
     outbox,
     wakes,
     freshness,

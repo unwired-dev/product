@@ -15,6 +15,7 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
+  defaultProfile,
   profilesOf,
   registrationScreen,
 } from '@private-email/mail-core/registration';
@@ -54,6 +55,7 @@ import {
   ErrorReportingSettings,
 } from './error-reporting.tsx';
 import { LanguageSelector } from './language-selector.tsx';
+import { ListDensitySettings } from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceContext,
@@ -90,9 +92,11 @@ export const AccountContext = createContext<
       mailboxes: readonly MailboxConnection[];
       // Settings opens on the given destination, such as Email Accounts for a password. Its Open
       // Inbox then calls `onInbox`, which shows the kept Inbox when Settings opened from elsewhere.
+      // `profile` is the window's Mail Profile, whose preferences Settings shows.
       openAccount: (
         destination?: SettingsDestination,
         onInbox?: () => void,
+        profile?: string,
       ) => void;
       authorizeMailbox: (connection: string) => Promise<void>;
       refreshInbox: (load: () => Promise<void>) => Promise<void>;
@@ -115,9 +119,14 @@ export const AccountContext = createContext<
 // follows it.
 type SettingsRequest = Readonly<{
   account: string;
+  profile: string;
   destination: SettingsDestination | undefined;
   onInbox: (() => void) | undefined;
 }>;
+
+// The Mail Profile whose preferences Settings shows; the account page has no window's.
+const settingsProfile = (request: SettingsRequest | undefined) =>
+  request?.profile ?? defaultProfile;
 
 // Settings stays open only over the Inbox of the Product Account it opened for, so sign-out,
 // locking, pending setup or another Product Account closes it.
@@ -202,11 +211,17 @@ function RegistrationGateContent({
       openAccount: (
         destination?: SettingsDestination,
         onInbox?: () => void,
+        profile = defaultProfile,
       ) => {
         if (choices !== undefined) {
           // A field beneath Settings keeps its text but not the keyboard.
           Keyboard.dismiss();
-          setSettings({ account: choices.inbox.account, destination, onInbox });
+          setSettings({
+            account: choices.inbox.account,
+            profile,
+            destination,
+            onInbox,
+          });
         }
       },
       authorizeMailbox: store.authorizeMailbox,
@@ -526,7 +541,12 @@ function SettingsPage({
             <SettingsGroup footer={copy.description} />
           </>
         ) : null}
-        {destination === 'appearance' ? <AppearanceSettings /> : null}
+        {destination === 'appearance' ? (
+          <>
+            <AppearanceSettings />
+            <ListDensitySettings profile={settingsProfile(request)} />
+          </>
+        ) : null}
         {destination === 'language' ? (
           <LanguageSelector footer={t('language.deviceDetail')} />
         ) : null}
