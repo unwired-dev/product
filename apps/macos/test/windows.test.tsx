@@ -113,6 +113,36 @@ const showMailboxes = (list: typeof mailboxes) => {
   );
 };
 
+// Several mailboxes in one list, as All Inboxes shows them.
+type MailboxList = ReturnType<
+  typeof singleMailbox<ReturnType<typeof createInboxStore>>
+>;
+const bothMailboxes = (lists: readonly MailboxList[]) => {
+  let parts: ReadonlyArray<ReturnType<MailboxList['getSnapshot']>> = [];
+  let shown: ReturnType<MailboxList['getSnapshot']> = [];
+  return {
+    getSnapshot: () => {
+      const next = lists.map((list) => list.getSnapshot());
+      if (next.some((part, index) => part !== parts[index])) {
+        parts = next;
+        shown = next.flat();
+      }
+      return shown;
+    },
+    subscribe: (listener: () => void) => {
+      const stops = lists.map((list) => list.subscribe(listener));
+      return () => {
+        for (const stop of stops) {
+          stop();
+        }
+      };
+    },
+    load: async () => {
+      await Promise.all(lists.map(async (list) => list.load()));
+    },
+  };
+};
+
 // Substitute only the native menu boundary; other native lookups keep their host behavior.
 const commandModule = (menu: TurboModule) => {
   const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
@@ -1403,6 +1433,148 @@ describe('mac windows over a connected Gmail mailbox', () => {
       }
       timing.mockRestore();
       frames.mockRestore();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('undoes the latest organizing action when Edit › Undo is chosen in a window', async () => {
+    expect.hasAssertions();
+    const host: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        setWindowProfile: () => void;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      setWindowProfile: () => undefined,
+    };
+    const module = commandModule(host);
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Lunch on Friday' });
+    showMailboxes(singleMailbox(createInboxStore(gmail.native), alex));
+    const app = await render(
+      <Windows
+        first
+        second
+      />,
+    );
+    const choose = async (window: string) => {
+      await act(async () => {
+        DeviceEventEmitter.emit('undo', { window });
+        await Promise.resolve();
+      });
+    };
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      const second = within(app.getByTestId('inbox-window-second'));
+      const lunch = /Lunch on Friday/u;
+      await first.findByRole('button', { name: lunch });
+      // With no Undo notice, Command-Z changes nothing.
+      await choose('inbox-window-first');
+      await act(async () => {
+        await fireEvent(
+          second.getByRole('button', { name: lunch }),
+          'accessibilityAction',
+          { nativeEvent: { actionName: 'archive' } },
+        );
+      });
+      expect(first.queryByRole('button', { name: lunch })).toBeNull();
+      // Chosen in another window, it leaves these alone; here it presses this window's Undo, once.
+      await choose('inbox-window-other');
+      expect(first.getByRole('button', { name: 'Undo' })).toBeVisible();
+      await choose('inbox-window-first');
+      await first.findByRole('button', { name: lunch });
+      await expect(
+        second.findByRole('button', { name: lunch }),
+      ).resolves.toBeVisible();
+      await choose('inbox-window-second');
+      expect(
+        gmail.modifies.map(({ add, remove }) => [add, remove]),
+      ).toStrictEqual([
+        [[], ['INBOX']],
+        [['INBOX'], []],
+      ]);
+    } finally {
+      await app.unmount();
+      module.mockRestore();
+      jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
+    }
+  });
+
+  it('undoes only the latest of two mailboxes’ organizing actions when Edit › Undo is chosen after navigation', async () => {
+    expect.hasAssertions();
+    const host: TurboModule &
+      Readonly<{
+        addListener: () => void;
+        removeListeners: () => void;
+        setWindowProfile: () => void;
+      }> = {
+      addListener: () => undefined,
+      removeListeners: () => undefined,
+      setWindowProfile: () => undefined,
+    };
+    const module = commandModule(host);
+    const alexGmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const otherGmail = createSyntheticGmail({
+      address: 'other@example.invalid',
+    });
+    alexGmail.deliver({ subject: 'Lunch on Friday' });
+    otherGmail.deliver({ subject: 'Dinner on Saturday' });
+    const lists = [
+      singleMailbox(createInboxStore(alexGmail.native), alex),
+      singleMailbox(
+        createInboxStore(otherGmail.native),
+        syntheticMailboxes['other@example.invalid'],
+      ),
+    ];
+    showMailboxes(bothMailboxes(lists));
+    const app = await render(
+      <Windows
+        first
+        second={false}
+      />,
+    );
+    try {
+      const first = within(app.getByTestId('inbox-window-first'));
+      // The latest action is in the first mailbox listed, not the last.
+      for (const subject of [/Dinner on Saturday/u, /Lunch on Friday/u]) {
+        await act(async () => {
+          await fireEvent(
+            await first.findByRole('button', { name: subject }),
+            'accessibilityAction',
+            { nativeEvent: { actionName: 'archive' } },
+          );
+        });
+      }
+      expect(first.getAllByRole('button', { name: 'Undo' })).toHaveLength(2);
+      // Showing the older notice again after navigation keeps the newer action the latest.
+      for (const row of [
+        'Inbox. In synthetic-connection-alex',
+        'All inboxes',
+      ]) {
+        await fireEvent.press(await first.findByRole('button', { name: row }));
+      }
+      expect(first.getAllByRole('button', { name: 'Undo' })).toHaveLength(2);
+      await act(async () => {
+        DeviceEventEmitter.emit('undo', { window: 'inbox-window-first' });
+        await Promise.resolve();
+      });
+      await first.findByRole('button', { name: /Lunch on Friday/u });
+      expect(
+        [alexGmail, otherGmail].map(({ modifies }) =>
+          modifies.map(({ add, remove }) => [add, remove]),
+        ),
+      ).toStrictEqual([
+        [
+          [[], ['INBOX']],
+          [['INBOX'], []],
+        ],
+        [[[], ['INBOX']]],
+      ]);
+    } finally {
+      await app.unmount();
+      module.mockRestore();
       jest.mocked(AccessibilityInfo.announceForAccessibility).mockClear();
     }
   });

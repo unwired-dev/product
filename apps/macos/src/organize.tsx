@@ -32,6 +32,8 @@ import {
 } from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
 import { palette, radius, spacing } from '@private-email/mail-core/theme';
+import * as Arr from 'effect/Array';
+import * as Order from 'effect/Order';
 import {
   useEffect,
   useLayoutEffect,
@@ -50,7 +52,11 @@ import {
 
 import type { PopUpItem } from './composer-controls.tsx';
 
-import { RegisterCommands } from './command-palette.tsx';
+import {
+  RegisterCommands,
+  useMenuCommand,
+  useWindowIdentifier,
+} from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
 import {
   askForText,
@@ -749,6 +755,63 @@ function GmailMessageActions({
 // Each notice object is announced once, whichever provider's store made it.
 const announced = new WeakSet();
 
+// Each window's offered Undos by notice, oldest action first. All Inboxes shows a notice per
+// mailbox, and Edit › Undo (Command-Z) undoes only the window's latest organizing action. A notice
+// keeps the order it was first offered in, so showing it again after navigation does not make its
+// action the latest.
+const offeredUndos = new Map<string, readonly object[]>();
+const offerOrder = new WeakMap<object, number>();
+let offers = 0;
+const offeredFirst = Order.mapInput(
+  Order.Number,
+  (notice: object) => offerOrder.get(notice) ?? 0,
+);
+
+// The Undo notice's button, which Edit › Undo chosen in this window also presses while `notice` is
+// the newest one offered there.
+function UndoButton({
+  notice,
+  undo,
+}: {
+  readonly notice: object;
+  readonly undo: () => void;
+}) {
+  const { t } = useLocalization();
+  const window = useWindowIdentifier();
+  useEffect(() => {
+    if (!offerOrder.has(notice)) {
+      offerOrder.set(notice, (offers += 1));
+    }
+    offeredUndos.set(
+      window,
+      Arr.sort([...(offeredUndos.get(window) ?? []), notice], offeredFirst),
+    );
+    return () => {
+      const offered = (offeredUndos.get(window) ?? []).filter(
+        (each) => each !== notice,
+      );
+      if (offered.length === 0) {
+        offeredUndos.delete(window);
+      } else {
+        offeredUndos.set(window, offered);
+      }
+    };
+  }, [notice, window]);
+  useMenuCommand('undo', () => {
+    if (offeredUndos.get(window)?.at(-1) === notice) {
+      undo();
+    }
+  });
+  return (
+    <View style={styles.bar}>
+      <ActionButton
+        label={t('gmailActions.undo')}
+        onPress={undo}
+      />
+    </View>
+  );
+}
+
 // The latest organizing outcome for the mailbox's provider, and changes that still wait for it.
 export function OrganizeStatus() {
   const store = useInboxActions();
@@ -794,15 +857,13 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
           </Text>
         </View>
       )}
-      {imap.undo ? (
-        <View style={styles.bar}>
-          <ActionButton
-            label={t('gmailActions.undo')}
-            onPress={() => {
-              void inbox.undo();
-            }}
-          />
-        </View>
+      {imap.undo && notice !== undefined ? (
+        <UndoButton
+          notice={notice}
+          undo={() => {
+            void inbox.undo();
+          }}
+        />
       ) : null}
       {imap.blocked === undefined ? null : (
         <ActionButton
@@ -870,14 +931,12 @@ function GmailOrganizeStatus() {
         </View>
       )}
       {notice?.kind === 'done' && undo !== undefined ? (
-        <View style={styles.bar}>
-          <ActionButton
-            label={t('gmailActions.undo')}
-            onPress={() => {
-              void store.organize(notice.message, undo);
-            }}
-          />
-        </View>
+        <UndoButton
+          notice={notice}
+          undo={() => {
+            void store.organize(notice.message, undo);
+          }}
+        />
       ) : null}
       {state.saving > 0 ? (
         <Text

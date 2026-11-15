@@ -409,6 +409,23 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredNewMessage" object:window.identifier];
 }
 
+// Command-Z undoes the key Inbox window's last organizing action, as its Undo notice does; its
+// JavaScript listens for the window.
+- (void)undoOrganizing:(id)sender
+{
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredUndo" object:NSApp.keyWindow.identifier];
+}
+
+// Undo is offered only in an Inbox window with no open sheet, never in the sheet itself. A focused
+// text field or text view keeps Command-Z: the item is unavailable, so the key reaches the field.
+- (BOOL)validateMenuItem:(NSMenuItem *)item
+{
+  if (item.action != @selector(undoOrganizing:)) return YES;
+  NSWindow *window = NSApp.keyWindow;
+  return [window.identifier hasPrefix:@"inbox-window-"] && window.sheetParent == nil &&
+      window.attachedSheet == nil && ![window.firstResponder isKindOfClass:NSText.class];
+}
+
 // Command-R synchronizes the key Inbox window's mailboxes; its JavaScript listens for the window.
 - (void)refresh:(id)sender
 {
@@ -583,8 +600,12 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   NSMenuItem *editItem = [main addItemWithTitle:UnwiredNativeText(@"edit") action:nil keyEquivalent:@""];
   NSMenu *edit = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"edit")];
   editItem.submenu = edit;
-  // AppKit sends text fields these key equivalents only through menu items. No Undo: the native
-  // undo stack goes stale when JavaScript sets a field's text and would corrupt it.
+  // Undo is the Inbox's organizing Undo, never a text field's: the native undo stack goes stale
+  // when JavaScript sets a field's text and would corrupt it.
+  NSMenuItem *undo = [edit addItemWithTitle:UnwiredNativeText(@"undo") action:@selector(undoOrganizing:) keyEquivalent:@"z"];
+  undo.target = self;
+  [edit addItem:[NSMenuItem separatorItem]];
+  // AppKit sends text fields these key equivalents only through menu items.
   [edit addItemWithTitle:UnwiredNativeText(@"cut") action:@selector(cut:) keyEquivalent:@"x"];
   [edit addItemWithTitle:UnwiredNativeText(@"copy") action:@selector(copy:) keyEquivalent:@"c"];
   [edit addItemWithTitle:UnwiredNativeText(@"paste") action:@selector(paste:) keyEquivalent:@"v"];

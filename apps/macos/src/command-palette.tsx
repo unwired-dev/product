@@ -52,7 +52,7 @@ import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 // The menu items whose events name the window they were chosen in.
-type MenuEvent = 'refresh' | 'newMessage';
+type MenuEvent = 'refresh' | 'newMessage' | 'undo';
 
 const PaletteContext = createContext<
   Readonly<{
@@ -338,8 +338,8 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
   }, [identifier]);
 }
 
-// While mounted, a menu item chosen in this window runs `run`: View › Refresh (Command-R), or
-// File › New Message (Command-N).
+// While mounted, a menu item chosen in this window runs `run`: View › Refresh (Command-R),
+// File › New Message (Command-N) or Edit › Undo (Command-Z).
 export function useMenuCommand(event: MenuEvent, run: () => void) {
   const { identifier, takePending } = use(PaletteContext);
   const runNow = useRef(run);

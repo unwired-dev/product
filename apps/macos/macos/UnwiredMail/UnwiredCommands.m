@@ -8,6 +8,8 @@ NSNotificationName const UnwiredOpenCommandPalette = @"UnwiredOpenCommandPalette
 NSNotificationName const UnwiredRefresh = @"UnwiredRefresh";
 // File › New Message, Command-N, tells an Inbox window's JavaScript to start a Draft.
 NSNotificationName const UnwiredNewMessage = @"UnwiredNewMessage";
+// Edit › Undo, Command-Z, tells an Inbox window's JavaScript to undo its last organizing action.
+NSNotificationName const UnwiredUndo = @"UnwiredUndo";
 // Closing a window whose composer holds unsaved edits asks its JavaScript first.
 NSNotificationName const UnwiredWindowShouldClose = @"UnwiredWindowShouldClose";
 
@@ -70,7 +72,7 @@ RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"newMessage", @"windowShouldClose", @"settingsClosed"]; }
+- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"newMessage", @"undo", @"windowShouldClose", @"settingsClosed"]; }
 
 - (void)startObserving
 {
@@ -80,6 +82,8 @@ RCT_EXPORT_MODULE()
       name:UnwiredRefresh object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(newMessage:)
       name:UnwiredNewMessage object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(undo:)
+      name:UnwiredUndo object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowShouldClose:)
       name:UnwiredWindowShouldClose object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsClosed:)
@@ -104,6 +108,11 @@ RCT_EXPORT_MODULE()
 - (void)newMessage:(NSNotification *)notification
 {
   [self sendEventWithName:@"newMessage" body:@{@"window": notification.object ?: @""}];
+}
+
+- (void)undo:(NSNotification *)notification
+{
+  [self sendEventWithName:@"undo" body:@{@"window": notification.object ?: @""}];
 }
 
 - (void)windowShouldClose:(NSNotification *)notification
