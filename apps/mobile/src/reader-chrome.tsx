@@ -85,7 +85,6 @@ const styles = StyleSheet.create({
   padAddress: { ...typography.ipadList.body, flexShrink: 3 },
   padSecondary: { ...typography.ipadList.subheadline },
   padRecipients: { marginTop: 2 * ipadListScale },
-  // At accessibility text sizes the sender, address and date stack at the full width.
   stacked: { flexDirection: 'column', alignItems: 'stretch' },
   stackedText: { flex: 0 },
   // Centred in the reader's 46pt leading inset, so the text keeps the body's edge.
@@ -152,6 +151,25 @@ const noRecipients: readonly string[] = [];
 const summaryLines = (separate: boolean, lines: readonly string[]) =>
   separate || lines.length === 0 ? lines : [lines.join(' · ')];
 
+// At accessibility text sizes the sender, address and date stack at the full width and wrap. The
+// initials would then sit alone above the sender, so only initials hanging in the inset stay.
+const headerLayout = (large: boolean, hanging: boolean) =>
+  large
+    ? {
+        stack: styles.stacked,
+        text: styles.stackedText,
+        lines: 0,
+        summaryLines: 0,
+        initials: hanging,
+      }
+    : {
+        stack: undefined,
+        text: undefined,
+        lines: 1,
+        summaryLines: ipad ? 2 : 1,
+        initials: true,
+      };
+
 // A message's sender, address and time beside neutral initials, and its disclosed recipients.
 export function MessageHeader({
   message,
@@ -185,22 +203,16 @@ export function MessageHeader({
     void setStringAsync(message.address);
   };
   const secondary = ipad ? styles.padSecondary : styles.secondary;
-  const large = useLargeText();
-  const lines = large ? 0 : 1;
+  const layout = headerLayout(useLargeText(), hanging);
   return (
-    <View
-      style={[styles.from, ipad && styles.padFrom, large && styles.stacked]}>
-      {/* Stacked, the initials would sit alone above the sender; hanging, they stay in the inset. */}
-      {large && !hanging ? null : (
+    <View style={[styles.from, ipad && styles.padFrom, layout.stack]}>
+      {layout.initials ? (
         <View style={hanging && styles.hangingAvatar}>
           <Monogram name={message.sender} />
         </View>
-      )}
+      ) : null}
       <ContextMenu
-        style={[
-          ipad ? styles.padFromText : styles.fromText,
-          large && styles.stackedText,
-        ]}
+        style={[ipad ? styles.padFromText : styles.fromText, layout.text]}
         sections={[
           {
             items: [
@@ -215,11 +227,7 @@ export function MessageHeader({
           { items: blockItems },
         ]}>
         <View style={ipad ? null : styles.fromTarget}>
-          <View
-            style={[
-              ipad && styles.padIdentity,
-              ipad && large && styles.stacked,
-            ]}>
+          <View style={ipad ? [styles.padIdentity, layout.stack] : null}>
             <Text
               accessibilityActions={[
                 { name: 'copy', label: t('contextMenu.copyAddress') },
@@ -239,7 +247,7 @@ export function MessageHeader({
                 }
               }}
               accessibilityState={highlighted ? { selected: true } : undefined}
-              numberOfLines={lines}
+              numberOfLines={layout.lines}
               style={[
                 ipad ? styles.padSender : styles.sender,
                 { color: colors.textPrimary },
@@ -250,7 +258,7 @@ export function MessageHeader({
               which Copy Address still offers. */}
             {ipad || recipients.length === 0 ? (
               <Text
-                numberOfLines={lines}
+                numberOfLines={layout.lines}
                 style={[
                   ipad ? styles.padAddress : styles.secondary,
                   { color: colors.textSecondary },
@@ -266,7 +274,7 @@ export function MessageHeader({
           ]).map((line) => (
             <Text
               key={line}
-              numberOfLines={large ? 0 : ipad ? 2 : 1}
+              numberOfLines={layout.summaryLines}
               style={[
                 secondary,
                 ipad && styles.padRecipients,
