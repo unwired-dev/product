@@ -897,47 +897,92 @@ describe('rich-reader review regressions', () => {
       );
     const zero =
       'margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; border-left-width: 0; border-right-width: 0';
-    const { document } = sanitizeHtml(
+    // Each fixture is checked on its own, so one cannot satisfy another's expectation.
+    const cases: ReadonlyArray<readonly [string, readonly string[]]> = [
+      // The issue's examples, then the same offsets through shorthands, borders and indents.
+      [offset('padding-left:100px'), [`<div style="${zero}">`]],
       [
-        // The issue's examples, then the same offsets through shorthands, borders and indents.
-        offset('padding-left:100px'),
         offset('width:250px;padding-left:100px'),
-        offset('margin-left:100px'),
+        [`<div style="width: min(100%, 250px); ${zero}">`],
+      ],
+      [offset('margin-left:100px'), [`<div style="${zero}">`]],
+      [
         offset('padding:0 0 0 100px'),
+        [`<div style="padding: 0 0 0 100px; ${zero}">`],
+      ],
+      [
         offset('border-style:solid;border-width:0 0 0 100px'),
+        [
+          `<div style="border-style: solid; border-width: 0 0 0 100px; ${zero}">`,
+        ],
+      ],
+      [
         offset('border-left:100px solid transparent'),
-        offset('text-indent:100px'),
-        // Offsets that add up, browser defaults, inherited spacing and an unsized inline block.
+        [`<div style="border-left: 100px solid transparent; ${zero}">`],
+      ],
+      // A negative width is invalid, so the shorthand's border stays.
+      [
+        offset('border-left:100px solid;border-left-width:-1px'),
+        [`<div style="border-left: 100px solid; ${zero}">`],
+      ],
+      [offset('text-indent:100px'), ['<div style="text-indent: 0">']],
+      // Offsets that add up, browser defaults, inherited spacing and an unsized inline block.
+      [
         inBox(
           `<div style="padding-left:16px"><div style="padding-left:16px">${label}</div></div>`,
           'width:40px',
         ),
+        [`<div style="padding-left: 16px"><div style="${zero}">`],
+      ],
+      // A border with a style but no width is medium, 3px.
+      [
+        inBox(
+          `<div style="border-left-style:solid"><div style="border-style:solid">${label}</div></div>`,
+        ),
+        [
+          `<div style="border-left-style: solid"><div style="border-style: solid; ${zero}">`,
+        ],
+      ],
+      // Percentages on nested inline boxes resolve against the box, not what is left of it.
+      [
+        inBox(
+          `<span style="padding-left:50%"><span style="padding-left:50%">${label}</span></span>`,
+          'width:100px',
+        ),
+        [`<span style="padding-left: 50%"><span style="${zero}">`],
+      ],
+      [
         inBox(`<blockquote>${label}</blockquote>`),
+        [`<blockquote style="${zero}">`],
+      ],
+      [
         `<div style="letter-spacing:100px">${inBox(label)}</div>`,
+        ['<div style="width: 20px; letter-spacing: 0">'],
+      ],
+      [
         inBox(`<div style="display:inline-block">${label}</div>`),
-        // Offsets that fit stay, and a box's width makes room for them.
+        ['<div style="display: inline-block; max-width: 100%">'],
+      ],
+      // Offsets that fit stay, and a box's width makes room for them.
+      [
         inBox(
           `<div style="width:100%;padding:0 20px;border-left:2px solid">Fits</div><p style="text-indent:2em;letter-spacing:1px">Indented</p><div style="border-left-width:100px">No border style</div>`,
           'max-width:600px;margin:0 auto',
         ),
-      ].join(''),
-    );
+        [
+          '<div style="width: min(calc(100% - 20px - 2px - 20px), 100%); padding: 0 20px; border-left: 2px solid">',
+          '<p style="text-indent: 2em; letter-spacing: 1px">',
+          '<div style="border-left-width: 100px">',
+        ],
+      ],
+    ];
     expect(
-      [
-        `<div style="${zero}">`,
-        `<div style="width: min(100%, 250px); ${zero}">`,
-        `<div style="padding: 0 0 0 100px; ${zero}">`,
-        `<div style="border-style: solid; border-width: 0 0 0 100px; ${zero}">`,
-        `<div style="border-left: 100px solid transparent; ${zero}">`,
-        '<div style="text-indent: 0">',
-        `<div style="padding-left: 16px"><div style="${zero}">`,
-        `<blockquote style="${zero}">`,
-        '<div style="width: 20px; letter-spacing: 0">',
-        '<div style="display: inline-block; max-width: 100%">',
-        '<div style="width: min(calc(100% - 20px - 2px - 20px), 100%); padding: 0 20px; border-left: 2px solid">',
-        '<p style="text-indent: 2em; letter-spacing: 1px">',
-        '<div style="border-left-width: 100px">',
-      ].filter((style) => !document.includes(style)),
+      cases.flatMap(([html, expected]) => {
+        const { document } = sanitizeHtml(html);
+        return expected
+          .filter((style) => !document.includes(style))
+          .map((style) => ({ html, style }));
+      }),
     ).toStrictEqual([]);
   });
 

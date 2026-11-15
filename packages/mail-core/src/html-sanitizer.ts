@@ -821,14 +821,20 @@ const horizontalEdges = (
 };
 
 // A box's horizontal margins, borders and paddings over the browser's defaults, as nonzero
-// lengths. A later longhand overrides a shorthand, and a border without a style has no width.
+// lengths. A later longhand overrides a shorthand, a negative padding or border is invalid and
+// ignored, and a border without a style has no width.
 const horizontalOffsets = (
   retained: ReadonlyMap<string, string>,
   tag: string,
 ) => {
   const edges = new Map([
     ...(defaultOffsets.get(tag) ?? []),
-    ...[...retained].flatMap(([name, value]) => horizontalEdges(name, value)),
+    ...[...retained]
+      .filter(
+        ([name, value]) =>
+          name.startsWith('margin') || !/(?:^|\s)-/u.test(value),
+      )
+      .flatMap(([name, value]) => horizontalEdges(name, value)),
   ]);
   return ['left', 'right']
     .flatMap((side) => [
@@ -836,7 +842,7 @@ const horizontalOffsets = (
       edges.get(`padding-${side}`),
       /^(?:none|hidden)?$/iu.test(edges.get(`border-${side}-style`) ?? '')
         ? undefined
-        : edges.get(`border-${side}-width`),
+        : (edges.get(`border-${side}-width`) ?? 'medium'),
     ])
     .map((value) => borderKeywords.get(value?.toLowerCase() ?? '') ?? value)
     .filter(
@@ -1668,18 +1674,20 @@ const zeroOffsets = ['margin', 'padding', 'border'].flatMap((box) =>
 );
 
 // Inside a box of sender width, offsets that would leave less than one glyph of it are removed
-// (#2209). Table cells and images keep theirs.
+// (#2209). Percentages resolve against the containing block. Table cells and images keep theirs.
 const fittedOffsets = (
   style: FilteredStyle,
   {
     tag,
     display,
     room,
+    block,
     font,
   }: Readonly<{
     tag: string;
     display: string;
     room: number | undefined;
+    block: number | undefined;
     font: number;
   }>,
 ) => {
@@ -1688,7 +1696,7 @@ const fittedOffsets = (
   }
   const offsets = horizontalOffsets(style.retained, tag);
   const used = offsets.reduce(
-    (total, value) => total + offsetPixels(value, font, room),
+    (total, value) => total + offsetPixels(value, font, block ?? room),
     0,
   );
   return used + font <= room
@@ -2475,8 +2483,9 @@ function walk(
   let direction = 'ltr';
   let margins: ReadonlyMap<string, string> = new Map();
   // The width a sender box leaves its text, outside any table, and the inherited text indent
-  // and letter spacing that use it up.
+  // and letter spacing that use it up. Inline boxes keep their containing block's width.
   let room: number | undefined = undefined;
+  let containingBlock: number | undefined = undefined;
   let indent = 0;
   let spacing = 0;
   let fontPixels = bodyFontPixels;
@@ -2894,9 +2903,11 @@ function walk(
       tag: node.tagName,
       display,
       room,
+      block: containingBlock,
       font: fontPixels,
     });
     const parentRoom = room;
+    const parentBlock = containingBlock;
     const parentIndent = indent;
     const parentSpacing = spacing;
     room = roomIn(display, placed.style, {
@@ -2904,6 +2915,7 @@ function walk(
       used: placed.used,
       font: fontPixels,
     });
+    containingBlock = display === 'inline' ? parentBlock : room;
     const fittedState = fittedText(
       fittedLines(
         containedBox(placed.style, {
@@ -2936,6 +2948,7 @@ function walk(
     ancestorLinePixels = linePixels();
     run(normalized);
     room = parentRoom;
+    containingBlock = parentBlock;
     indent = parentIndent;
     spacing = parentSpacing;
     ancestorLinePixels = parentAncestorLinePixels;
