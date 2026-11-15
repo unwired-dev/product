@@ -73,6 +73,19 @@ drafts.subscribe(() => {
   void hold();
 });
 
+// A reply typed into a notification is a Send the person chose, even when iOS launched the app in
+// the background to read it, so it holds the same bounded time as one admitted in the foreground.
+export const deliverAdmitted = () => {
+  if (active() || held) {
+    return;
+  }
+  spent = false;
+  void hold(true);
+  if (held) {
+    void outbox.resume();
+  }
+};
+
 // iOS runs the task when it chooses: never on a schedule, without a network or after force-quit.
 // Registration verification and protected Draft storage gate it as on activation; the Outbox
 // keeps every Undo Send deadline and claim, and runs one pass at a time across opportunities.

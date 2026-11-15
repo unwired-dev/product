@@ -91,7 +91,7 @@ type Posted = Omit<OpenedNotification, 'action'> &
     body: string;
     previews: boolean;
     profile: string;
-    // The Mac's Reply field placeholder, which names the receiving address.
+    // The Reply field's placeholder, which names the receiving address.
     reply: string;
   }>;
 
@@ -485,7 +485,15 @@ type Replies = Readonly<{
     getSnapshot: () => readonly OutboxEntry[];
   }>;
   translate: () => Translate;
-  openDraft: (draft: string, profile: string) => void;
+  // Opens a Draft in `profile`; `current` names its Profile again later, undefined once it no
+  // longer belongs to the notification's connection.
+  openDraft: (
+    draft: string,
+    profile: string,
+    current: () => string | undefined,
+  ) => void;
+  // A typed reply the Outbox admitted, which iPhone and iPad give background delivery time.
+  admitted: () => void;
 }>;
 
 // The listed message `id`, with the body and headers a reply starts from once its body reads.
@@ -708,7 +716,7 @@ async function queuedReply(
 // the connection is no longer the one the notification named.
 async function replyTyped(
   native: ReplyNative,
-  { drafts, outbox, translate }: Replies,
+  { drafts, outbox, translate, admitted }: Replies,
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Inbox stores and the sending map are mutable; only their actions are called.
   {
     open,
@@ -757,6 +765,9 @@ async function replyTyped(
   const { draft, unsaved, sendable } = saved;
   // Admitted before anything else is awaited, so no other editor's change is sent.
   const queued = await queuedReply(outbox, { draft, sendable, current });
+  if (queued) {
+    admitted();
+  }
   const { previews } = await runLogged(
     settingsOf(() => native.notificationSettings()).pipe(
       Effect.orElseSucceed(() => ({ previews: false })),
@@ -901,11 +912,19 @@ async function act(
     return;
   }
   if (chosen.action === 'open-draft') {
-    if (
-      draftOf(replies.drafts.getSnapshot(), chosen.draft)?.connection ===
-      target.mailbox
-    ) {
-      replies.openDraft(chosen.draft, target.profile);
+    // The Profile the Draft opens in while it still belongs to this connection, asked again
+    // once an open composer has left.
+    const profile = () => {
+      const now = openedTarget(snapshot(), named);
+      return now !== undefined &&
+        draftOf(replies.drafts.getSnapshot(), chosen.draft)?.connection ===
+          now.mailbox
+        ? now.profile
+        : undefined;
+    };
+    const opened = profile();
+    if (opened !== undefined) {
+      replies.openDraft(chosen.draft, opened, profile);
     }
     return;
   }

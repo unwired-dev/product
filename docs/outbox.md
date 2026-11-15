@@ -40,7 +40,8 @@ Quit stops execution with the process; reopening recovers this device's durable
 Outbox, including its original Undo Send deadlines and confirmed claims.
 
 On iPhone and iPad, new delivery starts only while the application is active or
-holds background time for a Send admitted in the foreground or a system-granted
+holds background time for a Send admitted in the foreground, a reply typed into a
+notification (which iOS may read with the app in the background), or a system-granted
 delivery task. While a message is waiting, queued, sending or filing, the app asks
 iOS for bounded background time, so switching apps or locking the device can let
 the remaining Undo Send Window end and the message reach its provider. The time
@@ -314,7 +315,9 @@ stores and synthetic native storage, Gmail and claims, without mounting an Inbox
 They prove mobile foreground gating and Mac processing with no mounted windows.
 Mobile journeys also finish a Send admitted before switching apps within
 synthetic background time, keep a Send queued after background time expires
-before its deadline or is denied, and then send it once on activation. They run
+before its deadline or is denied, and then send it once on activation. A reply
+admitted from a notification while the app is in the background likewise holds
+time and finishes, or stays queued when the time expires. They run
 the entry's background delivery task after a headless launch: it sends a due
 message once and releases its time, waits while storage is locked, keeps the
 original deadline when its time expires, retries a message left queued offline

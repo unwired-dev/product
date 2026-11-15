@@ -231,7 +231,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
 }
 
 // A synthetic host following notification actions, with an answerable and a removable message in
-// its Gmail Inbox, previews on, and the Drafts and Open Draft requests it holds.
+// its Gmail Inbox, previews on, and the Drafts, Open Draft requests and admitted replies it holds.
 async function replyingHost() {
   const synthetic = syntheticHost(undefined, true);
   const { host, gmail } = synthetic;
@@ -249,9 +249,18 @@ async function replyingHost() {
     mailboxesOf(host.registration.getSnapshot().snapshot)[0],
   );
   const opened: unknown[] = [];
-  host.followNotificationActions((draft, profile) => {
-    opened.push({ draft, profile });
-  });
+  // The latest Open Draft's Profile, asked again.
+  const reopened = { profile: (): string | undefined => undefined };
+  const admitted = { count: 0 };
+  host.followNotificationActions(
+    (draft, profile, current) => {
+      opened.push({ draft, profile });
+      reopened.profile = current;
+    },
+    () => {
+      admitted.count += 1;
+    },
+  );
   const named = {
     account: 'account-synthetic-product-subject',
     connection: mailbox.id,
@@ -269,7 +278,17 @@ async function replyingHost() {
     const state = host.drafts.getSnapshot();
     return state.kind === 'ready' ? state.drafts : [];
   };
-  return { ...synthetic, answered, gone, named, opened, reply, drafts };
+  return {
+    ...synthetic,
+    answered,
+    gone,
+    named,
+    opened,
+    reopened,
+    admitted,
+    reply,
+    drafts,
+  };
 }
 
 describe('the host assembly', () => {
@@ -471,9 +490,9 @@ describe('the host assembly', () => {
     );
   });
 
-  it('sends a reply typed into a Mac notification from the receiving connection, with only the typed text', async () => {
+  it('sends a reply typed into a notification from the receiving connection, with only the typed text', async () => {
     expect.hasAssertions();
-    const { host, answered, named, reply, replied, sweeps } =
+    const { host, answered, named, reply, replied, sweeps, admitted } =
       await replyingHost();
 
     await reply('reply', answered, 'Thursday works.\nSee you then.');
@@ -513,6 +532,8 @@ describe('the host assembly', () => {
         actions: { undo: 'Undo', openDraft: 'Open Draft' },
       },
     ]);
+    // The host hears the admission, which iPhone and iPad give background delivery time.
+    expect(admitted.count).toBe(1);
   });
 
   it('returns a typed reply to Drafts on Undo, and otherwise withdraws its notification once the Undo Send Window ends', async () => {
@@ -870,6 +891,8 @@ describe('the host assembly', () => {
       drafts,
       replied,
       opened,
+      reopened,
+      admitted,
       notificationActions,
     } = await replyingHost();
     gmail.remove(gone);
@@ -880,9 +903,11 @@ describe('the host assembly', () => {
     expect({
       body: saved.body,
       outbox: host.outbox.getSnapshot(),
+      admitted: admitted.count,
     }).toStrictEqual({
       body: [{ kind: 'paragraph', spans: [{ text: 'Is this still on?' }] }],
       outbox: [],
+      admitted: 0,
     });
     expect(replied).toMatchObject([
       {
@@ -902,6 +927,18 @@ describe('the host assembly', () => {
     expect(opened).toStrictEqual([
       { draft: saved.id, profile: defaultProfile },
     ]);
+    // Asked again once a composer leaves, it follows the connection's Profile, and a removed
+    // connection opens nothing.
+    await host.registration.createProfile('Work');
+    const work = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Work',
+      ),
+    ).id;
+    await host.registration.moveMailbox(named.connection, work);
+    expect(reopened.profile()).toBe(work);
+    await host.registration.removeMailbox(named.connection);
+    expect(reopened.profile()).toBeUndefined();
   });
 
   it('opens a typed reply’s Draft chosen on a notification before the Drafts opened', async () => {

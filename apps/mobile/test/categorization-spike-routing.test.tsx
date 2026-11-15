@@ -24,6 +24,7 @@ jest.mock('@private-email/mail-core/registration-mode', () => ({
 }));
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Native background execution is outside this routing journey.
 jest.mock('../src/freshness.ts', () => ({
+  followOpenedDrafts: () => () => undefined,
   pollGmailWhileActive: jest.fn(),
   scheduleGmailFreshness: jest.fn(),
 }));

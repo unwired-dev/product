@@ -46,6 +46,7 @@ import {
 import { ComposerLayoutContext } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import {
+  followOpenedDrafts,
   pollGmailWhileActive,
   scheduleGmailFreshness,
 } from '../src/freshness.ts';
@@ -122,7 +123,8 @@ startAssistanceQualification(() => ({
 }));
 
 // A tapped New Mail Notification opens its message once Registration admits the shell; its Reply
-// then starts a reply as soon as the message's reader offers one.
+// then starts a reply as soon as the message's reader offers one. Open Draft on a typed reply's
+// notification opens that Draft in the composer.
 function OpenedNotifications() {
   const leave = useLeaveComposer();
   const registry = useCommandRegistry();
@@ -156,6 +158,33 @@ function OpenedNotifications() {
       });
     }
   }, [leave, registry, close]);
+  // The palette's `close` changes as it opens; a pending Open Draft outlives that.
+  const closing = useRef(close);
+  useLayoutEffect(() => {
+    closing.current = close;
+  }, [close]);
+  useEffect(() => {
+    let stopped = false;
+    const stop = followOpenedDrafts((draft, profile) => {
+      void (async () => {
+        // As for a tap, the composer may leave first, and the Draft must still be valid afterwards.
+        if (profile() !== undefined && (await leave(draft))) {
+          const profileId = stopped ? undefined : profile();
+          if (profileId !== undefined) {
+            closing.current();
+            router.navigate({
+              pathname: '/compose/[draft]',
+              params: { draft, profileId },
+            });
+          }
+        }
+      })();
+    });
+    return () => {
+      stopped = true;
+      stop();
+    };
+  }, [leave]);
   return null;
 }
 
