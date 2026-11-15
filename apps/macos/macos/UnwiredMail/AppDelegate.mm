@@ -416,14 +416,14 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredUndo" object:NSApp.keyWindow.identifier];
 }
 
-// Undo is offered only in an Inbox window with no open sheet. A focused text field or text view
-// keeps Command-Z: the item is unavailable, so the key reaches the field.
+// Undo is offered only in an Inbox window with no open sheet, never in the sheet itself. A focused
+// text field or text view keeps Command-Z: the item is unavailable, so the key reaches the field.
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
   if (item.action != @selector(undoOrganizing:)) return YES;
   NSWindow *window = NSApp.keyWindow;
-  return [window.identifier hasPrefix:@"inbox-window-"] && window.attachedSheet == nil &&
-      ![window.firstResponder isKindOfClass:NSText.class];
+  return [window.identifier hasPrefix:@"inbox-window-"] && window.sheetParent == nil &&
+      window.attachedSheet == nil && ![window.firstResponder isKindOfClass:NSText.class];
 }
 
 // Command-R synchronizes the key Inbox window's mailboxes; its JavaScript listens for the window.

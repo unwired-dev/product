@@ -50,7 +50,11 @@ import {
 
 import type { PopUpItem } from './composer-controls.tsx';
 
-import { RegisterCommands, useMenuCommand } from './command-palette.tsx';
+import {
+  RegisterCommands,
+  useMenuCommand,
+  useWindowIdentifier,
+} from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
 import {
   askForText,
@@ -749,10 +753,39 @@ function GmailMessageActions({
 // Each notice object is announced once, whichever provider's store made it.
 const announced = new WeakSet();
 
-// The Undo notice's button, which Edit › Undo (Command-Z) chosen in this window also presses.
-function UndoButton({ undo }: { readonly undo: () => void }) {
+// Each window's offered Undos by notice, oldest first. All Inboxes shows a notice per mailbox, and
+// Edit › Undo (Command-Z) undoes only the window's latest organizing action.
+const offeredUndos = new Map<string, readonly object[]>();
+
+// The Undo notice's button, which Edit › Undo chosen in this window also presses while `notice` is
+// the newest one offered there.
+function UndoButton({
+  notice,
+  undo,
+}: {
+  readonly notice: object;
+  readonly undo: () => void;
+}) {
   const { t } = useLocalization();
-  useMenuCommand('undo', undo);
+  const window = useWindowIdentifier();
+  useEffect(() => {
+    offeredUndos.set(window, [...(offeredUndos.get(window) ?? []), notice]);
+    return () => {
+      const offered = (offeredUndos.get(window) ?? []).filter(
+        (each) => each !== notice,
+      );
+      if (offered.length === 0) {
+        offeredUndos.delete(window);
+      } else {
+        offeredUndos.set(window, offered);
+      }
+    };
+  }, [notice, window]);
+  useMenuCommand('undo', () => {
+    if (offeredUndos.get(window)?.at(-1) === notice) {
+      undo();
+    }
+  });
   return (
     <View style={styles.bar}>
       <ActionButton
@@ -808,8 +841,9 @@ function ImapOrganizeStatus({ inbox }: { readonly inbox: ImapInbox }) {
           </Text>
         </View>
       )}
-      {imap.undo ? (
+      {imap.undo && notice !== undefined ? (
         <UndoButton
+          notice={notice}
           undo={() => {
             void inbox.undo();
           }}
@@ -882,6 +916,7 @@ function GmailOrganizeStatus() {
       )}
       {notice?.kind === 'done' && undo !== undefined ? (
         <UndoButton
+          notice={notice}
           undo={() => {
             void store.organize(notice.message, undo);
           }}
