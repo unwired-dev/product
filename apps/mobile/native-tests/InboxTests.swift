@@ -320,24 +320,20 @@ final class InboxTests: XCTestCase {
       ).exists)
     XCTAssertTrue(text("Compact shows one preview line. Rows grow with Text Size.", in: app).exists)
     attach("Settings › Appearance")
+    // System follows a later change of the device's appearance.
+    XCUIDevice.shared.appearance = .light
+    expect(dark: false)
+    attach("Settings › Appearance · System, device Light")
+    XCUIDevice.shared.appearance = .dark
+    expect(dark: true)
+    attach("Settings › Appearance · System, device Dark")
+    // Light and Dark hold against the opposite device appearance, in Settings and the Inbox.
     choose("Light")
     expect(dark: false)
     attach("Settings › Appearance · Light")
-    choose("Dark")
-    expect(dark: true)
-    attach("Settings › Appearance · Dark")
-    // System follows a later change of the device's appearance.
-    choose("System")
-    XCUIDevice.shared.appearance = .light
-    expect(dark: false)
-    XCUIDevice.shared.appearance = .dark
-    expect(dark: true)
-    XCUIDevice.shared.appearance = runner
-    expect(dark: runner == .dark)
-    choose("Dark")
     choose("Compact")
     closeSettings()
-    expect(dark: true)
+    expect(dark: false)
     // The fixture's subject fits one line on iPhone, where Compact's row keeps its height.
     let compact = settledFrame(of: welcome).height
     if phone {
@@ -345,6 +341,15 @@ final class InboxTests: XCTestCase {
     } else {
       XCTAssertGreaterThan(compact, comfortable, "Compact does not wrap the subject")
     }
+    attach("Compact Inbox · Light")
+    XCUIDevice.shared.appearance = .light
+    openAccount(app)
+    openSettings("Appearance", in: app)
+    choose("Dark")
+    expect(dark: true)
+    attach("Settings › Appearance · Dark")
+    closeSettings()
+    expect(dark: true)
     attach("Compact Inbox · Dark")
 
     app.terminate()
@@ -357,9 +362,16 @@ final class InboxTests: XCTestCase {
     openSettings("Appearance", in: app)
     checked("Dark")
     checked("Compact")
+    attach("Settings › Appearance after relaunch")
+    XCUIDevice.shared.appearance = runner
     choose("System")
     choose("Comfortable")
     expect(dark: runner == .dark)
+    attach("Settings › Appearance · System and Comfortable")
+    closeSettings()
+    expect(dark: runner == .dark)
+    XCTAssertEqual(settledFrame(of: welcome).height, comfortable, accuracy: 0.5)
+    attach("Comfortable Inbox")
   }
 
   // #2166: a long press on the reader's sender opens its menu, whose Block Sender… asks in the

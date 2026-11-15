@@ -255,13 +255,14 @@ alert, the list and its edit mode are kept as attachments.
 
 After its relaunch, that journey ends in Settings › Appearance
 ([#2210](https://github.com/unwired-dev/product/issues/2210)). System and
-Comfortable are checked, and both footers show. Light, then Dark, turns Settings
-light, then dark. Under System, Settings follows the device's appearance as the
-journey switches it. With Dark and Compact chosen, the Inbox is dark and the
-Welcome row wraps its subject on iPad; on iPhone it fits one line in both. After
-a relaunch the Inbox opens dark at the same row height and Settings still checks
-Dark and Compact. The journey then chooses System and Comfortable. Each state is
-kept as an attachment.
+Comfortable are checked, and both footers show. Under System, Settings follows
+the device's appearance as the journey switches it. Light, with the device Dark,
+then Dark, with the device Light, turn Settings and the Inbox light, then dark.
+With Compact chosen, the Welcome row wraps its subject on iPad; on iPhone it fits
+one line in both densities. After a relaunch the Inbox opens dark at the same row
+height and Settings still checks Dark and Compact. Choosing System and
+Comfortable then returns the Inbox to the device's appearance and the row to its
+Comfortable height. Each state is kept as an attachment.
 
 `testAppearance` uses the same build and sign-in
 ([#2153](https://github.com/unwired-dev/product/issues/2153)). Settings ›
