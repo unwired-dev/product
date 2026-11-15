@@ -553,6 +553,29 @@ const fontSizeIn = (value: string | undefined, parent: number, tag: string) => {
   return resolved === undefined || resolved < 0 ? parent : resolved;
 };
 
+// An element's font, resolved against its parent's as fitted to a sender box and as the sender
+// set it. Text that was readable before an ancestor's font was fitted stays readable (#2213).
+const fontIn = (
+  value: string | undefined,
+  tag: string,
+  {
+    parent,
+    natural,
+    image,
+  }: Readonly<{ parent: number; natural: number; image: boolean }>,
+) => {
+  const size = (from: number) =>
+    image ? from * 0.85 : fontSizeIn(value, from, tag);
+  const unfitted = size(natural);
+  return {
+    font:
+      unfitted >= minimumTextPixels
+        ? Math.max(size(parent), minimumTextPixels)
+        : size(parent),
+    natural: unfitted,
+  };
+};
+
 // Signed lengths for offsets; a nonzero number needs a unit, as WebKit requires.
 const offsetValue =
   /^(?<sign>[+-])?(?<amount>(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)?$/iu;
@@ -2770,6 +2793,8 @@ function walk(
   // The column shares of a table inside a sender box, for its rows and cells.
   let columns: Columns | undefined = undefined;
   let fontPixels = bodyFontPixels;
+  // The font size without the fitting of sender boxes.
+  let naturalFont = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
   // Consecutive line breaks since the last visible text or image, and the height they add.
@@ -3185,6 +3210,7 @@ function walk(
     const parentDirection = direction;
     const parentMargins = margins;
     const parentFont = fontPixels;
+    const parentNaturalFont = naturalFont;
     const parentWhiteSpace = whiteSpace;
     const parentSystemFont = systemFont;
     systemFont = systemFontIn(
@@ -3192,9 +3218,11 @@ function walk(
       parentSystemFont,
     );
     const replacedImage = node.tagName === 'img' && !shownFromBytes(node);
-    fontPixels = replacedImage
-      ? parentFont * 0.85
-      : fontSizeIn(style.retained.get('font-size'), parentFont, node.tagName);
+    ({ font: fontPixels, natural: naturalFont } = fontIn(
+      style.retained.get('font-size'),
+      node.tagName,
+      { parent: parentFont, natural: parentNaturalFont, image: replacedImage },
+    ));
     const sizedStyle = replacedImage
       ? style
       : normalizeFont(style, node.tagName, fontPixels);
@@ -3282,6 +3310,7 @@ function walk(
     direction = parentDirection;
     margins = parentMargins;
     fontPixels = parentFont;
+    naturalFont = parentNaturalFont;
     visibility = inheritedVisibility;
     whiteSpace = parentWhiteSpace;
     systemFont = parentSystemFont;

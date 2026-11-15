@@ -54,7 +54,8 @@ with a table display become blocks. A word with more glyphs than fit on a line
 of its box, at one font size per glyph, may break anywhere, so it cannot widen a
 table; it still breaks only where it would overflow its line. Text with a font
 larger than its box shrinks to the box, but not below the 4 px readable minimum,
-and a box narrower than that which holds text widens to it. A compatibility
+and a box narrower than that which holds text widens to it. Descendant text
+that was readable before the fitting stays readable. A compatibility
 render at 320, 393 and 800 pt left the #2204 and #2209 fixtures, nested columns
 and narrow icon boxes pixel-identical. Tables nested in fixed-width columns move
 slightly: product grid columns shift by a few points because long words no

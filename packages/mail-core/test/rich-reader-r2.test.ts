@@ -1007,6 +1007,11 @@ describe('rich-reader review regressions', () => {
           `<table><tr><td><a href="https://evil.example/1">${label}</a></td></tr></table>`,
         ),
         inBox('<a href="https://evil.example/2">ppommp</a>', 'width:4px'),
+        // Text a relative size keeps readable stays readable once its parent is fitted.
+        inBox(
+          '<a href="https://evil.example/3">paypal.com<span style="font-size:50%">.evil.example</span></a>',
+          'width:4px',
+        ),
         // Table widths, cell padding and spacing share the box; a larger font shrinks to it, and
         // a box too narrow for readable text widens to hold it.
         inBox(
@@ -1015,7 +1020,7 @@ describe('rich-reader review regressions', () => {
         ),
         inBox(`<span style="font-size:60px">Large</span>`),
         inBox(
-          '<a href="https://evil.example/3">ppommp</a>',
+          '<a href="https://evil.example/4">ppommp</a>',
           'width:0;overflow:hidden',
         ),
         // Words that fit their box do not break.
@@ -1027,6 +1032,8 @@ describe('rich-reader review regressions', () => {
       'x',
       'ppommp',
       'x',
+      label,
+      'x',
       'x',
       'x',
       'ppommp',
@@ -1036,6 +1043,7 @@ describe('rich-reader review regressions', () => {
       [
         `<a href="about:blank#unwired-link-0" rel="noreferrer noopener">${broken(label)}</a>`,
         `<a style="${zero}; font-size: 4px" href="about:blank#unwired-link-2" rel="noreferrer noopener">${broken('ppommp')}</a>`,
+        `<span style="font-size: max(4px, 50%)">${broken('.evil.example')}</span>`,
         '<table width="200" cellpadding="10" cellspacing="4" border="1" style="width: min(100%, 200px)">',
         `<td style="${zero}">a</td>`,
         `<span style="${zero}; font-size: 20px">${broken('Large')}</span>`,

@@ -850,7 +850,8 @@ less than one glyph per column. Cell offsets, including `cellpadding` and the
 display become blocks. A word with more glyphs than fit on a line of its box, at
 one font size per glyph, is wrapped in a span with `overflow-wrap: anywhere`.
 Text with a font larger than its box shrinks to the box, but not below 4 px, and
-a box narrower than 4 px that holds text gets `min-width: 4px`.
+a box narrower than 4 px that holds text gets `min-width: 4px`. A descendant
+that was at least 4 px before the fitting stays at least 4 px.
 A table squeezed below its minimum content width can still overflow one cell into
 the next. Large positive margins and indents (at least 320 CSS
 pixels after unit resolution) are normalized to zero, and padding or border-width declarations with a token of at least 320
