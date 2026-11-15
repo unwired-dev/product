@@ -1,4 +1,5 @@
 import type {
+  FoundServers,
   ImapFields,
   ImapProvider,
   SmtpSecurity,
@@ -11,15 +12,16 @@ import type {
 import type { ComponentProps, ReactNode } from 'react';
 
 import {
-  catalogDomain,
   catalogFields,
+  discoveryDomain,
+  foundDomain,
   imapFields,
   imapPresetOf,
   imapSetup,
   smtpSecurityOf,
 } from '@private-email/mail-core/imap-setup';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PopUp } from './composer-controls.tsx';
@@ -202,8 +204,33 @@ export function ImapForm({
   const [fields, setFields] = useState<ImapFields>(() => imapFields(repair));
   const manual = provider === 'other' && repair === undefined;
   // Until the person changes a server setting, a new manual connection's servers follow its
-  // address: a catalogued domain's reviewed endpoints, or empty ones to enter by hand.
+  // address: a catalogued domain's reviewed endpoints, those its SRV records name, or empty ones
+  // to enter by hand.
   const [edited, setEdited] = useState(false);
+  const [discovered, setDiscovered] = useState<FoundServers>();
+  // The address to look up once the person stops typing; a later address or server change
+  // discards the answer.
+  const lookup =
+    manual && !edited && discoveryDomain(fields.address) !== undefined
+      ? fields.address
+      : undefined;
+  useEffect(() => {
+    if (lookup === undefined) {
+      return undefined;
+    }
+    let current = true;
+    const timer = setTimeout(async () => {
+      const found = await store.discoverImap(lookup);
+      if (current && found !== undefined) {
+        setDiscovered(found);
+        setFields((previous) => ({ ...previous, ...found.fields }));
+      }
+    }, 500);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [store, lookup]);
   const update = (patch: Partial<ImapFields>) => {
     const { address } = patch;
     if (manual && !edited && address !== undefined) {
@@ -326,7 +353,11 @@ export function ImapForm({
         />
       ) : null}
       <FormNotes
-        found={manual ? catalogDomain(fields) : undefined}
+        found={
+          manual
+            ? foundDomain(fields, catalogFields(fields.address) ?? discovered)
+            : undefined
+        }
         provider={guidance}
         review={setup}
         failure={imapFailure}
@@ -357,7 +388,7 @@ function FormNotes({
   review,
   failure,
 }: {
-  // The catalogued domain whose endpoints the form filled in.
+  // The domain whose catalogued or discovered endpoints the form filled in.
   readonly found: string | undefined;
   readonly provider: ImapProvider;
   // The endpoints a complete form connects to.

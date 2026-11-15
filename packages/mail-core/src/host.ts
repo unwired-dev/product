@@ -216,6 +216,7 @@ export function createHost(
       native().signInMailbox(connection, suggest, provider),
     verifyMailbox: () => native().verifyMailbox(),
     connectImap: (setup) => native().connectImap(setup),
+    discoverImap: (domain) => native().discoverImap(domain),
     verifyImap: (connection) => native().verifyImap(connection),
     confirmMailbox: (connection) => native().confirmMailbox(connection),
     storeMailbox: () => native().storeMailbox(),

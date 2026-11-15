@@ -23,10 +23,14 @@ export type ImapSetup = Readonly<{
   smtp: SmtpSetup;
 }>;
 
-// A connection's reviewed endpoint as native storage projects it; never its password.
-export const ImapEndpointSchema = Schema.Struct({
+// A server's host name and port.
+const ServerSchema = Schema.Struct({
   host: Schema.NonEmptyString,
   port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 })),
+});
+// A connection's reviewed endpoint as native storage projects it; never its password.
+export const ImapEndpointSchema = Schema.Struct({
+  ...ServerSchema.fields,
   username: Schema.NonEmptyString,
 });
 export const SmtpEndpointSchema = Schema.Struct({
@@ -123,12 +127,21 @@ const catalog = [
   },
 ] as const;
 
+// The server fields a form fills in for an address, and the domain they were found for.
+export type FoundServers = Readonly<{
+  domain: string;
+  fields: Pick<ImapFields, (typeof serverFields)[number]>;
+}>;
+
+const domainOf = (address: string) =>
+  address.trim().split('@')[1]?.toLowerCase() ?? '';
+
 // The server fields a manual form fills in for an address at a catalogued domain. SMTP signs in
 // with the full address, so it needs its own user name only where IMAP uses a shorter one. Every
 // entry uses the security its SMTP port implies, which the form follows until the person chooses.
-export const catalogFields = (address: string) => {
+export const catalogFields = (address: string): FoundServers | undefined => {
   const trimmed = address.trim();
-  const domain = trimmed.split('@')[1]?.toLowerCase() ?? '';
+  const domain = domainOf(address);
   const entry = catalog.find((provider) =>
     (provider.domains as readonly string[]).includes(domain),
   );
@@ -149,7 +162,7 @@ export const catalogFields = (address: string) => {
   };
 };
 
-// The server fields a catalog entry fills in.
+// The server fields the catalog or a discovery fills in.
 const serverFields = [
   'host',
   'port',
@@ -159,15 +172,49 @@ const serverFields = [
   'smtpUsername',
 ] as const;
 
-// The catalogued domain whose endpoints a form still holds, for the note that says they were found.
-export const catalogDomain = (fields: ImapFields) => {
-  const found = catalogFields(fields.address);
-  return found !== undefined &&
-    fields.smtpSecurity === undefined &&
-    serverFields.every((name) => fields[name] === found.fields[name])
-    ? found.domain
+// The endpoints an uncatalogued domain's RFC 6186 SRV records name, as the native lookup reports
+// them: IMAP over implicit TLS, and SMTP submission.
+export const DiscoveredServersSchema = Schema.NullOr(
+  Schema.Struct({ imap: ServerSchema, smtp: ServerSchema }),
+);
+
+// The domain an address's servers are looked up for in DNS: one the catalog does not list.
+export const discoveryDomain = (address: string) => {
+  const domain = domainOf(address);
+  return /^[^\s@]+@[^\s@]+$/u.test(address.trim()) &&
+    hostPattern.test(domain) &&
+    catalogFields(address) === undefined
+    ? domain
     : undefined;
 };
+
+// The server fields a form fills in from the endpoints discovered for an address's domain, which
+// sign in with the full address.
+export const discoveredFields = (
+  address: string,
+  servers: NonNullable<typeof DiscoveredServersSchema.Type>,
+): FoundServers => ({
+  domain: domainOf(address),
+  fields: {
+    host: servers.imap.host,
+    port: String(servers.imap.port),
+    username: address.trim(),
+    smtpHost: servers.smtp.host,
+    smtpPort: String(servers.smtp.port),
+    smtpUsername: '',
+  },
+});
+
+// The domain whose found endpoints a form still holds, for the note that says they were found.
+export const foundDomain = (
+  fields: ImapFields,
+  found: FoundServers | undefined,
+) =>
+  found !== undefined &&
+  fields.smtpSecurity === undefined &&
+  serverFields.every((name) => fields[name] === found.fields[name])
+    ? found.domain
+    : undefined;
 
 // The setup to try once more when the server refuses this one: iCloud Mail accepts the full
 // address where it refuses the name part, as Apple's mail settings direct.
