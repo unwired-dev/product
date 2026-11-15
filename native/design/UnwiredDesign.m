@@ -1321,7 +1321,9 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
   [_control setLabel:self.menuText ?: @"" forSegment:1];
   _menu = UnwiredMenuOf(@"", self.sections ?: @[], self, self.destructiveColor ?: NSColor.systemRedColor);
   _control.enabled = self.enabled;
-  // VoiceOver reads each segment as a button; the arrow has no title of its own.
+  // VoiceOver reads each segment as a button; the arrow has no title of its own. The control
+  // stays a group around them however it is hidden, so it is named for its title.
+  _control.accessibilityLabel = self.text;
   NSArray *segments = _control.cell.accessibilityChildren;
   [segments.firstObject setAccessibilityLabel:self.label];
   [segments.lastObject setAccessibilityLabel:self.menuLabel];
