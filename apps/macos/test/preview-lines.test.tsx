@@ -55,7 +55,7 @@ describe('settings › Appearance › Message list', () => {
           mailbox={undefined}
           status={undefined}
           selected={false}
-          onSelect={jest.fn<() => void>()}
+          onSelect={jest.fn()}
           now={Date.parse(message!.receivedAt)}
         />
       </ProfileScope>
@@ -128,7 +128,7 @@ describe('settings › Appearance › Message list', () => {
           mailbox={undefined}
           status={undefined}
           selected={false}
-          onSelect={jest.fn<() => void>()}
+          onSelect={jest.fn()}
           now={Date.parse(message!.receivedAt)}
         />,
       );
