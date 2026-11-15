@@ -40,6 +40,7 @@ export const {
   mailTemplates,
   sendReminders,
   blockedSenders,
+  inboxPreferences,
   outbox,
   wakes,
   freshness,

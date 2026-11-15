@@ -282,6 +282,13 @@ light. After Dark is chosen again and the app relaunches, the Inbox window opens
 dark, and the journey chooses System at the end. Both Settings states and the
 relaunched Inbox are kept as attachments.
 
+Before the relaunch it also checks the Message list group
+([#2222](https://github.com/unwired-dev/product/issues/2222)): Preview lines
+reads 1 line above its footer, and choosing 3 lines makes the Gmail update 001
+row taller, which the relaunched Inbox and Settings keep. None makes the row
+shorter than with one line, and 1 line restores its height before System is
+chosen.
+
 ## Mac IMAP Spam and Trash folder journey
 
 The `testImapSpamAndTrashFolders` journey and its `Dark` variant use the same

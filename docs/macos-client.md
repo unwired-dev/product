@@ -425,6 +425,17 @@ choice. The choice is a Device-Local Preference kept in this Mac's user defaults
 (`UnwiredAppearance`), and the app delegate applies it before the first window
 opens.
 
+Its **Message list** group ([#2222](https://github.com/unwired-dev/product/issues/2222))
+has a **Preview lines** pop-up: None, 1 line (the default), 2 lines or 3 lines.
+Preview length is a synchronized Mail Workflow Preference
+([ADR 0019](adr/0019-sync-mail-workflow-preferences-not-device-state.md)) kept in each Mail Profile's
+Inbox preferences record beside iPhone and iPad's List density. The Settings
+window has no Mail Profile, so a choice applies to every Profile, and a Profile
+without a choice of its own follows the default Profile's. Inbox rows also
+follow macOS's sidebar icon size (System Settings › Appearance), read from
+`NSTableViewDefaultSizeMode` at launch: as AppKit's sidebar rows do, a row is
+4pt shorter at Small and 4pt taller at Large than at Medium.
+
 ## Settings
 
 Settings is one 900×720 AppKit window. The app menu's **Settings…** (Command-,),

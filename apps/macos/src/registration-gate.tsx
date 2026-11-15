@@ -15,6 +15,7 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
 
 import {
+  defaultProfile,
   profilesOf,
   registrationScreen,
 } from '@private-email/mail-core/registration';
@@ -52,6 +53,7 @@ import {
 } from './mail-assistance.tsx';
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { Restoring, TrustCard } from './onboarding.tsx';
+import { PreviewLinesSettings } from './preview-lines.tsx';
 import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import {
@@ -492,7 +494,17 @@ function SettingsPage({
             <SettingsGroup footer={copy.description} />
           </>
         ) : null}
-        {destination === 'appearance' ? <AppearanceSettings /> : null}
+        {destination === 'appearance' ? (
+          <>
+            <AppearanceSettings />
+            <PreviewLinesSettings
+              profiles={[
+                defaultProfile,
+                ...profilesOf(snapshot).map(({ id }) => id),
+              ]}
+            />
+          </>
+        ) : null}
         {destination === 'language' ? <LanguageSettings /> : null}
         <ErrorReportingDestination
           destination={destination}

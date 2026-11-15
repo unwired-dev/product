@@ -5,7 +5,13 @@ import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 import { messageDay } from '@private-email/localization';
 import { rowContextMenu } from '@private-email/mail-core/context-menu';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  Settings,
+  Text,
+  View,
+} from 'react-native';
 
 import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
@@ -15,6 +21,8 @@ import {
   useMessageDateFormat,
   useMessageListDateFormats,
 } from './localization.ts';
+import { useProfile } from './mailbox.tsx';
+import { usePreviewLines } from './preview-lines.tsx';
 import { usePalette } from './theme.ts';
 
 // A row's organizing action at its provider.
@@ -24,6 +32,12 @@ export type RowAction = Readonly<{
   run: () => void;
 }>;
 const noActions: readonly RowAction[] = [];
+
+// Rows grow with macOS's sidebar icon size, as AppKit's sidebar rows do: 2pt less above and below at
+// Small, 2pt more at Large. Medium, the default, is the design's row.
+const sidebarInsets: Readonly<Record<string, number>> = { 1: -2, 3: 2 };
+const sidebarInset = () =>
+  sidebarInsets[String(Settings.get('NSTableViewDefaultSizeMode'))] ?? 0;
 
 export function MessageRow({
   message,
@@ -56,6 +70,8 @@ export function MessageRow({
   const { t } = useLocalization();
   const time = useMessageTime(message.receivedAt, now);
   const [focused, setFocused] = useState(false);
+  const previewLines = usePreviewLines(useProfile());
+  const inset = sidebarInset();
   // Gmail's star and IMAP's \Flagged are the list's flag; Microsoft mail lists none yet.
   const flagged =
     'flagged' in message
@@ -102,6 +118,8 @@ export function MessageRow({
         style={({ pressed }) => [
           styles.row,
           {
+            paddingTop: styles.row.paddingTop + inset,
+            paddingBottom: styles.row.paddingBottom + inset,
             backgroundColor: pressed
               ? colors.accentSelectionSubtle
               : 'transparent',
@@ -147,11 +165,13 @@ export function MessageRow({
               numberOfLines={1}>
               {message.subject}
             </Text>
-            <Text
-              style={[styles.preview, { color: secondaryColor }]}
-              numberOfLines={1}>
-              {message.preview}
-            </Text>
+            {previewLines === 0 ? null : (
+              <Text
+                style={[styles.preview, { color: secondaryColor }]}
+                numberOfLines={previewLines}>
+                {message.preview}
+              </Text>
+            )}
             {mailbox === undefined ? null : (
               <Text
                 numberOfLines={1}

@@ -1940,6 +1940,25 @@ final class WindowTests: XCTestCase {
     expect(settings, dark: false)
     expect(window, dark: false)
     attach(settings, "Settings › Appearance · Light")
+    // #2222: Message list › Preview lines, one line by default; three lines make every row taller.
+    let lines = settings.popUpButtons["Preview lines"]
+    func preview(_ to: String) {
+      lines.click()
+      let item = app.menuItems[to]
+      XCTAssertTrue(item.waitForExistence(timeout: 5))
+      item.click()
+      waitUntil { lines.value as? String == to }
+    }
+    let message = window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001"))
+      .firstMatch
+    XCTAssertTrue(lines.waitForExistence(timeout: 10))
+    XCTAssertEqual(lines.value as? String, "1 line")
+    XCTAssertTrue(text("Row height follows the macOS sidebar icon size.", in: settings).exists)
+    let oneLine = message.frame.height
+    preview("3 lines")
+    waitUntil { message.frame.height > oneLine + 20 }
+    attach(settings, "Settings › Appearance · 3 preview lines")
+    attach(window, "Inbox · 3 preview lines")
     choose("Dark")
     expect(settings, dark: true)
 
@@ -1947,12 +1966,21 @@ final class WindowTests: XCTestCase {
     app.launch()
     XCTAssertTrue(window.waitForExistence(timeout: 30))
     expect(window, dark: true)
-    attach(window, "Inbox after relaunch · Dark")
+    XCTAssertTrue(message.waitForExistence(timeout: 60))
+    waitUntil { message.frame.height > oneLine + 20 }
+    attach(window, "Inbox after relaunch · Dark · 3 preview lines")
     app.typeKey(",", modifierFlags: .command)
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.buttons["Appearance"].click()
     XCTAssertTrue(row("Dark").waitForExistence(timeout: 10))
     XCTAssertEqual(row("Dark").value as? String, "radio button, checked")
+    XCTAssertEqual(lines.value as? String, "3 lines")
+    attach(settings, "Settings › Appearance after relaunch · Dark")
+    preview("None")
+    waitUntil { message.frame.height < oneLine }
+    attach(window, "Inbox · no preview · Dark")
+    preview("1 line")
+    waitUntil { abs(message.frame.height - oneLine) < 1 }
     choose("System")
   }
 
