@@ -691,14 +691,15 @@ public final class PrivateInboxStore: @unchecked Sendable {
 
   // Every connection's cache, bodies and Downloaded Attachments, including the cache written
   // before connections, and the account's Drafts, their assets, its composer recovery records, its
-  // Mail Templates, Send Reminders and Blocked Senders: everything an account purge removes from this
-  // store.
+  // Mail Templates, Send Reminders, Blocked Senders and Inbox preferences: everything an account
+  // purge removes from this store.
   public func removeMailboxes() throws {
     try unlockedTransaction {
       try removeURLs(
         [
           "mailboxes", "mailbox.enc", "bodies", "drafts.enc", "draft-assets", "composer-recovery",
           "mail-templates.enc", "send-reminders.enc", "blocked-senders.enc",
+          "inbox-preferences.enc",
         ].map { directory.appendingPathComponent($0) } + [attachments])
     }
   }

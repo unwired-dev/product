@@ -1,4 +1,4 @@
-import { createContext, use, useSyncExternalStore } from 'react';
+import { createContext, use, useEffect, useSyncExternalStore } from 'react';
 import { Pressable } from 'react-native';
 
 import { SFSymbol } from './design.tsx';
@@ -24,6 +24,10 @@ export function ListDensitySettings({ profile }: { readonly profile: string }) {
   const colors = usePalette();
   const store = use(InboxPreferencesContext);
   const density = useListDensity(profile);
+  // Settings can open before the Inbox, which otherwise reads the kept choice.
+  useEffect(() => {
+    void store.load();
+  }, [store]);
 
   return (
     <SettingsGroup

@@ -111,12 +111,22 @@ describe('settings › Appearance › List density', () => {
     await waitFor(() => {
       expect(checked(app)).toStrictEqual(['Compact']);
     });
+    const compact = await lines(app, tree);
+    await app.unmount();
+    // Settings reads the kept choice itself, as when it opens before the Inbox at a relaunch.
     const relaunched = relaunch();
-    await relaunched.load();
+    const reopened = await render(
+      <InboxPreferencesContext value={relaunched}>
+        <ListDensitySettings profile={defaultProfile} />
+      </InboxPreferencesContext>,
+    );
+    await waitFor(() => {
+      expect(checked(reopened)).toStrictEqual(['Compact']);
+    });
     expect({
       initial,
       footer: footer !== null,
-      compact: await lines(app, tree),
+      compact,
       kept: relaunched.listDensity(defaultProfile),
       otherProfile: relaunched.listDensity('profile-work'),
     }).toStrictEqual({
