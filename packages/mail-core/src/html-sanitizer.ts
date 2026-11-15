@@ -751,14 +751,18 @@ const grownHeight = (
     : [];
 };
 
-// Inside a box of sender width, a width cannot exceed it; content-sized widths and inherited
-// ones, which can copy an outer box's wider declared width, are removed.
+// Inside a box of sender width, a width cannot exceed it and content-sized widths are removed.
+// An inherited width can copy the box's declared width past its maximum, so it fills the box
+// instead; an inline block without one would shrink to its longest word.
 const boundedWidth = ([name, value]: readonly [string, string]) => {
   if (name !== 'width' && name !== 'min-width') {
     return [[name, value] as const];
   }
   if (definite(value)) {
     return [[name, `min(100%, ${value})`] as const];
+  }
+  if (name === 'width' && /^inherit$/iu.test(value)) {
+    return [[name, '100%'] as const];
   }
   return /content|stretch|inherit/iu.test(value)
     ? []

@@ -27,8 +27,8 @@ becomes a minimum height and a maximum height is removed; table boxes already gr
 to their content, and spacer cells keep heights that `min-height` would not set.
 An element holding text whose line height is shorter than its font gets a line
 height of 1.2, while image-only lines keep a zero line height. Inside a box with a
-sender width, widths and minimum widths cannot exceed that box, and
-content-sized or inherited widths are removed. A compatibility
+sender width, widths and minimum widths cannot exceed that box, content-sized
+widths are removed and an inherited width fills the box. A compatibility
 render left spacer cells, sliced-image tables and fixed-width columns
 pixel-identical; lines set tighter than their font open up to 1.2. A
 table squeezed below its minimum content width can still overflow one cell into
