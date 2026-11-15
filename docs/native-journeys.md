@@ -263,6 +263,17 @@ closes an open panel goes to the link in the rendered body, clear of iPhone's
 Labels panel ([#2169](https://github.com/unwired-dev/product/issues/2169)). The
 alert, the list and its edit mode are kept as attachments.
 
+After its relaunch, that journey ends in Settings › Appearance
+([#2210](https://github.com/unwired-dev/product/issues/2210)). System and
+Comfortable are checked, and both footers show. Under System, the Inbox and
+then Settings follow the device's appearance as the journey switches it. Light, with the device Dark,
+then Dark, with the device Light, turn Settings and the Inbox light, then dark.
+With Compact chosen, the Welcome row wraps its subject on iPad; on iPhone it fits
+one line in both densities. After a relaunch the Inbox opens dark at the same row
+height and Settings still checks Dark and Compact. Choosing System and
+Comfortable then returns the Inbox to the device's appearance and the row to its
+Comfortable height. Each state is kept as an attachment.
+
 `testAppearance` uses the same build and sign-in
 ([#2153](https://github.com/unwired-dev/product/issues/2153)). Settings ›
 Appearance lists Light, Dark and System above its footer. Choosing Dark, then

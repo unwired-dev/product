@@ -14,7 +14,7 @@ offer no reset.
 ## What the person sees
 
 Every signed-in registration screen ends with **This device and your account**.
-It offers **Sign out of this device** and **Delete Product Account**. The first
+It offers **Sign out of this device** and **Delete Unwired Account**. The first
 press of either one only explains what it does and offers **Cancel**.
 
 **Sign out of this device** explains that this device leaves the Product Account
@@ -30,7 +30,7 @@ Apple device asks to sign in with Apple again, and that must be the same Apple
 ID. To use the device again, sign in and approve it from a Trusted Device or
 with the Recovery Key. Signing in again never makes up new keys.
 
-**Delete Product Account** explains that deletion is permanent and reaches every
+**Delete Unwired Account** explains that deletion is permanent and reaches every
 device. Mail stays in Gmail, and the authorization given to Google is not
 revoked. **Delete permanently** starts an interactive Product Sign-In:
 
@@ -40,7 +40,7 @@ revoked. **Delete permanently** starts an interactive Product Sign-In:
 - Otherwise the device asks to sign in with Google.
 
 Convex accepts that sign-in only when it is at most five minutes old and opens
-this Product Account. The device then shows **Product Account deleted** and keeps
+this Product Account. The device then shows **Unwired account deleted** and keeps
 nothing of the account.
 
 Sign-out and deletion need a connection. When the sign-in is cancelled, nothing
@@ -88,7 +88,7 @@ deletion even after cleanup removed its requesting device.
 A reachable device purges the account the next time it reaches Convex. A Google
 device does so on restore. An Apple device does so on its next interactive sign-in
 or backend request, because an Apple relaunch does not reconnect. The device then
-shows **Product Account deleted**. Data copied from a device that stays offline or
+shows **Unwired account deleted**. Data copied from a device that stays offline or
 is compromised cannot be erased remotely.
 
 ## Backend interface

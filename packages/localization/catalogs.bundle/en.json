@@ -149,38 +149,38 @@
   "registration": {
     "welcome": {
       "title": "Welcome to Unwired Mail",
-      "description": "Create your Product Account with Apple or Google, then choose the mailbox to connect."
+      "description": "Create your Unwired account with Apple or Google, then choose the mailbox to connect."
     },
     "revoked": {
       "title": "This device was removed",
-      "description": "One of your trusted devices removed this one from your Product Account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected."
+      "description": "One of your trusted devices removed this one from your Unwired account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected."
     },
     "deleted": {
-      "title": "Product Account deleted",
-      "description": "This Product Account was permanently deleted, so its account data, keys and mailbox access were removed from this device. Anything copied from another device while it was offline cannot be erased remotely. Your mail in Gmail is not affected."
+      "title": "Unwired account deleted",
+      "description": "This Unwired account was permanently deleted, so its account data, keys and mailbox access were removed from this device. Anything copied from another device while it was offline cannot be erased remotely. Your mail in Gmail is not affected."
     },
     "account": "Signed in with {{provider}}.",
     "accountWithEmail": "Signed in with {{provider}}. Contact email: {{email}}.",
     "mailboxNeeded": {
       "title": "Connect your mail",
-      "google": "Your Product Account is ready. Connect a mailbox to finish setup: Gmail, with this or another Google account, Microsoft mail, iCloud Mail, Fastmail or another IMAP server.",
-      "apple": "Your Product Account is ready. Signing in with Apple does not give access to mail. Connect Gmail, Microsoft mail, iCloud Mail, Fastmail or another IMAP server to finish setup.",
-      "cancelled": "Mailbox authorization was cancelled. Your Product Account is retained. Retry or choose another mailbox.",
-      "declined": "Mail access was not granted. Your Product Account is retained. Retry or choose another mailbox.",
-      "gmail-unavailable": "Gmail is unavailable for this authorization. Your Product Account is retained. Retry or choose another Google mailbox.",
-      "microsoft-unavailable": "Microsoft mail is unavailable for this account. Its organization may need to approve Unwired Mail, or the account may have no Outlook mailbox. Your Product Account is retained. Retry or choose another mailbox.",
-      "interrupted": "Mailbox authorization was interrupted. Your Product Account is retained. Retry to finish setup.",
-      "unavailable": "Your saved Product Account could not be verified. It is retained on this device. Retry when you are online, or sign in again with {{provider}}.",
-      "imap-refused": "The mail server did not accept that user name and password. Your Product Account is retained. Check them, use an app-specific password if your provider requires one, or choose another mailbox.",
-      "imap-offline": "The mail server could not be reached. Your Product Account is retained. Check the server name and port, try again when you are online, or choose another mailbox.",
-      "imap-insecure": "The mail server did not offer a verified secure connection, so your password was not sent. Your Product Account is retained. Check the server name and port, or choose another mailbox.",
-      "smtp-refused": "The outgoing mail server did not accept that user name and password. Your Product Account is retained. Check them, use an app-specific password if your provider requires one, or choose another mailbox.",
-      "smtp-insecure": "The outgoing mail server did not offer a verified secure connection, so your password was not sent. Your Product Account is retained. Check the server name, port and security, or choose another mailbox."
+      "google": "Your Unwired account is ready. Connect a mailbox to finish setup: Gmail, with this or another Google account, Microsoft mail, iCloud Mail, Fastmail or another IMAP server.",
+      "apple": "Your Unwired account is ready. Signing in with Apple does not give access to mail. Connect Gmail, Microsoft mail, iCloud Mail, Fastmail or another IMAP server to finish setup.",
+      "cancelled": "Mailbox authorization was cancelled. Your Unwired account is retained. Retry or choose another mailbox.",
+      "declined": "Mail access was not granted. Your Unwired account is retained. Retry or choose another mailbox.",
+      "gmail-unavailable": "Gmail is unavailable for this authorization. Your Unwired account is retained. Retry or choose another Google mailbox.",
+      "microsoft-unavailable": "Microsoft mail is unavailable for this account. Its organization may need to approve Unwired Mail, or the account may have no Outlook mailbox. Your Unwired account is retained. Retry or choose another mailbox.",
+      "interrupted": "Mailbox authorization was interrupted. Your Unwired account is retained. Retry to finish setup.",
+      "unavailable": "Your saved Unwired account could not be verified. It is retained on this device. Retry when you are online, or sign in again with {{provider}}.",
+      "imap-refused": "The mail server did not accept that user name and password. Your Unwired account is retained. Check them, use an app-specific password if your provider requires one, or choose another mailbox.",
+      "imap-offline": "The mail server could not be reached. Your Unwired account is retained. Check the server name and port, try again when you are online, or choose another mailbox.",
+      "imap-insecure": "The mail server did not offer a verified secure connection, so your password was not sent. Your Unwired account is retained. Check the server name and port, or choose another mailbox.",
+      "smtp-refused": "The outgoing mail server did not accept that user name and password. Your Unwired account is retained. Check them, use an app-specific password if your provider requires one, or choose another mailbox.",
+      "smtp-insecure": "The outgoing mail server did not offer a verified secure connection, so your password was not sent. Your Unwired account is retained. Check the server name, port and security, or choose another mailbox."
     },
     "devicePending": {
       "title": "Add this device",
-      "approval": "Signing in does not add a device to your Product Account. Approve this device from one of your trusted devices with the code below, or unlock it with your Recovery Key. Until then this device cannot read your private data or connect a mailbox.",
-      "setup-pending": "Your Product Account is still being set up on the device that created it, so this device cannot ask to be added yet. Check again later. Until then this device cannot read your private data or connect a mailbox.",
+      "approval": "Signing in does not add a device to your Unwired account. Approve this device from one of your trusted devices with the code below, or unlock it with your Recovery Key. Until then this device cannot read your private data or connect a mailbox.",
+      "setup-pending": "Your Unwired account is still being set up on the device that created it, so this device cannot ask to be added yet. Check again later. Until then this device cannot read your private data or connect a mailbox.",
       "retry": "This device could not ask your trusted devices to approve it yet. Check again when you are online. Until then this device cannot read your private data or connect a mailbox."
     },
     "connected": {
@@ -230,14 +230,14 @@
       "privacy": "Privacy & Data",
       "errorReporting": "Error Reporting"
     },
-    "productAccount": "Product Account",
+    "productAccount": "Unwired Account",
     "mailboxConnections": "Mailbox Connections",
     "signIn": "Allow…",
     "enterPassword": "Enter the Password…",
     "remove": "Remove…",
     "signOut": "Sign Out on This Device",
     "signOutButton": "Sign Out…",
-    "delete": "Delete Product Account…",
+    "delete": "Delete Unwired Account…",
     "remoteContent": "Remote Message Content",
     "trackingPixels": "Known Tracking Pixels",
     "trackingPixelsDetail": "Known Tracking Pixels stay blocked for every remote-content policy.",
@@ -246,15 +246,15 @@
     "availability": "Availability"
   },
   "signInMethods": {
-    "linked": "Sign in with {{current}} or {{other}} to open this Product Account.",
-    "only": "Only {{current}} opens this Product Account. Linking {{other}} adds another way to sign in. First verify {{current}}, then sign in with {{other}}. It does not connect a mailbox.",
+    "linked": "Sign in with {{current}} or {{other}} to open this Unwired account.",
+    "only": "Only {{current}} opens this Unwired account. Linking {{other}} adds another way to sign in. First verify {{current}}, then sign in with {{other}}. It does not connect a mailbox.",
     "title": "Sign-in methods",
     "link": "Link {{provider}} sign-in"
   },
   "linkFailure": {
-    "identity-owned": "That {{provider}} sign-in already belongs to another Product Account. Accounts are never merged, so it was not linked.",
+    "identity-owned": "That {{provider}} sign-in already belongs to another Unwired account. Accounts are never merged, so it was not linked.",
     "stale-authentication": "Linking needs a recent sign-in with both providers. Try again to link {{provider}}.",
-    "failed": "{{provider}} could not be linked. Your Product Account is unchanged. Try again."
+    "failed": "{{provider}} could not be linked. Your Unwired account is unchanged. Try again."
   },
   "locked": {
     "title": "Unlock your device",
@@ -263,14 +263,14 @@
   "accountRemoval": {
     "title": "This device and your account",
     "signOut": "Sign out of this device",
-    "signOutConfirm": "Signing out removes this device from your Product Account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
-    "delete": "Delete Product Account",
-    "deleteConfirm": "Deleting your Product Account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays with your mail providers, and their authorizations are not revoked. You sign in again to confirm.",
+    "signOutConfirm": "Signing out removes this device from your Unwired account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
+    "delete": "Delete Unwired Account",
+    "deleteConfirm": "Deleting your Unwired account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays with your mail providers, and their authorizations are not revoked. You sign in again to confirm.",
     "deletePermanently": "Delete permanently",
     "cancel": "Cancel",
     "sign-out": "Sign-out could not be confirmed. Retry sign-out when you are online to finish removing this device and its local account data. Save and confirm any Recovery Key shown before signing out.",
-    "deletion-refused": "Your Product Account was not deleted, and nothing was removed. Try again and sign in with the Apple or Google account that opens it.",
-    "deletion": "Deletion could not be confirmed. Your Product Account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data."
+    "deletion-refused": "Your Unwired account was not deleted, and nothing was removed. Try again and sign in with the Apple or Google account that opens it.",
+    "deletion": "Deletion could not be confirmed. Your Unwired account may already be deleted. Retry deletion when you are online to confirm it and finish removing local account data."
   },
   "mailboxes": {
     "title": "Mailboxes",
@@ -436,7 +436,7 @@
   "privateSync": {
     "setup-pending": {
       "title": "Private sync",
-      "description": "Private sync setup has not finished. It continues the next time your Product Account is verified. Sign in again to finish it now."
+      "description": "Private sync setup has not finished. It continues the next time your Unwired account is verified. Sign in again to finish it now."
     },
     "recovery-key": {
       "title": "Save your Recovery Key",
@@ -452,7 +452,7 @@
     },
     "enrollment-pending": {
       "title": "Approve this device",
-      "description": "This Product Account already has end-to-end encrypted data. Signing in does not unlock it. On one of your trusted devices, open Unwired Mail and enter this code to approve this device."
+      "description": "This Unwired account already has end-to-end encrypted data. Signing in does not unlock it. On one of your trusted devices, open Unwired Mail and enter this code to approve this device."
     },
     "unavailable": {
       "title": "Private sync is unavailable",
@@ -473,10 +473,10 @@
   },
   "recovery": {
     "title": "Use your Recovery Key",
-    "description": "If none of your trusted devices is available, enter the Recovery Key you wrote down when you created your Product Account. It is checked on this device and never sent to Unwired Mail.",
+    "description": "If none of your trusted devices is available, enter the Recovery Key you wrote down when you created your Unwired account. It is checked on this device and never sent to Unwired Mail.",
     "label": "Recovery Key",
     "unlock": "Unlock with Recovery Key",
-    "rejected": "That Recovery Key does not unlock this Product Account. Check each character of your written copy and try again. Your encrypted product data is kept.",
+    "rejected": "That Recovery Key does not unlock this Unwired account. Check each character of your written copy and try again. Your encrypted product data is kept.",
     "failed": "Recovery could not finish. Your encrypted product data is kept. Try again to resume.",
     "lost": "If you have lost every trusted device and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected."
   },
@@ -498,7 +498,7 @@
     "description": "These other devices can read your private data. Remove one you no longer use, or one that was lost or stolen.",
     "added": "Added {{date}}",
     "remove": "Remove {{name}}",
-    "confirm": "Removing {{name}} blocks it from your Product Account, push notifications and private sync, and your other devices switch to new keys. You sign in again, then save and confirm a new Recovery Key; only then is {{name}} removed, and your previous Recovery Key stops opening new private data at once. It deletes its account data the next time it connects, but anything it already holds while offline or compromised cannot be erased remotely.",
+    "confirm": "Removing {{name}} blocks it from your Unwired account, push notifications and private sync, and your other devices switch to new keys. You sign in again, then save and confirm a new Recovery Key; only then is {{name}} removed, and your previous Recovery Key stops opening new private data at once. It deletes its account data the next time it connects, but anything it already holds while offline or compromised cannot be erased remotely.",
     "cancel": "Cancel",
     "proposal": "Save a new Recovery Key to remove {{name}}",
     "prompt": "Write down this new Recovery Key and keep it safe. To confirm you saved it, enter its last four characters. {{name}} is removed only then, and your previous Recovery Key stops opening new private data.",
@@ -506,7 +506,7 @@
     "mismatch": "That does not match the end of the new Recovery Key. Check your written copy and try again.",
     "device": "device",
     "removed": "The device was removed. The new Recovery Key you confirmed is now your Recovery Key; your previous one no longer opens new private data.",
-    "renewed": "Your Product Account changed before the removal finished, so nothing was removed. Save the new Recovery Key shown now and confirm it again; the key shown before will not work.",
+    "renewed": "Your Unwired account changed before the removal finished, so nothing was removed. Save the new Recovery Key shown now and confirm it again; the key shown before will not work.",
     "unconfirmed": "The removal could not be confirmed. Keep the new Recovery Key shown here, and confirm again when you are online to finish.",
     "superseded": "The selected device was removed. The Recovery Key prepared here is not your current Recovery Key; keep the Recovery Key confirmed for the latest removal.",
     "failed": "The device could not be removed. Try again.",
@@ -1467,7 +1467,7 @@
     "signIn": {
       "title": "Sign in to Unwired",
       "description": "Use the account you already use on your other devices.",
-      "finePrint": "Signing in starts Private Sync setup. A new Product Account creates its Recovery Key on this device."
+      "finePrint": "Signing in starts Private Sync setup. A new Unwired account creates its Recovery Key on this device."
     },
     "back": "Back",
     "providers": {

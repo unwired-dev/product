@@ -48,6 +48,30 @@ the recipient list. React Native renders text directly, so interpolation does no
 message content. For counts, use i18next's `_one`, `_other`, and other plural
 categories required by the target locale, and pass `{ count }`.
 
+## Interface wording
+
+Interface strings use everyday words. The domain terms in the [Glossary](../GLOSSARY.md)
+stay canonical in code, issues and documentation. The owner approved this word list
+on 15 November 2026 ([#2006](https://github.com/unwired-dev/product/issues/2006)):
+
+| Domain term           | Interface wording                                                    |
+| --------------------- | -------------------------------------------------------------------- |
+| Product Account       | your Unwired account; as a name (Settings, buttons): Unwired Account |
+| Mailbox Connection    | account: Accounts, Add Account…                                      |
+| Mailbox (a folder)    | mailbox, Mailboxes                                                   |
+| Mail Profile          | Profile, including in Settings                                       |
+| Trusted Device        | your devices in sentences; Trusted Devices in Settings               |
+| Enrollment            | approve this device, add this device                                 |
+| Private Sync          | sync; explain end-to-end encryption once per screen                  |
+| Mailbox authorization | access, as in "Gmail needs your permission again"                    |
+| Sending Identity      | From address                                                         |
+
+Recovery Key and Mail Assistance keep their names. Technical server terms (STARTTLS,
+ports) appear only where people must match their provider's settings.
+
+An error says what happened, gives the cause when the app knows it, and offers a
+useful next step. Never invent a cause.
+
 ## Add a language
 
 1. Add `<BCP-47-code>.json` alongside `en.json`. Preserve key names and interpolation

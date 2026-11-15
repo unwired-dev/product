@@ -318,7 +318,7 @@ Graphite neutrals with a single warm seal.
 | Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                               |
 | Scrim             | `scrim/touch`              | black 22%     | black 40%     | iPad composer and setup sheet; link alert backdrops on touch   |
 | Warning           | `status/warning`           | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                            |
-| Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Product Account, Delete                                 |
+| Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Unwired Account, Delete                                 |
 
 Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 
