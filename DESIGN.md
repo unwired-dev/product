@@ -345,9 +345,9 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 the opaque surface tokens. In Dark, the Mac Inbox and Settings sidebars lay
 `material/sidebar-backing` over their glass, so secondary text keeps 4.5:1
 whatever is behind the window
-([#1574](https://github.com/unwired-dev/product/issues/1574)). Other labels the
-Mac contrast audit flags are tracked in
-[#1550](https://github.com/unwired-dev/product/issues/1550).
+([#1574](https://github.com/unwired-dev/product/issues/1574)). The Mac journeys
+check flagged text against its drawn pixels
+([#1550](https://github.com/unwired-dev/product/issues/1550)).
 The macOS Labels/Secondary 50% black reaches only 3.95:1 on white and fails AA for text.
 `brand/well` is measured over `brand/deep`. `material/glass-tint` is measured on iOS 27 so the
 glass over `surface/content` renders `surface/panel`. The `accent/focus-ring` outline follows the
