@@ -589,24 +589,12 @@ const marginEdges = (
   return edges;
 };
 
-// Negative offsets whose clipping depends on unknown geometry are normalized in the output.
-// Even a large offset can leave compensated or wrapped text visible, so it cannot by itself
-// justify omitting a label. Small hanging indents and trailing LTR margins remain intact.
-const offCanvas = (value: string | undefined, font: number) =>
-  (lengthPixels(value, { font, percent: narrowestReaderPixels }) ?? 0) <=
-    -narrowestReaderPixels ||
-  /^-(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?(?:%|ex|ch|vw|vh|vmin|vmax)$/iu.test(
-    value ?? '',
-  );
-
 // Large positive spacing pushes content past the reader's right edge, or a whole label below
-// the viewport; whether glyphs stay visible depends on wrapping, so it is normalized as well.
+// the viewport; whether glyphs stay visible depends on wrapping, so it is normalized. Even a
+// large offset can leave wrapped text visible, so it cannot by itself justify omitting a label.
 const farRight = (value: string | undefined, font: number) =>
   (lengthPixels(value, { font, percent: narrowestReaderPixels }) ?? 0) >=
   narrowestReaderPixels;
-
-const displaces = (value: string | undefined, font: number) =>
-  offCanvas(value, font) || farRight(value, font);
 
 // Padding and border widths take no negative values; any large token drops the declaration.
 const spacingProperties = new Set([
@@ -631,7 +619,7 @@ const spacingProperties = new Set([
 const colorFunctions = /\b(?:rgba?|hsla?)\([^()]*\)/giu;
 
 const normalizeTextSpacing = (retained: Map<string, string>, font: number) => {
-  if (displaces(retained.get('text-indent'), font)) {
+  if (farRight(retained.get('text-indent'), font)) {
     retained.set('text-indent', '0');
   }
   for (const name of ['vertical-align', 'letter-spacing']) {
@@ -700,7 +688,7 @@ const normalizeMargins = (
   const retained = normalizeSpacing(style.retained, font);
   for (const edge of ['left', 'right', 'top', 'bottom']) {
     if (
-      displaces(margins.get(edge), font) &&
+      farRight(margins.get(edge), font) &&
       (edge === 'right' ? directional : !/^table-(?!caption$)/u.test(display))
     ) {
       margins.set(edge, '0');
@@ -715,6 +703,103 @@ const normalizeMargins = (
     css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
   };
 };
+
+// Table boxes already grow to their content, and spacer cells keep heights that ignore
+// `min-height`.
+const tableBox = /^table(?!-caption$)/u;
+
+// A length or percentage, as opposed to a keyword or an emitted expression.
+const definite = (value: string | undefined) =>
+  lengthPixels(value, { font: 1, percent: 1 }) !== undefined;
+
+// Whether a box has a sender width its descendants must stay inside.
+const senderSized = ({ retained }: FilteredStyle) =>
+  ['width', 'max-width'].some((name) => {
+    const value = retained.get(name);
+    return definite(value) || value?.startsWith('min(') === true;
+  });
+
+// A percentage of an auto-height container resolves to zero, even inside max(), so a mixed
+// pair keeps its absolute length.
+const minimumHeight = (height: string, minimum: string | undefined) => {
+  if (minimum === undefined || !definite(minimum)) {
+    return height;
+  }
+  if (height.endsWith('%') === minimum.endsWith('%')) {
+    return `max(${height}, ${minimum})`;
+  }
+  return height.endsWith('%') ? minimum : height;
+};
+
+// Outside tables, a fixed height becomes a minimum and a maximum height is dropped.
+const grownHeight = (
+  name: string,
+  value: string,
+  retained: ReadonlyMap<string, string>,
+): ReadonlyArray<readonly [string, string]> | undefined => {
+  if (name === 'max-height') {
+    return [];
+  }
+  if (name === 'min-height') {
+    return definite(retained.get('height')) ? [] : [[name, value]];
+  }
+  if (name !== 'height') {
+    return undefined;
+  }
+  return definite(value)
+    ? [['min-height', minimumHeight(value, retained.get('min-height'))]]
+    : [];
+};
+
+// Inside a box of sender width, a width cannot exceed it and content-sized widths are removed.
+// An inherited width can copy the box's declared width past its maximum, so it fills the box
+// instead; an inline block without one would shrink to its longest word.
+const boundedWidth = ([name, value]: readonly [string, string]) => {
+  if (name !== 'width' && name !== 'min-width') {
+    return [[name, value] as const];
+  }
+  if (definite(value)) {
+    return [[name, `min(100%, ${value})`] as const];
+  }
+  if (name === 'width' && /^inherit$/iu.test(value)) {
+    return [[name, '100%'] as const];
+  }
+  return /content|stretch|inherit/iu.test(value)
+    ? []
+    : [[name, value] as const];
+};
+
+// Sender boxes keep their text inside them, where a later image or button fill could cover it
+// (#2204). Images keep their sizes.
+const containedBox = (
+  style: FilteredStyle,
+  {
+    tag,
+    display,
+    bounded,
+  }: Readonly<{ tag: string; display: string; bounded: boolean }>,
+): FilteredStyle => {
+  if (tag === 'img' || tableBox.test(display)) {
+    return style;
+  }
+  const declarations = [...style.retained].flatMap(
+    ([name, value]) =>
+      grownHeight(name, value, style.retained) ?? [[name, value] as const],
+  );
+  const retained = new Map(
+    bounded ? declarations.flatMap(boundedWidth) : declarations,
+  );
+  return {
+    ...style,
+    retained,
+    css: [...retained].map(([name, value]) => `${name}: ${value}`).join('; '),
+  };
+};
+
+// Whether a box's descendants sit inside a sender width: a table cell grows to its content.
+const boundedIn = (display: string, style: FilteredStyle, parent: boolean) =>
+  !tableBox.test(display) &&
+  ((display !== 'inline' && senderSized(style)) || parent);
 
 const offsetTokens = new Map([
   ['margin', 4],
@@ -1146,6 +1231,40 @@ export const parseDeclarations = (style: string) => {
   return { declared, unsafe, limited, important, rejected };
 };
 
+// Values that keep text wrapping inside its box; `nowrap` and `pre` become their wrapping forms.
+const unwrapped = new Map([
+  ['nowrap', 'normal'],
+  ['pre', 'pre-wrap'],
+]);
+const wrapping = new Map([
+  [
+    'white-space',
+    /^(?:normal|pre-wrap|pre-line|break-spaces|inherit|initial|unset)$/u,
+  ],
+  ['overflow-wrap', /^(?:break-word|anywhere|inherit|unset)$/u],
+  ['word-wrap', /^(?:break-word|anywhere|inherit|unset)$/u],
+]);
+
+// Sender CSS cannot pull content over other content, where opaque sender pixels or a button's
+// fill could hide the reader's ink (#2029): negative margins and indents become zero, and text
+// wraps inside its box rather than overflowing onto a neighbour.
+const withoutOverlap = ([name, value]: readonly [string, string]) => {
+  if (offsetTokens.has(name)) {
+    const offsets = value
+      .trim()
+      .split(/\s+/u)
+      .map((token) => (token.startsWith('-') ? '0' : token));
+    return [[name, offsets.join(' ')] as const];
+  }
+  const allowed = wrapping.get(name);
+  if (allowed === undefined) {
+    return [[name, value] as const];
+  }
+  const keyword = value.toLowerCase();
+  const wraps = unwrapped.get(keyword) ?? keyword;
+  return allowed.test(wraps) ? [[name, wraps] as const] : [];
+};
+
 function filterDeclarations(
   {
     declared,
@@ -1157,10 +1276,12 @@ function filterDeclarations(
   tag = '',
 ): FilteredStyle {
   const retained = new Map(
-    [...declared].filter(
-      (declaration) =>
-        !unsafe.has(declaration[0]) && keptDeclaration(declaration),
-    ),
+    [...declared]
+      .filter(
+        (declaration) =>
+          !unsafe.has(declaration[0]) && keptDeclaration(declaration),
+      )
+      .flatMap(withoutOverlap),
   );
   const tableDisplay = tableDisplays.get(tag);
   if (
@@ -1955,6 +2076,40 @@ const lineHeightIn = (
   return resolved === undefined || resolved < 0 ? parent : { pixels: resolved };
 };
 
+// A line height in pixels; normal is never shorter than its font.
+const lineHeightPixels = (height: LineHeight, font: number) => {
+  if ('pixels' in height) {
+    return height.pixels;
+  }
+  return 'factor' in height ? height.factor * font : Infinity;
+};
+
+// Whether the element itself holds visible text, rather than only descendants.
+const ownText = (element: Element) =>
+  element.childNodes.some(
+    (node) =>
+      node.nodeName === '#text' &&
+      'value' in node &&
+      hasVisibleText(node.value),
+  );
+
+// Glyphs overflow a line shorter than their font onto the next box; image-only cells keep
+// their zero line height (#2204). The system font's normal spacing keeps the break allowance
+// finite for sender fonts, whose normal metrics are unknown.
+const fittedLines = (
+  style: FilteredStyle,
+  element: Element,
+  { parent, font }: Readonly<{ parent: LineHeight; font: number }>,
+) =>
+  font >= minimumTextPixels &&
+  ownText(element) &&
+  lineHeightPixels(
+    lineHeightIn(style.retained.get('line-height'), parent, font),
+    font,
+  ) < font
+    ? withProperties(style, [['line-height', '1.2']])
+    : style;
+
 const contentSecurityPolicy =
   "default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -2079,6 +2234,8 @@ function walk(
   // Off-canvas text boxes, and inherited font size and indent states.
   let direction = 'ltr';
   let margins: ReadonlyMap<string, string> = new Map();
+  // Whether the containing block has a sender width, outside any table.
+  let bounded = false;
   let fontPixels = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
@@ -2482,7 +2639,7 @@ function walk(
     direction = directionIn(node, direction);
     const display = displayOf(node.tagName, sizedStyle);
     const ownMargins = textMargins(node, sizedStyle);
-    const normalized = normalizeMargins(sizedStyle, ownMargins, {
+    const spaced = normalizeMargins(sizedStyle, ownMargins, {
       display:
         node.tagName === 'img' && display === 'inline'
           ? 'inline-block'
@@ -2490,6 +2647,13 @@ function walk(
       directional: direction === 'rtl' || parentDirection === 'rtl',
       font: fontPixels,
     });
+    const normalized = fittedLines(
+      containedBox(spaced, { tag: node.tagName, display, bounded }),
+      node,
+      { parent: lineHeight, font: fontPixels },
+    );
+    const parentBounded = bounded;
+    bounded = boundedIn(display, normalized, bounded);
     margins = ownMargins;
     const inheritedVisibility = visibility;
     visibility = visibilityIn(style, visibility);
@@ -2507,6 +2671,7 @@ function walk(
     );
     ancestorLinePixels = linePixels();
     run(normalized);
+    bounded = parentBounded;
     ancestorLinePixels = parentAncestorLinePixels;
     lineHeight = parentLineHeight;
     direction = parentDirection;

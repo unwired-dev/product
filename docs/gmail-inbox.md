@@ -815,11 +815,26 @@ retains ordinary relative scaling, and pins the root font size to 16 pixels for
 `rem`. Sender viewport and font-metric size units (`vw`, `vh`, `vmin`, `vmax`,
 `ex`, `ch`) are removed; percentages and `em` remain supported. Placeholders use
 their emitted size rather than the source image's discarded font styling.
-Large negative leading margins and indents (at least 320 CSS pixels after unit
-resolution) are normalized to zero. Negative percentage, viewport and
-font-metric offsets are also normalized because their displacement depends on
-unknown reader geometry. Large positive margins and indents are normalized the
-same way, and padding or border-width declarations with a token of at least 320
+Sender styles cannot pull content over other content, where an opaque image or
+button fill could hide the reader's text
+([#2029](https://github.com/unwired-dev/product/issues/2029)). Every negative
+margin and text indent, inline or in a media rule, becomes zero, so hanging
+indents no longer hang. Text wraps inside its box: `white-space: nowrap` becomes
+`normal`, `pre` becomes `pre-wrap`, and only `overflow-wrap` values that still
+break a long word remain, so short no-wrap runs such as dates and prices can
+wrap in a narrow reader. Text also stays inside the box that holds it
+([#2204](https://github.com/unwired-dev/product/issues/2204)). Outside tables, a
+fixed height becomes a minimum height the content can grow past, and a maximum
+height is removed; table boxes already grow to their content, and images keep
+their heights. An element holding text whose line height is shorter than its font
+gets a line height of 1.2, the system font's normal spacing, while image-only
+lines keep a zero line height, so
+sliced-image tables stay seamless. Inside a box with a sender width, widths and
+minimum widths are bounded by that box, content-sized widths are removed and an
+inherited width fills the box.
+A table squeezed below its minimum content width can still overflow one cell into
+the next. Large positive margins and indents (at least 320 CSS
+pixels after unit resolution) are normalized to zero, and padding or border-width declarations with a token of at least 320
 CSS pixels are removed, because they can push a label past the reader's right
 edge or below the viewport. This includes vertical sides and table border spacing.
 Large letter spacing and vertical alignment offsets are reset, and line heights
@@ -850,8 +865,7 @@ intentional large gaps, fixed-height banners and hero cells, and changes images
 whose oversized CSS height deliberately altered their proportions. It does not
 establish complete geometric visibility. Padding, wrapped lines and bidi layout can leave text
 visible despite such offsets; they never justify discarding a painted label.
-Small hanging indents and trailing left-to-right margins remain intact. Margin
-normalization follows emitted declaration order and physical shorthand sides;
+Trailing left-to-right margins remain intact. Margin normalization follows emitted declaration order and physical shorthand sides;
 inner table roles retain their margin behavior. Automatic direction is removed,
 leaving inherited explicit direction.
 Descendants can restore readable text by resetting an inherited illegible font

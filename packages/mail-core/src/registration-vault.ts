@@ -533,6 +533,9 @@ export interface NativeRegistrationVault {
   // Verifies an IMAP login and adds it as a connection, or repairs the one for the same account.
   // Resolves `{ connection, address }`; the password stays in native device storage.
   readonly connectImap: (setup: ImapSetup) => Promise<unknown>;
+  // Looks up a domain's RFC 6186 SRV records through the system resolver. Resolves `{ imap, smtp }`
+  // endpoints, or null unless the domain names both.
+  readonly discoverImap: (domain: string) => Promise<unknown>;
   // Logs in to a saved IMAP connection again, which verifies it for this process.
   readonly verifyImap: (connection: string) => Promise<unknown>;
   // Saves the verified authorization to its existing connection.

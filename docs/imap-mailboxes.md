@@ -75,9 +75,23 @@ the address: a catalogued domain fills them in and shows **Found server settings
 _domain_. Port and security are filled in for you.**, and any other domain leaves them
 empty for manual entry. Once the person changes one, the address no longer changes
 them. The person still reviews both endpoints before **Connect**, and the lookup
-happens on the device. The [RFC 6186](https://www.rfc-editor.org/rfc/rfc6186.html)
-SRV lookup for other domains is still open under
-[#2004](https://github.com/unwired-dev/product/issues/2004).
+happens on the device.
+
+For a domain the catalog does not list, [#2200](https://github.com/unwired-dev/product/issues/2200)
+looks up the domain's [RFC 6186](https://www.rfc-editor.org/rfc/rfc6186.html) SRV records
+through the system resolver once the address has stopped changing for half a second:
+`_imaps._tcp` for IMAP, and `_submissions._tcp` ([RFC 8314](https://www.rfc-editor.org/rfc/rfc8314.html))
+or else `_submission._tcp` for SMTP, each choosing among the records of the lowest priority at
+random in proportion to their weights, as [RFC 2782](https://www.rfc-editor.org/rfc/rfc2782.html)
+describes. A target of `.` means the service is not offered. When both are found,
+the form fills in the servers and ports, signs in with the full address and shows the same
+note; otherwise it stays empty for manual entry. SMTP found through `_submissions` uses SSL/TLS
+on whatever port it names; SMTP found through `_submission` takes security from its port, since
+some domains list implicit TLS on 465 there. A server setting the person changed, or a later address, discards an answer still on its way. Only the
+system resolver sees the domain, and Secure Mail Transport checks the discovered host's
+certificate as it does any other. On 15 November 2026 the lookup filled in `posteo.de`,
+`migadu.com` and `purelymail.com`, and left `mailbox.org` and `example.org`, which publish
+no records, to manual entry.
 
 Every entry comes from the provider's own settings page and signs in with the full
 address, except iCloud Mail's IMAP user name as in the table above. Where a provider

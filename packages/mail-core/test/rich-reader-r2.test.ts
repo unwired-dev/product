@@ -783,6 +783,109 @@ describe('rich-reader review regressions', () => {
     ).toMatch(/^\s*Brand\s+https:\/\/bank.invalid/u);
   });
 
+  it('lets no sender style pull text over an inline image or a button fill', () => {
+    expect.hasAssertions();
+    const ink = {
+      contentId: 'ink',
+      mimeType: 'image/png' as const,
+      data: 'AA==',
+      width: 120,
+      height: 60,
+    };
+    const label = 'paypal.com.evil.example';
+    const { document, links } = sanitizeHtml(
+      [
+        '<style>@media (max-width:600px){.lift{margin:-60px 0 0 -10px;text-indent:-40px;white-space:nowrap}}</style>',
+        `<p><a href="https://evil.example/1">${label}</a></p>`,
+        '<img src="cid:ink" alt="" style="display:block;margin-top:-60px;margin-left:150px">',
+        `<p><a href="https://evil.example/2">${label}</a></p>`,
+        '<table style="margin-top:-40px;margin-left:85px"><tr><td style="background-color:#3A3D44;padding:8px 60px"><a href="https://x.example/">x</a></td></tr></table>',
+        `<table><tr><td><div class="lift" style="width:20px;white-space:nowrap;overflow-wrap:normal"><a href="https://evil.example/3">${label}</a></div></td>`,
+        '<td style="background-color:#3A3D44;padding:8px 120px"><a href="https://x.example/">x</a></td></tr></table>',
+        '<pre style="white-space:PRE;text-indent:-2em;word-wrap:normal">Preformatted</pre>',
+      ].join(''),
+      new Map([['ink', ink]]),
+    );
+    expect(links.map(({ text }) => text)).toStrictEqual([
+      label,
+      label,
+      'x',
+      label,
+      'x',
+    ]);
+    // Negative offsets become zero and text wraps inside its box, inline and in narrow rules.
+    expect(
+      [
+        'style="display: block; margin-top: 0; margin-left: 150px"',
+        '<table style="margin-top: 0; margin-left: 85px">',
+        'style="width: 20px; white-space: normal"',
+        'margin:0 0 0 0!important;text-indent:0!important;width:20px!important;white-space:normal!important',
+        '<pre style="white-space: pre-wrap; text-indent: 0">',
+      ].filter((style) => !document.includes(style)),
+    ).toStrictEqual([]);
+  });
+
+  it('keeps text inside sender boxes so it cannot overflow onto an image or a button fill', () => {
+    expect.hasAssertions();
+    const label = 'paypal.com.evil.example';
+    const button =
+      '<table><tr><td style="background-color:#3A3D44;padding:8px 160px"><a href="https://x.example/">x</a></td></tr></table>';
+    const { document, links } = sanitizeHtml(
+      [
+        '<style>@media (max-width:600px){.short{height:2px}}</style>',
+        `<div style="height:1px"><a href="https://evil.example/1">${label}</a></div>${button}`,
+        `<div class="short" style="max-height:1px"><a href="https://evil.example/2">${label}</a></div>`,
+        `<p style="line-height:0;margin:0"><a href="https://evil.example/3">${label}</a></p>${button}`,
+        '<p style="line-height:.5;font-family:Georgia">Line one<br>Line two</p>',
+        `<table><tr><td><div style="width:20px"><div style="width:250px;min-width:200px"><a href="https://evil.example/4">${label}</a></div><div style="width:max-content">Wide</div></div><div style="width:250px;max-width:20px"><div style="width:inherit">Inherited</div><div style="display:inline-block;width:inherit;min-width:inherit">Inline</div></div></td>`,
+        '<td style="height:1px;line-height:0;width:250px"><img src="cid:sliced" alt="" style="height:60px">&nbsp;</td>',
+        '<td style="line-height:0"><img src="cid:sliced" alt="">&#8203;</td></tr></table>',
+        '<div style="height:100px;min-height:0%"></div><div style="height:50%;min-height:20px"></div>',
+      ].join(''),
+      new Map([
+        [
+          'sliced',
+          {
+            contentId: 'sliced',
+            mimeType: 'image/png' as const,
+            data: 'AA==',
+            width: 120,
+            height: 60,
+          },
+        ],
+      ]),
+    );
+    expect(links.map(({ text }) => text)).toStrictEqual([
+      label,
+      'x',
+      label,
+      label,
+      'x',
+      label,
+    ]);
+    // Heights become minimums and lines fit their font; a box of sender width bounds its
+    // children. Table cells, images and image-only lines keep their sizes.
+    expect(
+      [
+        '<div style="min-height: 1px">',
+        '{min-height:2px!important}',
+        '<p style="line-height: 0; margin: 0">',
+        'style="line-height: 1.2"',
+        '<div style="width: min(100%, 250px); min-width: min(100%, 200px)">',
+        '<div>Wide</div>',
+        '<div style="width: 100%">Inherited</div>',
+        '<div style="display: inline-block; width: 100%">Inline</div>',
+        'Line one<br>Line two',
+        '<td style="height: 1px; line-height: 0; width: 250px">',
+        'height: 60px',
+        '<td style="line-height: 0"><img',
+        // A percentage minimum of an auto-height box resolves to zero, even inside max().
+        '<div style="min-height: 100px"></div><div style="min-height: 20px"></div>',
+      ].filter((style) => !document.includes(style)),
+    ).toStrictEqual([]);
+    expect(document).not.toMatch(/max-height: 1px|min-height: max\(/u);
+  });
+
   it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
     expect.hasAssertions();
     for (const blocker of ['display:none', 'opacity:0']) {
@@ -1377,8 +1480,9 @@ describe('rich-reader review regressions', () => {
     expect(result.document).not.toMatch(/10000px|625em/u);
     expect(result.document).not.toContain('height="10000"');
     expect(result.document).toContain('<td height="200">Cell control</td>');
+    // An ordinary height stays, as a minimum the text can grow past.
     expect(result.document).toContain(
-      'height: 200px; min-height: 120px; margin-bottom: 40px',
+      'min-height: max(200px, 120px); margin-bottom: 40px',
     );
   });
 
@@ -2196,7 +2300,8 @@ describe('rich-reader review regressions', () => {
       'display:inline-block;border-left:10000px hsl(200,30%,40%)solid',
       'display:inline-block;padding-left:calc (10000px)',
     ];
-    // The wrapping form is a native-layout negative control; nowrap makes the large pad mask.
+    // The wrapping form is a native-layout negative control; nowrap would make the large pad mask,
+    // so it is emitted in its wrapping form.
     const examples = masks.flatMap((style, index) =>
       ['', 'white-space:nowrap'].map(
         (wrapping) =>
@@ -2243,7 +2348,7 @@ describe('rich-reader review regressions', () => {
         'border: 1px solid rgb(20, 30, 40)',
         'border-left: 1px solid hsl(200, 30%, 40%)',
         'border-left: rgb(20,30,40)1px solid',
-        'white-space: nowrap',
+        'white-space: normal',
       ]),
     );
     expect(result.document).not.toContain('rgb (');

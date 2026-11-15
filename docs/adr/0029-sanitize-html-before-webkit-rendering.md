@@ -4,6 +4,36 @@ status: accepted
 
 # Sanitize message HTML before isolated WebKit rendering
 
+## Amendment — 2026-11-15
+
+The owner chose to remove overlap-causing layout primitives from admitted sender
+CSS ([#2029](https://github.com/unwired-dev/product/issues/2029), option B). Text
+pulled over an opaque sender image or a link-only button fill could vanish in the
+reader's ink while link inspection still read it, and no fill color contrasts
+with that ink in both appearances. Every negative margin and text indent, inline
+or in a media rule, becomes zero. Sender text keeps wrapping inside its box:
+`white-space: nowrap` becomes `normal`, `pre` becomes `pre-wrap`, and
+`overflow-wrap` or `word-wrap` values that stop breaking long words are removed.
+This supersedes the 2026-10-06 rule that kept small hanging indents and
+normalized only large or unresolvable negative offsets, and the negative-margin
+image clauses of the prior decision. A real-mail compatibility render showed
+three costs: hanging list indents no longer hang, short no-wrap runs such as
+dates and prices can wrap in a narrow reader, and preformatted text wraps rather
+than running past the right edge.
+
+A follow-up ([#2204](https://github.com/unwired-dev/product/issues/2204)) applies
+the same choice to boxes text can overflow. Outside tables, a fixed height
+becomes a minimum height and a maximum height is removed; table boxes already grow
+to their content, and spacer cells keep heights that `min-height` would not set.
+An element holding text whose line height is shorter than its font gets a line
+height of 1.2, while image-only lines keep a zero line height. Inside a box with a
+sender width, widths and minimum widths cannot exceed that box, content-sized
+widths are removed and an inherited width fills the box. A compatibility
+render left spacer cells, sliced-image tables and fixed-width columns
+pixel-identical; lines set tighter than their font open up to 1.2. A
+table squeezed below its minimum content width can still overflow one cell into
+the next.
+
 ## Amendment — 2026-11-11
 
 [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the removal of every author `style` block and of every sender
