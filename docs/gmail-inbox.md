@@ -434,8 +434,8 @@ it leaves it unread. Prefetch, body downloads and notifications leave read state
 
 The reader shows these actions as SF Symbol buttons in Liquid Glass toolbar groups
 with the action's name as their accessibility label. On the Mac, a fixed toolbar
-above the reading pane groups **Archive**, **Move
-to Trash** and **Folders**, then Reply, Reply All and Forward,
+above the reading pane groups **Archive**, **Delete**
+and **Folders**, then Reply, Reply All and Forward,
 then the remaining actions and **More**. The Mac's **Folders** opens
 the system menu below the button, one folder or label per item with its symbol. A choice moves
 the message, while Escape or a click outside closes the menu without moving it.
