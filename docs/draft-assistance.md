@@ -98,7 +98,7 @@ results for changed details on Mac, and on iPhone and iPad.
   with the push buttons in a row; iPhone shows each change as its detail, status and
   a `original → rewrite` line, with **Use Rewrite with Changes** (or **Replace Text**)
   across the panel above Keep Original and Try again. When details differ, Keep
-  original carries the accent fill. It never says a
+  Original carries the accent fill. It never says a
   result is verified or safe: every finished result ends with a note that the
   checks compare details only and that meaning, questions and commitments need
   the person's own reading. Reply suggestions and Generate a Draft are not checked.
@@ -293,8 +293,8 @@ allow-listed native code or decode path, never Draft or generated text.
   pending result when the body is edited or the Product Account changes. The Mac tests, and the
   `apps/mobile/test/composer.test.tsx` tests on iPhone and iPad layouts, also show the
   details note on every rewrite, and a rewrite with changed details: its count and announcement, one
-  readable row per change, the kept details, no plain Replace, Keep Original, then **Use rewrite with
-  changes** and Undo. From the real reader with a synthetic
+  readable row per change, the kept details, no plain Replace, Keep Original, then **Use Rewrite with
+  Changes** and Undo. From the real reader with a synthetic
   Gmail mailbox, they request a reply suggestion for a Reply All Draft, check its
   admitted input and that no Gmail request is made, apply it to the authored body
   only, undo it, invalidate recipient edits even when Undo precedes a queued apply,

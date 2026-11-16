@@ -58,7 +58,7 @@ Restore and Gmail authorization first check whether this Trusted Device was
 removed from its Product Account, then check the Apple credential state for
 the saved subject instead of reconnecting to Convex. A revoked, missing or
 unverifiable credential keeps the Product Account and mailbox-setup record. The
-host then reports that the account could not be verified and offers Sign in again
+host then reports that the account could not be verified and offers Sign In Again
 with Apple. A positive
 [Device Revocation](private-product-sync.md#removing-a-trusted-device) result
 purges the account even when the Apple grant is unavailable. Offline, it keeps
@@ -145,7 +145,7 @@ email. Confirm a mailbox must be authorized before any connected status. Cancel
 the Apple sheet, cancel and decline Gmail, then relaunch and finish. Register
 Google first on a separate installation using the same email. Confirm the Product
 Account IDs differ. Revoke the app in Apple ID settings and confirm restore offers
-Sign in again with Apple without losing the Product Account. Record the results
+Sign In Again with Apple without losing the Product Account. Record the results
 separately from deterministic evidence. No real Apple sign-in pass is claimed
 until this path has run.
 

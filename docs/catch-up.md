@@ -70,8 +70,8 @@ still opens the single-message reader; Catch Up bubbles will open the Thread vie
   (`accessibilityState.selected`). Until the person drags the reader, every new
   layout of that message scrolls to it again, so bodies loading above it keep it in
   place.
-- Each message starts with its quoted history collapsed behind **Show quoted
-  text**. Quoted history is Gmail's `gmail_quote` container, a
+- Each message starts with its quoted history collapsed behind **Show Quoted
+  Text**. Quoted history is Gmail's `gmail_quote` container, a
   `blockquote type="cite"` (Apple Mail, Thunderbird), everything from an
   "Original Message" marker, or the trailing run of `>` lines with the
   attribution line above it. Inline replies and Outlook HTML quotes stay

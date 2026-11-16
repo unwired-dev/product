@@ -18,7 +18,7 @@ no mailbox authorization on its own. **Connect your mail** lists the providers a
 each opening its own setup:
 
 - **Gmail**, which suggests the Google sign-in account, and below the list **Choose
-  another Google mailbox**;
+  Another Google Mailbox**;
 - **iCloud Mail**, **Fastmail** and **Other IMAP Account**, whose IMAP form opens in
   place, with **Cancel** returning to the list;
 - **Microsoft 365 and Outlook** when this build is configured for
@@ -28,7 +28,7 @@ Choosing an IMAP provider asks for no Google or Microsoft grant. Saved Gmail and
 Microsoft mailboxes that all need authorization again are still authorized again right
 after sign-in; an IMAP password is only ever entered again in Settings' **Email Accounts**. Once
 any mailbox is connected, Settings' **Email Accounts** also offers **Add an
-IMAP mailbox**.
+IMAP Mailbox**.
 
 ## Endpoints and passwords
 
