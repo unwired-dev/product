@@ -370,6 +370,54 @@ function SidebarItem({
   );
 }
 
+// The iPad sidebar's glass Back: to Welcome before sign-in, otherwise to mail.
+function SidebarBack({
+  navigation,
+  onWelcome,
+}: {
+  readonly navigation:
+    | Readonly<{ onInbox: () => void; disabled: boolean }>
+    | undefined;
+  readonly onWelcome: (() => void) | undefined;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const back =
+    onWelcome === undefined
+      ? navigation && {
+          label: t('settings.backToMail'),
+          onPress: navigation.onInbox,
+          disabled: navigation.disabled,
+        }
+      : {
+          label: t('errorReporting.backToWelcome'),
+          onPress: onWelcome,
+          disabled: false,
+        };
+  if (back === undefined) {
+    return null;
+  }
+  return (
+    <Host matchContents>
+      <SwiftUIButton
+        label={back.label}
+        systemImage="chevron.left"
+        onPress={() => {
+          back.onPress();
+        }}
+        modifiers={[
+          labelStyle('iconOnly'),
+          buttonStyle('glass'),
+          buttonBorderShape('circle'),
+          controlSize('large'),
+          tint(colors.textPrimary),
+          inactive(back.disabled),
+        ]}
+      />
+    </Host>
+  );
+}
+
 // An iPhone row that pushes its destination.
 function DestinationRow({
   icon,
@@ -470,19 +518,6 @@ export function SettingsWorkspace({
     t(editing ? 'common.done' : 'settings.edit');
   if (settingsColumns) {
     const selected = destination ?? 'account';
-    // Back to Welcome before sign-in, otherwise back to mail.
-    const back =
-      onWelcome === undefined
-        ? navigation && {
-            label: t('settings.backToMail'),
-            onPress: navigation.onInbox,
-            disabled: navigation.disabled,
-          }
-        : {
-            label: t('errorReporting.backToWelcome'),
-            onPress: onWelcome,
-            disabled: false,
-          };
     return (
       <View style={[styles.columns, { paddingTop: insets.top }]}>
         <View
@@ -495,23 +530,10 @@ export function SettingsWorkspace({
             },
           ]}>
           <View style={styles.sidebarTop}>
-            {back === undefined ? null : (
-              <Host matchContents>
-                <SwiftUIButton
-                  label={back.label}
-                  systemImage="chevron.left"
-                  onPress={back.onPress}
-                  modifiers={[
-                    labelStyle('iconOnly'),
-                    buttonStyle('glass'),
-                    buttonBorderShape('circle'),
-                    controlSize('large'),
-                    tint(colors.textPrimary),
-                    inactive(back.disabled),
-                  ]}
-                />
-              </Host>
-            )}
+            <SidebarBack
+              navigation={navigation}
+              onWelcome={onWelcome}
+            />
           </View>
           <ScrollView contentContainerStyle={styles.sidebarList}>
             {onWelcome === undefined ? (
