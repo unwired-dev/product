@@ -553,6 +553,29 @@ const fontSizeIn = (value: string | undefined, parent: number, tag: string) => {
   return resolved === undefined || resolved < 0 ? parent : resolved;
 };
 
+// An element's font, resolved against its parent's as fitted to a sender box and as the sender
+// set it. Text that was readable before an ancestor's font was fitted stays readable (#2213).
+const fontIn = (
+  value: string | undefined,
+  tag: string,
+  {
+    parent,
+    natural,
+    image,
+  }: Readonly<{ parent: number; natural: number; image: boolean }>,
+) => {
+  const size = (from: number) =>
+    image ? from * 0.85 : fontSizeIn(value, from, tag);
+  const unfitted = size(natural);
+  return {
+    font:
+      unfitted >= minimumTextPixels
+        ? Math.max(size(parent), minimumTextPixels)
+        : size(parent),
+    natural: unfitted,
+  };
+};
+
 // Signed lengths for offsets; a nonzero number needs a unit, as WebKit requires.
 const offsetValue =
   /^(?<sign>[+-])?(?<amount>(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(?<unit>%|px|em|rem|ex|ch|vw|vh|vmin|vmax|cm|mm|in|pt|pc)?$/iu;
@@ -825,10 +848,10 @@ const horizontalEdges = (
 // ignored, and a border without a style has no width.
 const horizontalOffsets = (
   retained: ReadonlyMap<string, string>,
-  tag: string,
+  defaults: ReadonlyArray<readonly [string, string]>,
 ) => {
   const edges = new Map([
-    ...(defaultOffsets.get(tag) ?? []),
+    ...defaults,
     ...[...retained]
       .filter(
         ([name, value]) =>
@@ -931,7 +954,8 @@ const containedBox = (
 };
 
 // The width a box leaves its text, at the reader's narrowest: a sender width, and inside a box
-// of one, what offsets leave of it. A table cell grows to its content.
+// of one, what offsets leave of it. A table grows to its content, so inside a box its cells
+// share what the box leaves instead of their widths (#2213).
 const roomIn = (
   display: string,
   style: FilteredStyle,
@@ -942,7 +966,7 @@ const roomIn = (
   }: Readonly<{ parent: number | undefined; used: number; font: number }>,
 ) => {
   if (tableBox.test(display)) {
-    return undefined;
+    return parent === undefined ? undefined : parent - used;
   }
   const percent = (parent ?? narrowestReaderPixels) - used;
   const widths = ['width', 'max-width'].map((name) => {
@@ -1465,7 +1489,7 @@ const escapeText = (value: string) =>
 // URL-like runs of printable ASCII may break after each punctuation character and at least every
 // 24 characters. Under `overflow-wrap: break-word` a table cell otherwise widens to hold the
 // whole run; words, other scripts and emoji never split.
-const breakableText = (value: string) =>
+const breakableUrls = (value: string) =>
   (value.match(/[!-~]{25,}|[^!-~]+|[!-~]+/gu) ?? [])
     .map((part) =>
       part.length > 24 && /^[!-~]+$/u.test(part) && /[/?&=]/u.test(part)
@@ -1475,6 +1499,45 @@ const breakableText = (value: string) =>
         : escapeText(part),
     )
     .join('');
+
+// A glyph: a character with the marks, emoji modifiers and joined characters drawn with it.
+const glyph =
+  /[\u{1F1E6}-\u{1F1FF}]{2}|[\s\S](?:[\p{M}\u{1F3FB}-\u{1F3FF}\u{E0020}-\u{E007F}]|\u200D[\s\S])*/gu;
+
+// Inside a sender box a word longer than `glyphs` glyphs, a line of the box, may break anywhere,
+// so its minimum width, even in a table, stays inside the box. It breaks only where it would
+// overflow its line (#2213).
+const breakableText = (value: string, glyphs = Infinity) =>
+  value
+    .match(/[\t\n\f\r ]+|[^\t\n\f\r ]+/gu)
+    ?.map((word) =>
+      word.length > glyphs && (word.match(glyph) ?? []).length > glyphs
+        ? `<span style="overflow-wrap: anywhere">${breakableUrls(word)}</span>`
+        : breakableUrls(word),
+    )
+    .join('') ?? '';
+
+// How many glyphs fit on a line of a sender box: one font size each, after the indent and letter
+// spacing it leaves room for.
+const lineGlyphs = ({
+  room,
+  indent,
+  spacing,
+  font,
+}: Readonly<{
+  room: number | undefined;
+  indent: number;
+  spacing: number;
+  font: number;
+}>) =>
+  room === undefined
+    ? Infinity
+    : Math.max(
+        1,
+        Math.floor(
+          (room - Math.max(0, indent)) / (font + Math.max(0, spacing)),
+        ),
+      );
 const escapeAttribute = (value: string) =>
   escapeText(value).replaceAll('"', '&quot;');
 
@@ -1675,7 +1738,8 @@ const zeroOffsets = ['margin', 'padding', 'border'].flatMap((box) =>
 );
 
 // Inside a box of sender width, offsets that would leave less than one glyph of it are removed
-// (#2209). Percentages resolve against the containing block. Table cells and images keep theirs.
+// (#2209), and a table cell's against its column's share (#2213). Percentages resolve against the
+// containing block. Images keep theirs.
 const fittedOffsets = (
   style: FilteredStyle,
   {
@@ -1684,18 +1748,24 @@ const fittedOffsets = (
     room,
     block,
     font,
+    defaults,
   }: Readonly<{
     tag: string;
     display: string;
     room: number | undefined;
     block: number | undefined;
     font: number;
+    defaults: ReadonlyArray<readonly [string, string]>;
   }>,
 ) => {
-  if (room === undefined || tag === 'img' || display.startsWith('table-')) {
+  if (
+    room === undefined ||
+    tag === 'img' ||
+    (display.startsWith('table-') && display !== 'table-cell')
+  ) {
     return { style, offsets: undefined, used: 0 };
   }
-  const offsets = horizontalOffsets(style.retained, tag);
+  const offsets = horizontalOffsets(style.retained, defaults);
   const used = offsets.reduce(
     (total, value) => total + offsetPixels(value, font, block ?? room),
     0,
@@ -1703,6 +1773,164 @@ const fittedOffsets = (
   return used + font <= room
     ? { style, offsets, used }
     : { style: withProperties(style, zeroOffsets), offsets: [], used: 0 };
+};
+
+// A table attribute's length in pixels, such as cellpadding="8".
+const attributePixels = (element: Element, name: string) => {
+  const value = attributeOf(element, name)?.trim() ?? '';
+  return /^\d+$/u.test(value) ? `${value}px` : undefined;
+};
+
+// The side borders a table's border attribute draws.
+const attributeBorders = (width: string | undefined) =>
+  width === undefined || width === '0px'
+    ? []
+    : ['left', 'right'].flatMap((side) => [
+        [`border-${side}-style`, 'solid'] as const,
+        [`border-${side}-width`, width] as const,
+      ]);
+
+// What a table inside a sender box gives each column: an equal share of its room after the
+// spacing around the columns, without the spacing where it would leave less than one glyph.
+interface Columns {
+  readonly share: number;
+  readonly spacing: number;
+  // The padding and borders the table's attributes give its cells.
+  readonly cells: ReadonlyArray<readonly [string, string]>;
+}
+
+const tableColumns = (
+  table: Element,
+  style: FilteredStyle,
+  {
+    room,
+    font,
+    count,
+  }: Readonly<{ room: number; font: number; count: number }>,
+) => {
+  const declared = /^collapse$/iu.test(
+    style.retained.get('border-collapse') ?? '',
+  )
+    ? '0'
+    : (style.retained.get('border-spacing')?.trim().split(/\s+/u)[0] ??
+      attributePixels(table, 'cellspacing') ??
+      '2px');
+  const padding = attributePixels(table, 'cellpadding') ?? '1px';
+  const cells = [
+    ['padding-left', padding] as const,
+    ['padding-right', padding] as const,
+    ...attributeBorders(
+      attributeBorders(attributePixels(table, 'border')).length === 0
+        ? undefined
+        : '1px',
+    ),
+  ];
+  const spacing = offsetPixels(declared, font, font);
+  const spaced = (room - spacing * (count + 1)) / count;
+  return spaced >= font || spacing === 0
+    ? { style, columns: { share: spaced, spacing, cells } }
+    : {
+        style: withProperties(style, [['border-spacing', '0']]),
+        columns: { share: room / count, spacing: 0, cells },
+      };
+};
+
+const cellTags = /^(?:td|th)$/u;
+
+// The room a table cell gets: its share of the table's columns.
+const shareOf = (
+  element: Element,
+  {
+    room,
+    columns,
+  }: Readonly<{ room: number | undefined; columns: Columns | undefined }>,
+) => {
+  if (columns === undefined || !cellTags.test(element.tagName)) {
+    return room;
+  }
+  const count = span(attributeOf(element, 'colspan'), 'colspan');
+  return columns.share * count + columns.spacing * (count - 1);
+};
+
+// The offsets an element has before its own style: the browser's, a table's border attribute,
+// or the padding and borders a table gives its cells.
+const offsetDefaults = (element: Element, columns: Columns | undefined) => {
+  if (element.tagName === 'table') {
+    return attributeBorders(attributePixels(element, 'border'));
+  }
+  return cellTags.test(element.tagName)
+    ? (columns?.cells ?? [])
+    : (defaultOffsets.get(element.tagName) ?? []);
+};
+
+// A table is at least as wide as its width, so inside a sender box that width is bounded by
+// what the table's margins leave of the box; its borders and padding lie within it (#2213).
+const boxedTableWidth = (style: FilteredStyle, table: Element) => {
+  const width = senderWidth(
+    style.retained.get('width') ??
+      attributeOf(table, 'width')?.trim().replace(/^\d+$/u, '$&px') ??
+      '',
+  );
+  if (!definite(width)) {
+    return style;
+  }
+  const margins = horizontalOffsets(
+    new Map([...style.retained].filter(([name]) => name.startsWith('margin'))),
+    [],
+  );
+  return withProperties(style, [
+    ['width', `min(${widthLeft(margins)}, ${width})`],
+  ]);
+};
+
+// Inside a sender box only a native table keeps table layout, so its cells' shares are known.
+const boxedDisplay = (
+  tag: string,
+  style: FilteredStyle,
+  {
+    display,
+    room,
+    columns,
+  }: Readonly<{
+    display: string;
+    room: number | undefined;
+    columns: Columns | undefined;
+  }>,
+) =>
+  room === undefined ||
+  !tableBox.test(display) ||
+  (tableDisplays.get(tag) === display &&
+    (tag === 'table' || columns !== undefined))
+    ? { display, style }
+    : {
+        display: 'block',
+        style: withProperties(style, [['display', 'block']]),
+      };
+
+// The room a box leaves its text, after a table inside a sender box is bounded by it.
+const boxedRoom = (
+  element: Element,
+  style: FilteredStyle,
+  {
+    display,
+    outer,
+    used,
+    font,
+  }: Readonly<{
+    display: string;
+    outer: number | undefined;
+    used: number;
+    font: number;
+  }>,
+) => {
+  const bounded =
+    element.tagName === 'table' && outer !== undefined
+      ? boxedTableWidth(style, element)
+      : style;
+  return {
+    style: bounded,
+    room: roomIn(display, bounded, { parent: outer, used, font }),
+  };
 };
 
 // A text indent or letter spacing in pixels: its own, resolved where it is declared, or the
@@ -2172,9 +2400,9 @@ const droppedColumnGroup = (node: Element) =>
     isDropped(col, filterStyle(attributeOf(col, 'style') ?? '', 'col')),
   );
 
-// Column indices a table's colgroup and col elements collapse. A col inherits its group's
-// visibility; hidden columns do not hide their cells.
-const collapsedColumns = (
+// The columns a table's colgroup and col elements lay out, and the indices they collapse. A col
+// inherits its group's visibility; hidden columns do not hide their cells.
+const columnTracks = (
   table: Element,
   spend: (slots: number) => void,
   tableVisibility: string,
@@ -2208,7 +2436,7 @@ const collapsedColumns = (
       }
     }
   }
-  return collapsed;
+  return { collapsed, count: column };
 };
 
 const firstFree = (occupied: readonly number[], from: number) => {
@@ -2258,34 +2486,66 @@ const placeRow = (
   });
 };
 
-// Cells lying entirely in collapsed columns, placed as table layout places them: each row group
-// separately, skipping slots that cells from earlier rows still span.
+// Places a table's rows as table layout places them: each row group separately, skipping slots
+// that cells from earlier rows still span. Returns the most slots a row group fills.
+const placeRows = (
+  table: Element,
+  visibility: string,
+  place: Readonly<{
+    collapsed: ReadonlySet<number>;
+    cells: Set<Element>;
+    spend: (slots: number) => void;
+  }>,
+) => {
+  let slots = 0;
+  for (const group of tableElements(
+    table,
+    ['thead', 'tbody', 'tfoot'],
+    visibility,
+  )) {
+    const occupied: number[] = [];
+    for (const row of tableElements(
+      group,
+      ['tr'],
+      visibilityOf(group, visibility),
+    )) {
+      place.spend(occupied.length);
+      placeRow(row, { ...place, occupied });
+    }
+    slots = Math.max(slots, occupied.length);
+  }
+  return slots;
+};
+
+// Cells lying entirely in collapsed columns.
 const collapsedCells = (
   table: Element,
   spend: (slots: number) => void,
   visibility: string,
 ) => {
-  const collapsed = collapsedColumns(table, spend, visibility);
+  const { collapsed } = columnTracks(table, spend, visibility);
   const cells = new Set<Element>();
   if (collapsed.size > 0) {
-    for (const group of tableElements(
-      table,
-      ['thead', 'tbody', 'tfoot'],
-      visibility,
-    )) {
-      const occupied: number[] = [];
-      for (const row of tableElements(
-        group,
-        ['tr'],
-        visibilityOf(group, visibility),
-      )) {
-        spend(occupied.length);
-        placeRow(row, { occupied, collapsed, cells, spend });
-      }
-    }
+    placeRows(table, visibility, { collapsed, cells, spend });
   }
   return cells;
 };
+
+// How many columns a table lays out.
+const columnCount = (
+  table: Element,
+  spend: (slots: number) => void,
+  visibility: string,
+) =>
+  Math.max(
+    1,
+    columnTracks(table, spend, visibility).count,
+    placeRows(table, visibility, {
+      collapsed: new Set(),
+      cells: new Set(),
+      spend,
+    }),
+  );
 
 // The most consecutive line breaks kept between visible content, and the most height they may
 // add: half the narrowest reader, so tall lines cannot move the text after them out of view.
@@ -2341,6 +2601,46 @@ const ownText = (element: Element) =>
       'value' in node &&
       hasVisibleText(node.value),
   );
+
+// Whether the element or a descendant holds visible text.
+const heldText = (element: Element): boolean =>
+  ownText(element) ||
+  element.childNodes.some((node) => isElement(node) && heldText(node));
+
+// A box too narrow for readable text widens to hold it (#2213).
+const widenedBox = (
+  element: Element,
+  style: FilteredStyle,
+  { display, room }: Readonly<{ display: string; room: number | undefined }>,
+) =>
+  room !== undefined &&
+  room < minimumTextPixels &&
+  display !== 'inline' &&
+  !tableBox.test(display) &&
+  heldText(element)
+    ? {
+        style: withProperties(style, [
+          ['box-sizing', 'content-box'],
+          ['min-width', `${minimumTextPixels}px`],
+        ]),
+        room: minimumTextPixels,
+      }
+    : { style, room };
+
+// Text with glyphs wider than its box shrinks to the box, but stays readable (#2213).
+const fittedFont = (
+  element: Element,
+  style: FilteredStyle,
+  { room, font }: Readonly<{ room: number | undefined; font: number }>,
+) => {
+  const fitted = Math.max(room ?? Infinity, minimumTextPixels);
+  return font > fitted && ownText(element)
+    ? {
+        style: withProperties(style, [['font-size', `${fitted}px`]]),
+        font: fitted,
+      }
+    : { style, font };
+};
 
 // Glyphs overflow a line shorter than their font onto the next box; image-only cells keep
 // their zero line height (#2204). The system font's normal spacing keeps the break allowance
@@ -2434,7 +2734,20 @@ interface SanitizeOptions {
 interface Pass {
   readonly styleOf: (element: Element, tag: string) => FilteredStyle;
   readonly classes: ReadonlyMap<Element, string>;
+  // The fewest glyphs per line any pass gave each text node, so the emitted document breaks
+  // words for every responsive width.
+  readonly glyphs: Map<DefaultTreeAdapterTypes.TextNode, number>;
 }
+
+const workLimit = () => {
+  let work = 1_000_000;
+  return (slots: number) => {
+    work -= slots;
+    if (work < 0) {
+      throw new RangeError('Message table layout exceeds its work limit');
+    }
+  };
+};
 
 interface Walked extends Omit<SanitizedHtml, 'document'> {
   readonly output: string;
@@ -2489,7 +2802,11 @@ function walk(
   let containingBlock: number | undefined = undefined;
   let indent = 0;
   let spacing = 0;
+  // The column shares of a table inside a sender box, for its rows and cells.
+  let columns: Columns | undefined = undefined;
   let fontPixels = bodyFontPixels;
+  // The font size without the fitting of sender boxes.
+  let naturalFont = bodyFontPixels;
   let visibility = 'visible';
   const visibleNow = () => visibility === 'visible';
   // Consecutive line breaks since the last visible text or image, and the height they add.
@@ -2533,13 +2850,9 @@ function walk(
   // Cells of collapsed table columns, which WebKit would not show.
   const collapsed = new Set<Element>();
   // One bound across every table, including nested ones, before span expansion or slot scans.
-  let tableWork = 1_000_000;
-  const spendTableWork = (slots: number) => {
-    tableWork -= slots;
-    if (tableWork < 0) {
-      throw new RangeError('Message table layout exceeds its work limit');
-    }
-  };
+  const spendTableWork = workLimit();
+  // Counting columns for sender boxes has its own bound, so it leaves table layout's intact.
+  const spendColumnWork = workLimit();
 
   // Text newlines and elements share the run across text nodes and containers.
   const textWithBreakLimit = (value: string) =>
@@ -2577,7 +2890,18 @@ function walk(
     }
   };
 
-  const addText = (value: string) => {
+  // The fewest glyphs per line any pass gives a text node.
+  const fewestGlyphs = (node: DefaultTreeAdapterTypes.TextNode) => {
+    const glyphs = Math.min(
+      lineGlyphs({ room, indent, spacing, font: fontPixels }),
+      pass.glyphs.get(node) ?? Infinity,
+    );
+    pass.glyphs.set(node, glyphs);
+    return glyphs;
+  };
+
+  const addText = (node: DefaultTreeAdapterTypes.TextNode) => {
+    const { value } = node;
     // Hidden text has layout width even though it supplies no inspected label. Within a
     // link, omit it without dropping descendants that restore visibility.
     if (link !== undefined && !readableNow()) {
@@ -2597,7 +2921,7 @@ function walk(
     if (link !== undefined && visibleNow() && hasVisibleText(normalized)) {
       link.visible = true;
     }
-    output += breakableText(normalized);
+    output += breakableText(normalized, fewestGlyphs(node));
   };
 
   // Descriptions stay in the readable fallback. Only placeholder descriptions are painted;
@@ -2868,6 +3192,28 @@ function walk(
       : marginEdges(style.retained, margins);
 
   // Font size and visibility inherit, and a descendant can reset each one.
+  // The column shares a table inside a sender box gives its rows and cells.
+  const columnsIn = (node: Element, style: FilteredStyle, display: string) => {
+    if (node.tagName === 'table' && room !== undefined) {
+      return tableColumns(node, style, {
+        room,
+        font: fontPixels,
+        count: columnCount(
+          node,
+          spendColumnWork,
+          visibilityIn(style, visibility),
+        ),
+      });
+    }
+    return {
+      style,
+      columns:
+        !tableBox.test(display) || cellTags.test(node.tagName)
+          ? undefined
+          : columns,
+    };
+  };
+
   const withTextState = (
     style: FilteredStyle,
     node: Element,
@@ -2876,6 +3222,7 @@ function walk(
     const parentDirection = direction;
     const parentMargins = margins;
     const parentFont = fontPixels;
+    const parentNaturalFont = naturalFont;
     const parentWhiteSpace = whiteSpace;
     const parentSystemFont = systemFont;
     systemFont = systemFontIn(
@@ -2883,16 +3230,22 @@ function walk(
       parentSystemFont,
     );
     const replacedImage = node.tagName === 'img' && !shownFromBytes(node);
-    fontPixels = replacedImage
-      ? parentFont * 0.85
-      : fontSizeIn(style.retained.get('font-size'), parentFont, node.tagName);
+    ({ font: fontPixels, natural: naturalFont } = fontIn(
+      style.retained.get('font-size'),
+      node.tagName,
+      { parent: parentFont, natural: parentNaturalFont, image: replacedImage },
+    ));
     const sizedStyle = replacedImage
       ? style
       : normalizeFont(style, node.tagName, fontPixels);
     direction = directionIn(node, direction);
-    const display = displayOf(node.tagName, sizedStyle);
-    const ownMargins = textMargins(node, sizedStyle);
-    const spaced = normalizeMargins(sizedStyle, ownMargins, {
+    const { display, style: blocked } = boxedDisplay(node.tagName, sizedStyle, {
+      display: displayOf(node.tagName, sizedStyle),
+      room,
+      columns,
+    });
+    const ownMargins = textMargins(node, blocked);
+    const spaced = normalizeMargins(blocked, ownMargins, {
       display:
         node.tagName === 'img' && display === 'inline'
           ? 'inline-block'
@@ -2900,26 +3253,37 @@ function walk(
       directional: direction === 'rtl' || parentDirection === 'rtl',
       font: fontPixels,
     });
+    const outer = shareOf(node, { room, columns });
     const placed = fittedOffsets(spaced, {
       tag: node.tagName,
       display,
-      room,
+      room: outer,
       block: containingBlock,
       font: fontPixels,
+      defaults: offsetDefaults(node, columns),
     });
     const parentRoom = room;
     const parentBlock = containingBlock;
     const parentIndent = indent;
     const parentSpacing = spacing;
-    room = roomIn(display, placed.style, {
-      parent: room,
+    const parentColumns = columns;
+    const bounded = boxedRoom(node, placed.style, {
+      display,
+      outer,
       used: placed.used,
       font: fontPixels,
     });
+    ({ room } = bounded);
+    const columned = columnsIn(node, bounded.style, display);
+    ({ columns } = columned);
+    const widened = widenedBox(node, columned.style, { display, room });
+    ({ room } = widened);
     containingBlock = display === 'inline' ? parentBlock : room;
+    const sized = fittedFont(node, widened.style, { room, font: fontPixels });
+    ({ font: fontPixels } = sized);
     const fittedState = fittedText(
       fittedLines(
-        containedBox(placed.style, {
+        containedBox(sized.style, {
           tag: node.tagName,
           display,
           offsets: placed.offsets,
@@ -2950,6 +3314,7 @@ function walk(
     run(normalized);
     room = parentRoom;
     containingBlock = parentBlock;
+    columns = parentColumns;
     indent = parentIndent;
     spacing = parentSpacing;
     ancestorLinePixels = parentAncestorLinePixels;
@@ -2957,6 +3322,7 @@ function walk(
     direction = parentDirection;
     margins = parentMargins;
     fontPixels = parentFont;
+    naturalFont = parentNaturalFont;
     visibility = inheritedVisibility;
     whiteSpace = parentWhiteSpace;
     systemFont = parentSystemFont;
@@ -3021,7 +3387,7 @@ function walk(
     }
     for (const node of parent.childNodes) {
       if (node.nodeName === '#text' && 'value' in node) {
-        addText(node.value);
+        addText(node);
       } else if (isElement(node)) {
         element(node);
       }
@@ -3058,10 +3424,13 @@ function walk(
 const inlineStyle = (element: Element, tag: string) =>
   filterStyle(attributeOf(element, 'style') ?? '', tag);
 
+// Styles a pass emits, including the spans that let long words break.
+const styling =
+  /<span style="overflow-wrap: anywhere">|<\/span>| style="[^"]*"/gu;
+
 // What a pass shows and inspects, apart from the styles it emits.
 const sameContent = (pass: Walked, base: Walked) =>
-  pass.output.replaceAll(/ style="[^"]*"/gu, '') ===
-    base.output.replaceAll(/ style="[^"]*"/gu, '') &&
+  pass.output.replaceAll(styling, '') === base.output.replaceAll(styling, '') &&
   JSON.stringify([pass.readable, pass.links]) ===
     JSON.stringify([base.readable, base.links]);
 
@@ -3167,10 +3536,11 @@ export function sanitizeHtml(
     (node): node is Element => isElement(node) && node.tagName === 'body',
   );
   const options = { images, preserveImages, remote, omitQuoted };
+  const glyphs = new Map<DefaultTreeAdapterTypes.TextNode, number>();
   const run = (
     styleOf: Pass['styleOf'],
     classes: ReadonlyMap<Element, string> = new Map(),
-  ) => walk(body, options, { styleOf, classes });
+  ) => walk(body, options, { styleOf, classes, glyphs });
   const base = run(inlineStyle);
   const { classes, media } = responsiveLayout(
     base,
