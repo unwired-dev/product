@@ -3233,6 +3233,8 @@ final class InboxTests: XCTestCase {
     let arrow = app.buttons["Translate into"]
     waitUntil { arrow.value as? String == "German" }
     XCTAssertEqual(arrow.value as? String, "German", arrow.debugDescription)
+    // The title shows only once the German result is ready.
+    XCTAssertTrue(app.staticTexts["Translation into German"].firstMatch.waitForExistence(timeout: 10))
     let chosen = XCTAttachment(screenshot: app.screenshot())
     chosen.name = "Translated message into German"
     chosen.lifetime = .keepAlways
