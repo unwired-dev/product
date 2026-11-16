@@ -1,5 +1,119 @@
+diff --git a/ios/Popover/PopoverView.swift b/ios/Popover/PopoverView.swift
+index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..ef3d8053b918fd9897362098327d93d6853c4d37 100644
+--- a/ios/Popover/PopoverView.swift
++++ b/ios/Popover/PopoverView.swift
+@@ -18,10 +18,10 @@ internal struct PopoverView: ExpoSwiftUI.View {
+         arrowEdge: props.arrowEdge?.edge
+       ) {
+         if #available(iOS 16.4, *) {
+-          popoverContent
++          arrowlessContent
+             .presentationCompactAdaptation(.popover)
+         } else {
+-          popoverContent
++          arrowlessContent
+         }
+       }
+       .onChange(
+@@ -48,6 +48,15 @@ internal struct PopoverView: ExpoSwiftUI.View {
+     }
+   }
+ 
++  @ViewBuilder
++  private var arrowlessContent: some View {
++#if os(iOS)
++    popoverContent.background(ArrowlessPopover())
++#else
++    popoverContent
++#endif
++  }
++
+   @ViewBuilder
+   private var popoverContent: some View {
+     if let content = props.children?.slot("popover") {
+@@ -55,3 +64,80 @@ internal struct PopoverView: ExpoSwiftUI.View {
+     }
+   }
+ }
++
++#if os(iOS)
++// Unwired Mail draws popovers without an arrow (#2255). SwiftUI has no option for it, so the
++// presenting UIPopoverPresentationController drops the arrow. An arrowless popover is centred on its
++// source rect, so the rect moves above or below the control.
++private struct ArrowlessPopover: UIViewControllerRepresentable {
++  func makeUIViewController(context: Context) -> ArrowlessPopoverController {
++    ArrowlessPopoverController()
++  }
++
++  func updateUIViewController(_ controller: ArrowlessPopoverController, context: Context) {}
++}
++
++internal final class ArrowlessPopoverController: UIViewController {
++  // The gap between the control and the popover in the approved Filters frame.
++  private static let gap: CGFloat = 13
++  private var anchor: CGRect = .null
++  private var placed: CGRect = .null
++  private var arrow: UIPopoverArrowDirection = []
++  private var placing = false
++  private var observations: [NSKeyValueObservation] = []
++
++  override func viewWillAppear(_ animated: Bool) {
++    super.viewWillAppear(animated)
++    var presented: UIViewController = self
++    while let parent = presented.parent {
++      presented = parent
++    }
++    place(presented)
++    // A resized popover stays centred on its source rect, and SwiftUI moves the rect back onto the
++    // control when the control moves, so either change places it again.
++    observations = [
++      presented.observe(\.preferredContentSize) { [weak self] presented, _ in
++        self?.place(presented)
++      }
++    ]
++    if let popover = presented.popoverPresentationController {
++      observations.append(
++        popover.observe(\.sourceRect) { [weak self, weak presented] _, _ in
++          if let presented {
++            self?.place(presented)
++          }
++        })
++    }
++  }
++
++  private func place(_ presented: UIViewController) {
++    guard !placing, let popover = presented.popoverPresentationController,
++      let source = popover.sourceView,
++      let window = source.window
++    else {
++      return
++    }
++    // SwiftUI sets the anchor before the first placement and whenever the control moves.
++    if popover.sourceRect != placed {
++      anchor = popover.sourceRect
++    }
++    if popover.permittedArrowDirections != [] {
++      arrow = popover.permittedArrowDirections
++    }
++    // Below the control when the arrow edge is the top, above it when it is the bottom, and
++    // otherwise below it when it fits.
++    let height = presented.preferredContentSize.height
++    let room = window.bounds.maxY - window.safeAreaInsets.bottom - source.convert(anchor, to: window).maxY
++    let below = arrow == .up || (arrow != .down && room >= Self.gap + height)
++    let y = below ? anchor.maxY + Self.gap : anchor.minY - Self.gap - height
++    placed = CGRect(x: anchor.minX, y: y, width: anchor.width, height: height)
++    popover.permittedArrowDirections = []
++    // Setting the rect notifies the observer, and UIKit may keep a slightly different rect, so the
++    // kept rect is this placement.
++    placing = true
++    popover.sourceRect = placed
++    placed = popover.sourceRect
++    placing = false
++  }
++}
++#endif
 diff --git a/src/swift-ui/BottomSheet/index.tsx b/src/swift-ui/BottomSheet/index.tsx
-index 3f111f57a..41c567cb7 100644
+index 3f111f57a556deae32d7a45ff2901dcf013d1eac..41c567cb7dba989faf177f23013452575b988f0d 100644
 --- a/src/swift-ui/BottomSheet/index.tsx
 +++ b/src/swift-ui/BottomSheet/index.tsx
 @@ -76,8 +76,9 @@ function BottomSheet(props: BottomSheetProps) {
