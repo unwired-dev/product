@@ -5,8 +5,8 @@
 #import <AppKit/AppKit.h>
 #import <React/RCTSurfaceTouchHandler.h>
 
-// An AppKit popover showing this view's React children, pointing up from this view's top edge, or
-// down from its bottom edge when `below`.
+// An AppKit popover showing this view's React children, without an arrow, above this view's top
+// edge, or below its bottom edge when `below`.
 // AppKit presents and animates it, closes it when the person clicks elsewhere or presses Escape,
 // and the view then reports `onClose`. VoiceOver names the popover by `title`.
 // React Native macOS 0.81.9 has no popover; remove this view when it offers one.
@@ -21,6 +21,10 @@
 
 @implementation UnwiredPopoverView {
   NSPopover *_popover;
+  // The edge the popover opens from, a point tall: AppKit does not show a popover from an empty
+  // rect, and this view is zero-height (#1792). It clips to its bounds, or the popover keeps its
+  // arrow.
+  NSView *_edge;
   // The popover is outside the React root view, so it delivers its own clicks to React.
   RCTSurfaceTouchHandler *_touchHandler;
   // `shown` closed the popover, and AppKit reports the close only after its animation ends.
@@ -37,6 +41,9 @@
     _popover.contentViewController = content;
     _popover.behavior = NSPopoverBehaviorTransient;
     _popover.delegate = self;
+    _edge = [NSView new];
+    _edge.clipsToBounds = YES;
+    [self addSubview:_edge];
   }
   return self;
 }
@@ -52,7 +59,9 @@
 }
 - (void)didSetProps:(NSArray<NSString *> *)changedProps
 {
+  [self anchor:YES];
   _popover.contentSize = NSMakeSize(self.contentWidth, self.contentHeight);
+  [self anchor:NO];
   // Only `shown` presents, so resizing content never reopens a popover the person closed.
   if ([changedProps containsObject:@"shown"]) [self present];
 }
@@ -67,12 +76,21 @@
     if (_popover.shown) _closing = YES;
     [_popover close];
   } else if (!_popover.shown && !_closing) {
-    // React Native's views are flipped, so their top edge is the minimum Y. AppKit does not show a
-    // popover from an empty rect, so the zero-height edge is given a point of height (#1792).
-    [_popover showRelativeToRect:NSInsetRect(self.bounds, 0, -0.5)
-                          ofView:self
-                   preferredEdge:self.below ? NSRectEdgeMaxY : NSRectEdgeMinY];
+    // The edge is not flipped, so its top is the maximum Y.
+    [self anchor:YES];
+    [_popover showRelativeToRect:_edge.bounds
+                          ofView:_edge
+                   preferredEdge:self.below ? NSRectEdgeMinY : NSRectEdgeMaxY];
+    [self anchor:NO];
   }
+}
+// NSPopover has no property to hide its arrow (#2254). Shown against the whole bounds of its
+// positioning view, it drops the arrow and stays in place once those bounds shift by a point. A
+// resize places it again, so it is placed against the unshifted bounds.
+- (void)anchor:(BOOL)anchored
+{
+  _edge.frame = NSInsetRect(self.bounds, 0, -0.5);
+  _edge.bounds = (NSRect){NSMakePoint(0, anchored ? 0 : 1), _edge.frame.size};
 }
 - (void)popoverWillShow:(NSNotification *)notification
 {
