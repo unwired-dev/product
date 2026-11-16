@@ -247,8 +247,12 @@ describe('window Profiles', () => {
   it('explains each refused move and removal', () => {
     expect.hasAssertions();
     expect(profileRefusalText(english, 'remove', 'failed').message).toBe(
-      'The Profile could not be removed. Try again.',
+      'Couldn’t remove the Profile. Check your Profiles and mailboxes, then try again.',
     );
+    expect(profileRefusalText(english, 'move', 'offline')).toStrictEqual({
+      title: 'Mailbox Not Moved',
+      message: 'This device is offline. Try again when it’s online.',
+    });
     expect(
       profileRefusalText(english, 'move', 'upgrade-required').message,
     ).toBe(

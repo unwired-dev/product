@@ -2133,6 +2133,21 @@ describe('mail profile capability fence', () => {
 });
 
 describe('removing a Mail Profile with its mailboxes', () => {
+  it('names offline as the cause when a move cannot reach Private Sync', async () => {
+    expect.hasAssertions();
+    const context = await connected();
+    const store = createRegistration(context.vault);
+    await store.createProfile('Work');
+    const work = profileNamed(store.getSnapshot().snapshot, 'Work').id;
+    const mailbox = await context.mailboxId();
+    context.sync.offline = true;
+    await store.moveMailbox(mailbox, work);
+    expect(store.getSnapshot().profileFailure).toBe('offline');
+    expect(owners(store.getSnapshot().snapshot)).toStrictEqual([
+      defaultProfile,
+    ]);
+  });
+
   it('keeps the Primary Profile mailboxes when its removal is refused', async () => {
     expect.hasAssertions();
     const context = await connected();

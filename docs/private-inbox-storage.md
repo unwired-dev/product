@@ -200,8 +200,8 @@ registration store already offers these operations:
   is refused with an upgrade-required reason while another Trusted Device runs a client
   that can't keep Profiles apart. Once Profiles exist, such clients can't use Private
   Sync until they upgrade; see [Private Sync](private-product-sync.md). The store reports
-  each refused Profile change by its reason: `upgrade-required`, `profile-in-use` or
-  `profile-changed`.
+  each refused Profile change by its reason: `upgrade-required`, `profile-in-use`,
+  `profile-changed` or, when Private Sync cannot be reached, `offline`.
 - **Removing a Profile** needs Private Sync. It is refused for the Default Profile
   and, with `profile-in-use`, while the Profile owns a live connection that the
   person did not confirm removing with it. The store first removes each confirmed
@@ -249,8 +249,8 @@ Profiles; its sidebar keeps Favorites only
 [#1813](https://github.com/unwired-dev/product/issues/1813), Mac journey
 [#1538](https://github.com/unwired-dev/product/issues/1538)). New Profile… asks for a name and creates the Profile through the
 fenced store without switching to it. When another Trusted Device's client cannot
-keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
-asks to try again. Creating, renaming, moving, removing and notification changes
+keep Profiles apart, it explains the `upgrade-required` refusal; offline, it says so;
+any other failure asks to check the Profiles, then try again. Creating, renaming, moving, removing and notification changes
 need a Product Sign-In verified since the app launched. After a relaunch, Google
 renews it silently and Apple asks to sign in again before the change; cancelling
 that sign-in changes nothing and shows no failure
@@ -339,8 +339,8 @@ Mail on every Trusted Device before the Profile; their mail stays with the
 provider. As after removing a mailbox in Email Accounts, Drafts written from them
 stay. A refused move or removal names
 another device's earlier change (`profile-changed`, or `profile-in-use` when a
-connection arrived after the question), explains `upgrade-required`, or asks to
-try again.
+connection arrived after the question), explains `upgrade-required`, says the
+device is offline, or asks to check the Profiles and mailboxes, then try again.
 The **Startup Profile** pop-up under This Device saves the choice only
 for this Product Account on this device; another account keeps its own choice.
 With none saved, or once its Profile is no longer listed, it shows
