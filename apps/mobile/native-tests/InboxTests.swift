@@ -492,8 +492,8 @@ final class InboxTests: XCTestCase {
     openSettings("Email Accounts", in: app)
     // iPad groups the add actions in one row's menu; iPhone lists them as buttons.
     if UIDevice.current.userInterfaceIdiom == .pad {
-      XCTAssertTrue(app.buttons["Add Mailbox Connection…"].waitForExistence(timeout: 15))
-      app.buttons["Add Mailbox Connection…"].tap()
+      XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
+      app.buttons["Add Account…"].tap()
     }
     XCTAssertTrue(app.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add another Gmail mailbox"].tap()
@@ -2591,8 +2591,8 @@ final class InboxTests: XCTestCase {
 
     openEmailAccounts()
     if !phone {
-      XCTAssertTrue(app.buttons["Add Mailbox Connection…"].waitForExistence(timeout: 15))
-      app.buttons["Add Mailbox Connection…"].tap()
+      XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
+      app.buttons["Add Account…"].tap()
     }
     XCTAssertTrue(app.buttons["Add an IMAP mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add an IMAP mailbox"].tap()

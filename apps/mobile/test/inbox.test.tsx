@@ -3325,9 +3325,7 @@ describe('command palette', () => {
     expect(screen.queryByTestId('settings-destination')).toBeNull();
     await press('Email Accounts');
     await expect(pushedSettings()).resolves.toBe('Email Accounts');
-    expect(
-      screen.getByRole('header', { name: 'Mailbox Connections' }),
-    ).toBeVisible();
+    expect(screen.getByRole('header', { name: 'Accounts' })).toBeVisible();
     // The pushed page's system title takes no palette swipe; the list's title keeps it.
     await act(async () => {
       await fireEvent(screen.getByTestId('settings-destination'), 'dismissed', {
