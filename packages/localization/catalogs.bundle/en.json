@@ -1684,15 +1684,15 @@
     "confirm_other": "New mail from this address goes to Trash in your {{profile}}. The {{count}} messages you have now stay where they are, and the sender isn’t told.",
     "action": "Block Sender",
     "blockFailed": "{{address}} couldn’t be blocked",
-    "tryAgain": "Your Blocked Senders couldn’t be saved. Try again.",
+    "tryAgain": "The block wasn’t saved on this device, so new mail from this address still arrives as usual. Try again.",
     "blocked": "Blocked {{date}} · {{moved}} moved to Trash",
     "blockedNone": "Blocked {{date}} · 0 since",
     "unblock": "Unblock",
-    "unblockFailed": "Couldn’t unblock. Try again.",
+    "unblockFailed": "Still blocked. The change wasn’t saved on this device. Try again.",
     "footer": "This Mac moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "footer_iphone": "This iPhone moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "footer_ipad": "This iPad moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "none": "No Blocked Senders. Block one from the sender’s name in a message.",
-    "unavailable": "Blocked Senders couldn’t be read. Try again later."
+    "unavailable": "This device couldn’t read your Blocked Senders. To try again, leave Blocked Senders and open it again."
   }
 }

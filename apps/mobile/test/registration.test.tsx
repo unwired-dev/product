@@ -3536,7 +3536,9 @@ describe('product registration', () => {
     };
     await unblock();
     await expect(
-      screen.findByText('Couldn’t unblock. Try again.'),
+      screen.findByText(
+        'Still blocked. The change wasn’t saved on this device. Try again.',
+      ),
     ).resolves.toBeVisible();
     await unblock();
     await expect(
