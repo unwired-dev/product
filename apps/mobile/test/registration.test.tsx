@@ -1071,7 +1071,7 @@ describe('product registration', () => {
     await press(/Recovered message/u);
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     const recovered = moreTitles();
-    for (const name of ['Delete Message', 'Report Spam']) {
+    for (const name of ['Delete', 'Move to Spam']) {
       expect(recovered).not.toContain(name);
     }
     await chooseMore('Move to Inbox');
@@ -2425,7 +2425,7 @@ describe('product registration', () => {
       expect(rows()).toHaveLength(3);
     });
     // Asking again searches every mailbox afresh.
-    await press('Search mail servers again');
+    await press('Try Again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });

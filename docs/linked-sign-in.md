@@ -14,7 +14,7 @@ linking is explicit and verifies both identities. It never merges Product Accoun
 
 Once a Product Account exists, the registration screen shows **Sign-in methods**.
 With one provider it says only that provider opens the account and offers
-**Link Google sign-in** or **Link Apple sign-in**. The copy says linking adds a
+**Link Google Sign-In** or **Link Apple Sign-In**. The copy says linking adds a
 way to sign in and does not connect a mailbox. After linking it names both
 providers. The copy also explains the session order: linking Apple from a Google
 account opens Google first to verify the existing sign-in, then Apple to add the
@@ -23,8 +23,8 @@ other identity. Linking does not change the connected Gmail mailbox.
 Signing in with a linked provider on another installation opens the same Product
 Account through the ordinary **Sign in with Apple** or **Sign in with Google**
 entry point. The account lists the other provider. On a device whose saved sign-in
-cannot be verified, the host also offers **Sign in with Google instead** or
-**Sign in with Apple instead**. One case is an Apple ID revoked in settings. The
+cannot be verified, the host also offers **Sign In with Google Instead** or
+**Sign In with Apple Instead**. One case is an Apple ID revoked in settings. The
 device keeps its installation ID, Trusted Device and mailbox records. A connected
 mailbox is rechecked with Gmail rather than sent through consent again. The host
 offers the other provider even before this device has seen the link. The device

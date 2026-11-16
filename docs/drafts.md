@@ -454,7 +454,7 @@ saves as Mail does:
   composer goes away closes without an answer.
 - **Save** first turns any address still being typed into a recipient; an invalid
   address keeps the composer open. Editing pauses while saving. When storage refuses,
-  the composer stays open with **Try again**, and its edits still ask on the next
+  the composer stays open with **Try Again**, and its edits still ask on the next
   **Close**.
 - **Leaving.** Opening another Draft, **New Message**, received mail on compact
   layouts, Command-W, the window's close button and **Quit** ask the same question first;
@@ -474,7 +474,7 @@ empty Draft and closes an unchanged one at once; otherwise **Delete Draft** and
 **Save Draft** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed. It
 then closes once the Draft is stored; when that fails the composer stays open with
-**Try again**, and its edits still ask on the next **Close**. An `unwired-mail://`
+**Try Again**, and its edits still ask on the next **Close**. An `unwired-mail://`
 link opened while the composer is open asks the same question first and opens only
 once the composer closes. A Draft deleted or
 changed elsewhere while open keeps this composer's version, and **Save Draft** stores
@@ -567,10 +567,10 @@ recorded digest; the bytes stay in native code, and an inline image returns only
 a thumbnail at most 256 pixels on its longest side to show. Verified bytes that
 cannot be decoded as an image stay listed without a picture. Bytes that no longer verify show as **Damaged on
 this device**; bytes the device lost show as **No longer on this device**. A check
-refused while private storage is locked says so and offers **Try again**; it also
+refused while private storage is locked says so and offers **Try Again**; it also
 runs again when the app returns to the foreground. **Attach to New Message** is offered only when a sending mailbox is available
 and Draft storage is open. If opening Draft storage fails or it is locked, the
-reader says so and offers **Try again**; downloaded files can still be opened or
+reader says so and offers **Try Again**; downloaded files can still be opened or
 shared. An unexpected failure to start the new message is reported in the reader
 and the next attempt clears that notice. A refused composer exit or a later
 navigation choice does not report an attachment failure. Once storage is open,
@@ -623,7 +623,7 @@ delivery ownership; [Send](outbox.md) claims a Draft by that same identifier.
 - **Files:** a complete file uploads before the Draft that names it. Another device
   downloads it when the composer first checks it, verified against its size and
   SHA-256 digest. Until then, or when part of it is missing or does not open, the
-  file shows **Not downloaded from your other devices yet** with **Try again**, and
+  file shows **Not downloaded from your other devices yet** with **Try Again**, and
   it is checked again when the app becomes active. A file still importing, cancelled
   or failed on the device that added it stays incomplete everywhere and is never
   sent. Downloaded bytes count towards the Outgoing Content Store's 100 MB.
@@ -711,7 +711,7 @@ as one encrypted document for the signed-in Product Account. Another Product
 Account on the device never reads them: signing out, deleting the account or this
 device's removal purges them, and a different account starts with none. Storage
 needs no Gmail access, so Drafts open offline. Locked storage shows **Drafts are
-locked** with **Try again**. Logs carry no Draft content.
+locked** with **Try Again**. Logs carry no Draft content.
 
 Native Apple code owns [that storage](private-inbox-storage.md#draft-storage):
 encryption and its key, the Product Account owner and revision checks, the
@@ -1038,7 +1038,7 @@ but no journey drives a second device yet.
 
 The iPhone native journey fails a Draft's save, then shows the composer keeping its
 edits open through the reader's hidden **Back** and a slow and a fast edge swipe,
-until **Try again** saves and closes it.
+until **Try Again** saves and closes it.
 
 Mac window close, Command-W and **Quit** ask each open composer to finish before
 closing its window. Unfinished recipients and pending, failed or locked saves

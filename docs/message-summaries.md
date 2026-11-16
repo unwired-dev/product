@@ -30,7 +30,7 @@ system language model. There is no cloud or product-backend model fallback.
 - When the model cannot run, the message stays fully readable and the reader says
   why: the device does not support Apple Intelligence, Apple Intelligence is turned
   off, the model is still getting ready, or the device language is not supported.
-  A refusal and other failures have their own messages. **Try again** is offered
+  A refusal and other failures have their own messages. **Try Again** is offered
   except on an ineligible device, after a refusal, or for a message in a language
   the model cannot write.
 - A summary is written in the language of the message. When the model cannot

@@ -182,8 +182,8 @@ export const messageContextMenu = (
     {
       items: items([
         ['restore', t('contextMenu.restore'), 'tray.and.arrow.down'],
-        ['move', t('contextMenu.moveMessage'), 'folder'],
-        ['trash', t('contextMenu.trashMessage'), 'trash'],
+        ['move', t('contextMenu.moveTo'), 'folder'],
+        ['trash', t('contextMenu.trash'), 'trash'],
       ]),
     },
   ];

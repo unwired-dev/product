@@ -164,8 +164,8 @@ describe('error reporting controls', () => {
   });
 
   it.each([
-    { phase: 'offline', action: 'Retry deletion' },
-    { phase: 'failed', action: 'Retry' },
+    { phase: 'offline', action: 'Try Again' },
+    { phase: 'failed', action: 'Try Again' },
   ] as const)(
     'deletion %s retains off and offers retry, pending while the check runs',
     async ({ phase, action }) => {

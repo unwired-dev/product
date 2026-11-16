@@ -97,7 +97,7 @@ results for changed details on Mac, and on iPhone and iPad.
   but no Return key equivalent (#1900). iPad sets the changes out as a table
   with the push buttons in a row; iPhone shows each change as its detail, status and
   a `original → rewrite` line, with **Use Rewrite with Changes** (or **Replace Text**)
-  across the panel above Keep Original and Try again. When details differ, Keep
+  across the panel above Keep Original and Try Again. When details differ, Keep
   Original carries the accent fill. It never says a
   result is verified or safe: every finished result ends with a note that the
   checks compare details only and that meaning, questions and commitments need
@@ -179,7 +179,7 @@ results for changed details on Mac, and on iPhone and iPad.
     complete detail; it ignores the order of separate details. Reassigning the
     same values to different people or sentences still needs the person's reading.
     The apply action then becomes **Use Rewrite with Changes**,
-    so applying them is an explicit choice; **Keep Original** and **Try again**
+    so applying them is an explicit choice; **Keep Original** and **Try Again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep Original** when details differ and **Replace Text**
     when none do. The tint marks the recommended action only: on Mac no button
@@ -207,7 +207,7 @@ results for changed details on Mac, and on iPhone and iPad.
   Suggest Reply wait while Send is pending and become available again if it is refused.
 - When the model cannot run, the Draft is unchanged and the panel says why, with
   the same reasons as [message summaries](message-summaries.md#behavior). A
-  refusal, cancellation and other failures have their own messages. **Try again**
+  refusal, cancellation and other failures have their own messages. **Try Again**
   is offered except on an ineligible device, after a refusal, or for text in a
   language the model cannot write.
 - A rewrite or other text tool keeps the language of the authored text and adds

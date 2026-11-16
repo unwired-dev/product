@@ -136,7 +136,10 @@ split view; remove the adapter when it offers one.
 
 The Inbox's [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) opens its
 per-connection details in an AppKit `NSPopover` through `UnwiredPopover`, which
-shows its React content in the popover and points it at the capsule's top edge.
+shows its React content in the popover above the capsule's top edge, without an
+arrow. AppKit has no property for that: the adapter shows the popover against the
+whole bounds of a one-point edge view, then shifts those bounds a point, which
+keeps the popover in place without the arrow.
 AppKit presents and animates it, and closes it on a click elsewhere or Escape.
 React Native macOS 0.81.9 has no popover; remove the adapter when it offers one.
 The details' 3pt progress bars are React views in `accentFill`: React Native macOS

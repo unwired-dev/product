@@ -1106,7 +1106,7 @@ describe('the Tiptap evaluation composer', () => {
     await press(/^Draft\./u);
     await simulatedPage().report({});
     const retry = await screen.findByRole('button', {
-      name: 'Check chart.png again',
+      name: 'Try Again to check chart.png',
     });
     expect(
       injectedScripts.filter((script) => script.includes('"previews"')),
@@ -1144,7 +1144,7 @@ describe('the Tiptap evaluation composer', () => {
       previews: { [chart.id]: null },
     });
     storage.setLocked(false);
-    await press('Check chart.png again');
+    await press('Try Again to check chart.png');
     await waitFor(() => {
       expect(lastSent()).toStrictEqual({
         type: 'previews',

@@ -540,7 +540,7 @@ describe('sending a Draft', () => {
           sender.storage.release();
         });
         await screen.findByRole('alert', {
-          name: 'This message could not be queued because Drafts are not saved. Try again.',
+          name: 'This message wasn’t sent. It stays open. Choose Send to try again.',
         });
         expect(screen.getByLabelText('Writing tools')).not.toBeDisabled();
         await chooseWritingTool(captureLabel);
