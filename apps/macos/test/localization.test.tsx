@@ -127,7 +127,9 @@ describe('language selection', () => {
       ['Français', false],
     ]);
     await chooseMenuItem('English');
-    await expect(first.findByText('All Inboxes')).resolves.toBeVisible();
+    await expect(
+      first.findByRole('button', { name: 'All Inboxes' }),
+    ).resolves.toBeVisible();
     expect(languagePopUp(app)).toHaveAccessibilityValue({ text: 'English' });
   });
   /* oxlint-enable vitest/max-expects */
