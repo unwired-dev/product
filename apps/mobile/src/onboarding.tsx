@@ -192,6 +192,8 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   regularSignInAction: { minHeight: 46, maxWidth: 368 },
+  // A trust step's action spans its 480pt column.
+  regularDeepAction: { maxWidth: undefined },
   actionLabel: { ...textStyles.headline },
   ipadActionLabel: { ...typography.ipadList.body },
   ipadAppleLabel: { ...typography.ipadList.title3Emphasized },
@@ -263,6 +265,19 @@ const styles = StyleSheet.create({
   cardDescription: { ...textStyles.subheadline, textAlign: 'center' },
   brandTitle: { ...textStyles.largeTitle, textAlign: 'left' },
   brandDescription: { ...textStyles.body, textAlign: 'left' },
+  // iPad's brand card uses the onboarding sizes: 13.8pt gaps and tile corners, a tile in the well,
+  // a Title 1 heading and the description at 80%.
+  ipadBrandCard: {
+    gap: spacing.m * ipadListScale,
+    padding: 2 * spacing.m * ipadListScale,
+  },
+  ipadBrandCardHeader: { gap: spacing.m * ipadListScale },
+  ipadBrandIconTile: {
+    borderRadius: spacing.m * ipadListScale,
+    backgroundColor: palette.dark.brandWell,
+  },
+  ipadBrandTitle: { fontSize: 25.3, lineHeight: 29.9, fontWeight: '400' },
+  ipadBrandDescription: { ...typography.ipadList.body, opacity: 0.8 },
 });
 
 // iPhone sets Welcome's content 14pt below the safe area's centre, whatever its footer holds.
@@ -615,7 +630,8 @@ export function FinePrint({ children }: { readonly children: string }) {
   );
 }
 
-// A full-width onboarding action: Welcome's brand Continue, Sign in with Apple's black, or quiet.
+// A full-width onboarding action: Welcome's brand Continue, Sign in with Apple's black, a trust
+// step's white action on brand deep, or quiet.
 export function OnboardingAction({
   label,
   onPress,
@@ -624,18 +640,19 @@ export function OnboardingAction({
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly fill: 'brand' | 'apple' | 'quiet';
+  readonly fill: 'brand' | 'apple' | 'onDeep' | 'quiet';
   readonly disabled?: boolean;
 }) {
   const colors = usePalette();
   const fills = {
     brand: [colors.brandSeal, colors.brandOnSeal],
     apple: [colors.appleButton, colors.appleOnButton],
+    onDeep: [colors.brandOnDeep, colors.brandDeep],
     // iPhone's secondary action is outlined, with no fill.
     quiet: [ipad ? colors.fillQuiet : 'transparent', colors.textPrimary],
   } as const;
   const [background, ink] = fills[fill];
-  // Pressed, the Brand and Apple fills show at 80% (CC) and the quiet fill takes the selection tint.
+  // Pressed, the filled actions show at 80% (CC) and the quiet fill takes the selection tint.
   const pressedFill =
     fill === 'quiet' ? colors.accentSelectionSubtle : `${background}CC`;
   return (
@@ -652,6 +669,7 @@ export function OnboardingAction({
         styles.action,
         ipad && styles.regularAction,
         ipad && fill !== 'brand' && styles.regularSignInAction,
+        ipad && fill === 'onDeep' && styles.regularDeepAction,
         ipad && fill === 'apple' && styles.regularAppleAction,
         fill === 'quiet' && [
           ipad ? styles.regularQuietAction : styles.quietAction,
@@ -673,7 +691,8 @@ export function OnboardingAction({
           styles.actionLabel,
           ipad &&
             (fill === 'apple' ? styles.ipadAppleLabel : styles.ipadActionLabel),
-          ipad && fill === 'brand' && { fontWeight: '600' },
+          ipad &&
+            (fill === 'brand' || fill === 'onDeep') && { fontWeight: '600' },
           { color: ink },
         ]}>
         {label}
@@ -806,11 +825,15 @@ export function TrustCard({
 }) {
   const colors = usePalette();
   const ink = fill === 'brand' ? colors.brandOnDeep : colors.textPrimary;
+  const regular = ipad && fill === 'brand';
+  // The brand tile's key is drawn 12×22pt, and 27pt tall on iPad.
+  const brandSymbol = ipad ? 22 : 18;
   return (
     <View
       style={[
         styles.card,
         fill === 'brand' && styles.brandCard,
+        regular && styles.ipadBrandCard,
         {
           backgroundColor:
             fill === 'brand' ? colors.brandDeep : colors.surfaceContent,
@@ -818,7 +841,11 @@ export function TrustCard({
         },
       ]}>
       <View
-        style={[styles.cardHeader, fill === 'brand' && styles.brandCardHeader]}>
+        style={[
+          styles.cardHeader,
+          fill === 'brand' && styles.brandCardHeader,
+          regular && styles.ipadBrandCardHeader,
+        ]}>
         <View
           style={[
             styles.iconTile,
@@ -827,11 +854,11 @@ export function TrustCard({
               backgroundColor:
                 fill === 'brand' ? palette.dark.fillQuiet : colors.fillQuiet,
             },
+            regular && styles.ipadBrandIconTile,
           ]}>
           <SFSymbol
             name={icon}
-            // The brand tile's key is drawn 12×22pt.
-            size={fill === 'brand' ? 18 : 24}
+            size={fill === 'brand' ? brandSymbol : 24}
             color={ink}
           />
         </View>
@@ -840,6 +867,7 @@ export function TrustCard({
           style={[
             styles.cardTitle,
             fill === 'brand' && styles.brandTitle,
+            regular && styles.ipadBrandTitle,
             { color: ink },
           ]}>
           {title}
@@ -849,6 +877,7 @@ export function TrustCard({
             style={[
               styles.cardDescription,
               fill === 'brand' && styles.brandDescription,
+              regular && styles.ipadBrandDescription,
               {
                 color:
                   fill === 'brand' ? colors.brandOnDeep : colors.textSecondary,

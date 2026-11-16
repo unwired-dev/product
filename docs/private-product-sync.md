@@ -40,7 +40,8 @@ data if every trusted device is lost, and that it cannot be reset. Gmail
 authorization continues as before; the Recovery Key does not block it.
 
 The key stays on screen, across relaunches, until the person enters its final
-group under **Last four characters** and chooses **Confirm Recovery Key**. Case,
+group under **Last four characters** and chooses **Confirm Recovery Key**, which on
+iPhone and iPad stays disabled until something is entered. Case,
 spaces and the look-alikes O, I and L are accepted. A mismatch keeps the key
 visible and explains the error. After confirmation the screen shows **Private sync
 is on**, and the key is no longer shown. Showing or replacing it again needs a
