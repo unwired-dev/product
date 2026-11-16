@@ -202,7 +202,7 @@ final class InboxTests: XCTestCase {
     let starred = app.buttons["Rowan Hale. Garden plans for spring. Flagged"]
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
-      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report Spam"))
+      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Move to Spam"))
       app.buttons["Labels"].tap()
       XCTAssertTrue(labels.waitForExistence(timeout: 5))
       app.buttons["Reply"].tap()
@@ -740,7 +740,7 @@ final class InboxTests: XCTestCase {
     kept.lifetime = .keepAlways
     add(kept)
     post(".draft-saves-restore")
-    composer.buttons["Try again"].tap()
+    composer.buttons["Try Again"].tap()
     waitUntil { !composer.exists }
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { back.isHittable }

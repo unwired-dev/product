@@ -328,7 +328,7 @@ describe('received attachments in the reader', () => {
         ),
       ).resolves.toBeOnTheScreen();
       await fireEvent.press(
-        screen.getByLabelText('Try downloading notes.txt again'),
+        screen.getByLabelText('Try Again to download notes.txt'),
       );
       await expect(
         screen.findByLabelText('Open notes.txt'),
@@ -401,7 +401,7 @@ describe('received attachments in IMAP mail', () => {
       ).resolves.toBeOnTheScreen();
       imap.server.failure = undefined;
       await fireEvent.press(
-        screen.getByLabelText('Try downloading report.pdf again'),
+        screen.getByLabelText('Try Again to download report.pdf'),
       );
       await fireEvent.press(await screen.findByLabelText('Open report.pdf'));
       await fireEvent.press(screen.getByLabelText('Share report.pdf'));

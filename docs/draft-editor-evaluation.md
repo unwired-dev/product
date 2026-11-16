@@ -66,7 +66,7 @@ their controls stop accepting input and leave VoiceOver immediately.
   **Cancel**, and body editing pauses until a choice is made. A question whose editor
   goes away, as when another Product Account opens, closes without an answer.
   When storage refuses, the editor stays open with
-  **Try again**, and its edits still ask on the next **Close**. Unfinished recipient
+  **Try Again**, and its edits still ask on the next **Close**. Unfinished recipient
   text becomes recipients on **Save Draft**; an invalid address keeps the editor open.
 - **Send.** Stores the Draft as shown and queues it, then closes. A refusal, such as
   no recipients, keeps the editor open with its reason; the Draft stays stored.
@@ -99,7 +99,7 @@ their controls stop accepting input and leave VoiceOver immediately.
   **Save Draft** still stores the body the page last reported; reopen the Draft to
   resume editing.
 - **Account.** Drafts belong to the signed-in Product Account. Locked or unavailable
-  Draft storage shows the current composer's **Drafts are locked** and **Try again**.
+  Draft storage shows the current composer's **Drafts are locked** and **Try Again**.
   When another Product Account opens while the editor is open, **Save Draft** closes
   it without storing its version in either account.
 
@@ -188,7 +188,7 @@ for inline code and Command-Option-1 for a heading, also work in the page.
 [#820](https://github.com/unwired-dev/product/issues/820) opens Drafts with files and
 Inline Images. The page shows Inline Images in the body. Under the body, the editor
 lists the Draft's Attachments and Inline Images with the current composer's rows:
-name, size or state, **Cancel** while adding, **Try again** when a check can run
+name, size or state, **Cancel** while adding, **Try Again** when a check can run
 again, and **Remove**.
 
 - **Adding.** **Attach File**, **Attach Photo**, **Insert Image** and **Paste Image**
@@ -498,7 +498,7 @@ the existing outgoing-format boundary applies unchanged; this evaluation sends n
 These are not native evidence.
 
 Component journeys also cover the composer layout: nothing is stored until **Save
-Draft**; a refused save keeps the editor open with **Try again** and still asks on the
+Draft**; a refused save keeps the editor open with **Try Again** and still asks on the
 next **Close**; an unchanged Draft closes and an empty one is removed without asking;
 **Delete Draft** removes the Draft; a refused **Send** stays open with its reason and
 stores the shown version; the iPhone Format panel, its keyboard hand-off and Writing
@@ -561,7 +561,7 @@ account, competing windows and imports.
 Component journeys on both hosts send page messages through the real Draft store with
 synthetic storage. In addition to the [#820](#inline-images-820) journeys, which cover
 an edit queued in WebKit before the page acknowledges a finishing command, a refused
-save with **Try again**, locked storage and reopening, they check that:
+save with **Try Again**, locked storage and reopening, they check that:
 
 - a late report of an earlier body revision, before or during **Save Draft**, never
   replaces the newer body, and a selection report arriving before its body does not

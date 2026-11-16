@@ -1588,7 +1588,7 @@ describe('composing Drafts', () => {
     storage.setLocked(false);
     storage.hold();
     try {
-      await press('Try again');
+      await press('Try Again');
       await fireEvent.changeText(
         screen.getByLabelText('Subject'),
         'Typed while retrying',
@@ -1662,7 +1662,7 @@ describe('composing Drafts', () => {
     // Asking again replaces the notice; the next refused Save Draft offers Try again.
     await saveDraft();
     storage.setLocked(false);
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
@@ -1672,10 +1672,10 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Discard me');
     expect(
       screen.getByText(
-        'This Draft could not be discarded, so it stays open. Try again.',
+        'This Draft wasn’t discarded, so it stays open. Choose Try again to discard it, or keep editing.',
       ),
     ).toBeOnTheScreen();
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
@@ -2624,7 +2624,7 @@ describe('composing Drafts', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            'This Draft could not be discarded, so it stays open. Try again.',
+            'This Draft wasn’t discarded, so it stays open. Choose Try again to discard it, or keep editing.',
           ),
         ).toBeOnTheScreen();
       });
@@ -4055,7 +4055,7 @@ describe('composing Drafts', () => {
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
@@ -4625,7 +4625,7 @@ describe('composing Drafts', () => {
     ).toHaveBeenLastCalledWith(
       'This request cannot be answered. Your text is unchanged.',
     );
-    expect(screen.queryByLabelText('Try writing help again')).toBeNull();
+    expect(screen.queryByLabelText('Try Again to get writing help')).toBeNull();
     await press('Keep your text and close this suggestion');
 
     // Cancelling stops the native request; Try again asks once more.
@@ -4633,7 +4633,7 @@ describe('composing Drafts', () => {
     await press('Cancel writing help');
     expect(cancelled).toStrictEqual([asked[3]?.request]);
     await screen.findByText('Cancelled. Your text is unchanged.');
-    await press('Try writing help again');
+    await press('Try Again to get writing help');
     expect(asked).toHaveLength(5);
 
     // Editing the Draft while a rewrite is pending makes it stale: it is cancelled and its late
@@ -4760,7 +4760,7 @@ describe('composing Drafts', () => {
         expect(screen.queryByText(failed)).toBeNull();
         expect(screen.queryByText(dropped)).toBeNull();
 
-        // Cancel and Retry change request ownership before React commits the next panel.
+        // Cancel and Try Again request ownership before React commits the next panel.
         await chooseWritingTool('Rewrite the message body');
         const cancel = queuedPress('Cancel writing help');
         const edit = body().props.onChangeText;
@@ -4771,7 +4771,7 @@ describe('composing Drafts', () => {
         expect(screen.queryByText(dropped)).toBeNull();
         await chooseWritingTool('Rewrite the message body');
         await press('Cancel writing help');
-        const retry = queuedPress('Try writing help again');
+        const retry = queuedPress('Try Again to get writing help');
         await act(() => {
           retry();
           edit('lets meet wednesday. thanks');
@@ -5934,7 +5934,7 @@ describe('adding files and images to a Draft', () => {
       'Pasted image.png, 5 bytes · Not checked while private storage is locked',
     );
     storage.setLocked(false);
-    await press('Check brief.txt again');
+    await press('Try Again to check brief.txt');
     await expect(
       screen.findByLabelText('brief.txt, 5 bytes · Damaged on this device'),
     ).resolves.toBeOnTheScreen();
@@ -6100,7 +6100,7 @@ describe('adding files and images to a Draft', () => {
       open = storage.native.openDrafts;
       await act(async () => {
         await fireEvent.press(
-          reader.getByRole('button', { name: 'Try again' }),
+          reader.getByRole('button', { name: 'Try Again' }),
         );
       });
       await press('Attach invoice.pdf to a new message');
@@ -6511,10 +6511,8 @@ describe('replying to and forwarding from the reader', () => {
       await screen.findByRole('button', { name: 'Reply' });
       await press('Reply');
       expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Report spam' })).toBeNull();
-      expect(
-        screen.queryByRole('button', { name: 'Move to Trash' }),
-      ).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Move to Spam' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
       await press('Move to Inbox');
       await waitFor(() => {
         expect(gmail.labelsOf(message)).toContain('INBOX');
@@ -6548,9 +6546,9 @@ describe('replying to and forwarding from the reader', () => {
     // The Reply sheet offers More's actions, so the toolbar has no More.
     expect(screen.queryByLabelText('More')).toBeNull();
     await press('Reply');
-    expect(screen.getAllByRole('button', { name: 'Report Spam' })).toHaveLength(
-      1,
-    );
+    expect(
+      screen.getAllByRole('button', { name: 'Move to Spam' }),
+    ).toHaveLength(1);
     expect(
       [
         'Reply',
@@ -6558,25 +6556,20 @@ describe('replying to and forwarding from the reader', () => {
         'Archive',
         'Mark as unread',
         'Star',
-        'Move Message',
+        'Move to…',
         'Labels',
-        'Delete Message',
-        'Report Spam',
+        'Delete',
+        'Move to Spam',
       ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
     ).toHaveLength(9);
     expect(
       screen
         .getAllByRole('button', {
-          name: /^(?:Move Message|Labels|Report Spam|Delete Message)$/u,
+          name: /^(?:Move to…|Labels|Move to Spam|Delete)$/u,
         })
         .slice(-4)
         .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual([
-      'Move Message',
-      'Labels',
-      'Report Spam',
-      'Delete Message',
-    ]);
+    ).toStrictEqual(['Move to…', 'Labels', 'Move to Spam', 'Delete']);
     expect(
       screen
         .getAllByRole('button', { name: /^(?:Star|Mark as unread)$/u })
@@ -6595,7 +6588,7 @@ describe('replying to and forwarding from the reader', () => {
         .map((button) => button.props.accessibilityLabel),
     ).toStrictEqual(['Remove star', 'Mark as unread']);
     await press('Close');
-    expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Move to Spam' })).toBeNull();
     // Labels opens the label checkboxes alone, without the actions the sheet already offers.
     await press('Reply');
     await press('Labels');
@@ -6605,7 +6598,7 @@ describe('replying to and forwarding from the reader', () => {
     );
     expect(labels).toBeVisible();
     expect(screen.getByRole('header', { name: 'Labels' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Move to Spam' })).toBeNull();
     // VoiceOver's escape gesture closes them, with no More button to press.
     await act(async () => {
       await fireEvent(labels.parent!, 'accessibilityEscape');
@@ -6617,8 +6610,8 @@ describe('replying to and forwarding from the reader', () => {
     await press('Labels');
     await press('Reply');
     expect(screen.queryByRole('header', { name: 'Labels' })).toBeNull();
-    await pressLast('Move Message');
-    expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
+    await pressLast('Move to…');
+    expect(screen.queryByRole('button', { name: 'Move to Spam' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Hide folders' })).toBeVisible();
     expect(
       within(screen.getByTestId('move-sheet')).getByText(

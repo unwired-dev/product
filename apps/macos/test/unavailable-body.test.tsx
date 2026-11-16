@@ -32,7 +32,7 @@ describe('unavailable message body', () => {
         }),
       ).resolves.toBeOnTheScreen();
       imap.server.failure = undefined;
-      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
       await expect(
         screen.findByText('Quarterly numbers.'),
       ).resolves.toBeOnTheScreen();
@@ -60,7 +60,7 @@ describe('unavailable message body', () => {
           name: 'This message is no longer in this folder on the mail server.',
         }),
       ).resolves.toBeOnTheScreen();
-      expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Try Again' })).toBeNull();
     } finally {
       await app.unmount();
     }
@@ -86,7 +86,7 @@ describe('unavailable message body', () => {
         }),
       ).resolves.toBeOnTheScreen();
       expect(
-        screen.getByRole('button', { name: 'Try again' }),
+        screen.getByRole('button', { name: 'Try Again' }),
       ).toBeOnTheScreen();
     } finally {
       await app.unmount();

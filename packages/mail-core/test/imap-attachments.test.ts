@@ -162,7 +162,7 @@ describe('imap received attachments', () => {
     expect(imap.files.savedFiles.size).toBe(0);
   });
 
-  it('says why a download failed and downloads after Try again', async () => {
+  it('says why a download failed and downloads after Try Again', async () => {
     expect.hasAssertions();
     const { imap, inbox, open } = await setup();
     const { id } = await open('Report');
