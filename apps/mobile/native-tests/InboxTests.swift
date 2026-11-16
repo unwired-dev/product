@@ -2866,6 +2866,47 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     XCTAssertEqual(app.textFields["Text"].value as? String, "reply")
     XCTAssertEqual(destination.value as? String, "https://example.com")
+    try verifyComposerLargestText(app, draft: draft, pad: pad)
+  }
+
+  // #2230: at the largest accessibility text size the reopened Draft's composer, whose body holds a
+  // link, clips no text and keeps its fields in reach.
+  private func verifyComposerLargestText(_ app: XCUIApplication, draft: XCUIElement, pad: Bool)
+    throws
+  {
+    app.launchArguments += [
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+    ]
+    // An audit leaves the app at the system's text size, with its inputs still at the largest
+    // (#2231), so each audited screen starts from a fresh launch.
+    func reopen() {
+      app.terminate()
+      app.launch()
+      XCTAssertTrue(draft.waitForExistence(timeout: 30))
+      for _ in 0..<5 where !draft.isHittable {
+        app.swipeDown()
+      }
+      draft.tap()
+      XCTAssertTrue(app.textFields["Subject"].waitForExistence(timeout: 15))
+      if pad {
+        app.buttons["Expand"].tap()
+        XCTAssertTrue(app.buttons["Collapse"].waitForExistence(timeout: 10))
+      }
+    }
+    reopen()
+    try audit(app, "Composer at the largest text size", for: [.textClipped, .dynamicType])
+    // The fields beneath the body scroll into view, with Cc/Bcc beside the recipients.
+    reopen()
+    let copies = app.buttons["Show Cc and Bcc"]
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+    for _ in 0..<6 where !copies.isHittable {
+      // Held at the end, the drag leaves no momentum to carry the fields past the screen.
+      start.press(
+        forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -250)),
+        withVelocity: .slow, thenHoldForDuration: 0.3)
+    }
+    XCTAssertTrue(copies.isHittable)
+    try audit(app, "Composer fields at the largest text size", for: [.textClipped, .dynamicType])
   }
 
   // #1795: the Link Editor links the selected word of the reply. It opens as Add Link with Text
@@ -3081,10 +3122,15 @@ final class InboxTests: XCTestCase {
     where [.staticText, .button].contains(issue.element?.elementType)
       && label.hasSuffix("example.invalid"):
       return "email address"
-    // The signature field, a multiline text input of styled spans like the composer's body, fails
-    // the audit once it holds text; #2007 checks formatted text at the largest sizes.
-    case .dynamicType where issue.element?.elementType == .textView && screen == "Signatures":
-      return "formatted text field (#2007)"
+    // The signature field and the composer's body, multiline text inputs of styled spans, fail the
+    // audit once they hold text (#2231).
+    case .dynamicType
+    where issue.element?.elementType == .textView
+      && [
+        "Signatures", "Composer at the largest text size",
+        "Composer fields at the largest text size",
+      ].contains(screen):
+      return "formatted text field (#2231)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"

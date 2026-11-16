@@ -176,7 +176,12 @@ import { fileSize } from './message-body.tsx';
 import { AssistanceContext } from './message-summary.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReminderBanner, SendMenu } from './send-reminder.tsx';
-import { textStyles, useAppearance, usePalette } from './theme.ts';
+import {
+  textStyles,
+  useAppearance,
+  useLargeText,
+  usePalette,
+} from './theme.ts';
 import { DraftTranslation, TranslationContext } from './translation.tsx';
 
 // The native split host owns compact presentation, including landscape iPhone and narrow windows.
@@ -386,6 +391,12 @@ const styles = StyleSheet.create({
     paddingLeft: fieldLabelWidth + spacing.s,
     paddingBottom: spacing.xs,
   },
+  // At the accessibility text sizes a label takes its own line above the value, which then has the
+  // row's full width, with Cc/Bcc beneath it, as side-by-side text stacks elsewhere.
+  stackedLabel: { width: '100%', textAlign: 'left' },
+  stackedEntries: { flexBasis: '100%' },
+  stackedNotice: { paddingLeft: 0 },
+  stackedTrailing: { height: 'auto' },
   input: {
     ...textStyles.body,
     flex: 1,
@@ -852,6 +863,7 @@ export function Recipients({
   const { t } = useLocalization();
   const { size } = use(ComposerLayoutContext);
   const sized = layoutStyles[size];
+  const large = useLargeText();
   const [notice, setNotice] = useState<RecipientNotice>();
   const selection = useRef<Selection>({ start: 0, end: 0 });
   const caret = useRef<number | undefined>(undefined);
@@ -1008,11 +1020,12 @@ export function Recipients({
           style={[
             styles.fieldLabel,
             sized.fieldLabel,
+            large && styles.stackedLabel,
             { color: colors.textSecondary },
           ]}>
           {`${name}:`}
         </Text>
-        <View style={styles.entries}>
+        <View style={[styles.entries, large && styles.stackedEntries]}>
           {draft[field].map((recipient) => (
             <Pressable
               key={recipient.address}
@@ -1112,7 +1125,9 @@ export function Recipients({
           />
         </View>
         {trailing === undefined ? null : (
-          <View style={sized.trailing}>{trailing}</View>
+          <View style={[sized.trailing, large && styles.stackedTrailing]}>
+            {trailing}
+          </View>
         )}
       </View>
       {notice === undefined ? null : (
@@ -1122,6 +1137,7 @@ export function Recipients({
             styles.notice,
             styles.fieldNotice,
             sized.fieldNotice,
+            large && styles.stackedNotice,
             { color: colors.textSecondary },
           ]}>
           {t(`drafts.recipient.${notice}`)}
@@ -2516,6 +2532,7 @@ function Editor({
   const layout = use(ComposerLayoutContext);
   const regular = layout.size === 'regular';
   const sized = layoutStyles[layout.size];
+  const large = useLargeText();
   const [formatting, setFormatting] = useState(false);
   const hideFormat = () => {
     setFormatting(false);
@@ -3152,6 +3169,9 @@ function Editor({
   // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
   const presentation = presentationOf(regular, draft);
   const docked = presentation === 'docked';
+  // At the accessibility text sizes the iPad card's From leaves the header for its own row, as on
+  // iPhone, so Expand and Send stay in view.
+  const ownFromRow = !regular || (large && presentation === 'card');
   const parts = partStyles[presentation];
   const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
   const active = typing ?? marksAt(draft.body, selection);
@@ -3403,7 +3423,7 @@ function Editor({
           </Text>
           <HeaderControls
             presentation={presentation}
-            sender={sender}
+            sender={ownFromRow ? null : sender}
             expanded={expanded}
             onExpand={onExpand}
             discardDisabled={lockedUnless(closing !== 'saving')}
@@ -3420,11 +3440,11 @@ function Editor({
             void saveDraft();
           }}
         />
-        {regular ? null : (
+        {ownFromRow ? (
           <View style={styles.fromRow}>
             <View style={styles.bar}>{sender}</View>
           </View>
-        )}
+        ) : null}
         {regular ? formatBar : null}
         <View style={styles.fill}>
           <ScrollView
@@ -3575,6 +3595,7 @@ function Editor({
                   style={[
                     styles.fieldLabel,
                     sized.fieldLabel,
+                    large && styles.stackedLabel,
                     { color: colors.textSecondary },
                   ]}>
                   {`${t('drafts.subject')}:`}
