@@ -3148,7 +3148,7 @@ describe('mac windows of different Mail Profiles', () => {
       await leave();
       await expect(
         settings.findByText(
-          'The signature could not be changed. Try again later.',
+          'Your signature change wasn’t saved. Check your connection and try again.',
         ),
       ).resolves.toBeVisible();
       expect(within(editor()).getByText('Alex')).toBeVisible();
