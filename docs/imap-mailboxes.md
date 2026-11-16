@@ -268,7 +268,10 @@ lists the connection's selectable folders under it; choosing one shows that fold
 each Mac window chooses its folder independently. A folder
 that cannot be read shows **Folders could not be listed**; its cached messages stay.
 The failed read also marks that folder's sidebar row, including after another mailbox
-is selected and when the folder has no cached messages.
+is selected and when the folder has no cached messages. A problem of the whole connection,
+such as a password the server no longer accepts, shows as a warning beside the
+connection's sidebar header on Mac and iPad and on its Inbox row on iPhone, as in the
+[Gmail guide](gmail-inbox.md#behavior).
 A chosen folder removed from the refreshed selectable listing falls back to Inbox.
 It stays there if that folder name reappears, until the person chooses it again.
 Local search marks a body as available on this device only when the body cache

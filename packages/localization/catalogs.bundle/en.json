@@ -34,6 +34,7 @@
     "syncing": "Syncing",
     "offline": "Offline",
     "statusUpdated": "{{status}} · {{updated}}",
+    "statusSignIn": "{{status}} · {{provider}} needs sign-in",
     "updatedJustNow": "Updated just now",
     "updatedMinutes_one": "Updated {{count}} minute ago",
     "updatedMinutes_other": "Updated {{count}} minutes ago",

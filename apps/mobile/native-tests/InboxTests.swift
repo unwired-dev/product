@@ -2758,6 +2758,53 @@ final class InboxTests: XCTestCase {
     try audit(app, "Signatures")
     app.buttons["Delete"].tap()
     waitUntil { identity.value as? String == "None" }
+
+    // #2243: a connection whose password the server refuses shows the problem beside its sidebar
+    // header on iPad, where the list subtitle names it after the count, and on its Inbox row on
+    // iPhone.
+    let expired = "lee@example.invalid"
+    openSettings("Email Accounts", in: app)
+    if !phone {
+      XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
+      app.buttons["Add Account…"].tap()
+    }
+    XCTAssertTrue(app.buttons["Add an IMAP mailbox"].waitForExistence(timeout: 15))
+    app.buttons["Add an IMAP mailbox"].tap()
+    XCTAssertTrue(app.buttons["Other IMAP Account"].waitForExistence(timeout: 15))
+    app.buttons["Other IMAP Account"].tap()
+    for (field, value) in [
+      ("Email address", expired), ("User name", "lee"), ("IMAP server", "imap.example.invalid"),
+      ("SMTP server", "smtp.example.invalid"),
+    ] {
+      enter(value, into: app.textFields[field], in: app)
+    }
+    let refused = app.secureTextFields["Password"]
+    focus(refused) { self.hasFocus(refused) }
+    refused.typeText("expired")
+    press("\n", in: app)
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+    app.buttons["Connect"].tap()
+    XCTAssertTrue(app.buttons["Remove \(expired)"].waitForExistence(timeout: 20))
+    app.buttons[settingsExit].tap()
+    showMailboxes()
+    let problem = "The mail server needs your password again"
+    let expiredInbox = app.buttons["Inbox. In \(expired)"]
+    XCTAssertTrue(expiredInbox.waitForExistence(timeout: 20))
+    if phone {
+      waitUntil { (expiredInbox.value as? String)?.hasPrefix(problem) == true }
+      for _ in 0..<5 where !expiredInbox.isHittable { app.swipeUp() }
+      capture("Mailboxes connection needs its password")
+    } else {
+      let header = app.descendants(matching: .any).matching(
+        NSPredicate(format: "label BEGINSWITH %@", "IMAP · \(expired), \(problem)")
+      ).firstMatch
+      XCTAssertTrue(header.waitForExistence(timeout: 20))
+      XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
+      app.buttons["All inboxes"].tap()
+      XCTAssertTrue(text("IMAP needs sign-in", in: app).waitForExistence(timeout: 20))
+      for _ in 0..<5 where !header.isHittable { app.buttons["All inboxes"].swipeUp() }
+      capture("Sidebar connection needs sign-in")
+    }
   }
 
   private func keyboardAndAccessibilityJourney(_ app: XCUIApplication) throws {
