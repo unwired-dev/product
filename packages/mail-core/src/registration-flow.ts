@@ -205,6 +205,11 @@ const account = (
     ...(profiles === undefined ? {} : { profiles }),
   });
 };
+// An Apple device that has not signed in since launch checks for its approval only when asked.
+const approvalSignIn = (value: RegistrationRecord) =>
+  value.signInProvider === 'apple' && !value.session
+    ? { approvalSignIn: true as const }
+    : {};
 const pending = Effect.fnUntraced(function* (
   value: RegistrationRecord,
   listed: ListedDevices | undefined,
@@ -215,9 +220,7 @@ const pending = Effect.fnUntraced(function* (
     return {
       kind: 'device-pending',
       ...fields,
-      ...(value.signInProvider === 'apple' && !value.session
-        ? { approvalSignIn: true as const }
-        : {}),
+      ...approvalSignIn(value),
     } satisfies RegistrationSnapshot;
   }
   // Saved mailboxes that all need authorization again read as the first one's provider being

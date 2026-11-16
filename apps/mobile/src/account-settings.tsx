@@ -839,9 +839,9 @@ function RecoveryKeyUnlock({
   );
 }
 
-// iPhone shows the approval step and the Recovery Key as separate steps, each offering the other
-// as a text button.
-function PhoneApproval({
+// A Pending Device's Enrollment Code and Recovery Key. iPhone shows them as separate steps, each
+// offering the other as a text button.
+function PendingApproval({
   copy,
   offersRecovery,
   recoveryFailure,
@@ -855,6 +855,22 @@ function PhoneApproval({
   readonly store: Registration;
 }) {
   const [recovering, setRecovering] = useState(false);
+  if (!phone) {
+    return (
+      <>
+        <PrivateSync
+          copy={copy}
+          failure={recoveryKeyFailure}
+          store={store}
+        />
+        <RecoveryKeyUnlock
+          offered={offersRecovery}
+          failure={recoveryFailure}
+          store={store}
+        />
+      </>
+    );
+  }
   if (recovering && offersRecovery) {
     return (
       <RecoveryKeyUnlock
@@ -1120,30 +1136,23 @@ export function AccountSettings({
     />
   );
   if (snapshot.kind === 'device-pending') {
-    return shows('account') ? (
+    if (!shows('account')) {
+      return null;
+    }
+    return privateSync.copy?.enrollmentCode === undefined ? (
       <>
-        {privateSync.copy?.enrollmentCode === undefined ? (
-          button(t('enrollment.check'), store.refreshPrivateSync)
-        ) : phone ? (
-          <PhoneApproval
-            copy={privateSync.copy}
-            offersRecovery={privateSync.offersRecovery}
-            recoveryFailure={recoveryFailure}
-            recoveryKeyFailure={recoveryKeyFailure}
-            store={store}
-          />
-        ) : (
-          <PrivateSync
-            copy={privateSync.copy}
-            failure={recoveryKeyFailure}
-            store={store}
-          />
-        )}
-        {phone && privateSync.copy?.enrollmentCode !== undefined
-          ? null
-          : recovery}
+        {button(t('enrollment.check'), store.refreshPrivateSync)}
+        {recovery}
       </>
-    ) : null;
+    ) : (
+      <PendingApproval
+        copy={privateSync.copy}
+        offersRecovery={privateSync.offersRecovery}
+        recoveryFailure={recoveryFailure}
+        recoveryKeyFailure={recoveryKeyFailure}
+        store={store}
+      />
+    );
   }
   return (
     <>

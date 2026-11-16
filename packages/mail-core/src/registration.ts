@@ -205,6 +205,14 @@ const working = ({
   ...(restoring && { restoring }),
 });
 
+// Returning from an authorization sheet, or a quiet check, must not erase unchanged setup feedback.
+const keepsFeedback = (previous: RegistrationState, next: RegistrationState) =>
+  !previous.restoring &&
+  !previous.locked &&
+  !next.locked &&
+  !next.failed &&
+  sameSnapshot(previous.snapshot, next.snapshot);
+
 // Hosts receive an unreachable service as `unavailable`, with the flow's `offline` as its cause.
 const isOffline = (cause: unknown): boolean =>
   rejectionCode(cause) === 'offline' ||
@@ -551,15 +559,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
               ),
           }),
         );
-        // Returning from an authorization sheet, or a quiet check, must not erase unchanged setup
-        // feedback.
         publish(
-          (foreground || quiet) &&
-            !previous.restoring &&
-            !previous.locked &&
-            !next.locked &&
-            !next.failed &&
-            sameSnapshot(previous.snapshot, next.snapshot)
+          (foreground || quiet) && keepsFeedback(previous, next)
             ? { ...previous, busy: false }
             : next,
           mailboxLoading,
