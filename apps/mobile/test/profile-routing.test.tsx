@@ -393,7 +393,7 @@ describe('profile-scoped mobile routes', () => {
       showMail('work');
       route.setParams({ profileId: 'work' });
       const app = await render(view());
-      await screen.findByLabelText('Mail Profile, Work');
+      await screen.findByLabelText('Profile, Work');
       await act(async () => {
         reading.resolve(undefined);
         await reading.promise;
@@ -407,7 +407,7 @@ describe('profile-scoped mobile routes', () => {
       await expect(
         screen.findByRole('button', { name: /Garden plan/u }),
       ).resolves.toBeVisible();
-      expect(screen.getByLabelText('Mail Profile, Work')).toBeVisible();
+      expect(screen.getByLabelText('Profile, Work')).toBeVisible();
     } finally {
       reading.resolve(undefined);
       preference.mockRestore();
@@ -686,13 +686,11 @@ describe('profile-scoped mobile routes', () => {
       );
       await fireEvent.changeText(screen.getByLabelText('To'), 'unfinished');
       await fireEvent(
-        screen.getByLabelText('Mail Profile, Primary Profile'),
+        screen.getByLabelText('Profile, Primary Profile'),
         'select',
         { nativeEvent: { id: 'profile\nwork' } },
       );
-      expect(
-        screen.getByLabelText('Mail Profile, Primary Profile'),
-      ).toBeVisible();
+      expect(screen.getByLabelText('Profile, Primary Profile')).toBeVisible();
       expect(screen.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(screen.getByRole('button', { name: 'Expand' }));
       expect(screen.queryByLabelText('Search senders and subjects')).toBeNull();
@@ -1237,10 +1235,10 @@ describe('the mobile Profile Switcher', () => {
       showMail(defaultProfile);
       route.setParams({});
       await render(<RootLayout />);
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', `profile\n${workId}`);
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', `profile\n${workId}`);
       await expect(
-        screen.findByLabelText('Mail Profile, Work'),
+        screen.findByLabelText('Profile, Work'),
       ).resolves.toBeVisible();
     } finally {
       store.restore();
@@ -1289,8 +1287,8 @@ describe('the mobile Profile Switcher', () => {
           <RootLayout />
         </InboxPreferencesContext>,
       );
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', `profile\n${workId}`);
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', `profile\n${workId}`);
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Account' }),
       );
@@ -1355,7 +1353,7 @@ describe('the mobile Profile Switcher', () => {
         ).resolves.toBeVisible();
         expect(screen.getByText('Gmail · garden')).toBeVisible();
         expect(screen.getByText('Encrypted on this device')).toBeVisible();
-        await choose('Mail Profile, Primary Profile', `profile\n${family}`);
+        await choose('Profile, Primary Profile', `profile\n${family}`);
         await expect(screen.findByText(subtitle)).resolves.toBeVisible();
         // The sidebar keeps Favorites only. No provider or sync status names the Inbox's scope, and
         // Primary's mail is gone.
@@ -1367,7 +1365,7 @@ describe('the mobile Profile Switcher', () => {
         expect(screen.getByText('No Mailboxes')).toBeVisible();
         expect(
           screen.getByText(
-            'Move a mailbox into Family from its current Mail Profile.',
+            'Move a mailbox into Family from its current Profile.',
           ),
         ).toBeVisible();
         expect(screen.queryByText('No Mail')).toBeNull();
@@ -1377,7 +1375,7 @@ describe('the mobile Profile Switcher', () => {
           screen.queryByRole('button', { name: /Add Mailbox/u }),
         ).toBeNull();
         await fireEvent.press(
-          screen.getByRole('button', { name: 'Manage Mail Profiles…' }),
+          screen.getByRole('button', { name: 'Manage Profiles…' }),
         );
         // Settings opens on Mail Profiles, which lists the Profile without mailboxes.
         await waitFor(() => {
@@ -1426,8 +1424,8 @@ describe('the mobile Profile Switcher', () => {
       showMail(defaultProfile);
       route.setParams({});
       const app = await render(<RootLayout />);
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', 'profile\nmanage');
       const work = await screen.findByRole('button', { name: 'Work' });
       expect(work.props.accessibilityHint).toBe('Gmail');
       // No Startup Profile is saved, so new windows open the Primary Profile.
@@ -1467,7 +1465,7 @@ describe('the mobile Profile Switcher', () => {
         screen.getByRole('button', { name: 'Office' }),
       ).toHaveAccessibilityValue({ text: 'Startup Profile' });
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+        screen.getByRole('button', { name: 'Add Profile…' }),
       );
       const buttons = prompt.mock.lastCall?.[2];
       ok(Array.isArray(buttons));
@@ -1483,12 +1481,12 @@ describe('the mobile Profile Switcher', () => {
       // Startup Profile is only for a new window, not the shell under Settings.
       await fireEvent.press(screen.getByRole('button', { name: 'Open Inbox' }));
       await expect(
-        screen.findByLabelText('Mail Profile, Primary Profile'),
+        screen.findByLabelText('Profile, Primary Profile'),
       ).resolves.toBeVisible();
       await app.unmount();
       await render(<RootLayout />);
       await expect(
-        screen.findByLabelText('Mail Profile, Office'),
+        screen.findByLabelText('Profile, Office'),
       ).resolves.toBeVisible();
     } finally {
       store.restore();
@@ -1521,8 +1519,8 @@ describe('the mobile Profile Switcher', () => {
       showMail(defaultProfile);
       route.setParams({});
       await render(<RootLayout />);
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', 'profile\nmanage');
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Work' }),
       );
@@ -1548,7 +1546,7 @@ describe('the mobile Profile Switcher', () => {
       const family = registration.createProfile('Family');
       await admitted;
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Duplicate Mail Profile' }),
+        screen.getByRole('button', { name: 'Duplicate Profile' }),
       );
       release();
       await family;
@@ -1561,9 +1559,7 @@ describe('the mobile Profile Switcher', () => {
         'accessibilityHint',
         'No mailboxes',
       );
-      expect(
-        screen.getByText('No mailboxes in this Mail Profile'),
-      ).toBeVisible();
+      expect(screen.getByText('No mailboxes in this Profile')).toBeVisible();
       const { snapshot } = registration.getSnapshot();
       const [created, copy] = profilesOf(snapshot).filter(
         ({ id }) => id !== work,
@@ -1618,8 +1614,8 @@ describe('the mobile Profile Switcher', () => {
       showMail(defaultProfile);
       route.setParams({});
       await render(<RootLayout />);
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', 'profile\nmanage');
       // The Primary Profile has no record to style; it shows the defaults.
       await expect(screen.findByText('Graphite')).resolves.toBeVisible();
       expect(screen.getByText('First Letter')).toBeVisible();
@@ -1683,8 +1679,8 @@ describe('the mobile Profile Switcher', () => {
       showMail(defaultProfile);
       route.setParams({});
       await render(<RootLayout />);
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', 'profile\nmanage');
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Work' }),
       );
@@ -1730,7 +1726,7 @@ describe('the mobile Profile Switcher', () => {
     );
     const monograms = () =>
       screen
-        .getByLabelText(/^Mail Profile, /u)
+        .getByLabelText(/^Profile, /u)
         .props.sections[0].items.map(
           ({ title, monogram }: { title: string; monogram: unknown }) => [
             title,
@@ -1742,7 +1738,7 @@ describe('the mobile Profile Switcher', () => {
       showMail(work);
       route.setParams({});
       await render(<RootLayout />);
-      const switcher = await screen.findByLabelText('Mail Profile, Work');
+      const switcher = await screen.findByLabelText('Profile, Work');
       // The Primary Profile and an unstyled Profile show Graphite and their first letter.
       expect(
         within(switcher).getByText('W', { includeHiddenElements: true }),
@@ -1763,7 +1759,7 @@ describe('the mobile Profile Switcher', () => {
       });
       // The switcher draws Work's Icon in place of its letter.
       expect(
-        within(screen.getByLabelText('Mail Profile, Work')).queryByText('W', {
+        within(screen.getByLabelText('Profile, Work')).queryByText('W', {
           includeHiddenElements: true,
         }),
       ).toBeNull();
@@ -1802,12 +1798,12 @@ describe('the mobile Profile Switcher', () => {
       showMail(defaultProfile);
       route.setParams({});
       await render(<RootLayout />);
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', 'profile\nmanage');
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', 'profile\nmanage');
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Work' }),
       );
-      const moving = 'Mail Profile for other@example.invalid';
+      const moving = 'Profile for other@example.invalid';
       expect(screen.getByLabelText(moving)).toHaveAccessibilityValue({
         text: 'Work',
       });
@@ -1839,9 +1835,9 @@ describe('the mobile Profile Switcher', () => {
       expect(screen.getByLabelText('Moving to Primary Profile…')).toBeVisible();
       expect(screen.queryByLabelText(moving)).toBeNull();
       for (const name of [
-        'Add Mail Profile…',
-        'Duplicate Mail Profile',
-        'Remove Mail Profile…',
+        'Add Profile…',
+        'Duplicate Profile',
+        'Remove Profile…',
       ]) {
         expect(screen.getByRole('button', { name })).toBeDisabled();
       }
@@ -1857,7 +1853,7 @@ describe('the mobile Profile Switcher', () => {
         screen.getByRole('button', { name: 'Primary Profile' }),
       );
       const otherMailbox = screen.getByLabelText(
-        'Mail Profile for alex@example.invalid',
+        'Profile for alex@example.invalid',
       );
       expect(otherMailbox).toBeDisabled();
       // A native menu answer queued before disablement still reaches the event boundary.
@@ -1880,7 +1876,7 @@ describe('the mobile Profile Switcher', () => {
       expect(screen.queryByLabelText(moving)).toBeNull();
       expect(screen.queryByLabelText('Moving to Primary Profile…')).toBeNull();
       expect(
-        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+        screen.getByRole('button', { name: 'Add Profile…' }),
       ).toBeDisabled();
       await act(async () => {
         renaming.resolve(undefined);
@@ -1895,20 +1891,20 @@ describe('the mobile Profile Switcher', () => {
         )?.profile,
       ).toBe(defaultProfile);
       expect(alert).toHaveBeenCalledWith(
-        'Rename Mail Profile',
-        'Another device changed these Mail Profiles first. Check them, then try again.',
+        'Rename Profile',
+        'Another device changed these Profiles first. Check them, then try again.',
         [{ text: 'OK' }],
       );
       alert.mockClear();
       expect(
-        screen.getByRole('button', { name: 'Add Mail Profile…' }),
+        screen.getByRole('button', { name: 'Add Profile…' }),
       ).toBeEnabled();
       // The Primary Profile lists both mailboxes and cannot be removed.
       await fireEvent.press(
         screen.getByRole('button', { name: 'Primary Profile' }),
       );
       expect(
-        screen.queryByRole('button', { name: 'Remove Mail Profile…' }),
+        screen.queryByRole('button', { name: 'Remove Profile…' }),
       ).toBeNull();
       await choose(moving, workId);
       await waitFor(() => {
@@ -1920,7 +1916,7 @@ describe('the mobile Profile Switcher', () => {
 
       await fireEvent.press(screen.getByRole('button', { name: 'Work' }));
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Remove Mail Profile…' }),
+        screen.getByRole('button', { name: 'Remove Profile…' }),
       );
       const asked = alert.mock.lastCall;
       ok(asked);
@@ -1967,9 +1963,7 @@ describe('the mobile Profile Switcher', () => {
       showMail('work');
       route.setParams({});
       const app = await render(view());
-      const switcher = await screen.findByLabelText(
-        'Mail Profile, Primary Profile',
-      );
+      const switcher = await screen.findByLabelText('Profile, Primary Profile');
       // The Primary Profile owns no connection here, so Work's mail stays hidden.
       expect(screen.queryByRole('button', { name: /Garden plan/u })).toBeNull();
       expect(switcher.props.sections).toMatchObject([
@@ -1984,17 +1978,14 @@ describe('the mobile Profile Switcher', () => {
           ],
         },
         {
-          items: [
-            { title: 'New Mail Profile…' },
-            { title: 'Manage Mail Profiles…' },
-          ],
+          items: [{ title: 'New Profile…' }, { title: 'Manage Profiles…' }],
         },
       ]);
-      await choose('Mail Profile, Primary Profile', 'profile\nwork');
+      await choose('Profile, Primary Profile', 'profile\nwork');
       await expect(
         screen.findByRole('button', { name: /Garden plan/u }),
       ).resolves.toBeVisible();
-      expect(screen.getByLabelText('Mail Profile, Work')).toBeVisible();
+      expect(screen.getByLabelText('Profile, Work')).toBeVisible();
       expect(route.params()).toStrictEqual({ profileId: 'work' });
       expect(saving).toHaveBeenCalledWith('window-profile', 'work');
       await app.unmount();
@@ -2004,7 +1995,7 @@ describe('the mobile Profile Switcher', () => {
       await expect(
         screen.findByRole('button', { name: /Garden plan/u }),
       ).resolves.toBeVisible();
-      expect(screen.getByLabelText('Mail Profile, Work')).toBeVisible();
+      expect(screen.getByLabelText('Profile, Work')).toBeVisible();
     } finally {
       jest.restoreAllMocks();
     }
@@ -2025,9 +2016,9 @@ describe('the mobile Profile Switcher', () => {
         showMail('work');
         route.setParams({});
         const app = await render(view());
-        await choose('Mail Profile, Primary Profile', 'profile\nwork');
+        await choose('Profile, Primary Profile', 'profile\nwork');
         await expect(
-          screen.findByLabelText('Mail Profile, Work'),
+          screen.findByLabelText('Profile, Work'),
         ).resolves.toBeVisible();
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Each fixed table case checks route retirement with or without a preceding URL event.
         if (redelivered) {
@@ -2040,7 +2031,7 @@ describe('the mobile Profile Switcher', () => {
         // The same window, after signing out and into another Product Account.
         await app.rerender(view(undefined, 'another-product-account'));
         await expect(
-          screen.findByLabelText('Mail Profile, Primary Profile'),
+          screen.findByLabelText('Profile, Primary Profile'),
         ).resolves.toBeVisible();
         expect(route.params()).toStrictEqual({});
       } finally {
@@ -2076,8 +2067,8 @@ describe('the mobile Profile Switcher', () => {
         showMail('work');
         route.setParams({});
         const app = await render(view());
-        await choose('Mail Profile, Primary Profile', 'profile\nwork');
-        await screen.findByLabelText('Mail Profile, Work');
+        await choose('Profile, Primary Profile', 'profile\nwork');
+        await screen.findByLabelText('Profile, Work');
         const id = showMail(defaultProfile);
         const params = { mailbox: 'garden', id, profileId };
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Each fixed table case checks a fresh or cached target without duplicating the journey.
@@ -2127,9 +2118,7 @@ describe('the mobile Profile Switcher', () => {
       await expect(
         screen.findByRole('header', { name: 'Message unavailable' }),
       ).resolves.toBeVisible();
-      expect(
-        screen.getByLabelText('Mail Profile, Primary Profile'),
-      ).toBeVisible();
+      expect(screen.getByLabelText('Profile, Primary Profile')).toBeVisible();
     } finally {
       jest.restoreAllMocks();
     }
@@ -2147,14 +2136,14 @@ describe('the mobile Profile Switcher', () => {
       showMail('work');
       route.setParams({});
       await render(view(createProfile));
-      await screen.findByLabelText('Mail Profile, Primary Profile');
-      await choose('Mail Profile, Primary Profile', 'profile\nnew');
+      await screen.findByLabelText('Profile, Primary Profile');
+      await choose('Profile, Primary Profile', 'profile\nnew');
       const asked = prompt.mock.lastCall;
       ok(asked);
       const [title, message, buttons, type] = asked;
       expect([title, message, type]).toStrictEqual([
-        'New Mail Profile',
-        'Name a Mail Profile to keep a set of mailboxes apart from your other mail.',
+        'New Profile',
+        'Name a Profile to keep a set of mailboxes apart from your other mail.',
         'plain-text',
       ]);
       ok(Array.isArray(buttons));
@@ -2169,7 +2158,7 @@ describe('the mobile Profile Switcher', () => {
       await waitFor(() => {
         expect(alert).toHaveBeenCalledWith(
           'Update Your Other Devices',
-          'Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then create the Mail Profile again.',
+          'Another Trusted Device runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then create the Profile again.',
           [{ text: 'OK' }],
         );
       });

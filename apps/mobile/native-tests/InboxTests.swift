@@ -759,7 +759,7 @@ final class InboxTests: XCTestCase {
   // #1821: a mailbox moved into Work takes its mail, search results and Drafts there. Neither
   // window lists the other Profile's mail, and moving the mailbox back restores it.
   private func profileIsolationJourney(_ app: XCUIApplication) {
-    let primary = app.buttons["Mail Profile, Primary Profile"]
+    let primary = app.buttons["Profile, Primary Profile"]
     let row = { (name: String) in
       app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
     }
@@ -815,7 +815,7 @@ final class InboxTests: XCTestCase {
     queued.name = "Work Profile with its Outbox"
     queued.lifetime = .keepAlways
     add(queued)
-    switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
+    switchProfile(to: "Primary Profile", from: app.buttons["Profile, Work"], app)
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
     XCTAssertFalse(jordan.exists)
     XCTAssertFalse(draft.exists)
@@ -857,7 +857,7 @@ final class InboxTests: XCTestCase {
     // Work's Outbox.
     switchProfile(to: "Work", from: primary, app)
     XCTAssertTrue(sending.waitForNonExistence(timeout: 120))
-    switchProfile(to: "Primary Profile", from: app.buttons["Mail Profile, Work"], app)
+    switchProfile(to: "Primary Profile", from: app.buttons["Profile, Work"], app)
     // The Draft belongs to its mailbox's Profile, so it returns with the mailbox.
     moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
@@ -878,14 +878,14 @@ final class InboxTests: XCTestCase {
   ) {
     revealSwitcher(app, switcher)
     switcher.tap()
-    let manage = app.buttons["Manage Mail Profiles…"]
+    let manage = app.buttons["Manage Profiles…"]
     XCTAssertTrue(manage.waitForExistence(timeout: 10))
     manage.tap()
     let profile = app.buttons[owner].firstMatch
     XCTAssertTrue(profile.waitForExistence(timeout: 15))
     profile.tap()
     let targetRow = app.buttons[target].firstMatch.frame
-    let popUp = app.buttons["Mail Profile for " + address]
+    let popUp = app.buttons["Profile for " + address]
     XCTAssertTrue(popUp.waitForExistence(timeout: 10))
     popUp.tap()
     // The pop-up's system menu lists each Profile beside the row that names it.
@@ -914,7 +914,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(choice.waitForExistence(timeout: 10))
     choice.tap()
     // Switching remounts the shell on its Inbox column.
-    revealSwitcher(app, app.buttons["Mail Profile, " + name])
+    revealSwitcher(app, app.buttons["Profile, " + name])
     app.buttons["All inboxes"].tap()
   }
 
@@ -942,10 +942,10 @@ final class InboxTests: XCTestCase {
   // change. #1188: after this journey's relaunch, creating a Profile signs in with Apple again
   // first, and the window then switches to the new Profile and back.
   private func profileSwitcherJourney(_ app: XCUIApplication) throws {
-    let switcher = app.buttons["Mail Profile, Primary Profile"]
+    let switcher = app.buttons["Profile, Primary Profile"]
     revealSwitcher(app, switcher)
     switcher.tap()
-    let create = app.buttons["New Mail Profile…"]
+    let create = app.buttons["New Profile…"]
     XCTAssertTrue(create.waitForExistence(timeout: 10))
     // A system menu row reads its subtitle after its title.
     XCTAssertTrue(
@@ -956,7 +956,7 @@ final class InboxTests: XCTestCase {
     menu.lifetime = .keepAlways
     add(menu)
     create.tap()
-    let prompt = app.alerts["New Mail Profile"]
+    let prompt = app.alerts["New Profile"]
     XCTAssertTrue(prompt.waitForExistence(timeout: 10))
     XCTAssertTrue(prompt.textFields.firstMatch.exists)
     let named = XCTAttachment(screenshot: app.screenshot())
@@ -975,14 +975,14 @@ final class InboxTests: XCTestCase {
     type("Work", into: name)
     prompt.buttons["Create"].tap()
     XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
-    XCTAssertFalse(app.alerts["New Mail Profile"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.alerts["New Profile"].waitForExistence(timeout: 5))
     // The new Profile owns no mailboxes; choosing it switches this window.
     switcher.tap()
     let work = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Work"))
       .firstMatch
     XCTAssertTrue(work.waitForExistence(timeout: 15))
     work.tap()
-    let switched = app.buttons["Mail Profile, Work"]
+    let switched = app.buttons["Profile, Work"]
     // Switching remounts the shell on its Inbox column. Reveal Mailboxes before checking it.
     revealSwitcher(app, switched)
     let workWindow = XCTAttachment(screenshot: app.screenshot())
@@ -1088,7 +1088,7 @@ final class InboxTests: XCTestCase {
   // to the switcher's Mailboxes.
   private func mailProfilesSettingsJourney(_ app: XCUIApplication, switcher: XCUIElement) throws {
     switcher.tap()
-    let manage = app.buttons["Manage Mail Profiles…"]
+    let manage = app.buttons["Manage Profiles…"]
     XCTAssertTrue(manage.waitForExistence(timeout: 10))
     manage.tap()
     let primary = app.buttons["Primary Profile"]
@@ -1096,7 +1096,7 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(primary.value as? String, "Startup Profile")
     let portraitWidth = primary.frame.width
     if UIDevice.current.userInterfaceIdiom == .phone {
-      XCTAssertTrue(app.navigationBars["Mail Profiles"].exists)
+      XCTAssertTrue(app.navigationBars["Profiles"].exists)
     } else {
       XCUIDevice.shared.orientation = .landscapeLeft
       waitUntil({
@@ -1104,7 +1104,7 @@ final class InboxTests: XCTestCase {
           && primary.frame.width > portraitWidth
       }, timeout: 10)
     }
-    XCTAssertTrue(app.buttons["Add Mail Profile…"].exists)
+    XCTAssertTrue(app.buttons["Add Profile…"].exists)
     let startup = app.buttons["Startup Profile"]
     XCTAssertTrue(startup.exists)
     XCTAssertGreaterThanOrEqual(startup.frame.height, 44)
@@ -1129,8 +1129,8 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(primary.value as? String, "Startup Profile")
     // Beneath the selected Primary Profile, each mailbox names its Profile in a system pop-up.
     // The Primary Profile cannot be removed.
-    XCTAssertFalse(app.buttons["Remove Mail Profile…"].exists)
-    let move = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Mail Profile for "))
+    XCTAssertFalse(app.buttons["Remove Profile…"].exists)
+    let move = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Profile for "))
       .firstMatch
     XCTAssertTrue(move.waitForExistence(timeout: 10))
     XCTAssertEqual(move.value as? String, "Primary Profile")
@@ -1172,7 +1172,7 @@ final class InboxTests: XCTestCase {
     verifyBlueMonogram(app, in: styled.frame, "Profile Menu with a styled Profile")
     try audit(app, "Profile Menu")
     styled.tap()
-    let switched = app.buttons["Mail Profile, Work"]
+    let switched = app.buttons["Profile, Work"]
     revealSwitcher(app, switched)
     verifyBlueMonogram(app, in: switched.frame, "Switcher on a styled Profile")
     switched.tap()

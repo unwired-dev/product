@@ -90,7 +90,7 @@ describe('window Profiles', () => {
         items: [
           {
             id: 'profile\nnew',
-            title: 'New Mail Profile…',
+            title: 'New Profile…',
             symbol: 'plus',
             destructive: undefined,
             subtitle: undefined,
@@ -101,7 +101,7 @@ describe('window Profiles', () => {
           },
           {
             id: 'profile\nmanage',
-            title: 'Manage Mail Profiles…',
+            title: 'Manage Profiles…',
             symbol: 'gearshape',
             destructive: undefined,
             subtitle: undefined,
@@ -240,19 +240,19 @@ describe('window Profiles', () => {
     ).toStrictEqual({
       title: 'Mailbox Not Moved',
       message:
-        'Another device changed these Mail Profiles first. Check them, then try again.',
+        'Another device changed these Profiles first. Check them, then try again.',
     });
   });
 
   it('explains each refused move and removal', () => {
     expect.hasAssertions();
     expect(profileRefusalText(english, 'remove', 'failed').message).toBe(
-      'The Mail Profile could not be removed. Try again.',
+      'The Profile could not be removed. Try again.',
     );
     expect(
       profileRefusalText(english, 'move', 'upgrade-required').message,
     ).toBe(
-      'Another Trusted Device runs a version of Unwired Mail that can’t keep Mail Profiles apart. Update it, then try again.',
+      'Another Trusted Device runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then try again.',
     );
   });
 

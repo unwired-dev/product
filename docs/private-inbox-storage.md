@@ -120,7 +120,7 @@ cannot collide with that existing data. A Draft and
 its Outbox entry belong to the Profile of their Mailbox Connection. Creating
 another Profile and switching to it are exposed by
 [#1037](https://github.com/unwired-dev/product/issues/1037), part of
-[#922](https://github.com/unwired-dev/product/issues/922). Settings › Mail
+[#922](https://github.com/unwired-dev/product/issues/922). Settings ›
 Profiles lists and renames them, moves connections between them, and removes a
 Profile after confirming its mailboxes
 ([#1038](https://github.com/unwired-dev/product/issues/1038)).
@@ -240,14 +240,14 @@ the iPhone/iPad window shows one Mail Profile
 Profile Switcher shows the Profile's monogram and name, and the Default Profile
 appears as **Primary Profile**. The switcher opens the system menu: every Profile
 with its connections' providers, a sign-in notice and its unread count, the
-window's own checked, then **New Mail Profile…**. Choosing a Profile switches only
+window's own checked, then **New Profile…**. Choosing a Profile switches only
 that window. The Inbox of a Profile that owns no mailbox is subtitled
 **No mailboxes**, which iPhone prefixes with the Profile's name, and shows
-**No Mailboxes** with **Manage Mail Profiles…**, which opens Settings › Mail
+**No Mailboxes** with **Manage Profiles…**, which opens Settings ›
 Profiles; its sidebar keeps Favorites only
 ([#1789](https://github.com/unwired-dev/product/issues/1789),
 [#1813](https://github.com/unwired-dev/product/issues/1813), Mac journey
-[#1538](https://github.com/unwired-dev/product/issues/1538)). New Mail Profile… asks for a name and creates the Profile through the
+[#1538](https://github.com/unwired-dev/product/issues/1538)). New Profile… asks for a name and creates the Profile through the
 fenced store without switching to it. When another Trusted Device's client cannot
 keep Profiles apart, it explains the `upgrade-required` refusal; any other failure
 asks to try again. Creating, renaming, moving, removing and notification changes
@@ -270,11 +270,11 @@ multiple iPad scenes are turned off. It restores the Profile a link or the switc
 last chose. Independent iPad windows, each with its own Profile, are tracked in
 [#1200](https://github.com/unwired-dev/product/issues/1200).
 
-Settings › Mail Profiles, which the Profile Menu's **Manage Mail Profiles…** opens
+Settings › Profiles, which the Profile Menu's **Manage Profiles…** opens
 on Mac, iPhone and iPad, lists the Primary Profile and every other Profile with
 its connections' providers, and marks the Startup Profile
-([#1038](https://github.com/unwired-dev/product/issues/1038)). **Add Mail Profile…**
-creates one as New Mail Profile… does. Selecting a Profile shows its name, which
+([#1038](https://github.com/unwired-dev/product/issues/1038)). **Add Profile…**
+creates one as New Profile… does. Selecting a Profile shows its name, which
 can be edited for every Profile except the Primary Profile; an empty or unchanged
 name changes nothing, and a refused rename restores the listed name and asks to
 try again. Creation, duplication, renaming, moving and removal wait for active registration
@@ -282,7 +282,7 @@ work; a queued change is retired if that Product Account leaves before it can ru
 Beneath the selected Profile, **Mailboxes** lists the connections it owns, each
 with a system pop-up naming its Mail Profile; choosing another Profile moves the
 connection. A Profile that owns none says so and points to moving one from its
-current Profile. **Duplicate Mail Profile**, on every Profile, creates
+current Profile. **Duplicate Profile**, on every Profile, creates
 `<name> Copy` without asking, selects it and shows its page for renaming
 ([#1533](https://github.com/unwired-dev/product/issues/1533)). It copies the
 name, Color and Icon, and never a connection, sign-in, cached mail, Drafts,
@@ -320,12 +320,12 @@ its style and publishes it with its name. A style edited before the first
 publication is confirmed survives a delayed earlier publication and relaunch,
 until Product Sync confirms the edited style. The snapshot omits Graphite and
 First Letter even when Graphite is stored explicitly. On Mac, the selected
-Profile's page in Settings › Mail Profiles shows **Color** and **Icon** system
+Profile's page in Settings › Profiles shows **Color** and **Icon** system
 pop-ups after its name, and the Profile list shows each Profile's monogram, a
 circle in its Color with its Icon or first letter in white
 ([#1619](https://github.com/unwired-dev/product/issues/1619)). Choosing one
 writes the other as this client reads it, so a key it does not know is replaced.
-iPhone and iPad Settings › Mail Profiles show the same **Color** and **Icon**
+iPhone and iPad Settings › Profiles show the same **Color** and **Icon**
 rows as system pull-down menus, each Color with its swatch, and list each
 Profile with its monogram
 ([#1628](https://github.com/unwired-dev/product/issues/1628)).
