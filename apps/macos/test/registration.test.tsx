@@ -1159,7 +1159,7 @@ describe('product registration', () => {
     ).toBeVisible();
     expect(
       settingsWindow().getByText(
-        'Its server doesn’t mark which folders hold Spam and Trash. Until you choose both, this connection isn’t included in All Mail.',
+        'Its server doesn’t mark which folders hold Spam and Trash. Until you choose both, this account isn’t included in All Mail.',
       ),
     ).toBeVisible();
     expect(button('Choose Folders…')).toBeVisible();
@@ -1743,7 +1743,7 @@ describe('product registration', () => {
           'Automation',
           'Application',
           'Email Accounts',
-          'Mailbox Connections',
+          'Accounts',
         ],
         inbox: expect.anything(),
       });

@@ -24,12 +24,12 @@ authentication session and asks for `offline_access User.Read Mail.ReadWrite Mai
 so it can read, organize and send mail. The connection is shown only after Graph reads the
 account and its Inbox:
 
-| Outcome                                                           | What the person sees                                               |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Cancelled sign-in                                                 | **Mailbox authorization was cancelled**; the Product Account stays |
-| Consent refused, or a grant without mail access                   | **Mail access was not granted**                                    |
-| Tenant restriction, admin consent required, or no Outlook mailbox | **Microsoft mail is unavailable for this account**                 |
-| Network or Microsoft service failure                              | **Mailbox authorization was interrupted**; retry resumes           |
+| Outcome                                                           | What the person sees                                        |
+| ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| Cancelled sign-in                                                 | **Mailbox access was cancelled**; the Product Account stays |
+| Consent refused, or a grant without mail access                   | **Mail access was not granted**                             |
+| Tenant restriction, admin consent required, or no Outlook mailbox | **Microsoft mail is unavailable for this account**          |
+| Network or Microsoft service failure                              | **Mailbox access was interrupted**; retry resumes           |
 
 Each outcome keeps the Product Account and offers retry or another provider,
 including after relaunch. Once connected, Settings' **Email Accounts**

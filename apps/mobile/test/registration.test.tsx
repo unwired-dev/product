@@ -3251,7 +3251,7 @@ describe('product registration', () => {
     });
     expect(
       screen.getByText(
-        'Its server doesn’t mark which folders hold Spam and Trash. Until you choose both, this connection isn’t included in All Mail.',
+        'Its server doesn’t mark which folders hold Spam and Trash. Until you choose both, this account isn’t included in All Mail.',
       ),
     ).toBeVisible();
     const choose = async (role: string, folder: string) => {

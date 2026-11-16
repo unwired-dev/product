@@ -61,7 +61,7 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   [Microsoft](microsoft-mail.md) and [IMAP](imap-mailboxes.md), with its state and
   offers **Add another Gmail mailbox**, **Add an IMAP mailbox** and, when Microsoft
   mail is configured for this build, **Add a Microsoft mailbox**. On iPad these are the
-  native menu of one **Add Mailbox Connection…** row. Adding Gmail asks Google for an
+  native menu of one **Add Account…** row. Adding Gmail asks Google for an
   account and explicit Gmail consent. Choosing a Google account that is already
   connected authorizes that connection again instead of adding a second one; the
   Google account, not the address, identifies it. A cancelled or refused addition
