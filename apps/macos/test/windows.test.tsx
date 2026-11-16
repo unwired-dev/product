@@ -3447,7 +3447,7 @@ describe('mac windows of different Mail Profiles', () => {
       await waitFor(() => {
         expect(alert).toHaveBeenCalledWith(
           'New Profile',
-          'The Profile could not be created. Try again.',
+          'Couldn’t create the Profile. Check your Profiles, then try again.',
           [{ text: 'OK' }],
         );
       });

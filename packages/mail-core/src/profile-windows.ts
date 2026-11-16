@@ -142,8 +142,12 @@ export const profileRefusalText = (
       ),
     };
   }
+  const title = t(`profiles.${change}Title`);
+  if (failure === 'offline') {
+    return { title, message: t('profiles.offline') };
+  }
   return {
-    title: t(`profiles.${change}Title`),
+    title,
     message: t(
       failure === 'failed' ? `profiles.${change}Failed` : 'profiles.changed',
     ),

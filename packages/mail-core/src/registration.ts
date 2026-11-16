@@ -123,7 +123,10 @@ const ProfileFailureSchema = Schema.Literals([
   'profile-changed',
 ]);
 // Why a Mail Profile change did not complete. A removal may have removed some mailboxes first.
-export type ProfileFailure = typeof ProfileFailureSchema.Type | 'failed';
+export type ProfileFailure =
+  | typeof ProfileFailureSchema.Type
+  | 'offline'
+  | 'failed';
 const profileFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: ProfileFailureSchema }),
 );
@@ -202,6 +205,11 @@ const working = ({
   ...(restoring && { restoring }),
 });
 
+// Hosts receive an unreachable service as `unavailable`, with the flow's `offline` as its cause.
+const isOffline = (cause: unknown): boolean =>
+  rejectionCode(cause) === 'offline' ||
+  (Predicate.hasProperty(cause, 'cause') && isOffline(cause.cause));
+
 // A refused Mail Profile change leaves the snapshot as it was, with the reason.
 const profileRefusal = (
   snapshot: RegistrationSnapshot,
@@ -209,7 +217,7 @@ const profileRefusal = (
 ): RegistrationState => ({
   ...settled(snapshot),
   profileFailure: Option.match(profileFailureCode(cause), {
-    onNone: () => 'failed' as const,
+    onNone: () => (isOffline(cause) ? 'offline' : 'failed'),
     onSome: ({ code }) => code,
   }),
 });
@@ -289,11 +297,6 @@ class MailboxRemovalRefused extends Schema.TaggedError<MailboxRemovalRefused>()(
     snapshot: RegistrationSnapshotSchema,
   },
 ) {}
-
-// Hosts receive an unreachable service as `unavailable`, with the flow's `offline` as its cause.
-const isOffline = (cause: unknown): boolean =>
-  rejectionCode(cause) === 'offline' ||
-  (Predicate.hasProperty(cause, 'cause') && isOffline(cause.cause));
 
 // A refused deletion, with the account as it stands: the refusal may have settled an earlier
 // unanswered deletion.
