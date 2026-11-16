@@ -2458,7 +2458,7 @@ final class WindowTests: XCTestCase {
       app.typeKey(.downArrow, modifierFlags: .command)
       writingTool("Rewrite the message body", in: window, of: app).click()
       XCTAssertTrue(keep.waitForExistence(timeout: 15))
-      XCTAssertTrue(window.buttons["Try writing help again"].exists)
+      XCTAssertTrue(window.buttons["Try Again to get writing help"].exists)
       let capture = XCTAttachment(screenshot: window.screenshot())
       capture.name = "Writing tools \(state) \(appearance)"
       capture.lifetime = .keepAlways

@@ -404,7 +404,7 @@
     "turnOff": "Turn off on-device assistance",
     "saving": "Saving this device's assistance choice…",
     "saveFailed": "This device's assistance choice could not be saved. Try again before leaving this page.",
-    "retrySave": "Try saving assistance choice again",
+    "retrySave": "Try Again",
     "checkAvailability": "Check Apple Intelligence availability",
     "checking": "Checking Apple Intelligence availability…",
     "available": "Apple Intelligence is available for summaries, rewrites and reply suggestions.",
@@ -598,7 +598,7 @@
     "openLabel": "Open {{name}}",
     "share": "Share",
     "shareLabel": "Share {{name}}",
-    "retryLabel": "Try downloading {{name}} again",
+    "retryLabel": "Try Again to download {{name}}",
     "count_one": "{{count}} attachment",
     "count_other": "{{count}} attachments",
     "more": "Show {{count}} more",
@@ -737,7 +737,7 @@
     "progress": "Translating",
     "translating": "Translating on this device…",
     "cancelLabel": "Cancel translation",
-    "retryLabel": "Translate again",
+    "retryLabel": "Try Again to translate",
     "title": "Translation into {{language}}",
     "disclaimer": "Translated from {{source}} to {{target}} on this device. It may be inaccurate and is not saved.",
     "omitted": "Only the beginning of this long message was translated.",
@@ -803,7 +803,7 @@
     "progress": "Writing",
     "generating": "Writing on this device…",
     "cancelLabel": "Cancel writing help",
-    "retryLabel": "Try writing help again",
+    "retryLabel": "Try Again to get writing help",
     "rewriteTitle": "Rewrite",
     "proofreadTitle": "Proofread",
     "paragraphsTitle": "Break into Paragraphs",
@@ -908,7 +908,7 @@
     "onlineHeading": "From mail servers",
     "searching": "Searching mail servers",
     "more": "More from mail servers",
-    "retry": "Search mail servers again",
+    "retry": "Try Again",
     "onlineEmpty": "Mail servers found no mail matching “{{query}}”.",
     "unavailable": {
       "offline": "The mail server could not be reached. Mail saved on this device is still shown.",
@@ -1243,7 +1243,7 @@
         "incomplete": "{{size}} · Not downloaded from your other devices yet",
         "locked": "{{size}} · Not checked while private storage is locked"
       },
-      "retryLabel": "Check {{name}} again"
+      "retryLabel": "Try Again to check {{name}}"
     },
     "templates": {
       "menu": "Templates",

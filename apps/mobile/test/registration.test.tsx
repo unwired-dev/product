@@ -2425,7 +2425,7 @@ describe('product registration', () => {
       expect(rows()).toHaveLength(3);
     });
     // Asking again searches every mailbox afresh.
-    await press('Search mail servers again');
+    await press('Try Again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });

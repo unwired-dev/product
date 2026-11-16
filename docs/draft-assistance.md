@@ -97,7 +97,7 @@ results for changed details on Mac, and on iPhone and iPad.
   but no Return key equivalent (#1900). iPad sets the changes out as a table
   with the push buttons in a row; iPhone shows each change as its detail, status and
   a `original → rewrite` line, with **Use rewrite with changes** (or **Replace text**)
-  across the panel above Keep original and Try again. When details differ, Keep
+  across the panel above Keep original and Try Again. When details differ, Keep
   original carries the accent fill. It never says a
   result is verified or safe: every finished result ends with a note that the
   checks compare details only and that meaning, questions and commitments need

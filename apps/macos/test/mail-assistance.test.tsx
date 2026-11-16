@@ -393,14 +393,14 @@ describe('account settings availability', () => {
     expect(
       screen.queryByRole('button', { name: 'Summarize this message' }),
     ).not.toBeOnTheScreen();
-    await press('Try saving assistance choice again');
+    await press('Try Again');
     await act(async () => {
       await enablement.load('reopened');
     });
     expect(screen.getByText('On-device assistance is off.')).toBeVisible();
     expect(
       screen.queryByRole('button', {
-        name: 'Try saving assistance choice again',
+        name: 'Try Again',
       }),
     ).not.toBeOnTheScreen();
     expect(assistance.calls).toStrictEqual([]);
@@ -722,7 +722,7 @@ describe('private Cloud consent and readiness', () => {
       screen.getByRole('switch', { name: 'Use Private Cloud' }),
     ).not.toBeChecked();
     expect(screen.queryByText('Not checked yet')).not.toBeOnTheScreen();
-    await press('Try saving assistance choice again');
+    await press('Try Again');
     expect(
       screen.getByRole('switch', { name: 'Use Private Cloud' }),
     ).toBeChecked();

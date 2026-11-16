@@ -3539,7 +3539,7 @@ describe('product registration', () => {
     // The header reports the unreachable server instead of a result count.
     expect(screen.getByText(/ · Offline$/u)).toBeVisible();
     // Asking again searches every mailbox afresh.
-    await press('Search mail servers again');
+    await press('Try Again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });

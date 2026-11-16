@@ -242,7 +242,7 @@ mailbox, or every mailbox under **All inboxes**. The API search excludes spam an
 - **Failures.** Each mailbox that Gmail could not search says why, naming the mailbox
   when the view holds several, while the other mailboxes' results and the saved
   results stay: no connection, a refused grant, which also offers **Allow Gmail
-  access** as a reader would, or another failure. **Search mail servers again** asks every
+  access** as a reader would, or another failure. **Try Again** asks every
   mailbox afresh; a failed next page keeps its place, so **More from mail servers** retries it.
 - **Stale requests.** An answer belongs to the query and the mailboxes' Inboxes it
   was asked of. Changing the query or view, a removed or changed mailbox, or another
