@@ -11,6 +11,35 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## Multiline inputs and the Dynamic Type audit, 2026-11-16
+
+[#2231](https://github.com/unwired-dev/product/issues/2231) traced the composer
+body's Dynamic Type finding with a probe: an uncommitted copy of the
+`registration-performance` journey, run on iPhone 18 Pro with a Release
+Simulator build of a0ce5ae33, Xcode 27.2 (`27B52`), the iOS 27.0 runtime and
+macOS 27.2, in Dark. Host load was 4–187 from other work.
+
+- The finding does not depend on formatting. With the body holding plain
+  "Keyboard reply" before any link, at the default text size, the audit reports
+  the same "Dynamic Type font sizes are partially unsupported" on `Message body`
+  as it does for the linked text and at Accessibility XXXL.
+- A text size change made while the app runs reaches the text. With the
+  reopened Draft open at the default size, `simctl ui content_size` to
+  Accessibility XXXL redrew the body, its link, the labels and Subject at that
+  size within 8 seconds, and Subject grew from 35 to 72 points tall. Changing
+  back to the default size restored the first layout.
+- The cause is in React Native 0.88's iOS text input
+  (`RCTTextInputComponentView`). On a size change it gives the backing text view
+  new default attributes at once. A single-line `UITextField` applies those to
+  all its text, so Subject passes. A multiline `UITextView` uses them only for
+  newly typed text, and its existing text takes the new font when Fabric's
+  layout commits the new size. The audit's finding fits it reading the text
+  before that commit, and an empty field, which has only the typing attributes,
+  passes.
+- The journeys keep the finding as a known gap for React Native's multiline
+  text input. The app has no fix of its own: React Native ships prebuilt
+  (`React-Core-prebuilt`), and what a person sees already follows the size.
+
 ## iPhone and iPad composer at the largest text size, 2026-11-16
 
 [#2230](https://github.com/unwired-dev/product/issues/2230), part of
