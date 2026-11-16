@@ -1866,9 +1866,11 @@ const offsetDefaults = (element: Element, columns: Columns | undefined) => {
 // A table is at least as wide as its width, so inside a sender box that width is bounded by
 // what the table's margins leave of the box; its borders and padding lie within it (#2213).
 const boxedTableWidth = (style: FilteredStyle, table: Element) => {
-  const width =
+  const width = senderWidth(
     style.retained.get('width') ??
-    attributeOf(table, 'width')?.trim().replace(/^\d+$/u, '$&px');
+      attributeOf(table, 'width')?.trim().replace(/^\d+$/u, '$&px') ??
+      '',
+  );
   if (!definite(width)) {
     return style;
   }
@@ -2737,6 +2739,16 @@ interface Pass {
   readonly glyphs: Map<DefaultTreeAdapterTypes.TextNode, number>;
 }
 
+const workLimit = () => {
+  let work = 1_000_000;
+  return (slots: number) => {
+    work -= slots;
+    if (work < 0) {
+      throw new RangeError('Message table layout exceeds its work limit');
+    }
+  };
+};
+
 interface Walked extends Omit<SanitizedHtml, 'document'> {
   readonly output: string;
   // Each element's emitted style declarations.
@@ -2838,13 +2850,9 @@ function walk(
   // Cells of collapsed table columns, which WebKit would not show.
   const collapsed = new Set<Element>();
   // One bound across every table, including nested ones, before span expansion or slot scans.
-  let tableWork = 1_000_000;
-  const spendTableWork = (slots: number) => {
-    tableWork -= slots;
-    if (tableWork < 0) {
-      throw new RangeError('Message table layout exceeds its work limit');
-    }
-  };
+  const spendTableWork = workLimit();
+  // Counting columns for sender boxes has its own bound, so it leaves table layout's intact.
+  const spendColumnWork = workLimit();
 
   // Text newlines and elements share the run across text nodes and containers.
   const textWithBreakLimit = (value: string) =>
@@ -3190,7 +3198,11 @@ function walk(
       return tableColumns(node, style, {
         room,
         font: fontPixels,
-        count: columnCount(node, spendTableWork, visibility),
+        count: columnCount(
+          node,
+          spendColumnWork,
+          visibilityIn(style, visibility),
+        ),
       });
     }
     return {

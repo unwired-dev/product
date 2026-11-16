@@ -1023,6 +1023,10 @@ describe('rich-reader review regressions', () => {
           '<a href="https://evil.example/4">ppommp</a>',
           'width:0;overflow:hidden',
         ),
+        // A wide CSS table width is bounded by its margins too, and a visible table under a
+        // collapsed box still shares the box among its columns.
+        '<div style="width:300px"><table style="width:400px;margin-left:30px"><tr><td>a</td></tr></table></div>',
+        '<div style="width:60px;visibility:collapse"><table style="visibility:visible"><tr><td>wxyz</td><td>b</td></tr></table></div>',
         // Words that fit their box do not break.
         '<div style="width:120px">Shipping and returns</div>',
       ].join(''),
@@ -1048,6 +1052,8 @@ describe('rich-reader review regressions', () => {
         `<td style="${zero}">a</td>`,
         `<span style="${zero}; font-size: 20px">${broken('Large')}</span>`,
         '<div style="width: 0; box-sizing: content-box; min-width: 4px">',
+        '<table style="margin-left: 30px; width: min(calc(100% - 30px), 400px)">',
+        `<td>${broken('wxyz')}</td>`,
         '<div style="width: 120px">Shipping and returns</div>',
       ].filter((style) => !document.includes(style)),
     ).toStrictEqual([]);
