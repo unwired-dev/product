@@ -165,7 +165,8 @@ on iPhone and iPad. CI runs none of them.
 Every `registration-` session connects any IMAP and SMTP login to a synthetic server.
 It lists INBOX with Sam Rivera's Welcome to IMAP, Sent Messages, the only folder it marks
 (`\Sent`), Bulk Mail with Unwanted offer and Deleted Messages with Old receipt. It accepts
-changes and submissions and discards them. The
+changes and submissions and discards them. The password `unreachable` connects, then
+the server cannot be reached; `expired` connects, then the server refuses it. The
 [Mac IMAP Spam and Trash folder journey](native-journeys.md#mac-imap-spam-and-trash-folder-journey)
 connects it in `registration-performance`, and the
 [iPhone and iPad journey](native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey)

@@ -74,7 +74,7 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   only that mailbox; **All inboxes** returns. Each window chooses on its own. A
   removed mailbox's view falls back to **All inboxes**. A chosen mailbox whose
   provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
-  its heading's subtitle shows the same status as its sidebar row (on Mac, as the
+  its heading's subtitle shows the same status as its sidebar row (on Mac and iPad, as the
   warning beside the mailbox's sidebar header, whose Inbox row keeps its action), and
   **New Message** stays unavailable until access is allowed again.
 - **Labels and other views.** Under its Inbox, each Gmail mailbox's sidebar section
@@ -270,7 +270,11 @@ now** or **Updated 5 minutes ago**, counted from the start of each mailbox's lat
 completed synchronization and taking the oldest of them. Each mailbox saves that time
 with its cache after every successful synchronization, even when no mail changed,
 so it survives relaunch and failed attempts. iPhone's one-line subtitle leaves the time
-out. On iPhone and iPad, while
+out. On iPad, while a shown mailbox needs sign-in again, the subtitle names it after the
+count in place of the mailboxes and the time, such as **12 unread · Gmail needs sign-in**
+([#2243](https://github.com/unwired-dev/product/issues/2243)); the mailbox's sidebar header
+shows a warning triangle that VoiceOver reads with the header, and its Inbox row keeps its
+unread count. On iPhone the problem replaces the Inbox row's count. On iPhone and iPad, while
 [search](#searching-saved-mail) is open the heading gives way to its scope choice,
 and **Top Results** reports the result count; each mailbox an online search could
 not reach says so under **From mail servers**. On Mac, search changes the title to
