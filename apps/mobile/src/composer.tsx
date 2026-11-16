@@ -840,6 +840,23 @@ function SendingNotice({ draft }: { readonly draft: Draft }) {
   );
 }
 
+function FieldLabel({ children }: { readonly children: string }) {
+  const colors = usePalette();
+  const { size } = use(ComposerLayoutContext);
+  const large = useLargeText();
+  return (
+    <Text
+      style={[
+        styles.fieldLabel,
+        layoutStyles[size].fieldLabel,
+        large && styles.stackedLabel,
+        { color: colors.textSecondary },
+      ]}>
+      {children}
+    </Text>
+  );
+}
+
 export function Recipients({
   draft,
   getDraft,
@@ -1016,15 +1033,7 @@ export function Recipients({
           sized.field,
           { borderTopColor: colors.separator },
         ]}>
-        <Text
-          style={[
-            styles.fieldLabel,
-            sized.fieldLabel,
-            large && styles.stackedLabel,
-            { color: colors.textSecondary },
-          ]}>
-          {`${name}:`}
-        </Text>
+        <FieldLabel>{`${name}:`}</FieldLabel>
         <View style={[styles.entries, large && styles.stackedEntries]}>
           {draft[field].map((recipient) => (
             <Pressable
@@ -2130,6 +2139,24 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   return draft.response === undefined ? 'card' : 'docked';
 };
 
+// From sits in the iPad header and on its own row beneath the iPhone header. At the accessibility
+// text sizes the iPad card's From takes its own row too, so Expand and Send stay in view.
+const placeSender = (
+  sender: ReactNode,
+  presentation: Presentation,
+  large: boolean,
+) =>
+  presentation === 'compact' || (large && presentation === 'card')
+    ? {
+        header: null,
+        row: (
+          <View style={styles.fromRow}>
+            <View style={styles.bar}>{sender}</View>
+          </View>
+        ),
+      }
+    : { header: sender, row: null };
+
 // A docked or iPhone response is titled by its kind; otherwise the subject names the Draft. Only a
 // clipped subject is announced as shortened.
 const composerTitle = (
@@ -3169,9 +3196,6 @@ function Editor({
   // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
   const presentation = presentationOf(regular, draft);
   const docked = presentation === 'docked';
-  // At the accessibility text sizes the iPad card's From leaves the header for its own row, as on
-  // iPhone, so Expand and Send stay in view.
-  const ownFromRow = !regular || (large && presentation === 'card');
   const parts = partStyles[presentation];
   const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
   const active = typing ?? marksAt(draft.body, selection);
@@ -3189,6 +3213,7 @@ function Editor({
       }}
     />
   );
+  const senderPlace = placeSender(sender, presentation, large);
   // Send: a tap sends, and a long press opens its menu of Remind Me to Send….
   const sendControl = (titled: boolean) => (
     <SendMenu
@@ -3423,7 +3448,7 @@ function Editor({
           </Text>
           <HeaderControls
             presentation={presentation}
-            sender={ownFromRow ? null : sender}
+            sender={senderPlace.header}
             expanded={expanded}
             onExpand={onExpand}
             discardDisabled={lockedUnless(closing !== 'saving')}
@@ -3440,11 +3465,7 @@ function Editor({
             void saveDraft();
           }}
         />
-        {ownFromRow ? (
-          <View style={styles.fromRow}>
-            <View style={styles.bar}>{sender}</View>
-          </View>
-        ) : null}
+        {senderPlace.row}
         {regular ? formatBar : null}
         <View style={styles.fill}>
           <ScrollView
@@ -3591,15 +3612,7 @@ function Editor({
                   sized.field,
                   { borderTopColor: colors.separator },
                 ]}>
-                <Text
-                  style={[
-                    styles.fieldLabel,
-                    sized.fieldLabel,
-                    large && styles.stackedLabel,
-                    { color: colors.textSecondary },
-                  ]}>
-                  {`${t('drafts.subject')}:`}
-                </Text>
+                <FieldLabel>{`${t('drafts.subject')}:`}</FieldLabel>
                 <TextInput
                   accessibilityLabel={t('drafts.subject')}
                   editable={!sending}
