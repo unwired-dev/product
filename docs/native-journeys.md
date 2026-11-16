@@ -436,8 +436,9 @@ which reopens with both edits and the link's destination. Relaunched at
 Accessibility XXXL ([#2230](https://github.com/unwired-dev/product/issues/2230)),
 the reopened Draft's composer passes the clipped-text audit, expanded on iPad,
 and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
-audit runs too. It permits one finding: the body, a multiline input of styled
-spans like the signature field, fails Dynamic Type once it holds text
+audit runs too. It permits the body, a React Native multiline input like the
+signature field, to fail Dynamic Type once it holds text, plain or formatted,
+although a text size change made in Settings reaches it
 ([#2231](https://github.com/unwired-dev/product/issues/2231)).
 
 These steps still use touch on iPhone and iPad:

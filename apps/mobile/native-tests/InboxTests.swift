@@ -3122,15 +3122,17 @@ final class InboxTests: XCTestCase {
     where [.staticText, .button].contains(issue.element?.elementType)
       && label.hasSuffix("example.invalid"):
       return "email address"
-    // The signature field and the composer's body, multiline text inputs of styled spans, fail the
-    // audit once they hold text (#2231).
+    // React Native's multiline text input, such as the signature field and the composer's body,
+    // fails the audit once it holds text, plain or formatted: on a size change its UITextView
+    // takes the new font only for typing, and its text follows with the next Fabric commit. A size
+    // change made in Settings reaches the text (#2231).
     case .dynamicType
     where issue.element?.elementType == .textView
       && [
         "Signatures", "Composer at the largest text size",
         "Composer fields at the largest text size",
       ].contains(screen):
-      return "formatted text field (#2231)"
+      return "React Native multiline text input (#2231)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
