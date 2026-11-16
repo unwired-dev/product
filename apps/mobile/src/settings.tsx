@@ -1,7 +1,14 @@
 import type { ReactElement, ReactNode } from 'react';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
-import { buttonStyle, tint } from '@expo/ui/swift-ui/modifiers';
+import {
+  buttonBorderShape,
+  buttonStyle,
+  controlSize,
+  disabled as inactive,
+  labelStyle,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
 import {
   ipadListScale,
   radius,
@@ -150,21 +157,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   sidebarList: { padding: 9, paddingTop: 0 },
-  // The panel's top row: Close at its leading end, where Mailboxes has its sidebar toggle. The
-  // frames give it a 32.2pt title bar 16.1pt below the panel's top.
+  // The panel's top row: the 44pt glass Back button 6.9pt below the panel's top and 4.6pt above
+  // the first item, as the frames place it.
   sidebarTop: {
-    height: 48.3,
-    paddingTop: 16.1,
+    height: 55.5,
+    paddingTop: 6.9,
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 9,
-  },
-  close: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
+    paddingHorizontal: 9.2,
   },
   account: {
     flexDirection: 'row',
@@ -371,6 +370,54 @@ function SidebarItem({
   );
 }
 
+// The iPad sidebar's glass Back: to Welcome before sign-in, otherwise to mail.
+function SidebarBack({
+  navigation,
+  onWelcome,
+}: {
+  readonly navigation:
+    | Readonly<{ onInbox: () => void; disabled: boolean }>
+    | undefined;
+  readonly onWelcome: (() => void) | undefined;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const back =
+    onWelcome === undefined
+      ? navigation && {
+          label: t('settings.backToMail'),
+          onPress: navigation.onInbox,
+          disabled: navigation.disabled,
+        }
+      : {
+          label: t('errorReporting.backToWelcome'),
+          onPress: onWelcome,
+          disabled: false,
+        };
+  if (back === undefined) {
+    return null;
+  }
+  return (
+    <Host matchContents>
+      <SwiftUIButton
+        label={back.label}
+        systemImage="chevron.left"
+        onPress={() => {
+          back.onPress();
+        }}
+        modifiers={[
+          labelStyle('iconOnly'),
+          buttonStyle('glass'),
+          buttonBorderShape('circle'),
+          controlSize('large'),
+          tint(colors.textPrimary),
+          inactive(back.disabled),
+        ]}
+      />
+    </Host>
+  );
+}
+
 // An iPhone row that pushes its destination.
 function DestinationRow({
   icon,
@@ -483,30 +530,10 @@ export function SettingsWorkspace({
             },
           ]}>
           <View style={styles.sidebarTop}>
-            {navigation === undefined ? null : (
-              <Pressable
-                accessibilityLabel={t('settings.close')}
-                accessibilityRole="button"
-                disabled={navigation.disabled}
-                hitSlop={6}
-                onPress={() => {
-                  navigation.onInbox();
-                }}
-                style={({ pressed }) => [
-                  styles.close,
-                  {
-                    backgroundColor: pressed
-                      ? colors.accentSelectionSubtle
-                      : colors.fillQuiet,
-                  },
-                ]}>
-                <SFSymbol
-                  name="xmark"
-                  size={14}
-                  color={colors.textPrimary}
-                />
-              </Pressable>
-            )}
+            <SidebarBack
+              navigation={navigation}
+              onWelcome={onWelcome}
+            />
           </View>
           <ScrollView contentContainerStyle={styles.sidebarList}>
             {onWelcome === undefined ? (
@@ -573,20 +600,12 @@ export function SettingsWorkspace({
                 ))}
               </>
             ) : (
-              <>
-                <SidebarItem
-                  icon="chevron.left"
-                  label={t('errorReporting.backToWelcome')}
-                  selected={false}
-                  onPress={onWelcome}
-                />
-                <SidebarItem
-                  icon="hand.raised"
-                  label={t('settings.destinations.privacy')}
-                  selected
-                  onPress={() => undefined}
-                />
-              </>
+              <SidebarItem
+                icon="hand.raised"
+                label={t('settings.destinations.privacy')}
+                selected
+                onPress={() => undefined}
+              />
             )}
           </ScrollView>
         </View>
