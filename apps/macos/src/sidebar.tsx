@@ -26,7 +26,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { InboxMailbox } from './private-storage.ts';
 
 import { MenuButton, SFSymbol } from './design.tsx';
-import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-list.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
@@ -170,7 +169,7 @@ function Item({
   readonly label: string;
   readonly accessibilityLabel?: string;
   readonly count?: number;
-  // A problem beside the mailbox, in place of its count.
+  // A failed read beside the folder, in place of its count.
   readonly status?: string | undefined;
   readonly selected?: boolean;
   readonly onPress: () => void;
@@ -232,8 +231,20 @@ function Item({
   );
 }
 
-// A section's header: its label, and a trailing disclosure chevron that collapses or expands the
-// section's rows.
+// The warning beside a Mailbox Connection's header while the connection has a problem.
+function HeaderWarning() {
+  const colors = usePalette();
+  return (
+    <SFSymbol
+      name="exclamationmark.triangle.fill"
+      color={colors.statusWarning}
+      size={10}
+    />
+  );
+}
+
+// A section's header: its label, its connection's warning, and a trailing disclosure chevron that
+// collapses or expands the section's rows.
 function SectionHeader({
   label,
   collapsed,
@@ -243,15 +254,16 @@ function SectionHeader({
   readonly label: string;
   readonly collapsed: boolean;
   readonly onToggle: () => void;
-  // A collapsed section keeps its connection's problem in view.
+  // The connection's problem, expanded or collapsed.
   readonly trouble?: string | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const warn = collapsed && trouble !== undefined;
   return (
     <Pressable
-      accessibilityLabel={warn ? `${label}, ${trouble}` : label}
+      accessibilityLabel={
+        trouble === undefined ? label : `${label}, ${trouble}`
+      }
       // A control, so VoiceOver finds the disclosure among buttons; AppKit's header role is static
       // text.
       accessibilityRole="button"
@@ -269,13 +281,7 @@ function SectionHeader({
         style={[styles.section, { color: colors.textSecondary }]}>
         {label}
       </Text>
-      {warn ? (
-        <SFSymbol
-          name="exclamationmark.triangle.fill"
-          color={colors.statusWarning}
-          size={10}
-        />
-      ) : null}
+      {trouble === undefined ? null : <HeaderWarning />}
       <SFSymbol
         name={collapsed ? 'chevron.right' : 'chevron.down'}
         color={colors.textSecondary}
@@ -309,11 +315,10 @@ const noSubscription = () => () => undefined;
 
 // A Mailbox Connection's folder rows: an IMAP connection's folders, or a Gmail mailbox's Inbox,
 // labels, All Mail, Spam and Trash. A folder or view whose last read failed keeps its warning
-// after another mailbox is chosen; the connection's own problem rides on its Inbox row.
+// after another mailbox is chosen; the connection's own problem is on its header.
 function FolderRows({
   mailbox,
   folders,
-  trouble,
   onView,
 }: {
   readonly mailbox: InboxMailbox;
@@ -325,7 +330,6 @@ function FolderRows({
       selected: boolean;
     }>
   >;
-  readonly trouble: string | undefined;
   readonly onView: (view: MailboxView) => void;
 }) {
   const { t } = useLocalization();
@@ -368,7 +372,7 @@ function FolderRows({
           mailbox: name,
         })}
         count={unread}
-        status={isInbox ? trouble : failure}
+        status={failure}
         selected={selected}
         onPress={() => {
           onView({
@@ -500,7 +504,6 @@ export function Mailboxes({
                     <FolderRows
                       mailbox={mailbox}
                       folders={folders}
-                      trouble={trouble}
                       onView={onView}
                     />
                   ) : null}
@@ -510,19 +513,25 @@ export function Mailboxes({
             const { connection, recovery, selected } = entry.waiting;
             const provider = t(`mailProviders.${connection.provider}`);
             const imap = recovery === 'account';
+            const title = `${provider} · ${connection.address}`;
+            const trouble = imap
+              ? t('mailboxes.states.imap-authorization')
+              : t('mailboxes.states.authorization', { provider });
             return (
               <Fragment key={connection.id}>
                 {/* A connection waiting for authorization keeps its one row and its action in view. */}
-                <Label
+                <View
+                  accessible
                   accessibilityRole="header"
-                  numberOfLines={1}
-                  style={[
-                    styles.section,
-                    styles.sectionRow,
-                    { color: colors.textSecondary },
-                  ]}>
-                  {`${provider} · ${connection.address}`}
-                </Label>
+                  accessibilityLabel={`${title}, ${trouble}`}
+                  style={styles.sectionRow}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.section, { color: colors.textSecondary }]}>
+                    {title}
+                  </Text>
+                  <HeaderWarning />
+                </View>
                 <Item
                   icon="tray"
                   label={t('inbox.title')}
@@ -530,11 +539,6 @@ export function Mailboxes({
                     row: t('inbox.title'),
                     mailbox: connection.address,
                   })}
-                  status={
-                    imap
-                      ? t('mailboxes.states.imap-authorization')
-                      : t('mailboxes.states.authorization', { provider })
-                  }
                   selected={selected}
                   onPress={() => {
                     // IMAP needs its password entered again in Settings' Email Accounts.

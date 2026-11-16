@@ -38,6 +38,7 @@ import {
   removeTrustedDevice,
   syntheticMailboxes,
 } from '@private-email/mail-core/testing/registration-vault';
+import { palette } from '@private-email/mail-core/theme';
 import {
   act,
   fireEvent,
@@ -1650,14 +1651,39 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'Inbox. In other@example.invalid' }),
       );
     });
-    // The unselected mailbox still explains its problem beside its Inbox row.
+    // The unselected mailbox still explains its problem beside its header, expanded and collapsed,
+    // and its Inbox row keeps its unread count.
+    const header = `Gmail · alex@example.invalid, ${unreachable}`;
+    // The warning's colour; color is not its only signal, since the header's name carries it.
+    const warning = () =>
+      screen
+        .getByRole('button', { name: header })
+        .children.flatMap((node) =>
+          typeof node !== 'string' &&
+          node.props.name === 'exclamationmark.triangle.fill'
+            ? [node.props.color]
+            : [],
+        );
     expect([
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
         .props.accessibilityState?.selected,
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
         .props.accessibilityValue?.text,
       screen.queryByText(/Gmail could not be reached/u),
-    ]).toStrictEqual([false, unreachable, null]);
+      warning(),
+    ]).toStrictEqual([false, '1 unread', null, [palette.light.statusWarning]]);
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: header }));
+    });
+    expect([
+      screen.getByRole('button', { name: header }).props.accessibilityState
+        ?.expanded,
+      screen.queryByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+      warning(),
+    ]).toStrictEqual([false, null, [palette.light.statusWarning]]);
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: header }));
+    });
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
@@ -2954,17 +2980,21 @@ describe('product registration', () => {
         'alex@example.invalid: Gmail needs your permission again to show new mail.',
       ),
     ).toHaveProp('accessibilityLiveRegion', 'polite');
-    // The sidebar keeps the connection listed with its problem beside it, and offers the grant.
+    // The sidebar keeps the connection listed with its problem beside its header, and offers the
+    // grant from its Inbox row.
     expect(
       screen.getByRole('button', {
         name: 'Allow Gmail access for alex@example.invalid',
       }),
     ).toBeVisible();
+    expect(
+      screen.getByRole('header', {
+        name: 'Gmail · alex@example.invalid, Gmail needs your permission again',
+      }),
+    ).toBeVisible();
     const alexRow = () =>
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' });
-    expect(alexRow()).toHaveAccessibilityValue({
-      text: 'Gmail needs your permission again',
-    });
+    expect(alexRow().props.accessibilityValue?.text).toBeUndefined();
     await press('Inbox. In alex@example.invalid');
     await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
     expect(alexRow()).toHaveAccessibilityValue({ text: '1 unread' });
