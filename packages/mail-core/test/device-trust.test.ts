@@ -208,6 +208,37 @@ describe('device trust', () => {
     expect(refreshed).toContain(current.id);
   });
 
+  it('checks for an approval by itself without asking Apple to sign in again', async () => {
+    expect.hasAssertions();
+    const { flow, apple, install } = setup();
+    await flow.signIn('apple');
+    const enrolling = install();
+    // Signed in in this process, an Apple device checks silently.
+    const signedIn = await enrolling.flow.signIn('apple');
+    expect(signedIn).toMatchObject({ kind: 'device-pending' });
+    expect(signedIn).not.toHaveProperty('approvalSignIn');
+    const { signIns } = apple;
+    await expect(enrolling.flow.checkForApproval()).resolves.toStrictEqual(
+      signedIn,
+    );
+    expect(apple.signIns).toBe(signIns);
+    // After a relaunch it cannot: the check changes nothing and only the person's check signs in.
+    const relaunched = enrolling.relaunch();
+    const restored = await relaunched.restore();
+    expect(restored).toMatchObject({
+      kind: 'device-pending',
+      approvalSignIn: true,
+    });
+    await expect(relaunched.checkForApproval()).resolves.toStrictEqual(
+      restored,
+    );
+    expect(apple.signIns).toBe(signIns);
+    const asked = await relaunched.refreshPrivateSync();
+    expect(apple.signIns).toBe(signIns + 1);
+    expect(asked).toMatchObject({ kind: 'device-pending' });
+    expect(asked).not.toHaveProperty('approvalSignIn');
+  });
+
   // Replaces ProductSyncTests.recoveryKeyUnlocksANewDeviceWithoutReplacingAccountKeys; its Apple
   // reauthentication stays in the registration flow tests.
   it('unlocks with the Recovery Key only after storing the keys, and changes nothing before', async () => {

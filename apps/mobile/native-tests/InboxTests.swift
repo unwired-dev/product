@@ -1468,9 +1468,19 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.buttons["Choose another Google mailbox"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
-    // The synthetic trusted device approves with the code shown on this device.
-    app.buttons["Check for approval"].tap()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    // The synthetic trusted device approves with the code shown on this device. iPhone's step
+    // collects the approval at its own next check; iPad's waits for the person's.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertTrue(app.staticTexts["Waiting for approval…"].exists)
+      XCTAssertFalse(app.buttons["Check for approval"].exists)
+      let waiting = XCTAttachment(screenshot: app.screenshot())
+      waiting.name = "Waiting for approval"
+      waiting.lifetime = .keepAlways
+      add(waiting)
+    } else {
+      app.buttons["Check for approval"].tap()
+    }
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 30))
     XCTAssertTrue(mailboxes.exists)
     XCTAssertFalse(code.exists)
     // Gmail on this device still needs its own authorization.
@@ -1491,11 +1501,25 @@ final class InboxTests: XCTestCase {
   private func recoveryJourney(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
+    XCTAssertTrue(app.staticTexts["enrollment-code"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Gmail"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
+    // iPhone shows the Recovery Key as its own step, with a way back to the code; iPad shows both.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertFalse(app.staticTexts["Use your Recovery Key"].exists)
+      app.buttons["Use Recovery Key Instead"].tap()
+      XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
+      let recoveryStep = XCTAttachment(screenshot: app.screenshot())
+      recoveryStep.name = "Recovery Key step"
+      recoveryStep.lifetime = .keepAlways
+      add(recoveryStep)
+      app.buttons["Wait for Approval Instead"].tap()
+      XCTAssertTrue(app.staticTexts["enrollment-code"].waitForExistence(timeout: 5))
+      app.buttons["Use Recovery Key Instead"].tap()
+    }
+    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
     // The synthetic account's written Recovery Key, typed as the person would.
     let entry = app.textFields["Recovery Key"]
     enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry, in: app)
@@ -1908,8 +1932,13 @@ final class InboxTests: XCTestCase {
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
-    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].exists)
-    XCTAssertTrue(app.buttons["Check for approval"].exists)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertTrue(app.staticTexts["Waiting for approval…"].exists)
+      XCTAssertTrue(app.buttons["Use Recovery Key Instead"].exists)
+    } else {
+      XCTAssertTrue(app.staticTexts["Use your Recovery Key"].exists)
+      XCTAssertTrue(app.buttons["Check for approval"].exists)
+    }
     XCTAssertFalse(app.buttons["Gmail"].exists)
     XCTAssertFalse(text("This device cannot join", in: app).exists)
     let gate = XCTAttachment(screenshot: app.screenshot())

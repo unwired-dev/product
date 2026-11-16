@@ -205,6 +205,14 @@ const working = ({
   ...(restoring && { restoring }),
 });
 
+// Returning from an authorization sheet, or a quiet check, must not erase unchanged setup feedback.
+const keepsFeedback = (previous: RegistrationState, next: RegistrationState) =>
+  !previous.restoring &&
+  !previous.locked &&
+  !next.locked &&
+  !next.failed &&
+  sameSnapshot(previous.snapshot, next.snapshot);
+
 // Hosts receive an unreachable service as `unavailable`, with the flow's `offline` as its cause.
 const isOffline = (cause: unknown): boolean =>
   rejectionCode(cause) === 'offline' ||
@@ -400,6 +408,9 @@ export function createRegistration(vault: NativeRegistrationVault) {
   // Only within this instance: the native operation gate queues native steps across instances
   // and JavaScript reloads.
   const semaphore = Semaphore.makeUnsafe(1);
+  // A check for approval shows no progress, so an action asked for meanwhile queues behind it; a
+  // second check is dropped.
+  let checking = false;
   type MailboxLoading = 'automatic' | 'explicit';
   type Listener = (
     mailboxLoading?: MailboxLoading,
@@ -441,12 +452,15 @@ export function createRegistration(vault: NativeRegistrationVault) {
     }),
     {
       foreground = false,
+      quiet = false,
       queued = false,
       accountChange,
       mailboxLoading = 'automatic',
       imapSetup,
     }: Readonly<{
       foreground?: boolean;
+      // Shows no progress, and an unchanged status keeps the feedback already shown.
+      quiet?: boolean;
       queued?: boolean;
       accountChange?: 'sign-in' | 'removal';
       mailboxLoading?: MailboxLoading;
@@ -461,7 +475,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
         const previous = state;
         if (foreground) {
           publish({ ...state, busy: true }, mailboxLoading);
-        } else {
+        } else if (!quiet) {
           publish(working(state));
         }
         let repairedImap: string | undefined = undefined;
@@ -548,14 +562,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
               ),
           }),
         );
-        // Returning from an authorization sheet must not erase unchanged setup feedback.
         publish(
-          foreground &&
-            !previous.restoring &&
-            !previous.locked &&
-            !next.locked &&
-            !next.failed &&
-            sameSnapshot(previous.snapshot, next.snapshot)
+          (foreground || quiet) && keepsFeedback(previous, next)
             ? { ...previous, busy: false }
             : next,
           mailboxLoading,
@@ -564,7 +572,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
         (program) =>
-          foreground || queued
+          foreground || queued || (checking && !quiet)
             ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
             : program.pipe(
                 Semaphore.withPermitsIfAvailable(semaphore, 1),
@@ -954,6 +962,22 @@ export function createRegistration(vault: NativeRegistrationVault) {
       execute(request(native.cancelRevocation()), revocationFailed),
     // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync())),
+    // A Pending Device's own repeated check: a failure leaves the status as it was for the next.
+    checkForApproval: () =>
+      execute(
+        Effect.sync(() => {
+          checking = true;
+        }).pipe(
+          Effect.andThen(request(native.checkForApproval())),
+          Effect.ensuring(
+            Effect.sync(() => {
+              checking = false;
+            }),
+          ),
+        ),
+        () => state,
+        { quiet: true },
+      ),
     // Background work learned of a newer key epoch; a failure leaves the status as it was.
     adoptKeyRotation: () =>
       execute(request(native.adoptKeyRotation()), settled, {

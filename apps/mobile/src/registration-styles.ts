@@ -136,6 +136,8 @@ export const registrationStyles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   device: { gap: 8 },
+  // A trust step's alternative, a text button centred under the step.
+  stepLink: { alignSelf: 'center' },
   // A warning beside its message, or a pending action after its busy indicator.
   inline: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
 });

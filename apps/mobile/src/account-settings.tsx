@@ -13,16 +13,24 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 
+import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  buttonStyle,
+  font,
+  foregroundStyle,
+  frame,
+} from '@expo/ui/swift-ui/modifiers';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import {
   profilesOf,
   recoveryKeyEntry,
 } from '@private-email/mail-core/registration';
 import { palette, typography } from '@private-email/mail-core/theme';
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  AppState,
   Platform,
   Pressable,
   Text,
@@ -38,6 +46,7 @@ import {
   MenuButton,
   Notice,
   SFSymbol,
+  useOutcomeAnnouncement,
 } from './design.tsx';
 import { ImapSetup } from './imap-setup.tsx';
 import { useLocalization } from './localization.ts';
@@ -61,6 +70,11 @@ import { TrustedDevices } from './trusted-devices.tsx';
 
 // The device a failed removal names.
 const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
+// iPhone draws trust steps on the brand fill, one step at a time.
+const phone = Platform.OS === 'ios' && !Platform.isPad;
+// How often the iPhone approval step checks for its approval while it is on screen and the app is
+// not in the background; a request and its approval each last 15 minutes.
+const approvalInterval = 10_000;
 
 // Confirms removing a Mailbox Connection. It stays open until removal settles, and a failure
 // replaces the description and is announced at once.
@@ -522,15 +536,94 @@ function useCardButton(store: Registration) {
   };
 }
 
+// A trust step's alternative: a text button in the brand step's ink.
+function StepLink({
+  label,
+  onPress,
+}: {
+  readonly label: string;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  return (
+    <Host
+      matchContents
+      style={styles.stepLink}>
+      <SwiftUIButton
+        label={label}
+        modifiers={[
+          buttonStyle('plain'),
+          font({ textStyle: 'headline' }),
+          foregroundStyle(colors.brandOnDeep),
+          frame({ minWidth: 44, minHeight: 44 }),
+        ]}
+        onPress={onPress}
+      />
+    </Host>
+  );
+}
+
+// The iPhone approval step waits for a trusted device by checking for itself, so its line stays
+// true. VoiceOver hears it once; a check that cannot finish, such as offline, changes nothing and
+// the next one tries again. An Apple sign-in from before launch cannot check silently, so the
+// person checks once and signs in.
+function WaitingForApproval({ store }: { readonly store: Registration }) {
+  const { t } = useLocalization();
+  const card = useCardButton(store);
+  const { snapshot } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const silent =
+    snapshot.kind !== 'device-pending' || snapshot.approvalSignIn !== true;
+  const label = t('enrollment.waiting');
+  useOutcomeAnnouncement(silent ? label : undefined, true);
+  useEffect(() => {
+    if (!silent) {
+      return;
+    }
+    let timer: ReturnType<typeof setInterval> | undefined = undefined;
+    const watch = (state: typeof AppState.currentState) => {
+      clearInterval(timer);
+      timer =
+        state === 'background'
+          ? undefined
+          : setInterval(() => {
+              void store.checkForApproval();
+            }, approvalInterval);
+    };
+    watch(AppState.currentState);
+    const subscription = AppState.addEventListener('change', watch);
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, [silent, store]);
+  if (!silent) {
+    return card(t('enrollment.check'), store.refreshPrivateSync, 'accent');
+  }
+  // The brand step's secondary ink.
+  const ink = palette.dark.textSecondary;
+  return (
+    <View style={styles.inline}>
+      <ActivityIndicator
+        size="small"
+        color={ink}
+      />
+      <Text style={[styles.removalText, { color: ink }]}>{label}</Text>
+    </View>
+  );
+}
+
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
 function PrivateSync({
   copy,
   failure,
   store,
+  onRecoveryKey,
 }: {
   readonly copy: RegistrationScreen['privateSync']['copy'];
   readonly failure: RecoveryKeyFailure | undefined;
   readonly store: Registration;
+  // On iPhone, opens the Recovery Key step from the approval step.
+  readonly onRecoveryKey?: (() => void) | undefined;
 }) {
   const schemeColors = usePalette();
   const { t } = useLocalization();
@@ -640,8 +733,18 @@ function PrivateSync({
           ]}>
           {enrollmentCode.replaceAll('-', ' ')}
         </Text>
-        {card(t('enrollment.check'), store.refreshPrivateSync, 'accent')}
+        {brand ? (
+          <WaitingForApproval store={store} />
+        ) : (
+          card(t('enrollment.check'), store.refreshPrivateSync, 'accent')
+        )}
         {notes}
+        {onRecoveryKey === undefined ? null : (
+          <StepLink
+            label={t('enrollment.useRecoveryKey')}
+            onPress={onRecoveryKey}
+          />
+        )}
       </TrustCard>
     );
   }
@@ -661,11 +764,14 @@ function RecoveryKeyUnlock({
   offered,
   failure,
   store,
+  onBack,
 }: {
   // Recovery Key entry is offered only where the account has keys that this device lacks.
   readonly offered: boolean;
   readonly failure: RecoveryFailure | undefined;
   readonly store: Registration;
+  // On iPhone, returns to the approval step.
+  readonly onBack?: () => void;
 }) {
   const schemeColors = usePalette();
   const brand = Platform.OS === 'ios' && !Platform.isPad;
@@ -721,9 +827,75 @@ function RecoveryKeyUnlock({
           'accent',
         )}
         {brand ? null : notice}
+        {onBack === undefined ? null : (
+          <StepLink
+            label={t('enrollment.waitInstead')}
+            onPress={onBack}
+          />
+        )}
       </TrustCard>
       {brand ? notice : null}
     </>
+  );
+}
+
+// A Pending Device's Enrollment Code and Recovery Key. iPhone shows them as separate steps, each
+// offering the other as a text button.
+function PendingApproval({
+  copy,
+  offersRecovery,
+  recoveryFailure,
+  recoveryKeyFailure,
+  store,
+}: {
+  readonly copy: RegistrationScreen['privateSync']['copy'];
+  readonly offersRecovery: boolean;
+  readonly recoveryFailure: RecoveryFailure | undefined;
+  readonly recoveryKeyFailure: RecoveryKeyFailure | undefined;
+  readonly store: Registration;
+}) {
+  const [recovering, setRecovering] = useState(false);
+  if (!phone) {
+    return (
+      <>
+        <PrivateSync
+          copy={copy}
+          failure={recoveryKeyFailure}
+          store={store}
+        />
+        <RecoveryKeyUnlock
+          offered={offersRecovery}
+          failure={recoveryFailure}
+          store={store}
+        />
+      </>
+    );
+  }
+  if (recovering && offersRecovery) {
+    return (
+      <RecoveryKeyUnlock
+        offered
+        failure={recoveryFailure}
+        store={store}
+        onBack={() => {
+          setRecovering(false);
+        }}
+      />
+    );
+  }
+  return (
+    <PrivateSync
+      copy={copy}
+      failure={recoveryKeyFailure}
+      store={store}
+      onRecoveryKey={
+        offersRecovery
+          ? () => {
+              setRecovering(true);
+            }
+          : undefined
+      }
+    />
   );
 }
 
@@ -964,20 +1136,23 @@ export function AccountSettings({
     />
   );
   if (snapshot.kind === 'device-pending') {
-    return shows('account') ? (
+    if (!shows('account')) {
+      return null;
+    }
+    return privateSync.copy?.enrollmentCode === undefined ? (
       <>
-        {privateSync.copy?.enrollmentCode === undefined ? (
-          button(t('enrollment.check'), store.refreshPrivateSync)
-        ) : (
-          <PrivateSync
-            copy={privateSync.copy}
-            failure={recoveryKeyFailure}
-            store={store}
-          />
-        )}
+        {button(t('enrollment.check'), store.refreshPrivateSync)}
         {recovery}
       </>
-    ) : null;
+    ) : (
+      <PendingApproval
+        copy={privateSync.copy}
+        offersRecovery={privateSync.offersRecovery}
+        recoveryFailure={recoveryFailure}
+        recoveryKeyFailure={recoveryKeyFailure}
+        store={store}
+      />
+    );
   }
   return (
     <>

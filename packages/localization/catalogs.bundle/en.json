@@ -490,6 +490,9 @@
   },
   "enrollment": {
     "check": "Check for approval",
+    "waiting": "Waiting for approval…",
+    "useRecoveryKey": "Use Recovery Key Instead",
+    "waitInstead": "Wait for Approval Instead",
     "find": "Check for a new device",
     "title": "Approve a new device",
     "description": "Your {{device}} asked to unlock your private data. Approve it only if it is your device and shows a code. Enter that code here.",

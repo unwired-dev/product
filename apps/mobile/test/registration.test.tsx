@@ -2731,13 +2731,17 @@ describe('product registration', () => {
       'accessibilityLabel',
       code,
     );
+    // On iPhone the step waits for approval by itself and keeps the Recovery Key a step away.
+    expect(screen.getByText('Waiting for approval…')).toBeVisible();
     for (const name of [
-      'Check for approval',
-      'Unlock with Recovery Key',
+      'Use Recovery Key Instead',
       english('accountRemoval.signOut'),
       english('accountRemoval.delete'),
     ]) {
       expect(screen.getByRole('button', { name })).toBeVisible();
+    }
+    for (const name of ['Check for approval', 'Unlock with Recovery Key']) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
     }
     expect(screen.queryByText(/Encrypted mailbox list/u)).toBeNull();
     expect(screen.queryByLabelText('Last four characters')).toBeNull();
@@ -2772,9 +2776,18 @@ describe('product registration', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     await view.unmount();
 
-    // The approved device reads the synchronized mailbox list; Gmail still needs its own grant.
-    await show(added);
-    await press('Check for approval');
+    // The waiting device collects the approval at its next check and reads the synchronized
+    // mailbox list; Gmail still needs its own grant.
+    jest.useFakeTimers();
+    try {
+      await show(added);
+      expect(screen.getByText('Waiting for approval…')).toBeVisible();
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(10_000);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
     await expect(
       screen.findByRole('header', { name: 'Private sync is on' }),
     ).resolves.toBeVisible();
@@ -2818,15 +2831,23 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     await view.unmount();
 
-    // A new device offers the Recovery Key beside approval, and explains that losing both
-    // leaves the encrypted data locked; nothing offers to reset it.
+    // A new device offers the Recovery Key as its own step instead of approval, and explains that
+    // losing both leaves the encrypted data locked; nothing offers to reset it.
     view = await show(added);
     await press('Continue');
     await press('Sign in with Google');
+    await press('Use Recovery Key Instead');
     await expect(
       screen.findByRole('header', { name: 'Use your Recovery Key' }),
     ).resolves.toBeVisible();
+    expect(screen.queryByTestId('enrollment-code')).toBeNull();
+    // The way back returns to the approval step and its code.
+    await press('Wait for Approval Instead');
     expect(screen.getByTestId('enrollment-code')).toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'Use your Recovery Key' }),
+    ).toBeNull();
+    await press('Use Recovery Key Instead');
     expect(
       screen.getByText(/encrypted product data cannot be recovered/u),
     ).toBeVisible();
@@ -2841,7 +2862,7 @@ describe('product registration', () => {
       /does not unlock this Unwired account/u,
     );
     expect(
-      screen.getByRole('header', { name: 'Approve this device' }),
+      screen.getByRole('header', { name: 'Add this device' }),
     ).toBeVisible();
     await act(async () => {
       await fireEvent.changeText(
@@ -4272,6 +4293,11 @@ describe('product registration', () => {
     expect(
       screen.queryByRole('header', { name: 'Private sync is on' }),
     ).toBeNull();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Use Recovery Key Instead' }),
+      );
+    });
     await act(async () => {
       await fireEvent.changeText(
         screen.getByLabelText('Recovery Key'),
