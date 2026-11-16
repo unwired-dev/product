@@ -408,7 +408,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
   // Only within this instance: the native operation gate queues native steps across instances
   // and JavaScript reloads.
   const semaphore = Semaphore.makeUnsafe(1);
-  // A check for approval shows no progress, so an action asked for meanwhile queues behind it.
+  // A check for approval shows no progress, so an action asked for meanwhile queues behind it; a
+  // second check is dropped.
   let checking = false;
   type MailboxLoading = 'automatic' | 'explicit';
   type Listener = (
@@ -571,7 +572,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
         (program) =>
-          foreground || queued || checking
+          foreground || queued || (checking && !quiet)
             ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
             : program.pipe(
                 Semaphore.withPermitsIfAvailable(semaphore, 1),
