@@ -316,6 +316,28 @@ opens them pre-filled; Escape keeps them. Both sheets pass an accessibility audi
 the All Mail notice and Email Accounts behind them, audited without a sheet in front. Each
 step's capture is kept as an attachment. VoiceOver speech is not covered.
 
+## Mac sidebar connection problem journey
+
+The `testSidebarConnectionProblem` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2235](https://github.com/unwired-dev/product/issues/2235)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testSidebarConnectionProblem
+```
+
+Settings › Email Accounts connects the synthetic IMAP server with the password
+`unreachable`, which it accepts at Connect and then cannot be reached with. The
+connection's sidebar header then names the problem with its title and shows the
+warning triangle; the connection was never listed, so its section has no folder rows.
+The sidebar passes an accessibility audit. Clicking the header collapses the section
+and the header still names the problem; clicking it again expands it. The expanded
+and collapsed sidebars are kept as attachments. The Inbox row's unread count is
+covered by the Mac Jest tests. VoiceOver speech is not covered.
+
 ## iPhone and iPad IMAP Spam and Trash folder journey
 
 The Expo native journey for a `registration-imap-folders` Release build signs in

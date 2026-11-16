@@ -38,6 +38,7 @@ import {
   removeTrustedDevice,
   syntheticMailboxes,
 } from '@private-email/mail-core/testing/registration-vault';
+import { palette } from '@private-email/mail-core/theme';
 import {
   act,
   fireEvent,
@@ -1650,14 +1651,59 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'Inbox. In other@example.invalid' }),
       );
     });
-    // The unselected mailbox still explains its problem beside its Inbox row.
-    expect([
-      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
-        .props.accessibilityState?.selected,
-      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
-        .props.accessibilityValue?.text,
-      screen.queryByText(/Gmail could not be reached/u),
-    ]).toStrictEqual([false, unreachable, null]);
+    // The unselected mailbox still explains its problem beside its header, expanded and collapsed,
+    // and its Inbox row keeps its unread count.
+    const header = `Gmail · alex@example.invalid, ${unreachable}`;
+    // The header's state and symbols; colour is not the only signal, since its name carries the
+    // problem.
+    const shown = () => {
+      const button = screen.getByRole('button', { name: header });
+      return {
+        expanded: button.props.accessibilityState?.expanded,
+        symbols: button.children
+          .filter((node) => typeof node !== 'string')
+          .map(({ props }) => [props.name, props.color]),
+        inbox: screen.queryByRole('button', {
+          name: 'Inbox. In alex@example.invalid',
+        })?.props,
+      };
+    };
+    const expanded = shown();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: header }));
+    });
+    const collapsed = shown();
+    const symbols = (chevron: string) => [
+      expect.anything(),
+      ['exclamationmark.triangle.fill', palette.light.statusWarning],
+      [chevron, palette.light.textSecondary],
+    ];
+    expect({
+      expanded: {
+        ...expanded,
+        inbox: [
+          expanded.inbox?.accessibilityState?.selected,
+          expanded.inbox?.accessibilityValue?.text,
+        ],
+      },
+      collapsed,
+      notice: screen.queryByText(/Gmail could not be reached/u),
+    }).toStrictEqual({
+      expanded: {
+        expanded: true,
+        symbols: symbols('chevron.down'),
+        inbox: [false, '1 unread'],
+      },
+      collapsed: {
+        expanded: false,
+        symbols: symbols('chevron.right'),
+        inbox: undefined,
+      },
+      notice: null,
+    });
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: header }));
+    });
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
@@ -2954,17 +3000,21 @@ describe('product registration', () => {
         'alex@example.invalid: Gmail needs your permission again to show new mail.',
       ),
     ).toHaveProp('accessibilityLiveRegion', 'polite');
-    // The sidebar keeps the connection listed with its problem beside it, and offers the grant.
+    // The sidebar keeps the connection listed with its problem beside its header, and offers the
+    // grant from its Inbox row.
     expect(
       screen.getByRole('button', {
         name: 'Allow Gmail access for alex@example.invalid',
       }),
     ).toBeVisible();
+    expect(
+      screen.getByRole('header', {
+        name: 'Gmail · alex@example.invalid, Gmail needs your permission again',
+      }),
+    ).toBeVisible();
     const alexRow = () =>
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' });
-    expect(alexRow()).toHaveAccessibilityValue({
-      text: 'Gmail needs your permission again',
-    });
+    expect(alexRow().props.accessibilityValue?.text).toBeUndefined();
     await press('Inbox. In alex@example.invalid');
     await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
     expect(alexRow()).toHaveAccessibilityValue({ text: '1 unread' });

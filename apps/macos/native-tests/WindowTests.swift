@@ -1651,6 +1651,83 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text(chosen, in: settings).exists)
   }
 
+  // #2235: a Mailbox Connection's problem stays beside its sidebar header, expanded and collapsed.
+  func testSidebarConnectionProblem() throws {
+    try sidebarConnectionProblem(appearance: "Light")
+  }
+
+  func testSidebarConnectionProblemDark() throws {
+    try sidebarConnectionProblem(appearance: "Dark")
+  }
+
+  private func sidebarConnectionProblem(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
+    // The synthetic IMAP server accepts this password, then cannot be reached.
+    let address = "pat@example.invalid"
+    app.typeKey(",", modifierFlags: .command)
+    let settings = app.windows["settings-window"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Email Accounts"].click()
+    settings.buttons["Add an IMAP mailbox"].click()
+    settings.buttons["Other IMAP Account"].click()
+    for (label, value) in [
+      ("Email address", address), ("User name", "pat"), ("IMAP server", "imap.example.invalid"),
+      ("SMTP server", "smtp.example.invalid"),
+    ] {
+      let field = settings.textFields[label]
+      XCTAssertTrue(field.waitForExistence(timeout: 15))
+      field.click()
+      field.typeText(value)
+    }
+    let password = settings.secureTextFields["Password"]
+    password.click()
+    password.typeText("unreachable")
+    XCTAssertTrue(settings.buttons["Connect"].waitForExistence(timeout: 15))
+    settings.buttons["Connect"].click()
+    XCTAssertTrue(settings.buttons["Choose Folders… \(address)"].waitForExistence(timeout: 60))
+    app.typeKey("w", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
+
+    // The header names the problem with its title, expanded and collapsed. The connection was never
+    // listed, so its section has no folder rows to keep.
+    let problem = "The mail server could not be reached"
+    let header = window.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "IMAP · \(address)")
+    ).firstMatch
+    XCTAssertTrue(header.waitForExistence(timeout: 30))
+    waitUntil { header.label.contains(problem) }
+    XCTAssertEqual(header.value as? String, "expanded")
+    // The new section is last; scroll the sidebar to it so the captures show the header.
+    header.scroll(byDeltaX: 0, deltaY: -600)
+    attach("Expanded with a problem")
+    try audit(app, "Sidebar with a problem")
+    header.click()
+    waitUntil { header.value as? String == "Collapsed" }
+    XCTAssertTrue(header.label.contains(problem))
+    attach("Collapsed with a problem")
+    header.click()
+    waitUntil { header.value as? String == "expanded" }
+    XCTAssertTrue(header.label.contains(problem))
+  }
+
   // #1901: moving the Microsoft mailbox into a Work Mail Profile takes its messages, Search
   // results and Drafts to Work's window only, beside a Primary Profile window that keeps the
   // Gmail mailbox; moving it back restores them to the Primary Profile.

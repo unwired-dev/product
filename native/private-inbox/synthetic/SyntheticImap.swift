@@ -6,6 +6,9 @@
   // its changes and submissions are accepted and discarded.
   struct SyntheticImap: ImapProvider {
     static let uidValidity: UInt32 = 1
+    // A connection with this password connects, then cannot be reached, so its Inbox shows the
+    // connection's problem.
+    static let unreachable = "unreachable"
     // Folders as the server lists them, with their messages by UID.
     static let folders: [(folder: ImapListedFolder, messages: [ImapEnvelope])] = [
       (listed("INBOX"), [envelope(1, "Sam Rivera", "sam@example.invalid", "Welcome to IMAP")]),
@@ -33,11 +36,13 @@
 
     func verify(_ account: ImapAccount, password: String) async throws {}
     func open(_ account: ImapAccount, password: String) async throws -> any ImapSession {
-      SyntheticImapSession()
+      if password == Self.unreachable { throw ImapFailure.offline }
+      return SyntheticImapSession()
     }
     func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest) async throws
       -> ImapHistoryPage
     {
+      if password == Self.unreachable { throw ImapFailure.offline }
       let all = try Self.messages(request.folder)
       let shown = all.filter { $0.uid >= request.above && $0.uid < (request.below ?? .max) }
       let kept = Array(shown.suffix(request.limit))
