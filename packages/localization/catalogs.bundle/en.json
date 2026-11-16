@@ -1561,7 +1561,7 @@
     "signature": "Signature for {{address}}",
     "none": "None",
     "delete": "Delete",
-    "changeFailed": "The signature could not be changed. Try again later.",
+    "changeFailed": "Your signature change wasn’t saved. Check your connection and try again.",
     "noIdentities": "Add an email account that can send mail to give it a signature."
   },
   "notifications": {
@@ -1580,7 +1580,7 @@
     "mailbox": "{{provider}} · {{address}}",
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",
     "noMailboxes": "Add a mailbox to choose its notifications.",
-    "changeFailed": "Notifications could not be changed. Try again later.",
+    "changeFailed": "Notifications for this account weren’t changed. Check your connection and try again.",
     "replyFrom": "Reply from {{address}}",
     "replyTo": "Reply to {{sender}}",
     "replySending": "Sending in {{seconds}} seconds from {{address}}",

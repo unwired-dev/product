@@ -3579,7 +3579,9 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByText('Notifications could not be changed. Try again later.'),
+      screen.findByText(
+        'Notifications for this account weren’t changed. Check your connection and try again.',
+      ),
     ).resolves.toBeVisible();
     expect({
       native,
@@ -3754,7 +3756,9 @@ describe('product registration', () => {
     await type('Offline');
     await leave();
     await expect(
-      screen.findByText('The signature could not be changed. Try again later.'),
+      screen.findByText(
+        'Your signature change wasn’t saved. Check your connection and try again.',
+      ),
     ).resolves.toBeVisible();
     expect(within(editor()).getByText('Alex')).toBeVisible();
     expect(signatures()[0]).toStrictEqual(['alex@example.invalid', signed]);
