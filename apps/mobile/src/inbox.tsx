@@ -483,8 +483,11 @@ function statusOf(
   if (downloading !== undefined) {
     return downloading;
   }
+  // iPhone's short heading says All read, as its frames draw it; iPad's keeps the Mac wording.
   const status =
-    unread === 0 ? t('inbox.noUnread') : t('inbox.unread', { count: unread });
+    unread === 0
+      ? t(ipad ? 'inbox.noUnread' : 'inbox.allRead')
+      : t('inbox.unread', { count: unread });
   if (!ipad || !inbox) {
     return status;
   }
