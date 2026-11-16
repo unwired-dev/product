@@ -3220,6 +3220,24 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Synthetic summary of local mail."].waitForExistence(timeout: 10))
     app.buttons["Dismiss summary"].tap()
     XCTAssertTrue(app.buttons["Summarize this message"].waitForExistence(timeout: 10))
+    // Translate translates into the app language in one tap (#2232).
+    app.buttons["Translate this message"].tap()
+    XCTAssertTrue(
+      app.staticTexts["Synthetic translation of local mail."].waitForExistence(timeout: 10))
+    let translated = XCTAttachment(screenshot: app.screenshot())
+    translated.name = "Translated message"
+    translated.lifetime = .keepAlways
+    add(translated)
+    // The arrow's system menu translates into another language and names it.
+    menuControl("German", from: "Translate into", in: app).tap()
+    XCTAssertTrue(app.staticTexts["German"].firstMatch.waitForExistence(timeout: 10))
+    let chosen = XCTAttachment(screenshot: app.screenshot())
+    chosen.name = "Translated message into German"
+    chosen.lifetime = .keepAlways
+    add(chosen)
+    app.buttons["Dismiss translation"].tap()
+    XCTAssertTrue(
+      app.staticTexts["Synthetic translation of local mail."].waitForNonExistence(timeout: 10))
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Selected message"
     shot.lifetime = .keepAlways

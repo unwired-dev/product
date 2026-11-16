@@ -12,7 +12,9 @@ fallback and nothing is downloaded by the app.
 ## Behavior
 
 - The reader shows **Translate** once the message body is on this device, next to
-  **Summarize**. Opening a message never translates it.
+  **Summarize** on Mac and in a translation panel below it on iPhone and iPad
+  ([#2232](https://github.com/unwired-dev/product/issues/2232)). Opening a message
+  never translates it.
 - **Translate** is a split control: **Translate** and a language arrow
   ([#2050](https://github.com/unwired-dev/product/issues/2050)). **Translate**
   translates the message into the app language in one click. The arrow opens a
@@ -22,8 +24,9 @@ fallback and nothing is downloaded by the app.
   pending or shown translation. Opening the menu chooses nothing, and no mail text
   is sent until **Translate** or a language is chosen. On Mac the control sits in
   the reader header and the menu reads the language list once assistance is on, so
-  it can open with it. On iPhone and iPad it sits in the translation panel and the
-  system menu opens from the arrow.
+  it can open with it. On iPhone and iPad it sits in the translation panel, under
+  **Translate this message** on iPhone and beside the on-device symbol on iPad, and
+  the system menu opens from the arrow.
 - When the device's Translation fails to list its languages, the reader says
   **Translation languages couldn’t be loaded.** with **Try Again**, which asks the
   device again. On Mac this banner takes the place of **Translate** and stays
@@ -31,8 +34,7 @@ fallback and nothing is downloaded by the app.
   device answers; a Draft's
   translation menu shows the failure followed by **Try Again**; on iPhone and iPad it
   takes the place of the language arrow in the translation panel. VoiceOver hears
-  a failure that follows the person's action: opening the panel on iPhone and iPad,
-  or **Try Again**. A device that lists no languages instead says **Translation is
+  a failure that follows **Try Again**. A device that lists no languages instead says **Translation is
   not available on this device.**, without **Try Again**.
 - A reader translation reads only the readable text already shown: the plain-text
   presentation of a Gmail or Microsoft body from the encrypted cache, or the preview fixture's
@@ -116,9 +118,13 @@ only an allow-listed native code or decode path, never mail or translated text.
   drive the real reader with the real Gmail store and a synthetic Gmail mailbox:
   translating reads only the local text and makes no Gmail request, an uninstalled
   language leaves the message readable, cancellation, and switching message,
-  mailbox store or account drops a late or shown result. On Mac they also cover
+  mailbox store or account drops a late or shown result. They also cover
   **Translate** into the app language in one click and the arrow's menu, which
   leaves the app language out and is named after another chosen language.
+- The Expo Inbox journey taps **Translate this message** in the packaged iPhone
+  and iPad builds, checks the mock translation, then chooses German from the
+  arrow's menu and checks that the arrow names it. It attaches "Translated
+  message" and "Translated message into German".
 - The composer tests in both hosts select Draft text, review a translation, apply
   it as one undoable edit without touching recipients, keep the original, and drop
   a pending translation when the body is edited.

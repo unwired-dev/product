@@ -8,10 +8,11 @@ import type {
   TranslationState,
 } from '@private-email/mail-core/translation';
 import type { ReactNode } from 'react';
-import type { TurboModule } from 'react-native';
+import type { StyleProp, TurboModule, ViewStyle } from 'react-native';
 
+import { languages as appLanguages } from '@private-email/localization';
 import { draftTextIssue } from '@private-email/mail-core/assistance';
-import { radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import {
   canRetryTranslation,
   createTranslation,
@@ -33,6 +34,8 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Platform,
+  Pressable,
   StyleSheet,
   Text,
   TurboModuleRegistry,
@@ -74,7 +77,40 @@ const styles = StyleSheet.create({
   title: { ...textStyles.subheadline, fontWeight: '600' },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.subheadline },
+  // The reader's panel is the frames' Translation Banner: the quiet fill without a border. iPad
+  // draws it as the iPhone recipe at 1.15×.
+  banner: {
+    borderWidth: 0,
+    gap: 10,
+    paddingVertical: spacing.m,
+    paddingHorizontal: spacing.l,
+  },
+  padBanner: {
+    gap: 9.2,
+    paddingVertical: 9.2,
+    paddingHorizontal: 13.8,
+    borderRadius: radius.card * 1.15,
+  },
+  heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  // Translate | ⌄: iPhone draws it as a 44pt capsule on the content surface, iPad as plain text
+  // beside the panel's symbol.
+  split: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  capsule: { borderRadius: 22, borderCurve: 'continuous', overflow: 'hidden' },
+  splitHalf: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  divider: { width: 1, height: 18 },
 });
+
+const pad = Platform.OS === 'ios' && Platform.isPad;
 
 interface TranslationModule extends TurboModule, NativeTranslation {}
 
@@ -364,37 +400,39 @@ function Outcome({
 // The language choice, progress and outcome for one captured input, above the owner's actions.
 function TranslationPanel({
   label,
+  languages,
+  chooser,
   target,
-  onTarget,
   translation,
   actions,
+  style,
 }: {
   readonly label: string;
+  // The device's language list, which also names a translation's source language.
+  readonly languages: Languages;
+  readonly chooser: ReactNode;
   readonly target: TranslationLanguage | undefined;
-  readonly onTarget: (language: TranslationLanguage) => void;
   readonly translation: ReturnType<typeof useTranslation>;
   readonly actions: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const [languages, reload] = useLanguages(
-    translation.native,
-    translation.enabled,
-  );
   const { state, retry, cancel } = translation;
+  const retryable =
+    state.kind !== 'idle' &&
+    state.kind !== 'translating' &&
+    state.kind !== 'ready' &&
+    canRetryTranslation(state);
   return (
     <View
       accessibilityLabel={label}
       style={[
         styles.panel,
         { borderColor: colors.separator, backgroundColor: colors.fillQuiet },
+        style,
       ]}>
-      <TargetLanguages
-        languages={languages}
-        reload={reload}
-        selected={target}
-        onSelect={onTarget}
-      />
+      {chooser}
       {state.kind === 'translating' ? (
         <View style={styles.row}>
           <ActivityIndicator accessibilityLabel={t('translation.progress')} />
@@ -419,22 +457,187 @@ function TranslationPanel({
           target={target?.name ?? ''}
         />
       )}
-      <View style={styles.row}>
-        {state.kind !== 'idle' &&
-        state.kind !== 'translating' &&
-        state.kind !== 'ready' &&
-        canRetryTranslation(state) ? (
-          <Action
-            label={t('common.retry')}
-            accessibilityLabel={t('translation.retryLabel')}
-            onPress={() => {
-              retry();
-            }}
-          />
-        ) : null}
-        {actions}
-      </View>
+      {retryable || actions !== null ? (
+        <View style={styles.row}>
+          {retryable ? (
+            <Action
+              label={t('common.retry')}
+              accessibilityLabel={t('translation.retryLabel')}
+              onPress={() => {
+                retry();
+              }}
+            />
+          ) : null}
+          {actions}
+        </View>
+      ) : null}
     </View>
+  );
+}
+
+// Whether a device language is the app language, in any region or script.
+const isAppLanguage = (code: string, app: string) =>
+  code.split('-')[0]?.toLowerCase() === app.split('-')[0]?.toLowerCase();
+
+// The reader's Translate | ⌄. Translate is into the app language and needs no language list; the
+// arrow's system menu offers the device's other languages and names the one chosen. A list the
+// device could not give takes the arrow's place, and only a failure after Try Again is announced,
+// so opening a message stays quiet.
+function SplitTranslate({
+  languages,
+  reload,
+  target,
+  onTranslate,
+  onSelect,
+}: {
+  readonly languages: Languages;
+  readonly reload: () => void;
+  readonly target: TranslationLanguage | undefined;
+  readonly onTranslate: () => void;
+  readonly onSelect: (language: TranslationLanguage) => void;
+}) {
+  const colors = usePalette();
+  const { t, settings } = useLocalization();
+  const [retried, setRetried] = useState(false);
+  useOutcomeAnnouncement(
+    retried && languages === 'failed'
+      ? t('translation.languagesFailed')
+      : undefined,
+    false,
+  );
+  if (languages === 'unavailable') {
+    return (
+      <Text
+        accessibilityRole="alert"
+        style={[styles.secondary, { color: colors.textSecondary }]}>
+        {t('translation.noLanguages')}
+      </Text>
+    );
+  }
+  // Another chosen language, which the arrow names.
+  const other =
+    target === undefined || isAppLanguage(target.code, settings.language)
+      ? undefined
+      : target;
+  const label = [
+    pad ? typography.ipadList.body : styles.title,
+    { color: pad ? colors.textPrimary : colors.accentInk },
+  ];
+  const glyph = (
+    <SFSymbol
+      name="character.bubble"
+      size={pad ? 16 : 18}
+      color={colors.onDeviceInk}
+    />
+  );
+  const split = (
+    <View
+      style={[
+        styles.split,
+        pad
+          ? { gap: spacing.s }
+          : [styles.capsule, { backgroundColor: colors.surfaceContent }],
+      ]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('translation.translateMessageLabel')}
+        onPress={onTranslate}
+        style={({ pressed }) => [
+          styles.splitHalf,
+          pad ? null : { paddingLeft: 14, paddingRight: spacing.s },
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : 'transparent',
+          },
+        ]}>
+        <Text style={label}>{t('translation.translate')}</Text>
+      </Pressable>
+      {typeof languages === 'string' ? null : (
+        <>
+          <View
+            style={[styles.divider, { backgroundColor: colors.textSecondary }]}
+          />
+          <MenuButton
+            accessibilityLabel={t('translation.target')}
+            accessibilityValue={
+              other === undefined ? undefined : { text: other.name }
+            }
+            sections={[
+              {
+                items: languages
+                  .filter(({ code }) => !isAppLanguage(code, settings.language))
+                  .map((language) => ({
+                    key: `language:${language.code}`,
+                    title: language.name,
+                    symbol: '',
+                    checked: other?.code === language.code,
+                    run: () => {
+                      onSelect(language);
+                    },
+                  })),
+              },
+            ]}
+            style={[
+              styles.splitHalf,
+              pad ? null : { paddingLeft: spacing.s, paddingRight: 14 },
+            ]}>
+            <View style={styles.splitHalf}>
+              {other === undefined ? null : (
+                <Text style={label}>{other.name}</Text>
+              )}
+              <SFSymbol
+                name="chevron.up.chevron.down"
+                size={12}
+                color={colors.textSecondary}
+              />
+            </View>
+          </MenuButton>
+        </>
+      )}
+      {languages === 'loading' ? (
+        <ActivityIndicator accessibilityLabel={t('translation.loading')} />
+      ) : null}
+    </View>
+  );
+  const failure =
+    languages === 'failed' ? (
+      <View style={styles.row}>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          {t('translation.languagesFailed')}
+        </Text>
+        <Action
+          label={t('translation.tryAgain')}
+          accessibilityLabel={t('translation.tryAgainLabel')}
+          onPress={() => {
+            setRetried(true);
+            reload();
+          }}
+        />
+      </View>
+    ) : null;
+  if (pad) {
+    return (
+      <>
+        <View style={styles.heading}>
+          {glyph}
+          {split}
+        </View>
+        {failure}
+      </>
+    );
+  }
+  return (
+    <>
+      <View style={styles.heading}>
+        {glyph}
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          {t('translation.translateMessageLabel')}
+        </Text>
+      </View>
+      {split}
+      {failure}
+    </>
   );
 }
 
@@ -445,61 +648,63 @@ function ReaderTranslation({
   readonly translator: NativeTranslation;
   readonly body: ReaderText;
 }) {
-  const { t } = useLocalization();
-  // Each open panel owns its queued native input; dismissal retires it before rendering.
+  const { t, settings } = useLocalization();
+  // Each shown translation owns its queued native input; Dismiss retires it before rendering.
   const session = useRef(0);
   const generation = session.current;
-  const [open, setOpen] = useState<number>();
   const [target, setTarget] = useState<TranslationLanguage>();
   const input =
     target === undefined
       ? undefined
       : messageTranslationInput(body, target.code);
-  const current = () => open !== undefined && open === session.current;
+  const current = () => generation === session.current;
   const translation = useTranslation(translator, input, current);
-  if (open === undefined) {
-    return (
-      <View style={styles.row}>
-        <Action
-          label={t('translation.translate')}
-          accessibilityLabel={t('translation.translateMessageLabel')}
-          onPress={() => {
-            if (generation !== session.current) {
-              return;
-            }
-            session.current += 1;
-            setOpen(session.current);
-          }}
-        />
-      </View>
-    );
-  }
+  const [languages, reload] = useLanguages(translator, translation.enabled);
+  const translateInto = (language: TranslationLanguage) => {
+    if (!current()) {
+      return;
+    }
+    setTarget(language);
+    translation.start(messageTranslationInput(body, language.code));
+  };
   return (
     <TranslationPanel
       label={t('translation.messageRegion')}
-      target={target}
-      onTarget={(language) => {
-        if (!current()) {
-          return;
-        }
-        setTarget(language);
-        translation.start(messageTranslationInput(body, language.code));
-      }}
-      translation={translation}
-      actions={
-        <Action
-          label={t('translation.dismiss')}
-          accessibilityLabel={t('translation.dismissLabel')}
-          onPress={() => {
-            if (!current()) {
-              return;
-            }
-            session.current += 1;
-            translation.store.discard();
-            setTarget(undefined);
-            setOpen(undefined);
+      languages={languages}
+      chooser={
+        <SplitTranslate
+          languages={languages}
+          reload={reload}
+          target={target}
+          onTranslate={() => {
+            translateInto({
+              code: settings.language,
+              name:
+                appLanguages.find(({ code }) => code === settings.language)
+                  ?.name ?? settings.language,
+            });
           }}
+          onSelect={translateInto}
         />
+      }
+      target={target}
+      translation={translation}
+      style={[styles.banner, pad ? styles.padBanner : null]}
+      actions={
+        target === undefined ? null : (
+          <Action
+            label={t('translation.dismiss')}
+            accessibilityLabel={t('translation.dismissLabel')}
+            onPress={() => {
+              if (!current()) {
+                return;
+              }
+              session.current += 1;
+              translation.store.discard();
+              setTarget(undefined);
+            }}
+          />
+        )
       }
     />
   );
@@ -568,6 +773,7 @@ export function DraftTranslation({
   const input =
     target === undefined ? undefined : draftTranslationInput(text, target.code);
   const translation = useTranslation(translator, input);
+  const [languages, reload] = useLanguages(translator, translation.enabled);
   const { state } = translation;
   const keep = (
     <Action
@@ -609,11 +815,19 @@ export function DraftTranslation({
   return (
     <TranslationPanel
       label={t('translation.draftRegion')}
+      languages={languages}
+      chooser={
+        <TargetLanguages
+          languages={languages}
+          reload={reload}
+          selected={target}
+          onSelect={(language) => {
+            setTarget(language);
+            translation.start(draftTranslationInput(text, language.code));
+          }}
+        />
+      }
       target={target}
-      onTarget={(language) => {
-        setTarget(language);
-        translation.start(draftTranslationInput(text, language.code));
-      }}
       translation={translation}
       actions={
         <>
