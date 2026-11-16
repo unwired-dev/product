@@ -1654,33 +1654,53 @@ describe('product registration', () => {
     // The unselected mailbox still explains its problem beside its header, expanded and collapsed,
     // and its Inbox row keeps its unread count.
     const header = `Gmail · alex@example.invalid, ${unreachable}`;
-    // The warning's colour; color is not its only signal, since the header's name carries it.
-    const warning = () =>
-      screen
-        .getByRole('button', { name: header })
-        .children.flatMap((node) =>
-          typeof node !== 'string' &&
-          node.props.name === 'exclamationmark.triangle.fill'
-            ? [node.props.color]
-            : [],
-        );
-    expect([
-      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
-        .props.accessibilityState?.selected,
-      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
-        .props.accessibilityValue?.text,
-      screen.queryByText(/Gmail could not be reached/u),
-      warning(),
-    ]).toStrictEqual([false, '1 unread', null, [palette.light.statusWarning]]);
+    // The header's state and symbols; colour is not the only signal, since its name carries the
+    // problem.
+    const shown = () => {
+      const button = screen.getByRole('button', { name: header });
+      return {
+        expanded: button.props.accessibilityState?.expanded,
+        symbols: button.children
+          .filter((node) => typeof node !== 'string')
+          .map(({ props }) => [props.name, props.color]),
+        inbox: screen.queryByRole('button', {
+          name: 'Inbox. In alex@example.invalid',
+        })?.props,
+      };
+    };
+    const expanded = shown();
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: header }));
     });
-    expect([
-      screen.getByRole('button', { name: header }).props.accessibilityState
-        ?.expanded,
-      screen.queryByRole('button', { name: 'Inbox. In alex@example.invalid' }),
-      warning(),
-    ]).toStrictEqual([false, null, [palette.light.statusWarning]]);
+    const collapsed = shown();
+    const symbols = (chevron: string) => [
+      expect.anything(),
+      ['exclamationmark.triangle.fill', palette.light.statusWarning],
+      [chevron, palette.light.textSecondary],
+    ];
+    expect({
+      expanded: {
+        ...expanded,
+        inbox: [
+          expanded.inbox?.accessibilityState?.selected,
+          expanded.inbox?.accessibilityValue?.text,
+        ],
+      },
+      collapsed,
+      notice: screen.queryByText(/Gmail could not be reached/u),
+    }).toStrictEqual({
+      expanded: {
+        expanded: true,
+        symbols: symbols('chevron.down'),
+        inbox: [false, '1 unread'],
+      },
+      collapsed: {
+        expanded: false,
+        symbols: symbols('chevron.right'),
+        inbox: undefined,
+      },
+      notice: null,
+    });
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: header }));
     });
