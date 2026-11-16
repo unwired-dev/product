@@ -112,7 +112,7 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   included** for it, and its folders stay under it in the sidebar.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
-  **Retry change** or **Discard change**, prefixed with its address when there are
+  **Try Again** or **Discard change**, prefixed with its address when there are
   several. The [Sync Status Capsule](#sync-status-capsule) reports unreachable
   mailboxes together instead of a notice for each. **Allow Gmail access** authorizes only that mailbox, with the same Google
   account. When a verification finds one mailbox's grant refused, that mailbox shows
@@ -401,7 +401,7 @@ twice. Its saved Inbox stays visible. While that check verifies a connection
 whose grant was not refused, its access is pending, so the Inbox never asks for
 Gmail access again; the synchronization after the check updates it. Repeated
 interruptions keep the Inbox as shown, including one still synchronizing its first
-mail, until **Try again** or the next activation.
+mail, until **Try Again** or the next activation.
 
 ## Organizing mail
 
@@ -415,8 +415,8 @@ Gmail's labels.
 | **Mark as read** / **unread** | Removes or adds `UNREAD`                                                                                                                 |
 | **Star** / **Remove star**    | Adds or removes `STARRED`                                                                                                                |
 | **Archive**                   | Removes `INBOX`; offered only for mail in the Inbox                                                                                      |
-| **Move to Trash**             | Adds `TRASH`, removes `INBOX`                                                                                                            |
-| **Report spam**               | Adds `SPAM`, removes `INBOX`                                                                                                             |
+| **Delete**                    | Adds `TRASH`, removes `INBOX`                                                                                                            |
+| **Move to Spam**              | Adds `SPAM`, removes `INBOX`                                                                                                             |
 | A label under **Labels**      | Adds or removes that label                                                                                                               |
 | **Move to** a label           | Adds the label and removes the shown view's label: `INBOX` from the Inbox or All Mail, otherwise that label, Spam or Trash; keeps others |
 | **Undo**                      | Reverses the latest removal from the Inbox                                                                                               |
@@ -458,13 +458,13 @@ separate circular New Message button; it has no **More**, because the Reply shee
 the same actions. Mail without Reply, such as IMAP mail or mail in a mailbox that cannot send,
 keeps **More** after **Folders**. It opens the system menu iPad's **More** opens, titled
 as the row menu titles its actions: **Mark as Read** or **Mark as Unread**, **Flag** or
-**Unflag**, **Move to…**; then **Move to Inbox**, **Report Spam** and **Labels** for Gmail;
-and last, since the iPhone toolbar has no Delete, **Delete Message**. Dismissing the
+**Unflag**, **Move to…**; then **Move to Inbox**, **Move to Spam** and **Labels** for Gmail;
+and last, since the iPhone toolbar has no Delete, **Delete**. Dismissing the
 menu runs nothing. Reply
 opens a native sheet on the opaque content surface: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — star and read state, then
-Move, **Labels** for Gmail, Report spam and Move to Trash, offering only what the provider
+Move, **Labels** for Gmail, Move to Spam and Delete, offering only what the provider
 supports. **Labels** opens the label checkboxes in a glass panel above the toolbar; a tap
 outside it or VoiceOver's escape gesture closes it.
 The system owns Reply's presentation, dismissal and swipe-down gesture. Choosing an
@@ -505,7 +505,7 @@ changing the view, search or Filter never move rows, and new mail keeps the topm
 of a scrolled list in place. VoiceOver also offers read, star, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. In Trash or Spam, **Move to Inbox**
-takes the place of Archive, Move to Trash and Report spam, and **Undo** of the
+takes the place of Archive, Delete and Move to Spam, and **Undo** of the
 latest removal also restores. **Move to** from a label removes that label instead
 of the Inbox, keeping the message's other labels; from Trash or Spam it takes the
 message out of them. A message that leaves the view it was opened in closes the
@@ -516,11 +516,11 @@ iPad, secondary click with an iPad pointer, and right-click or Control-click on 
 Mac. A row's menu lists the row's own actions in the design's order: **Archive**
 (or **Move to Inbox** in Trash and Spam),
 **Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
-and, outside Trash and Spam, **Delete** (Move to Trash), placed last on every platform.
-Report spam stays a row accessibility action and a reader action outside those views. The
+and, outside Trash and Spam, **Delete** (to Trash), placed last on every platform.
+Move to Spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state and flag,
-**Move to Inbox** in Trash and Spam, **Move Message** with the same destinations as
-the reader's Move to, and **Delete Message** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
+**Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
+the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.
@@ -550,7 +550,7 @@ an interrupted attempt can be retried on the next synchronization, including aft
 - **Repeated failure:** automatic synchronization makes at most five dispatch
   attempts per change, with exponential delay and jitter between attempts.
   Unconfirmed changes and later intents stay saved. The status names the action
-  and message awaiting confirmation. **Retry change** starts a new
+  and message awaiting confirmation. **Try Again** starts a new
   retry budget; **Discard change** restores Gmail's current state and lets later
   intents continue.
 - **Refused:** when the message or label no longer exists in Gmail, the change is
@@ -1124,7 +1124,7 @@ identify links and image descriptions, and reach confirmation and retry actions.
 A blocked image without a description shows and reads **Image not loaded** in the app's
 language, kept to one line within the sender's image size. Text respects supported accessibility sizing. Links have an accessible
 name and a keyboard activation path; a separate underlined control after the message,
-named by the link's text or else its destination, provides it. **Try again**, **Open link**, **Cancel**, and any flagged-link actions
+named by the link's text or else its destination, provides it. **Try Again**, **Open link**, **Cancel**, and any flagged-link actions
 are focusable. iPad Full Keyboard Access and Mac keyboard navigation can enter,
 read, scroll, activate links and leave the rich view without a focus trap.
 
@@ -1240,13 +1240,13 @@ mismatched bodies read as absent and may be downloaded again.
 
 ### Unavailable bodies
 
-A body that cannot be shown says why, beside **Try again**:
+A body that cannot be shown says why, beside **Try Again**:
 
 - **This message is not saved on this device, and Gmail could not be reached to
   download it.** This appears offline, or after a network, quota or server
   failure. Retry or the next eligible synchronization can download it again.
 - **Gmail needs your permission again to download this message.**
-- **This message is no longer in Gmail.** This one has no **Try again**.
+- **This message is no longer in Gmail.** This one has no **Try Again**.
 - Locked or unreadable storage shows the storage message, as the Inbox does.
 
 Packaged keyboard, VoiceOver, native WebKit isolation and real Gmail qualification
@@ -1390,14 +1390,14 @@ attachment descriptors.
   large to download on this device.** without a download action.
 - **Cancel.** **Cancel** aborts the authorized Gmail transfer in progress. A file that native code was
   already writing is deleted when the write finishes.
-- **Failure.** The row says why and offers **Try again**:
+- **Failure.** The row says why and offers **Try Again**:
   **Gmail could not be reached to download this attachment.** (offline, network,
   quota or server failure),
   **Gmail needs your permission again to download this attachment.** (the Inbox also
   offers **Allow Gmail access**),
   **Gmail sent an incomplete or damaged copy of this attachment.**,
   **This attachment could not be saved on this device.**, or the locked-storage
-  message. **This attachment is no longer in Gmail.** has no **Try again**.
+  message. **This attachment is no longer in Gmail.** has no **Try Again**.
 - **Attach.** A Downloaded Attachment also offers **Attach to New Message**, which
   copies its bytes into a new Draft through the mailbox's current generation; see
   [Drafts](drafts.md#files-and-images).
@@ -1449,7 +1449,7 @@ The cached list stays visible while Gmail work proceeds. A known network outage
 during relaunch opens only the last verified mailbox's saved Inbox. No provider
 read or cache update runs until registration verifies again. The account page
 calls this **Saved Gmail Inbox**, rather than claiming verified Gmail access.
-**Try again** verifies registration before resuming synchronization. Rejected
+**Try Again** verifies registration before resuming synchronization. Rejected
 grants, identity mismatches, unknown failures and pending removals cannot use
 this cache-only path.
 
@@ -1461,12 +1461,12 @@ The Inbox reports:
   **Allow Gmail access** runs Gmail authorization for the same mailbox and
   synchronizes again.
 - **Gmail could not be reached** after a network failure, quota or rate limit, server
-  error or malformed Gmail response. **Try again** resumes from the last commit;
+  error or malformed Gmail response. **Try Again** resumes from the last commit;
   so does the next activation.
 
 Locked or unreadable storage hides the cached mail, as the
 [preview Inbox](private-inbox-storage.md#failure-behavior) does, and offers
-**Try again**. Without a connected mailbox, nothing is cached or shown.
+**Try Again**. Without a connected mailbox, nothing is cached or shown.
 
 ## Boundaries
 

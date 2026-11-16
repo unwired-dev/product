@@ -179,7 +179,7 @@ results for changed details on Mac, and on iPhone and iPad.
     complete detail; it ignores the order of separate details. Reassigning the
     same values to different people or sentences still needs the person's reading.
     The apply action then becomes **Use rewrite with changes**,
-    so applying them is an explicit choice; **Keep original** and **Try again**
+    so applying them is an explicit choice; **Keep original** and **Try Again**
     stay. A checked result's actions are push buttons in the frames' order: the
     accent tint marks **Keep original** when details differ and **Replace text**
     when none do. The tint marks the recommended action only: on Mac no button
@@ -207,7 +207,7 @@ results for changed details on Mac, and on iPhone and iPad.
   Suggest reply wait while Send is pending and become available again if it is refused.
 - When the model cannot run, the Draft is unchanged and the panel says why, with
   the same reasons as [message summaries](message-summaries.md#behavior). A
-  refusal, cancellation and other failures have their own messages. **Try again**
+  refusal, cancellation and other failures have their own messages. **Try Again**
   is offered except on an ineligible device, after a refusal, or for text in a
   language the model cannot write.
 - A rewrite or other text tool keeps the language of the authored text and adds

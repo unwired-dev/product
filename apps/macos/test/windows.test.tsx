@@ -923,7 +923,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     const input = app.getByPlaceholderText('Type a command');
     // Nothing open: mail commands stay listed, disabled, before App and Go To.
     expect(
-      app.getByRole('button', { name: 'Reply. Select a conversation' }),
+      app.getByRole('button', { name: 'Reply. Select a Thread' }),
     ).toBeDisabled();
     const headers = app
       .getAllByRole('header')
@@ -1196,7 +1196,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       folder: 'Everything',
       roles: ['all'],
       detail:
-        'Its server’s All Mail folder can also hold Junk and Trash. Its folders are still listed under it in the sidebar.',
+        'Its server’s All Mail folder can also hold Spam and Trash. Its folders are still listed under it in the sidebar.',
     },
     {
       title: 'Archive',
@@ -1295,9 +1295,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ).toBeVisible();
       await fireEvent.press(receipt);
       await first.findByText('Paid in full.');
-      expect(
-        first.getByRole('button', { name: 'Move to Trash' }),
-      ).toBeVisible();
+      expect(first.getByRole('button', { name: 'Delete' })).toBeVisible();
       gmail.archive(gmail.deliver({ subject: 'Newer receipt' }));
       await act(() => list.load());
       await expect(
@@ -1993,9 +1991,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
       }).toStrictEqual({ selectableDate: false });
       expect(menuSections(message)).toStrictEqual([
         ['Mark as Unread', 'Flag'],
-        [['Move Message', ['Travel']], 'Delete Message'],
+        [['Move to…', ['Travel']], 'Delete'],
       ]);
-      await chooseFromMenu(message, 'Delete Message');
+      await chooseFromMenu(message, 'Delete');
       expect(gmail.labelsOf(id)).toContain('TRASH');
       expect(
         window.getByText('Select a message to start reading.'),

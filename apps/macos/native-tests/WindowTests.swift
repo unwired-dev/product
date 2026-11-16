@@ -54,7 +54,7 @@ final class WindowTests: XCTestCase {
     app.typeKey("k", modifierFlags: .command)
     let query = window.textFields["Type a command"]
     XCTAssertTrue(query.waitForExistence(timeout: 15))
-    let command = window.buttons["Reply. Select a conversation"]
+    let command = window.buttons["Reply. Select a Thread"]
     XCTAssertTrue(command.waitForExistence(timeout: 10))
     func assertBounds() {
       for element in [query, command] {

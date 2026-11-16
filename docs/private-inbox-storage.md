@@ -30,7 +30,7 @@ reported as unavailable because unlocking cannot recover it.
 Opening an existing file requires its existing key. Missing, inaccessible or
 malformed keys do not generate replacements. Authentication, decoding, version,
 and file-access failures preserve the stored bytes. The interface hides stale
-mail, reports locked or unavailable storage, and offers **Try again**. Returning
+mail, reports locked or unavailable storage, and offers **Try Again**. Returning
 to the foreground also reloads storage. Retry neither resets storage nor recovers
 a permanently lost key. There is no reset or key-export API in the app.
 

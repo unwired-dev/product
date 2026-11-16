@@ -1449,7 +1449,7 @@ describe('composing Drafts', () => {
     expect(openAccount).toHaveBeenCalledWith();
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     storage.setLocked(false);
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
@@ -1463,7 +1463,7 @@ describe('composing Drafts', () => {
         'This Draft could not be discarded, so it stays open. Try again.',
       ),
     ).toBeOnTheScreen();
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
@@ -4018,7 +4018,7 @@ describe('composing Drafts', () => {
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
@@ -5917,7 +5917,7 @@ describe('adding files and images to a Draft', () => {
       open = storage.native.openDrafts;
       await act(async () => {
         await fireEvent.press(
-          reader.getByRole('button', { name: 'Try again' }),
+          reader.getByRole('button', { name: 'Try Again' }),
         );
       });
       await press('Attach invoice.pdf to a new message');
