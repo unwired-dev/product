@@ -944,6 +944,44 @@ describe('product registration', () => {
     expect(lost.getSnapshot().snapshot).not.toHaveProperty('enrollmentRequest');
   });
 
+  it('checks for an approval quietly, keeping the feedback shown when a check cannot finish', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const trusted = createRegistration(synthetic.vault);
+    await trusted.register('google');
+    const addedDevice = synthetic.otherDevice();
+    const added = createRegistration(addedDevice.vault);
+    await added.register('google');
+    await added.recoverWithRecoveryKey(shown(added, 'enrollmentCode'));
+    const feedback = added.getSnapshot();
+    expect(feedback).toMatchObject({ recoveryFailure: 'rejected' });
+    const busy: boolean[] = [];
+    added.subscribe(() => {
+      busy.push(added.getSnapshot().busy);
+    });
+    // Unchanged or offline, a check shows no progress and leaves the feedback in place.
+    await added.checkForApproval();
+    expect(added.getSnapshot()).toStrictEqual(feedback);
+    synthetic.google.refreshFailure = 'offline';
+    await added.checkForApproval();
+    synthetic.google.refreshFailure = undefined;
+    expect(added.getSnapshot()).toStrictEqual(feedback);
+    // The next check collects an approval.
+    await trusted.refreshPrivateSync();
+    await trusted.approveEnrollment(
+      shown(trusted, 'enrollmentRequest'),
+      shown(added, 'enrollmentCode'),
+    );
+    await added.checkForApproval();
+    expect(added.getSnapshot()).toMatchObject({
+      snapshot: { privateSync: 'ready' },
+      busy: false,
+      failed: false,
+    });
+    expect(busy).not.toContain(true);
+  });
+
   it('shows the Enrollment Code that replaced an expired request when a Recovery Key is rejected', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario(

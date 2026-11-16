@@ -212,7 +212,13 @@ const pending = Effect.fnUntraced(function* (
   const fields = yield* account(value, listed);
   // A device the account has not admitted shows only its enrollment gate.
   if (value.product?.pending === true) {
-    return { kind: 'device-pending', ...fields } satisfies RegistrationSnapshot;
+    return {
+      kind: 'device-pending',
+      ...fields,
+      ...(value.signInProvider === 'apple' && !value.session
+        ? { approvalSignIn: true as const }
+        : {}),
+    } satisfies RegistrationSnapshot;
   }
   // Saved mailboxes that all need authorization again read as the first one's provider being
   // unavailable.
@@ -941,6 +947,32 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
   const thenStatus = (operation: () => Promise<unknown>) =>
     step(operation).pipe(Effect.andThen(current));
 
+  // Without `interactive`, an Apple device lacking this process's sign-in keeps its status.
+  const refresh = (interactive: boolean) =>
+    Effect.gen(function* () {
+      const value = yield* saved;
+      if (value.product === undefined) {
+        return yield* failWith('unavailable');
+      }
+      // Google renews its Product Sign-In silently.
+      if (value.signInProvider === 'google') {
+        yield* reconfirm(value);
+        return yield* current;
+      }
+      // Apple cannot renew silently; without this process's sign-in it asks interactively.
+      if (!value.session) {
+        return yield* interactive ? signIn('apple') : current;
+      }
+      // A Pending Device reconnects, which renews a record that ended with its Enrollment Code.
+      if (value.product.pending) {
+        yield* step(vault.reuseSession);
+        yield* establish();
+      } else {
+        yield* synchronize;
+      }
+      return yield* current;
+    });
+
   return {
     // Reads current saved policy/ownership after an action learned state but refused its write.
     snapshot: () => program(current),
@@ -1175,32 +1207,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     // Discards an unsent proposal; an unanswered activation must be reconciled first.
     cancelRevocation: () => program(noticed(productSyncFlow.cancelRevocation)),
     // Checks for an approval of this device, or for another device waiting for one.
-    refreshPrivateSync: () =>
-      program(
-        Effect.gen(function* () {
-          const value = yield* saved;
-          if (value.product === undefined) {
-            return yield* failWith('unavailable');
-          }
-          // Google renews its Product Sign-In silently.
-          if (value.signInProvider === 'google') {
-            yield* reconfirm(value);
-            return yield* current;
-          }
-          // Apple cannot renew silently; without this process's sign-in it asks interactively.
-          if (!value.session) {
-            return yield* signIn('apple');
-          }
-          // A Pending Device reconnects, which renews a record that ended with its Enrollment Code.
-          if (value.product.pending) {
-            yield* step(vault.reuseSession);
-            yield* establish();
-          } else {
-            yield* synchronize;
-          }
-          return yield* current;
-        }),
-      ),
+    refreshPrivateSync: () => program(refresh(true)),
+    // A Pending Device's own repeated check for its approval, which never asks to sign in.
+    checkForApproval: () => program(refresh(false)),
     // Adopts the newest key epoch after a removal refused a Product Sync write, so the next write is
     // sealed at it.
     adoptKeyRotation: () =>

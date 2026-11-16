@@ -441,12 +441,15 @@ export function createRegistration(vault: NativeRegistrationVault) {
     }),
     {
       foreground = false,
+      quiet = false,
       queued = false,
       accountChange,
       mailboxLoading = 'automatic',
       imapSetup,
     }: Readonly<{
       foreground?: boolean;
+      // Shows no progress, and an unchanged status keeps the feedback already shown.
+      quiet?: boolean;
       queued?: boolean;
       accountChange?: 'sign-in' | 'removal';
       mailboxLoading?: MailboxLoading;
@@ -461,7 +464,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
         const previous = state;
         if (foreground) {
           publish({ ...state, busy: true }, mailboxLoading);
-        } else {
+        } else if (!quiet) {
           publish(working(state));
         }
         let repairedImap: string | undefined = undefined;
@@ -548,9 +551,10 @@ export function createRegistration(vault: NativeRegistrationVault) {
               ),
           }),
         );
-        // Returning from an authorization sheet must not erase unchanged setup feedback.
+        // Returning from an authorization sheet, or a quiet check, must not erase unchanged setup
+        // feedback.
         publish(
-          foreground &&
+          (foreground || quiet) &&
             !previous.restoring &&
             !previous.locked &&
             !next.locked &&
@@ -954,6 +958,11 @@ export function createRegistration(vault: NativeRegistrationVault) {
       execute(request(native.cancelRevocation()), revocationFailed),
     // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync())),
+    // A Pending Device's own repeated check: a failure leaves the status as it was for the next.
+    checkForApproval: () =>
+      execute(request(native.checkForApproval()), () => state, {
+        quiet: true,
+      }),
     // Background work learned of a newer key epoch; a failure leaves the status as it was.
     adoptKeyRotation: () =>
       execute(request(native.adoptKeyRotation()), settled, {

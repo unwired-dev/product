@@ -189,6 +189,8 @@ const Account = Schema.Struct({
   privateSyncPending: Schema.optionalKey(Schema.Literal('mailbox')),
   // Shown on a device waiting for approval; it never leaves native device storage otherwise.
   enrollmentCode: Schema.optionalKey(Schema.NonEmptyString),
+  // An Apple device that has not signed in since launch checks for its approval only when asked.
+  approvalSignIn: Schema.optionalKey(Schema.Literal(true)),
   // Why an earlier request ended without unlocking this device.
   enrollmentNotice: Schema.optionalKey(
     Schema.Literals(['renewed', 'rejected']),
