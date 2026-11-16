@@ -854,20 +854,23 @@ export function Button({
 }
 
 // The existing disclosure stays beside unaccepted assistance output and disappears with it. A
-// Settings section header takes the compact one, its lock sized to the header's 11/14 text.
+// Settings section header and a result card's header take the compact one, its lock sized to the
+// 11/14 text.
 export function OnDeviceMarker({
   label,
   compact = false,
+  header = false,
 }: {
   readonly label: string;
   readonly compact?: boolean;
+  readonly header?: boolean;
 }) {
   const colors = usePalette();
   return (
     <View
       accessible
       accessibilityLabel={label}
-      accessibilityRole="text"
+      accessibilityRole={header ? 'header' : 'text'}
       style={[styles.marker, compact && styles.compactMarker]}>
       <SFSymbol
         name="lock.fill"

@@ -45,7 +45,6 @@ const styles = StyleSheet.create({
   },
   // A checked result's push buttons sit 8pt apart, as in its frames.
   buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
-  title: { ...textStyles.bodyEmphasized },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.body },
   note: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
@@ -351,12 +350,13 @@ function Status({
   }
   return (
     <>
-      <Text
-        selectable
-        accessibilityRole="header"
-        style={[styles.title, { color: colors.textPrimary }]}>
-        {t(`assistance.${purpose}Title`)}
-      </Text>
+      <OnDeviceMarker
+        compact
+        header
+        label={t('common.onDeviceMarker', {
+          kind: t(`assistance.${purpose}Title`),
+        })}
+      />
       <Text
         selectable
         style={[styles.text, { color: colors.textPrimary }]}>
@@ -370,7 +370,11 @@ function Status({
         </Text>
       ) : null}
       {check === undefined ? null : <Checks check={check} />}
-      <OnDeviceMarker label={t('assistance.disclaimer')} />
+      <Text
+        selectable
+        style={[styles.secondary, { color: colors.textSecondary }]}>
+        {t('assistance.disclaimer')}
+      </Text>
     </>
   );
 }
@@ -570,8 +574,8 @@ export function DroppedAssistance({
       ]}>
       <OnDeviceMarker
         compact
-        label={t('assistance.droppedMarker', {
-          tool: t(`assistance.${purpose}Title`),
+        label={t('common.onDeviceMarker', {
+          kind: t(`assistance.${purpose}Title`),
         })}
       />
       <Text

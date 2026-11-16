@@ -166,7 +166,9 @@ describe('on-device translation in the reader', () => {
         text: 'Please confirm the venue by Friday, translated.',
       });
       await expect(
-        screen.findByText('Translation into English'),
+        screen.findByRole('header', {
+          name: 'Translation into English · On device',
+        }),
       ).resolves.toBeOnTheScreen();
       expect(screen.getByLabelText('Translate Into')).toBeOnTheScreen();
 

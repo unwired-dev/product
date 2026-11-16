@@ -56,7 +56,8 @@
     "cancel": "Cancel",
     "ok": "OK",
     "done": "Done",
-    "allowAccess": "Allow {{provider}} access"
+    "allowAccess": "Allow {{provider}} access",
+    "onDeviceMarker": "{{kind}} · On device"
   },
   "storage": {
     "locked": "Private storage is locked. Unlock your device and try again.",
@@ -890,7 +891,6 @@
     "failed": "The suggestion could not be created. Your text is unchanged.",
     "cancelled": "Cancelled. Your text is unchanged.",
     "dropped": "Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.",
-    "droppedMarker": "{{tool}} · On device",
     "rewriteAgain": "Rewrite again",
     "rewriteAgainLabel": "Rewrite your current text again",
     "close": "Close",

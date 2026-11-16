@@ -220,6 +220,9 @@ describe('on-device message summaries in the reader', () => {
         ['Summary\nConfirm the venue by Friday.', { queue: true }],
       ]);
       expect(
+        screen.getByRole('header', { name: 'Summary · On device' }),
+      ).toBeOnTheScreen();
+      expect(
         screen.getByText(
           'Created on this device from the text shown here. It may be inaccurate and is not saved.',
         ),
