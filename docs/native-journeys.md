@@ -332,10 +332,11 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 Settings › Email Accounts connects the synthetic IMAP server with the password
 `unreachable`, which it accepts at Connect and then cannot be reached with. The
 connection's sidebar header then names the problem with its title and shows the
-warning triangle, and its Inbox row does not carry the problem. The sidebar passes an
-accessibility audit. Clicking the header collapses the section and the header still
-names the problem; clicking it again brings the Inbox row back. The expanded and
-collapsed sidebars are kept as attachments. VoiceOver speech is not covered.
+warning triangle; the connection was never listed, so its section has no folder rows.
+The sidebar passes an accessibility audit. Clicking the header collapses the section
+and the header still names the problem; clicking it again expands it. The expanded
+and collapsed sidebars are kept as attachments. The Inbox row's unread count is
+covered by the Mac Jest tests. VoiceOver speech is not covered.
 
 ## iPhone and iPad IMAP Spam and Trash folder journey
 

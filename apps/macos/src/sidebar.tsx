@@ -63,6 +63,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xs,
   },
   section: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  warning: { marginRight: spacing.xs },
   row: {
     minHeight: 28,
     flexDirection: 'row',
@@ -231,14 +232,16 @@ function Item({
   );
 }
 
-// The warning beside a Mailbox Connection's header while the connection has a problem.
+// The warning beside a Mailbox Connection's header while the connection has a problem: the
+// frames' 13pt-wide glyph, 9pt before the chevron.
 function HeaderWarning() {
   const colors = usePalette();
   return (
     <SFSymbol
       name="exclamationmark.triangle.fill"
       color={colors.statusWarning}
-      size={10}
+      size={12.5}
+      style={styles.warning}
     />
   );
 }

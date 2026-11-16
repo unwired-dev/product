@@ -1706,23 +1706,25 @@ final class WindowTests: XCTestCase {
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
 
-    // The header names the problem with its title, expanded and collapsed; the Inbox row stays.
+    // The header names the problem with its title, expanded and collapsed. The connection was never
+    // listed, so its section has no folder rows to keep.
     let problem = "The mail server could not be reached"
     let header = window.buttons.matching(
       NSPredicate(format: "label BEGINSWITH %@", "IMAP · \(address)")
     ).firstMatch
-    let inbox = window.buttons["Inbox. In \(address)"]
-    XCTAssertTrue(inbox.waitForExistence(timeout: 30))
+    XCTAssertTrue(header.waitForExistence(timeout: 30))
     waitUntil { header.label.contains(problem) }
-    XCTAssertFalse((inbox.value as? String ?? "").contains(problem))
+    XCTAssertEqual(header.value as? String, "expanded")
+    // The new section is last; scroll the sidebar to it so the captures show the header.
+    header.scroll(byDeltaX: 0, deltaY: -600)
     attach("Expanded with a problem")
     try audit(app, "Sidebar with a problem")
     header.click()
-    XCTAssertTrue(inbox.waitForNonExistence(timeout: 10))
+    waitUntil { header.value as? String == "Collapsed" }
     XCTAssertTrue(header.label.contains(problem))
     attach("Collapsed with a problem")
     header.click()
-    XCTAssertTrue(inbox.waitForExistence(timeout: 10))
+    waitUntil { header.value as? String == "expanded" }
     XCTAssertTrue(header.label.contains(problem))
   }
 
