@@ -5,7 +5,7 @@ Architecture notes live in the separate [architecture companion](architecture/ex
 
 `apps/mobile` implements [#592](https://github.com/unwired-dev/product/issues/592):
 a deterministic Inbox and message detail for iPhone and iPad. The shell is a native
-split view: a Mailboxes sidebar column (**All inboxes**, each Mailbox Connection with
+split view: a Mailboxes sidebar column (**All Inboxes**, each Mailbox Connection with
 its Inbox and IMAP folders, and **Account**; on iPhone, Account sits in its header and a
 floating **New Message** at its bottom corner), the message list with a floating
 **Filter**, search and **New Message** bar, which rises above the software keyboard while its
@@ -34,7 +34,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 - Mobile framework and test versions belong to `catalogs.mobile` in
   [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). Shared tooling uses the default catalog.
 - Use the provided [navigation](#navigation); route parameters identify the selected message.
-- The message reader's Copy link action uses `expo-clipboard`, with the native
+- The message reader's Copy Link action uses `expo-clipboard`, with the native
   module included in the reviewed Expo autolinking scope. Regenerate and rebuild
   development clients after adding or updating it.
 - Follow [native component selection](agents/native-components.md) for controls,
@@ -43,7 +43,7 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
   and framework-independent light/dark tokens in `packages/mail-core`; preserve
   accessible names, selection state and keyboard focus.
 - Follow the [Effect conventions](agents/effect.md) with the catalog-pinned version.
-  React owns presentation state. Opening an unread message marks it read, as Mark as read does.
+  React owns presentation state. Opening an unread message marks it read, as Mark as Read does.
 - TypeScript, the Effect patcher, Oxlint and Oxfmt versions belong to the shared catalog.
   Install runs `effect-tsgo patch --oxlint` once at the workspace root. Every
   TypeScript config includes the `@effect/language-service` plugin configuration;

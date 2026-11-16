@@ -118,7 +118,7 @@ the current composer's:
   **Redo**, the three headings and **Body**, the five marks, the Link control, lists,
   quote and code block; closing it, or tapping into the body, brings the keyboard
   back. **Writing tools** lists today's **Rewrite**,
-  **Translate** and **Suggest reply** while
+  **Translate** and **Suggest Reply** while
   [Mail Assistance Enablement](message-summaries.md#mail-assistance-enablement) or
   translation is available. The controls appear once the page reports that it has
   loaded, so no command or accepted result can reach a page that cannot apply it.
@@ -179,7 +179,7 @@ The page does not keep block alignment, text color, background color or fonts:
 editing a body here drops them
 ([#1267](https://github.com/unwired-dev/product/issues/1267)).
 
-Return in code always starts another code line; use **Code block** to return the
+Return in code always starts another code line; use **Code Block** to return the
 selected lines to paragraphs. Extra Tiptap keyboard shortcuts, such as Command-E
 for inline code and Command-Option-1 for a heading, also work in the page.
 

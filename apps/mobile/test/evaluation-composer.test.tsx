@@ -370,8 +370,8 @@ describe('the Tiptap evaluation composer', () => {
     expect(lastCommand()).toBe(sent({ type: 'blur' }));
     await press('Bold');
     expect(lastCommand()).toBe(sent({ type: 'mark', mark: 'bold' }));
-    await press('Numbered list');
-    await press('Numbered list');
+    await press('Numbered List');
+    await press('Numbered List');
     expect(injectedScripts.slice(-2)).toStrictEqual([
       sent({ type: 'block', kind: 'numbered' }),
       sent({ type: 'block', kind: 'numbered' }),
@@ -387,7 +387,7 @@ describe('the Tiptap evaluation composer', () => {
     await report({ document: body, marks: ['bold'], kind: 'numbered' });
     expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
     expect(
-      screen.getByRole('button', { name: 'Numbered list' }),
+      screen.getByRole('button', { name: 'Numbered List' }),
     ).toBeSelected();
     await press('Undo');
     await press('Undo');

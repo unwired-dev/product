@@ -90,7 +90,7 @@ type Add = (source: PickSource, inline: boolean) => void;
 type Capture = (purpose: DraftTextPurpose) => void;
 type EditLink = (link: Link, text: string, href?: string) => void;
 
-// The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest reply.
+// The writing tools the Draft's body offers now: today's Rewrite, Translate and Suggest Reply.
 function WritingTools({
   draft,
   page,

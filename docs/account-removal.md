@@ -14,12 +14,12 @@ offer no reset.
 ## What the person sees
 
 Every signed-in registration screen ends with **This device and your account**.
-It offers **Sign out of this device** and **Delete Unwired Account**. The first
+It offers **Sign Out of This Device** and **Delete Unwired Account**. The first
 press of either one only explains what it does and offers **Cancel**.
 
-**Sign out of this device** explains that this device leaves the Product Account
+**Sign Out of This Device** explains that this device leaves the Product Account
 and loses its account data, keys and mailbox access. The person's other devices
-and their Gmail mail are unaffected. Pressing **Sign out of this device** again
+and their Gmail mail are unaffected. Pressing **Sign Out of This Device** again
 unregisters this Trusted Device and its push routes, or drops this Pending
 Device, then removes the account from this device. Save and confirm any Recovery Key shown before signing out;
 an unconfirmed key keeps its backup screen and prevents sign-out. A Pending
@@ -32,7 +32,7 @@ with the Recovery Key. Signing in again never makes up new keys.
 
 **Delete Unwired Account** explains that deletion is permanent and reaches every
 device. Mail stays in Gmail, and the authorization given to Google is not
-revoked. **Delete permanently** starts an interactive Product Sign-In:
+revoked. **Delete Permanently** starts an interactive Product Sign-In:
 
 - If Sign in with Apple opens the account, the device asks for Sign in with Apple.
   This holds whether Apple created the account or is linked to it, and lets Convex

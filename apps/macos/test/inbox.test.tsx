@@ -98,7 +98,7 @@ describe('message list', () => {
       await screen.findByRole('button', { name: /Flight to Zagreb/u });
       expect(
         screen.getByRole('header', {
-          name: 'Sent. All mailboxes · 1 unread',
+          name: 'Sent. All Mailboxes · 1 unread',
         }),
       ).toBeVisible();
       await app.rerender(show({}));

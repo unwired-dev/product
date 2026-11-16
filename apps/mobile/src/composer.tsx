@@ -1837,7 +1837,7 @@ export function ComposerNotices({
 }
 
 // The format bar's Writing tools: one system menu of Generate a Draft, the text tools and Translate
-// where they are available, plus Suggest reply on replies. Hidden when neither is available.
+// where they are available, plus Suggest Reply on replies. Hidden when neither is available.
 // Generate a Draft first asks for a prompt, which is never kept.
 function WritingTools({
   assistance,
@@ -2522,7 +2522,7 @@ function Editor({
   const captureNow = useRef<typeof captured>(undefined);
   // The capture whose request is running or whose result waits to be used.
   const pendingNow = useRef<number>(undefined);
-  // The text tool whose result a body edit dropped, until Rewrite again or Close.
+  // The text tool whose result a body edit dropped, until Rewrite Again or Close.
   const [dropped, setDropped] = useState<TextTool>();
   const assistanceEnabled = useMailAssistanceLifetime(
     useCallback(() => {

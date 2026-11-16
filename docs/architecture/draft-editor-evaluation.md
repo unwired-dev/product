@@ -71,7 +71,7 @@ rules instead:
   continuation behavior and placing the caret in the new item or line.
 - A code block is one code line per textblock, as the document stores it, with
   marks allowed; Return in code always starts another line, so leaving a code block
-  uses the **Code block** control.
+  uses the **Code Block** control.
 - Inline code combines with the other marks, which Tiptap's default excludes.
 - Tiptap's own input and paste rules are off; the page applies the documented
   shortcuts itself so that Undo restores the literal marker.

@@ -42,7 +42,7 @@ system language model. There is no cloud or product-backend model fallback.
 
 [#788](https://github.com/unwired-dev/product/issues/788) puts every explicit
 On-Device Mail Assistance action, **Summarize**, Draft
-[**Rewrite** and **Suggest reply**](draft-assistance.md) and
+[**Rewrite** and **Suggest Reply**](draft-assistance.md) and
 [**Translate**](message-translation.md), behind
 [Mail Assistance Enablement](domain/assistance.md):
 
@@ -58,7 +58,7 @@ On-Device Mail Assistance action, **Summarize**, Draft
   Separately confirmed post-launch [Mail Commitments](product/mail-commitments.md#automatic-scanning)
   explain automatic scanning in their enablement consent and require renewed
   device/Profile confirmation when earlier consent did not cover that scope.
-- While assistance is on, **Check Apple Intelligence availability** explicitly
+- While assistance is on, **Check Apple Intelligence Availability** explicitly
   checks whether the system model can run, without generating text or prewarming
   it. Settings' **Privacy & Data** reports eligibility, Apple Intelligence configuration,
   model readiness or language support. Availability for Translation remains

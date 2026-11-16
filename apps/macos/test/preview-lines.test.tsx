@@ -86,7 +86,7 @@ describe('settings › Appearance › Message list', () => {
       title,
       checked,
     }));
-    await chooseMenuItem('3 lines');
+    await chooseMenuItem('3 Lines');
     const chosen = previews();
     await fireEvent.press(app.getByRole('button', { name: 'Preview lines' }));
     await chooseMenuItem('None');
@@ -102,9 +102,9 @@ describe('settings › Appearance › Message list', () => {
       footer: true,
       offered: [
         { title: 'None', checked: false },
-        { title: '1 line', checked: true },
-        { title: '2 lines', checked: false },
-        { title: '3 lines', checked: false },
+        { title: '1 Line', checked: true },
+        { title: '2 Lines', checked: false },
+        { title: '3 Lines', checked: false },
       ],
       // Home, which has no choice of its own, follows the default Profile's.
       chosen: [3, 3],

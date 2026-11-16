@@ -641,7 +641,7 @@ describe('composing Drafts', () => {
       nativeEvent: { key: 'Escape' },
     });
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
-    await press('All inboxes');
+    await press('All Inboxes');
     const unified = await palette();
     const command = unified.getByRole('button', { name: 'New Message' });
     await act(async () => {
@@ -951,7 +951,7 @@ describe('composing Drafts', () => {
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 0, end: 0 } },
     });
-    await press('Bulleted list');
+    await press('Bulleted List');
     await fireEvent(body(), 'selectionChange', {
       nativeEvent: { selection: { start: 1, end: 1 } },
     });
@@ -1470,7 +1470,7 @@ describe('composing Drafts', () => {
   // The password repair opens Settings on Email Accounts.
   it.each([
     ['Settings', []],
-    ['Enter the password for imap@example.invalid again', ['mailboxes']],
+    ['Enter the Password for imap@example.invalid Again', ['mailboxes']],
   ] as const)(
     'opens %s in Settings beside an open composer',
     async (destination, settings) => {
@@ -1639,7 +1639,7 @@ describe('composing Drafts', () => {
     expect(
       screen.queryByRole('button', { name: draftName }),
     ).not.toBeOnTheScreen();
-    await press('Search mail servers for “Synthetic message 0”');
+    await press('Search Mail Servers for “Synthetic message 0”');
     await expect(
       screen.findByRole('header', { name: 'From mail servers' }),
     ).resolves.toBeOnTheScreen();
@@ -4857,7 +4857,7 @@ describe('composing Drafts', () => {
     expect(body()).toHaveTextContent('lets meet saturday. thanks', {
       exact: true,
     });
-    // Rewrite again starts over from the current text and selection, as the menu does; a shown
+    // Rewrite Again starts over from the current text and selection, as the menu does; a shown
     // result is dropped the same way.
     await press('Rewrite your current text again');
     expect(screen.queryByText(dropped)).toBeNull();
@@ -4870,7 +4870,7 @@ describe('composing Drafts', () => {
     await fireEvent.changeText(body(), 'lets meet sunday. thanks');
     expect(screen.queryByText('Let us meet on Saturday.')).toBeNull();
     expect(screen.getByText(dropped)).toBeOnTheScreen();
-    // With no text left to rewrite, Rewrite again is unavailable, as in the menu.
+    // With no text left to rewrite, Rewrite Again is unavailable, as in the menu.
     await fireEvent.changeText(body(), ' ');
     expect(
       screen.getByLabelText('Rewrite your current text again'),
@@ -5019,7 +5019,7 @@ describe('composing Drafts', () => {
       screen.queryByLabelText('Replace your text with this rewrite'),
     ).toBeNull();
     expect(body()).toHaveTextContent(original, { exact: true });
-    // Keep original takes the accent tint; neither button answers Return, which the body keeps.
+    // Keep Original takes the accent tint; neither button answers Return, which the body keeps.
     expect(
       screen.getByLabelText('Keep your text and close this suggestion').props,
     ).toMatchObject({ tint: expect.any(Number), returnKey: false });
@@ -6288,7 +6288,7 @@ describe('replying to and forwarding from the reader', () => {
       await screen.findByLabelText('Search senders and subjects'),
       'Archived plans',
     );
-    await press('Search mail servers for “Archived plans”');
+    await press('Search Mail Servers for “Archived plans”');
     await expect(
       screen.findByText('Shall we meet on Friday?'),
     ).resolves.toBeOnTheScreen();
@@ -6398,7 +6398,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.getByLabelText('Cc')).toBeOnTheScreen();
     expect(screen.getByLabelText('Message body')).toHaveTextContent('');
     expect(screen.queryByText(/Shall we meet/u)).not.toBeOnTheScreen();
-    await press('Show quoted text');
+    await press('Show Quoted Text');
     expect(screen.getByText(/Shall we meet on Friday\?/u)).toBeOnTheScreen();
 
     await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes!');
@@ -6406,7 +6406,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.getByLabelText('Message body')).toHaveTextContent('');
     await press('Redo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes!');
-    await press('Hide quoted text');
+    await press('Hide Quoted Text');
     expect(screen.queryByText(/Shall we meet/u)).not.toBeOnTheScreen();
     await saveAndClose();
     // Saving on Close keeps the reply as a Draft; nothing was sent.
@@ -6453,7 +6453,7 @@ describe('replying to and forwarding from the reader', () => {
       screen.getByLabelText('Message body'),
       oversized,
     );
-    await writingTool('Suggest reply');
+    await writingTool('Suggest Reply');
     await expect(
       screen.findByText(
         'Your reply is too long for a suggestion. Up to 6,000 characters can be read.',
@@ -6466,7 +6466,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(gmail.requests).toHaveLength(requests);
     await press('Keep your text and close this suggestion');
     await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes');
-    await writingTool('Suggest reply');
+    await writingTool('Suggest Reply');
     // Only display names, the authored text and the quoted message already in the Draft are read.
     expect(asked[0]?.operation).toBe('reply');
     expect(parseJson(asked[0]!.input)).toMatchObject({
@@ -6496,7 +6496,7 @@ describe('replying to and forwarding from the reader', () => {
     });
 
     // Recipient edits retire the captured reply input even when Undo restores it before commit.
-    await writingTool('Suggest reply');
+    await writingTool('Suggest Reply');
     asked[1]?.answer.resolve('Ready for the old recipients.');
     await screen.findByText('Ready for the old recipients.');
     const apply = queuedPress('Replace your reply with this suggestion');
@@ -6513,7 +6513,7 @@ describe('replying to and forwarding from the reader', () => {
     });
 
     // A pending request is also cancelled on recipient editing; its late result stays hidden.
-    await writingTool('Suggest reply');
+    await writingTool('Suggest Reply');
     await press('To: Bob <bob@example.invalid>');
     asked[2]?.answer.resolve('Late for the old recipients.');
     await act(async () => {
@@ -6525,7 +6525,7 @@ describe('replying to and forwarding from the reader', () => {
     await press('Undo');
 
     // Closing the Draft while a suggestion is pending cancels it.
-    await writingTool('Suggest reply');
+    await writingTool('Suggest Reply');
     await screen.findByLabelText('Cancel writing help');
     await saveAndClose();
     await waitFor(() => {

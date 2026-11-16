@@ -106,7 +106,7 @@ describe('queued message link privacy', () => {
       </QuotedHistoryContext>,
     );
     await fireEvent.press(
-      await screen.findByRole('button', { name: 'Show quoted text' }),
+      await screen.findByRole('button', { name: 'Show Quoted Text' }),
     );
     const link = await screen.findByRole('link', {
       name: 'https://bank.invalid',
@@ -117,7 +117,7 @@ describe('queued message link privacy', () => {
     const queuedFailure = screen.getByTestId('message-webview').props.onError;
     // The system alert is modal, so collapsing arrives as input queued before it opened.
     const queuedHide = pressHandler(
-      screen.getByRole('button', { name: 'Hide quoted text' }),
+      screen.getByRole('button', { name: 'Hide Quoted Text' }),
     );
     await fireEvent.press(link);
     expect(screen.getByText(oldHref, { exact: false })).toBeVisible();
@@ -176,7 +176,7 @@ describe('queued message link privacy', () => {
         await fireEvent.press(link);
         expect(screen.getByText(oldHref, { exact: false })).toBeVisible();
         const queuedCopy = pressHandler(
-          screen.getByRole('button', { name: 'Copy link' }),
+          screen.getByRole('button', { name: 'Copy Link' }),
         );
         const queuedProceed = pressHandler(
           screen.getByRole('button', { name: 'Proceed' }),
@@ -212,7 +212,7 @@ describe('queued message link privacy', () => {
         });
         expect({
           url: screen.queryByText(oldHref, { exact: false }),
-          copy: screen.queryByRole('button', { name: 'Copy link' }),
+          copy: screen.queryByRole('button', { name: 'Copy Link' }),
           proceed: screen.queryByRole('button', { name: 'Proceed' }),
         }).toStrictEqual({ url: null, copy: null, proceed: null });
         await act(() => {
@@ -280,7 +280,7 @@ describe.each(['gmail', 'imap'] as const)(
             }),
           );
           const queuedCopy = pressHandler(
-            screen.getByRole('button', { name: 'Copy link' }),
+            screen.getByRole('button', { name: 'Copy Link' }),
           );
           const queuedProceed = pressHandler(
             screen.getByRole('button', { name: 'Proceed' }),

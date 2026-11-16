@@ -374,10 +374,10 @@ describe('mac window selection with the shared mock mailbox', () => {
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       // The reader's toolbar above the overlay stays usable without closing the Draft (#1211).
       await fireEvent.press(
-        app.getByRole('button', { name: 'Mark as unread' }),
+        app.getByRole('button', { name: 'Mark as Unread' }),
       );
       await expect(
-        app.findByRole('button', { name: 'Mark as read' }),
+        app.findByRole('button', { name: 'Mark as Read' }),
       ).resolves.toBeVisible();
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
@@ -632,18 +632,18 @@ describe('mac window selection with the shared mock mailbox', () => {
         second={false}
       />,
     );
-    await app.findByRole('button', { name: 'All inboxes' });
+    await app.findByRole('button', { name: 'All Inboxes' });
     const favorites = app.getByRole('button', { name: 'Favorites' });
     expect(favorites).toBeExpanded();
     await fireEvent.press(favorites);
-    expect(app.queryByRole('button', { name: 'All inboxes' })).toBeNull();
+    expect(app.queryByRole('button', { name: 'All Inboxes' })).toBeNull();
     expect(
       app.getByRole('button', { name: 'Favorites', expanded: false }),
     ).toHaveAccessibilityValue({
       text: 'Collapsed',
     });
     await fireEvent.press(app.getByRole('button', { name: 'Favorites' }));
-    expect(app.getByRole('button', { name: 'All inboxes' })).toBeVisible();
+    expect(app.getByRole('button', { name: 'All Inboxes' })).toBeVisible();
     expect(
       app.getByRole('button', { name: 'Favorites', expanded: true }),
     ).not.toHaveAccessibilityValue({
@@ -659,7 +659,7 @@ describe('mac window selection with the shared mock mailbox', () => {
         second={false}
       />,
     );
-    const allInboxes = await app.findByRole('button', { name: 'All inboxes' });
+    const allInboxes = await app.findByRole('button', { name: 'All Inboxes' });
     await fireEvent.press(app.getByRole('button', { name: 'Hide Sidebar' }));
     expect(toggledSidebars()).toStrictEqual(['inbox-window-first']);
     // AppKit reports each collapse, including one a narrowing window causes.
@@ -788,7 +788,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     expect(first.getByText('maya@example.com')).toBeVisible();
     expect(second.getByText('oliver@example.com')).toBeVisible();
     await fireEvent.press(
-      second.getByRole('button', { name: 'Mark as unread' }),
+      second.getByRole('button', { name: 'Mark as Unread' }),
     );
     await expect(
       first.findByRole('button', { name: oliver }),
@@ -836,7 +836,7 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Forward. Not available for this message',
         'Archive. Not available for this message',
         'Move to…. Not available for this message',
-        'Mark as unread',
+        'Mark as Unread',
         'Search Mail',
         'Inbox',
       ];
@@ -898,7 +898,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     await act(async () => {
       await fireEvent.press(
         within(app.getByTestId('command-palette')).getByRole('button', {
-          name: 'Mark as unread',
+          name: 'Mark as Unread',
         }),
       );
     });
@@ -1135,7 +1135,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       ).resolves.toBeVisible();
       await fireEvent.press(
         await second.findByRole('button', {
-          name: /^Trash\. In (?!All mailboxes)/u,
+          name: /^Trash\. In (?!All Mailboxes)/u,
         }),
       );
       await fireEvent.press(
@@ -1174,7 +1174,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       const first = within(app.getByTestId('inbox-window-first'));
       await fireEvent.press(
         await first.findByRole('button', {
-          name: 'Archive. In All mailboxes',
+          name: 'Archive. In All Mailboxes',
         }),
       );
       await expect(
@@ -1224,7 +1224,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         const first = within(app.getByTestId('inbox-window-first'));
         await fireEvent.press(
           await first.findByRole('button', {
-            name: `${title}. In All mailboxes`,
+            name: `${title}. In All Mailboxes`,
           }),
         );
         await expect(
@@ -1236,7 +1236,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         ).toBeNull();
         await fireEvent.press(
           first.getByRole('button', {
-            name: new RegExp(`^${folder}\\. In (?!All mailboxes)`, 'u'),
+            name: new RegExp(`^${folder}\\. In (?!All Mailboxes)`, 'u'),
           }),
         );
         await expect(
@@ -1275,7 +1275,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const first = within(app.getByTestId('inbox-window-first'));
     await fireEvent.press(
       await first.findByRole('button', {
-        name: `${favorite}. In All mailboxes`,
+        name: `${favorite}. In All Mailboxes`,
       }),
     );
     return { gmail, old, list, app, first };
@@ -1551,7 +1551,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       // Showing the older notice again after navigation keeps the newer action the latest.
       for (const row of [
         'Inbox. In synthetic-connection-alex',
-        'All inboxes',
+        'All Inboxes',
       ]) {
         await fireEvent.press(await first.findByRole('button', { name: row }));
       }
@@ -1603,14 +1603,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await first.findByRole('button', { name: /Archived flight/u });
       await fireEvent.press(
         await second.findByRole('button', {
-          name: /^Trash\. In (?!All mailboxes)/u,
+          name: /^Trash\. In (?!All Mailboxes)/u,
         }),
       );
       // Online results come from the mailbox, independently of this window's Trash view.
       const field = second.getByLabelText('Search senders and subjects');
       await fireEvent.changeText(field, 'Lunch');
       await fireEvent.press(
-        second.getByRole('button', { name: 'Search mail servers for “Lunch”' }),
+        second.getByRole('button', { name: 'Search Mail Servers for “Lunch”' }),
       );
       await fireEvent.press(
         await second.findByRole('button', { name: /Lunch on Friday/u }),
@@ -1624,7 +1624,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await fireEvent.changeText(field, 'Archived');
       await fireEvent.press(
         second.getByRole('button', {
-          name: 'Search mail servers for “Archived”',
+          name: 'Search Mail Servers for “Archived”',
         }),
       );
       await fireEvent.press(
@@ -1898,11 +1898,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
     gmail.fail({ status: 401 });
     await act(list.load);
     expect(
-      second.getByRole('button', { name: 'Allow Gmail access' }),
+      second.getByRole('button', { name: 'Allow Gmail Access' }),
     ).toBeVisible();
     await act(async () => {
       await fireEvent.press(
-        first.getByRole('button', { name: 'Allow Gmail access' }),
+        first.getByRole('button', { name: 'Allow Gmail Access' }),
       );
       await Promise.resolve();
     });

@@ -5,7 +5,7 @@ Architecture notes live in the separate [architecture companion](architecture/pr
 
 [#594](https://github.com/unwired-dev/product/issues/594) adds persistent read
 state to the synthetic Inbox in both Apple hosts. Opening an unread message marks it
-read, as **Mark as read** does. **Mark as read** and **Mark as unread** commit a field update
+read, as **Mark as Read** does. **Mark as Read** and **Mark as Unread** commit a field update
 before publishing the resulting snapshot to the application. Selection stays in
 each window or route and is never persisted.
 
@@ -177,7 +177,7 @@ registration store already offers these operations:
   other identity stands in for it; a Profile without one keeps today's choice of its
   first connection that can send. An edit commits through compare-and-set, and one
   that does not commit changes nothing: the store reports it as `sendingFailure`
-  with the Profile. New Message under All inboxes starts from it
+  with the Profile. New Message under All Inboxes starts from it
   ([#2020](https://github.com/unwired-dev/product/issues/2020)), even when it cannot
   send on this device; see [Drafts](drafts.md#composing). Settings and the
   composer's From pop-up do not offer choosing it yet
@@ -472,7 +472,7 @@ The 250 MB budget is device-wide and separate from the body cache: admission evi
 least recently shown entries first, where opening an entry that the reader then
 cannot show does not count as showing it, and never evicts the resources currently
 displayed across all open connections and windows. An entry that cannot fit is not stored, and its image is shown for the
-current presentation only. **Clear remote content** on the account page removes
+current presentation only. **Clear Remote Content** on the account page removes
 every entry without touching mail or bodies. Removing a connection, and every
 account purge, remove its entries with its directory. Entries are not yet scoped
 by [Mail Profile](#mail-profiles).

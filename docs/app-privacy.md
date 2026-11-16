@@ -107,7 +107,7 @@ sends allowlisted reports to Convex, which forwards them to PostHog EU with GeoI
 disabled. Reports carry an installation id independent of the Product Account,
 predefined failure codes, approved constant messages, stack addresses, bounded
 operation stages, timings and status, and app/build/OS/platform/channel metadata.
-Unsent reports expire locally after 24 hours. **Delete my error reports** uses the
+Unsent reports expire locally after 24 hours. **Delete My Error Reports** uses the
 receiver's verified remote-deletion path; signed-device and vendor qualification
 remain deferred.
 

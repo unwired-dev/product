@@ -188,7 +188,7 @@ describe('account settings availability', () => {
       );
       await assist(true);
       expect(assistance.calls).toStrictEqual([]);
-      await press('Check Apple Intelligence availability');
+      await press('Check Apple Intelligence Availability');
       expect(screen.getByText(copy)).toBeVisible();
       expect(assistance.calls).toStrictEqual(['availability']);
     },
@@ -313,12 +313,12 @@ describe('account settings availability', () => {
     ).not.toBeOnTheScreen();
     expect(
       screen.getByRole('button', {
-        name: 'Check Apple Intelligence availability',
+        name: 'Check Apple Intelligence Availability',
       }),
     ).toBeVisible();
     const available =
       'Apple Intelligence is available for summaries, rewrites and reply suggestions.';
-    await press('Check Apple Intelligence availability');
+    await press('Check Apple Intelligence Availability');
     expect(screen.getByText(available)).toBeVisible();
     await assist(true);
     expect(enablement.getSnapshot()?.profiles).toStrictEqual([
@@ -337,14 +337,14 @@ describe('account settings availability', () => {
       screen.getByRole('button', { name: 'Summarize this message' }),
     ).toBeVisible();
     expect(assistance.calls).toStrictEqual(['availability']);
-    await press('Check Apple Intelligence availability');
+    await press('Check Apple Intelligence Availability');
     expect(screen.getByText(available)).toBeVisible();
     // The check belonged to Default, so its status retires even while Work remains enabled.
     await assist(false);
     expect(screen.queryByText(available)).toBeNull();
     expect(
       screen.getByRole('button', {
-        name: 'Check Apple Intelligence availability',
+        name: 'Check Apple Intelligence Availability',
       }),
     ).toBeVisible();
   });
@@ -439,7 +439,7 @@ describe('account settings availability', () => {
       </MailAssistanceContext>
     );
     const view = await render(settings());
-    await press('Check Apple Intelligence availability');
+    await press('Check Apple Intelligence Availability');
     expect(
       screen.getByText('Checking Apple Intelligence availability…'),
     ).toBeVisible();
@@ -447,7 +447,7 @@ describe('account settings availability', () => {
       const off = enablement.setEnabled(owner, defaultProfile, false);
       fireEvent.press(
         screen.getByRole('button', {
-          name: 'Check Apple Intelligence availability',
+          name: 'Check Apple Intelligence Availability',
         }),
       );
       await off;
@@ -462,7 +462,7 @@ describe('account settings availability', () => {
       ),
     ).not.toBeOnTheScreen();
     expect(assistance.calls).toStrictEqual(['availability']);
-    await press('Check Apple Intelligence availability');
+    await press('Check Apple Intelligence Availability');
     owner = 'second-account';
     await act(async () => {
       await enablement.load(owner);
@@ -474,7 +474,7 @@ describe('account settings availability', () => {
     expect(
       screen.queryByText('This device does not support Apple Intelligence.'),
     ).not.toBeOnTheScreen();
-    await press('Check Apple Intelligence availability');
+    await press('Check Apple Intelligence Availability');
     await view.unmount();
     await act(async () => {
       answers[2]?.('model-not-ready');
@@ -521,14 +521,14 @@ describe('account settings availability', () => {
             />
           </MailAssistanceContext>,
         );
-        await press('Check Apple Intelligence availability');
+        await press('Check Apple Intelligence Availability');
         expect(
           screen.getByText(
             'Apple Intelligence availability could not be checked. Try again.',
           ),
         ).toBeVisible();
         availability.mockResolvedValue('available');
-        await press('Check Apple Intelligence availability');
+        await press('Check Apple Intelligence Availability');
         expect(
           screen.getByText(
             'Apple Intelligence is available for summaries, rewrites and reply suggestions.',
@@ -833,13 +833,13 @@ describe('mail Assistance Enablement on Mac', () => {
     expect(screen.getByText('On-device assistance is off.')).toBeVisible();
     expect(
       screen.queryByRole('button', {
-        name: 'Check Apple Intelligence availability',
+        name: 'Check Apple Intelligence Availability',
       }),
     ).not.toBeOnTheScreen();
     await assist(true);
     expect(screen.getByText('On-device assistance is on.')).toBeVisible();
     expect(assistance.calls).toStrictEqual([]);
-    await press('Check Apple Intelligence availability');
+    await press('Check Apple Intelligence Availability');
     expect(
       screen.getByText(
         'Apple Intelligence is available for summaries, rewrites and reply suggestions.',

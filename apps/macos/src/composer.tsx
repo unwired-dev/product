@@ -2308,7 +2308,7 @@ function Editor({
   const captureNow = useRef<typeof captured>(undefined);
   // The capture whose request is running or whose result waits to be used.
   const pendingNow = useRef<number>(undefined);
-  // The text tool whose result a body edit dropped, until Rewrite again or Close.
+  // The text tool whose result a body edit dropped, until Rewrite Again or Close.
   const [dropped, setDropped] = useState<TextTool>();
   const assistanceEnabled = useMailAssistanceLifetime(
     useCallback(() => {

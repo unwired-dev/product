@@ -47,7 +47,7 @@ requirement, not evidence that the existing readiness check enforces it.
 
 ## Context retrieval and operation behavior
 
-- An explicit Summarize or Suggest reply request may automatically download
+- An explicit Summarize or Suggest Reply request may automatically download
   missing messages and attachments from the current Thread. Searching other
   Threads requires an explicitly broader request, such as finding a previous
   agreement with the same customer.

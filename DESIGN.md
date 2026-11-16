@@ -668,7 +668,7 @@ form accessories, keyboards, status bar).
   the [Outbox delivery rules](docs/outbox.md#delivery-rules).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
-  Rewrite, Suggest reply, Proofread, Break into Paragraphs, Translate, Expand
+  Rewrite, Suggest Reply, Proofread, Break into Paragraphs, Translate, Expand
   Text, Shorten Text, the tone tools and Generate a Draft…, whose prompt
   follows the Generate a Draft frames: a popover on Mac and iPad, a sheet on
   iPhone, without the prompt-history control, in the
@@ -697,8 +697,8 @@ form accessories, keyboards, status bar).
   From follow the
   [recipient and sender requirements](docs/product/messages-and-delivery.md#sending-identities-and-recipient-entry)
   and [Draft sender contract](docs/drafts.md#composing).
-- **Draft assistance panels:** Rewrite, Translate and Suggest reply show progress,
-  Cancel, Keep original and Replace text, Replace selection or Use reply, per
+- **Draft assistance panels:** Rewrite, Translate and Suggest Reply show progress,
+  Cancel, Keep Original and Replace Text, Replace Selection or Use Reply, per
   [Draft assistance](docs/draft-assistance.md#behavior) and
   [Draft translation](docs/message-translation.md#behavior). The
   [Response Assistance](docs/domain/assistance.md) chooser's options and previews
@@ -826,9 +826,8 @@ app follows under the issue named:
   disclosure chevron wait for #2107.
 - **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for
   #2108.
-- **Copy:** one name per action, Spam, Thread and Title Case, All Inboxes and
-  All Mailboxes among them, wait for #2083. The iPhone heading's "All read"
-  waits for #2068.
+- **Copy:** one name per action, Spam and Thread wait for #2083. The iPhone
+  heading's "All read" waits for #2068.
 - **Control sizes:** the Mac Welcome and Sign In buttons, the iPad Sign in
   with Apple radius, the iPad setup sheet's 25.3pt corners (the app's
   `radius.ipadSheet` is 29.095), the iPad Profile Switcher's 28pt monogram, and

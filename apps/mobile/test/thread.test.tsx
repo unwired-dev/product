@@ -244,30 +244,30 @@ describe('thread view', () => {
     expect(document.props.source.html).toContain('Tuesday works for me.');
     expect(document.props.source.html).not.toContain('Original agenda');
     expect(
-      screen.getAllByRole('button', { name: 'Show quoted text' }),
+      screen.getAllByRole('button', { name: 'Show Quoted Text' }),
     ).toHaveLength(2);
     expect(
       within(messageBy('Maya Chen')).queryByRole('button', {
-        name: 'Show quoted text',
+        name: 'Show Quoted Text',
       }),
     ).toBeNull();
 
     await act(async () => {
       await fireEvent.press(
         within(messageBy('Sam Lee')).getByRole('button', {
-          name: 'Show quoted text',
+          name: 'Show Quoted Text',
         }),
       );
     });
     expect(screen.getByText(/On Monday, Alex Rivera wrote:/u)).toBeVisible();
     expect(screen.getByText(/Earlier reply/u)).toBeVisible();
     expect(
-      screen.getByRole('button', { name: 'Hide quoted text' }),
+      screen.getByRole('button', { name: 'Hide Quoted Text' }),
     ).toBeExpanded();
 
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Show quoted text' }),
+        screen.getByRole('button', { name: 'Show Quoted Text' }),
       );
     });
     const expanded = await screen.findByTestId('message-webview');
@@ -313,7 +313,7 @@ describe('thread view', () => {
     // The system alert is modal, so the toggles are found before it opens.
     const toggle = (sender: string) =>
       within(messageBy(sender)).getByRole('button', {
-        name: 'Show quoted text',
+        name: 'Show Quoted Text',
       });
     const otherToggle = toggle('Sam Lee');
     const ownToggle = toggle('Alex Rivera');

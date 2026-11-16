@@ -493,7 +493,7 @@ export function DraftAssistance({
     apply = verbs[purpose];
   }
   const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
-  // A checked result offers native push buttons, as its frames do: Keep original carries the
+  // A checked result offers native push buttons, as its frames do: Keep Original carries the
   // accent fill when details differ, and the rewrite when none do. On iPhone each button takes the
   // width it is given.
   const control = ({
@@ -621,7 +621,7 @@ export function DraftAssistance({
 }
 
 // Says that a Writing tools result was dropped because the Draft changed while it was made or
-// shown. Rewrite again starts the tool over from the current text. iPhone gives its two buttons
+// shown. Rewrite Again starts the tool over from the current text. iPhone gives its two buttons
 // equal halves of the card; iPad sets them out at their own width.
 export function DroppedAssistance({
   purpose,

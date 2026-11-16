@@ -851,16 +851,16 @@ describe('preview Inbox', () => {
       }),
     );
     await fireEvent.press(
-      await screen.findByRole('button', { name: 'Mark as unread' }),
+      await screen.findByRole('button', { name: 'Mark as Unread' }),
     );
     await expect(
       screen.findByRole('button', {
         name: 'Unread. Maya Chen. A little more room to think',
       }),
     ).resolves.toBeVisible();
-    await fireEvent.press(screen.getByRole('button', { name: 'Mark as read' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Mark as Read' }));
     await expect(
-      screen.findByRole('button', { name: 'Mark as unread' }),
+      screen.findByRole('button', { name: 'Mark as Unread' }),
     ).resolves.toBeVisible();
     const readRow = screen.getByRole('button', {
       name: 'Maya Chen. A little more room to think',
@@ -879,7 +879,7 @@ describe('preview Inbox', () => {
       }),
     );
     expect(
-      screen.getByRole('button', { name: 'Mark as unread' }),
+      screen.getByRole('button', { name: 'Mark as Unread' }),
     ).toBeVisible();
   });
 
@@ -1217,14 +1217,14 @@ describe('connected Gmail Inbox', () => {
       ).toBeVisible();
       await act(async () => {
         await fireEvent.press(
-          screen.getByRole('button', { name: 'Sent. In All mailboxes' }),
+          screen.getByRole('button', { name: 'Sent. In All Mailboxes' }),
         );
       });
       await screen.findByRole('button', { name: /Flight to Zagreb/u });
-      expect(screen.getByText(/^All mailboxes · 1 unread$/u)).toBeVisible();
+      expect(screen.getByText(/^All Mailboxes · 1 unread$/u)).toBeVisible();
       await act(async () => {
         await fireEvent.press(
-          screen.getByRole('button', { name: 'All inboxes' }),
+          screen.getByRole('button', { name: 'All Inboxes' }),
         );
       });
       await expect(
@@ -1262,7 +1262,7 @@ describe('connected Gmail Inbox', () => {
         );
         await fireEvent.press(
           screen.getByRole('button', {
-            name: 'Search mail servers for “Studio archive”',
+            name: 'Search Mail Servers for “Studio archive”',
           }),
         );
         await expect(
@@ -1307,7 +1307,7 @@ describe('connected Gmail Inbox', () => {
     };
     await fireEvent.press(
       await screen.findByRole('button', {
-        name: 'Search mail servers for “Studio archive”',
+        name: 'Search Mail Servers for “Studio archive”',
       }),
     );
     expect(screen.getByLabelText('Searching mail servers')).toBeVisible();
@@ -1322,7 +1322,7 @@ describe('connected Gmail Inbox', () => {
     // The late answer belongs to the replaced query, so the current one still offers its own search.
     await expect(
       screen.findByRole('button', {
-        name: 'Search mail servers for “Studio budget”',
+        name: 'Search Mail Servers for “Studio budget”',
       }),
     ).resolves.toBeVisible();
     expect(
@@ -1331,7 +1331,7 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByText('Top Results')).toBeNull();
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Search mail servers for “Studio budget”',
+        name: 'Search Mail Servers for “Studio budget”',
       }),
     );
     await expect(
@@ -1376,7 +1376,7 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByText(/Arrives after permission/u)).toBeNull();
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Allow Gmail access' }),
+        screen.getByRole('button', { name: 'Allow Gmail Access' }),
       );
     });
     expect(connected.authorized).toContain(alex);
@@ -1464,7 +1464,7 @@ describe('connected Gmail Inbox', () => {
     await act(async () => {
       await fireEvent.press(
         details.getByRole('button', {
-          name: 'Allow Gmail access for alex@example.invalid',
+          name: 'Allow Gmail Access for alex@example.invalid',
         }),
       );
     });
@@ -1717,7 +1717,7 @@ describe('connected Gmail Inbox', () => {
       }),
     );
     expect(screen.getByText('oliver@example.invalid')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Mark as read' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mark as Read' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Folders' })).toBeNull();
     expect(
       screen.getByRole('button', {
@@ -1918,7 +1918,7 @@ describe('connected Gmail Inbox', () => {
       await renderConnected(gmail.native);
       await fireEvent.press(
         await screen.findByRole('button', {
-          name: `${title}. In All mailboxes`,
+          name: `${title}. In All Mailboxes`,
         }),
       );
       const receipt = await screen.findByRole('button', {
@@ -1997,7 +1997,7 @@ describe('connected Gmail Inbox', () => {
     await fireEvent(field, 'focus');
     await fireEvent.changeText(field, 'Lunch');
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Search mail servers for “Lunch”' }),
+      screen.getByRole('button', { name: 'Search Mail Servers for “Lunch”' }),
     );
     await fireEvent.press(
       await screen.findByRole('button', { name: /Lunch on Friday/u }),
@@ -2019,7 +2019,7 @@ describe('connected Gmail Inbox', () => {
     // A cached label-only message found online still has no Inbox organizing actions.
     await fireEvent.changeText(field, 'Flight');
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Search mail servers for “Flight”' }),
+      screen.getByRole('button', { name: 'Search Mail Servers for “Flight”' }),
     );
     await fireEvent.press(
       await screen.findByRole('button', { name: /Flight to Zagreb/u }),
@@ -2108,10 +2108,10 @@ describe('connected Gmail Inbox', () => {
     await act(connected.store().load);
     expect(screen.getByText('1 account needs attention')).toBeVisible();
     expect(
-      screen.getByRole('button', { name: 'Allow Gmail access' }),
+      screen.getByRole('button', { name: 'Allow Gmail Access' }),
     ).toBeVisible();
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Allow Gmail access' }),
+      screen.getByRole('button', { name: 'Allow Gmail Access' }),
     );
     await waitFor(() => {
       expect(screen.queryByText('1 account needs attention')).toBeNull();
@@ -2458,12 +2458,12 @@ describe('connected Gmail Inbox', () => {
     }
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Discard change' }),
+        screen.getByRole('button', { name: 'Discard Change' }),
       );
     });
     await waitFor(() => {
       expect(
-        screen.queryByRole('button', { name: 'Discard change' }),
+        screen.queryByRole('button', { name: 'Discard Change' }),
       ).toBeNull();
     });
     expect(gmail.labelsOf(target.id)).toContain('STARRED');
@@ -2571,7 +2571,7 @@ describe('connected Gmail Inbox', () => {
         "Images in this message are not loaded. Loading them shows the sender your device's IP address and when you opened this message.",
       ),
     ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Load Images' })).toBeVisible();
     // Only the app's own initial document loads; a chosen link is cancelled and confirmed.
     expect(
       webview.props.onShouldStartLoadWithRequest({
@@ -2591,7 +2591,7 @@ describe('connected Gmail Inbox', () => {
     expect(screen.getByText('Open this link in your browser?')).toBeVisible();
     expect(screen.getByText('https://example.invalid/plan')).toBeVisible();
     expect(openURL).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByRole('button', { name: 'Open link' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Link' }));
     expect(openURL).toHaveBeenCalledWith('https://example.invalid/plan');
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
     // Keyboard access reaches the same confirmation.
@@ -2657,7 +2657,7 @@ describe('connected Gmail Inbox', () => {
     await fireEvent.press(screen.getByRole('button', { name: /Garden plan/u }));
     await fireEvent.press(screen.getByRole('link', { name: 'the plan' }));
     const previousOwnerConfirmation = screen.getByRole('button', {
-      name: 'Open link',
+      name: 'Open Link',
     });
     openURL.mockClear();
     await act(async () => {
@@ -2734,8 +2734,8 @@ describe('connected Gmail Inbox', () => {
         'Check this link before opening it:\n• The link text shows a different address.\n\nhttps://PHISH.invalid:443',
       ),
     ).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Open link' })).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+    expect(screen.queryByRole('button', { name: 'Open Link' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Copy Link' }));
     expect(copy).toHaveBeenCalledWith('https://PHISH.invalid:443');
     expect(openURL).not.toHaveBeenCalled();
   });
@@ -3420,7 +3420,7 @@ describe('command palette', () => {
     // Opening it read it, so the palette offers to mark it unread, and that change stands.
     await act(async () => {
       await fireEvent.press(
-        openedPalette().getByRole('button', { name: 'Mark as unread' }),
+        openedPalette().getByRole('button', { name: 'Mark as Unread' }),
       );
     });
     await expect(

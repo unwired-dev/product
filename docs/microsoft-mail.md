@@ -15,7 +15,7 @@ Shared and delegated mailboxes are outside the [launch scope](product/power-user
 
 After Google or Apple Product Sign-In and any [device admission](private-product-sync.md),
 nothing asks a provider for mail. The account page shows **Connect your mail** with
-the **Gmail** provider row, **Choose another Google mailbox** and, when Microsoft mail
+the **Gmail** provider row, **Choose Another Google Mailbox** and, when Microsoft mail
 is configured for this build, the **Microsoft 365 and Outlook** row.
 A Google sign-in only suggests its own account to Gmail; it is never a Microsoft hint.
 
@@ -33,10 +33,10 @@ account and its Inbox:
 
 Each outcome keeps the Product Account and offers retry or another provider,
 including after relaunch. Once connected, Settings' **Email Accounts**
-lists Gmail and Microsoft connections together and offers **Add a Microsoft mailbox**.
+lists Gmail and Microsoft connections together and offers **Add a Microsoft Mailbox**.
 That action also requires Microsoft mail to be configured for this build.
 A connection whose grant Microsoft refuses later shows **Microsoft needs your
-permission again** and **Allow Microsoft access for** its address. Authorizing it
+permission again** and **Allow Microsoft Access for** its address. Authorizing it
 again suggests that account and must name the same Microsoft account; another
 account is added separately.
 
@@ -158,7 +158,7 @@ replaces Move to Trash and Report spam, and restores the message to the Inbox.
 ## Organizing and searching
 
 Microsoft mail offers the organizing actions Outlook has, in the reader and as
-Inbox row actions: **Mark as read** or **Mark as unread**, **Archive**, **Move to
+Inbox row actions: **Mark as Read** or **Mark as Unread**, **Archive**, **Move to
 Trash** (Deleted Items), **Report spam** (Junk Email), and **Move to** one of the
 mailbox's own folders under **Folders**, nested ones included. Each folder shows its
 path, such as **Inbox / Projects**, so folders with equal names stay apart. A mailbox
@@ -271,7 +271,7 @@ UNWIRED_MICROSOFT_CLIENT_ID='<application (client) ID>' \
 ```
 
 The variable is optional: without it the hosts offer neither the **Microsoft 365
-and Outlook** row nor **Add a Microsoft mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
+and Outlook** row nor **Add a Microsoft Mailbox**. Mock builds always offer Microsoft mail. TestFlight uploads
 read it from the root `.env.local` or the `MICROSOFT_GRAPH_CLIENT_ID` repository secret.
 
 ## Deterministic evidence

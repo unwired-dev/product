@@ -13,10 +13,10 @@ results never appear in the palette. The vocabulary lives in the
 
 - **Contextual commands** act on the open message, the one the reader shows.
   The reader offers the same handlers its buttons use: Reply, Reply All and
-  Forward where a response can start; Mark as read or unread, Star, Archive,
+  Forward where a response can start; Mark as Read or Unread, Star, Archive,
   Move to Trash and Report spam as the provider allows; and **Move to…**, which
   lists the connection's folders or labels. The preview Inbox's reader offers its
-  Mark as read or unread. The palette never chooses a message on its own.
+  Mark as Read or Unread. The palette never chooses a message on its own.
 - **Draft commands** act on the open Draft, under a Draft section named for its
   subject. On the Mac, the composer offers the handlers its controls use: Send,
   Attach File…, Add Cc and Bcc until Cc and Bcc are shown, and Discard Draft,

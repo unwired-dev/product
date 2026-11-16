@@ -327,7 +327,7 @@ or hides Remote Message Content, or Gmail removes a message from its cached view
 or refreshes it to a smaller presentation.
 
 Remote Message Content in IMAP mail follows the device's remote content policy and the
-connection's own setting in Settings, with the same **Load images** consent, Authorized
+connection's own setting in Settings, with the same **Load Images** consent, Authorized
 Remote Content Cache, tracking-pixel blocking and shared display budget as
 [Gmail mail](gmail-inbox.md#links-and-blocked-remote-content). Cached images belong to the
 connection and the message's UIDVALIDITY and UID, so a folder with a new UIDVALIDITY
@@ -423,8 +423,8 @@ message is no longer in this folder on the mail server**.
 
 ## Organizing
 
-IMAP mail offers, in the reader and as Inbox row actions, **Mark as read** or **Mark as
-unread**, **Star** or **Remove star**, **Archive**, **Move to Trash**, **Report spam**, and
+IMAP mail offers, in the reader and as Inbox row actions, **Mark as Read** or **Mark as
+Unread**, **Star** or **Remove Star**, **Archive**, **Move to Trash**, **Report spam**, and
 under **Folders**, **Move to** any other selectable folder, including the Inbox. In the
 folders the server declares as Trash or Spam (`\Trash`, `\Junk`), or chosen for them as
 [Synchronization](#synchronization) describes, **Move to Inbox** takes
@@ -463,7 +463,7 @@ the server in order:
   UIDVALIDITY changed, or whose copied message disappeared, refuses source deletion.
 - When a move's result is uncertain and no destination identity was saved, it is never
   sent again automatically, even if the source disappeared. The Inbox asks the person to
-  check the folders and **Discard change** to let later changes continue. This state
+  check the folders and **Discard Change** to let later changes continue. This state
   survives relaunch; discarding makes no additional move.
 - **Undo** withdraws a move the server has not received, or moves the message back from
   the UID the server reported for it (COPYUID). A move whose new UID is unknown offers no

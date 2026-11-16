@@ -803,7 +803,7 @@ describe('composing Drafts', () => {
     ).toBeNull();
     await press('Cancel');
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
-    await press('All inboxes');
+    await press('All Inboxes');
     const unified = await palette();
     const command = unified.getByRole('button', { name: 'New Message' });
     await act(async () => {
@@ -1761,7 +1761,7 @@ describe('composing Drafts', () => {
   it.each([
     ['Account', [undefined, expect.any(Function), defaultProfile]],
     [
-      'Enter the password for imap@example.invalid again',
+      'Enter the Password for imap@example.invalid Again',
       ['mailboxes', undefined, defaultProfile],
     ],
   ] as const)(
@@ -1970,7 +1970,7 @@ describe('composing Drafts', () => {
     expect(
       screen.queryByRole('button', { name: draftName }),
     ).not.toBeOnTheScreen();
-    await press('Search mail servers for “Synthetic message 0”');
+    await press('Search Mail Servers for “Synthetic message 0”');
     await expect(
       screen.findByRole('header', { name: 'From mail servers' }),
     ).resolves.toBeOnTheScreen();
@@ -4723,7 +4723,7 @@ describe('composing Drafts', () => {
         });
         expect(screen.queryByText('Too late.')).toBeNull();
 
-        // Rewrite again starts over from the current text; a shown result is dropped the same way.
+        // Rewrite Again starts over from the current text; a shown result is dropped the same way.
         await press('Rewrite your current text again');
         expect(screen.queryByText(dropped)).toBeNull();
         expect(parseJson(asked[1]!.input)).toStrictEqual({
@@ -4735,7 +4735,7 @@ describe('composing Drafts', () => {
         await fireEvent.changeText(body(), 'lets meet sunday. thanks');
         expect(screen.queryByText('Let us meet on Saturday.')).toBeNull();
         expect(screen.getByText(dropped)).toBeOnTheScreen();
-        // With no text left to rewrite, Rewrite again is unavailable, as in the menu.
+        // With no text left to rewrite, Rewrite Again is unavailable, as in the menu.
         await fireEvent.changeText(body(), ' ');
         expect(
           screen.getByLabelText('Rewrite your current text again'),
@@ -6556,7 +6556,7 @@ describe('replying to and forwarding from the reader', () => {
         'Reply',
         'Forward',
         'Archive',
-        'Mark as unread',
+        'Mark as Unread',
         'Star',
         'Move Message',
         'Labels',
@@ -6579,21 +6579,21 @@ describe('replying to and forwarding from the reader', () => {
     ]);
     expect(
       screen
-        .getAllByRole('button', { name: /^(?:Star|Mark as unread)$/u })
+        .getAllByRole('button', { name: /^(?:Star|Mark as Unread)$/u })
         .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Star', 'Mark as unread']);
+    ).toStrictEqual(['Star', 'Mark as Unread']);
     // Choosing an action runs it and closes the sheet.
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
     });
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
     await press('Reply');
-    expect(screen.getByRole('button', { name: 'Remove star' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Remove Star' })).toBeVisible();
     expect(
       screen
-        .getAllByRole('button', { name: /^(?:Remove star|Mark as unread)$/u })
+        .getAllByRole('button', { name: /^(?:Remove Star|Mark as Unread)$/u })
         .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Remove star', 'Mark as unread']);
+    ).toStrictEqual(['Remove Star', 'Mark as Unread']);
     await press('Close');
     expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
     // Labels opens the label checkboxes alone, without the actions the sheet already offers.
@@ -6619,7 +6619,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.queryByRole('header', { name: 'Labels' })).toBeNull();
     await pressLast('Move Message');
     expect(screen.queryByRole('button', { name: 'Report Spam' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Hide folders' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Hide Folders' })).toBeVisible();
     expect(
       within(screen.getByTestId('move-sheet')).getByText(
         'This Gmail mailbox has no labels of its own yet.',
@@ -6931,7 +6931,7 @@ describe('replying to and forwarding from the reader', () => {
       await screen.findByLabelText('Search senders and subjects'),
       'Archived plans',
     );
-    await press('Search mail servers for “Archived plans”');
+    await press('Search Mail Servers for “Archived plans”');
     await expect(
       screen.findByText('Shall we meet on Friday?'),
     ).resolves.toBeOnTheScreen();
@@ -7013,7 +7013,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.getByLabelText('Cc')).toBeOnTheScreen();
     expect(screen.getByLabelText('Message body')).toHaveTextContent('');
     expect(screen.queryByText(/Shall we meet/u)).not.toBeOnTheScreen();
-    await press('Show quoted text');
+    await press('Show Quoted Text');
     expect(screen.getByText(/Shall we meet on Friday\?/u)).toBeOnTheScreen();
 
     await fireEvent.changeText(screen.getByLabelText('Message body'), 'Yes!');
@@ -7021,7 +7021,7 @@ describe('replying to and forwarding from the reader', () => {
     expect(screen.getByLabelText('Message body')).toHaveTextContent('');
     await press('Redo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('Yes!');
-    await press('Hide quoted text');
+    await press('Hide Quoted Text');
     expect(screen.queryByText(/Shall we meet/u)).not.toBeOnTheScreen();
     await saveDraft();
     // Save Draft keeps the reply as a Draft; nothing was sent.

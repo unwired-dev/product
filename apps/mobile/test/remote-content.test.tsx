@@ -142,11 +142,11 @@ describe('remote message content in the reader', () => {
       await act(() => {
         fireEvent(webview, 'contentSizeChange', { nativeEvent: measured(0) });
       });
-      // Under Ask, nothing is fetched until the person chooses Load images.
+      // Under Ask, nothing is fetched until the person chooses Load Images.
       expect(gmail.remoteFetches).toStrictEqual([]);
       const navigation = webview.props.source;
       await act(() => {
-        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+        fireEvent.press(screen.getByRole('button', { name: 'Load Images' }));
       });
       expect(gmail.remoteFetches).toStrictEqual([source]);
       const loaded = await screen.findByTestId('message-webview');
@@ -160,7 +160,7 @@ describe('remote message content in the reader', () => {
       expect(nodes[0]).toContain('<img data-remote="0"');
       expect(nodes[0]).toContain('src="data:image/png;base64,');
       expect(nodes[0]).not.toContain('images.example');
-      expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Load Images' })).toBeNull();
 
       await act(() => settings.setPolicy('never'));
       const hidden = await screen.findByTestId('message-webview');
@@ -180,7 +180,7 @@ describe('remote message content in the reader', () => {
 
   /* oxlint-enable vitest/max-expects */
 
-  it('requires Load images again after Never interrupts an Ask presentation', async () => {
+  it('requires Load Images again after Never interrupts an Ask presentation', async () => {
     expect.hasAssertions();
     placeDocument();
     const settings = settingsWith(null);
@@ -204,7 +204,7 @@ describe('remote message content in the reader', () => {
         fireEvent(webview, 'contentSizeChange', { nativeEvent: both });
       });
       await act(() => {
-        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+        fireEvent.press(screen.getByRole('button', { name: 'Load Images' }));
       });
       expect(gmail.remoteFetches).toStrictEqual([source]);
       // Another window switches the mailbox to Never and back while this reader stays open.
@@ -222,13 +222,13 @@ describe('remote message content in the reader', () => {
         });
       });
       expect(gmail.remoteFetches).toStrictEqual([source]);
-      expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Load Images' })).toBeVisible();
     } finally {
       await app.unmount();
     }
   });
 
-  it('requires Load images again after another Inbox shows the same Gmail ID', async () => {
+  it('requires Load Images again after another Inbox shows the same Gmail ID', async () => {
     expect.hasAssertions();
     placeDocument();
     const settings = settingsWith(null);
@@ -284,7 +284,7 @@ describe('remote message content in the reader', () => {
         );
       });
       await act(() => {
-        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+        fireEvent.press(screen.getByRole('button', { name: 'Load Images' }));
       });
       expect(first.gmail.remoteFetches).toStrictEqual([source]);
       // The same reader shows the other Inbox's message, then the first one again.
@@ -308,7 +308,7 @@ describe('remote message content in the reader', () => {
         });
       });
       expect(first.gmail.remoteFetches).toStrictEqual([source]);
-      expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Load Images' })).toBeVisible();
     } finally {
       await app.unmount();
     }
@@ -338,7 +338,7 @@ describe('remote message content in the reader', () => {
         });
       });
       await act(() => {
-        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+        fireEvent.press(screen.getByRole('button', { name: 'Load Images' }));
       });
       expect(gmail.remoteFetches).toStrictEqual([source]);
       const nodes = decodeUpdates(
@@ -396,7 +396,7 @@ describe('remote message content in the reader', () => {
       await act(() => finishMeasurement(queued));
       expect(gmail.remoteFetches).toStrictEqual([]);
       await act(() => finishMeasurement(queued));
-      expect(screen.getByRole('button', { name: 'Load images' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Load Images' })).toBeVisible();
       await act(() => {
         fireEvent.scroll(scroll, {
           nativeEvent: {
@@ -427,7 +427,7 @@ describe('remote message content in the reader', () => {
         fireEvent(webview, 'contentSizeChange', { nativeEvent: measured(0) });
       });
       expect(blocked.gmail.remoteFetches).toStrictEqual([]);
-      expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Load Images' })).toBeNull();
       expect(
         screen.getByText('Images in this message are not loaded.'),
       ).toBeVisible();
@@ -473,7 +473,7 @@ const firstMessage = (inbox: ImapInbox) => {
 };
 
 describe('remote message content in IMAP mail', () => {
-  it('loads IMAP remote images once the person chooses Load images, and offers the IMAP mailbox its own policy', async () => {
+  it('loads IMAP remote images once the person chooses Load Images, and offers the IMAP mailbox its own policy', async () => {
     expect.hasAssertions();
     placeDocument();
     const settings = settingsWith(null);
@@ -516,13 +516,13 @@ describe('remote message content in IMAP mail', () => {
       await act(() => {
         fireEvent(webview, 'contentSizeChange', { nativeEvent: measured(0) });
       });
-      // Under Ask, nothing is fetched until the person chooses Load images.
+      // Under Ask, nothing is fetched until the person chooses Load Images.
       expect(imap.remoteFetches).toStrictEqual([]);
       await act(() => {
-        fireEvent.press(screen.getByRole('button', { name: 'Load images' }));
+        fireEvent.press(screen.getByRole('button', { name: 'Load Images' }));
       });
       expect(imap.remoteFetches).toStrictEqual([source]);
-      expect(screen.queryByRole('button', { name: 'Load images' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Load Images' })).toBeNull();
     } finally {
       await reader.unmount();
     }
@@ -570,7 +570,7 @@ describe('remote message content in IMAP mail', () => {
 // The real settings store serializes writes while its controls remain usable.
 describe('remote content settings feedback', () => {
   const warning =
-    'Couldn’t save this change. Remote Message Content is still set to Always load. Try again.';
+    'Couldn’t save this change. Remote Message Content is still set to Always Load. Try again.';
 
   it.each([
     { firstSaved: false, text: undefined, speech: [] },
@@ -619,7 +619,7 @@ describe('remote content settings feedback', () => {
         await choosePolicy('On this device', label);
       };
       try {
-        await choose('Always load');
+        await choose('Always Load');
         await choose('Never');
         await act(async () => {
           // oxlint-disable-next-line vitest/no-conditional-in-test -- The table drives both native settlement orders through the real store.

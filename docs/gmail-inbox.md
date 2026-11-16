@@ -59,20 +59,20 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
 
 - **Adding.** Settings' **Email Accounts** lists every Mailbox Connection, Gmail,
   [Microsoft](microsoft-mail.md) and [IMAP](imap-mailboxes.md), with its state and
-  offers **Add another Gmail mailbox**, **Add an IMAP mailbox** and, when Microsoft
-  mail is configured for this build, **Add a Microsoft mailbox**. On iPad these are the
+  offers **Add Another Gmail Mailbox**, **Add an IMAP Mailbox** and, when Microsoft
+  mail is configured for this build, **Add a Microsoft Mailbox**. On iPad these are the
   native menu of one **Add Account…** row. Adding Gmail asks Google for an
   account and explicit Gmail consent. Choosing a Google account that is already
   connected authorizes that connection again instead of adding a second one; the
   Google account, not the address, identifies it. A cancelled or refused addition
   leaves every connection as it was.
-- **Unified Inbox.** With more than one mailbox, the Inbox shows **All inboxes**,
+- **Unified Inbox.** With more than one mailbox, the Inbox shows **All Inboxes**,
   newest first. Messages received at the same moment keep the order the mailboxes
   were added, then Gmail's message ID, so rows never reorder between updates. Every
   row, and the reader, names its mailbox (`In alex@example.com`), and VoiceOver
   reads it with the row. Choosing a mailbox's Inbox in the Mailboxes sidebar shows
-  only that mailbox; **All inboxes** returns. Each window chooses on its own. A
-  removed mailbox's view falls back to **All inboxes**. A chosen mailbox whose
+  only that mailbox; **All Inboxes** returns. Each window chooses on its own. A
+  removed mailbox's view falls back to **All Inboxes**. A chosen mailbox whose
   provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
   its heading's subtitle shows the same status as its sidebar row (on Mac and iPad, as the
   warning beside the mailbox's sidebar header, whose Inbox row keeps its action), and
@@ -99,7 +99,7 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   Gmail leaves the sidebar with its saved view, and a window that showed it returns
   to the Inbox. Complete history remains with
   [#1007](https://github.com/unwired-dev/product/issues/1007).
-- **Unified mailboxes.** Under **Favorites**, after **All inboxes**, the sidebar offers
+- **Unified mailboxes.** Under **Favorites**, after **All Inboxes**, the sidebar offers
   **Sent**, **Archive**, **All Mail**, **Spam** and **Trash** across the window's
   Profile ([#1006](https://github.com/unwired-dev/product/issues/1006)). Each lists the
   matching mailbox of every connection newest first, ties by mailbox order then
@@ -112,11 +112,11 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   included** for it, and its folders stay under it in the sidebar.
 - **Separate states.** Each mailbox reports its own **Checking Gmail…**, **Gmail
   could not be reached** and storage notices, waiting changes, **Undo**, and
-  **Retry change** or **Discard change**, prefixed with its address when there are
+  **Retry change** or **Discard Change**, prefixed with its address when there are
   several. The [Sync Status Capsule](#sync-status-capsule) reports unreachable
-  mailboxes together instead of a notice for each. **Allow Gmail access** authorizes only that mailbox, with the same Google
+  mailboxes together instead of a notice for each. **Allow Gmail Access** authorizes only that mailbox, with the same Google
   account. When a verification finds one mailbox's grant refused, that mailbox shows
-  **Gmail needs your permission again** and **Allow Gmail access for** its address,
+  **Gmail needs your permission again** and **Allow Gmail Access for** its address,
   and its saved mail stays closed, while every other mailbox stays open and usable.
   Each verification checks a refused mailbox again. Only when every mailbox needs
   authorization again does the account page open with **Connect your mail**.
@@ -163,7 +163,7 @@ the newest 200 and the older ones scrolling has revealed from
   the whole window instead: the field is 400pt wide and centered, Filter or what the
   Inbox is filtered by leads it, and New Message or Close Search sits at the
   trailing edge. The reader's content leaves room beneath it.
-- **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All inboxes**
+- **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All Inboxes**
   searches every mailbox, newest first in the unified order, and a mailbox's address
   searches only its own mail. A removed mailbox's mail leaves the results at once,
   as it leaves the Inbox. On iPhone and iPad, in a view narrower than every Inbox of the Profile (one
@@ -203,7 +203,7 @@ or press Escape on a hardware keyboard to dismiss the popover. The popover stays
 the control while the window changes size; narrowing the window to compact width
 closes it without applying. Both keep the edited choices until they close:
 
-- **Include Mail From**, in **All inboxes** with more than one mailbox: each
+- **Include Mail From**, in **All Inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.
 - **Include:** **Unread**.
 - **Only Mail from Today:** mail that arrived on the list's current UTC day, the
@@ -222,13 +222,13 @@ attachments and VIP senders — so they are not offered.
 
 [#609](https://github.com/unwired-dev/product/issues/609) adds Gmail's own full-text
 search below the saved results. Typing never asks Gmail; once there is a query,
-**Search mail servers for “…”** sends it to Gmail unchanged, with Gmail's search semantics
+**Search Mail Servers for “…”** sends it to Gmail unchanged, with Gmail's search semantics
 and operators, for each Gmail mailbox in the [chosen view](#gmail-mailboxes): one
-mailbox, or every mailbox under **All inboxes**. The API search excludes spam and trash, including the bodies and mail that left the Inbox.
+mailbox, or every mailbox under **All Inboxes**. The API search excludes spam and trash, including the bodies and mail that left the Inbox.
 
 - **Results.** They appear under **From mail servers**, after the saved results, which stay
   as they were. Each mailbox returns 20 results per page, newest first across
-  mailboxes, and **More from mail servers** asks every mailbox with another page for it.
+  mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
   When nothing matches, the section says **Mail servers found no mail matching “…”**.
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
@@ -243,7 +243,7 @@ mailbox, or every mailbox under **All inboxes**. The API search excludes spam an
   when the view holds several, while the other mailboxes' results and the saved
   results stay: no connection, a refused grant, which also offers **Allow Gmail
   access** as a reader would, or another failure. **Search mail servers again** asks every
-  mailbox afresh; a failed next page keeps its place, so **More from mail servers** retries it.
+  mailbox afresh; a failed next page keeps its place, so **More from Mail Servers** retries it.
 - **Stale requests.** An answer belongs to the query and the mailboxes' Inboxes it
   was asked of. Changing the query or view, a removed or changed mailbox, or another
   Product Account leaves it unshown until Gmail is asked again, and a reply for an
@@ -379,7 +379,7 @@ On iPhone and iPad, tapping the capsule opens the same **Sync Status** details
 ([#1442](https://github.com/unwired-dev/product/issues/1442)): in a medium-detent
 sheet with **Done** on iPhone, and in a popover on the capsule on iPad. A connection
 whose grant or password was refused offers its authorization in place of
-**Try Again**: **Allow Gmail access**, named for its provider, asks for access again
+**Try Again**: **Allow Gmail Access**, named for its provider, asks for access again
 and then synchronizes that connection, and **Enter the Password…** opens Email
 Accounts in Settings. Authorizing closes the details first. The footer points to
 pulling the list down instead of ⌘R. On iPhone, whose Inbox heading has no room for
@@ -412,8 +412,8 @@ Gmail's labels.
 
 | Action                        | Gmail change                                                                                                                             |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Mark as read** / **unread** | Removes or adds `UNREAD`                                                                                                                 |
-| **Star** / **Remove star**    | Adds or removes `STARRED`                                                                                                                |
+| **Mark as Read** / **Unread** | Removes or adds `UNREAD`                                                                                                                 |
+| **Star** / **Remove Star**    | Adds or removes `STARRED`                                                                                                                |
 | **Archive**                   | Removes `INBOX`; offered only for mail in the Inbox                                                                                      |
 | **Move to Trash**             | Adds `TRASH`, removes `INBOX`                                                                                                            |
 | **Report spam**               | Adds `SPAM`, removes `INBOX`                                                                                                             |
@@ -422,10 +422,10 @@ Gmail's labels.
 | **Undo**                      | Reverses the latest removal from the Inbox                                                                                               |
 
 Opening an unread message reads it ([#2080](https://github.com/unwired-dev/product/issues/2080)):
-once the reader can change the message, it makes the change **Mark as read** makes, for every
+once the reader can change the message, it makes the change **Mark as Read** makes, for every
 provider: Gmail's `UNREAD`, Microsoft's `isRead` and IMAP's `\Seen`. Neither the change nor
 a refusal of it is announced, and both leave the latest notice and its **Undo** in place.
-Each opening marks the message once, even when two windows show it, so **Mark as unread**
+Each opening marks the message once, even when two windows show it, so **Mark as Unread**
 stands while it stays open. A Thread reader marks only the message it opened. A read that
 rolls back because only the saved Inbox opens is asked again once Gmail access verifies.
 An online search result outside every cached view offers no organizing actions, so opening
@@ -515,7 +515,7 @@ Inbox rows and the reader also offer native context menus: long-press on iPhone 
 iPad, secondary click with an iPad pointer, and right-click or Control-click on the
 Mac. A row's menu lists the row's own actions in the design's order: **Archive**
 (or **Move to Inbox** in Trash and Spam),
-**Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
+**Flag** or **Unflag** (Star or Remove Star), **Mark as Read** or **Mark as Unread**,
 and, outside Trash and Spam, **Delete** (Move to Trash), placed last on every platform.
 Report spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state and flag,
@@ -551,7 +551,7 @@ an interrupted attempt can be retried on the next synchronization, including aft
   attempts per change, with exponential delay and jitter between attempts.
   Unconfirmed changes and later intents stay saved. The status names the action
   and message awaiting confirmation. **Retry change** starts a new
-  retry budget; **Discard change** restores Gmail's current state and lets later
+  retry budget; **Discard Change** restores Gmail's current state and lets later
   intents continue.
 - **Refused:** when the message or label no longer exists in Gmail, the change is
   dropped, the Inbox shows the message as Gmail has it, and an alert names the
@@ -921,8 +921,8 @@ closing brackets remain readable text outside the link.
 Other sender schemes and automatic opening remain blocked. Sanitized anchors use
 app-owned opaque navigation markers; their exact vetted destinations and visible
 text remain outside the document for confirmation. Choosing a link shows its
-exact full destination with **Open link** and **Cancel**; system handoff occurs
-only after **Open link**. A queued link choice rechecks its body and reader owner
+exact full destination with **Open Link** and **Cancel**; system handoff occurs
+only after **Open Link**. A queued link choice rechecks its body and reader owner
 before showing any destination. A pending confirmation hides immediately when its message or mailbox changes,
 even before the previous reader finishes closing. Confirmation is discarded when the body presentation
 or Inbox owner changes, and the current ownership boundary is checked again
@@ -974,27 +974,27 @@ the document. Other
 sources, including plain HTTP and internationalized host names, stay placeholders.
 
 - **Policies.** The **Remote Content** group in Settings' **Privacy & Data**
-  chooses **Ask** (the default), **Never** or **Always load** for this device, and
+  chooses **Ask** (the default), **Never** or **Always Load** for this device, and
   each Gmail mailbox's row there can use the device setting or its own choice, each
   from its row's native pop-up menu. Choices stay on this device in its
   local defaults and are never synchronized; unreadable settings ask. Until the
   saved choices are read at launch, readers show no remote content and offer no
-  **Load images**, so a saved **Never** is never preceded by Ask's cache restoration.
+  **Load Images**, so a saved **Never** is never preceded by Ask's cache restoration.
 - **Cache-only restoration** considers every nearby source, even when earlier
   sources only missed the cache. A viewport change withdraws the old sources.
 - **Ask.** While a message has unloaded remote images, the reader explains that
   loading them shows the sender the device's IP address and when the message was
-  opened, and offers **Load images**. Choosing it authorizes this presentation of
+  opened, and offers **Load Images**. Choosing it authorizes this presentation of
   this message only. Without it, the reader restores only what an earlier
   authorization cached and makes no request. Cache misses do not spend the network
   request budget. Another message, a later opening, or
   a cache miss needs consent again.
 - **Never** shows no remote content, including content cached earlier, which stays
-  until eviction or **Clear remote content**. Switching an open message's mailbox to
+  until eviction or **Clear Remote Content**. Switching an open message's mailbox to
   **Never**, even briefly from another window, withdraws that presentation's Ask
   consent, as does showing the same Gmail ID from another Inbox; returning to **Ask**
-  requires **Load images** again.
-- **Always load** loads without asking.
+  requires **Load Images** again.
+- **Always Load** loads without asking.
 - **Rich-view failure.** A reader whose rich view fails falls back to plain text and
   ends its remote requests; nothing they return is shown, cached or counted as used.
   Images no remaining rich reader displays release their shared image budget and
@@ -1030,7 +1030,7 @@ sources, including plain HTTP and internationalized host names, stay placeholder
   image, stays a placeholder for the presentation. One that could not be shown
   yet because the shared presentation budget was full, or that failed because the
   server was unreachable or storage was locked, is tried again by a later request
-  for it, such as scrolling or **Load images**, within the attempt limit.
+  for it, such as scrolling or **Load Images**, within the attempt limit.
 - **Cache.** Validated images are kept in the separate
   [Authorized Remote Content Cache](private-inbox-storage.md#authorized-remote-content-cache);
   a full cache still shows the image for this presentation.
@@ -1124,7 +1124,7 @@ identify links and image descriptions, and reach confirmation and retry actions.
 A blocked image without a description shows and reads **Image not loaded** in the app's
 language, kept to one line within the sender's image size. Text respects supported accessibility sizing. Links have an accessible
 name and a keyboard activation path; a separate underlined control after the message,
-named by the link's text or else its destination, provides it. **Try again**, **Open link**, **Cancel**, and any flagged-link actions
+named by the link's text or else its destination, provides it. **Try again**, **Open Link**, **Cancel**, and any flagged-link actions
 are focusable. iPad Full Keyboard Access and Mac keyboard navigation can enter,
 read, scroll, activate links and leave the rich view without a focus trap.
 
@@ -1186,7 +1186,7 @@ Cache-only registration permits reads but no prefetch, cache write or pruning
 until registration verifies again. Authentication failure stops authorized provider
 work and uses **Gmail needs your permission again**, whether prefetch, inline-image
 resolution for a cached or opened body (whose readable text stays shown) or an
-explicitly opened body met the rejection, so the Inbox offers **Allow Gmail access**.
+explicitly opened body met the rejection, so the Inbox offers **Allow Gmail Access**.
 An overlapping metadata synchronization keeps that notice; the next load after
 authorization can recover the Inbox, retry unavailable bodies and resolve pending
 Inline Images in already shown bodies.
@@ -1394,7 +1394,7 @@ attachment descriptors.
   **Gmail could not be reached to download this attachment.** (offline, network,
   quota or server failure),
   **Gmail needs your permission again to download this attachment.** (the Inbox also
-  offers **Allow Gmail access**),
+  offers **Allow Gmail Access**),
   **Gmail sent an incomplete or damaged copy of this attachment.**,
   **This attachment could not be saved on this device.**, or the locked-storage
   message. **This attachment is no longer in Gmail.** has no **Try again**.
@@ -1458,7 +1458,7 @@ The Inbox reports:
 - **Checking Gmail…** while synchronizing. An empty cache shows a progress
   indicator instead of an empty Inbox.
 - **Gmail needs your permission again** after Gmail refuses the mailbox's grant.
-  **Allow Gmail access** runs Gmail authorization for the same mailbox and
+  **Allow Gmail Access** runs Gmail authorization for the same mailbox and
   synchronizes again.
 - **Gmail could not be reached** after a network failure, quota or rate limit, server
   error or malformed Gmail response. **Try again** resumes from the last commit;
@@ -1584,7 +1584,7 @@ synchronization forgetting only that mailbox's mail and changing nothing in Gmai
 new Inbox for another Product Account; and at most two body loads per mailbox and
 four across mailboxes, using explicit download-start signals; a single image budget
 across readers from different mailboxes, with independent release on removal. Rendered journeys on both hosts add a second mailbox, add the
-first again without duplicating it, switch between **All inboxes** and one mailbox,
+first again without duplicating it, switch between **All Inboxes** and one mailbox,
 recover a refused mailbox while the other stays readable, and confirm a removal.
 
 The #617 shared tests drive two controlled Gmail mailboxes through application
@@ -1836,10 +1836,10 @@ verify on iPhone, iPad and Mac before release:
 - that opening and prefetching mail make no request other than Gmail's while
   remote content is blocked, and that links open only after confirmation, with
   VoiceOver, Full Keyboard Access and Mac keyboard focus.
-- remote images from real senders under Ask, Never and Always load: consent, the
+- remote images from real senders under Ask, Never and Always Load: consent, the
   viewport margin while scrolling, redirects, IPv6 and NAT64 networks, a proxy
   configured on the device, refused private destinations, a certificate for another
-  host, cached reopening offline and **Clear remote content**;
+  host, cached reopening offline and **Clear Remote Content**;
 - every organizing action and **Undo**, as seen in Gmail on the web;
 - changes made offline, then sent after reconnecting or relaunching;
 - a refused change after the label or message is deleted in Gmail;

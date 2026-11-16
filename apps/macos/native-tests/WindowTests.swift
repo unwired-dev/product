@@ -186,13 +186,13 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text("Approve this device", in: resumed).waitForExistence(timeout: 15))
     XCTAssertTrue(enrollmentCode(in: resumed).exists)
     XCTAssertTrue(text("Use your Recovery Key", in: resumed).exists)
-    XCTAssertTrue(resumed.buttons["Check for approval"].exists)
+    XCTAssertTrue(resumed.buttons["Check for Approval"].exists)
     XCTAssertFalse(resumed.buttons["Gmail"].exists)
     XCTAssertFalse(text("This device cannot join", in: resumed).exists)
     // Signing out of the gate leaves nothing of the account on this device.
-    resumed.buttons["Sign out of this device"].click()
+    resumed.buttons["Sign Out of This Device"].click()
     XCTAssertTrue(text("Your other devices", in: resumed).waitForExistence(timeout: 15))
-    resumed.buttons["Sign out of this device"].click()
+    resumed.buttons["Sign Out of This Device"].click()
     XCTAssertTrue(text("Your mail,", in: resumed).waitForExistence(timeout: 15))
   }
 
@@ -216,9 +216,9 @@ final class WindowTests: XCTestCase {
     entry.typeText(String(key.suffix(4)))
     first.buttons["Confirm Recovery Key"].click()
     XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
-    first.buttons["Sign out of this device"].click()
+    first.buttons["Sign Out of This Device"].click()
     XCTAssertTrue(text("Your other devices", in: first).waitForExistence(timeout: 15))
-    first.buttons["Sign out of this device"].click()
+    first.buttons["Sign Out of This Device"].click()
     XCTAssertTrue(text("Your mail,", in: first).waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
@@ -232,7 +232,7 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(recoveryKey(in: resumed).exists)
     resumed.buttons["Delete Unwired Account"].click()
     XCTAssertTrue(text("cannot be undone", in: resumed).waitForExistence(timeout: 15))
-    resumed.buttons["Delete permanently"].click()
+    resumed.buttons["Delete Permanently"].click()
     // The deletion's reply is lost (#1173). After relaunch, retrying it confirms the deletion and
     // leaves its confirmation for Welcome.
     XCTAssertTrue(
@@ -241,7 +241,7 @@ final class WindowTests: XCTestCase {
     app.launch()
     let pending = app.windows["Inbox 1"]
     XCTAssertTrue(text("Confirm account deletion", in: pending).waitForExistence(timeout: 20))
-    pending.buttons["Delete permanently"].click()
+    pending.buttons["Delete Permanently"].click()
     XCTAssertTrue(text("Unwired account deleted", in: pending).waitForExistence(timeout: 15))
     // The deleted account cannot be reopened, and this device keeps nothing of it.
     pending.buttons["Sign in with Google"].click()
@@ -272,7 +272,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(resumed.buttons["Gmail"].waitForExistence(timeout: 15))
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(recoveryKey(in: resumed).value as? String, presented)
-    resumed.buttons[apple ? "Gmail" : "Choose another Google mailbox"].click()
+    resumed.buttons[apple ? "Gmail" : "Choose Another Google Mailbox"].click()
     XCTAssertTrue(text("connected on this device", in: resumed).waitForExistence(timeout: 15))
     let entry = resumed.textFields["Last four characters"]
     entry.click()
@@ -323,9 +323,9 @@ final class WindowTests: XCTestCase {
     // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo,
     // chosen as Edit › Undo, Command-Z (#2188).
     resumed.buttons["Star"].click()
-    XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
+    XCTAssertTrue(resumed.buttons["Remove Star"].waitForExistence(timeout: 10))
     assertProviderActionsSettled(resumed)
-    XCTAssertTrue(resumed.buttons["Remove star"].exists)
+    XCTAssertTrue(resumed.buttons["Remove Star"].exists)
     // The starred row names its flag.
     let starred = opened + ". Flagged"
     resumed.buttons["Archive"].click()
@@ -377,7 +377,7 @@ final class WindowTests: XCTestCase {
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let presented = recoveryKey(in: first).value as? String ?? ""
-    first.buttons["Choose another Google mailbox"].click()
+    first.buttons["Choose Another Google Mailbox"].click()
     XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
     let entry = first.textFields["Last four characters"]
     entry.click()
@@ -566,7 +566,7 @@ final class WindowTests: XCTestCase {
     first.buttons["Sign in with Google"].click()
     XCTAssertTrue(recoveryKey(in: first).waitForExistence(timeout: 15))
     let presented = recoveryKey(in: first).value as? String ?? ""
-    first.buttons["Choose another Google mailbox"].click()
+    first.buttons["Choose Another Google Mailbox"].click()
     XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
     let entry = first.textFields["Last four characters"]
     entry.click()
@@ -747,7 +747,7 @@ final class WindowTests: XCTestCase {
     typed.click()
     window.typeKey("a", modifierFlags: .command)
     window.typeKey("b", modifierFlags: .command)
-    let numbered = window.buttons["Numbered list"]
+    let numbered = window.buttons["Numbered List"]
     numbered.click()
     // The paragraph's text stays in the list item, beside the item's number marker.
     let marker = window.webViews.otherElements.matching(NSPredicate(format: "value == %@", "1"))
@@ -761,12 +761,12 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(marker.waitForExistence(timeout: 10))
     reopenDraft(app)
     webText("Evaluation paragraph", in: window).doubleClick()
-    waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered list"].isSelected }
+    waitUntil { window.buttons["Bold"].isSelected && window.buttons["Numbered List"].isSelected }
     // #1568: Select All starts outside the list item, and the bar still shows the list selected.
     window.typeKey("a", modifierFlags: .command)
     for _ in 0..<3 {
       RunLoop.current.run(until: Date().addingTimeInterval(1))
-      XCTAssertTrue(window.buttons["Numbered list"].isSelected)
+      XCTAssertTrue(window.buttons["Numbered List"].isSelected)
     }
     // The text's centre falls on the space between its words, which selects no text.
     let firstWord = {
@@ -869,16 +869,16 @@ final class WindowTests: XCTestCase {
       waitUntil { body() != original }
       waitUntil { body().joined(separator: " ").contains(result) }
       let accepted = body()
-      waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
+      waitUntil { window.buttons["Numbered List"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
       waitUntil { window.buttons["Undo"].isEnabled }
       window.buttons["Undo"].click()
       waitUntil { body() == original }
-      waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == originalBold }
+      waitUntil { window.buttons["Numbered List"].isSelected == numbered && window.buttons["Bold"].isSelected == originalBold }
       if !leaveUndone {
         waitUntil { window.buttons["Redo"].isEnabled }
         window.buttons["Redo"].click()
         waitUntil { body() == accepted }
-        waitUntil { window.buttons["Numbered list"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
+        waitUntil { window.buttons["Numbered List"].isSelected == numbered && window.buttons["Bold"].isSelected == boldAfterApply }
       }
       reopenDraft(app, titled: title)
       // The reopened page replaces any editor shown at launch once it has loaded.
@@ -886,7 +886,7 @@ final class WindowTests: XCTestCase {
       waitUntil { body() == expected }
       let expectedBold = leaveUndone ? originalBold : boldAfterApply
       waitUntil {
-        window.buttons["Numbered list"].isSelected == numbered
+        window.buttons["Numbered List"].isSelected == numbered
           && window.buttons["Bold"].isSelected == expectedBold
       }
     }
@@ -903,11 +903,11 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(enrollmentCode(in: first).exists)
     XCTAssertFalse(recoveryKey(in: first).exists)
     XCTAssertFalse(first.buttons["Gmail"].exists)
-    XCTAssertFalse(first.buttons["Choose another Google mailbox"].exists)
+    XCTAssertFalse(first.buttons["Choose Another Google Mailbox"].exists)
     let mailboxes = "Encrypted mailbox list: alex@example.invalid."
     XCTAssertFalse(text(mailboxes, in: first).exists)
     // The synthetic trusted device approves with the code shown on this device.
-    first.buttons["Check for approval"].click()
+    first.buttons["Check for Approval"].click()
     XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text(mailboxes, in: first).exists)
     // Gmail on this device still needs its own authorization.
@@ -979,21 +979,21 @@ final class WindowTests: XCTestCase {
     }
     let garden = "https://example.invalid/garden"
     ask("garden plan", title: "Open this link in your browser?", destination: garden,
-        buttons: ["Open link", "Cancel"])
+        buttons: ["Open Link", "Cancel"])
     app.typeKey("k", modifierFlags: .command)
     XCTAssertFalse(window.textFields["Type a command"].waitForExistence(timeout: 2))
     XCTAssertTrue(sheet.exists)
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
     ask("garden plan", title: "Open this link in your browser?", destination: garden,
-        buttons: ["Open link", "Cancel"])
+        buttons: ["Open Link", "Cancel"])
     sheet.buttons["Cancel"].click()
     XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
     let flagged = "https://garden.example.invalid/order"
     let seeds = "https://seeds.example.invalid/order"
     let caution = "This link may not be what it seems"
     for key in [XCUIKeyboardKey.escape, .return] {
-      ask(flagged, title: caution, destination: seeds, buttons: ["Cancel", "Copy link", "Proceed"])
+      ask(flagged, title: caution, destination: seeds, buttons: ["Cancel", "Copy Link", "Proceed"])
       if key == .escape { try audit(app, "Link sheet") }
       app.typeKey(key, modifierFlags: [])
       XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
@@ -1065,10 +1065,10 @@ final class WindowTests: XCTestCase {
     first.buttons["Gmail"].click()
     XCTAssertTrue(text("connected on this device", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text("Only Apple opens this Unwired account", in: first).exists)
-    first.buttons["Link Google sign-in"].click()
+    first.buttons["Link Google Sign-In"].click()
     let linked = "Sign in with Apple or Google to open this Unwired account."
     XCTAssertTrue(text(linked, in: first).waitForExistence(timeout: 15))
-    XCTAssertFalse(first.buttons["Link Google sign-in"].exists)
+    XCTAssertFalse(first.buttons["Link Google Sign-In"].exists)
     app.terminate()
     app.launch()
     XCTAssertTrue(text(linked, in: app.windows["Inbox 1"]).waitForExistence(timeout: 15))
@@ -1243,7 +1243,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(address(second, "oliver@example.com").waitForExistence(timeout: 10))
     XCTAssertTrue(address(first, "maya@example.com").exists)
     // Opening it read it, in both windows.
-    XCTAssertTrue(second.buttons["Mark as unread"].waitForExistence(timeout: 10))
+    XCTAssertTrue(second.buttons["Mark as Unread"].waitForExistence(timeout: 10))
     XCTAssertTrue(
       first.buttons["Oliver Park. Saturday, by the river?"].waitForExistence(timeout: 10))
     XCTAssertFalse(address(second, "maya@example.com").exists)
@@ -1302,7 +1302,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(restored.waitForExistence(timeout: 30))
     XCTAssertFalse(restored.label.hasPrefix("Unread."))
     restored.click()
-    XCTAssertTrue(app.windows["Inbox 1"].buttons["Mark as unread"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.windows["Inbox 1"].buttons["Mark as Unread"].waitForExistence(timeout: 10))
 
   }
 
@@ -1352,7 +1352,7 @@ final class WindowTests: XCTestCase {
         XCTAssertTrue(body("\(message) body.", in: window).waitForExistence(timeout: 15))
       }
     }
-    window.buttons["All inboxes"].click()
+    window.buttons["All Inboxes"].click()
 
     var groups: [PerformanceGroup] = []
     func measure(
@@ -1367,19 +1367,19 @@ final class WindowTests: XCTestCase {
       app.terminate()
       let start = uptime()
       app.launch()
-      return (start, until(row("Jordan Lee"), from: start, and: window.buttons["All inboxes"]))
+      return (start, until(row("Jordan Lee"), from: start, and: window.buttons["All Inboxes"]))
     }
-    // All inboxes aggregates every listed Thread of both mailboxes.
+    // All Inboxes aggregates every listed Thread of both mailboxes.
     let views = [
       (inbox("casey@example.invalid"), "Outlook update 001", "Gmail update 001"),
       (inbox("other@example.invalid"), "Gmail update 001", "Outlook update 001"),
-      (window.buttons["All inboxes"], "Outlook update 001", "Rowan Hale"),
+      (window.buttons["All Inboxes"], "Outlook update 001", "Rowan Hale"),
     ]
     measure("cached-mailbox-switch", budget: 200, count: 21) { index in
       let (view, shown, required) = views[index % views.count]
       let start = uptime()
       view.click()
-      // A mailbox's own Inbox no longer shows the other mailbox; All inboxes shows both.
+      // A mailbox's own Inbox no longer shows the other mailbox; All Inboxes shows both.
       return index % views.count == 2
         ? (start, until(row(shown), from: start, and: row(required)))
         : (start, until(row(shown), from: start, without: row(required)))
@@ -1551,7 +1551,7 @@ final class WindowTests: XCTestCase {
 
     // Settings › Email Accounts connects the synthetic IMAP server, which marks only Sent.
     openSettings()
-    settings.buttons["Add an IMAP mailbox"].click()
+    settings.buttons["Add an IMAP Mailbox"].click()
     settings.buttons["Other IMAP Account"].click()
     // #2176: an address at a catalogued provider fills in its servers and says so; clearing it
     // empties them again for manual entry.
@@ -1595,7 +1595,7 @@ final class WindowTests: XCTestCase {
 
     // All Mail leaves the connection out and says so; Choose Folders… opens the choice as a sheet,
     // which Save stays disabled in until both folders are chosen, and Escape cancels.
-    let allMail = window.buttons["All Mail. In All mailboxes"]
+    let allMail = window.buttons["All Mail. In All Mailboxes"]
     XCTAssertTrue(allMail.waitForExistence(timeout: 30))
     allMail.click()
     XCTAssertTrue(text(notice, in: window).waitForExistence(timeout: 30))
@@ -1686,7 +1686,7 @@ final class WindowTests: XCTestCase {
     let settings = app.windows["settings-window"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.buttons["Email Accounts"].click()
-    settings.buttons["Add an IMAP mailbox"].click()
+    settings.buttons["Add an IMAP Mailbox"].click()
     settings.buttons["Other IMAP Account"].click()
     for (label, value) in [
       ("Email address", address), ("User name", "pat"), ("IMAP server", "imap.example.invalid"),
@@ -2029,10 +2029,10 @@ final class WindowTests: XCTestCase {
     let message = window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001"))
       .firstMatch
     XCTAssertTrue(lines.waitForExistence(timeout: 10))
-    XCTAssertEqual(lines.value as? String, "1 line")
+    XCTAssertEqual(lines.value as? String, "1 Line")
     XCTAssertTrue(text("Row height follows the macOS sidebar icon size.", in: settings).exists)
     let oneLine = message.frame.height
-    preview("3 lines")
+    preview("3 Lines")
     waitUntil { message.frame.height > oneLine + 20 }
     attach(settings, "Settings › Appearance · 3 preview lines")
     attach(window, "Inbox · 3 preview lines")
@@ -2051,12 +2051,12 @@ final class WindowTests: XCTestCase {
     settings.buttons["Appearance"].click()
     XCTAssertTrue(row("Dark").waitForExistence(timeout: 10))
     XCTAssertEqual(row("Dark").value as? String, "radio button, checked")
-    XCTAssertEqual(lines.value as? String, "3 lines")
+    XCTAssertEqual(lines.value as? String, "3 Lines")
     attach(settings, "Settings › Appearance after relaunch · Dark")
     preview("None")
     waitUntil { message.frame.height < oneLine }
     attach(window, "Inbox · no preview · Dark")
-    preview("1 line")
+    preview("1 Line")
     waitUntil { abs(message.frame.height - oneLine) < 1 }
     choose("System")
   }
@@ -2303,8 +2303,8 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(projects.waitForExistence(timeout: 5))
     app.typeKey(.escape, modifierFlags: [])
     XCTAssertTrue(projects.waitForNonExistence(timeout: 5))
-    let read = window.buttons["Mark as read"]
-    let unread = window.buttons["Mark as unread"]
+    let read = window.buttons["Mark as Read"]
+    let unread = window.buttons["Mark as Unread"]
     let (toggle, toggled) = read.exists ? (read, unread) : (unread, read)
     toggle.click()
     XCTAssertTrue(toggled.waitForExistence(timeout: 10))
@@ -2438,8 +2438,8 @@ final class WindowTests: XCTestCase {
   }
 
   // #1898: a Writing tools rewrite of the reply says which details it changed. The synthetic
-  // rewrite keeps the reply's link, so Replace text takes the accent tint; once the reply has a
-  // time the rewrite drops, Keep original does. Return stays with the body (#1900).
+  // rewrite keeps the reply's link, so Replace Text takes the accent tint; once the reply has a
+  // time the rewrite drops, Keep Original does. Return stays with the body (#1900).
   private func detailCheckJourney(
     _ app: XCUIApplication, window: XCUIElement, typed: XCUIElement, appearance: String
   ) throws {
@@ -2863,8 +2863,8 @@ final class WindowTests: XCTestCase {
     let settings = app.windows["settings-window"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     settings.buttons["Email Accounts"].click()
-    XCTAssertTrue(settings.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
-    settings.buttons["Add another Gmail mailbox"].click()
+    XCTAssertTrue(settings.buttons["Add Another Gmail Mailbox"].waitForExistence(timeout: 15))
+    settings.buttons["Add Another Gmail Mailbox"].click()
     XCTAssertTrue(text("other@example.invalid", in: settings).waitForExistence(timeout: 15))
     app.typeKey("w", modifierFlags: .command)
     XCTAssertTrue(settings.waitForNonExistence(timeout: 10))

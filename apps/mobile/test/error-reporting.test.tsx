@@ -132,7 +132,7 @@ describe('error reporting controls', () => {
     const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
     await render(<ErrorReportingSettings store={store} />);
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Delete my error reports' }),
+      screen.getByRole('button', { name: 'Delete My Error Reports' }),
     );
     expect(store.deleteReports).not.toHaveBeenCalled();
     const buttons = alert.mock.calls[0]?.[2];
@@ -147,7 +147,7 @@ describe('error reporting controls', () => {
     }).toStrictEqual({ status: 'Deletion requested', disabled: true });
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Check deletion status' }),
+        screen.getByRole('button', { name: 'Check Deletion Status' }),
       );
     });
     expect({
@@ -214,7 +214,7 @@ describe('error reporting controls', () => {
       screen.findByText(/Signing in won’t restore access/u),
     ).resolves.toBeVisible();
     const deletion = screen.getByRole('button', {
-      name: 'Delete my error reports',
+      name: 'Delete My Error Reports',
     });
     expect(deletion.props.accessibilityState.disabled).toBe(true);
     await fireEvent.press(deletion);
@@ -409,7 +409,7 @@ describe('privacy after account removal', () => {
       screen.getByRole('switch', { name: 'Share error reports' }).props,
     ).toMatchObject({ value: false, disabled: false });
     expect(
-      screen.getByRole('button', { name: 'Delete my error reports' }).props
+      screen.getByRole('button', { name: 'Delete My Error Reports' }).props
         .accessibilityState,
     ).toMatchObject({ disabled: false });
   });

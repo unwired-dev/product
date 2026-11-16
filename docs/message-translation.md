@@ -52,8 +52,8 @@ fallback and nothing is downloaded by the app.
   selected text without list markers and opens a review panel. On Mac, the format
   bar's **Writing tools** menu has a **Translate To** submenu of the same languages,
   enabled while body text is selected; choosing one captures the selection and
-  starts that translation. The Draft is unchanged until **Replace selection**, which replaces exactly
-  the captured selection as one edit that one **Undo** reverts. **Keep original**
+  starts that translation. The Draft is unchanged until **Replace Selection**, which replaces exactly
+  the captured selection as one edit that one **Undo** reverts. **Keep Original**
   closes the panel. When the translation retains the selected line breaks, those
   lines keep their list and block formatting. The inserted text takes the formatting of the text
   before it. The selection's own leading and trailing whitespace is kept around the

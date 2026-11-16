@@ -432,7 +432,7 @@ export function DraftAssistance({
   }
   // A prompted draft has no original text to keep.
   const close = purpose === 'generate' ? 'discard' : 'keepOriginal';
-  // A checked result offers push buttons, as its frames do: the accent tint marks Keep original
+  // A checked result offers push buttons, as its frames do: the accent tint marks Keep Original
   // when details differ and the rewrite when none do. Neither answers Return, which stays with the
   // Draft body (#1900).
   const control = ({
@@ -535,7 +535,7 @@ export function DraftAssistance({
 }
 
 // Says that a Writing tools result was dropped because the Draft changed while it was made or
-// shown. Rewrite again starts the tool over from the current text.
+// shown. Rewrite Again starts the tool over from the current text.
 export function DroppedAssistance({
   purpose,
   rewritable,
