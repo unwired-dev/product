@@ -1135,8 +1135,8 @@
       "on": "Reminder for {{date}}, {{time}} ({{city}})",
       "change": "Change",
       "remove": "Remove Reminder",
-      "setFailed": "The reminder could not be set. Try again.",
-      "removeFailed": "The reminder could not be removed. Try again."
+      "setFailed": "The new reminder wasn’t saved on this device. Choose Remind Me to Send to try again.",
+      "removeFailed": "The reminder is still set. The change wasn’t saved on this device. Choose Remove Reminder to try again."
     },
     "discardDraft": "Discard Draft",
     "keepEditing": "Keep Editing",

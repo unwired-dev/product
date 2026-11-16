@@ -2723,7 +2723,9 @@ describe('composing Drafts', () => {
       // A reminder that storage refuses is reported and stores nothing.
       reminders.state.refusing = true;
       await chooseMenuItem('Tomorrow Morning');
-      await screen.findByText('The reminder could not be set. Try again.');
+      await screen.findByText(
+        'The new reminder wasn’t saved on this device. Choose Remind Me to Send to try again.',
+      );
       await expect(stored()).resolves.toStrictEqual([]);
 
       // Choosing a time saves the Draft and stores its reminder; the composer stays open.
@@ -2732,7 +2734,9 @@ describe('composing Drafts', () => {
       await chooseMenuItem('Tomorrow Morning');
       await screen.findByText(banner);
       expect(
-        screen.queryByText('The reminder could not be set. Try again.'),
+        screen.queryByText(
+          'The new reminder wasn’t saved on this device. Choose Remind Me to Send to try again.',
+        ),
       ).toBeNull();
       await expect(stored()).resolves.toStrictEqual([
         { draft: id, profile: defaultProfile, dueAt: tomorrow.dueAt, timeZone },
@@ -2756,7 +2760,9 @@ describe('composing Drafts', () => {
       // Remove Reminder removes it once storage accepts the write.
       reminders.state.refusing = true;
       await press('Remove Reminder');
-      await screen.findByText('The reminder could not be removed. Try again.');
+      await screen.findByText(
+        'The reminder is still set. The change wasn’t saved on this device. Choose Remove Reminder to try again.',
+      );
       await expect(stored()).resolves.toHaveLength(1);
       reminders.state.refusing = false;
       await press('Remove Reminder');
