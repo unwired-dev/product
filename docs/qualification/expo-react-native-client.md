@@ -28,17 +28,19 @@ macOS 27.2, in Dark. Host load was 4–187 from other work.
   Accessibility XXXL redrew the body, its link, the labels and Subject at that
   size within 8 seconds, and Subject grew from 35 to 72 points tall. Changing
   back to the default size restored the first layout.
-- The cause is in React Native 0.88's iOS text input
-  (`RCTTextInputComponentView`). On a size change it gives the backing text view
-  new default attributes at once. A single-line `UITextField` applies those to
-  all its text, so Subject passes. A multiline `UITextView` uses them only for
-  newly typed text, and its existing text takes the new font when Fabric's
-  layout commits the new size. The audit's finding fits it reading the text
-  before that commit, and an empty field, which has only the typing attributes,
-  passes.
+- React Native 0.88's iOS text input (`RCTTextInputComponentView`) updates
+  the two kinds of field differently. On a size change it gives the backing
+  text view new default attributes at once. A single-line `UITextField` applies
+  those to all its text, and Subject passes. A multiline `UITextView` uses them
+  only for newly typed text, and its existing text takes the new font when
+  Fabric's layout commits the new size. An empty multiline field, which has
+  only the typing attributes, passes.
+- Not confirmed: when the audit reads the text. The finding fits it reading
+  the text before that commit; the probe could not observe its timing.
 - The journeys keep the finding as a known gap for React Native's multiline
-  text input. The app has no fix of its own: React Native ships prebuilt
-  (`React-Core-prebuilt`), and what a person sees already follows the size.
+  text input. This build consumes React Native prebuilt (`React-Core-prebuilt`),
+  changing React Native is outside this investigation, and what a person sees
+  already follows the size.
 
 ## iPhone and iPad composer at the largest text size, 2026-11-16
 
