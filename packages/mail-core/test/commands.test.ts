@@ -97,7 +97,7 @@ describe('command palette targets', () => {
     id: 'archive',
     section: 'selection',
     title: 'Archive',
-    disabled: 'Select a conversation',
+    disabled: 'Select a Thread',
   });
   const offered = (id: string) =>
     command({

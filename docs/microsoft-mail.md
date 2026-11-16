@@ -150,16 +150,16 @@ authorization again; the pass keeps its place. Downloaded history is not shown i
 folder lists or searched yet, so every folder still says that older mail stays in
 Microsoft.
 
-The [organizing actions](#organizing-and-searching) apply in every folder: Move to
-Trash, Report spam and Move to take a message out of the folder it is listed in, and
+The [organizing actions](#organizing-and-searching) apply in every folder: Delete,
+Move to Spam and Move to take a message out of the folder it is listed in, and
 Archive stays an Inbox action. In Deleted Items and Junk Email, **Move to Inbox**
-replaces Move to Trash and Report spam, and restores the message to the Inbox.
+replaces Delete and Move to Spam, and restores the message to the Inbox.
 
 ## Organizing and searching
 
 Microsoft mail offers the organizing actions Outlook has, in the reader and as
-Inbox row actions: **Mark as read** or **Mark as unread**, **Archive**, **Move to
-Trash** (Deleted Items), **Report spam** (Junk Email), and **Move to** one of the
+Inbox row actions: **Mark as read** or **Mark as unread**, **Archive**, **Delete**
+(to Deleted Items), **Move to Spam** (to Junk Email), and **Move to** one of the
 mailbox's own folders under **Folders**, nested ones included. Each folder shows its
 path, such as **Inbox / Projects**, so folders with equal names stay apart. A mailbox
 lists up to 250 folders, stopping at each folder's first provider page, and says
@@ -167,7 +167,7 @@ when some folders were left out. **Undo** moves a message back to
 the Inbox. Opening an unread message sets its `isRead`, as
 [Organizing mail](gmail-inbox.md#organizing-mail) describes for every provider. A Microsoft message lives in one folder, so Gmail's labels and star are
 not offered for it. The row and reader [context menus](gmail-inbox.md#organizing-mail)
-offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus. Archive, Trash and Spam actions are offered only after their
+offer their supported actions in the documented order; Archive is row-only and Move to Spam remains outside those menus. Archive, Trash and Spam actions are offered only after their
 folder roles are known and present in the mailbox.
 
 Each change shows at once, is saved on this device and is sent to Microsoft in

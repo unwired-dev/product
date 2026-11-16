@@ -14,7 +14,7 @@ results never appear in the palette. The vocabulary lives in the
 - **Contextual commands** act on the open message, the one the reader shows.
   The reader offers the same handlers its buttons use: Reply, Reply All and
   Forward where a response can start; Mark as read or unread, Star, Archive,
-  Move to Trash and Report spam as the provider allows; and **Move to…**, which
+  Delete and Move to Spam as the provider allows; and **Move to…**, which
   lists the connection's folders or labels. The preview Inbox's reader offers its
   Mark as read or unread. The palette never chooses a message on its own.
 - **Draft commands** act on the open Draft, under a Draft section named for its
@@ -41,7 +41,7 @@ results never appear in the palette. The vocabulary lives in the
   account page, where Inbox returns to the connected Inbox; in the Mac's
   Settings window it brings an Inbox window forward.
 - Reply, Forward, Archive and Move to… stay listed and disabled with a reason
-  (Select a conversation, or Not available for this message) when nothing can
+  (Select a Thread, or Not available for this message) when nothing can
   run them. While the reader is already starting a reply or forward, Reply,
   Reply All and Forward stay listed and disabled with Already opening a
   draft, as its buttons are. The palette lists only supported commands; Pin, Snooze, Flag,

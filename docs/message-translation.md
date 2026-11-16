@@ -79,7 +79,7 @@ fallback and nothing is downloaded by the app.
   why: the languages are supported but not downloaded (the person downloads them in
   the system Translate settings; the app never starts a download), the pair is
   unsupported, the source language could not be identified, or the text is already
-  in the target language. Other failures have their own message. **Try again** is
+  in the target language. Other failures have their own message. **Try Again** is
   offered except for an unsupported pair or the same language. A device that
   reports no languages says that translation is unavailable.
 
