@@ -410,7 +410,13 @@ the invalid-link reason after Return, and leaves the body and selection as they
 were when dismissed. A valid destination applied with Return makes the control
 Edit Link, which offers Remove Link; one Undo removes the link and keeps the
 text, and Redo restores it. After relaunch, the Inbox lists the saved Draft,
-which reopens with both edits and the link's destination.
+which reopens with both edits and the link's destination. Relaunched at
+Accessibility XXXL ([#2230](https://github.com/unwired-dev/product/issues/2230)),
+the reopened Draft's composer passes the clipped-text audit, expanded on iPad,
+and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
+audit runs too. It permits one finding: the body, a multiline input of styled
+spans like the signature field, fails Dynamic Type once it holds text
+([#2231](https://github.com/unwired-dev/product/issues/2231)).
 
 These steps still use touch on iPhone and iPad:
 

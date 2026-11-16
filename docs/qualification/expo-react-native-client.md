@@ -11,6 +11,38 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad composer at the largest text size, 2026-11-16
+
+[#2230](https://github.com/unwired-dev/product/issues/2230), part of
+[#2007](https://github.com/unwired-dev/product/issues/2007), adds a step to the
+`registration-performance` journey: it relaunches the reopened Draft at
+Accessibility XXXL, runs the XCTest audit for clipped text and Dynamic Type on
+the composer, relaunches again and scrolls its fields into reach with
+**Show Cc and Bcc**, and audits them. It ran on a `registration-performance`
+Release Simulator build with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and
+macOS 27.2, in Dark. Host load was 18–180 from other work.
+
+- Before, on iPhone 18 Pro at 6e8cfb3ce: the labels broke between characters
+  ("Fro/m", "Su/bje/ct:") and From's address ran past the screen edge; the
+  clipped-text audit reported neither. After, field labels sit above their
+  values, recipients take the full line with Cc/Bcc beneath them, and From
+  wraps beside a whole prefix.
+- iPhone 18 Pro passed the whole journey. The audit reports one finding at each
+  step: the body, a multiline input of styled spans like the signature field,
+  supports Dynamic Type only partially once it holds text. It is a known gap
+  for [#2231](https://github.com/unwired-dev/product/issues/2231).
+- An audit leaves the app at the system's text size while inputs keep the
+  largest, so each audited screen starts from a fresh launch.
+- iPad Pro 11-inch (M5) stops after the Inbox audit
+  ([#1873](https://github.com/unwired-dev/product/issues/1873)), before the
+  step, so the iPad card ran in a probe: an uncommitted copy of the journey that
+  opens New Message at Accessibility XXXL after the Inbox audit. It printed
+  `PROBE2230`. From moved to its own row, Expand, Send and Show Cc and Bcc were
+  hittable, the format bar kept its size, and the expanded composer's audit
+  found nothing.
+- **A reopened iPad Draft at these sizes, Light appearance, landscape,
+  VoiceOver and physical devices are deferred.**
+
 ## iPhone and iPad Inbox and reader at the largest text size, 2026-11-15
 
 [#2191](https://github.com/unwired-dev/product/issues/2191), part of

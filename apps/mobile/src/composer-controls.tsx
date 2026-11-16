@@ -74,7 +74,7 @@ import {
 } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailAssistanceLifetime } from './mail-assistance-lifetime.ts';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 const phone = Platform.OS === 'ios' && !Platform.isPad;
 // iPad's rules are the Mac recipe's point at 1.15×, as its frames draw them.
@@ -237,7 +237,11 @@ const styles = StyleSheet.create({
     paddingLeft: 0,
     paddingRight: 0,
   },
+  // The pop-up stays within its row: at the accessibility text sizes its choice wraps beside a
+  // whole prefix.
+  popUpButton: { flexShrink: 1, maxWidth: '100%' },
   popUpText: { ...textStyles.subheadline, flexShrink: 1 },
+  popUpPrefix: { flexShrink: 0 },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -401,12 +405,14 @@ export function PopUp({
   readonly items: MenuSection['items'];
 }) {
   const colors = usePalette();
+  const large = useLargeText();
   return (
     <MenuButton
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ selected }}
       disabled={disabled}
-      sections={[{ items }]}>
+      sections={[{ items }]}
+      style={styles.popUpButton}>
       <View
         style={[
           styles.popUp,
@@ -422,14 +428,19 @@ export function PopUp({
           />
         )}
         {prefix === undefined ? null : (
-          <Text style={[styles.popUpText, { color: colors.textSecondary }]}>
+          <Text
+            style={[
+              styles.popUpText,
+              styles.popUpPrefix,
+              { color: colors.textSecondary },
+            ]}>
             {prefix}
           </Text>
         )}
         {label === undefined ? null : (
           <>
             <Text
-              numberOfLines={1}
+              numberOfLines={large ? undefined : 1}
               style={[styles.popUpText, { color: colors.textPrimary }]}>
               {label}
             </Text>
@@ -571,7 +582,9 @@ export function FormatBar({
             name="textformat"
             color={colors.textPrimary}
           />
+          {/* The format bar keeps its size at every text size, as UIKit toolbars do. */}
           <Text
+            maxFontSizeMultiplier={1}
             numberOfLines={1}
             style={[styles.popUpText, { color: colors.textPrimary }]}>
             {t(blockNames[kind])}
