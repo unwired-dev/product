@@ -408,6 +408,8 @@ export function createRegistration(vault: NativeRegistrationVault) {
   // Only within this instance: the native operation gate queues native steps across instances
   // and JavaScript reloads.
   const semaphore = Semaphore.makeUnsafe(1);
+  // A check for approval shows no progress, so an action asked for meanwhile queues behind it.
+  let checking = false;
   type MailboxLoading = 'automatic' | 'explicit';
   type Listener = (
     mailboxLoading?: MailboxLoading,
@@ -569,7 +571,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
       }).pipe(
         // An activation can arrive before a pending operation reports that storage was locked.
         (program) =>
-          foreground || queued
+          foreground || queued || checking
             ? program.pipe(Semaphore.withPermits(semaphore, 1), Effect.asVoid)
             : program.pipe(
                 Semaphore.withPermitsIfAvailable(semaphore, 1),
@@ -961,9 +963,20 @@ export function createRegistration(vault: NativeRegistrationVault) {
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync())),
     // A Pending Device's own repeated check: a failure leaves the status as it was for the next.
     checkForApproval: () =>
-      execute(request(native.checkForApproval()), () => state, {
-        quiet: true,
-      }),
+      execute(
+        Effect.sync(() => {
+          checking = true;
+        }).pipe(
+          Effect.andThen(request(native.checkForApproval())),
+          Effect.ensuring(
+            Effect.sync(() => {
+              checking = false;
+            }),
+          ),
+        ),
+        () => state,
+        { quiet: true },
+      ),
     // Background work learned of a newer key epoch; a failure leaves the status as it was.
     adoptKeyRotation: () =>
       execute(request(native.adoptKeyRotation()), settled, {

@@ -982,6 +982,22 @@ describe('product registration', () => {
     expect(busy).not.toContain(true);
   });
 
+  it('queues a Recovery Key entered while a check for approval is in flight', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-success');
+    await createRegistration(synthetic.vault).register('google');
+    const added = createRegistration(synthetic.otherDevice().vault);
+    await added.register('google');
+    const check = added.checkForApproval();
+    await added.recoverWithRecoveryKey(recoveryKey);
+    await check;
+    expect(added.getSnapshot()).toMatchObject({
+      snapshot: { privateSync: 'ready' },
+      busy: false,
+      failed: false,
+    });
+  });
+
   it('shows the Enrollment Code that replaced an expired request when a Recovery Key is rejected', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario(
