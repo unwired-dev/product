@@ -108,6 +108,8 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   divider: { width: 1, height: 18 },
+  // The unnamed arrow keeps a 44pt target.
+  arrow: { minWidth: 44, justifyContent: 'center' },
 });
 
 const pad = Platform.OS === 'ios' && Platform.isPad;
@@ -580,6 +582,7 @@ function SplitTranslate({
             ]}
             style={[
               styles.splitHalf,
+              styles.arrow,
               pad ? null : { paddingLeft: spacing.s, paddingRight: 14 },
             ]}>
             <View style={styles.splitHalf}>
