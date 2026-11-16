@@ -612,8 +612,8 @@ form accessories, keyboards, status bar).
   turns that off.
 - **Profile Switcher / Profile Menu:** monogram, Mail Profile name and chevron.
   The menu lists Mail Profiles with their Mailbox Connections, unread counts and
-  a checkmark, then New Mail Profile… and Manage Mail Profiles…, which opens
-  [Settings › Mail Profiles](https://github.com/unwired-dev/product/issues/1038). It is the system
+  a checkmark, then New Profile… and Manage Profiles…, which opens
+  [Settings › Profiles](https://github.com/unwired-dev/product/issues/1038). It is the system
   menu, so each Profile's connections and unread count share its subtitle, the
   checkmark leads and the Profile's monogram is the item image. The Default Profile is named Primary
   Profile.

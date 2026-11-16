@@ -602,7 +602,7 @@ const saveAsTemplate = async (name?: string) => {
   prompt.mockRestore();
   expect([title, detail]).toStrictEqual([
     'New Template',
-    'Saves this message’s subject and body, without recipients or files, as a template for this Mail Profile.',
+    'Saves this message’s subject and body, without recipients or files, as a template for this Profile.',
   ]);
   ok(Array.isArray(buttons));
   expect(buttons.map(({ text }) => text)).toStrictEqual([

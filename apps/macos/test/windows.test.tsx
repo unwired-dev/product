@@ -338,10 +338,10 @@ describe('mac window selection with the shared mock mailbox', () => {
       );
       await fireEvent.changeText(app.getByLabelText('To'), 'unfinished');
       await chooseProfile(
-        app.getByLabelText('Mail Profile, Primary Profile'),
+        app.getByLabelText('Profile, Primary Profile'),
         'Work',
       );
-      expect(app.getByLabelText('Mail Profile, Primary Profile')).toBeVisible();
+      expect(app.getByLabelText('Profile, Primary Profile')).toBeVisible();
       expect(app.getByLabelText('To')).toHaveProp('value', 'unfinished');
       // The hidden floating bar retains its command, which still guards the current Draft.
       await fireEvent.press(
@@ -2341,7 +2341,7 @@ describe('mac windows of different Mail Profiles', () => {
       </WithWork>,
     );
     // The Default Profile keeps Graphite and its name's first letter.
-    const switcher = await app.findByLabelText('Mail Profile, Primary Profile');
+    const switcher = await app.findByLabelText('Profile, Primary Profile');
     expect(
       within(switcher).getByText('P', { includeHiddenElements: true }),
     ).toHaveStyle({ color: palette.light.brandOnDeep });
@@ -2354,8 +2354,8 @@ describe('mac windows of different Mail Profiles', () => {
         { color: palette.light.brandMonogram, symbol: '', letter: 'P' },
       ],
       ['Work', { color: '#0E7490', symbol: 'laptopcomputer', letter: 'W' }],
-      ['New Mail Profile…', undefined],
-      ['Manage Mail Profiles…', undefined],
+      ['New Profile…', undefined],
+      ['Manage Profiles…', undefined],
     ]);
     await dismissMenu();
   });
@@ -2436,13 +2436,13 @@ describe('mac windows of different Mail Profiles', () => {
       const second = within(app.getByTestId('inbox-window-second'));
       await first.findByRole('button', { name: /Garden plan/u });
       await chooseProfile(
-        first.getByLabelText('Mail Profile, Primary Profile'),
+        first.getByLabelText('Profile, Primary Profile'),
         'Work',
       );
       // The switched window remounts its contents for the new Profile.
       const switched = within(app.getByTestId('inbox-window-first'));
       await expect(
-        switched.findByLabelText('Mail Profile, Work'),
+        switched.findByLabelText('Profile, Work'),
       ).resolves.toBeVisible();
       expect(
         switched.queryByRole('button', { name: /Garden plan/u }),
@@ -2450,9 +2450,7 @@ describe('mac windows of different Mail Profiles', () => {
       expect(
         second.getByRole('button', { name: /Garden plan/u }),
       ).toBeVisible();
-      expect(
-        second.getByLabelText('Mail Profile, Primary Profile'),
-      ).toBeVisible();
+      expect(second.getByLabelText('Profile, Primary Profile')).toBeVisible();
       expect(host.setWindowProfile).toHaveBeenLastCalledWith(
         'inbox-window-first',
         'work',
@@ -2477,19 +2475,17 @@ describe('mac windows of different Mail Profiles', () => {
       </WithWork>,
     );
     await chooseProfile(
-      await app.findByLabelText('Mail Profile, Primary Profile'),
+      await app.findByLabelText('Profile, Primary Profile'),
       'Work',
     );
-    await expect(
-      app.findByLabelText('Mail Profile, Work'),
-    ).resolves.toBeVisible();
+    await expect(app.findByLabelText('Profile, Work')).resolves.toBeVisible();
     await app.rerender(
       <WithWork account="another-product-account">
         <InboxWindow windowId="account" />
       </WithWork>,
     );
     await expect(
-      app.findByLabelText('Mail Profile, Primary Profile'),
+      app.findByLabelText('Profile, Primary Profile'),
     ).resolves.toBeVisible();
   });
 
@@ -2525,7 +2521,7 @@ describe('mac windows of different Mail Profiles', () => {
       const opened = within(app.getByTestId('inbox-window-new'));
       const restored = within(app.getByTestId('inbox-window-restored'));
       await expect(
-        opened.findByLabelText('Mail Profile, Work'),
+        opened.findByLabelText('Profile, Work'),
       ).resolves.toBeVisible();
       expect(opened.queryByRole('button', { name: /Garden plan/u })).toBeNull();
       await expect(
@@ -2563,13 +2559,11 @@ describe('mac windows of different Mail Profiles', () => {
     try {
       const app = await render(<RegisteredWindow windowId="locked" />);
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
+        await app.findByLabelText('Profile, Primary Profile'),
         'Work',
       );
-      await expect(
-        app.findByLabelText('Mail Profile, Work'),
-      ).resolves.toBeVisible();
-      await fireEvent.press(app.getByLabelText('Mail Profile, Work'));
+      await expect(app.findByLabelText('Profile, Work')).resolves.toBeVisible();
+      await fireEvent.press(app.getByLabelText('Profile, Work'));
       read.mockRejectedValue(
         Object.assign(new Error('locked'), { code: 'locked' }),
       );
@@ -2579,16 +2573,14 @@ describe('mac windows of different Mail Profiles', () => {
       expect(
         app.getByRole('header', { name: 'Unlock your device' }),
       ).toBeVisible();
-      expect(app.queryByLabelText('Mail Profile, Work')).toBeNull();
-      await chooseMenuItem('New Mail Profile…');
+      expect(app.queryByLabelText('Profile, Work')).toBeNull();
+      await chooseMenuItem('New Profile…');
       expect(prompt).not.toHaveBeenCalled();
       read.mockRestore();
       await act(async () => {
         await store.restore();
       });
-      await expect(
-        app.findByLabelText('Mail Profile, Work'),
-      ).resolves.toBeVisible();
+      await expect(app.findByLabelText('Profile, Work')).resolves.toBeVisible();
     } finally {
       prompt.mockRestore();
       read.mockRestore();
@@ -2645,10 +2637,10 @@ describe('mac windows of different Mail Profiles', () => {
         </MacWindows>,
       );
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
-        'Manage Mail Profiles…',
+        await app.findByLabelText('Profile, Primary Profile'),
+        'Manage Profiles…',
       );
-      await app.findByRole('header', { name: 'Mail Profiles' });
+      await settingsWindow().findAllByRole('header', { name: 'Profiles' });
       const settings = settingsWindow();
       const work = await settings.findByRole('button', { name: 'Work' });
       expect(work.props.accessibilityHint).toBe('Gmail');
@@ -2696,17 +2688,17 @@ describe('mac windows of different Mail Profiles', () => {
         settings.getByRole('button', { name: 'Office' }),
       ).toHaveAccessibilityValue({ text: 'Startup Profile' });
       // Startup Profile is only for a new window, not this open one.
-      expect(app.getByLabelText('Mail Profile, Primary Profile')).toBeVisible();
+      expect(app.getByLabelText('Profile, Primary Profile')).toBeVisible();
       // The window's Profile Menu names the renamed Profile too.
       await chooseProfile(
-        app.getByLabelText('Mail Profile, Primary Profile'),
+        app.getByLabelText('Profile, Primary Profile'),
         'Office',
       );
       await expect(
-        app.findByLabelText('Mail Profile, Office'),
+        app.findByLabelText('Profile, Office'),
       ).resolves.toBeVisible();
       await fireEvent.press(
-        settings.getByRole('button', { name: 'Add Mail Profile…' }),
+        settings.getByRole('button', { name: 'Add Profile…' }),
       );
       const buttons = prompt.mock.lastCall?.[2];
       ok(Array.isArray(buttons));
@@ -2726,7 +2718,7 @@ describe('mac windows of different Mail Profiles', () => {
         </MacWindows>,
       );
       await expect(
-        opened.findByLabelText('Mail Profile, Office'),
+        opened.findByLabelText('Profile, Office'),
       ).resolves.toBeVisible();
     } finally {
       renaming.mockRestore();
@@ -2767,7 +2759,7 @@ describe('mac windows of different Mail Profiles', () => {
         </MacWindows>,
       );
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
+        await app.findByLabelText('Profile, Primary Profile'),
         'Travel',
       );
       // The subtitle names the empty scope alone, without Gmail or a synchronization status.
@@ -2776,9 +2768,7 @@ describe('mac windows of different Mail Profiles', () => {
       ).resolves.toBeVisible();
       expect(app.getByText('No Mailboxes')).toBeVisible();
       expect(
-        app.getByText(
-          'Move a mailbox into Travel from its current Mail Profile.',
-        ),
+        app.getByText('Move a mailbox into Travel from its current Profile.'),
       ).toBeVisible();
       // No synchronization footer, and the sidebar keeps Favorites with no mailbox section.
       expect([
@@ -2786,9 +2776,9 @@ describe('mac windows of different Mail Profiles', () => {
         app.queryByText(/^Gmail · /u),
       ]).toStrictEqual([null, null]);
       await fireEvent.press(
-        app.getByRole('button', { name: 'Manage Mail Profiles…' }),
+        app.getByRole('button', { name: 'Manage Profiles…' }),
       );
-      await settingsWindow().findByRole('header', { name: 'Mail Profiles' });
+      await settingsWindow().findAllByRole('header', { name: 'Profiles' });
       await expect(
         settingsWindow().findByRole('button', { name: 'Travel' }),
       ).resolves.toBeVisible();
@@ -2823,8 +2813,8 @@ describe('mac windows of different Mail Profiles', () => {
         </MacWindows>,
       );
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
-        'Manage Mail Profiles…',
+        await app.findByLabelText('Profile, Primary Profile'),
+        'Manage Profiles…',
       );
       const settings = settingsWindow();
       await fireEvent.press(
@@ -2852,7 +2842,7 @@ describe('mac windows of different Mail Profiles', () => {
       const family = store.createProfile('Family');
       await admitted;
       await fireEvent.press(
-        settings.getByRole('button', { name: 'Duplicate Mail Profile' }),
+        settings.getByRole('button', { name: 'Duplicate Profile' }),
       );
       release();
       await family;
@@ -2865,9 +2855,7 @@ describe('mac windows of different Mail Profiles', () => {
         'accessibilityHint',
         'No mailboxes',
       );
-      expect(
-        settings.getByText('No mailboxes in this Mail Profile'),
-      ).toBeVisible();
+      expect(settings.getByText('No mailboxes in this Profile')).toBeVisible();
       const { snapshot } = store.getSnapshot();
       const [created, copy] = profilesOf(snapshot).filter(
         ({ id }) => id !== work,
@@ -2929,8 +2917,8 @@ describe('mac windows of different Mail Profiles', () => {
         </MacWindows>,
       );
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
-        'Manage Mail Profiles…',
+        await app.findByLabelText('Profile, Primary Profile'),
+        'Manage Profiles…',
       );
       const settings = settingsWindow();
       // The Primary Profile has no record to style; it shows the defaults.
@@ -3023,8 +3011,8 @@ describe('mac windows of different Mail Profiles', () => {
         </MacWindows>,
       );
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
-        'Manage Mail Profiles…',
+        await app.findByLabelText('Profile, Primary Profile'),
+        'Manage Profiles…',
       );
       const settings = settingsWindow();
       await fireEvent.press(
@@ -3262,14 +3250,14 @@ describe('mac windows of different Mail Profiles', () => {
         </MacWindows>,
       );
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
-        'Manage Mail Profiles…',
+        await app.findByLabelText('Profile, Primary Profile'),
+        'Manage Profiles…',
       );
       const settings = settingsWindow();
       await fireEvent.press(
         await settings.findByRole('button', { name: 'Work' }),
       );
-      const moving = 'Mail Profile for other@example.invalid';
+      const moving = 'Profile for other@example.invalid';
       await fireEvent.changeText(settings.getByDisplayValue('Work'), 'Office');
       const { recordProfiles } = vault;
       let releaseRename: () => void = () => undefined;
@@ -3314,9 +3302,9 @@ describe('mac windows of different Mail Profiles', () => {
       });
       expect(pending).toBeDisabled();
       for (const name of [
-        'Add Mail Profile…',
-        'Duplicate Mail Profile',
-        'Remove Mail Profile…',
+        'Add Profile…',
+        'Duplicate Profile',
+        'Remove Profile…',
       ]) {
         expect(settings.getByRole('button', { name })).toBeDisabled();
       }
@@ -3343,7 +3331,7 @@ describe('mac windows of different Mail Profiles', () => {
       });
       expect(settings.queryByRole('button', { name: moving })).toBeNull();
       expect(
-        settings.getByRole('button', { name: 'Add Mail Profile…' }),
+        settings.getByRole('button', { name: 'Add Profile…' }),
       ).toBeDisabled();
       await act(async () => {
         releaseRename();
@@ -3353,20 +3341,20 @@ describe('mac windows of different Mail Profiles', () => {
         expect(settings.getByDisplayValue('Work')).toBeVisible();
       });
       expect(alert).toHaveBeenCalledWith(
-        'Rename Mail Profile',
-        'Another device changed these Mail Profiles first. Check them, then try again.',
+        'Rename Profile',
+        'Another device changed these Profiles first. Check them, then try again.',
         [{ text: 'OK' }],
       );
       alert.mockClear();
       expect(
-        settings.getByRole('button', { name: 'Add Mail Profile…' }),
+        settings.getByRole('button', { name: 'Add Profile…' }),
       ).toBeEnabled();
       // The Primary Profile lists both mailboxes and cannot be removed.
       await fireEvent.press(
         settings.getByRole('button', { name: 'Primary Profile' }),
       );
       expect(
-        settings.queryByRole('button', { name: 'Remove Mail Profile…' }),
+        settings.queryByRole('button', { name: 'Remove Profile…' }),
       ).toBeNull();
       await fireEvent.press(settings.getByRole('button', { name: moving }));
       await chooseMenuItem('Work');
@@ -3380,7 +3368,7 @@ describe('mac windows of different Mail Profiles', () => {
 
       await fireEvent.press(settings.getByRole('button', { name: 'Work' }));
       await fireEvent.press(
-        settings.getByRole('button', { name: 'Remove Mail Profile…' }),
+        settings.getByRole('button', { name: 'Remove Profile…' }),
       );
       // Cancel is the default button that Return and Escape answer.
       expect(sheetShown()).toStrictEqual({
@@ -3439,8 +3427,8 @@ describe('mac windows of different Mail Profiles', () => {
         </AccountContext>,
       );
       await chooseProfile(
-        await app.findByLabelText('Mail Profile, Primary Profile'),
-        'New Mail Profile…',
+        await app.findByLabelText('Profile, Primary Profile'),
+        'New Profile…',
       );
       expect(prompt.mock.lastCall?.[4]).toStrictEqual([
         { placeholder: 'Name' },
@@ -3458,8 +3446,8 @@ describe('mac windows of different Mail Profiles', () => {
       expect(createProfile.mock.calls).toStrictEqual([['Family']]);
       await waitFor(() => {
         expect(alert).toHaveBeenCalledWith(
-          'New Mail Profile',
-          'The Mail Profile could not be created. Try again.',
+          'New Profile',
+          'The Profile could not be created. Try again.',
           [{ text: 'OK' }],
         );
       });
