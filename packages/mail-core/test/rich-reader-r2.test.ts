@@ -886,6 +886,111 @@ describe('rich-reader review regressions', () => {
     expect(document).not.toMatch(/max-height: 1px|min-height: max\(/u);
   });
 
+  it('keeps offsets inside sender boxes so text cannot overflow onto a button fill', () => {
+    expect.hasAssertions();
+    const label = 'paypal.com.evil.example';
+    const inBox = (inner: string, box = 'width:20px') =>
+      `<table><tr><td><div style="${box}">${inner}</div></td><td style="background-color:#3A3D44;padding:8px 120px"><a href="https://x.example/">x</a></td></tr></table>`;
+    const offset = (style: string) =>
+      inBox(
+        `<div style="${style}"><a href="https://evil.example/">${label}</a></div>`,
+      );
+    const zero =
+      'margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; border-left-width: 0; border-right-width: 0';
+    // Each fixture is checked on its own, so one cannot satisfy another's expectation.
+    const cases: ReadonlyArray<readonly [string, readonly string[]]> = [
+      // The issue's examples, then the same offsets through shorthands, borders and indents.
+      [offset('padding-left:100px'), [`<div style="${zero}">`]],
+      [
+        offset('width:250px;padding-left:100px'),
+        [`<div style="width: min(100%, 250px); ${zero}">`],
+      ],
+      [offset('margin-left:100px'), [`<div style="${zero}">`]],
+      [
+        offset('padding:0 0 0 100px'),
+        [`<div style="padding: 0 0 0 100px; ${zero}">`],
+      ],
+      [
+        offset('border-style:solid;border-width:0 0 0 100px'),
+        [
+          `<div style="border-style: solid; border-width: 0 0 0 100px; ${zero}">`,
+        ],
+      ],
+      [
+        offset('border-left:100px solid transparent'),
+        [`<div style="border-left: 100px solid transparent; ${zero}">`],
+      ],
+      // A negative width is invalid, so the shorthand's border stays.
+      [
+        offset('border-left:100px solid;border-left-width:-1px'),
+        [`<div style="border-left: 100px solid; ${zero}">`],
+      ],
+      // A negative color channel is clamped, so this border stays too.
+      [
+        offset('border-left:100px solid rgb(0, -1, 0)'),
+        [`<div style="border-left: 100px solid rgb(0, -1, 0); ${zero}">`],
+      ],
+      [offset('text-indent:100px'), ['<div style="text-indent: 0">']],
+      // Offsets that add up, browser defaults, inherited spacing and an unsized inline block.
+      [
+        inBox(
+          `<div style="padding-left:16px"><div style="padding-left:16px">${label}</div></div>`,
+          'width:40px',
+        ),
+        [`<div style="padding-left: 16px"><div style="${zero}">`],
+      ],
+      // A border with a style but no width is medium, 3px.
+      [
+        inBox(
+          `<div style="border-left-style:solid"><div style="border-style:solid">${label}</div></div>`,
+        ),
+        [
+          `<div style="border-left-style: solid"><div style="border-style: solid; ${zero}">`,
+        ],
+      ],
+      // Percentages on nested inline boxes resolve against the box, not what is left of it.
+      [
+        inBox(
+          `<span style="padding-left:50%"><span style="padding-left:50%">${label}</span></span>`,
+          'width:100px',
+        ),
+        [`<span style="padding-left: 50%"><span style="${zero}">`],
+      ],
+      [
+        inBox(`<blockquote>${label}</blockquote>`),
+        [`<blockquote style="${zero}">`],
+      ],
+      [
+        `<div style="letter-spacing:100px">${inBox(label)}</div>`,
+        ['<div style="width: 20px; letter-spacing: 0">'],
+      ],
+      [
+        inBox(`<div style="display:inline-block">${label}</div>`),
+        ['<div style="display: inline-block; max-width: 100%">'],
+      ],
+      // Offsets that fit stay, and a box's width makes room for them.
+      [
+        inBox(
+          `<div style="width:100%;padding:0 20px;border-left:2px solid">Fits</div><p style="text-indent:2em;letter-spacing:1px">Indented</p><div style="border-left-width:100px">No border style</div>`,
+          'max-width:600px;margin:0 auto',
+        ),
+        [
+          '<div style="width: min(calc(100% - 20px - 2px - 20px), 100%); padding: 0 20px; border-left: 2px solid">',
+          '<p style="text-indent: 2em; letter-spacing: 1px">',
+          '<div style="border-left-width: 100px">',
+        ],
+      ],
+    ];
+    expect(
+      cases.flatMap(([html, expected]) => {
+        const { document } = sanitizeHtml(html);
+        return expected
+          .filter((style) => !document.includes(style))
+          .map((style) => ({ html, style }));
+      }),
+    ).toStrictEqual([]);
+  });
+
   it('does not restore visibility through excluded boxes or collapsed table tracks', () => {
     expect.hasAssertions();
     for (const blocker of ['display:none', 'opacity:0']) {
@@ -974,6 +1079,26 @@ describe('rich-reader review regressions', () => {
       expect(result.remoteImages).toStrictEqual([
         'https://images.example/photo.png?token=A%2fb',
       ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps sender box widths and offsets when regex results omit named groups on Hermes', () => {
+    expect.hasAssertions();
+    const spy = vi
+      .spyOn(RegExp.prototype, 'exec')
+      .mockImplementation(withoutNamedGroups);
+    try {
+      const { document } = sanitizeHtml(
+        '<div style="width:300px"><span style="display:inline-block;width:600px">Short</span><div style="width:100%;padding-left:20px">Padded</div></div>',
+      );
+      expect(document).toContain(
+        '<span style="display: inline-block; width: min(100%, 600px)">',
+      );
+      expect(document).toContain(
+        '<div style="width: min(calc(100% - 20px), 100%); padding-left: 20px">',
+      );
     } finally {
       spy.mockRestore();
     }

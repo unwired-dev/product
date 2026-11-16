@@ -34,6 +34,19 @@ pixel-identical; lines set tighter than their font open up to 1.2. A
 table squeezed below its minimum content width can still overflow one cell into
 the next.
 
+A second follow-up ([#2209](https://github.com/unwired-dev/product/issues/2209))
+keeps offsets inside a box with a sender width. Horizontal margins, borders and
+paddings (including browser default indents), text indents and letter spacing
+become zero where they would leave less than one glyph of the box, estimated at
+the reader's narrowest width. Widths inside the box are bounded by what the kept
+offsets leave, and an inline block without a width gets that as its maximum. A
+compatibility render left padded fixed-width columns, centred containers, nested
+wrappers, narrow icon boxes and the #2204 fixtures pixel-identical. A box set to
+the full width of its container, with its own padding, no longer runs past the
+container's edge. A table inside such a box, or a box narrower than one glyph,
+can still push text out of it
+([#2213](https://github.com/unwired-dev/product/issues/2213)).
+
 ## Amendment — 2026-11-11
 
 [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the removal of every author `style` block and of every sender
