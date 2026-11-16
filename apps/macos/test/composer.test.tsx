@@ -1460,7 +1460,7 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Discard me');
     expect(
       screen.getByText(
-        'This Draft could not be discarded, so it stays open. Try again.',
+        'This Draft wasn’t discarded, so it stays open. Choose Try again to discard it, or keep editing.',
       ),
     ).toBeOnTheScreen();
     await press('Try again');
@@ -3511,7 +3511,7 @@ describe('composing Drafts', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            'This Draft could not be discarded, so it stays open. Try again.',
+            'This Draft wasn’t discarded, so it stays open. Choose Try again to discard it, or keep editing.',
           ),
         ).toBeOnTheScreen();
       });
