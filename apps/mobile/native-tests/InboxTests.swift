@@ -448,7 +448,7 @@ final class InboxTests: XCTestCase {
     let exit = app.buttons[settingsExit]
     XCTAssertTrue(exit.waitForExistence(timeout: 10))
     exit.tap()
-    // iPad's Close Settings returns to the open message; iPhone reopens it from the Inbox.
+    // iPad's Back to Mail returns to the open message; iPhone reopens it from the Inbox.
     let sender = app.staticTexts["rowan@example.invalid"]
     if !sender.waitForExistence(timeout: 5) {
       app.buttons.matching(
@@ -1784,9 +1784,9 @@ final class InboxTests: XCTestCase {
     waitUntil { account.isHittable && !settings.exists }
   }
 
-  // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Close Settings.
+  // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Back to Mail.
   private var settingsExit: String {
-    UIDevice.current.userInterfaceIdiom == .pad ? "Close Settings" : "Open Inbox"
+    UIDevice.current.userInterfaceIdiom == .pad ? "Back to Mail" : "Open Inbox"
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {

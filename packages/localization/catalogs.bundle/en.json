@@ -216,7 +216,7 @@
   },
   "settings": {
     "back": "Back",
-    "close": "Close Settings",
+    "backToMail": "Back to Mail",
     "edit": "Edit",
     "title": "Settings",
     "accountPrivateSync": "Account & Devices · Private Sync on",
