@@ -775,7 +775,7 @@ describe('sending a Draft', () => {
           sender.storage.release();
         });
         await screen.findByRole('alert', {
-          name: 'This message wasn’t sent because this device couldn’t store it for sending. It stays open. Choose Send to try again.',
+          name: 'This message wasn’t sent. It stays open. Choose Send to try again.',
         });
         expect(
           screen.getByRole('button', { name: 'Writing tools' }),
