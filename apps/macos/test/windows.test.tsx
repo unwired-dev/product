@@ -2087,9 +2087,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
         chooseSheetButton('Block Sender');
       });
       await waitFor(() => {
-        expect(sheetShown()?.title).toBe(
-          'oliver@example.invalid couldn’t be blocked',
-        );
+        expect(sheetShown()).toMatchObject({
+          title: 'oliver@example.invalid couldn’t be blocked',
+          detail:
+            'The block wasn’t saved on this device, so new mail from this address still arrives as usual. Try again.',
+        });
       });
       await act(async () => {
         chooseSheetButton('OK');
