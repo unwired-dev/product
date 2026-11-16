@@ -99,7 +99,12 @@ import {
   useOutboxActions,
 } from './outbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { SyncStatusCapsule, checking, offline } from './sync-status.tsx';
+import {
+  SyncStatusCapsule,
+  checking,
+  offline,
+  refused,
+} from './sync-status.tsx';
 import { usePalette } from './theme.ts';
 
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
@@ -424,13 +429,49 @@ function scopeOf(
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
 }
 
+// The provider of a shown connection that needs sign-in again. iPad's subtitle names it after the
+// count, in place of the scope and update time, as the frames draw it; a chosen connection waiting
+// for authorization already says so in its status.
+const signInOf = (
+  shown: readonly InboxMailbox[],
+  {
+    waiting,
+    chosen,
+  }: Readonly<{
+    waiting: ReadonlyArray<Readonly<{ provider: MailProvider }>>;
+    // Whether the list shows a chosen connection waiting for authorization.
+    chosen: boolean;
+  }>,
+): MailProvider | undefined =>
+  ipad && !chosen
+    ? [
+        ...shown.flatMap(({ provider, state }) =>
+          refused(state) ? [provider ?? 'gmail'] : [],
+        ),
+        ...waiting.map(({ provider }) => provider),
+      ][0]
+    : undefined;
+
 // The heading's scope and status. A Mail Profile without mailboxes says so instead; iPad's sidebar
 // Profile Switcher names the Profile, and iPhone's heading names it too.
 const subtitleOf = (
   t: Translate,
   unconnected: Readonly<{ name: string }> | undefined,
-  label: Readonly<{ scope: string; status: string }>,
+  {
+    signIn,
+    ...label
+  }: Readonly<{
+    scope: string;
+    status: string;
+    signIn: MailProvider | undefined;
+  }>,
 ) => {
+  if (signIn !== undefined) {
+    return t('inbox.statusSignIn', {
+      status: label.status,
+      provider: t(`mailProviders.${signIn}`),
+    });
+  }
   if (unconnected === undefined) {
     return t('inbox.subtitleLabel', label);
   }
@@ -455,6 +496,7 @@ function statusOf(
     downloading,
     now,
     inbox,
+    signIn,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
@@ -465,6 +507,8 @@ function statusOf(
     now: number;
     // Whether the Inbox is listed; another folder or view was not necessarily brought up to date.
     inbox: boolean;
+    // Whether the subtitle names a connection that needs sign-in, in place of the update time.
+    signIn: boolean;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -488,7 +532,7 @@ function statusOf(
     unread === 0
       ? t(ipad ? 'inbox.noUnread' : 'inbox.allRead')
       : t('inbox.unread', { count: unread });
-  if (!ipad || !inbox) {
+  if (!ipad || !inbox || signIn) {
     return status;
   }
   const updated = lastUpdated(
@@ -870,6 +914,10 @@ export function Inbox({
     gmail,
     waiting: chosenWaiting,
   });
+  const signIn = signInOf(shown, {
+    waiting,
+    chosen: chosenWaiting !== undefined,
+  });
   const status = statusOf(t, shown, {
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
@@ -877,6 +925,7 @@ export function Inbox({
     downloading,
     now,
     inbox: view.unified === undefined && folder === inboxFolder,
+    signIn: signIn !== undefined,
   });
   const title =
     folderName ??
@@ -1029,6 +1078,7 @@ export function Inbox({
                 subtitle={subtitleOf(t, unconnected, {
                   scope: scopeName,
                   status,
+                  signIn,
                 })}
               />
             </SearchHeading>

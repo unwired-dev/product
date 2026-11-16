@@ -171,7 +171,7 @@ export const offline = (state: InboxMailbox['state']) =>
     ('status' in state && state.status === 'retry'));
 
 // Authorization was refused, so the provider shows no new mail until it is given again.
-const refused = (state: InboxMailbox['state']) =>
+export const refused = (state: InboxMailbox['state']) =>
   state.kind === 'ready' &&
   (('sync' in state && state.sync === 'authentication') ||
     ('status' in state && state.status === 'authentication'));

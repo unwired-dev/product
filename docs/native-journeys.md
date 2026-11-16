@@ -372,6 +372,12 @@ Settings › Signatures then lists the IMAP Sending Identity with None
 made bold and stored when the editor is left; the row shows its first line, Delete
 clears it, and the list passes an accessibility audit.
 
+Finally it connects a second IMAP account whose password the synthetic server then
+refuses ([#2243](https://github.com/unwired-dev/product/issues/2243)). On iPad the
+connection's sidebar header names the problem, its Inbox row does not, and the All
+Inboxes subtitle ends in **IMAP needs sign-in**; on iPhone the Inbox row's value names
+it. Each is captured with the appearance.
+
 ## iPhone and iPad Apple registration journey
 
 The Expo native journey for a `registration-apple` Release build signs in with

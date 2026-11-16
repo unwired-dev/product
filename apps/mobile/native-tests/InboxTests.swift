@@ -188,7 +188,7 @@ final class InboxTests: XCTestCase {
     let starred = app.buttons["Rowan Hale. Garden plans for spring. Flagged"]
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
-      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Report Spam"))
+      let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Move to Spam"))
       app.buttons["Labels"].tap()
       XCTAssertTrue(labels.waitForExistence(timeout: 5))
       app.buttons["Reply"].tap()
@@ -448,7 +448,7 @@ final class InboxTests: XCTestCase {
     let exit = app.buttons[settingsExit]
     XCTAssertTrue(exit.waitForExistence(timeout: 10))
     exit.tap()
-    // iPad's Close Settings returns to the open message; iPhone reopens it from the Inbox.
+    // iPad's Back to Mail returns to the open message; iPhone reopens it from the Inbox.
     let sender = app.staticTexts["rowan@example.invalid"]
     if !sender.waitForExistence(timeout: 5) {
       app.buttons.matching(
@@ -726,7 +726,7 @@ final class InboxTests: XCTestCase {
     kept.lifetime = .keepAlways
     add(kept)
     post(".draft-saves-restore")
-    composer.buttons["Try again"].tap()
+    composer.buttons["Try Again"].tap()
     waitUntil { !composer.exists }
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     waitUntil { back.isHittable }
@@ -1468,9 +1468,19 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.buttons["Choose another Google mailbox"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
-    // The synthetic trusted device approves with the code shown on this device.
-    app.buttons["Check for approval"].tap()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    // The synthetic trusted device approves with the code shown on this device. iPhone's step
+    // collects the approval at its own next check; iPad's waits for the person's.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertTrue(app.staticTexts["Waiting for approval…"].exists)
+      XCTAssertFalse(app.buttons["Check for approval"].exists)
+      let waiting = XCTAttachment(screenshot: app.screenshot())
+      waiting.name = "Waiting for approval"
+      waiting.lifetime = .keepAlways
+      add(waiting)
+    } else {
+      app.buttons["Check for approval"].tap()
+    }
+    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 30))
     XCTAssertTrue(mailboxes.exists)
     XCTAssertFalse(code.exists)
     // Gmail on this device still needs its own authorization.
@@ -1491,11 +1501,25 @@ final class InboxTests: XCTestCase {
   private func recoveryJourney(_ app: XCUIApplication) {
     app.buttons["Continue"].tap()
     app.buttons["Sign in with Google"].tap()
-    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
+    XCTAssertTrue(app.staticTexts["enrollment-code"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Gmail"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
+    // iPhone shows the Recovery Key as its own step, with a way back to the code; iPad shows both.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertFalse(app.staticTexts["Use your Recovery Key"].exists)
+      app.buttons["Use Recovery Key Instead"].tap()
+      XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
+      let recoveryStep = XCTAttachment(screenshot: app.screenshot())
+      recoveryStep.name = "Recovery Key step"
+      recoveryStep.lifetime = .keepAlways
+      add(recoveryStep)
+      app.buttons["Wait for Approval Instead"].tap()
+      XCTAssertTrue(app.staticTexts["enrollment-code"].waitForExistence(timeout: 5))
+      app.buttons["Use Recovery Key Instead"].tap()
+    }
+    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
     // The synthetic account's written Recovery Key, typed as the person would.
     let entry = app.textFields["Recovery Key"]
     enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry, in: app)
@@ -1784,9 +1808,9 @@ final class InboxTests: XCTestCase {
     waitUntil { account.isHittable && !settings.exists }
   }
 
-  // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Close Settings.
+  // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Back to Mail.
   private var settingsExit: String {
-    UIDevice.current.userInterfaceIdiom == .pad ? "Close Settings" : "Open Inbox"
+    UIDevice.current.userInterfaceIdiom == .pad ? "Back to Mail" : "Open Inbox"
   }
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
@@ -1908,8 +1932,13 @@ final class InboxTests: XCTestCase {
     app.buttons["Sign in with Google"].tap()
     XCTAssertTrue(app.staticTexts["Approve this device"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.staticTexts["enrollment-code"].exists)
-    XCTAssertTrue(app.staticTexts["Use your Recovery Key"].exists)
-    XCTAssertTrue(app.buttons["Check for approval"].exists)
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      XCTAssertTrue(app.staticTexts["Waiting for approval…"].exists)
+      XCTAssertTrue(app.buttons["Use Recovery Key Instead"].exists)
+    } else {
+      XCTAssertTrue(app.staticTexts["Use your Recovery Key"].exists)
+      XCTAssertTrue(app.buttons["Check for approval"].exists)
+    }
     XCTAssertFalse(app.buttons["Gmail"].exists)
     XCTAssertFalse(text("This device cannot join", in: app).exists)
     let gate = XCTAttachment(screenshot: app.screenshot())
@@ -2729,6 +2758,53 @@ final class InboxTests: XCTestCase {
     try audit(app, "Signatures")
     app.buttons["Delete"].tap()
     waitUntil { identity.value as? String == "None" }
+
+    // #2243: a connection whose password the server refuses shows the problem beside its sidebar
+    // header on iPad, where the list subtitle names it after the count, and on its Inbox row on
+    // iPhone.
+    let expired = "lee@example.invalid"
+    openSettings("Email Accounts", in: app)
+    if !phone {
+      XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
+      app.buttons["Add Account…"].tap()
+    }
+    XCTAssertTrue(app.buttons["Add an IMAP mailbox"].waitForExistence(timeout: 15))
+    app.buttons["Add an IMAP mailbox"].tap()
+    XCTAssertTrue(app.buttons["Other IMAP Account"].waitForExistence(timeout: 15))
+    app.buttons["Other IMAP Account"].tap()
+    for (field, value) in [
+      ("Email address", expired), ("User name", "lee"), ("IMAP server", "imap.example.invalid"),
+      ("SMTP server", "smtp.example.invalid"),
+    ] {
+      enter(value, into: app.textFields[field], in: app)
+    }
+    let refused = app.secureTextFields["Password"]
+    focus(refused) { self.hasFocus(refused) }
+    refused.typeText("expired")
+    press("\n", in: app)
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+    app.buttons["Connect"].tap()
+    XCTAssertTrue(app.buttons["Remove \(expired)"].waitForExistence(timeout: 20))
+    app.buttons[settingsExit].tap()
+    showMailboxes()
+    let problem = "The mail server needs your password again"
+    let expiredInbox = app.buttons["Inbox. In \(expired)"]
+    XCTAssertTrue(expiredInbox.waitForExistence(timeout: 20))
+    if phone {
+      waitUntil { (expiredInbox.value as? String)?.hasPrefix(problem) == true }
+      for _ in 0..<5 where !expiredInbox.isHittable { app.swipeUp() }
+      capture("Mailboxes connection needs its password")
+    } else {
+      let header = app.descendants(matching: .any).matching(
+        NSPredicate(format: "label BEGINSWITH %@", "IMAP · \(expired), \(problem)")
+      ).firstMatch
+      XCTAssertTrue(header.waitForExistence(timeout: 20))
+      XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
+      app.buttons["All inboxes"].tap()
+      XCTAssertTrue(text("IMAP needs sign-in", in: app).waitForExistence(timeout: 20))
+      for _ in 0..<5 where !header.isHittable { app.buttons["All inboxes"].swipeUp() }
+      capture("Sidebar connection needs sign-in")
+    }
   }
 
   private func keyboardAndAccessibilityJourney(_ app: XCUIApplication) throws {

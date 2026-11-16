@@ -1523,7 +1523,7 @@ describe('product registration', () => {
     // Trash offers Move to Inbox, which closes the reader and offers no Undo.
     await press('Deleted Messages. In alex@example.invalid');
     await press(/Recovered message/u);
-    for (const name of ['Archive', 'Move to Trash', 'Report spam']) {
+    for (const name of ['Archive', 'Delete', 'Move to Spam']) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
     await press('Move to Inbox');
@@ -3539,7 +3539,7 @@ describe('product registration', () => {
     // The header reports the unreachable server instead of a result count.
     expect(screen.getByText(/ · Offline$/u)).toBeVisible();
     // Asking again searches every mailbox afresh.
-    await press('Search mail servers again');
+    await press('Try Again');
     await waitFor(() => {
       expect(rows()).toHaveLength(4);
     });

@@ -69,6 +69,7 @@ export const createRegistrationFlow = (
     cancelRevocation: () => Effect.runPromise(flow.cancelRevocation()),
     // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
     refreshPrivateSync: () => Effect.runPromise(flow.refreshPrivateSync()),
+    checkForApproval: () => Effect.runPromise(flow.checkForApproval()),
     adoptKeyRotation: () => Effect.runPromise(flow.adoptKeyRotation()),
     signOut: () => Effect.runPromise(flow.signOut()),
     deleteProductAccount: () => Effect.runPromise(flow.deleteProductAccount()),

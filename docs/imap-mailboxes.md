@@ -232,7 +232,7 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   with a role offers no choice and stays out of All Mail, since choosing one would
   leave the others' mail in it; Move to Inbox still works from each of those folders.
   Once each role resolves to one folder, the choice serves Spam, Trash
-  and All Mail as well as Move to Trash, Mark as Spam, moving mail back to the Inbox
+  and All Mail as well as Delete, Move to Spam, moving mail back to the Inbox
   and search, for mail already read as well as later synchronizations, without
   reading the mail again. A chosen folder that the saved listing no longer offers as
   selectable leaves the role unknown, so the connection is not included again until
@@ -268,7 +268,10 @@ lists the connection's selectable folders under it; choosing one shows that fold
 each Mac window chooses its folder independently. A folder
 that cannot be read shows **Folders could not be listed**; its cached messages stay.
 The failed read also marks that folder's sidebar row, including after another mailbox
-is selected and when the folder has no cached messages.
+is selected and when the folder has no cached messages. A problem of the whole connection,
+such as a password the server no longer accepts, shows as a warning beside the
+connection's sidebar header on Mac and iPad and on its Inbox row on iPhone, as in the
+[Gmail guide](gmail-inbox.md#behavior).
 A chosen folder removed from the refreshed selectable listing falls back to Inbox.
 It stays there if that folder name reappears, until the person chooses it again.
 Local search marks a body as available on this device only when the body cache
@@ -347,12 +350,12 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   reads until it ends. Closing the last reader has the same transfer limitation;
   ending the transfer itself is
   [#1172](https://github.com/unwired-dev/product/issues/1172).
-- **Failure.** The row says why and offers **Try again**: **The mail server could not
+- **Failure.** The row says why and offers **Try Again**: **The mail server could not
   be reached to download this attachment.**, **The mail server needs your password
   again to download this attachment.** (the Inbox also asks for the password),
   **This attachment could not be saved on this device.** or the locked-storage
   message. **This attachment is no longer in this folder on the mail server.** has no
-  **Try again**.
+  **Try Again**.
 - **Removal.** A saved file is deleted when the message's last reader closes, the
   Inbox closes, and with the connection, sign-out, account deletion, device removal
   and relaunch. Like saved bodies, attachments follow the folder identity the
@@ -421,11 +424,11 @@ message is no longer in this folder on the mail server**.
 ## Organizing
 
 IMAP mail offers, in the reader and as Inbox row actions, **Mark as read** or **Mark as
-unread**, **Star** or **Remove star**, **Archive**, **Move to Trash**, **Report spam**, and
+unread**, **Star** or **Remove star**, **Archive**, **Delete**, **Move to Spam**, and
 under **Folders**, **Move to** any other selectable folder, including the Inbox. In the
 folders the server declares as Trash or Spam (`\Trash`, `\Junk`), or chosen for them as
 [Synchronization](#synchronization) describes, **Move to Inbox** takes
-the place of Archive, Move to Trash and Report spam, as in Gmail's Trash and Spam; it offers
+the place of Archive, Delete and Move to Spam, as in Gmail's Trash and Spam; it offers
 no Undo. IMAP has no labels. Opening an unread message sets its `\Seen` flag, as
 [Organizing mail](gmail-inbox.md#organizing-mail) describes for every provider.
 The star is the server's `\Flagged` flag, so other mail apps show it as a flag: the
@@ -439,7 +442,7 @@ Archive, Trash and Spam move the message to the folder the server declares with 
 `\Archive`, `\Trash` or `\Junk` special-use role, or to a selectable Spam or Trash folder
 chosen where the server declares none; without one, its action is
 not offered, and no folder is guessed by name. The row and reader
-[context menus](gmail-inbox.md#organizing-mail) offer their supported actions in the documented order; Archive is row-only and Report spam remains outside those menus.
+[context menus](gmail-inbox.md#organizing-mail) offer their supported actions in the documented order; Archive is row-only and Move to Spam remains outside those menus.
 
 Moves need a server that moves one message without expunging others: MOVE, or else
 COPY with UIDPLUS's `UID EXPUNGE` of that message alone. A server with neither offers
@@ -477,7 +480,7 @@ reads the message's flags.
 [Gmail reader's](gmail-inbox.md#organizing-mail) actions that need no sending. The IMAP
 reader offers each one that applies:
 
-- **Offered as for Gmail:** read state, the star, Archive, Move to Trash, Report spam,
+- **Offered as for Gmail:** read state, the star, Archive, Delete, Move to Spam,
   Move to (Folders), Move to Inbox in Trash and Spam, Undo of a move, the row and
   reader context menus and Command Palette commands, VoiceOver row actions, Copy
   Address, Open Link and Copy Link, the received-attachment actions, Remote Message

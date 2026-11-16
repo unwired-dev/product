@@ -427,7 +427,7 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
     unstar: [t('contextMenu.unstar'), 'flag.slash'],
     restore: [t('contextMenu.restore'), 'tray.and.arrow.down'],
     spam: [t('contextMenu.spam'), 'xmark.bin'],
-    trash: [t('contextMenu.trashMessage'), 'trash'],
+    trash: [t('contextMenu.trash'), 'trash'],
   }) as const;
 
 // More: the system menu the iPad frames draw: read state, the flag and Move to…, then the actions
@@ -550,7 +550,7 @@ const threadActions = (
     : [
         {
           name: 'move',
-          label: t('contextMenu.moveMessage'),
+          label: t('contextMenu.moveTo'),
           icon: 'folder',
           group: 'place' as const,
           run: folders.show.run,
@@ -577,7 +577,7 @@ const threadActions = (
       label:
         new Map([
           ['spam', t('contextMenu.spam')],
-          ['trash', t('contextMenu.trashMessage')],
+          ['trash', t('contextMenu.trash')],
         ]).get(name) ?? label,
       icon: actionIcons[name] ?? 'ellipsis',
       group: 'place' as const,

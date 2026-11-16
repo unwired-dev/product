@@ -905,7 +905,7 @@ describe('preview Inbox', () => {
     );
     expect(screen.queryByText('maya@example.com')).toBeNull();
     currentOpen = () => storage.open('[]');
-    await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
     await expect(screen.findByText('maya@example.com')).resolves.toBeVisible();
   });
 });
@@ -1786,8 +1786,8 @@ describe('connected Gmail Inbox', () => {
     // On iPhone, More is the system menu iPad's frames draw, ending with Delete.
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
       ['Mark as Unread', 'Flag', 'Move to…'],
-      ['Report Spam', 'Labels'],
-      ['Delete Message'],
+      ['Move to Spam', 'Labels'],
+      ['Delete'],
     ]);
     await chooseFromMenu(screen.getByLabelText('More'), 'Flag');
     expect(menuSections(screen.getByLabelText('More'))[0]).toContain('Unflag');
@@ -1961,7 +1961,7 @@ describe('connected Gmail Inbox', () => {
       await fireEvent.press(receipt);
       await expect(screen.findByText('Paid in full.')).resolves.toBeVisible();
       expect(menuSections(screen.getByLabelText('More')).flat()).toContain(
-        'Delete Message',
+        'Delete',
       );
     },
   );
@@ -2269,7 +2269,7 @@ describe('connected Gmail Inbox', () => {
     await fireEvent.press(row);
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     expect(menuSections(screen.getByLabelText('More')).flat()).toContain(
-      'Delete Message',
+      'Delete',
     );
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
     expect(
@@ -2333,8 +2333,8 @@ describe('connected Gmail Inbox', () => {
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
       ['Mark as Unread', 'Move to…'],
-      ['Report Spam'],
-      ['Delete Message'],
+      ['Move to Spam'],
+      ['Delete'],
     ]);
 
     // A Microsoft message is in one folder: it moves, with no label to add.
@@ -2467,15 +2467,16 @@ describe('connected Gmail Inbox', () => {
         /request to star “Synthetic message 0” after five attempts/u,
       ),
     ).toBeVisible();
+    // The change's Try Again comes before the sync status's for the unreachable mailbox.
+    const change = screen.getAllByRole('button', { name: 'Try Again' }).at(0);
+    ok(change);
     await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Retry change' }),
-      );
+      await fireEvent.press(change);
     });
     await waitFor(() => {
       expect(gmail.labelsOf(target.id)).toContain('STARRED');
     });
-    expect(screen.queryByRole('button', { name: 'Retry change' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Try Again' })).toBeNull();
     gmail.failModify(
       ...Array.from({ length: 5 }, () => ({ code: 'unavailable' })),
     );
@@ -2679,8 +2680,11 @@ describe('connected Gmail Inbox', () => {
     await fireEvent.press(
       screen.getByRole('button', { name: /Not downloaded yet/u }),
     );
+    // The reader's Try Again follows the list notice's.
+    const reader = screen.getAllByRole('button', { name: 'Try Again' }).at(-1);
+    ok(reader);
     await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+      await fireEvent.press(reader);
     });
     await expect(screen.findByText('Synthetic body.')).resolves.toBeVisible();
 
@@ -3146,7 +3150,7 @@ describe('command palette', () => {
       );
       expect(
         openedPalette().getByRole('button', {
-          name: 'Reply. Select a conversation',
+          name: 'Reply. Select a Thread',
         }),
       ).toBeOnTheScreen();
     } finally {
@@ -3172,7 +3176,7 @@ describe('command palette', () => {
     await openPalette(screen.getByRole('header', { name: 'Inbox' }));
     expect(
       openedPalette().getByRole('button', {
-        name: 'Reply. Select a conversation',
+        name: 'Reply. Select a Thread',
       }),
     ).toBeDisabled();
     expect(
@@ -3366,7 +3370,7 @@ describe('command palette', () => {
     await openPalette(screen.getByRole('header', { name: 'Settings' }));
     expect(
       openedPalette().getByRole('button', {
-        name: 'Reply. Select a conversation',
+        name: 'Reply. Select a Thread',
       }),
     ).toBeDisabled();
     await act(async () => {
@@ -3482,7 +3486,7 @@ describe('command palette', () => {
     );
     expect(
       openedPalette().getByRole('button', {
-        name: 'Reply. Select a conversation',
+        name: 'Reply. Select a Thread',
       }),
     ).toBeDisabled();
   });
@@ -3510,7 +3514,7 @@ describe('command palette', () => {
     await openPalette(loading);
     expect(
       openedPalette().getByRole('button', {
-        name: 'Reply. Select a conversation',
+        name: 'Reply. Select a Thread',
       }),
     ).toBeDisabled();
   });
@@ -3539,7 +3543,7 @@ describe('command palette', () => {
     );
     expect(
       openedPalette().getByRole('button', {
-        name: 'Reply. Select a conversation',
+        name: 'Reply. Select a Thread',
       }),
     ).toBeDisabled();
   });
@@ -3560,7 +3564,7 @@ describe('context menus', () => {
       screen.getByRole('button', { name: /Oliver Park\. Saturday/u });
     await screen.findByRole('button', { name: /Oliver Park\. Saturday/u });
 
-    // A row offers its provider's actions, Delete last; Report Spam stays a row action only.
+    // A row offers its provider's actions, Delete last; Move to Spam stays a row action only.
     await waitFor(() => {
       const listed = contextMenuOf(row());
       expect(menuSections(listed)).toStrictEqual([
@@ -3596,7 +3600,7 @@ describe('context menus', () => {
       sender: [['Copy Address'], ['Block Sender…']],
       message: [
         ['Mark as Unread', 'Unflag'],
-        [['Move Message', ['Travel']], 'Delete Message'],
+        [['Move to…', ['Travel']], 'Delete'],
       ],
     });
     await chooseFromMenu(sender, 'Copy Address');
@@ -3608,7 +3612,7 @@ describe('context menus', () => {
       { nativeEvent: { actionName: 'copy' } },
     );
     expect(setStringAsync).toHaveBeenCalledWith('oliver@example.invalid');
-    await chooseFromMenu(message, 'Move Message', 'Travel');
+    await chooseFromMenu(message, 'Move to…', 'Travel');
     expect({
       labels: gmail.labelsOf(oliver),
       shown: screen.queryByText('Saturday, by the river?') !== null,

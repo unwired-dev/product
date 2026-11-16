@@ -561,7 +561,7 @@ function ReaderBody({
 }
 
 // The open message's context menu: the commands its reader offers, grouped as the design orders
-// them, with Delete Message last.
+// them, with Delete last.
 function MessageMenu({
   target,
   children,

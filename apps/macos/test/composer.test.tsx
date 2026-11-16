@@ -1449,7 +1449,7 @@ describe('composing Drafts', () => {
     expect(openAccount).toHaveBeenCalledWith();
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     storage.setLocked(false);
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Discard me');
@@ -1460,10 +1460,10 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Discard me');
     expect(
       screen.getByText(
-        'This Draft could not be discarded, so it stays open. Try again.',
+        'This Draft wasn’t discarded, so it stays open. Choose Try again to discard it, or keep editing.',
       ),
     ).toBeOnTheScreen();
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
@@ -2723,7 +2723,9 @@ describe('composing Drafts', () => {
       // A reminder that storage refuses is reported and stores nothing.
       reminders.state.refusing = true;
       await chooseMenuItem('Tomorrow Morning');
-      await screen.findByText('The reminder could not be set. Try again.');
+      await screen.findByText(
+        'The new reminder wasn’t saved on this device. Choose Remind Me to Send to try again.',
+      );
       await expect(stored()).resolves.toStrictEqual([]);
 
       // Choosing a time saves the Draft and stores its reminder; the composer stays open.
@@ -2732,7 +2734,9 @@ describe('composing Drafts', () => {
       await chooseMenuItem('Tomorrow Morning');
       await screen.findByText(banner);
       expect(
-        screen.queryByText('The reminder could not be set. Try again.'),
+        screen.queryByText(
+          'The new reminder wasn’t saved on this device. Choose Remind Me to Send to try again.',
+        ),
       ).toBeNull();
       await expect(stored()).resolves.toStrictEqual([
         { draft: id, profile: defaultProfile, dueAt: tomorrow.dueAt, timeZone },
@@ -2756,7 +2760,9 @@ describe('composing Drafts', () => {
       // Remove Reminder removes it once storage accepts the write.
       reminders.state.refusing = true;
       await press('Remove Reminder');
-      await screen.findByText('The reminder could not be removed. Try again.');
+      await screen.findByText(
+        'The reminder is still set. The change wasn’t saved on this device. Choose Remove Reminder to try again.',
+      );
       await expect(stored()).resolves.toHaveLength(1);
       reminders.state.refusing = false;
       await press('Remove Reminder');
@@ -3505,7 +3511,7 @@ describe('composing Drafts', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            'This Draft could not be discarded, so it stays open. Try again.',
+            'This Draft wasn’t discarded, so it stays open. Choose Try again to discard it, or keep editing.',
           ),
         ).toBeOnTheScreen();
       });
@@ -4012,7 +4018,7 @@ describe('composing Drafts', () => {
         'This Draft could not be saved, so it stays open. Try again, or discard it.',
       ),
     ).toBeOnTheScreen();
-    await press('Try again');
+    await press('Try Again');
     expect(screen.queryByLabelText('Subject')).not.toBeOnTheScreen();
   });
 
@@ -4820,7 +4826,7 @@ describe('composing Drafts', () => {
     ).toHaveBeenLastCalledWith(
       'This request cannot be answered. Your text is unchanged.',
     );
-    expect(screen.queryByLabelText('Try writing help again')).toBeNull();
+    expect(screen.queryByLabelText('Try Again to get writing help')).toBeNull();
     await press('Keep your text and close this suggestion');
 
     // Cancelling stops the native request; Try again asks once more.
@@ -4828,7 +4834,7 @@ describe('composing Drafts', () => {
     await press('Cancel writing help');
     expect(cancelled).toStrictEqual([asked[3]?.request]);
     await screen.findByText('Cancelled. Your text is unchanged.');
-    await press('Try writing help again');
+    await press('Try Again to get writing help');
     expect(asked).toHaveLength(5);
 
     // Editing the Draft while a rewrite is pending makes it stale: it is cancelled, its late
@@ -4943,7 +4949,7 @@ describe('composing Drafts', () => {
     expect(screen.queryByText(dropped)).toBeNull();
     await writingTool('Rewrite');
     await press('Cancel writing help');
-    const retry = queuedPress('Try writing help again');
+    const retry = queuedPress('Try Again to get writing help');
     await act(() => {
       retry();
       edit('lets meet wednesday. thanks');
@@ -5704,7 +5710,7 @@ describe('adding files and images to a Draft', () => {
       'Pasted image.png, 5 bytes · Not checked while private storage is locked',
     );
     storage.setLocked(false);
-    await press('Check brief.txt again');
+    await press('Try Again to check brief.txt');
     await expect(
       screen.findByLabelText('brief.txt, 5 bytes · Damaged on this device'),
     ).resolves.toBeOnTheScreen();
@@ -5911,7 +5917,7 @@ describe('adding files and images to a Draft', () => {
       open = storage.native.openDrafts;
       await act(async () => {
         await fireEvent.press(
-          reader.getByRole('button', { name: 'Try again' }),
+          reader.getByRole('button', { name: 'Try Again' }),
         );
       });
       await press('Attach invoice.pdf to a new message');

@@ -70,6 +70,11 @@ export type MailboxView = Readonly<{
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
+const sectionText = {
+  ...typography.ipadList.subheadline,
+  fontWeight: '600',
+} as const;
+
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   // iPhone's title sits centered between an empty slot and Account.
@@ -126,12 +131,21 @@ const styles = StyleSheet.create({
   separator: { height: StyleSheet.hairlineWidth, marginHorizontal: spacing.l },
   // The iPad sidebar follows the Mac recipe at 1.15×, as its frames draw it.
   section: {
-    ...typography.ipadList.subheadline,
-    fontWeight: '600',
+    ...sectionText,
     paddingHorizontal: spacing.s * ipadListScale,
     paddingTop: spacing.m * ipadListScale,
     paddingBottom: spacing.xs * ipadListScale,
   },
+  // A Mailbox Connection's header with its problem: the title truncates before the warning.
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs * ipadListScale,
+    paddingHorizontal: spacing.s * ipadListScale,
+    paddingTop: spacing.m * ipadListScale,
+    paddingBottom: spacing.xs * ipadListScale,
+  },
+  sectionTitle: { ...sectionText, flexShrink: 1 },
   row: {
     minHeight: 28 * ipadListScale,
     flexDirection: 'row',
@@ -357,20 +371,48 @@ function Item({
   );
 }
 
-function SectionHeader({ label }: { readonly label: string }) {
+// A section's header. On iPad a Mailbox Connection's problem shows as a warning beside its title,
+// the frames' 13pt glyph at 1.15×, and VoiceOver reads it with the header.
+function SectionHeader({
+  label,
+  trouble,
+}: {
+  readonly label: string;
+  readonly trouble?: string | undefined;
+}) {
   const colors = usePalette();
   const large = useLargeText();
+  if (trouble === undefined) {
+    return (
+      <Text
+        accessibilityRole="header"
+        numberOfLines={large ? 0 : 1}
+        style={[
+          styles.section,
+          compact && styles.compactSection,
+          { color: compact ? colors.textPrimary : colors.textSecondary },
+        ]}>
+        {label}
+      </Text>
+    );
+  }
   return (
-    <Text
+    <View
+      accessible
       accessibilityRole="header"
-      numberOfLines={large ? 0 : 1}
-      style={[
-        styles.section,
-        compact && styles.compactSection,
-        { color: compact ? colors.textPrimary : colors.textSecondary },
-      ]}>
-      {label}
-    </Text>
+      accessibilityLabel={`${label}, ${trouble}`}
+      style={styles.sectionRow}>
+      <Text
+        numberOfLines={large ? 0 : 1}
+        style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+        {label}
+      </Text>
+      <SFSymbol
+        name="exclamationmark.triangle.fill"
+        color={colors.statusWarning}
+        size={12.5 * ipadListScale}
+      />
+    </View>
   );
 }
 
@@ -398,7 +440,8 @@ const noSubscription = () => () => undefined;
 
 // A Mailbox Connection's folder rows: an IMAP connection's folders, or a Gmail mailbox's Inbox,
 // labels, All Mail, Spam and Trash. A folder or view whose last read failed keeps its warning
-// after another mailbox is chosen; the connection's own problem rides on its Inbox row.
+// after another mailbox is chosen. The connection's own problem rides on its Inbox row on iPhone and
+// on its header on iPad.
 function FolderRows({
   mailbox,
   folders,
@@ -470,7 +513,7 @@ function FolderRows({
                   mailbox: name,
                 })}
                 count={unread}
-                status={isInbox ? trouble : failure}
+                status={isInbox && compact ? trouble : failure}
                 selected={selected}
                 onPress={() => {
                   onView({
@@ -673,7 +716,10 @@ export function Mailboxes({
                 });
                 return (
                   <Fragment key={mailbox.id}>
-                    <SectionHeader label={`${provider} · ${name}`} />
+                    <SectionHeader
+                      label={`${provider} · ${name}`}
+                      trouble={compact ? undefined : trouble}
+                    />
                     <FolderRows
                       mailbox={mailbox}
                       folders={folders}
@@ -686,10 +732,14 @@ export function Mailboxes({
               const { connection, recovery, selected } = entry.waiting;
               const provider = t(`mailProviders.${connection.provider}`);
               const imap = recovery === 'account';
+              const trouble = imap
+                ? t('mailboxes.states.imap-authorization')
+                : t('mailboxes.states.authorization', { provider });
               return (
                 <Fragment key={connection.id}>
                   <SectionHeader
                     label={`${provider} · ${connection.address}`}
+                    trouble={compact ? undefined : trouble}
                   />
                   <View
                     style={
@@ -705,11 +755,7 @@ export function Mailboxes({
                         row: t('inbox.title'),
                         mailbox: connection.address,
                       })}
-                      status={
-                        imap
-                          ? t('mailboxes.states.imap-authorization')
-                          : t('mailboxes.states.authorization', { provider })
-                      }
+                      status={compact ? trouble : undefined}
                       selected={selected}
                       onPress={() => {
                         // IMAP needs its password entered again in Settings' Email Accounts.

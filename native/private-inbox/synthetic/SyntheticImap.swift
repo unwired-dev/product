@@ -9,6 +9,9 @@
     // A connection with this password connects, then cannot be reached, so its Inbox shows the
     // connection's problem.
     static let unreachable = "unreachable"
+    // A connection with this password connects, then the server refuses it, so the connection
+    // needs its password again.
+    static let expired = "expired"
     // Folders as the server lists them, with their messages by UID.
     static let folders: [(folder: ImapListedFolder, messages: [ImapEnvelope])] = [
       (listed("INBOX"), [envelope(1, "Sam Rivera", "sam@example.invalid", "Welcome to IMAP")]),
@@ -37,12 +40,14 @@
     func verify(_ account: ImapAccount, password: String) async throws {}
     func open(_ account: ImapAccount, password: String) async throws -> any ImapSession {
       if password == Self.unreachable { throw ImapFailure.offline }
+      if password == Self.expired { throw ImapFailure.authentication }
       return SyntheticImapSession()
     }
     func history(_ account: ImapAccount, password: String, request: ImapHistoryRequest) async throws
       -> ImapHistoryPage
     {
       if password == Self.unreachable { throw ImapFailure.offline }
+      if password == Self.expired { throw ImapFailure.authentication }
       let all = try Self.messages(request.folder)
       let shown = all.filter { $0.uid >= request.above && $0.uid < (request.below ?? .max) }
       let kept = Array(shown.suffix(request.limit))
