@@ -815,9 +815,9 @@ describe('mail Assistance Enablement on iPhone and iPad', () => {
       createMockMailSession('open-read-relaunch');
     const translation: NativeTranslation = {
       ...mockTranslation,
-      translationLanguages: () => {
-        translated.push('languages');
-        return mockTranslation.translationLanguages();
+      translate: (_request, input) => {
+        translated.push(input);
+        return mockTranslation.translate();
       },
     };
     await render(
