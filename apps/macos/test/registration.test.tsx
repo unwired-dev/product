@@ -2702,10 +2702,11 @@ describe('product registration', () => {
         resolve(null);
       };
     });
+    const clearRemoteContent = jest.fn(() => clearing);
     const remoteContent = createRemoteContentSettings({
       remoteContentSettings: () => Promise.resolve({ settings: null }),
       setRemoteContentSettings,
-      clearRemoteContent: () => clearing,
+      clearRemoteContent,
     });
     await remoteContent.load();
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
@@ -2776,6 +2777,14 @@ describe('product registration', () => {
     expect(
       screen.getByRole('button', { name: 'Clear remote content' }),
     ).toBeEnabled();
+    // A refused clear may have removed part of the cache, so it says what may remain.
+    clearRemoteContent.mockRejectedValueOnce(new Error('Synthetic failure'));
+    await press('Clear remote content');
+    await expect(
+      screen.findByText(
+        'Some remote content may still be saved on this device. Your mail isn’t affected. Try clearing it again.',
+      ),
+    ).resolves.toBeVisible();
   });
 
   it('keeps a mailbox removal open while it runs and names an offline failure', async () => {
