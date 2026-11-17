@@ -39,6 +39,7 @@ import type {
   StyleProp,
   TextInputInstance,
   TextStyle,
+  ViewInstance,
   ViewStyle,
 } from 'react-native';
 
@@ -466,6 +467,13 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     opacity: 0,
     pointerEvents: 'none',
+  },
+  // Over a query too low in the editor for them to fit under it.
+  bodySuggestionsAbove: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    paddingBottom: spacing.xs,
   },
   monogramSection: {
     fontWeight: '400',
@@ -931,6 +939,7 @@ function SuggestionMenu({
   empty,
   note,
   monograms = false,
+  scroll,
 }: {
   readonly sections: Readonly<{
     recent: readonly Recipient[];
@@ -943,19 +952,35 @@ function SuggestionMenu({
   readonly empty?: string | undefined;
   readonly note?: string | undefined;
   readonly monograms?: boolean;
+  // Rows taller than `maxHeight` scroll inside the menu; `onContentHeight` hears their full height.
+  readonly scroll?: Readonly<{
+    maxHeight: number | undefined;
+    onContentHeight: (height: number) => void;
+  }>;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { size } = use(ComposerLayoutContext);
   const sized = layoutStyles[size];
   const none = sections.recent.length + sections.contacts.length === 0;
+  const Rows = scroll === undefined ? View : ScrollView;
   return (
     <GlassPanel
       open
       origin={origin}
       {...(monograms ? { cornerRadius: radius.touchMenu } : {})}
       style={style}>
-      <View accessibilityLabel={t('drafts.suggestions.title')}>
+      <Rows
+        accessibilityLabel={t('drafts.suggestions.title')}
+        {...(scroll === undefined
+          ? {}
+          : {
+              keyboardShouldPersistTaps: 'always',
+              style: { maxHeight: scroll.maxHeight },
+              onContentSizeChange: (_width: number, height: number) => {
+                scroll.onContentHeight(height);
+              },
+            })}>
         {none && empty !== undefined ? (
           <Text
             style={[
@@ -1069,7 +1094,7 @@ function SuggestionMenu({
             {note}
           </Text>
         )}
-      </View>
+      </Rows>
     </GlassPanel>
   );
 }
@@ -2727,12 +2752,16 @@ function useBodyRecipients(
 }
 
 // The body's Recipient Suggestions while they show, under the query's line: a transparent copy of
-// the body up to that line, in the body's place and style, holds them there.
+// the body up to that line, in the body's place and style, holds them there. They end `reserve`
+// above the bottom of the editor's `viewport`, scrolling inside when taller, and open over the line
+// when it sits too low for them and more room is above.
 function BodyRecipientMenu({
   shown,
   display,
   top,
   bodyStyle,
+  viewport,
+  reserve,
   onAccept,
 }: {
   readonly shown: ReturnType<typeof useBodyRecipients>['shown'];
@@ -2740,9 +2769,15 @@ function BodyRecipientMenu({
   // Where the body starts.
   readonly top: number;
   readonly bodyStyle: StyleProp<TextStyle>;
+  readonly viewport: Readonly<{ current: ViewInstance | null }>;
+  readonly reserve: number;
   readonly onAccept: (recipient: Recipient) => void;
 }) {
   const { size } = use(ComposerLayoutContext);
+  const queryLine = useRef<ViewInstance>(null);
+  const [room, setRoom] =
+    useState<Readonly<{ below: number; above: number; line: number }>>();
+  const [rows, setRows] = useState(0);
   if (shown === undefined) {
     return null;
   }
@@ -2750,30 +2785,69 @@ function BodyRecipientMenu({
     0,
     display.text.slice(0, shown.sections.query.start).split('\n').length,
   );
+  const copy = (each: typeof lines) =>
+    each.map((line, index) => (
+      <Text
+        // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+        key={index}
+        style={kindStyles[line.kind]}>
+        {line.marker}
+        {line.spans.map(({ text }) => text).join('')}
+        {index < each.length - 1 ? '\n' : ''}
+      </Text>
+    ));
+  const measure = () => {
+    const view = viewport.current?.getBoundingClientRect();
+    const line = queryLine.current?.getBoundingClientRect();
+    if (view === undefined || line === undefined) {
+      return;
+    }
+    // Less the menu's padding and margin, at most 24pt.
+    setRoom({
+      below: view.bottom - reserve - line.bottom - 24,
+      above: line.top - view.top - spacing.s - 24,
+      line: line.height,
+    });
+  };
+  const above =
+    room !== undefined && rows > room.below && room.above > room.below;
+  const hidden = {
+    accessibilityElementsHidden: true,
+    importantForAccessibility: 'no-hide-descendants',
+    style: [bodyStyle, styles.bodyCopy],
+  } as const;
   return (
     <View style={[styles.bodySuggestions, { top }]}>
+      {lines.length > 1 ? (
+        <Text {...hidden}>{copy(lines.slice(0, -1))}</Text>
+      ) : null}
       <Text
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[bodyStyle, styles.bodyCopy]}>
-        {lines.map((line, index) => (
-          <Text
-            // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
-            key={index}
-            style={kindStyles[line.kind]}>
-            {line.marker}
-            {line.spans.map(({ text }) => text).join('')}
-            {index < lines.length - 1 ? '\n' : ''}
-          </Text>
-        ))}
+        ref={queryLine}
+        onLayout={measure}
+        {...hidden}>
+        {copy(lines.slice(-1))}
       </Text>
-      <SuggestionMenu
-        {...shown}
-        onAccept={onAccept}
-        origin="top left"
-        monograms={size === 'compact'}
-        style={layoutStyles[size].bodySuggestions}
-      />
+      <View
+        style={
+          above && room !== undefined
+            ? [styles.bodySuggestionsAbove, { bottom: room.line }]
+            : null
+        }>
+        <SuggestionMenu
+          {...shown}
+          onAccept={onAccept}
+          origin={above ? 'bottom left' : 'top left'}
+          monograms={size === 'compact'}
+          style={layoutStyles[size].bodySuggestions}
+          scroll={{
+            maxHeight:
+              room === undefined
+                ? undefined
+                : Math.max(above ? room.above : room.below, 0),
+            onContentHeight: setRows,
+          }}
+        />
+      </View>
     </View>
   );
 }
@@ -3009,6 +3083,12 @@ function Editor({
   });
   // Where the body starts, for the Recipient Suggestions under its query.
   const [bodyTop, setBodyTop] = useState(0);
+  // The editor's visible area, which those suggestions stay inside.
+  const viewport = useRef<ViewInstance>(null);
+  // The key the body's last typed change came from; pasted text reports none.
+  const pressed = useRef<string>(undefined);
+  // The selection the body's field still reports for a Return or Tab a choice replaced.
+  const replaced = useRef<Selection>(undefined);
   const appearance = useAppearance();
 
   // Set while Discard or Send finishes, which take the Draft as it was then.
@@ -3184,13 +3264,24 @@ function Editor({
     const textBefore = displayOf(latest.body).text;
     const after = changedSelection.current;
     changedSelection.current = undefined;
+    // Including what it replaced, so typing over a selection still counts.
     const inserted = text.slice(
       at.start,
-      at.start + text.length - textBefore.length,
+      at.end + text.length - textBefore.length,
     );
-    // Return and Tab choose the highlighted Recipient Suggestion instead of their character.
+    const key = pressed.current;
+    pressed.current = undefined;
+    // Typed Return and Tab choose the highlighted Recipient Suggestion instead of their character.
     const { active } = recipientMenu.shown ?? {};
-    if ((inserted === '\n' || inserted === '\t') && active !== undefined) {
+    if (
+      active !== undefined &&
+      ((inserted === '\n' && key === 'Enter') ||
+        (inserted === '\t' && key === 'Tab'))
+    ) {
+      replaced.current = after ?? {
+        start: at.start + 1,
+        end: at.start + 1,
+      };
       chooseRecipient(active);
       return;
     }
@@ -3893,7 +3984,9 @@ function Editor({
         />
         {senderPlace.row}
         {regular ? formatBar : null}
-        <View style={styles.fill}>
+        <View
+          ref={viewport}
+          style={styles.fill}>
           <ScrollView
             contentContainerStyle={[
               styles.content,
@@ -3971,11 +4064,21 @@ function Editor({
                 changedSelection.current = nativeEvent.selection;
               }}
               onChangeText={edit}
+              onKeyPress={({ nativeEvent }) => {
+                pressed.current = nativeEvent.key;
+              }}
               onLayout={({ nativeEvent }) => {
                 setBodyTop(nativeEvent.layout.y);
               }}
               onSelectionChange={({ nativeEvent }) => {
                 const next = nativeEvent.selection;
+                // The field reports where its Return or Tab left the caret after a choice placed it
+                // in the greeting; the greeting's place stands.
+                const stale = replaced.current;
+                replaced.current = undefined;
+                if (stale?.start === next.start && stale.end === next.end) {
+                  return;
+                }
                 // Moving the caret anywhere but past typed text ends marks toggled for typing, and
                 // closes Recipient Suggestions.
                 if (next.start !== next.end || next.start !== caret.current) {
@@ -4031,6 +4134,9 @@ function Editor({
               display={display}
               top={bodyTop}
               bodyStyle={[styles.body, sized.body, parts.body]}
+              viewport={viewport}
+              // On iPhone they end 8pt above the floating pill's 44pt buttons, 10pt off the bottom.
+              reserve={pillShown ? 10 + 44 + spacing.s : spacing.s}
               onAccept={chooseRecipient}
             />
             {draft.quoted === undefined ? null : (

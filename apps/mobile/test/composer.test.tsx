@@ -1657,6 +1657,16 @@ describe('composing Drafts', () => {
       await type('Hi @');
       expect(menu()).toBeNull();
 
+      // An @ typed over the body's only character opens them.
+      await type(' ');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 1 } },
+      });
+      await type('@');
+      await expect(
+        screen.findByLabelText('Recipient suggestions'),
+      ).resolves.toBeOnTheScreen();
+
       // A tap chooses: the query becomes the greeting with the contact's given name, an empty
       // paragraph and the caret, and the person joins To.
       await type('');
@@ -1767,17 +1777,33 @@ describe('composing Drafts', () => {
       );
       expect(screen.queryByText(note)).toBeNull();
 
-      // Return chooses the highlighted person instead of breaking the line; without a given
-      // name the greeting uses the full name.
-      await fireEvent.changeText(body, '@and\n');
-      expect(
-        shownLines().map(({ spans }) => spans.map(({ text }) => text).join('')),
-      ).toStrictEqual(['Hi Andrea Novak,', '', '']);
-      expect(
-        screen.getByRole('button', {
+      const lines = () =>
+        shownLines().map(({ spans }) => spans.map(({ text }) => text).join(''));
+      const to = () =>
+        screen.queryByRole('button', {
           name: 'To: Andrea Novak <andrea@northwind.invalid>',
-        }),
-      ).toBeOnTheScreen();
+        });
+      // A pasted line break is text, not a choice.
+      await type('@and\n');
+      expect(lines()).toStrictEqual(['@and', '']);
+      expect(to()).toBeNull();
+
+      // Return chooses the highlighted person instead of breaking the line; without a given
+      // name the greeting uses the full name. The caret stays in the greeting's empty paragraph
+      // though the field reports where its Return left it.
+      await type('');
+      await type('@');
+      await type('@and');
+      await screen.findByRole('button', {
+        name: 'Andrea Novak, andrea@northwind.invalid',
+      });
+      await fireEvent(body, 'keyPress', { nativeEvent: { key: 'Enter' } });
+      await type('@and\n');
+      expect(lines()).toStrictEqual(['Hi Andrea Novak,', '', '']);
+      expect(to()).toBeOnTheScreen();
+      expect(body.props.selection).toStrictEqual({ start: 18, end: 18 });
+      await type('Hi Andrea Novak,\n\nThanks');
+      expect(lines()).toStrictEqual(['Hi Andrea Novak,', '', 'Thanks']);
     } finally {
       Object.assign(appleContacts, {
         granted: false,

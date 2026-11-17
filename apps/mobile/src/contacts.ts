@@ -22,8 +22,8 @@ const fields = [
 // Every email address of the Apple Contacts this app may read, under the contact's name. With
 // `ask`, they are read the first time `reading` is true, requesting Contacts access then; without
 // it, only contacts already readable are read, each time `reading` turns true, so access granted
-// meanwhile counts. Until access is granted there are none; `failed` tells that reading them
-// failed. They stay in memory on this device, never saved or synchronized.
+// meanwhile counts, and they are dropped when it turns false. Until access is granted there are
+// none; `failed` tells that reading them failed. They stay in memory on this device, never saved or synchronized.
 export function useContactAddresses(
   reading: boolean,
   ask = true,
@@ -38,13 +38,20 @@ export function useContactAddresses(
       return;
     }
     asked.current = true;
+    // A read still running when `reading` turns false is dropped without asking.
+    let current = true;
+    const keep = (next: Readonly<typeof read>) => {
+      if (current || ask) {
+        setRead(next);
+      }
+    };
     void (async () => {
       try {
         const { granted } = await (ask
           ? requestPermissionsAsync()
           : getPermissionsAsync());
         const contacts = granted ? await Contact.getAllDetails(fields) : [];
-        setRead({
+        keep({
           addresses: contacts.flatMap(({ fullName, givenName, emails }) =>
             emails.flatMap(({ address }) =>
               address === undefined
@@ -56,9 +63,15 @@ export function useContactAddresses(
         });
       } catch {
         // Unreadable contacts leave recent correspondents as the only suggestions.
-        setRead({ addresses: [], failed: true });
+        keep({ addresses: [], failed: true });
       }
     })();
+    return () => {
+      current = false;
+      if (!ask) {
+        setRead({ addresses: [], failed: false });
+      }
+    };
   }, [reading, ask]);
   return read;
 }
