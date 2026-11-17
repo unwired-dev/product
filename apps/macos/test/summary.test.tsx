@@ -268,13 +268,11 @@ describe('on-device message summaries in the reader', () => {
     expect.hasAssertions();
     const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
     const { native, asked } = scriptedAssistance();
-    let failures = 1;
     const { app } = await openReader({
       ...native,
-      summarize: (request, input) =>
-        failures-- > 0
-          ? Promise.reject(new Error('model stopped'))
-          : native.summarize(request, input),
+      summarize: jest
+        .fn(native.summarize)
+        .mockRejectedValueOnce(new Error('model stopped')),
     });
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
     announce.mockClear();
