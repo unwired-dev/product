@@ -56,6 +56,38 @@ const renderGmailInbox = async () => {
   return { gmail, inbox };
 };
 
+// Two mailboxes shown together, each from its own Inbox store.
+const twoMailboxes = (
+  work: ReturnType<typeof createInboxStore>,
+  home: ReturnType<typeof createInboxStore>,
+) => {
+  const both = [
+    singleMailbox(work, 'work-mailbox'),
+    singleMailbox(home, 'home-mailbox'),
+  ];
+  let shown = both.flatMap((mailbox) => mailbox.getSnapshot());
+  return {
+    getSnapshot: () => {
+      const next = both.flatMap((mailbox) => mailbox.getSnapshot());
+      if (next.some((mailbox, index) => mailbox !== shown[index])) {
+        shown = next;
+      }
+      return shown;
+    },
+    subscribe: (listener: () => void) => {
+      const stops = both.map((mailbox) => mailbox.subscribe(listener));
+      return () => {
+        for (const stop of stops) {
+          stop();
+        }
+      };
+    },
+    load: async () => {
+      await Promise.all(both.map((mailbox) => mailbox.load()));
+    },
+  };
+};
+
 describe('message list', () => {
   it('shows the last update only for Inboxes, leaving it out of a label and unified Sent', async () => {
     expect.hasAssertions();
@@ -238,6 +270,75 @@ describe('message list', () => {
     } finally {
       await cleanup();
       inbox.forget();
+    }
+  });
+
+  it('says saved mail can’t be shown when the mailbox fails to open for an unnamed reason, and Try Again shows it', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.failOpen('unavailable');
+      await act(inbox.load);
+      expect(
+        screen.getByRole('alert', {
+          name: 'Mail saved on this device can’t be shown. It has been kept. Choose Try Again to show it again.',
+        }),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText('Saved mail remains available')).toBeNull();
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+      await expect(
+        screen.findByText('Saved mail remains available'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByRole('alert')).toBeNull();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('points a mailbox whose saved mail can’t be shown to the message list’s Try Again in the sync status', async () => {
+    expect.hasAssertions();
+    const work = createSyntheticGmail();
+    const home = createSyntheticGmail();
+    const workInbox = createInboxStore(work.native);
+    const homeInbox = createInboxStore(home.native);
+    const mailboxes = twoMailboxes(workInbox, homeInbox);
+    await render(
+      <InboxProvider mailboxes={mailboxes}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+        />
+      </InboxProvider>,
+    );
+    try {
+      work.fail({ code: 'unavailable' });
+      home.failOpen('unavailable');
+      await act(mailboxes.load);
+      await fireEvent.press(
+        screen.getByRole('button', { name: '1 account needs attention' }),
+      );
+      const details = within(screen.getByTestId('sync-status-details'));
+      expect(
+        details.getByLabelText(
+          'Mail saved on this device can’t be shown. It has been kept. Choose Try Again in the message list to show it again.',
+        ),
+      ).toBeOnTheScreen();
+      // That row has no Try Again of its own; the message list's notice does.
+      expect(
+        details.queryByRole('button', {
+          name: 'Try Again for Gmail · home-mailbox',
+        }),
+      ).toBeNull();
+      expect(
+        screen.getByRole('alert', {
+          name: /Mail saved on this device can’t be shown\. It has been kept\. Choose Try Again to show it again\.$/u,
+        }),
+      ).toBeOnTheScreen();
+    } finally {
+      await cleanup();
+      workInbox.forget();
+      homeInbox.forget();
     }
   });
 

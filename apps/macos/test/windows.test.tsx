@@ -2446,7 +2446,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       app.findByText('This device was removed'),
     ).resolves.toBeVisible();
     expect(app.queryByText('A little more room to think')).toBeNull();
-    expect(app.queryByText(/stored data has been kept/u)).toBeNull();
+    expect(app.queryByText(/can’t be shown\. It has been kept/u)).toBeNull();
   });
   /* oxlint-enable vitest/max-expects */
 });
