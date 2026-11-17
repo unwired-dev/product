@@ -719,7 +719,7 @@
     "unsupported-language": "Summaries are not available in this message’s language yet.",
     "unsupported-locale": "Summaries are not available in this device’s language yet.",
     "refused": "This message cannot be summarized.",
-    "failed": "The summary could not be created.",
+    "failed": "The summary didn’t finish. Choose Try Again to summarize this message again.",
     "cancelled": "Summary cancelled."
   },
   "translation": {
