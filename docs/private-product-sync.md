@@ -108,7 +108,9 @@ newest request. **Approve a new device** names the requesting device and asks fo
 **Code from the new device**. Case, spaces and the look-alikes O, I and L are
 accepted. The last character is a check digit. An invalid check digit is reported on
 the trusted device and nothing is sent. A different code with a valid check digit
-cannot unlock the requesting device. **Decline** cancels the request. The approving
+cannot unlock the requesting device. **Decline** cancels the request. When **Approve
+Device** or **Decline** fails for another reason, the request stays on screen with a
+message that names the action that didn't finish and the button to choose again. The approving
 device seals the account's newest key epoch; one that missed a removal adopts that
 removal's key epoch first.
 
