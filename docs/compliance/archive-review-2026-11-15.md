@@ -100,13 +100,31 @@ sample showed Xcode's shell-output regex parser stalling on minified warning
 lines. This did not change the compiler version, optimization or emitted-code
 options. No warning suppression was added to the product build scripts.
 
-The arm64 iOS Simulator 27.2 Release build also passes. Its native bundle phase
-packages 216 components; only `standard-navigation@0.0.5` remained unresolved
-before its publisher notice was pinned.
-The notice text hash is
+The arm64 iOS Simulator 27.2 Release build also passes. Before the
+standard-navigation notice was pinned, its native bundle phase packaged 216
+components with only `standard-navigation@0.0.5` unresolved, and the notice
+text hash was
 `90c069819060afc2fba14ec42c9ac2177dbdf2a7a6d9874fd9ba992252023324`.
 Ad hoc signature verification passes. Both hosts' text and JSON provenance
-resources reproduce byte-for-byte from the final generator and installed inputs.
+resources reproduced byte-for-byte from that generator, manifest and installed
+inputs; the pinned notice changes the iOS text and coverage JSON.
+
+On 17 November 2026 a fresh arm64 iOS Simulator Release build with the pinned
+notice and the Expo 58.0.26 patch releases packages 216 components with none
+unresolved. Those patch releases had left the exact-version supplements for
+`@expo/ui`, `expo-router` and `expo-file-system` stale; they are now pinned to
+the publishing Expo commit, with byte-identical texts. The packaged notice text
+hash is `730cc1bb8622ba2f69ed557272d8cd4dc56e940ab815379d751305088d5340b2`,
+archive inventory verifies it, and ad hoc
+`codesign --verify --deep --strict` passes. A fresh arm64 Mac Release build
+signed with an Apple Development identity packages 138 components with none
+unresolved, at the same notice text hash recorded above, and passes the same
+signature check. The scheduled TestFlight run
+[44053524060](https://github.com/unwired-dev/product/actions/runs/44053524060)
+from `97681a6e8f19da7521dc2fa17ee78fdb5254ec2f`, before both changes, signed
+both archives with the prepared identity: Mac packaged 138 components with
+none unresolved, iOS 216 with only standard-navigation. A signed archive
+carrying the pinned notice waits for the next TestFlight run from `main`.
 Both local builds resolve SwiftNIO-SSL 2.37.5 at
 `322f3c2a4a21df31c84ca416bf65ee5e9059e440`. The historical iOS inventory also
 records 2.37.5; its Mac counterpart records 2.37.6. The annex preserves that
