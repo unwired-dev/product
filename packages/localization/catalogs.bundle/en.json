@@ -590,7 +590,7 @@
     "missing": "This attachment is no longer in {{provider}}.",
     "missing_imap": "This attachment is no longer in this folder on the mail server.",
     "locked": "Private storage is locked. Unlock your device and try again.",
-    "failed": "This attachment could not be saved on this device.",
+    "failed": "This attachment didn’t download. Choose Try Again to download it.",
     "damaged": "{{provider}} sent an incomplete or damaged copy of this attachment.",
     "damaged_imap": "The mail server sent an incomplete or damaged copy of this attachment.",
     "bytes_one": "{{size}} byte",
