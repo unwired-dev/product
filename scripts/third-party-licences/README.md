@@ -12,10 +12,10 @@ an exact reviewed vendor supplement when their versions change.
 
 ReactCodegen's generated podspec declares Unlicense. Its supplement reproduces
 that canonical body from a pinned SPDX source, and separately preserves Meta's
-MIT template attribution. The standard-navigation candidate describes its actual
-MIT declaration and author metadata without inventing a copyright holder or
-year. It remains unresolved pending attribution review; it is not a recovered
-publisher notice. The publisher request has been prepared but not sent.
+MIT template attribution. The published standard-navigation 0.0.5 package has
+no licence file; its supplement is the publisher's later MIT licence, which the
+maintainer [confirmed](https://github.com/react-navigation/standard-navigation/issues/7#issuecomment-6474665803)
+applies to all previous versions.
 
 Some ReactNativeDependencies records carry an explicit component-version
 limitation. They remain unresolved until the selected build's component versions
