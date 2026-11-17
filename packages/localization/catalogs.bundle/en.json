@@ -480,7 +480,7 @@
     "label": "Last four characters",
     "confirm": "Confirm Recovery Key",
     "mismatch": "That does not match the end of your Recovery Key. Check your written copy and try again.",
-    "failed": "Your Recovery Key could not be confirmed. Try again."
+    "failed": "Confirming your Recovery Key didn’t finish. Choose Confirm Recovery Key to try again."
   },
   "recovery": {
     "title": "Use your Recovery Key",
