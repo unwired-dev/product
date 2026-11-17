@@ -104,14 +104,14 @@ native peers (gesture handler, Reanimated and Worklets) are explicitly installed
 for reproducible autolinking. `react-dom` is a development peer requirement and
 must not appear in the iOS production bundle.
 
-The selected baseline is Expo SDK 58 (`expo` 58.0.25, React Native 0.88.1,
+The selected baseline is Expo SDK 58 (`expo` 58.0.26, React Native 0.88.1,
 React 19.3.0), the SDK the [Expo Duo guide](https://expo.dev/blog/supporting-iphone-duo) names
 for Duo development, with every native peer at its SDK 58 bundled version. The
 Mac host keeps its separate `catalogs.macos` renderer (react-native-macos 0.81.9)
 and its own `react-native-webview` 13.16.1 patch. SDK 58 generates the UIKit
 scene lifecycle and no longer installs `expo-symbols` for Expo Router, which loads
 it only when present; the app draws SF Symbols through its own design views.
-The pinned `expo-dev-launcher` 58.0.20 patch drops the development launcher's
+The pinned `expo-dev-launcher` 58.0.21 patch drops the development launcher's
 iOS 27.1 toolbar axis, which the Xcode 27.0 SDK in CI cannot compile. Remove it
 when CI builds with the iOS 27.1 SDK.
 
