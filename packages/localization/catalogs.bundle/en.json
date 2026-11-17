@@ -886,6 +886,7 @@
     "neutralTooLong": "Select less text to make more neutral. Up to 6,000 characters can be made more neutral at once.",
     "replyHasImage": "Replies with inline images cannot get a suggestion. Your images are unchanged.",
     "replyTooLong": "Your reply is too long for a suggestion. Up to 6,000 characters can be read.",
+    "replyNoContext": "Not enough of the quoted message can be read to suggest a reply. Your text is unchanged. If your reply is long, shorten it and choose Suggest Reply again.",
     "generateTooLong": "Describe what to write in fewer words. Up to 6,000 characters can be read.",
     "device-ineligible": "Writing help needs a device that supports Apple Intelligence.",
     "assistance-disabled": "Turn on Apple Intelligence to get writing help.",

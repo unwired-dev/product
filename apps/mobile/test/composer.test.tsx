@@ -7,6 +7,7 @@ import type { SemanticDocument } from '@private-email/mail-core/semantic-documen
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { StyleProp, TextStyle, useColorScheme } from 'react-native';
 
+import { captureDraftText } from '@private-email/mail-core/assistance';
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailTemplates } from '@private-email/mail-core/mail-templates';
@@ -7187,6 +7188,58 @@ describe('replying to and forwarding from the reader', () => {
     expect(
       gmail.requests.filter(({ path }) => path.includes('send')),
     ).toStrictEqual([]);
+  });
+
+  it('says when a long reply leaves no room for the quoted message, without offering Try Again', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Shall we meet on Friday?' },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    const { native, asked } = scriptedDraftAssistance();
+    await render(
+      <AssistanceContext value={native}>
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />
+      </AssistanceContext>,
+    );
+    await press('Reply');
+    await press('Reply All');
+    await screen.findByLabelText('Subject');
+    const [draft] = draftsOf(drafts.getSnapshot());
+    ok(draft, 'Expected the reply Draft');
+    // The longest reply that is not refused as too long leaves no room for any quoted text.
+    let authored = '';
+    for (let length = 6000; authored === '' && length > 0; length -= 1) {
+      const text = 'a'.repeat(length);
+      const { input, issue } = captureDraftText(
+        'reply',
+        { ...draft, body: [{ kind: 'paragraph', spans: [{ text }] }] },
+        { start: 0, end: 0 },
+      );
+      if (input === undefined && issue === undefined) {
+        authored = text;
+      }
+    }
+    ok(authored !== '', 'Expected a reply that leaves no quoted context');
+    await fireEvent.changeText(screen.getByLabelText('Message body'), authored);
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    const refusal =
+      'Not enough of the quoted message can be read to suggest a reply. Your text is unchanged. If your reply is long, shorten it and choose Suggest Reply again.';
+    await chooseWritingTool('Suggest a reply to the quoted message');
+    await expect(screen.findByText(refusal)).resolves.toBeOnTheScreen();
+    expect(announce.mock.calls).toStrictEqual([[refusal]]);
+    expect(screen.queryByLabelText('Try Again to get writing help')).toBeNull();
+    expect(asked).toHaveLength(0);
   });
 
   it('shows a rejected response in scrolling content and permits retry', async () => {
