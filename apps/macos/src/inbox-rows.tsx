@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 
-import { ContextMenu, SFSymbol } from './design.tsx';
+import { ContextMenu } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import {

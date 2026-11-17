@@ -6572,11 +6572,7 @@ describe('replying to and forwarding from the reader', () => {
         .map((button) => button.props.accessibilityLabel),
     ).toStrictEqual(['Move to…', 'Labels', 'Move to Spam', 'Delete']);
     // Choosing an action runs it and closes the sheet.
-    await act(async () => {
-      await fireEvent.press(
-        screen.getAllByRole('button', { name: 'Mark as unread' }).at(-1),
-      );
-    });
+    await pressLast('Mark as unread');
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
     await press('Reply');
     expect(screen.getByRole('button', { name: 'Mark as read' })).toBeVisible();

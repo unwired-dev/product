@@ -16,7 +16,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { useCommandRegistry } from './command-palette.tsx';
-import { ContextMenu, SFSymbol } from './design.tsx';
+import { ContextMenu } from './design.tsx';
 import { ipad, styles } from './inbox-styles.ts';
 import { useListDensity } from './list-density.tsx';
 import {

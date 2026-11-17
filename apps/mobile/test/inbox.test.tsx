@@ -1125,6 +1125,14 @@ const chooseFromMenu = async (menu: MenuNode, ...path: readonly string[]) => {
   });
 };
 
+// Opens the palette as VoiceOver does, through the header's accessibility action.
+const openPalette = (header: ReturnType<typeof screen.getByRole>) =>
+  fireEvent(header, 'accessibilityAction', {
+    nativeEvent: { actionName: 'openCommandPalette' },
+  });
+// The open palette, apart from the reader's own buttons beneath it.
+const openedPalette = () => within(screen.getByTestId('command-palette'));
+
 describe('connected Gmail Inbox', () => {
   it('keeps synchronization attention over the list column beside a window-wide bar', async () => {
     expect.hasAssertions();
@@ -2762,13 +2770,6 @@ const pushedSettings = async () => {
   return typeof bar === 'string' ? undefined : bar?.props.title;
 };
 
-// Opens the palette as VoiceOver does, through the header's accessibility action.
-const openPalette = (header: ReturnType<typeof screen.getByRole>) =>
-  fireEvent(header, 'accessibilityAction', {
-    nativeEvent: { actionName: 'openCommandPalette' },
-  });
-// The open palette, apart from the reader's own buttons beneath it.
-const openedPalette = () => within(screen.getByTestId('command-palette'));
 // A message the connected Inbox lists, as the reader's actions receive it.
 const listedMessage = (
   store: ReturnType<Awaited<ReturnType<typeof renderConnected>>['store']>,
