@@ -11,6 +11,32 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPad popovers without an arrow, 2026-11-16
+
+[#2255](https://github.com/unwired-dev/product/issues/2255) checked every iPad
+popover with an uncommitted probe in the `registration-draft-editor`,
+`registration-sync-status` and `registration-apple` journeys, run on iPad Pro
+11-inch (M5) with Release Simulator builds of 7270785fa, Xcode 27.2 (`27B52`),
+the iOS 27.0 runtime and macOS 27.2, in Light and Dark. Host load was 46–929
+from other work; runs that failed to launch or stalled under that load were
+repeated.
+
+- Each popover opens without an arrow, beside the control that opened it, and
+  closes on an outside tap or its own button. Filters and Sync Status open
+  above their bottom-bar controls; Generate a Draft, Link Editor and Remind Me
+  to Send open below the composer's toolbar, title-bar button and Send button;
+  Move opens below Folders in landscape.
+- Link Editor grows to show "Enter a valid web, email or phone link." and stays
+  below its button.
+- Closing Remind Me to Send no longer crashes. An earlier build moved the
+  popover's anchor again while UIKit was setting it and crashed; the change
+  now ignores its own updates.
+- In portrait the Move list is a reader panel rather than a popover, so only
+  landscape was checked. The probe's landscape screenshot was cut off; the
+  recorded frames place the search field 18.5 points below Folders.
+- iPhone was not run: every call site shows the popover only on iPad and keeps
+  its sheet on iPhone.
+
 ## Multiline inputs and the Dynamic Type audit, 2026-11-16
 
 [#2231](https://github.com/unwired-dev/product/issues/2231) traced the composer
