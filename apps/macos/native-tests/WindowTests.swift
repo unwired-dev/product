@@ -70,12 +70,14 @@ final class WindowTests: XCTestCase {
       add(attachment)
     }
     window.buttons["New Message"].click()
-    let body = window.textViews["Message body"]
+    // The body is the window's only text view; it reads its placeholder as a label while empty.
+    let body = window.textViews.firstMatch
     XCTAssertTrue(body.waitForExistence(timeout: 15))
     XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
     body.click()
     body.typeText("@")
-    let menu = window.descendants(matching: .any)["Recipient suggestions"]
+    // The menu's rows are its accessible elements; the newest correspondent comes first.
+    let menu = window.buttons["Jordan Lee, jordan@example.invalid"]
     XCTAssertTrue(menu.waitForExistence(timeout: 10))
     XCTAssertGreaterThan(menu.frame.minY, body.frame.minY)
     attach("Body Recipient Shortcut")
