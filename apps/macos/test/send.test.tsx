@@ -1114,7 +1114,8 @@ describe('sending a Draft', () => {
       // A successful Send closes its composer, without leaving an unavailable Draft behind.
       expect(screen.queryByText('This Draft is not available.')).toBeNull();
       await press('Edit');
-      const refused = 'Couldn’t return “Unknown” to Drafts.';
+      const refused =
+        '“Unknown” wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.';
       const undo = jest.spyOn(sender.outbox, 'undo');
       sender.storage.hold();
       sender.storage.failNextCommit('locked');
@@ -1202,7 +1203,8 @@ describe('sending a Draft', () => {
       sender.storage.failNextCommit('locked');
       await press('Undo');
       // The row stays as it was, and the refusal is heard at once.
-      const refused = 'Couldn’t return “Lisbon” to Drafts.';
+      const refused =
+        '“Lisbon” wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.';
       expect(screen.getByText(refused)).toBeOnTheScreen();
       expect(
         screen.getByLabelText('Lisbon. To sam@example.invalid. Sending soon'),
@@ -1247,7 +1249,9 @@ describe('sending a Draft', () => {
       sender.storage.failNextCommit('locked');
       await press('Undo');
       expect(
-        screen.getByText('Couldn’t return “Lisbon” to Drafts.'),
+        screen.getByText(
+          '“Lisbon” wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.',
+        ),
       ).toBeOnTheScreen();
       await later(sender, 10_000);
       // Returning it now needs the Edit Anyway warning, so the old Try Again does not come back.
@@ -1257,7 +1261,9 @@ describe('sending a Draft', () => {
         ),
       ).toBeOnTheScreen();
       expect(
-        screen.queryByText('Couldn’t return “Lisbon” to Drafts.'),
+        screen.queryByText(
+          '“Lisbon” wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.',
+        ),
       ).toBeNull();
     } finally {
       sender.outbox.dispose();

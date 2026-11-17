@@ -1293,8 +1293,8 @@
     "rowLabel": "{{subject}}. {{recipients}}. {{status}}",
     "undo": "Undo",
     "edit": "Edit",
-    "refused": "Couldn’t return “{{subject}}” to Drafts.",
-    "refusedShort": "Couldn’t return the message to Drafts.",
+    "refused": "“{{subject}}” wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.",
+    "refusedShort": "The message wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.",
     "tryAgain": "Try Again",
     "inSent": "{{subject}} is in Sent.",
     "state": {
