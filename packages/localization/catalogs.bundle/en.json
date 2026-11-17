@@ -31,6 +31,7 @@
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
     "noUnread": "No unread messages",
+    "allRead": "All read",
     "syncing": "Syncing",
     "offline": "Offline",
     "statusUpdated": "{{status}} · {{updated}}",

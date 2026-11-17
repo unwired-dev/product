@@ -827,8 +827,7 @@ app follows under the issue named:
 - **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for
   #2108.
 - **Copy:** one name per action, Spam, Thread and Title Case, All Inboxes and
-  All Mailboxes among them, wait for #2083. The iPhone heading's "All read"
-  waits for #2068.
+  All Mailboxes among them, wait for #2083.
 - **Control sizes:** the Mac Welcome and Sign In buttons, the iPad Sign in
   with Apple radius, the iPad setup sheet's 25.3pt corners (the app's
   `radius.ipadSheet` is 29.095), the iPad Profile Switcher's 28pt monogram, and

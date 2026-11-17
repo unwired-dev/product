@@ -1182,6 +1182,37 @@ describe('connected Gmail Inbox', () => {
     },
   );
 
+  it.each([
+    { isPad: false, subtitle: /^alex@example\.invalid · All read$/u },
+    {
+      isPad: true,
+      subtitle:
+        /^alex@example\.invalid · No unread messages · Updated just now$/u,
+    },
+  ])(
+    'says All read in the iPhone heading when nothing is unread (isPad=$isPad)',
+    async ({ isPad, subtitle }) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      const clock = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(Date.parse('2026-10-27T09:41:00Z'));
+      try {
+        const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+        gmail.deliver({ subject: 'Saved Inbox message', unread: false });
+        await renderConnected(gmail.native);
+        await expect(screen.findByText(subtitle)).resolves.toBeVisible();
+      } finally {
+        clock.mockRestore();
+        platform.restore();
+      }
+    },
+  );
+
   it('leaves the last update out of iPad label and unified headings, which the Inbox synchronization did not refresh', async () => {
     expect.hasAssertions();
     const platform = jest.replaceProperty(

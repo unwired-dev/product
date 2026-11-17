@@ -270,7 +270,8 @@ now** or **Updated 5 minutes ago**, counted from the start of each mailbox's lat
 completed synchronization and taking the oldest of them. Each mailbox saves that time
 with its cache after every successful synchronization, even when no mail changed,
 so it survives relaunch and failed attempts. iPhone's one-line subtitle leaves the time
-out. On iPad, while a shown mailbox needs sign-in again, the subtitle names it after the
+out. With nothing unread, iPhone's subtitle says **All read**, and iPad and Mac say
+**No unread messages**. On iPad, while a shown mailbox needs sign-in again, the subtitle names it after the
 count in place of the mailboxes and the time, such as **12 unread · Gmail needs sign-in**
 ([#2243](https://github.com/unwired-dev/product/issues/2243)); the mailbox's sidebar header
 shows a warning triangle that VoiceOver reads with the header, and its Inbox row keeps its
