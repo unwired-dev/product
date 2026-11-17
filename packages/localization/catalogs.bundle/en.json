@@ -1264,7 +1264,7 @@
       "name": "Template name",
       "save": "Save Template",
       "notSaved": "Template not saved",
-      "notSavedDetail": "This device could not store the template. Try again.",
+      "notSavedDetail": "Your message is unchanged. Choose New Template from This Message… to try again.",
       "needsName": "Give the template a name, then try again.",
       "hasImages": "Templates can’t hold inline images. Remove them from the message, then try again."
     },
