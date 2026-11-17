@@ -2632,6 +2632,10 @@ describe('product registration', () => {
     ).resolves.toBeVisible();
     const recoveryKey = shown(store, 'recoveryKey');
     const entry = screen.getByLabelText('Last four characters');
+    // Confirm stays disabled until a character is entered, as the frames draw it.
+    expect(
+      screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+    ).toBeDisabled();
     await act(async () => {
       await fireEvent.changeText(entry, '0000');
     });

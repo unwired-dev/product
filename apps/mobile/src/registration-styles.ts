@@ -114,6 +114,21 @@ export const registrationStyles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 20,
   },
+  // iPad's brand Recovery Key well and field, at the onboarding sizes.
+  ipadBrandRecoveryKey: {
+    fontSize: 17.25,
+    lineHeight: 23,
+    letterSpacing: 1.38,
+    borderRadius: spacing.m * ipadListScale,
+  },
+  ipadBrandInput: {
+    ...typography.ipadList.body,
+    minHeight: 46,
+    paddingVertical: 0,
+    paddingHorizontal: spacing.m * ipadListScale,
+    borderWidth: ipadListScale,
+    borderRadius: radius.control * ipadListScale,
+  },
   // A device approval code, large enough to compare at a glance with the other device.
   code: {
     fontSize: 28,

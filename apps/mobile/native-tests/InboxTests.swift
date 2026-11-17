@@ -20,6 +20,16 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
   XCTAssertFalse(unconfirmed.firstMatch.exists)
 }
 
+// Keeps a screenshot named with the runner's appearance, for comparison with the Light and Dark
+// frames.
+private func attachScreen(_ name: String, of app: XCUIApplication, to test: XCTestCase) {
+  let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
+  let shot = XCTAttachment(screenshot: app.screenshot())
+  shot.name = "\(name) (\(appearance))"
+  shot.lifetime = .keepAlways
+  test.add(shot)
+}
+
 final class InboxTests: XCTestCase {
   // A new Product Account connects the synthetic Gmail mailbox and confirms its Recovery Key.
   private func connectGmail(_ app: XCUIApplication) {
@@ -32,6 +42,10 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     XCTAssertEqual(presented.count, 64)
+    // #2070: the step's white Confirm stays disabled until a character is entered.
+    XCTAssertFalse(app.buttons["Confirm Recovery Key"].isEnabled)
+    recoveryKey.firstMatch.swipeUp()
+    attachScreen("Recovery Key", of: app, to: self)
     app.terminate()
     app.launch()
     waitWithoutWelcome(for: app.staticTexts["Connect your mail"], in: app)
@@ -1511,15 +1525,16 @@ final class InboxTests: XCTestCase {
       app.buttons["Use Recovery Key Instead"].tap()
       XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
       XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
-      let recoveryStep = XCTAttachment(screenshot: app.screenshot())
-      recoveryStep.name = "Recovery Key step"
-      recoveryStep.lifetime = .keepAlways
-      add(recoveryStep)
+      attachScreen("Recovery Key step", of: app, to: self)
       app.buttons["Wait for Approval Instead"].tap()
       XCTAssertTrue(app.staticTexts["enrollment-code"].waitForExistence(timeout: 5))
       app.buttons["Use Recovery Key Instead"].tap()
     }
     XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.staticTexts["Use your Recovery Key"].firstMatch.swipeUp()
+      attachScreen("Recovery Key step", of: app, to: self)
+    }
     // The synthetic account's written Recovery Key, typed as the person would.
     let entry = app.textFields["Recovery Key"]
     enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry, in: app)
