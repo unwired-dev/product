@@ -5158,12 +5158,12 @@ describe('composing Drafts', () => {
       await asked[6]?.answer.promise.catch(() => undefined);
     });
     await screen.findByText(
-      'The suggestion could not be created. Your text is unchanged.',
+      'The suggestion didn’t finish. Your text is unchanged. Choose Try Again to get writing help.',
     );
     await fireEvent.changeText(body(), 'lets meet monday. thanks');
     expect(
       screen.queryByText(
-        'The suggestion could not be created. Your text is unchanged.',
+        'The suggestion didn’t finish. Your text is unchanged. Choose Try Again to get writing help.',
       ),
     ).toBeNull();
     expect(screen.queryByText(dropped)).toBeNull();
@@ -5242,6 +5242,50 @@ describe('composing Drafts', () => {
       oldRewrite();
     });
     expect(screen.queryByLabelText('Cancel writing help')).toBeNull();
+  });
+
+  it('says an unexplained failed rewrite didn’t finish, and asks again on Try Again', async () => {
+    expect.hasAssertions();
+    const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked } = scriptedDraftAssistance();
+    try {
+      await render(
+        <AssistanceContext value={native}>
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            registration={registration}
+          />
+        </AssistanceContext>,
+      );
+      await press('New Message');
+      const original = 'lets meet friday. thanks';
+      const body = () => screen.getByLabelText('Message body');
+      await fireEvent.changeText(body(), original);
+      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      announce.mockClear();
+      const failure =
+        'The suggestion didn’t finish. Your text is unchanged. Choose Try Again to get writing help.';
+      await writingTool('Rewrite');
+      await act(async () => {
+        asked[0]?.answer.reject(new Error('rewrite stopped'));
+        await asked[0]?.answer.promise.catch(() => undefined);
+      });
+      await expect(screen.findByText(failure)).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([[failure]]);
+      expect(body()).toHaveTextContent(original, { exact: true });
+      await press('Try Again to get writing help');
+      expect(asked).toHaveLength(2);
+      expect(asked[1]?.input).toBe(asked[0]?.input);
+      asked[1]?.answer.resolve('Let us meet on Friday. Thanks!');
+      await expect(
+        screen.findByText('Let us meet on Friday. Thanks!'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText(failure)).toBeNull();
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it('flags the details a rewrite changed and applies it only when chosen with its changes', async () => {
