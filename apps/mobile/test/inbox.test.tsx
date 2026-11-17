@@ -1231,7 +1231,7 @@ describe('connected Gmail Inbox', () => {
     });
   });
 
-  it('says saved mail did not open when the mailbox fails to open, and Try Again opens it', async () => {
+  it('says saved mail can’t be shown when the mailbox fails to open, and Try Again shows it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     gmail.deliver({ subject: 'Saved mail remains available' });
@@ -1241,7 +1241,7 @@ describe('connected Gmail Inbox', () => {
     await act(connected.store().load);
     expect(
       screen.getByRole('alert', {
-        name: /Mail saved on this device didn’t open\. It has been kept\. Choose Try Again to open it again\.$/u,
+        name: /Mail saved on this device can’t be shown\. It has been kept\. Choose Try Again to show it again\.$/u,
       }),
     ).toBeVisible();
     expect(screen.queryByText('Saved mail remains available')).toBeNull();
@@ -2663,7 +2663,7 @@ describe('connected Gmail Inbox', () => {
       screen.findByText('This device was removed'),
     ).resolves.toBeVisible();
     expect(screen.queryByText('Saturday, by the river?')).toBeNull();
-    expect(screen.queryByText(/didn’t open\. It has been kept/u)).toBeNull();
+    expect(screen.queryByText(/can’t be shown\. It has been kept/u)).toBeNull();
   });
 
   it('reads message bodies from Gmail or this device and opens links only after confirmation', async () => {

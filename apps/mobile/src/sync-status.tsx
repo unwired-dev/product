@@ -641,7 +641,9 @@ const connectionStatus = (
   const name = t(`mailProviders.${provider ?? 'gmail'}`);
   const imap = provider === 'imap';
   if (state.kind === 'locked' || state.kind === 'failed') {
-    return t(state.kind === 'locked' ? 'storage.locked' : 'storage.failed');
+    return t(
+      state.kind === 'locked' ? 'storage.locked' : 'storage.failedStatus',
+    );
   }
   if (refused(state)) {
     return imap
