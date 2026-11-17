@@ -44,6 +44,17 @@ interface WindowHost extends TurboModule {
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- React Native's processed color type is mutable.
     color: ReturnType<typeof processColor>,
   ) => void;
+  // Where the body shows the character at `index`, in its own coordinates from its top left;
+  // null once that body or character is gone.
+  readonly composerCharacterFrame: (
+    body: string,
+    index: number,
+  ) => Promise<{
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  } | null>;
 }
 
 export const windowHost = () =>

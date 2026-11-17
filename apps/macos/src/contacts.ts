@@ -3,38 +3,52 @@ import type { TurboModule } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import { TurboModuleRegistry } from 'react-native';
 
-type ContactAddress = Readonly<{ sender: string; address: string }>;
+type ContactAddress = Readonly<{
+  sender: string;
+  address: string;
+  // The contact's recorded given name, empty when none is recorded.
+  given?: string;
+}>;
 
 type ContactsModule = TurboModule & {
-  // Asks for Contacts access when the person has not decided yet, then reads every email address of
-  // the readable contacts, or none without access.
-  readonly addresses: () => Promise<readonly ContactAddress[]>;
+  // With `ask`, asks for Contacts access when the person has not decided yet; without it, never
+  // asks. Then reads every email address of the readable contacts, or none without access.
+  readonly addresses: (ask: boolean) => Promise<readonly ContactAddress[]>;
 };
 
-// Every email address of the Apple Contacts this app may read, under the contact's name. Contacts
-// access is requested the first time `asking` is true; until it is granted, or when reading fails,
-// there are none. They stay in memory on this device, never saved or synchronized.
+// Every email address of the Apple Contacts this app may read, under the contact's name. With
+// `ask`, they are read the first time `reading` is true, requesting Contacts access then; without
+// it, only contacts already readable are read, each time `reading` turns true, so access granted
+// meanwhile counts. Until access is granted there are none; `failed` tells that
+// reading them failed. They stay in memory on this device, never saved or synchronized.
 export function useContactAddresses(
-  asking: boolean,
-): readonly ContactAddress[] {
-  const [addresses, setAddresses] = useState<readonly ContactAddress[]>([]);
+  reading: boolean,
+  ask = true,
+): Readonly<{ addresses: readonly ContactAddress[]; failed: boolean }> {
+  const [read, setRead] = useState<{
+    addresses: readonly ContactAddress[];
+    failed: boolean;
+  }>({ addresses: [], failed: false });
   const asked = useRef(false);
   useEffect(() => {
-    if (!asking || asked.current) {
+    if (!reading || (ask && asked.current)) {
       return;
     }
     asked.current = true;
     void (async () => {
       try {
-        setAddresses(
-          await TurboModuleRegistry.getEnforcing<ContactsModule>(
-            'UnwiredContacts',
-          ).addresses(),
-        );
+        setRead({
+          addresses:
+            await TurboModuleRegistry.getEnforcing<ContactsModule>(
+              'UnwiredContacts',
+            ).addresses(ask),
+          failed: false,
+        });
       } catch {
         // Unreadable contacts leave recent correspondents as the only suggestions.
+        setRead({ addresses: [], failed: true });
       }
     })();
-  }, [asking]);
-  return addresses;
+  }, [reading, ask]);
+  return read;
 }

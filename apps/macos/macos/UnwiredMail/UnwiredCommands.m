@@ -232,6 +232,14 @@ RCT_EXPORT_METHOD(showComposerSelection:(NSString *)identifier selection:(NSDict
   UnwiredShowComposerSelection(identifier, NSMakeRange(start, end > start ? end - start : 0), [RCTConvert NSColor:color]);
 }
 
+NSDictionary *UnwiredComposerCharacterFrame(NSString *identifier, NSUInteger index);
+
+// Where the body shows a character, for a menu opened under it; null once it is gone.
+RCT_EXPORT_METHOD(composerCharacterFrame:(NSString *)identifier index:(double)index resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
+  resolve(UnwiredComposerCharacterFrame(identifier, (NSUInteger)index) ?: (id)kCFNull);
+}
+
 // The Settings window closes itself once no Inbox can open, as after signing out.
 RCT_EXPORT_METHOD(closeSettings)
 {

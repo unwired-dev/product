@@ -263,6 +263,27 @@ void UnwiredShowComposerSelection(NSString *identifier, NSRange range, NSColor *
   highlighted = view;
 }
 
+// Where the body's character at `index` shows, as { x, y, width, height } in the coordinates of the
+// view whose accessibility identifier is the body's testID, from its top left; nil when that body or
+// character is gone. The Body Recipient Shortcut opens its suggestions under its @.
+NSDictionary *UnwiredComposerCharacterFrame(NSString *identifier, NSUInteger index)
+{
+  NSTextView *view = nil;
+  for (NSWindow *window in NSApp.windows) {
+    view = textViewIn(window.contentView, identifier, NO);
+    if (view != nil) break;
+  }
+  NSView *container = view;
+  while (container != nil && ![container.accessibilityIdentifier isEqualToString:identifier]) {
+    container = container.superview;
+  }
+  if (container == nil || index >= view.textStorage.length) return nil;
+  NSRect screen = [view firstRectForCharacterRange:NSMakeRange(index, 1) actualRange:NULL];
+  NSRect frame = [container convertRect:[view.window convertRectFromScreen:screen] fromView:nil];
+  CGFloat top = container.isFlipped ? NSMinY(frame) : NSHeight(container.bounds) - NSMaxY(frame);
+  return @{@"x": @(NSMinX(frame)), @"y": @(top), @"width": @(NSWidth(frame)), @"height": @(NSHeight(frame))};
+}
+
 void UnwiredInstallComposerFormatting(void)
 {
   // Each JavaScript span carries its own event emitter, so a render after marks shown here

@@ -29,7 +29,11 @@ import type {
   RegistrationSnapshot,
 } from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
-import type { Asset, Selection } from './semantic-document.ts';
+import type {
+  Asset,
+  Selection,
+  SemanticDocument,
+} from './semantic-document.ts';
 
 import {
   rejectionCode,
@@ -69,7 +73,10 @@ import { canOpenInbox } from './registration.ts';
 import {
   emptyDocument,
   clip,
+  displayOf,
   insertImage,
+  marksAt,
+  replaceSelection,
   withImage,
 } from './semantic-document.ts';
 
@@ -327,23 +334,30 @@ const startsWith =
       word.toLowerCase().startsWith(query),
     );
 
-// Up to `limit` Recipient Suggestions for the field's unfinished entry from recent correspondents,
-// given newest first: each address once, under its newest name, when the address, the name or a
-// word of it starts with the entry. Addresses already in the Draft or `excluded` are left out.
+// Up to `limit` Recipient Suggestions for the field's unfinished entry, none while it is empty.
 export function recipientSuggestions(
   draft: Draft,
   field: RecipientField,
-  {
-    correspondents,
-    excluded = [],
-    limit = 3,
-  }: Readonly<{
-    correspondents: Iterable<Readonly<{ sender: string; address: string }>>;
-    excluded?: Iterable<string>;
-    limit?: number;
-  }>,
+  options: SuggestionOptions,
 ): readonly Recipient[] {
   const query = entriesOf(entryOf(draft, field)).rest.trim().toLowerCase();
+  return query === '' ? [] : suggestionsFor(draft, query, options);
+}
+
+type SuggestionOptions = Readonly<{
+  correspondents: Iterable<Readonly<{ sender: string; address: string }>>;
+  excluded?: Iterable<string>;
+  limit?: number;
+}>;
+
+// Up to `limit` correspondents, given newest first, whose address, name or a word of it starts
+// with the lowercase `query`: each address once, under its newest name, leaving out addresses
+// already in the Draft or `excluded`. An empty query matches every one.
+function suggestionsFor(
+  draft: Draft,
+  query: string,
+  { correspondents, excluded = [], limit = 3 }: SuggestionOptions,
+): readonly Recipient[] {
   const matches = startsWith(query);
   const seen = new Set(
     [
@@ -353,7 +367,7 @@ export function recipientSuggestions(
   );
   const found: Recipient[] = [];
   for (const correspondent of correspondents) {
-    if (query === '' || found.length === limit) {
+    if (found.length === limit) {
       break;
     }
     const key = correspondent.address.toLowerCase();
@@ -389,6 +403,104 @@ export function acceptRecipient(
     field,
     kept,
   );
+}
+
+// Body Recipient Shortcut ----------------------------------------------------------------------
+
+// An @ typed in the authored body and the text after it up to the caret.
+export type BodyRecipientQuery = Readonly<{
+  // Display offsets of the @ and of the caret.
+  start: number;
+  end: number;
+  // The text after the @.
+  text: string;
+}>;
+
+// The query at a caret: an @ at a paragraph start or after whitespace, then text without
+// whitespace, such as an address, outside code. An @ inside an email address or a word starts none.
+export function bodyRecipientQuery(
+  body: SemanticDocument,
+  selection: Selection,
+): BodyRecipientQuery | undefined {
+  if (selection.start !== selection.end) {
+    return undefined;
+  }
+  const { lines, text } = displayOf(body);
+  const typed = /(?:^|\s)@(?<typed>\S*)$/u.exec(text.slice(0, selection.end))
+    ?.groups?.typed;
+  if (typed === undefined) {
+    return undefined;
+  }
+  const start = selection.end - typed.length - 1;
+  const line = lines[text.slice(0, start).split('\n').length - 1];
+  const at = { start: start + 1, end: start + 1 };
+  return line?.kind === 'code' || marksAt(body, at).includes('code')
+    ? undefined
+    : { start, end: selection.end, text: typed };
+}
+
+// Whether the authored body holds only the query and whitespace. The signature and quoted
+// history are kept apart from it; text and inline images are content.
+export const onlyQueryIn = (
+  body: SemanticDocument,
+  query: BodyRecipientQuery,
+) =>
+  body
+    .flatMap(({ spans }) => spans.map(({ text }) => text))
+    .join('')
+    .trim() === `@${query.text}`;
+
+// Up to `limit` recent correspondents for the query, as the To field matches them; a bare @
+// lists the newest.
+export const bodyRecipientSuggestions = (
+  draft: Draft,
+  query: BodyRecipientQuery,
+  options: SuggestionOptions,
+) => suggestionsFor(draft, query.text.toLowerCase(), options);
+
+// The name a greeting uses: the given name Apple Contacts records for the address, otherwise the
+// display name; none for an unnamed person. Never derived from the address.
+export function greetingName(
+  { name, address }: Recipient,
+  contacts: Iterable<Readonly<{ address: string; given?: string }>>,
+): string | undefined {
+  const key = address.toLowerCase();
+  for (const contact of contacts) {
+    const given = contact.given?.trim() ?? '';
+    if (given !== '' && contact.address.toLowerCase() === key) {
+      return given;
+    }
+  }
+  return name;
+}
+
+// The query replaced by the greeting, an empty paragraph and the caret, with the person added
+// to To unless the Draft already has the address, as one edit.
+export function addBodyRecipient(
+  draft: Draft,
+  {
+    query,
+    recipient,
+    greeting,
+  }: Readonly<{
+    query: BodyRecipientQuery;
+    recipient: Recipient;
+    greeting: string;
+  }>,
+): Readonly<{ draft: Draft; selection: Selection }> {
+  const edit = replaceSelection(draft.body, query, `${greeting}\n\n`);
+  const address = recipient.address.toLowerCase();
+  const present = [...draft.to, ...draft.cc, ...draft.bcc].some(
+    (each) => each.address.toLowerCase() === address,
+  );
+  return {
+    draft: {
+      ...draft,
+      body: edit.document,
+      to: present ? draft.to : [...draft.to, recipient],
+    },
+    selection: edit.selection ?? { start: query.start, end: query.start },
+  };
 }
 
 // Sending identity ------------------------------------------------------------------------------
