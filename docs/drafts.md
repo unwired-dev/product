@@ -768,7 +768,19 @@ composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
 an unchanged one. While another composer has the same Draft open, the record stays
 until that composer closes too. Both composers write the same record, so it holds
-the version journaled last. Offering the records at the next launch follows in
+the version journaled last.
+
+On the Mac, once the Drafts open after a relaunch, an Inbox window asks
+**Recover unsaved message?** for each record the previous run left, one alert at a
+time, saying only **Your unsaved changes were kept on this device.**
+([#2329](https://github.com/unwired-dev/product/issues/2329)). **Restore**, the
+default that Return and Escape choose, opens the composer on the recovered version,
+so **Close** asks to save it and **Save** stores it. **Discard** removes the record
+and leaves the stored Draft as it was. The next record waits until the restored
+composer closes. Records written during this run are never offered. While storage
+is locked the alerts wait for it to open. A record whose Draft is no longer listed,
+or whose alert closed without an answer, stays for the next launch. Offering the
+records on iPhone and iPad follows in
 [#1989](https://github.com/unwired-dev/product/issues/1989).
 
 A Draft's **Send Reminder** is stored on this device

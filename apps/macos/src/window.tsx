@@ -1,3 +1,4 @@
+import type { Draft } from '@private-email/mail-core/drafts';
 import type { openedTarget } from '@private-email/mail-core/notifications';
 import type { ProfileChoicesStore } from '@private-email/mail-core/profile-windows';
 import type { NativeSyntheticEvent, ViewProps } from 'react-native';
@@ -36,6 +37,7 @@ import {
   OutsideClickLayer,
   useCommandRegistry,
 } from './command-palette.tsx';
+import { useRecoveryOffer } from './composer.tsx';
 import { GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { FolderChoiceSheet } from './folder-choice.tsx';
@@ -293,6 +295,15 @@ function WindowContents({
   );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
+  // The unsaved version a composer recovery record kept, while its restored composer is open.
+  const [recovered, setRecovered] = useState<Draft>();
+  if (recovered !== undefined && composing !== recovered.id) {
+    setRecovered(undefined);
+  }
+  const recoveryAnchor = useRecoveryOffer(composing, (draft) => {
+    setComposing(draft.id);
+    setRecovered(draft);
+  });
   const [panes, setPanes] = useState({ width: 0, height: 0 });
   // Half the sidebar's visible width, which only the floating bar follows through the animation.
   const barOffset = useMemo(() => createBarOffset(), []);
@@ -401,6 +412,7 @@ function WindowContents({
         inbox={inbox}
         id={selected?.id}>
         <View
+          ref={recoveryAnchor}
           style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
           <View
             testID={`window-panes-${windowId}`}
@@ -461,6 +473,7 @@ function WindowContents({
                         ]}>
                         <DraftComposer
                           id={composing}
+                          recovered={recovered}
                           onClose={() => {
                             setComposing(undefined);
                           }}

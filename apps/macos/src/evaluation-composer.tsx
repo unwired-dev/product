@@ -939,6 +939,8 @@ function EvaluationComposer({
 
 type ComposerProps = Readonly<{
   id: string;
+  // The unsaved version a composer recovery record kept, which only the current composer opens.
+  recovered?: Draft | undefined;
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;
@@ -956,7 +958,7 @@ export function DraftComposer(props: ComposerProps) {
   return (
     <ProfileMailAssistanceGate
       profile={profileOf(draft?.connection, mailboxes)}>
-      {editorPage === undefined ? (
+      {editorPage === undefined || props.recovered !== undefined ? (
         <Composer {...props} />
       ) : (
         <EvaluationComposer
