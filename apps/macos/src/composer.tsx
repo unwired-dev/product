@@ -767,6 +767,12 @@ function SuggestionMenu({
   const colors = usePalette();
   const { t } = useLocalization();
   const none = sections.recent.length + sections.contacts.length === 0;
+  // VoiceOver hears No Matches and the note once each appears, after the typed character, since
+  // macOS ignores live regions.
+  const status = [none ? empty : undefined, note]
+    .filter((words) => words !== undefined)
+    .join(' ');
+  useOutcomeAnnouncement(status === '' ? undefined : status, true);
   return (
     <View
       accessibilityLabel={t('drafts.suggestions.title')}
@@ -782,9 +788,7 @@ function SuggestionMenu({
         />
       </View>
       {none && empty !== undefined ? (
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.suggestionEmpty, { color: colors.textSecondary }]}>
+        <Text style={[styles.suggestionEmpty, { color: colors.textSecondary }]}>
           {empty}
         </Text>
       ) : null}
@@ -858,9 +862,7 @@ function SuggestionMenu({
         ),
       )}
       {note === undefined ? null : (
-        <Text
-          accessibilityLiveRegion="polite"
-          style={[styles.suggestionNote, { color: colors.textSecondary }]}>
+        <Text style={[styles.suggestionNote, { color: colors.textSecondary }]}>
           {note}
         </Text>
       )}

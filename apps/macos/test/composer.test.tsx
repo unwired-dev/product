@@ -2163,6 +2163,9 @@ describe('composing Drafts', () => {
       ).toBeOnTheScreen();
       await type('@anz');
       expect(screen.getByText('No Matches')).toBeOnTheScreen();
+      expect(
+        AccessibilityInfo.announceForAccessibilityWithOptions,
+      ).toHaveBeenLastCalledWith('No Matches', { queue: true });
       await type('@anz ');
       expect(menu()).toBeNull();
 
@@ -2269,6 +2272,9 @@ describe('composing Drafts', () => {
       const note =
         'Contacts couldn’t be searched. Showing people from recent mail.';
       await expect(screen.findByText(note)).resolves.toBeOnTheScreen();
+      expect(
+        AccessibilityInfo.announceForAccessibilityWithOptions,
+      ).toHaveBeenLastCalledWith(note, { queue: true });
       expect(
         screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
       ).toBeOnTheScreen();
