@@ -165,6 +165,10 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushInboxPreferences: (owner) =>
       Promise.resolve({ owner, committed: false }),
+    openPins: () =>
+      Promise.resolve({ owner: 'account', revision: 0, document: null }),
+    commitPins: (owner, expectedRevision) =>
+      Promise.resolve({ owner, revision: expectedRevision + 1 }),
     notificationSettings: async () => {
       settingsGate.started?.();
       await settingsGate.held;
