@@ -25,7 +25,7 @@ const snapshot: RegistrationSnapshot = {
 };
 
 // Rendered host/store tests.
-describe('Drafts that didn’t open', () => {
+describe('unopened Drafts', () => {
   it('says they didn’t open, and opens them on Try Again', async () => {
     expect.hasAssertions();
     const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
