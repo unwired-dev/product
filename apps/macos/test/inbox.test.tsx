@@ -206,6 +206,41 @@ describe('message list', () => {
     }
   });
 
+  it('says what stays shown when a mail server search fails for an unnamed reason, and Try Again searches again', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.archive(gmail.deliver({ subject: 'Saved in archive' }));
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'Saved',
+      );
+      // Gmail answers the search with Not Found, a failure the app can't name.
+      gmail.fail({ status: 404 });
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Search Mail Servers for “Saved”',
+        }),
+      );
+      await expect(
+        screen.findByText(
+          'The mail server search didn’t finish. Mail saved on this device is still shown. Choose Try Again to search again.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      // The saved result stays above the failure.
+      expect(
+        screen.getByRole('button', { name: /Saved mail remains available/u }),
+      ).toBeOnTheScreen();
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+      await expect(
+        screen.findByRole('button', { name: /\. Saved in archive/u }),
+      ).resolves.toBeOnTheScreen();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
   it('clears an IMAP connection’s attention when Try Again succeeds while another folder is listed', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

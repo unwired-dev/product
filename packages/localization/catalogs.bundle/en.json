@@ -914,7 +914,7 @@
     "unavailable": {
       "offline": "The mail server could not be reached. Mail saved on this device is still shown.",
       "authentication": "Allow access again to search this mailbox.",
-      "failed": "The search did not finish. Try again."
+      "failed": "The mail server search didn’t finish. Mail saved on this device is still shown. Choose Try Again to search again."
     },
     "foldersLimited": "Some folders or older matches were not searched. The search covers the newest 50 matches in each of up to 50 folders including the Inbox, without Trash and Spam.",
     "placeholder": "Search",
