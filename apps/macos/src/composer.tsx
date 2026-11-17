@@ -2428,14 +2428,18 @@ function useBodyRecipients(
         }
       : undefined;
   // VoiceOver hears No Matches and the note once each appears, after the typed character, since
-  // macOS ignores live regions. Renders between a typed character and its caret, when nothing
-  // shows, change nothing.
+  // macOS ignores live regions. Renders between a typed character and its caret, when no query
+  // is open, change nothing; a bare @ that hides the menu clears them.
   const emptyNow =
     shown !== undefined && suggestions.length === 0 ? shown.empty : undefined;
   const noteNow = shown?.note;
   const showing = shown !== undefined;
+  const hidden = sections !== undefined && !showing;
   useEffect(() => {
     if (!showing) {
+      if (hidden) {
+        heard.current = {};
+      }
       return;
     }
     const now = { empty: emptyNow, note: noteNow };
@@ -2448,7 +2452,7 @@ function useBodyRecipients(
       }
     }
     heard.current = now;
-  }, [showing, emptyNow, noteNow]);
+  }, [showing, hidden, emptyNow, noteNow]);
   let keys: typeof choosingKeys = [];
   if (shown !== undefined) {
     keys = suggestions.length === 0 ? closingKeys : choosingKeys;
