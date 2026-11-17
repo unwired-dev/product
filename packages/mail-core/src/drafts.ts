@@ -1208,6 +1208,10 @@ export function createDrafts(
     recordCalls.set(id, recordCall);
     return recordCall;
   };
+  // Conflicting copies by the Draft their editors moved from, whose record may hold their edits.
+  const copied = new Map<string, string>();
+  // Records a forget kept for such a copy, by the forget call that removes them once it is safe.
+  const withheld = new Map<string, number>();
   let state: DraftsState = { kind: 'closed' };
   let started = false;
   // Every open editor by the version it edits, saved or not, so a version that synchronization
@@ -1289,6 +1293,7 @@ export function createDrafts(
     }
     editors.delete(from);
     editors.set(to, new Set([...(editors.get(to) ?? []), ...bindings]));
+    copied.set(to, from);
     for (const moved of bindings) {
       // An earlier notification may move another editor or invalidate the account.
       if (editors.get(to)?.has(moved)) {
@@ -2248,6 +2253,48 @@ export function createDrafts(
     return true;
   };
 
+  // A journal called after this forget owns the record once storage holds it, even when its pass
+  // ran first; while it is pending, removing the older record leaves it for that journal to write.
+  const unrecording = Effect.fnUntraced(function* (
+    account: string,
+    id: string,
+    call: number,
+  ) {
+    const latest = recordCalls.get(id) === call;
+    if (!latest && !unrecorded.has(id)) {
+      return;
+    }
+    yield* Effect.tryPromise({
+      try: () => storage.removeComposerRecovery(account, id),
+      catch: failureOf,
+    });
+    if (recordCalls.get(id) === call) {
+      recordCalls.delete(id);
+    }
+  });
+
+  // Whether a conflicting copy made from Draft `id` is in memory only, so `id`'s record may hold
+  // its edits alone until storage holds the copy or the copy's own record.
+  const holds = (id: string) =>
+    state.kind === 'ready' &&
+    state.drafts.some(
+      (draft) =>
+        copied.get(draft.id) === id &&
+        !base.some((each) => each.id === draft.id),
+    );
+
+  // Removes the records forgets kept whose copies storage now holds; a refused one stays kept.
+  const releasing = Effect.fnUntraced(function* (account: string) {
+    for (const [id, call] of withheld) {
+      if (!holds(id)) {
+        yield* unrecording(account, id, call).pipe(
+          Effect.andThen(Effect.sync(() => withheld.delete(id))),
+          Effect.catchTag('DraftStorageFailure', report),
+        );
+      }
+    }
+  });
+
   const writeRecord = Effect.fnUntraced(function* (
     account: string,
     draft: Draft,
@@ -2266,6 +2313,7 @@ export function createDrafts(
     if (recorded.owner !== account) {
       return yield* ownerMismatch();
     }
+    copied.delete(draft.id);
     if (unrecorded.get(draft.id) === draft) {
       unrecorded.delete(draft.id);
     }
@@ -2290,6 +2338,9 @@ export function createDrafts(
           );
           stored &&= written;
         }
+      }
+      if (account !== undefined) {
+        yield* releasing(account);
       }
       return stored;
     }).pipe(semaphore.withPermit);
@@ -2321,25 +2372,18 @@ export function createDrafts(
       ),
     );
 
-  // A journal called after this forget owns the record once storage holds it, even when its pass
-  // ran first; while it is pending, removing the older record leaves it for that journal to write.
   const forgetting = (current: number, id: string, call: number) =>
     Effect.gen(function* () {
       const account = owner;
       if (!live(current) || account === undefined) {
         return false;
       }
-      const latest = recordCalls.get(id) === call;
-      if (!latest && !unrecorded.has(id)) {
-        return true;
+      if (holds(id)) {
+        withheld.set(id, call);
+      } else {
+        yield* unrecording(account, id, call);
       }
-      yield* Effect.tryPromise({
-        try: () => storage.removeComposerRecovery(account, id),
-        catch: failureOf,
-      });
-      if (recordCalls.get(id) === call) {
-        recordCalls.delete(id);
-      }
+      yield* releasing(account);
       return true;
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -2366,6 +2410,8 @@ export function createDrafts(
     dirty = false;
     unrecorded.clear();
     recordCalls.clear();
+    copied.clear();
+    withheld.clear();
     editors.clear();
     known.clear();
     held.clear();
@@ -2761,6 +2807,9 @@ export function createDrafts(
           }
           if (conflict) {
             copy = id;
+            if (moved !== undefined) {
+              copied.set(id, draft.id);
+            }
             return [
               ...drafts,
               { ...draft, id, updatedAt: now, conflict: true as const },

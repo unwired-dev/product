@@ -3592,6 +3592,37 @@ describe('keeping composer recovery records', () => {
     expect(storage.recoveryRecords().size).toBe(0);
   });
 
+  it('keeps a record until the conflicting copy holding its edits is stored or recorded', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving } = await savingDraft();
+    storage.release();
+    await saving;
+    const saved = present(draftOf(drafts.getSnapshot(), draft.id), 'the Draft');
+    let copy = draft.id;
+    const rebinding = (id: string) => {
+      copy = id;
+    };
+    const closing = () => undefined;
+    drafts.hold(draft.id, rebinding);
+    drafts.hold(draft.id, closing);
+    const edited = { ...saved, subject: 'Unsaved edits' };
+    await drafts.journal(edited);
+    await drafts.update({ ...saved, subject: 'Saved elsewhere' }, saved);
+
+    // The rebound editor's copy reaches neither the Drafts nor its own record while locked.
+    storage.setLocked(true);
+    await expect(drafts.update(edited, saved, rebinding)).resolves.toBe(false);
+    const copied = { ...edited, id: copy };
+    await drafts.journal(copied);
+    await expect(drafts.forget(draft.id, closing)).resolves.toBe(true);
+    expect(storage.recoveryRecords().has(draft.id)).toBe(true);
+
+    // Once the copy has its own record, the original's goes.
+    storage.setLocked(false);
+    await expect(drafts.journal(copied)).resolves.toBe(true);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([copy]);
+  });
+
   it('removes the older record for a forget whose later journal storage refused', async () => {
     expect.hasAssertions();
     const { storage, drafts, draft, saving } = await savingDraft();
