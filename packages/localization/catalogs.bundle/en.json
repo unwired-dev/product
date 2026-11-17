@@ -449,7 +449,7 @@
   "privateSync": {
     "setup-pending": {
       "title": "Sync",
-      "description": "Sync setup has not finished. It continues the next time your Unwired account is verified. Sign in again to finish it now."
+      "description": "End-to-end encrypted sync setup has not finished. It continues the next time your Unwired account is verified. Sign in again to finish it now."
     },
     "recovery-key": {
       "title": "Save your Recovery Key",
@@ -469,7 +469,7 @@
     },
     "unavailable": {
       "title": "Sync is unavailable",
-      "description": "Synced data on this device could not be read, so sync is paused here. Your sign-in and mailbox keep working, and nothing was reset or replaced."
+      "description": "End-to-end encrypted sync data on this device could not be read, so sync is paused here. Your sign-in and mailbox keep working, and nothing was reset or replaced."
     },
     "renewed": "The previous request expired or was declined, so this device shows a new code.",
     "rejected": "The last approval could not be verified on this device, so nothing was unlocked. Approve it again with the new code.",
@@ -491,7 +491,7 @@
     "unlock": "Unlock with Recovery Key",
     "rejected": "That Recovery Key does not unlock this Unwired account. Check each character of your written copy and try again. Your encrypted product data is kept.",
     "failed": "Recovery could not finish. Your encrypted product data is kept. Try again to resume.",
-    "lost": "If you have lost all your devices and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected."
+    "lost": "If you have lost your other devices and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected."
   },
   "enrollment": {
     "check": "Check for Approval",
@@ -1495,7 +1495,7 @@
     "signIn": {
       "title": "Sign in to Unwired Mail",
       "description": "Use the account you already use on your other devices.",
-      "finePrint": "Signing in starts sync setup. A new Unwired account creates its Recovery Key on this device."
+      "finePrint": "Signing in starts end-to-end encrypted sync setup. A new Unwired account creates its Recovery Key on this device."
     },
     "back": "Back",
     "providers": {
@@ -1681,7 +1681,7 @@
     "removeFailed": "Couldn’t remove the Profile. Check your Profiles and mailboxes, then try again.",
     "settings": {
       "profiles": "Profiles",
-      "synchronized": "Names, colors, icons and ownership sync across your devices.",
+      "synchronized": "Names, colors, icons and ownership sync across your devices, end-to-end encrypted.",
       "device": "This Device",
       "deviceFooter": "Window restoration and the Startup Profile stay only on this device.",
       "mailboxes": "Mailboxes",
