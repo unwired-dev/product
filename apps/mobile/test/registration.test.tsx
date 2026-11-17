@@ -1666,7 +1666,7 @@ describe('product registration', () => {
     ).toBeEnabled();
     // A refused clear may have removed part of the cache, so it says what may remain.
     clearRemoteContent.mockRejectedValueOnce(new Error('Synthetic failure'));
-    await press('Clear remote content');
+    await press('Clear Remote Content');
     await expect(
       screen.findByText(
         'Some remote content may still be saved on this device. Your mail isn’t affected. Try clearing it again.',
