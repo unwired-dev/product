@@ -22,7 +22,7 @@ export const radius = {
   // iPad Sign In's deep brand panel.
   brandPanel: 24,
   // iPad's centred setup sheet, as Add a Mailbox draws it.
-  ipadSheet: 29.095,
+  ipadSheet: 22 * ipadListScale,
   bubble: 20,
   chip: 14,
   mailboxGroup: 22,
