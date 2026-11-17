@@ -17,6 +17,7 @@ import {
   gmailAction,
   gmailActionCopy,
   leavesView,
+  paletteOnly,
   quickActions,
   restoreAfter,
 } from '@private-email/mail-core/gmail-actions';
@@ -141,8 +142,6 @@ function ActionButton({
 const icons: Readonly<Record<string, string>> = {
   read: 'envelope.open',
   unread: 'envelope.badge',
-  star: 'flag',
-  unstar: 'flag.fill',
   archive: 'archivebox',
   trash: 'trash',
   spam: 'xmark.bin',
@@ -261,13 +260,15 @@ const named = <Action,>(
   >,
   act: (action: Action) => void,
 ): Named[] =>
-  actions.map(({ name, label, action }) => ({
-    name,
-    label,
-    onPress: () => {
-      act(action);
-    },
-  }));
+  actions
+    .filter(({ name }) => !paletteOnly(name))
+    .map(({ name, label, action }) => ({
+      name,
+      label,
+      onPress: () => {
+        act(action);
+      },
+    }));
 
 // The toolbar groups, with the Move control after Archive and Delete, and the More menu last.
 function Toolbar({

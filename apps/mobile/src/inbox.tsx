@@ -15,6 +15,7 @@ import { commandTarget } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   leavesView,
+  paletteOnly,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
@@ -1299,7 +1300,9 @@ export function Inbox({
                     actions={
                       section.key === 'gmail'
                         ? undefined
-                        : rowActions(item.mailbox, item.message)
+                        : rowActions(item.mailbox, item.message).filter(
+                            ({ name }) => !paletteOnly(name),
+                          )
                     }
                     now={now}
                     // The next day's divider follows a day's last row.

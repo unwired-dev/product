@@ -50,6 +50,7 @@ import type { MailboxList } from '../src/private-storage.ts';
 import type { MailboxView } from '../src/sidebar.tsx';
 
 import { BlockedSendersContext } from '../src/blocked-senders.tsx';
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { MailboxesContext } from '../src/mailbox-state.ts';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -963,22 +964,24 @@ describe('product registration', () => {
     function Organizing() {
       const [selected, setSelected] = useState<Selection>();
       return (
-        <InboxProvider mailboxes={mailboxes}>
-          <Shell
-            onClose={() => {
-              setSelected(undefined);
-            }}
-            onSelect={setSelected}
-            selected={selected}
-          />
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
-            onClose={() => {
-              setSelected(undefined);
-            }}
-          />
-        </InboxProvider>
+        <CommandPaletteProvider>
+          <InboxProvider mailboxes={mailboxes}>
+            <Shell
+              onClose={() => {
+                setSelected(undefined);
+              }}
+              onSelect={setSelected}
+              selected={selected}
+            />
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
+              onClose={() => {
+                setSelected(undefined);
+              }}
+            />
+          </InboxProvider>
+        </CommandPaletteProvider>
       );
     }
     await render(
@@ -1019,27 +1022,43 @@ describe('product registration', () => {
     await waitFor(() => {
       expect(imap.server.changes).toStrictEqual([`read INBOX ${invoice}`]);
     });
-    // Flag sets the server's \Flagged flag, keeps the reader open and flags the row.
-    await chooseMore('Flag');
+    // The star is offered only by the Command Palette (#2084): Star sets the server's \Flagged
+    // flag and keeps the reader open, and More lists no star either way.
+    const fromPalette = async (name: string) => {
+      await fireEvent(
+        screen.getByRole('header', { name: 'Quarterly invoice' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'openCommandPalette' } },
+      );
+      await act(async () => {
+        await fireEvent.press(
+          within(screen.getByTestId('command-palette')).getByRole('button', {
+            name,
+          }),
+        );
+      });
+    };
+    expect(moreTitles()).toStrictEqual([
+      'Mark as Unread',
+      'Move to…',
+      'Delete',
+    ]);
+    await fromPalette('Star');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`flag INBOX ${invoice}`);
     });
     expect(
       screen.getByRole('header', { name: 'Quarterly invoice' }),
     ).toBeVisible();
-    await expect(
-      screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
-    ).resolves.toBeVisible();
-    await waitFor(() => {
-      expect(moreTitles()).toContain('Unflag');
-    });
-    await chooseMore('Unflag');
+    await fromPalette('Remove star');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
     });
-    await waitFor(() => {
-      expect(moreTitles()).toContain('Flag');
-    });
+    expect(moreTitles()).toStrictEqual([
+      'Mark as Unread',
+      'Move to…',
+      'Delete',
+    ]);
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
     await press('Archive');
@@ -3159,7 +3178,7 @@ describe('product registration', () => {
         [
           ['Inbox', undefined, true],
           ['Sent Messages', 'Sent', true],
-          ['Starred', 'Flagged', true],
+          ['Starred', 'Starred', true],
           ['Other Inbox', 'Inbox', true],
         ],
         [
@@ -3171,7 +3190,7 @@ describe('product registration', () => {
         [
           ['Inbox', undefined, true],
           ['Sent Messages', 'Sent', true],
-          ['Starred', 'Flagged', true],
+          ['Starred', 'Starred', true],
           ['Other Inbox', 'Inbox', true],
           ['Bulk Mail', 'Spam', true],
         ],

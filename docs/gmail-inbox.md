@@ -261,8 +261,7 @@ The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,
 address, subject, Gmail's snippet, received time, unread state and Gmail's label
 IDs. Rows are grouped under Today, Yesterday, Last Week and month dividers by
 the UTC day they arrived; a row shows the time today, Yesterday for the prior
-day, the weekday within the last week and the date before that, with Gmail's
-star as its flag. The list
+day, the weekday within the last week and the date before that. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
 Offline while the server is being checked or cannot be reached. Otherwise, on iPad and
 Mac while the Inbox is listed, it also says how long ago the shown mailboxes were last brought up to date, such as **Updated just
@@ -414,7 +413,7 @@ Gmail's labels.
 | Action                        | Gmail change                                                                                                                             |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **Mark as read** / **unread** | Removes or adds `UNREAD`                                                                                                                 |
-| **Star** / **Remove star**    | Adds or removes `STARRED`                                                                                                                |
+| **Star** / **Remove star**    | Adds or removes `STARRED`; offered only by the [Command Palette](command-palette.md)                                                     |
 | **Archive**                   | Removes `INBOX`; offered only for mail in the Inbox                                                                                      |
 | **Delete**                    | Adds `TRASH`, removes `INBOX`                                                                                                            |
 | **Move to Spam**              | Adds `SPAM`, removes `INBOX`                                                                                                             |
@@ -458,13 +457,13 @@ over the bottom of the reader holds **Archive**, **Folders** and **Reply**, besi
 separate circular New Message button; it has no **More**, because the Reply sheet offers
 the same actions. Mail without Reply, such as IMAP mail or mail in a mailbox that cannot send,
 keeps **More** after **Folders**. It opens the system menu iPad's **More** opens, titled
-as the row menu titles its actions: **Mark as Read** or **Mark as Unread**, **Flag** or
-**Unflag**, **Move to…**; then **Move to Inbox**, **Move to Spam** and **Labels** for Gmail;
+as the row menu titles its actions: **Mark as Read** or **Mark as Unread**,
+**Move to…**; then **Move to Inbox**, **Move to Spam** and **Labels** for Gmail;
 and last, since the iPhone toolbar has no Delete, **Delete**. Dismissing the
 menu runs nothing. Reply
 opens a native sheet on the opaque content surface: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
-tiles and the Thread's other actions in grouped rows — star and read state, then
+tiles and the Thread's other actions in grouped rows — read state, then
 Move, **Labels** for Gmail, Move to Spam and Delete, offering only what the provider
 supports. **Labels** opens the label checkboxes in a glass panel above the toolbar; a tap
 outside it or VoiceOver's escape gesture closes it.
@@ -503,7 +502,7 @@ motion. A scroll, a selection or another action finishes a row still leaving, an
 on iPhone a row leaves once the reader's Back transition has shown the list. With Reduce Motion
 the row leaves at once and a returning row only fades in over 150 ms. Synchronization and
 changing the view, search or Filter never move rows, and new mail keeps the topmost visible row
-of a scrolled list in place. VoiceOver also offers read, star, archive, trash and spam as actions on each
+of a scrolled list in place. VoiceOver also offers read, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. In Trash or Spam, **Move to Inbox**
 takes the place of Archive, Delete and Move to Spam, and **Undo** of the
@@ -516,10 +515,10 @@ Inbox rows and the reader also offer native context menus: long-press on iPhone 
 iPad, secondary click with an iPad pointer, and right-click or Control-click on the
 Mac. A row's menu lists the row's own actions in the design's order: **Archive**
 (or **Move to Inbox** in Trash and Spam),
-**Flag** or **Unflag** (Star or Remove star), **Mark as Read** or **Mark as Unread**,
+**Mark as Read** or **Mark as Unread**,
 and, outside Trash and Spam, **Delete** (to Trash), placed last on every platform.
 Move to Spam stays a row accessibility action and a reader action outside those views. The
-open message's header lists Reply, Reply All and Forward, its read state and flag,
+open message's header lists Reply, Reply All and Forward, its read state,
 **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
 the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A

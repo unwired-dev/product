@@ -175,8 +175,6 @@ export const messageContextMenu = (
       items: items([
         ['read', t('contextMenu.read'), 'envelope.open'],
         ['unread', t('contextMenu.unread'), 'envelope.badge'],
-        ['star', t('contextMenu.star'), 'flag'],
-        ['unstar', t('contextMenu.unstar'), 'flag.slash'],
       ]),
     },
     {
@@ -222,8 +220,6 @@ export const rowContextMenu = (
     },
     {
       items: menuItems([
-        ['star', t('contextMenu.star'), 'flag'],
-        ['unstar', t('contextMenu.unstar'), 'flag.slash'],
         ['read', t('contextMenu.read'), 'envelope.open'],
         ['unread', t('contextMenu.unread'), 'envelope.badge'],
       ]),

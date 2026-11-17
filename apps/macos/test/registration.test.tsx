@@ -1431,22 +1431,25 @@ describe('product registration', () => {
     function Organizing() {
       const [selected, setSelected] = useState<Selection>();
       return (
-        <InboxProvider mailboxes={mailboxes}>
-          <Shell
-            onClose={() => {
-              setSelected(undefined);
-            }}
-            onSelect={setSelected}
-            selected={selected}
-          />
-          <MessageDetail
-            id={selected?.id}
-            mailbox={selected?.mailbox}
-            onClose={() => {
-              setSelected(undefined);
-            }}
-          />
-        </InboxProvider>
+        <CommandPaletteProvider windowId="organizing">
+          <InboxProvider mailboxes={mailboxes}>
+            <Shell
+              onClose={() => {
+                setSelected(undefined);
+              }}
+              onSelect={setSelected}
+              selected={selected}
+            />
+            <MessageDetail
+              id={selected?.id}
+              mailbox={selected?.mailbox}
+              onClose={() => {
+                setSelected(undefined);
+              }}
+            />
+            <CommandBar />
+          </InboxProvider>
+        </CommandPaletteProvider>
       );
     }
     await render(
@@ -1473,7 +1476,10 @@ describe('product registration', () => {
     // IMAP folders have no labels, and the toolbar's own buttons mark read state and move, so no
     // More menu repeats them.
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
-    // Star sets the server's \Flagged flag, keeps the reader open and flags the row.
+    // The star is offered only by the Command Palette (#2084): Star sets the server's \Flagged
+    // flag and keeps the reader open, and the toolbar shows no star either way.
+    expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
+    await press('Open Command Palette');
     await press('Star');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`flag INBOX ${invoice}`);
@@ -1481,19 +1487,12 @@ describe('product registration', () => {
     expect(
       screen.getByRole('header', { name: 'Quarterly invoice' }),
     ).toBeVisible();
-    await expect(
-      screen.findByRole('button', { name: /Quarterly invoice.*\. Flagged/u }),
-    ).resolves.toBeVisible();
-    await expect(
-      screen.findByRole('button', { name: 'Remove star' }),
-    ).resolves.toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Remove star' })).toBeNull();
+    await press('Open Command Palette');
     await press('Remove star');
     await waitFor(() => {
       expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
     });
-    await expect(
-      screen.findByRole('button', { name: 'Star' }),
-    ).resolves.toBeVisible();
 
     // Archive moves it to the folder the server declares, closes the reader and offers Undo.
     await press('Archive');

@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 
-import { ContextMenu, SFSymbol } from './design.tsx';
+import { ContextMenu } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import {
@@ -72,16 +72,8 @@ export function MessageRow({
   const [focused, setFocused] = useState(false);
   const previewLines = usePreviewLines(useProfile());
   const inset = sidebarInset();
-  // Gmail's star and IMAP's \Flagged are the list's flag; Microsoft mail lists none yet.
-  const flagged =
-    'flagged' in message
-      ? message.flagged
-      : 'labels' in message &&
-        message.labels !== undefined &&
-        message.labels.includes('STARRED');
   const label = t('inbox.rowLabel', {
     context: [
-      flagged ? 'flagged' : undefined,
       mailbox === undefined ? undefined : 'mailbox',
       status === undefined ? undefined : 'status',
     ]
@@ -141,13 +133,6 @@ export function MessageRow({
                 numberOfLines={1}>
                 {message.sender}
               </Text>
-              {flagged ? (
-                <SFSymbol
-                  name="flag.fill"
-                  size={11}
-                  color={selected ? colors.accentOnFill : colors.statusWarning}
-                />
-              ) : null}
               <Text
                 numberOfLines={1}
                 style={[styles.date, { color: secondaryColor }]}>
