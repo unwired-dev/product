@@ -16,9 +16,10 @@ type ContactsModule = TurboModule & {
   readonly addresses: (ask: boolean) => Promise<readonly ContactAddress[]>;
 };
 
-// Every email address of the Apple Contacts this app may read, under the contact's name, read the
-// first time `reading` is true. With `ask`, Contacts access is requested then; without it, only
-// contacts already readable are read. Until access is granted there are none; `failed` tells that
+// Every email address of the Apple Contacts this app may read, under the contact's name. With
+// `ask`, they are read the first time `reading` is true, requesting Contacts access then; without
+// it, only contacts already readable are read, each time `reading` turns true, so access granted
+// meanwhile counts. Until access is granted there are none; `failed` tells that
 // reading them failed. They stay in memory on this device, never saved or synchronized.
 export function useContactAddresses(
   reading: boolean,
@@ -30,7 +31,7 @@ export function useContactAddresses(
   }>({ addresses: [], failed: false });
   const asked = useRef(false);
   useEffect(() => {
-    if (!reading || asked.current) {
+    if (!reading || (ask && asked.current)) {
       return;
     }
     asked.current = true;

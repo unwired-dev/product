@@ -2247,25 +2247,44 @@ describe('composing Drafts', () => {
       );
       await press('New Message');
       const body = screen.getByLabelText('Message body');
-      await fireEvent.changeText(body, '@');
-      await fireEvent(body, 'selectionChange', {
-        nativeEvent: { selection: { start: 1, end: 1 } },
-      });
-      await fireEvent.changeText(body, '@an');
-      await fireEvent(body, 'selectionChange', {
-        nativeEvent: { selection: { start: 3, end: 3 } },
-      });
-      await expect(
-        screen.findByText(
-          'Contacts couldn’t be searched. Showing people from recent mail.',
-        ),
-      ).resolves.toBeOnTheScreen();
+      const type = async (text: string) => {
+        await fireEvent.changeText(body, text);
+        await fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection: { start: text.length, end: text.length } },
+        });
+      };
+      await type('@');
+      await type('@an');
+      const note =
+        'Contacts couldn’t be searched. Showing people from recent mail.';
+      await expect(screen.findByText(note)).resolves.toBeOnTheScreen();
       expect(
         screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
       ).toBeOnTheScreen();
+
+      // Contacts readable by the time the suggestions reopen are searched then.
+      Object.assign(appleContacts, {
+        unreadable: false,
+        addresses: [
+          { sender: 'Andrea Novak', address: 'andrea@northwind.invalid' },
+        ],
+      });
+      await type('');
+      await type('@');
+      await type('@an');
+      await expect(
+        screen.findByRole('button', {
+          name: 'Andrea Novak, andrea@northwind.invalid',
+        }),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText(note)).toBeNull();
     } finally {
       modules.mockRestore();
-      Object.assign(appleContacts, { granted: false, unreadable: false });
+      Object.assign(appleContacts, {
+        granted: false,
+        unreadable: false,
+        addresses: [],
+      });
     }
   });
 
