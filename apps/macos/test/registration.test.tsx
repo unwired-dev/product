@@ -4347,6 +4347,16 @@ describe('product registration', () => {
       });
     };
     const replacementKey = () => replacementKeyOf(store);
+    // Each failed step names itself and the button to choose again, and keeps the list or proposal.
+    const failed = (text: string) => {
+      expect(screen.getByRole('alert')).toHaveTextContent(text);
+      expect(announce).toHaveBeenLastCalledWith(text);
+    };
+    synthetic.sync.offline = true;
+    await prepare();
+    failed(english('revocation.prepare-failed'));
+    expect(screen.getByText(added)).toBeVisible();
+    synthetic.sync.offline = false;
     await prepare();
     // Prepared, not removed: the replacement key waits for confirmation instead of the list.
     expect(screen.getByRole('header', { name: proposal })).toBeVisible();
@@ -4354,11 +4364,22 @@ describe('product registration', () => {
       replacementKey(),
     );
     expect(screen.queryByText(added)).toBeNull();
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: english('revocation.cancel') }),
+    const cancel = async () => {
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: english('revocation.cancel') }),
+        );
+      });
+    };
+    jest
+      .spyOn(synthetic.vault, 'discardRevocation')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
       );
-    });
+    await cancel();
+    failed(english('revocation.cancel-failed'));
+    expect(screen.getByRole('header', { name: proposal })).toBeVisible();
+    await cancel();
     // Cancellation changes nothing: the device stays listed and no key is offered.
     expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
     expect(screen.getByText(added)).toBeVisible();
@@ -4367,6 +4388,16 @@ describe('product registration', () => {
     ).toBeNull();
     await prepare();
     const replacement = replacementKey();
+    // Convex refuses the activation, so the proposal stays.
+    synthetic.sync.activationReply = {
+      status: 400,
+      body: JSON.stringify({ code: 'KEY_ROTATION_INVALID' }),
+    };
+    await confirm(lastFour(replacement));
+    failed(english('revocation.failed', { name }));
+    expect(screen.getByTestId('revocation-recovery-key')).toHaveTextContent(
+      replacement,
+    );
     await confirm(lastFour(recoveryKeyOf(synthetic)));
     expect(screen.getByRole('alert')).toHaveTextContent(
       english('revocation.mismatch'),

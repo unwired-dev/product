@@ -94,7 +94,11 @@ const isRecoveryKeyMismatch = Schema.is(
   Schema.Struct({ code: Schema.Literal('recovery-key-mismatch') }),
 );
 export type RecoveryKeyFailure = 'mismatch' | 'failed';
-export type RevocationFailure = 'mismatch' | 'failed';
+export type RevocationFailure =
+  | 'mismatch'
+  | 'prepare-failed'
+  | 'failed'
+  | 'cancel-failed';
 
 export type RecoveryFailure = 'rejected' | 'failed';
 
@@ -366,12 +370,13 @@ const recoveryOutcome = (snapshot: RegistrationSnapshot) => {
   return Effect.fail(new RecoveryKeyRejected({ snapshot: current }));
 };
 
-const revocationFailed = (
-  snapshot: RegistrationSnapshot,
-): RegistrationState => ({
-  ...settled(snapshot),
-  revocationFailure: 'failed',
-});
+// A failed removal step names the step that didn't finish.
+const revocationFailed =
+  (failure: 'prepare-failed' | 'failed' | 'cancel-failed') =>
+  (snapshot: RegistrationSnapshot): RegistrationState => ({
+    ...settled(snapshot),
+    revocationFailure: failure,
+  });
 
 // A request that expired, was cancelled or was already approved cannot be approved again.
 const enrollmentFailed = (
@@ -947,7 +952,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
     revokeTrustedDevice: (trustedDeviceId: string) =>
       execute(
         request(native.revokeTrustedDevice(trustedDeviceId)),
-        revocationFailed,
+        revocationFailed('prepare-failed'),
       ),
     confirmRevocation: (entry: string) =>
       execute(
@@ -956,10 +961,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
             Effect.fail(new RevocationKeyMismatch()),
           ),
         ),
-        revocationFailed,
+        revocationFailed('failed'),
       ),
     cancelRevocation: () =>
-      execute(request(native.cancelRevocation()), revocationFailed),
+      execute(
+        request(native.cancelRevocation()),
+        revocationFailed('cancel-failed'),
+      ),
     // oxlint-disable-next-line node/no-sync -- The async private-sync program performs no synchronous Node I/O.
     refreshPrivateSync: () => execute(request(native.refreshPrivateSync())),
     // A Pending Device's own repeated check: a failure leaves the status as it was for the next.
@@ -1523,12 +1531,20 @@ export function revocationProposal(
 export const revocationNotice = (
   t: Translate,
   account: Readonly<{
+    trustedDevices?: string;
+    revocationDevice?: string;
+    revocationRecoveryKey?: string;
     revocationNotice?: 'removed' | 'renewed' | 'unconfirmed' | 'superseded';
   }>,
-  failed: boolean,
+  failure: RevocationFailure | undefined,
 ) => {
-  if (failed) {
-    return t('revocation.failed');
+  if (failure === 'failed') {
+    return t('revocation.failed', {
+      name: revocationProposal(t, account)?.name ?? t('revocation.device'),
+    });
+  }
+  if (failure === 'prepare-failed' || failure === 'cancel-failed') {
+    return t(`revocation.${failure}`);
   }
   return account.revocationNotice === undefined
     ? undefined

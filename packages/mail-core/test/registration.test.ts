@@ -1251,7 +1251,7 @@ describe('product registration', () => {
     );
   });
 
-  it('keeps the account when preparing a removal fails', async () => {
+  it('names which removal step did not finish and keeps the list or the proposal to choose again', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);
     const synthetic = await createRegistrationScenario(
@@ -1262,15 +1262,51 @@ describe('product registration', () => {
     await store.confirmRecoveryKey(recoveryKey.slice(-4));
     const { snapshot } = store.getSnapshot();
     expect(trustedDevicesOf(snapshot)).toStrictEqual([syntheticTrustedDevice]);
+    const notice = () =>
+      revocationNotice(
+        english,
+        store.getSnapshot().snapshot,
+        store.getSnapshot().revocationFailure,
+      );
     // Product Sync cannot reach Convex while the removal is prepared.
     synthetic.sync.offline = true;
     await store.revokeTrustedDevice(syntheticTrustedDevice.id);
     expect(store.getSnapshot()).toStrictEqual({
-      snapshot,
-      busy: false,
-      failed: false,
+      ...settled(snapshot),
+      revocationFailure: 'prepare-failed',
+    });
+    expect(notice()).toBe(
+      'Preparing the removal didn’t finish. Choose Remove… to try again.',
+    );
+    synthetic.sync.offline = false;
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    const proposed = store.getSnapshot().snapshot;
+    // Convex refuses the activation, so the proposal stays.
+    synthetic.sync.activationReply = {
+      status: 400,
+      body: JSON.stringify({ code: 'KEY_ROTATION_INVALID' }),
+    };
+    await store.confirmRevocation(
+      shown(store, 'revocationRecoveryKey').slice(-4),
+    );
+    expect(store.getSnapshot()).toStrictEqual({
+      ...settled(proposed),
       revocationFailure: 'failed',
     });
+    expect(notice()).toBe(
+      'Removing iPad didn’t finish. Choose Remove iPad to try again.',
+    );
+    vi.spyOn(synthetic.vault, 'discardRevocation').mockRejectedValueOnce(
+      Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
+    );
+    await store.cancelRevocation();
+    expect(store.getSnapshot()).toStrictEqual({
+      ...settled(proposed),
+      revocationFailure: 'cancel-failed',
+    });
+    expect(notice()).toBe(
+      'Cancelling the removal didn’t finish. Choose Cancel to try again.',
+    );
   });
 
   /* oxlint-disable vitest/max-expects -- Each journey proves one sequence of removal states. */
@@ -1381,7 +1417,7 @@ describe('product registration', () => {
     expect(revocationProposal(english, unconfirmedProposal)?.recoveryKey).toBe(
       replacement,
     );
-    expect(revocationNotice(english, unconfirmedProposal, false)).toBe(
+    expect(revocationNotice(english, unconfirmedProposal, undefined)).toBe(
       english('revocation.unconfirmed'),
     );
     // A wrong retry entry cannot settle an earlier activation whose reply was lost.
@@ -1402,12 +1438,8 @@ describe('product registration', () => {
       revocationFailure: 'failed',
     });
     expect(
-      revocationNotice(
-        english,
-        unconfirmedProposal,
-        failed.revocationFailure === 'failed',
-      ),
-    ).toBe('The device could not be removed. Try again.');
+      revocationNotice(english, unconfirmedProposal, failed.revocationFailure),
+    ).toBe('Removing iPad didn’t finish. Choose Remove iPad to try again.');
     // The sign-in is no longer recent, and its renewal is cancelled.
     synthetic.sync.staleOnce = true;
     synthetic.google.outcome = 'cancelled';

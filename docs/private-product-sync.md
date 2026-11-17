@@ -418,6 +418,9 @@ is explicitly removed.
 - If a failed status refresh leaves a settled proposal on screen, either Confirm
   or Cancel refreshes the current state without another activation or a claim that
   the earlier Recovery Key is still current.
+- When preparing, confirming or cancelling fails for another reason, the device
+  list or the prepared removal stays on screen with a message that names the step
+  that didn't finish and the button to choose again.
 
 Convex retains each remaining Trusted Device's latest complete ring envelope until
 a newer removal replaces it or that device is removed. A device that was offline

@@ -201,7 +201,7 @@ export function TrustedDevices({
     account.privateSync === 'ready' && proposal === undefined
       ? trustedDevicesOf(account)
       : [];
-  const notice = revocationNotice(t, account, failure === 'failed');
+  const notice = revocationNotice(t, account, failure);
   if (devices.length === 0 && notice === undefined && proposal === undefined) {
     return null;
   }
