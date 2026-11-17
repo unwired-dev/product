@@ -88,22 +88,22 @@ its data: no account operations, Private Sync reads or push routing, and no Gmai
 authorization. Its screen, **Add this device**, explains that an existing device
 or the Recovery Key must authorize it. It shows **Approve this device** with a
 one-time [Enrollment Code](domain/identity.md) of 56 Crockford base32 characters in
-fourteen groups, **Check for approval**, **Use your Recovery Key**, sign-out and
+fourteen groups, **Check for Approval**, **Use your Recovery Key**, sign-out and
 **Delete Unwired Account**. Copy the code or enter it on the trusted device. The
 code stays on the device; Convex never receives it. A Pending Device can delete
 the Product Account only after a recent interactive Product Sign-In.
 
 On iPhone, the step shows the code with **Waiting for approval…** in place of
-**Check for approval**: the device checks every 10 seconds while the step is on
+**Check for Approval**: the device checks every 10 seconds while the step is on
 screen and the app is not in the background, without showing progress. A check
 that cannot finish, such as offline, leaves the step and any message on it as
 they were, and the next check tries again. An Apple device that has not signed
-in since launch cannot check silently, so it shows **Check for approval** until
+in since launch cannot check silently, so it shows **Check for Approval** until
 the person signs in with Apple again. **Use Recovery Key Instead** opens the
 Recovery Key as its own step, and **Wait for Approval Instead** returns to the
 code. VoiceOver announces the waiting state once.
 
-On a Trusted Device that holds the keys, **Check for a new device** lists the
+On a Trusted Device that holds the keys, **Check for a New Device** lists the
 newest request. **Approve a new device** names the requesting device and asks for
 **Code from the new device**. Case, spaces and the look-alikes O, I and L are
 accepted. The last character is a check digit. An invalid check digit is reported on
@@ -118,7 +118,7 @@ device and the key epoch, so it does not open on the device under any other key.
 The same holds for a Recovery Key proof, which names that key too, and Convex admits
 the device only with the key its approval or proof named.
 
-On the new device, **Check for approval**, or the iPhone's own check, collects
+On the new device, **Check for Approval**, or the iPhone's own check, collects
 the approval. The device stores the account keys and then confirms them; only
 that confirmation makes it a Trusted Device, already at the approval's key epoch.
 It shows **Private sync is on** with the mailbox list decrypted from Private
@@ -131,7 +131,7 @@ code.
 
 A request and its code expire after 15 minutes, and an approval must be collected
 within 15 minutes. The Pending Device ends with its code; signing in again or
-**Check for approval**, or the iPhone's own check, starts a new one with a new
+**Check for Approval**, or the iPhone's own check, starts a new one with a new
 code. When a request expires or is declined, the new device shows a new code.
 When an approval does not open on this device, the device says nothing was
 unlocked and shows a new code. An installation has at most one Pending Device,

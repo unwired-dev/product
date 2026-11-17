@@ -189,7 +189,7 @@ describe('unified mailboxes across connections', () => {
     expect(spam.missing.map(({ id }) => id)).toStrictEqual(['bare']);
   });
 
-  it('drops a Microsoft connection without Archive from that mailbox only, and leaves All inboxes unselected', async () => {
+  it('drops a Microsoft connection without Archive from that mailbox only, and leaves All Inboxes unselected', async () => {
     expect.hasAssertions();
     const { graph, stores } = await connections();
     graph.withoutFolder('archive');

@@ -32,7 +32,7 @@ UTF-8 encoding only, not a general message-charset decoder.
 
 The production bundle verification rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
-autolinking. The host autolinks `@react-native-clipboard/clipboard` for Copy link
+autolinking. The host autolinks `@react-native-clipboard/clipboard` for Copy Link
 and `react-native-webview`, patched for the isolated message reader. Keep Expo
 Clipboard in the mobile host; the Mac bundle excludes Expo packages.
 The Mac Podfile declares only the `GoogleSignIn` pod. Private Inbox links its
@@ -109,7 +109,7 @@ The Podfile check requires the mise-managed Ruby and accepts only literal pod na
 
 Each window has three columns: a floating Liquid Glass Mailboxes sidebar
 (the window's [Profile Switcher](private-inbox-storage.md#mail-profiles),
-**All inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
+**All Inboxes**, each Mailbox Connection with its Inbox and IMAP folders, and
 **Settings**), the message list and the reader, as in the Figma Inbox frames. The
 Inbox and Settings windows hide their title and draw a transparent title bar over
 full-size content, so the window controls sit on the sidebar's glass. The title

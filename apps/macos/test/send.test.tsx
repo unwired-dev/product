@@ -694,7 +694,7 @@ describe('sending a Draft', () => {
     },
     {
       purpose: 'reply',
-      capture: 'Suggest reply',
+      capture: 'Suggest Reply',
       applyLabel: 'Replace your reply with this suggestion',
       region: 'Suggested reply',
       context: {

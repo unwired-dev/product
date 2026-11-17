@@ -13,10 +13,10 @@ results never appear in the palette. The vocabulary lives in the
 
 - **Contextual commands** act on the open message, the one the reader shows.
   The reader offers the same handlers its buttons use: Reply, Reply All and
-  Forward where a response can start; Mark as read or unread, Star, Archive,
+  Forward where a response can start; Mark as Read or Unread, Star, Archive,
   Delete and Move to Spam as the provider allows; and **Move to…**, which
   lists the connection's folders or labels. The preview Inbox's reader offers its
-  Mark as read or unread. The palette never chooses a message on its own.
+  Mark as Read or Unread. The palette never chooses a message on its own.
 - **Draft commands** act on the open Draft, under a Draft section named for its
   subject. On the Mac, the composer offers the handlers its controls use: Send,
   Attach File…, Add Cc and Bcc until Cc and Bcc are shown, and Discard Draft,
@@ -45,7 +45,7 @@ results never appear in the palette. The vocabulary lives in the
   run them. While the reader is already starting a reply or forward, Reply,
   Reply All and Forward stay listed and disabled with Already opening a
   draft, as its buttons are. The provider's star is offered only here, as **Star** and
-  **Remove star**: no toolbar, menu, row action or row marker shows it
+  **Remove Star**: no toolbar, menu, row action or row marker shows it
   ([#2084](https://github.com/unwired-dev/product/issues/2084)). The palette lists only
   supported commands; Pin, Snooze,
   thread-wide and bulk actions arrive with their owning work, such as

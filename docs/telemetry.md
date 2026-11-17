@@ -81,7 +81,7 @@ A minimal pseudonymous installation profile at PostHog is permitted where needed
 for grouping and verified deletion; it must not add account or cross-device
 linkage.
 
-Settings provides a separate **Delete my error reports** action for this
+Settings provides a separate **Delete My Error Reports** action for this
 installation's uploaded reports. Deletion turns reporting off and purges pending
 reports. It remains pending until remote completion is verified; offline and
 failed requests remain pending or retryable, without claiming success.
@@ -201,7 +201,7 @@ before release. Partial local feasibility evidence does not qualify all hosts.
 ## Error-reporting implementation
 
 Welcome exposes Privacy & Data before sign-in. Settings exposes the same
-installation-local reporting switch and a separate Delete my error reports action.
+installation-local reporting switch and a separate Delete My Error Reports action.
 Reporting defaults off, including upgrades. Product Analytics Consent is not
 implemented by this slice. The approved iPhone, iPad and Mac Light/Dark states
 are [iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=386-138848),

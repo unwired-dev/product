@@ -51,7 +51,7 @@ final class InboxTests: XCTestCase {
     waitWithoutWelcome(for: app.staticTexts["Connect your mail"], in: app)
     // Relaunch keeps the device-held keys; nothing is regenerated.
     XCTAssertEqual(app.staticTexts["recovery-key"].label, presented)
-    app.buttons["Choose another Google mailbox"].tap()
+    app.buttons["Choose Another Google Mailbox"].tap()
     // Pending setup opens Settings on Account & Devices.
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     XCTAssertTrue(
@@ -137,7 +137,7 @@ final class InboxTests: XCTestCase {
       .matching(NSPredicate(format: "label == %@", "garden plan")).firstMatch
     XCTAssertTrue(bodyLink.waitForExistence(timeout: 10))
     // #2155: a link asks in the system alert, which shows its full destination. One whose text
-    // shows another address lists its warnings and offers Copy link and Proceed instead.
+    // shows another address lists its warnings and offers Copy Link and Proceed instead.
     func ask(_ link: XCUIElement, title: String, destination: String, buttons: [String]) {
       link.tap()
       let alert = app.alerts[title]
@@ -151,14 +151,14 @@ final class InboxTests: XCTestCase {
     }
     ask(
       bodyLink, title: "Open this link in your browser?",
-      destination: "https://example.invalid/garden", buttons: ["Open link", "Cancel"])
+      destination: "https://example.invalid/garden", buttons: ["Open Link", "Cancel"])
     ask(
       app.descendants(matching: .any).matching(identifier: "message-link-control")
         .matching(NSPredicate(format: "label == %@", "https://garden.example.invalid/order"))
         .firstMatch,
       title: "This link may not be what it seems",
       destination: "https://seeds.example.invalid/order",
-      buttons: ["Cancel", "Copy link", "Proceed"])
+      buttons: ["Cancel", "Copy Link", "Proceed"])
     verifyRichBodyCanvas(app)
     // #966: a tap on the body closes an open panel without following the link. iPhone has no
     // More (#1404): its Reply sheet offers the actions and opens Gmail's labels in that panel.
@@ -193,7 +193,7 @@ final class InboxTests: XCTestCase {
     // The palette then offers to remove it.
     openPalette(app, header: subject)
     XCTAssertTrue(
-      app.buttons.matching(NSPredicate(format: "label ==[c] %@", "Remove star")).firstMatch
+      app.buttons.matching(NSPredicate(format: "label ==[c] %@", "Remove Star")).firstMatch
         .waitForExistence(timeout: 10))
     app.buttons["Cancel"].tap()
     XCTAssertTrue(query.waitForNonExistence(timeout: 10))
@@ -510,8 +510,8 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
       app.buttons["Add Account…"].tap()
     }
-    XCTAssertTrue(app.buttons["Add another Gmail mailbox"].waitForExistence(timeout: 15))
-    app.buttons["Add another Gmail mailbox"].tap()
+    XCTAssertTrue(app.buttons["Add Another Gmail Mailbox"].waitForExistence(timeout: 15))
+    app.buttons["Add Another Gmail Mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
     if UIDevice.current.userInterfaceIdiom == .phone {
       openSettings("Privacy & Data", in: app)
@@ -918,7 +918,7 @@ final class InboxTests: XCTestCase {
       back.tap()
     }
     revealSwitcher(app, switcher)
-    app.buttons["All inboxes"].tap()
+    app.buttons["All Inboxes"].tap()
   }
 
   // Switches the window to another Profile and shows every Inbox of it.
@@ -930,7 +930,7 @@ final class InboxTests: XCTestCase {
     choice.tap()
     // Switching remounts the shell on its Inbox column.
     revealSwitcher(app, app.buttons["Profile, " + name])
-    app.buttons["All inboxes"].tap()
+    app.buttons["All Inboxes"].tap()
   }
 
   // Search across the window's Profile finds its own message and not the other Profile's, whose
@@ -1013,7 +1013,7 @@ final class InboxTests: XCTestCase {
     revealSwitcher(app, switcher)
     try mailProfilesSettingsJourney(app, switcher: switcher)
     // Choosing every Inbox returns to the list, closing iPad's portrait sidebar overlay.
-    app.buttons["All inboxes"].tap()
+    app.buttons["All Inboxes"].tap()
   }
 
   // #1800: the Primary Profile's Color and Icon read Graphite and First Letter without a pop-up.
@@ -1455,10 +1455,10 @@ final class InboxTests: XCTestCase {
       app.staticTexts.matching(
         NSPredicate(format: "label CONTAINS %@", "Only Apple opens this Unwired account")
       ).firstMatch.exists)
-    app.buttons["Link Google sign-in"].tap()
+    app.buttons["Link Google Sign-In"].tap()
     let linked = app.staticTexts["Sign in with Apple or Google to open this Unwired account."]
     XCTAssertTrue(linked.waitForExistence(timeout: 15))
-    XCTAssertFalse(app.buttons["Link Google sign-in"].exists)
+    XCTAssertFalse(app.buttons["Link Google Sign-In"].exists)
     app.terminate()
     app.launch()
     XCTAssertTrue(linked.waitForExistence(timeout: 15))
@@ -1480,20 +1480,20 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(code.label.count, 69)
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     XCTAssertFalse(app.buttons["Gmail"].exists)
-    XCTAssertFalse(app.buttons["Choose another Google mailbox"].exists)
+    XCTAssertFalse(app.buttons["Choose Another Google Mailbox"].exists)
     let mailboxes = app.staticTexts["Encrypted mailbox list: alex@example.invalid."]
     XCTAssertFalse(mailboxes.exists)
     // The synthetic trusted device approves with the code shown on this device. iPhone's step
     // collects the approval at its own next check; iPad's waits for the person's.
     if UIDevice.current.userInterfaceIdiom == .phone {
       XCTAssertTrue(app.staticTexts["Waiting for approval…"].exists)
-      XCTAssertFalse(app.buttons["Check for approval"].exists)
+      XCTAssertFalse(app.buttons["Check for Approval"].exists)
       let waiting = XCTAttachment(screenshot: app.screenshot())
       waiting.name = "Waiting for approval"
       waiting.lifetime = .keepAlways
       add(waiting)
     } else {
-      app.buttons["Check for approval"].tap()
+      app.buttons["Check for Approval"].tap()
     }
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 30))
     XCTAssertTrue(mailboxes.exists)
@@ -1564,7 +1564,7 @@ final class InboxTests: XCTestCase {
     let recoveryKey = app.staticTexts["recovery-key"]
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
-    app.buttons["Choose another Google mailbox"].tap()
+    app.buttons["Choose Another Google Mailbox"].tap()
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     enter(String(presented.suffix(4)), into: app.textFields["Last four characters"], in: app)
     app.buttons["Confirm Recovery Key"].tap()
@@ -1953,7 +1953,7 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(app.buttons["Use Recovery Key Instead"].exists)
     } else {
       XCTAssertTrue(app.staticTexts["Use your Recovery Key"].exists)
-      XCTAssertTrue(app.buttons["Check for approval"].exists)
+      XCTAssertTrue(app.buttons["Check for Approval"].exists)
     }
     XCTAssertFalse(app.buttons["Gmail"].exists)
     XCTAssertFalse(text("This device cannot join", in: app).exists)
@@ -1962,9 +1962,9 @@ final class InboxTests: XCTestCase {
     gate.lifetime = .keepAlways
     add(gate)
     // Signing out of the gate leaves nothing of the account on this device.
-    app.buttons["Sign out of this device"].tap()
+    app.buttons["Sign Out of This Device"].tap()
     XCTAssertTrue(text("Your other devices", in: app).waitForExistence(timeout: 15))
-    app.buttons["Sign out of this device"].tap()
+    app.buttons["Sign Out of This Device"].tap()
     XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 15))
   }
 
@@ -1978,9 +1978,9 @@ final class InboxTests: XCTestCase {
     enter(String(key.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
-    app.buttons["Sign out of this device"].tap()
+    app.buttons["Sign Out of This Device"].tap()
     XCTAssertTrue(text("Your other devices", in: app).waitForExistence(timeout: 15))
-    app.buttons["Sign out of this device"].tap()
+    app.buttons["Sign Out of This Device"].tap()
     XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
@@ -1992,14 +1992,14 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     app.buttons["Delete Unwired Account"].tap()
     XCTAssertTrue(text("cannot be undone", in: app).waitForExistence(timeout: 15))
-    app.buttons["Delete permanently"].tap()
+    app.buttons["Delete Permanently"].tap()
     // The deletion's reply is lost (#1173). After relaunch, retrying it confirms the deletion and
     // leaves its confirmation for Welcome.
     XCTAssertTrue(text("Deletion could not be confirmed", in: app).waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
     XCTAssertTrue(app.staticTexts["Confirm account deletion"].waitForExistence(timeout: 20))
-    app.buttons["Delete permanently"].tap()
+    app.buttons["Delete Permanently"].tap()
     XCTAssertTrue(app.staticTexts["Unwired account deleted"].waitForExistence(timeout: 15))
     app.terminate()
     app.launch()
@@ -2023,7 +2023,7 @@ final class InboxTests: XCTestCase {
     let recoveryKey = app.staticTexts["recovery-key"]
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
-    app.buttons["Choose another Google mailbox"].tap()
+    app.buttons["Choose Another Google Mailbox"].tap()
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     let entry = app.textFields["Last four characters"]
     enter(String(presented.suffix(4)), into: entry, in: app)
@@ -2314,7 +2314,7 @@ final class InboxTests: XCTestCase {
     let bold = formatControl("Bold", in: app)
     bold.tap()
     waitUntil { bold.isSelected }
-    let numbered = formatControl("Numbered list", in: app)
+    let numbered = formatControl("Numbered List", in: app)
     numbered.tap()
     waitUntil { numbered.isSelected }
     formatControl("Undo", in: app).tap()
@@ -2331,7 +2331,7 @@ final class InboxTests: XCTestCase {
     webText("Evaluation paragraph", in: app).doubleTap()
     waitUntil {
       self.formatControl("Bold", in: app).isSelected
-        && self.formatControl("Numbered list", in: app).isSelected
+        && self.formatControl("Numbered List", in: app).isSelected
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
       selectWord(app) { self.menuControl("Rewrite the selected text", from: "Writing tools", in: app).exists }
@@ -2415,23 +2415,23 @@ final class InboxTests: XCTestCase {
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } != original }
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }.joined(separator: " ").contains(result) }
       let accepted = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
-      waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
+      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       waitUntil { self.formatControl("Undo", in: app).isEnabled }
       app.buttons["Undo"].tap()
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == original }
-      waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
+      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
       if !leaveUndone {
         waitUntil { self.formatControl("Redo", in: app).isEnabled }
         app.buttons["Redo"].tap()
         waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == accepted }
-        waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
+        waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       }
       reopenDraft(app, titled: title)
       // The reopened page replaces any editor shown at launch once it has loaded.
       let expected = leaveUndone ? original : accepted
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == expected }
       let expectedBold = leaveUndone ? originalBold : boldAfterApply
-      waitUntil { self.formatControl("Numbered list", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == expectedBold }
+      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == expectedBold }
     }
   }
 
@@ -2639,8 +2639,8 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
       app.buttons["Add Account…"].tap()
     }
-    XCTAssertTrue(app.buttons["Add an IMAP mailbox"].waitForExistence(timeout: 15))
-    app.buttons["Add an IMAP mailbox"].tap()
+    XCTAssertTrue(app.buttons["Add an IMAP Mailbox"].waitForExistence(timeout: 15))
+    app.buttons["Add an IMAP Mailbox"].tap()
     XCTAssertTrue(app.buttons["Other IMAP Account"].waitForExistence(timeout: 15))
     app.buttons["Other IMAP Account"].tap()
     // #2189: an address at a catalogued provider fills in its servers and says so; clearing it
@@ -2682,7 +2682,7 @@ final class InboxTests: XCTestCase {
     if phone {
       // #1929: the connection's actions are full-width rows below its address, which keeps the
       // row's width. Rows at large text sizes meet at fractional points.
-      let enterPassword = app.buttons["Enter the password for \(address) again"]
+      let enterPassword = app.buttons["Enter the Password for \(address) Again"]
       let remove = app.buttons["Remove \(address)"]
       XCTAssertTrue(enterPassword.waitForExistence(timeout: 15))
       let connection = app.staticTexts[address].firstMatch.frame
@@ -2784,8 +2784,8 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
       app.buttons["Add Account…"].tap()
     }
-    XCTAssertTrue(app.buttons["Add an IMAP mailbox"].waitForExistence(timeout: 15))
-    app.buttons["Add an IMAP mailbox"].tap()
+    XCTAssertTrue(app.buttons["Add an IMAP Mailbox"].waitForExistence(timeout: 15))
+    app.buttons["Add an IMAP Mailbox"].tap()
     XCTAssertTrue(app.buttons["Other IMAP Account"].waitForExistence(timeout: 15))
     app.buttons["Other IMAP Account"].tap()
     for (field, value) in [
@@ -2816,9 +2816,9 @@ final class InboxTests: XCTestCase {
       ).firstMatch
       XCTAssertTrue(header.waitForExistence(timeout: 20))
       XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
-      app.buttons["All inboxes"].tap()
+      app.buttons["All Inboxes"].tap()
       XCTAssertTrue(text("IMAP needs sign-in", in: app).waitForExistence(timeout: 20))
-      for _ in 0..<5 where !header.isHittable { app.buttons["All inboxes"].swipeUp() }
+      for _ in 0..<5 where !header.isHittable { app.buttons["All Inboxes"].swipeUp() }
       capture("Sidebar connection needs sign-in")
     }
   }
@@ -2846,9 +2846,9 @@ final class InboxTests: XCTestCase {
     } else {
       app.navigationBars.buttons.firstMatch.tap()
     }
-    XCTAssertTrue(app.buttons["All inboxes"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["All Inboxes"].waitForExistence(timeout: 10))
     try audit(app, "Mailboxes")
-    app.buttons["All inboxes"].tap()
+    app.buttons["All Inboxes"].tap()
     let inbox = app.staticTexts[phone ? "Inbox" : "All Inboxes"].firstMatch
     XCTAssertTrue(inbox.waitForExistence(timeout: 10))
 
@@ -3405,7 +3405,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["oliver@example.com"].waitForExistence(timeout: 10))
     XCTAssertFalse(app.staticTexts["maya@example.com"].exists)
     // Opening it read it.
-    XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Mark as Unread"].waitForExistence(timeout: 10))
     let committed = XCTAttachment(screenshot: app.screenshot())
     committed.name = "Committed read state"
     committed.lifetime = .keepAlways
@@ -3459,7 +3459,7 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertFalse(restored.label.hasPrefix("Unread."))
     restored.tap()
-    XCTAssertTrue(app.buttons["Mark as unread"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Mark as Unread"].waitForExistence(timeout: 10))
     let recovered = XCTAttachment(screenshot: app.screenshot())
     recovered.name = "Read state after relaunch"
     recovered.lifetime = .keepAlways
@@ -3581,7 +3581,7 @@ final class InboxTests: XCTestCase {
   // keeps the Inbox, and the Inbox reopens with its bar.
   private func verifyCompactInboxSwipeBack(_ app: XCUIApplication, heading: CGFloat?) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-    let inboxes = app.buttons["All inboxes"]
+    let inboxes = app.buttons["All Inboxes"]
     let back = app.buttons["Back to Mailboxes"]
     edgeSwipe(app, completing: false)
     waitUntil { back.isHittable && !inboxes.isHittable }
@@ -3631,7 +3631,7 @@ final class InboxTests: XCTestCase {
   // Returns the Mailboxes heading's top, which each later return must keep.
   private func verifyCompactBackHold(_ app: XCUIApplication) -> CGFloat? {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
-    let inboxes = app.buttons["All inboxes"]
+    let inboxes = app.buttons["All Inboxes"]
     var heading: CGFloat?
     for hold in 1...2 {
       app.buttons["Back to Mailboxes"].press(forDuration: 1.5)

@@ -324,7 +324,7 @@ export function mailboxSidebar<
     | ReturnType<typeof waitingEntry>;
   return {
     unread: sections.reduce((sum, section) => sum + section.unread, 0),
-    // All inboxes is selected exactly when the Inbox shows every mailbox.
+    // All Inboxes is selected exactly when the Inbox shows every mailbox.
     allSelected:
       view.unified === undefined &&
       !inboxChoice({
@@ -386,7 +386,7 @@ export const newestFirst = <
   );
 };
 
-// The Unified Mailboxes the Favorites list after All inboxes, by Mailbox Role. All Mail is the
+// The Unified Mailboxes the Favorites list after All Inboxes, by Mailbox Role. All Mail is the
 // product's own: every message outside Spam and Trash.
 export const unifiedRoles = [
   'SENT',

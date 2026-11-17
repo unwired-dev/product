@@ -88,7 +88,7 @@ describe('interface language', () => {
     });
     await app.i18n.changeLanguage('fr');
     expect(app.i18n.t('inbox.title')).toBe('Boîte de réception');
-    expect(app.i18n.t('message.markRead')).toBe('Mark as read');
+    expect(app.i18n.t('message.markRead')).toBe('Mark as Read');
     expect([
       app.i18n.t('inbox.messages', { count: 1 }),
       app.i18n.t('inbox.messages', { count: 2 }),

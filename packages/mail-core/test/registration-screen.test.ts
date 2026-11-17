@@ -187,7 +187,7 @@ describe('registration screen', () => {
     ).toMatchObject({
       provider: 'Signed in with Google.',
       signInMethods: {
-        link: { provider: 'apple', label: 'Link Apple sign-in' },
+        link: { provider: 'apple', label: 'Link Apple Sign-In' },
         failure: undefined,
       },
     });

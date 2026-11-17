@@ -26,7 +26,7 @@ results for changed details on Mac, and on iPhone and iPad.
   selected it rewrites the selection; with nothing selected it rewrites the whole
   authored body. It is disabled while that text is blank.
 - The Writing tools menu groups its items as the approved design does:
-  **Generate a Draft…**, **Rewrite** and **Suggest reply**;
+  **Generate a Draft…**, **Rewrite** and **Suggest Reply**;
   **Proofread** and **Break into Paragraphs**; **Translate** (**Translate To** on
   Mac); **Expand Text** and **Shorten Text**; **Make More Friendly** and
   **Make More Neutral**. Each of these text tools captures text and is enabled like
@@ -39,7 +39,7 @@ results for changed details on Mac, and on iPhone and iPad.
   window, as **Expand** does, so its progress, review and outcome show full screen
   without dimming; **Collapse** returns it
   ([#2052](https://github.com/unwired-dev/product/issues/2052)). The iPhone
-  composer already fills the window. Translate, Suggest reply and Generate a Draft
+  composer already fills the window. Translate, Suggest Reply and Generate a Draft
   keep the composer as it is.
 - **Generate a Draft…** needs no text, so it is enabled whenever the menu is. It
   opens a prompt field and **Generate**, which is disabled while the prompt is
@@ -54,7 +54,7 @@ results for changed details on Mac, and on iPhone and iPad.
   before the model is asked. Changing the Draft's Profile dismisses any unfinished
   prompt, even when the destination also permits assistance. Prompts are not kept,
   so the design's prompt-history control is not offered.
-- **Suggest reply** appears only in a Reply or Reply All Draft that has its quoted
+- **Suggest Reply** appears only in a Reply or Reply All Draft that has its quoted
   message. It writes one complete reply that keeps the points already written.
 - Choosing either action is the request: it captures the text and opens a review
   panel with progress and **Cancel**. Nothing runs before that.
@@ -79,15 +79,15 @@ results for changed details on Mac, and on iPhone and iPad.
   remains and the request is declined. Requests that leave no room for quoted text are declined
   before inference.
 - The result is an ephemeral preview, marked as written on this device, possibly
-  inaccurate and not saved. The Draft is unchanged until **Replace text** (rewrite
-  with no differing details; **Use rewrite with changes** when details differ)
-  or **Use reply** (reply suggestion). That replaces exactly the captured text as
+  inaccurate and not saved. The Draft is unchanged until **Replace Text** (rewrite
+  with no differing details; **Use Rewrite with Changes** when details differ)
+  or **Use Reply** (reply suggestion). That replaces exactly the captured text as
   one edit that one **Undo** reverts, keeping the capture's own leading and
   trailing whitespace. Line and list formatting is kept where the result keeps the
   line breaks; the inserted text takes the inline style (bold, italic and so on)
   of the text before it, as with Draft translation, because the model returns
   plain text. The preview says so. Recipients, the sender, the subject, quoted text,
-  attachments, threading and delivery state are never changed. **Keep original**
+  attachments, threading and delivery state are never changed. **Keep Original**
   closes the panel.
 - A finished Writing tools result (Rewrite, Proofread, Break into
   Paragraphs, Expand Text, Shorten Text, Make More Friendly and Make More Neutral) is checked mechanically against the
@@ -96,9 +96,9 @@ results for changed details on Mac, and on iPhone and iPad.
   rules; each host renders the review. On Mac the main button takes the accent tint
   but no Return key equivalent (#1900). iPad sets the changes out as a table
   with the push buttons in a row; iPhone shows each change as its detail, status and
-  a `original → rewrite` line, with **Use rewrite with changes** (or **Replace text**)
-  across the panel above Keep original and Try Again. When details differ, Keep
-  original carries the accent fill. It never says a
+  a `original → rewrite` line, with **Use Rewrite with Changes** (or **Replace Text**)
+  across the panel above Keep Original and Try Again. When details differ, Keep
+  Original carries the accent fill. It never says a
   result is verified or safe: every finished result ends with a note that the
   checks compare details only and that meaning, questions and commitments need
   the person's own reading. Reply suggestions and Generate a Draft are not checked.
@@ -178,10 +178,10 @@ results for changed details on Mac, and on iPhone and iPad.
     kept details. Matching preserves occurrence counts and the order inside each
     complete detail; it ignores the order of separate details. Reassigning the
     same values to different people or sentences still needs the person's reading.
-    The apply action then becomes **Use rewrite with changes**,
-    so applying them is an explicit choice; **Keep original** and **Try Again**
+    The apply action then becomes **Use Rewrite with Changes**,
+    so applying them is an explicit choice; **Keep Original** and **Try Again**
     stay. A checked result's actions are push buttons in the frames' order: the
-    accent tint marks **Keep original** when details differ and **Replace text**
+    accent tint marks **Keep Original** when details differ and **Replace Text**
     when none do. The tint marks the recommended action only: on Mac no button
     answers Return. Keyboard focus stays in the Draft body when the result appears,
     so Return adds a new line there ([#1900](https://github.com/unwired-dev/product/issues/1900)),
@@ -199,12 +199,12 @@ results for changed details on Mac, and on iPhone and iPad.
   being made or waited to be used, an on-device card in its place says "Your Draft changed while this
   rewrite was being made, so it wasn’t used. Your text is as you left it." The card requests one
   accessibility announcement of that message; native VoiceOver qualification is still pending.
-  **Rewrite again** runs the same tool on the current text and selection, as the Writing tools menu does,
+  **Rewrite Again** runs the same tool on the current text and selection, as the Writing tools menu does,
   and is unavailable when no text is left to rewrite; **Close** dismisses the card. On iPhone the two
   buttons share the card's width. A failed, refused or cancelled request has no result to drop, so an edit
   closes it without the card, as do Send and applying or keeping a result.
 - Send closes any assistance preview and cancels its pending request. Rewrite and
-  Suggest reply wait while Send is pending and become available again if it is refused.
+  Suggest Reply wait while Send is pending and become available again if it is refused.
 - When the model cannot run, the Draft is unchanged and the panel says why, with
   the same reasons as [message summaries](message-summaries.md#behavior). A
   refusal, cancellation and other failures have their own messages. **Try Again**
@@ -293,8 +293,8 @@ allow-listed native code or decode path, never Draft or generated text.
   pending result when the body is edited or the Product Account changes. The Mac tests, and the
   `apps/mobile/test/composer.test.tsx` tests on iPhone and iPad layouts, also show the
   details note on every rewrite, and a rewrite with changed details: its count and announcement, one
-  readable row per change, the kept details, no plain Replace, Keep original, then **Use rewrite with
-  changes** and Undo. From the real reader with a synthetic
+  readable row per change, the kept details, no plain Replace, Keep Original, then **Use Rewrite with
+  Changes** and Undo. From the real reader with a synthetic
   Gmail mailbox, they request a reply suggestion for a Reply All Draft, check its
   admitted input and that no Gmail request is made, apply it to the authored body
   only, undo it, invalidate recipient edits even when Undo precedes a queued apply,
@@ -318,7 +318,7 @@ language switches and added letter framing
 iPad runs of it remain the owner session in
 [#625](https://github.com/unwired-dev/product/issues/625).
 The [owner-session results](https://github.com/unwired-dev/product/issues/625#issuecomment-6335027314)
-accept Rewrite/Suggest reply with acceptance and Undo on both physical mobile
+accept Rewrite/Suggest Reply with acceptance and Undo on both physical mobile
 devices and waive the Mac manual checks. Each unobserved unavailable reason
 remains a release check. Compilation alone is not evidence of model behavior.
 

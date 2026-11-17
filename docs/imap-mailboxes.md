@@ -18,7 +18,7 @@ no mailbox authorization on its own. **Connect your mail** lists the providers a
 each opening its own setup:
 
 - **Gmail**, which suggests the Google sign-in account, and below the list **Choose
-  another Google mailbox**;
+  Another Google Mailbox**;
 - **iCloud Mail**, **Fastmail** and **Other IMAP Account**, whose IMAP form opens in
   place, with **Cancel** returning to the list;
 - **Microsoft 365 and Outlook** when this build is configured for
@@ -28,7 +28,7 @@ Choosing an IMAP provider asks for no Google or Microsoft grant. Saved Gmail and
 Microsoft mailboxes that all need authorization again are still authorized again right
 after sign-in; an IMAP password is only ever entered again in Settings' **Email Accounts**. Once
 any mailbox is connected, Settings' **Email Accounts** also offers **Add an
-IMAP mailbox**.
+IMAP Mailbox**.
 
 ## Endpoints and passwords
 
@@ -327,7 +327,7 @@ or hides Remote Message Content, or Gmail removes a message from its cached view
 or refreshes it to a smaller presentation.
 
 Remote Message Content in IMAP mail follows the device's remote content policy and the
-connection's own setting in Settings, with the same **Load images** consent, Authorized
+connection's own setting in Settings, with the same **Load Images** consent, Authorized
 Remote Content Cache, tracking-pixel blocking and shared display budget as
 [Gmail mail](gmail-inbox.md#links-and-blocked-remote-content). Cached images belong to the
 connection and the message's UIDVALIDITY and UID, so a folder with a new UIDVALIDITY
@@ -423,7 +423,7 @@ message is no longer in this folder on the mail server**.
 
 ## Organizing
 
-IMAP mail offers, in the reader and as Inbox row actions, **Mark as read** or **Mark as
+IMAP mail offers, in the reader and as Inbox row actions, **Mark as Read** or **Mark as
 unread**, **Archive**, **Delete**, **Move to Spam**, and
 under **Folders**, **Move to** any other selectable folder, including the Inbox. In the
 folders the server declares as Trash or Spam (`\Trash`, `\Junk`), or chosen for them as
@@ -432,7 +432,7 @@ the place of Archive, Delete and Move to Spam, as in Gmail's Trash and Spam; it 
 no Undo. IMAP has no labels. Opening an unread message sets its `\Seen` flag, as
 [Organizing mail](gmail-inbox.md#organizing-mail) describes for every provider.
 The star is the server's `\Flagged` flag, which other mail apps show as a flag. Only
-the [Command Palette](command-palette.md) offers **Star** and **Remove star**: no
+the [Command Palette](command-palette.md) offers **Star** and **Remove Star**: no
 toolbar, menu, row action or row marker shows it, and the folder chooser names a
 virtual `\Flagged` folder's role Starred. A flag set or cleared elsewhere arrives with
 the next synchronization. Starring keeps the reader open and offers no Undo, like a
@@ -465,7 +465,7 @@ the server in order:
   UIDVALIDITY changed, or whose copied message disappeared, refuses source deletion.
 - When a move's result is uncertain and no destination identity was saved, it is never
   sent again automatically, even if the source disappeared. The Inbox asks the person to
-  check the folders and **Discard change** to let later changes continue. This state
+  check the folders and **Discard Change** to let later changes continue. This state
   survives relaunch; discarding makes no additional move.
 - **Undo** withdraws a move the server has not received, or moves the message back from
   the UID the server reported for it (COPYUID). A move whose new UID is unknown offers no

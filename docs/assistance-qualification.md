@@ -159,7 +159,7 @@ Message.
 
 1. Open a message, choose **Summarize**, then **Cancel** while it works; summarize
    again and **Dismiss** the result.
-2. In a reply, choose **Suggest reply** and accept it, then **Undo**; choose
+2. In a reply, choose **Suggest Reply** and accept it, then **Undo**; choose
    **Rewrite**, replace the text, then **Undo**. Each Undo restores the Draft
    exactly as it was.
 3. Translate a message and a Draft selection. A missing language is reported,

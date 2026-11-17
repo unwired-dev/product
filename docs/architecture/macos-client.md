@@ -21,7 +21,7 @@ Metro redirects React and React Native imports, including subpaths, to this
 host's packages. Its startup module also comes from React Native macOS. The
 production bundle verification rejects the mobile renderer, Expo, React DOM and
 backend code, checks the shared fixture against disk, and verifies native
-autolinking. The host admits `@react-native-clipboard/clipboard` for Copy link and
+autolinking. The host admits `@react-native-clipboard/clipboard` for Copy Link and
 `react-native-webview` for the isolated message reader. Adding another requires
 an explicit update to `apps/macos/scripts/verify-native.ts`.
 

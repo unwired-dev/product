@@ -178,10 +178,10 @@ describe('received attachments in the reader', () => {
         hidden: screen.queryByLabelText('Download file-43.txt'),
         focusable: more.props.focusable,
       }).toStrictEqual({ rows: 20, hidden: null, focusable: true });
-      screen.getByText('Show 20 more');
+      screen.getByText('Show 20 More');
       await fireEvent.press(more);
       expect(screen.getAllByText(/^Download$/u)).toHaveLength(40);
-      screen.getByText('Show 5 more');
+      screen.getByText('Show 5 More');
       await fireEvent.press(
         screen.getByRole('button', {
           name: 'Show more attachments, 5 not shown',

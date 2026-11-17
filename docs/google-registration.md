@@ -33,13 +33,13 @@ Signed out, the app opens on Welcome; its **Continue** leads to Sign In with
 **Sign in with Apple** and **Sign in with Google**, and iPhone returns to Welcome with **Back**. A removed-device or deleted-account
 notice opens Sign In directly with that notice. Product Sign-In creates or reconnects the
 Product Account through Convex and then offers the first mailbox: the **Gmail** row
-with the original account, **Choose another Google mailbox**, **Microsoft 365 and
+with the original account, **Choose Another Google Mailbox**, **Microsoft 365 and
 Outlook** when configured for this build ([Microsoft mail](microsoft-mail.md)), or an
 [IMAP mailbox](imap-mailboxes.md). Sign-in alone starts no mailbox authorization;
 saved mailboxes that all need authorization again are authorized again right after
 sign-in. Cancelled or declined Gmail consent and Google identities without
 Gmail retain the Product Account, and both Gmail actions retry. Once a mailbox is
-connected, the account page adds others with **Add another Gmail mailbox**; see
+connected, the account page adds others with **Add Another Gmail Mailbox**; see
 [Gmail mailboxes](gmail-inbox.md#gmail-mailboxes). A failed or cancelled addition
 keeps every connected mailbox connected. Adding a mailbox does not link its Google
 identity as another Product Sign-In; only [explicit linking](linked-sign-in.md) does.

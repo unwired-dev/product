@@ -53,7 +53,7 @@ transport and known native exit gaps.
 ## Composing
 
 - **New Message**, at the trailing edge of the Inbox's floating bar, starts a Draft from the
-  mailbox the Inbox shows. Under **All inboxes** it starts from the window Profile's
+  mailbox the Inbox shows. Under **All Inboxes** it starts from the window Profile's
   **Default Sending Identity**, or its first usable mailbox when the Profile has none. A
   default that cannot send on this device still starts the Draft, whose From pop-up
   explains why Send is blocked, rather than another identity standing in. It opens the composer in
@@ -124,7 +124,7 @@ transport and known native exit gaps.
   Close, the title and a Compose actions menu with Discard, and the format bar (text style, bold, italic,
   underline, strikethrough, inline code, lists, Undo, Redo, Translate, Rewrite
   and the file and image controls; on iPhone, iPad and Mac a Writing tools menu
-  holds Rewrite, Translate and Suggest reply) sits under the header on Mac and iPad.
+  holds Rewrite, Translate and Suggest Reply) sits under the header on Mac and iPad.
   On iPhone, a floating Liquid Glass pill offers Format and Add files, with a
   separate Writing tools button. Format dismisses the keyboard and shows the
   formatting controls in its place. Focusing the body closes the Format panel;
@@ -177,7 +177,7 @@ transport and known native exit gaps.
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The format bar applies marks to
   the selection, or to the next typed text at the caret, and its **Text style**
-  menu (Body, Heading 1 to 3, Quote, Code block) and list buttons set the block
+  menu (Body, Heading 1 to 3, Quote, Code Block) and list buttons set the block
   kind of every selected block. Moving the caret ends marks toggled for typing, including
   when text is entered before the composer redraws. Typing `# `, `## `, `### `, `- `, `* `, `1. ` or `> `, or
   three backticks, at the start of a paragraph applies that block kind and removes
@@ -677,7 +677,7 @@ reopening, **Undo** and **Discard** work as for any Draft.
   the earlier identifier. Identifiers inside comments are ignored. A forward records
   only the message it forwards.
 - **Quoted correspondence.** The Draft keeps the answered message's text apart from
-  the authored body as read-only quoted text. **Show quoted text** reveals it beneath the body.
+  the authored body as read-only quoted text. **Show Quoted Text** reveals it beneath the body.
   A reply quotes the readable text after an `On … wrote:` line; a forward starts with
   a forwarded-message header naming From, Date, Subject, To and Cc. The text comes from
   the plain alternative or the sanitized HTML's readable text. Rich quote formatting,

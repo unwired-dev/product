@@ -25,7 +25,7 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 The journey signs in with Apple and connects the synthetic Microsoft and Gmail
 mailboxes, 126 and 128 Inbox Threads. It opens five messages of each once so
 their bodies are cached, then measures 10 relaunches until the unified Inbox
-lists, 21 switches between both Inboxes and All inboxes, 10 body openings per
+lists, 21 switches between both Inboxes and All Inboxes, 10 body openings per
 mailbox and 10 openings each of an empty composer and a saved Draft. Each
 composer sample ends with the composer's Close in the same process, which also
 covers the close-and-reopen crash fixed in
@@ -143,14 +143,14 @@ reply keeps its text. After relaunch, it checks that the
 saved Draft reopens with that text, and Edit Link with its saved destination.
 With Mail Assistance turned on in Privacy & Data, **Rewrite the message body** from
 Writing tools ([#1898](https://github.com/unwired-dev/product/issues/1898)) shows the
-synthetic rewrite with the kept link note and **Replace text** in the accent tint.
+synthetic rewrite with the kept link note and **Replace Text** in the accent tint.
 Return adds a new line to the focused body, which closes the result, and
-Undo removes it; Replace text on a new rewrite makes the body the rewrite, and one
+Undo removes it; Replace Text on a new rewrite makes the body the rewrite, and one
 Undo restores the reply. After " at 9:30" is typed, the
-rewrite reports one differing detail with its row and **Use rewrite with changes**;
+rewrite reports one differing detail with its row and **Use Rewrite with Changes**;
 the count line is one text element between the rewrite and the row
 ([#1902](https://github.com/unwired-dev/product/issues/1902)),
-and Keep original closes it with the reply unchanged. Both states are audited and
+and Keep Original closes it with the reply unchanged. Both states are audited and
 kept as `Writing tools W1` and `Writing tools W2` attachments. Option-Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved

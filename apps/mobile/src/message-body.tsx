@@ -953,7 +953,7 @@ export function ReceivedAttachments({
   );
 }
 
-// How readers inside show a body's quoted history: in full, or collapsed behind Show quoted text
+// How readers inside show a body's quoted history: in full, or collapsed behind Show Quoted Text
 // as the Thread view does.
 export const QuotedHistoryContext = createContext<'shown' | 'collapsible'>(
   'shown',

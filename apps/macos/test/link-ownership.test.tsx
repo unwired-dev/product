@@ -83,17 +83,17 @@ describe('queued message link privacy', () => {
       question: {
         title: 'Open this link in your browser?',
         detail: '',
-        buttons: ['Open link', 'Cancel'],
+        buttons: ['Open Link', 'Cancel'],
         symbol: { name: 'link' },
       },
-      opens: 'Open link',
+      opens: 'Open Link',
     },
     {
       kind: 'caution',
       text: 'https://bank.invalid',
       question: {
         title: 'This link may not be what it seems',
-        buttons: ['Cancel', 'Copy link', 'Proceed'],
+        buttons: ['Cancel', 'Copy Link', 'Proceed'],
         cancel: 0,
         destructive: 2,
         symbol: { name: 'exclamationmark.shield' },
@@ -178,7 +178,7 @@ describe('queued message link privacy', () => {
         screen.getByRole('link', { name: 'https://bank.invalid' }),
       );
       await act(() => {
-        chooseSheetButton('Copy link');
+        chooseSheetButton('Copy Link');
       });
       expect(copy).toHaveBeenCalledWith(oldHref);
       expect(open).not.toHaveBeenCalled();
@@ -342,9 +342,9 @@ describe.each(['gmail', 'imap'] as const)(
     );
 
     it.each([
-      ['message', 'Copy link'],
+      ['message', 'Copy Link'],
       ['message', 'Proceed'],
-      ['account', 'Copy link'],
+      ['account', 'Copy Link'],
       ['account', 'Proceed'],
     ] as const)(
       'withdraws the old sheet and rejects queued input and a %s-change %s answer',

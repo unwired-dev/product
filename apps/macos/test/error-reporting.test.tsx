@@ -124,7 +124,7 @@ describe('error reporting controls', () => {
     });
     await render(<ErrorReportingSettings store={store} />);
     await fireEvent.press(
-      screen.getByRole('button', { name: 'Delete my error reports' }),
+      screen.getByRole('button', { name: 'Delete My Error Reports' }),
     );
     expect(store.deleteReports).not.toHaveBeenCalled();
     // Cancel is the default button that Return and Escape answer.
@@ -142,7 +142,7 @@ describe('error reporting controls', () => {
     }).toStrictEqual({ status: 'Deletion requested', disabled: true });
     await act(async () => {
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Check deletion status' }),
+        screen.getByRole('button', { name: 'Check Deletion Status' }),
       );
     });
     expect({
@@ -208,7 +208,7 @@ describe('error reporting controls', () => {
       screen.findByText(/Signing in won’t restore access/u),
     ).resolves.toBeVisible();
     const deletion = screen.getByRole('button', {
-      name: 'Delete my error reports',
+      name: 'Delete My Error Reports',
     });
     expect(deletion.props.accessibilityState.disabled).toBe(true);
     await fireEvent.press(deletion);

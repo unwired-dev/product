@@ -291,7 +291,7 @@ describe('iPad reader', () => {
           position: 'absolute',
         });
         await fireEvent.press(
-          screen.getByRole('button', { name: 'Hide labels' }),
+          screen.getByRole('button', { name: 'Hide Labels' }),
         );
         await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
         expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
