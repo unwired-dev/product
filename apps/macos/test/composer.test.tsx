@@ -6888,19 +6888,22 @@ describe('replying to and forwarding from the reader', () => {
     const [draft] = draftsOf(drafts.getSnapshot());
     ok(draft, 'Expected the reply Draft');
     // The longest reply that is not refused as too long leaves no room for any quoted text.
-    let authored = '';
-    for (let length = 6000; authored === '' && length > 0; length -= 1) {
-      const text = 'a'.repeat(length);
-      const { input, issue } = captureDraftText(
+    const capture = (length: number) =>
+      captureDraftText(
         'reply',
-        { ...draft, body: [{ kind: 'paragraph', spans: [{ text }] }] },
+        {
+          ...draft,
+          body: [{ kind: 'paragraph', spans: [{ text: 'a'.repeat(length) }] }],
+        },
         { start: 0, end: 0 },
       );
-      if (input === undefined && issue === undefined) {
-        authored = text;
-      }
-    }
-    ok(authored !== '', 'Expected a reply that leaves no quoted context');
+    const longest = Array.from(
+      { length: 6000 },
+      (_, index) => 6000 - index,
+    ).find((length) => capture(length).issue === undefined);
+    ok(longest !== undefined, 'Expected a reply that is not too long');
+    expect(capture(longest).input).toBeUndefined();
+    const authored = 'a'.repeat(longest);
     await fireEvent.changeText(screen.getByLabelText('Message body'), authored);
     const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
     announce.mockClear();
