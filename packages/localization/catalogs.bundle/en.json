@@ -723,7 +723,7 @@
     "unsupported-language": "Summaries are not available in this message’s language yet.",
     "unsupported-locale": "Summaries are not available in this device’s language yet.",
     "refused": "This message cannot be summarized.",
-    "failed": "The summary could not be created.",
+    "failed": "The summary didn’t finish. Choose Try Again to summarize this message again.",
     "cancelled": "Summary cancelled."
   },
   "translation": {
@@ -762,7 +762,7 @@
     "unsupported-pair": "This device cannot translate between these languages.",
     "unidentified-language": "The language of this text could not be identified.",
     "same-language": "This text is already in the chosen language.",
-    "failed": "The translation could not be created.",
+    "failed": "The translation didn’t finish. Choose Try Again to translate again.",
     "cancelled": "Translation cancelled."
   },
   "assistance": {

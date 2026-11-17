@@ -314,6 +314,40 @@ describe('on-device translation in the reader', () => {
     }
   });
 
+  it('says an unexplained failed translation didn’t finish, and translates again on Try Again', async () => {
+    expect.hasAssertions();
+    const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
+    const { native, asked } = scriptedTranslation();
+    const { app } = await openReader(native);
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    const failure =
+      'The translation didn’t finish. Choose Try Again to translate again.';
+    try {
+      await translateInto('Spanish');
+      asked[0]?.answer.reject(new Error('translation stopped'));
+      await expect(screen.findByText(failure)).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([[failure]]);
+      expect(
+        screen.getByText('Please confirm the venue by Friday.'),
+      ).toBeOnTheScreen();
+      await fireEvent.press(screen.getByLabelText('Try Again to translate'));
+      expect(asked).toHaveLength(2);
+      expect(asked[1]?.target).toBe('es');
+      asked[1]?.answer.resolve({
+        source: 'en',
+        text: 'Confirma el lugar antes del viernes.',
+      });
+      await expect(
+        screen.findByText('Confirma el lugar antes del viernes.'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText(failure)).toBeNull();
+    } finally {
+      await app.unmount();
+      logged.mockRestore();
+    }
+  });
+
   it('offers Try Again for a language list the device could not give', async () => {
     expect.hasAssertions();
     const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);

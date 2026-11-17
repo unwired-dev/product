@@ -264,6 +264,42 @@ describe('on-device message summaries in the reader', () => {
     }
   });
 
+  it('says an unexplained failed summary didn’t finish, and summarizes again on Try Again', async () => {
+    expect.hasAssertions();
+    const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
+    const { native, asked } = scriptedAssistance();
+    const { app } = await openReader({
+      ...native,
+      summarize: jest
+        .fn(native.summarize)
+        .mockRejectedValueOnce(new Error('model stopped')),
+    });
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    const failure =
+      'The summary didn’t finish. Choose Try Again to summarize this message again.';
+    try {
+      await fireEvent.press(screen.getByLabelText('Summarize this message'));
+      await expect(screen.findByText(failure)).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([[failure]]);
+      expect(
+        screen.getByText('Please confirm the venue by Friday.'),
+      ).toBeOnTheScreen();
+      await fireEvent.press(
+        screen.getByLabelText('Summarize this message again'),
+      );
+      await screen.findByLabelText('Cancel summary');
+      asked[0]?.answer('Confirm the venue by Friday.');
+      await expect(
+        screen.findByText('Confirm the venue by Friday.'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText(failure)).toBeNull();
+    } finally {
+      await app.unmount();
+      logged.mockRestore();
+    }
+  });
+
   it('keeps the message readable when the Mock Mail Session has no assistance', async () => {
     expect.hasAssertions();
     const { app } = await openReader(
