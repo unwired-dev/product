@@ -221,8 +221,7 @@ describe('window Profiles', () => {
     };
     expect(profileRemoval(english, 'Family', [])).toStrictEqual({
       title: 'Remove “Family”?',
-      message:
-        'Family is removed from all your Trusted Devices. It owns no mailboxes.',
+      message: 'Family is removed from all your devices. It owns no mailboxes.',
     });
     expect(profileRemoval(english, 'Work', [mailbox]).message).toBe(
       'bob@example.invalid is also removed from Unwired Mail on all your devices. Its mail stays with the mail server.',
@@ -256,7 +255,7 @@ describe('window Profiles', () => {
     expect(
       profileRefusalText(english, 'move', 'upgrade-required').message,
     ).toBe(
-      'Another Trusted Device runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then try again.',
+      'Another of your devices runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then try again.',
     );
   });
 

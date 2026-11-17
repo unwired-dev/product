@@ -252,7 +252,7 @@ final class InboxTests: XCTestCase {
     openAccount(app)
     openSettings("Account & Devices", in: app)
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
-    XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
+    XCTAssertTrue(app.staticTexts["Sync is on"].exists)
     // The mailbox descriptor is read back and decrypted from Product Sync after relaunch.
     XCTAssertTrue(
       app.staticTexts["Encrypted mailbox list: other@example.invalid."].waitForExistence(
@@ -530,7 +530,7 @@ final class InboxTests: XCTestCase {
     enter(String(app.staticTexts["recovery-key"].label.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
     // The account page stays open until the person chooses the Inbox.
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Sync is on"].waitForExistence(timeout: 15))
     app.buttons[settingsExit].tap()
     // The unified Inbox names each message's mailbox.
     let jordan = app.buttons.matching(
@@ -1495,7 +1495,7 @@ final class InboxTests: XCTestCase {
     } else {
       app.buttons["Check for Approval"].tap()
     }
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 30))
+    XCTAssertTrue(app.staticTexts["Sync is on"].waitForExistence(timeout: 30))
     XCTAssertTrue(mailboxes.exists)
     XCTAssertFalse(code.exists)
     // Gmail on this device still needs its own authorization.
@@ -1503,7 +1503,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.buttons["Gmail"].exists)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Sync is on"].waitForExistence(timeout: 15))
     XCTAssertTrue(mailboxes.waitForExistence(timeout: 15))
     XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
@@ -1540,14 +1540,14 @@ final class InboxTests: XCTestCase {
     let entry = app.textFields["Recovery Key"]
     enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry, in: app)
     app.buttons["Unlock with Recovery Key"].tap()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Sync is on"].waitForExistence(timeout: 15))
     XCTAssertTrue(mailboxes.exists)
     XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
     // Gmail on this device still needs its own authorization.
     XCTAssertTrue(app.buttons["Gmail"].exists)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Sync is on"].waitForExistence(timeout: 15))
     XCTAssertTrue(mailboxes.waitForExistence(timeout: 15))
     XCTAssertFalse(app.textFields["Recovery Key"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
@@ -1918,10 +1918,10 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(text("The device was removed.", in: app).waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Remove iPad"].exists)
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
-    XCTAssertTrue(app.staticTexts["Private sync is on"].exists)
+    XCTAssertTrue(app.staticTexts["Sync is on"].exists)
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Sync is on"].waitForExistence(timeout: 15))
     XCTAssertFalse(app.buttons["Remove iPad"].exists)
     let shot = XCTAttachment(screenshot: app.screenshot())
     shot.name = "Removed another trusted device"
@@ -1977,7 +1977,7 @@ final class InboxTests: XCTestCase {
     let entry = app.textFields["Last four characters"]
     enter(String(key.suffix(4)), into: entry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
-    XCTAssertTrue(app.staticTexts["Private sync is on"].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Sync is on"].waitForExistence(timeout: 15))
     app.buttons["Sign Out of This Device"].tap()
     XCTAssertTrue(text("Your other devices", in: app).waitForExistence(timeout: 15))
     app.buttons["Sign Out of This Device"].tap()

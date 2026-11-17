@@ -2720,7 +2720,7 @@ describe('product registration', () => {
     await openAccount();
     await openSettings('Account & Devices');
     await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
+      screen.findByRole('header', { name: 'Sync is on' }),
     ).resolves.toBeVisible();
     expect(screen.queryByText(recoveryKey)).toBeNull();
     await act(async () => {
@@ -2877,7 +2877,7 @@ describe('product registration', () => {
       jest.useRealTimers();
     }
     await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
+      screen.findByRole('header', { name: 'Sync is on' }),
     ).resolves.toBeVisible();
     expect(
       screen.getByText('Encrypted mailbox list: alex@example.invalid.'),
@@ -2962,7 +2962,7 @@ describe('product registration', () => {
 
     // The device reads the synchronized mailbox list; Gmail still needs its own grant.
     await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
+      screen.findByRole('header', { name: 'Sync is on' }),
     ).resolves.toBeVisible();
     expect(
       screen.getByText('Encrypted mailbox list: alex@example.invalid.'),
@@ -2974,7 +2974,7 @@ describe('product registration', () => {
     await view.unmount();
     await show(added);
     await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
+      screen.findByRole('header', { name: 'Sync is on' }),
     ).resolves.toBeVisible();
   });
 
@@ -4327,9 +4327,7 @@ describe('product registration', () => {
     expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
     // The replacement key was confirmed before removal, so nothing else waits for it.
     expect(screen.queryByTestId('recovery-key')).toBeNull();
-    expect(
-      screen.getByRole('header', { name: 'Private sync is on' }),
-    ).toBeVisible();
+    expect(screen.getByRole('header', { name: 'Sync is on' })).toBeVisible();
   });
 
   /* oxlint-enable vitest/max-expects */
@@ -4354,7 +4352,7 @@ describe('product registration', () => {
       );
     let view = await show();
     await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
+      screen.findByRole('header', { name: 'Sync is on' }),
     ).resolves.toBeVisible();
     let latest = recoveryKey;
     for (const { name } of [
@@ -4394,7 +4392,7 @@ describe('product registration', () => {
     await view.unmount();
     view = await show();
     await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
+      screen.findByRole('header', { name: 'Sync is on' }),
     ).resolves.toBeVisible();
     expect(screen.queryByLabelText('Recovery Key')).toBeNull();
     synthetic.loseDeviceKey();
@@ -4409,9 +4407,7 @@ describe('product registration', () => {
     expect(
       screen.getByRole('header', { name: 'Approve this device' }),
     ).toBeVisible();
-    expect(
-      screen.queryByRole('header', { name: 'Private sync is on' }),
-    ).toBeNull();
+    expect(screen.queryByRole('header', { name: 'Sync is on' })).toBeNull();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Use Recovery Key Instead' }),
@@ -4441,7 +4437,7 @@ describe('product registration', () => {
       );
     });
     await expect(
-      screen.findByRole('header', { name: 'Private sync is on' }),
+      screen.findByRole('header', { name: 'Sync is on' }),
     ).resolves.toBeVisible();
     expect(screen.queryByTestId('enrollment-code')).toBeNull();
     await view.unmount();
