@@ -559,7 +559,7 @@
     "authentication": "{{provider}} needs your permission again to download this message.",
     "missing": "This message is no longer in {{provider}}.",
     "locked": "Private storage is locked. Unlock your device and try again.",
-    "failed": "This message could not be opened. Your saved mail has been kept.",
+    "failed": "This message didn’t open. Your saved mail has been kept. Choose Try Again to open it again.",
     "empty": "This message has no text.",
     "images": "Images in this message are not loaded.",
     "imageNotLoaded": "Image not loaded",
