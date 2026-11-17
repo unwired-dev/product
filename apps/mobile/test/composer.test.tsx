@@ -7,6 +7,7 @@ import type { SemanticDocument } from '@private-email/mail-core/semantic-documen
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { StyleProp, TextStyle, useColorScheme } from 'react-native';
 
+import { captureDraftText } from '@private-email/mail-core/assistance';
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailTemplates } from '@private-email/mail-core/mail-templates';
@@ -4676,6 +4677,50 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it('says an unexplained failed rewrite didn’t finish, and asks again on Try Again', async () => {
+    expect.hasAssertions();
+    const logged = jest.spyOn(console, 'error').mockReturnValue(undefined);
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked } = scriptedDraftAssistance();
+    try {
+      await render(
+        <AssistanceContext value={native}>
+          <App
+            drafts={createDrafts(storage.native, registration)}
+            registration={registration}
+          />
+        </AssistanceContext>,
+      );
+      await press('New Message');
+      const original = 'lets meet friday. thanks';
+      const body = () => screen.getByLabelText('Message body');
+      await fireEvent.changeText(body(), original);
+      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      announce.mockClear();
+      const failure =
+        'The suggestion didn’t finish. Your text is unchanged. Choose Try Again to get writing help.';
+      await chooseWritingTool('Rewrite the message body');
+      await act(async () => {
+        asked[0]?.answer.reject(new Error('rewrite stopped'));
+        await asked[0]?.answer.promise.catch(() => undefined);
+      });
+      await expect(screen.findByText(failure)).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([[failure]]);
+      expect(body()).toHaveTextContent(original, { exact: true });
+      await press('Try Again to get writing help');
+      expect(asked).toHaveLength(2);
+      expect(asked[1]?.input).toBe(asked[0]?.input);
+      asked[1]?.answer.resolve('Let us meet on Friday. Thanks!');
+      await expect(
+        screen.findByText('Let us meet on Friday. Thanks!'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByText(failure)).toBeNull();
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it.each([false, true])(
     'says when an edit drops a rewrite and rewrites the current text again (isPad=%s)',
     async (isPad) => {
@@ -4750,7 +4795,7 @@ describe('composing Drafts', () => {
         // A failure has no result to drop, so an edit just closes it.
         await chooseWritingTool('Rewrite the message body');
         const failed =
-          'The suggestion could not be created. Your text is unchanged.';
+          'The suggestion didn’t finish. Your text is unchanged. Choose Try Again to get writing help.';
         await act(async () => {
           asked[2]?.answer.reject(new Error('failed'));
           await asked[2]?.answer.promise.catch(() => undefined);
@@ -7143,6 +7188,61 @@ describe('replying to and forwarding from the reader', () => {
     expect(
       gmail.requests.filter(({ path }) => path.includes('send')),
     ).toStrictEqual([]);
+  });
+
+  it('says when a long reply leaves no room for the quoted message, without offering Try Again', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      subject: 'Plans',
+      content: { text: 'Shall we meet on Friday?' },
+    });
+    const drafts = createDrafts(storage.native, registration);
+    const { native, asked } = scriptedDraftAssistance();
+    await render(
+      <AssistanceContext value={native}>
+        <ReaderApp
+          drafts={drafts}
+          gmail={gmail}
+          message={message}
+          registration={registration}
+        />
+      </AssistanceContext>,
+    );
+    await press('Reply');
+    await press('Reply All');
+    await screen.findByLabelText('Subject');
+    const [draft] = draftsOf(drafts.getSnapshot());
+    ok(draft, 'Expected the reply Draft');
+    // The longest reply that is not refused as too long leaves no room for any quoted text.
+    const capture = (length: number) =>
+      captureDraftText(
+        'reply',
+        {
+          ...draft,
+          body: [{ kind: 'paragraph', spans: [{ text: 'a'.repeat(length) }] }],
+        },
+        { start: 0, end: 0 },
+      );
+    const longest = Array.from(
+      { length: 6000 },
+      (_, index) => 6000 - index,
+    ).find((length) => capture(length).issue === undefined);
+    ok(longest !== undefined, 'Expected a reply that is not too long');
+    expect(capture(longest).input).toBeUndefined();
+    const authored = 'a'.repeat(longest);
+    await fireEvent.changeText(screen.getByLabelText('Message body'), authored);
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    const refusal =
+      'Not enough of the quoted message can be read to suggest a reply. Your text is unchanged. If your reply is long, shorten it and choose Suggest Reply again.';
+    await chooseWritingTool('Suggest a reply to the quoted message');
+    await expect(screen.findByText(refusal)).resolves.toBeOnTheScreen();
+    expect(announce.mock.calls).toStrictEqual([[refusal]]);
+    expect(screen.queryByLabelText('Try Again to get writing help')).toBeNull();
+    expect(asked).toHaveLength(0);
   });
 
   it('shows a rejected response in scrolling content and permits retry', async () => {

@@ -132,7 +132,11 @@ function Refusal({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  let refusal = t('assistance.failed');
+  // Suggest Reply is refused without an issue when none of the quoted message fits beside the
+  // reply; a refusal offers no Try Again.
+  let refusal = t(
+    purpose === 'reply' ? 'assistance.replyNoContext' : 'assistance.failed',
+  );
   if (purpose === 'generate') {
     // A prompt has no images, so it is refused only for its length.
     if (issue !== undefined) {
