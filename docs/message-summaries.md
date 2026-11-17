@@ -106,8 +106,9 @@ operation uses Apple Private Cloud Compute yet; later slices of
 - The choice is saved with Mail Assistance Enablement, in the same Keychain item,
   so it has the same scope, stale-read fences, save state and purge on sign-out,
   Product Account deletion and device removal. An item saved before this change
-  reads as Private Cloud off. A save that fails leaves it off with **Couldn’t turn
-  on Private Cloud. It’s still off.** and the shared retry. Another Profile's
+  reads as Private Cloud off. A save that fails leaves it off with **Private Cloud
+  wasn’t turned on. The change wasn’t saved on this device. Choose Try Again to
+  turn it on.** and the shared **Try Again**. Another Profile's
   choice, including one made while that save was pending, never retries the
   failed turn-on. Later choices preserve a failed withdrawal.
 - Turning Mail Assistance off for a Profile also turns its Private Cloud off, so
