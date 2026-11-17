@@ -1057,7 +1057,7 @@
     "newMessage": "New Message",
     "saveDrafts": "Save Drafts",
     "listLocked": "Drafts are locked. Unlock your device and try again.",
-    "listFailed": "Drafts could not be opened. They have been kept.",
+    "listFailed": "Your Drafts didn’t open. They have been kept. Choose Try Again to open them again.",
     "unavailable": "This Draft is not available.",
     "loading": "Loading Draft",
     "badge": "DRAFT",
