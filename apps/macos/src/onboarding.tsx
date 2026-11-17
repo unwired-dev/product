@@ -84,6 +84,8 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   continue: { alignSelf: 'flex-start', minWidth: 160 },
+  // The 28pt button keeps the 36pt slot the page was laid out around, so nothing else moves.
+  continueSlot: { marginVertical: 4 },
   split: { flex: 1, flexDirection: 'row' },
   brandPanel: {
     width: 480,
@@ -325,7 +327,7 @@ export function Welcome({
                 </View>
               ))}
             </View>
-            <View style={styles.continue}>
+            <View style={[styles.continue, styles.continueSlot]}>
               <Button
                 disabled={restoring}
                 fill="brand"
