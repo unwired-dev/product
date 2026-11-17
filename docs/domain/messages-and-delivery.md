@@ -135,7 +135,7 @@ An on-device autocomplete candidate derived from recent local correspondence and
 _Avoid_: Backend contact, uploaded address query
 
 **Body Recipient Shortcut**:
-Typing @ in the authored body to choose a person from **Recipient Suggestions**, adding them to the Draft's recipients from where the message is written. Behavior is in [Drafts](../drafts.md#composing).
+Typing @ in the authored body to choose a person from **Recipient Suggestions**, adding them to the Draft's recipients from where the message is written. It ships on the Mac first; iPhone and iPad follow. Behavior is in [Drafts](../drafts.md#composing).
 _Avoid_: Mention, @-mention, tagging
 
 **Raw Message Source**:

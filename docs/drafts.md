@@ -188,7 +188,9 @@ transport and known native exit gaps.
   empty paragraph and the caret, as one edit that one Undo reverts. A space,
   Escape, a caret move or leaving the body closes the suggestions and keeps the
   typed text. People already on the Draft, nonempty bodies and iPhone and iPad
-  are later slices.
+  are later slices. Native code reads Apple Contacts and places the menu under
+  the @; `@private-email/mail-core` owns the query, matching, greeting and the
+  combined body and To edit.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The format bar applies marks to

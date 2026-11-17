@@ -782,7 +782,9 @@ function SuggestionMenu({
         />
       </View>
       {none && empty !== undefined ? (
-        <Text style={[styles.suggestionEmpty, { color: colors.textSecondary }]}>
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.suggestionEmpty, { color: colors.textSecondary }]}>
           {empty}
         </Text>
       ) : null}
@@ -856,7 +858,9 @@ function SuggestionMenu({
         ),
       )}
       {note === undefined ? null : (
-        <Text style={[styles.suggestionNote, { color: colors.textSecondary }]}>
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.suggestionNote, { color: colors.textSecondary }]}>
           {note}
         </Text>
       )}
@@ -2439,7 +2443,10 @@ function useBodyRecipients(
       const typed = bodyRecipientQuery(next, caret);
       if (inserted === '@' && typed?.text === '') {
         arm(typed.start);
-      } else if (typed?.start !== armedNow.current) {
+      } else if (typed?.start === armedNow.current) {
+        // The list changed, so the highlight starts over.
+        setChosen(0);
+      } else {
         arm(undefined);
       }
     },

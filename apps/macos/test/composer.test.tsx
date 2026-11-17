@@ -2146,6 +2146,17 @@ describe('composing Drafts', () => {
           name: 'Andrea Novak, andrea@northwind.invalid',
         }),
       ).toBeOnTheScreen();
+      // Typing on moves the highlight back to the first suggestion.
+      await fireEvent(body(), 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+      await type('@and');
+      expect(
+        screen.getByRole('button', {
+          name: 'Anders Berg, anders@example.invalid',
+        }),
+      ).toHaveProp(
+        'accessibilityState',
+        expect.objectContaining({ selected: true }),
+      );
       await type('@ana@example.invalid');
       expect(
         screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
@@ -2278,6 +2289,21 @@ describe('composing Drafts', () => {
         }),
       ).resolves.toBeOnTheScreen();
       expect(screen.queryByText(note)).toBeNull();
+
+      // A click chooses too.
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Andrea Novak, andrea@northwind.invalid',
+        }),
+      );
+      expect(
+        shownBody().map((spans) => spans.map(({ text }) => text).join('')),
+      ).toStrictEqual(['Hi Andrea Novak,', '', '']);
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Andrea Novak <andrea@northwind.invalid>',
+        }),
+      ).toBeOnTheScreen();
     } finally {
       modules.mockRestore();
       Object.assign(appleContacts, {
