@@ -2272,9 +2272,19 @@ describe('composing Drafts', () => {
       const note =
         'Contacts couldn’t be searched. Showing people from recent mail.';
       await expect(screen.findByText(note)).resolves.toBeOnTheScreen();
-      expect(
+      const announced = jest.mocked(
         AccessibilityInfo.announceForAccessibilityWithOptions,
-      ).toHaveBeenLastCalledWith(note, { queue: true });
+      );
+      expect(announced).toHaveBeenLastCalledWith(note, { queue: true });
+      // Each status is heard once as it appears, not again beside the other.
+      await type('@anz');
+      await type('@an');
+      expect(
+        announced.mock.calls.filter(([words]) => words === note),
+      ).toHaveLength(1);
+      expect(announced).toHaveBeenLastCalledWith('No Matches', {
+        queue: true,
+      });
       expect(
         screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
       ).toBeOnTheScreen();

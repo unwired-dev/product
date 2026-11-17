@@ -769,10 +769,8 @@ function SuggestionMenu({
   const none = sections.recent.length + sections.contacts.length === 0;
   // VoiceOver hears No Matches and the note once each appears, after the typed character, since
   // macOS ignores live regions.
-  const status = [none ? empty : undefined, note]
-    .filter((words) => words !== undefined)
-    .join(' ');
-  useOutcomeAnnouncement(status === '' ? undefined : status, true);
+  useOutcomeAnnouncement(none ? empty : undefined, true);
+  useOutcomeAnnouncement(note, true);
   return (
     <View
       accessibilityLabel={t('drafts.suggestions.title')}
