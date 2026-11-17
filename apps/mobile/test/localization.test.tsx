@@ -141,7 +141,7 @@ describe('language selection', () => {
     const first = within(app.getByTestId('first'));
     await choose(first, 'System Default');
     await expect(first.findByRole('alert')).resolves.toHaveTextContent(
-      'The language could not be saved. Try again.',
+      'The language wasn’t changed. Choose it again.',
     );
     expect(itemOf(first, 'English').checked).toBe(true);
     await choose(first, 'System Default');
