@@ -602,14 +602,15 @@ export function FloatingBar({
       : Math.max(spacing.l - insets.bottom, 0) + lift;
   // Beside a shown sidebar the frames center the control, a gap and the field together in the
   // window, the control starting no further left than the list's content and truncating before.
-  // Elsewhere, or where they cannot fit, the field centers alone.
+  // Elsewhere, or where the switch, a 44pt summary and the control's padding cannot fit, the field
+  // centers alone.
   const room =
     width - 2 * listContentEdge - styles.field.width - styles.windowBar.gap;
   const grouped =
     centered &&
     leading !== null &&
     sidebar?.shown === true &&
-    room >= barHeight;
+    room >= barHeight + 44 + spacing.l;
   const content = (
     <>
       <View

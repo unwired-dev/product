@@ -700,6 +700,11 @@ describe('preview Inbox', () => {
       expect(filterControl().side).not.toHaveStyle({ flex: 0 });
       expect(filterControl().glass).not.toHaveStyle({ maxWidth: 180 });
       await app.rerender(<WindowJourney shown />);
+      // 56pt would leave the summary that opens Filters no room beside the switch.
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 1070, height: 834 } });
+      });
+      expect(filterControl().side).not.toHaveStyle({ flex: 0 });
       await act(() => {
         Dimensions.set({ window: { ...window, width: 834, height: 1194 } });
       });
