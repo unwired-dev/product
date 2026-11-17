@@ -51,7 +51,7 @@ export const barHeight = 48;
 const listContentEdge = 286 + 1 + spacing.l;
 
 // How wide the leading control may grow while it centers with the field beside a shown sidebar.
-const LeadingRoomContext = createContext<number | undefined>(undefined);
+export const LeadingRoomContext = createContext<number | undefined>(undefined);
 
 const styles = StyleSheet.create({
   newMessage: {

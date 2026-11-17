@@ -24,8 +24,9 @@ load was 77–175 from other work.
   field center together in the 1210pt window; New Message stays at the trailing
   edge. Before the layout fix the control started at x270, under the sidebar.
 - The Filters popover's leading edge is on the control's, above the bar.
-- Portrait, with the sidebar hidden, keeps the field centered alone; the journey's
-  portrait steps passed unchanged.
+- Portrait, with the sidebar hidden, keeps the field centered alone, and the
+  popover stays centered on the control (title midX 220 for a control from x149.5)
+  rather than leading-aligned; the journey's portrait steps passed unchanged.
 - There is no German catalog yet, so German was not run; the control's width is
   capped at the room beside the sidebar, and the summary truncates for any
   length.

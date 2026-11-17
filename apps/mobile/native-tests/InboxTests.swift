@@ -4128,6 +4128,10 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = .portrait
       waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
       XCTAssertTrue(apply.waitForExistence(timeout: 5))
+      // With the sidebar hidden the popover centers on the control, as before #2086.
+      let portrait = app.staticTexts["Filters"].firstMatch.frame
+      print("#2086 portrait control \(toggle.frame) popover title \(portrait)")
+      XCTAssertNotEqual(portrait.midX - 210, toggle.frame.minX, accuracy: 8)
     }
     unread.tap()
     today.tap()
