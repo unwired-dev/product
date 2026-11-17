@@ -2314,6 +2314,8 @@ export function createDrafts(
       return yield* ownerMismatch();
     }
     copied.delete(draft.id);
+    // This record replaces any a forget kept for Draft `draft.id`.
+    withheld.delete(draft.id);
     if (unrecorded.get(draft.id) === draft) {
       unrecorded.delete(draft.id);
     }
