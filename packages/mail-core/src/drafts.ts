@@ -417,7 +417,7 @@ export type BodyRecipientQuery = Readonly<{
 }>;
 
 // The query at a caret: an @ at a paragraph start or after whitespace, then text without
-// whitespace or another @, outside code. An @ inside an email address or a word starts none.
+// whitespace, such as an address, outside code. An @ inside an email address or a word starts none.
 export function bodyRecipientQuery(
   body: SemanticDocument,
   selection: Selection,
@@ -426,9 +426,8 @@ export function bodyRecipientQuery(
     return undefined;
   }
   const { lines, text } = displayOf(body);
-  const typed = /(?:^|\s)@(?<typed>[^\s@]*)$/u.exec(
-    text.slice(0, selection.end),
-  )?.groups?.typed;
+  const typed = /(?:^|\s)@(?<typed>\S*)$/u.exec(text.slice(0, selection.end))
+    ?.groups?.typed;
   if (typed === undefined) {
     return undefined;
   }

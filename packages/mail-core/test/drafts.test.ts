@@ -1170,7 +1170,12 @@ describe('entering Draft recipients', () => {
     // Never inside an address or a word, after whitespace, or in code.
     expect(at(lines('ana@ex'), 6)).toBeUndefined();
     expect(at(lines('@an a'), 5)).toBeUndefined();
-    expect(at(lines('@a@b'), 4)).toBeUndefined();
+    // A typed address keeps the query.
+    expect(at(lines('@a@b'), 4)).toStrictEqual({
+      start: 0,
+      end: 4,
+      text: 'a@b',
+    });
     expect(at([{ kind: 'code', spans: [{ text: '@an' }] }], 3)).toBeUndefined();
     expect(
       at([{ kind: 'paragraph', spans: [{ text: '@an', marks: ['code'] }] }], 3),

@@ -2146,6 +2146,10 @@ describe('composing Drafts', () => {
           name: 'Andrea Novak, andrea@northwind.invalid',
         }),
       ).toBeOnTheScreen();
+      await type('@ana@example.invalid');
+      expect(
+        screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).toBeOnTheScreen();
       await type('@anz');
       expect(screen.getByText('No Matches')).toBeOnTheScreen();
       await type('@anz ');
