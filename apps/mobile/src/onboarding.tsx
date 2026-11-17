@@ -265,10 +265,7 @@ const styles = StyleSheet.create({
   brandDescription: { ...textStyles.body, textAlign: 'left' },
   // iPad's brand card uses the onboarding sizes: 13.8pt gaps and tile corners, a tile in the well,
   // a Title 1 heading and the description at 80%.
-  ipadBrandCard: {
-    gap: spacing.m * ipadListScale,
-    padding: 2 * spacing.m * ipadListScale,
-  },
+  ipadBrandCard: { gap: spacing.m * ipadListScale },
   ipadBrandCardHeader: { gap: spacing.m * ipadListScale },
   ipadBrandIconTile: {
     borderRadius: spacing.m * ipadListScale,
