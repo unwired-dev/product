@@ -8,6 +8,7 @@ import type { Registration } from './registration.ts';
 import { runLogged } from './diagnostics.ts';
 import { malformed, native, ownerMismatch } from './draft-native.ts';
 import { ownerOf } from './drafts.ts';
+import { createSubscribable } from './subscribable.ts';
 
 // A Pin: the Mailbox Connection, the Thread's identity in it and when it was pinned, in
 // milliseconds since the epoch. The Thread is the provider's conversation, or one message that has
@@ -54,6 +55,15 @@ const report = (
     ? Effect.void
     : Effect.logError('Pin storage failed:', error.diagnostic);
 
+// The Thread a message is pinned as: its provider conversation, or the message itself when it has
+// none, as an IMAP message.
+export const pinnedThread = (
+  message: Readonly<{ id: string; threadId?: string }>,
+) =>
+  message.threadId === undefined || message.threadId === ''
+    ? message.id
+    : message.threadId;
+
 const isPin = (connection: string, thread: string) => (pin: Pin) =>
   pin.connection === connection && pin.thread === thread;
 
@@ -64,6 +74,8 @@ export function createPins(
   registration: Pick<Registration, 'getSnapshot'>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  // Counts stored changes, so hosts read the Pins again after each.
+  const changes = createSubscribable(0);
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The Pins of `account`, the Product Account signed in when the action was called, so an action
   // that waited, or whose read finished, while another account signed in reads and writes nothing
@@ -108,6 +120,7 @@ export function createPins(
         if (committed.owner !== owner) {
           return yield* ownerMismatch();
         }
+        changes.set(changes.getSnapshot() + 1);
         return true;
       }).pipe(
         semaphore.withPermit,
@@ -120,6 +133,8 @@ export function createPins(
   };
 
   return {
+    // Calls `listener` after each Pin or Unpin storage keeps.
+    subscribe: changes.subscribe,
     // The Pins of `connections`, such as a Mail Profile's, or undefined while storage cannot read
     // them.
     pins: (connections: readonly string[]) =>

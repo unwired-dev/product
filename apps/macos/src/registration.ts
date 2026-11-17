@@ -13,6 +13,7 @@ export {
   mailTemplates,
   sendReminders,
   blockedSenders,
+  pins,
   inboxPreferences,
   outbox,
   wakes,

@@ -12,6 +12,7 @@ import {
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
+import { createPins } from '@private-email/mail-core/pins';
 import {
   createRegistration,
   mailboxesOf,
@@ -58,6 +59,7 @@ import type { usePalette } from '../src/theme.ts';
 
 import { BlockedSendersContext } from '../src/blocked-senders.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { PinsContext } from '../src/pins.tsx';
 import { profileChoices } from '../src/profile-choices.ts';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import {
@@ -1782,9 +1784,10 @@ describe('mac windows over a connected Gmail mailbox', () => {
     for (const window of [first, second]) {
       expect(window.queryByRole('button', { name: 'Archive' })).toBeNull();
       expect(window.queryByRole('button', { name: 'Folders' })).toBeNull();
+      // Pin is product state, so it does not wait for Gmail access.
       expect(window.getByRole('button', { name: maya })).toHaveProp(
         'accessibilityActions',
-        [],
+        [{ name: 'pin', label: 'Pin' }],
       );
     }
     await act(async () => {
@@ -1962,7 +1965,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       // Issue #905 requires destructive actions last, superseding the Mac frame's grouping.
       expect(menuSections(contextMenuOf(row))).toStrictEqual([
         ['Archive'],
-        ['Mark as Read'],
+        ['Mark as Read', 'Pin'],
         ['Delete'],
       ]);
       await fireEvent.press(row);
@@ -1990,7 +1993,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
           within(received).getByText(/UTC$/u).props.selectable === true,
       }).toStrictEqual({ selectableDate: false });
       expect(menuSections(message)).toStrictEqual([
-        ['Mark as Unread'],
+        ['Mark as Unread', 'Pin'],
         [['Move to…', ['Travel']], 'Delete'],
       ]);
       await chooseFromMenu(message, 'Delete');
@@ -2109,6 +2112,151 @@ describe('mac windows over a connected Gmail mailbox', () => {
     } finally {
       await app.unmount();
     }
+  });
+
+  it('pins and unpins a Thread from the reader, its rows and the Command Palette without changing the provider', async () => {
+    /* oxlint-disable vitest/max-expects -- One journey proves each surface and the refused write. */
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const first = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+      unread: false,
+      at: Date.now() - 60_000,
+    });
+    const reply = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Re: Saturday, by the river?',
+      unread: false,
+      thread: first,
+    });
+    const { registration } = await connectedRegistration();
+    // Pin storage on this device, which refuses the first write and accepts the rest.
+    const saved = { revision: 0, document: null as string | null };
+    const commitPins = jest
+      .fn<
+        Promise<{ owner: string; revision: number }>,
+        [string, number, string]
+      >()
+      .mockRejectedValueOnce(
+        Object.assign(new Error('conflict'), { code: 'conflict' }),
+      )
+      .mockImplementation((owner, revision, document) => {
+        Object.assign(saved, { revision: revision + 1, document });
+        return Promise.resolve({ owner, revision: saved.revision });
+      });
+    const pins = createPins(
+      {
+        openPins: () =>
+          Promise.resolve({
+            owner: ownerOf(registration.getSnapshot().snapshot),
+            ...saved,
+          }),
+        commitPins,
+      },
+      registration,
+    );
+    showMailboxes(
+      createMailboxes(
+        syntheticConnections({ [alex]: { native: gmail.native } }),
+        registration,
+      ),
+    );
+    const app = await render(
+      <PinsContext value={pins}>
+        <RegistrationGate
+          store={started(registration)}
+          preview={false}>
+          <InboxWindow windowId="first" />
+        </RegistrationGate>
+      </PinsContext>,
+    );
+    const row = 'Oliver Park. Saturday, by the river?';
+    const replyRow = 'Oliver Park. Re: Saturday, by the river?';
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      const press = async (name: string) => {
+        await act(async () => {
+          await fireEvent.press(await window.findByRole('button', { name }));
+        });
+      };
+      expect(
+        menuSections(
+          contextMenuOf(await window.findByRole('button', { name: row })),
+        ),
+      ).toStrictEqual([['Archive'], ['Mark as Unread', 'Pin'], ['Delete']]);
+      await press(row);
+      // A Pin storage refuses changes nothing and says so.
+      await press('Pin');
+      await waitFor(() => {
+        expect(sheetShown()).toMatchObject({
+          title: 'This Thread couldn’t be pinned',
+          detail:
+            'The change wasn’t saved on this device, so nothing changed. Try again.',
+        });
+      });
+      await act(async () => {
+        chooseSheetButton('OK');
+      });
+      await expect(pins.pins([alex])).resolves.toStrictEqual([]);
+      expect(
+        window.queryByRole('button', { name: `${row}. Pinned` }),
+      ).toBeNull();
+
+      // Pin pins the Thread: both its messages show the marker, and the reader offers Unpin.
+      await press('Pin');
+      await expect(
+        window.findByRole('button', { name: `${replyRow}. Pinned` }),
+      ).resolves.toBeVisible();
+      expect(
+        window.getByRole('button', { name: `${row}. Pinned` }),
+      ).toBeVisible();
+      await expect(pins.pins([alex])).resolves.toMatchObject([
+        { connection: alex, thread: first },
+      ]);
+      expect(window.getByRole('button', { name: 'Unpin' })).toBeVisible();
+      expect(
+        menuSections(
+          contextMenuOf(
+            window.getByRole('button', { name: `${replyRow}. Pinned` }),
+          ),
+        ),
+      ).toStrictEqual([['Archive'], ['Mark as Unread', 'Unpin'], ['Delete']]);
+      // The provider's star and labels stay as they were.
+      expect([
+        ...gmail.labelsOf(first),
+        ...gmail.labelsOf(reply),
+      ]).not.toContain('STARRED');
+
+      // Unpin from the reply's row unpins the whole Thread.
+      await chooseFromMenu(
+        contextMenuOf(
+          window.getByRole('button', { name: `${replyRow}. Pinned` }),
+        ),
+        'Unpin',
+      );
+      await expect(
+        window.findByRole('button', { name: row }),
+      ).resolves.toBeVisible();
+      expect(window.getByRole('button', { name: replyRow })).toBeVisible();
+      await expect(pins.pins([alex])).resolves.toStrictEqual([]);
+
+      // The Command Palette pins the open message's Thread too.
+      await press('Open Command Palette');
+      await act(async () => {
+        await fireEvent.press(
+          within(window.getByTestId('command-palette')).getByRole('button', {
+            name: 'Pin',
+          }),
+        );
+      });
+      await expect(
+        window.findByRole('button', { name: `${row}. Pinned` }),
+      ).resolves.toBeVisible();
+    } finally {
+      await app.unmount();
+    }
+    /* oxlint-enable vitest/max-expects */
   });
 
   it('adds, removes and creates Gmail labels from the reader’s More menu and moves from its folder menu', async () => {

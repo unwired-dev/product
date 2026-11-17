@@ -1,4 +1,5 @@
 import type { Translate } from '@private-email/localization';
+import type { CommandTarget } from '@private-email/mail-core/commands';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type {
   ImapAction,
@@ -73,6 +74,7 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
+import { usePinAction, usePinned } from './pins.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
@@ -146,6 +148,8 @@ const icons: Readonly<Record<string, string>> = {
   trash: 'trash',
   spam: 'xmark.bin',
   restore: 'tray.and.arrow.down',
+  pin: 'pin',
+  unpin: 'pin.slash',
 };
 
 // The message a reader last marked read on opening, and its mailbox's store, kept above the
@@ -270,16 +274,48 @@ const named = <Action,>(
       },
     }));
 
-// The toolbar groups, with the Move control after Archive and Delete, and the More menu last.
+// Pin or Unpin for the reader's message: its Thread in the reader's Mailbox Connection.
+type PinAction = Named &
+  Readonly<{ name: 'pin' | 'unpin'; target: CommandTarget }>;
+
+// Pin or Unpin for a message of the reader's mailbox; a failure is explained in a sheet on `anchor`.
+function usePinFor(anchor: RefObject<View | null>) {
+  const mailbox = useMailbox();
+  const pinned = usePinned(mailbox === undefined ? [] : [mailbox.id]);
+  const action = usePinAction(anchor);
+  return (
+    message: Readonly<{ id: string; subject: string; threadId?: string }>,
+  ): PinAction | undefined => {
+    if (mailbox === undefined) {
+      return undefined;
+    }
+    const { name, label, run } = action(
+      mailbox.id,
+      message,
+      pinned(mailbox.id, message),
+    );
+    return {
+      name,
+      label,
+      onPress: run,
+      target: commandTarget(mailbox.id, message),
+    };
+  };
+}
+
+// The toolbar groups, with the Move control after Archive and Delete, then the response actions,
+// and Pin first in the last group, before the More menu.
 function Toolbar({
   actions,
   move,
+  pin,
   more,
   children,
   ref,
 }: {
   readonly actions: readonly Named[];
   readonly move?: ReactNode;
+  readonly pin?: PinAction | undefined;
   readonly more: readonly PopUpItem[];
   readonly children: ReactNode;
   // The view a sheet asked from the toolbar attaches to.
@@ -312,7 +348,22 @@ function Toolbar({
         </GlassGroup>
       )}
       {children}
+      {pin === undefined ? null : (
+        <RegisterCommands
+          offer={() =>
+            organizeCommands(t, {
+              target: pin.target,
+              actions: [{ name: pin.name, label: pin.label, action: pin }],
+              act: ({ onPress }) => {
+                onPress();
+              },
+              destinations: [],
+            })
+          }
+        />
+      )}
       <GlassGroup style={styles.group}>
+        {pin === undefined ? null : button(pin)}
         {rest.map(button)}
         {more.length === 0 ? null : (
           <PopUp
@@ -475,6 +526,8 @@ function ImapMessageActions({
   const state = useInbox();
   const { t } = useLocalization();
   const mailbox = useMailbox();
+  const anchor = useRef<View>(null);
+  const pinFor = usePinFor(anchor);
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
@@ -524,7 +577,9 @@ function ImapMessageActions({
         }
       />
       <Toolbar
+        ref={anchor}
         actions={buttons}
+        pin={pinFor(message)}
         move={
           folders.length === 0 ? undefined : (
             <MoveMenu
@@ -562,6 +617,7 @@ function GmailMessageActions({
   const mailbox = useMailbox();
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
+  const pinFor = usePinFor(anchor);
   const failure = useRef<ReturnType<typeof askInSheet>>(undefined);
   useEffect(
     () => () => {
@@ -691,6 +747,7 @@ function GmailMessageActions({
       <Toolbar
         ref={anchor}
         actions={buttons}
+        pin={pinFor(message)}
         move={
           <MoveMenu
             target={target}

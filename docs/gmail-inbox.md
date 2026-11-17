@@ -515,12 +515,26 @@ Inbox rows and the reader also offer native context menus: long-press on iPhone 
 iPad, secondary click with an iPad pointer, and right-click or Control-click on the
 Mac. A row's menu lists the row's own actions in the design's order: **Archive**
 (or **Move to Inbox** in Trash and Spam),
-**Mark as Read** or **Mark as Unread**,
+**Mark as Read** or **Mark as Unread**, on the Mac **Pin** or **Unpin**,
 and, outside Trash and Spam, **Delete** (to Trash), placed last on every platform.
 Move to Spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state,
-**Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
-the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
+on the Mac **Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
+the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)).
+
+### Pins
+
+On the Mac, **Pin** pins the message's **Thread** in its Mailbox Connection
+([#2280](https://github.com/unwired-dev/product/issues/2280)): Gmail's thread, Microsoft's
+conversation, or an IMAP message on its own. The reader toolbar's last group starts with
+**Pin**, or **Unpin** for a pinned Thread; the row and reader menus, VoiceOver's row actions
+and the [Command Palette](command-palette.md) offer the same. Every row of a pinned Thread
+shows `pin.fill` in `status/warning` before its date, and VoiceOver says Pinned. A Pin is
+stored on this device through `@private-email/mail-core/pins`, works offline, never waits
+for or changes the provider, and is offered while provider actions are not; a change
+storage refuses changes nothing and says This Thread couldn't be pinned (or unpinned). The
+Pins mailbox, synchronization and iPhone and iPad follow in
+[#2084](https://github.com/unwired-dev/product/issues/2084). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.

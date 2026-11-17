@@ -46,7 +46,11 @@
     "rowLabel": "{{row}}",
     "rowLabel_mailbox": "{{row}}. In {{mailbox}}",
     "rowLabel_status": "{{row}}. {{status}}",
-    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}"
+    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}",
+    "rowLabel_pinned": "{{row}}. Pinned",
+    "rowLabel_pinned_mailbox": "{{row}}. Pinned. In {{mailbox}}",
+    "rowLabel_pinned_status": "{{row}}. Pinned. {{status}}",
+    "rowLabel_pinned_mailbox_status": "{{row}}. Pinned. In {{mailbox}}. {{status}}"
   },
   "common": {
     "retry": "Try Again",
@@ -1452,6 +1456,8 @@
       "star": "flag favorite",
       "unstar": "unflag",
       "move": "folder label file",
+      "pin": "keep mark favorite",
+      "unpin": "remove mark",
       "compose": "write new mail email",
       "search": "find filter",
       "inbox": "home mail messages back",
@@ -1511,6 +1517,8 @@
     "trash": "Delete",
     "read": "Mark as Read",
     "unread": "Mark as Unread",
+    "pin": "Pin",
+    "unpin": "Unpin",
     "moveTo": "Move to…",
     "spam": "Move to Spam",
     "openLink": "Open Link",
@@ -1688,5 +1696,10 @@
     "footer_ipad": "This iPad moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "none": "No Blocked Senders. Block one from the sender’s name in a message.",
     "unavailable": "This device couldn’t read your Blocked Senders. To try again, leave Blocked Senders and open it again."
+  },
+  "pins": {
+    "pinFailed": "This Thread couldn’t be pinned",
+    "unpinFailed": "This Thread couldn’t be unpinned",
+    "tryAgain": "The change wasn’t saved on this device, so nothing changed. Try again."
   }
 }

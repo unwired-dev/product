@@ -436,7 +436,8 @@ the [Command Palette](command-palette.md) offers **Star** and **Remove Star**: n
 toolbar, menu, row action or row marker shows it, and the folder chooser names a
 virtual `\Flagged` folder's role Starred. A flag set or cleared elsewhere arrives with
 the next synchronization. Starring keeps the reader open and offers no Undo, like a
-read-state change.
+read-state change. On the Mac, **Pin** is the product's own marker, never `\Flagged`: an
+IMAP message is pinned as its own Thread ([Pins](gmail-inbox.md#pins)).
 The folder listing keeps the server's hierarchy delimiter, so the Move picker nests
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
 unavailable.

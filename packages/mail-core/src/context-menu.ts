@@ -175,6 +175,8 @@ export const messageContextMenu = (
       items: items([
         ['read', t('contextMenu.read'), 'envelope.open'],
         ['unread', t('contextMenu.unread'), 'envelope.badge'],
+        ['pin', t('contextMenu.pin'), 'pin'],
+        ['unpin', t('contextMenu.unpin'), 'pin.slash'],
       ]),
     },
     {
@@ -222,6 +224,8 @@ export const rowContextMenu = (
       items: menuItems([
         ['read', t('contextMenu.read'), 'envelope.open'],
         ['unread', t('contextMenu.unread'), 'envelope.badge'],
+        ['pin', t('contextMenu.pin'), 'pin'],
+        ['unpin', t('contextMenu.unpin'), 'pin.slash'],
       ]),
     },
     { items: menuItems([['trash', t('contextMenu.trash'), 'trash']]) },

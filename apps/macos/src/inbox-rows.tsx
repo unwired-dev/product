@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 
-import { ContextMenu } from './design.tsx';
+import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import {
@@ -44,6 +44,7 @@ export function MessageRow({
   mailbox,
   status,
   selected,
+  pinned = false,
   onSelect,
   actions = noActions,
   now,
@@ -55,6 +56,8 @@ export function MessageRow({
   // Whether a search result's body is saved on this device, once known.
   readonly status: string | undefined;
   readonly selected: boolean;
+  // Whether its Thread is pinned.
+  readonly pinned?: boolean | undefined;
   readonly onSelect: () => void;
   // The organizing actions its provider offers, as accessibility actions.
   readonly actions?: readonly RowAction[] | undefined;
@@ -74,6 +77,7 @@ export function MessageRow({
   const inset = sidebarInset();
   const label = t('inbox.rowLabel', {
     context: [
+      pinned ? 'pinned' : undefined,
       mailbox === undefined ? undefined : 'mailbox',
       status === undefined ? undefined : 'status',
     ]
@@ -133,6 +137,13 @@ export function MessageRow({
                 numberOfLines={1}>
                 {message.sender}
               </Text>
+              {pinned ? (
+                <SFSymbol
+                  name="pin.fill"
+                  size={11}
+                  color={selected ? colors.accentOnFill : colors.statusWarning}
+                />
+              ) : null}
               <Text
                 numberOfLines={1}
                 style={[styles.date, { color: secondaryColor }]}>

@@ -90,6 +90,7 @@ import {
   forgetRetired,
   useOutboxActions,
 } from './outbox.tsx';
+import { usePinAction, usePinned } from './pins.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { checking, offline, SyncStatusCapsule } from './sync-status.tsx';
 import { usePalette } from './theme.ts';
@@ -786,6 +787,10 @@ export function Inbox({
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
+  // The view a Pin or Unpin that storage refused explains itself on.
+  const pinAnchor = useRef<View>(null);
+  const pinned = usePinned(mailboxes.map(({ id }) => id));
+  const pinAction = usePinAction(pinAnchor);
   const leave = useLeaveComposer();
   const select = async (selection: Selection) => {
     if (onSelectBehindComposer !== undefined) {
@@ -981,17 +986,21 @@ export function Inbox({
     if (state.kind !== 'ready') {
       return [];
     }
+    const pin = pinAction(mailbox.id, message, pinned(mailbox.id, message));
     if ('openFolder' in inbox && 'imap' in state && 'folder' in message) {
-      return imapQuickActions(t, message, state).map(
-        ({ name, label, action }) => ({
-          name,
-          label,
-          run: () => {
-            leaving('destination' in action);
-            void inbox.organize(message, action);
-          },
-        }),
-      );
+      return [
+        pin,
+        ...imapQuickActions(t, message, state).map(
+          ({ name, label, action }) => ({
+            name,
+            label,
+            run: () => {
+              leaving('destination' in action);
+              void inbox.organize(message, action);
+            },
+          }),
+        ),
+      ];
     }
     if (
       'resolvePending' in inbox &&
@@ -999,28 +1008,31 @@ export function Inbox({
       state.organize &&
       'threadId' in message
     ) {
-      return quickActions(t, message, {
-        provider: mailbox.provider ?? 'gmail',
-        unavailableActions: state.unavailableActions,
-        view: listedIn,
-      }).map(({ name, label, action }) => ({
-        name,
-        label,
-        run: () => {
-          leaving(
-            leavesView(
-              gmailViewName(
-                state,
-                selected?.folder ?? inboxFolder,
-                mailbox.provider,
+      return [
+        pin,
+        ...quickActions(t, message, {
+          provider: mailbox.provider ?? 'gmail',
+          unavailableActions: state.unavailableActions,
+          view: listedIn,
+        }).map(({ name, label, action }) => ({
+          name,
+          label,
+          run: () => {
+            leaving(
+              leavesView(
+                gmailViewName(
+                  state,
+                  selected?.folder ?? inboxFolder,
+                  mailbox.provider,
+                ),
+                message.labels ?? [],
+                action,
               ),
-              message.labels ?? [],
-              action,
-            ),
-          );
-          void inbox.organize(message, action);
-        },
-      }));
+            );
+            void inbox.organize(message, action);
+          },
+        })),
+      ];
     }
     return [];
   };
@@ -1097,7 +1109,10 @@ export function Inbox({
             </View>
           </View>
         </View>
-        <View style={styles.notices}>
+        <View
+          ref={pinAnchor}
+          collapsable={false}
+          style={styles.notices}>
           {failure === undefined ? null : (
             <Notice
               icon="exclamationmark.triangle"
@@ -1258,6 +1273,7 @@ export function Inbox({
                       : undefined
                   }
                   message={item.message}
+                  pinned={pinned(item.mailbox.id, item.message)}
                   actions={
                     section.key === 'gmail'
                       ? undefined
