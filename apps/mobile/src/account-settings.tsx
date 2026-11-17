@@ -13,12 +13,19 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 
-import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  Host,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
 import {
   buttonStyle,
+  controlSize,
+  disabled as inactive,
   font,
   foregroundStyle,
   frame,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import {
@@ -53,7 +60,7 @@ import { useLocalization } from './localization.ts';
 import { MailAssistanceSettings } from './mail-assistance.tsx';
 import { updatedOf, useAllMailboxes, useNow } from './mailbox-state.ts';
 import { NotificationSettings } from './notification-settings.tsx';
-import { OnboardingAction, TrustCard } from './onboarding.tsx';
+import { TrustCard } from './onboarding.tsx';
 import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
@@ -551,15 +558,29 @@ function StepAction({
   readonly disabled?: boolean;
 }) {
   const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const colors = usePalette();
   return (
-    <OnboardingAction
-      disabled={busy || disabled}
-      fill="onDeep"
-      label={label}
-      onPress={() => {
-        void action();
-      }}
-    />
+    <Host matchContents={{ vertical: true }}>
+      <SwiftUIButton
+        modifiers={[
+          buttonStyle('borderedProminent'),
+          controlSize('large'),
+          tint(colors.brandOnDeep),
+          inactive(busy || disabled),
+        ]}
+        onPress={() => {
+          void action();
+        }}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'headline' }),
+            foregroundStyle(colors.brandDeep),
+            frame({ maxWidth: Infinity }),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
   );
 }
 
@@ -757,7 +778,7 @@ function PrivateSync({
           label={t('recoveryKeyConfirmation.confirm')}
           action={() => store.confirmRecoveryKey(entry)}
           store={store}
-          // The frames draw Confirm disabled until the last four characters are entered.
+          // The frames draw Confirm disabled until a character is entered.
           disabled={entry === ''}
         />
         {notes}

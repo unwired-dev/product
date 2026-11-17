@@ -192,8 +192,6 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   regularSignInAction: { minHeight: 46, maxWidth: 368 },
-  // A trust step's action spans its 480pt column.
-  regularDeepAction: { maxWidth: undefined },
   actionLabel: { ...textStyles.headline },
   ipadActionLabel: { ...typography.ipadList.body },
   ipadAppleLabel: { ...typography.ipadList.title3Emphasized },
@@ -630,8 +628,7 @@ export function FinePrint({ children }: { readonly children: string }) {
   );
 }
 
-// A full-width onboarding action: Welcome's brand Continue, Sign in with Apple's black, a trust
-// step's white action on brand deep, or quiet.
+// A full-width onboarding action: Welcome's brand Continue, Sign in with Apple's black, or quiet.
 export function OnboardingAction({
   label,
   onPress,
@@ -640,19 +637,18 @@ export function OnboardingAction({
 }: {
   readonly label: string;
   readonly onPress: () => void;
-  readonly fill: 'brand' | 'apple' | 'onDeep' | 'quiet';
+  readonly fill: 'brand' | 'apple' | 'quiet';
   readonly disabled?: boolean;
 }) {
   const colors = usePalette();
   const fills = {
     brand: [colors.brandSeal, colors.brandOnSeal],
     apple: [colors.appleButton, colors.appleOnButton],
-    onDeep: [colors.brandOnDeep, colors.brandDeep],
     // iPhone's secondary action is outlined, with no fill.
     quiet: [ipad ? colors.fillQuiet : 'transparent', colors.textPrimary],
   } as const;
   const [background, ink] = fills[fill];
-  // Pressed, the filled actions show at 80% (CC) and the quiet fill takes the selection tint.
+  // Pressed, the Brand and Apple fills show at 80% (CC) and the quiet fill takes the selection tint.
   const pressedFill =
     fill === 'quiet' ? colors.accentSelectionSubtle : `${background}CC`;
   return (
@@ -669,7 +665,6 @@ export function OnboardingAction({
         styles.action,
         ipad && styles.regularAction,
         ipad && fill !== 'brand' && styles.regularSignInAction,
-        ipad && fill === 'onDeep' && styles.regularDeepAction,
         ipad && fill === 'apple' && styles.regularAppleAction,
         fill === 'quiet' && [
           ipad ? styles.regularQuietAction : styles.quietAction,
@@ -691,8 +686,7 @@ export function OnboardingAction({
           styles.actionLabel,
           ipad &&
             (fill === 'apple' ? styles.ipadAppleLabel : styles.ipadActionLabel),
-          ipad &&
-            (fill === 'brand' || fill === 'onDeep') && { fontWeight: '600' },
+          ipad && fill === 'brand' && { fontWeight: '600' },
           { color: ink },
         ]}>
         {label}

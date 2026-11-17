@@ -42,7 +42,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     XCTAssertEqual(presented.count, 64)
-    // #2070: the step's white Confirm waits for the last four characters.
+    // #2070: the step's white Confirm stays disabled until a character is entered.
     XCTAssertFalse(app.buttons["Confirm Recovery Key"].isEnabled)
     recoveryKey.firstMatch.swipeUp()
     attachScreen("Recovery Key", of: app, to: self)
