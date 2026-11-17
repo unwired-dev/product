@@ -2270,9 +2270,8 @@ const releaseOffer = (offer: RecoveryOffer | undefined, window: object) => {
 // sender belong to this window's Profile, in its own alert, once the Drafts open and while this
 // window has no composer open. Restore passes the record to `onRestore`, which opens it in a
 // composer, and Discard removes it unless an editor has its Draft open. A record changed or removed
-// since it was read, an alert closed without an answer and a Draft no longer listed leave the record
-// for the next launch; a failed removal leaves it for the next offer. Returns the anchor for the
-// window's root view.
+// since it was read, an alert closed without an answer, a failed removal and a Draft no longer
+// listed leave the record for the next launch. Returns the anchor for the window's root view.
 export function useRecoveryOffer(
   composing: string | undefined,
   onRestore: (recovered: Recovered) => void,
@@ -2366,30 +2365,27 @@ export function useRecoveryOffer(
         destructive: 1,
       });
       const choice = await question.answer;
+      const kept = choice !== null && (await unchanged(draft));
       if (!current || base === undefined) {
         return;
       }
-      if (choice !== null && owned(draft) && (await unchanged(draft))) {
+      own.offered.add(draft.id);
+      if (kept && owned(draft)) {
         if (choice === 0) {
-          own.offered.add(draft.id);
           latest.current.onRestore({ version: draft, base });
           return;
         }
-        if (!(await store.forget(draft.id, discarding))) {
-          releaseOffer(own, self);
-          return;
-        }
+        await store.forget(draft.id, discarding);
       }
-      own.offered.add(draft.id);
       wake();
     };
-    // An offer that fails unexpectedly lets the other windows offer.
+    // An offer that fails unexpectedly lets the other windows offer; store calls log their own
+    // failures.
     const offerNext = async () => {
       try {
         await ask();
-      } catch (error) {
+      } catch {
         releaseOffer(own, self);
-        throw error;
       }
     };
     void offerNext();
