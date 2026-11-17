@@ -25,8 +25,9 @@ repository adds:
   (UI or user-facing copy) carries, in the body, screenshots of each touched
   platform (iOS, iPadOS, macOS) in Light and Dark, a short video of the new
   behavior recorded from the real app, and a link to each approved Figma frame
-  it implements, one per changed state. Upload the media to the PR body; do not
-  commit it. A PR with no visual change says so. Media you could not capture is
+  it implements, one per changed state. Delegate the capture to Sol
+  (`gpt-6.1-sol`, high reasoning) through `delegate_task`. Upload the media to
+  the PR body; do not commit it. A PR with no visual change says so. Media you could not capture is
   reported as deferred with the reason; a CI E2E capture may stand in.
 - A `[skip review]` or `Version packages` title, `do-not-review` label or bot
   author blocks automatic merge. Leave it in place and report the blocker.
