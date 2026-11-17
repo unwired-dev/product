@@ -188,6 +188,8 @@ final class InboxTests: XCTestCase {
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
       let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Move to Spam"))
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
       app.buttons["Labels"].tap()
       XCTAssertTrue(labels.waitForExistence(timeout: 5))
       app.buttons["Reply"].tap()
