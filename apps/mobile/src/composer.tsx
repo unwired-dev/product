@@ -6,6 +6,7 @@ import type {
 } from '@private-email/mail-core/assistance';
 import type {
   AssetPreview,
+  BodyRecipientQuery,
   Draft,
   DraftsState,
   PickedFile,
@@ -34,7 +35,12 @@ import type {
 import type { SendReminder } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ComponentProps, ReactNode } from 'react';
-import type { TextInputInstance } from 'react-native';
+import type {
+  StyleProp,
+  TextInputInstance,
+  TextStyle,
+  ViewStyle,
+} from 'react-native';
 
 import {
   canRewrite,
@@ -47,10 +53,15 @@ import {
 } from '@private-email/mail-core/assistance';
 import {
   acceptRecipient,
+  addBodyRecipient,
   addRecipients,
+  bodyRecipientQuery,
+  bodyRecipientSuggestions,
   draftOf,
   entryOf,
+  greetingName,
   isEmptyDraft,
+  onlyQueryIn,
   recipientLabel,
   draftSummary,
   profileOf,
@@ -152,6 +163,7 @@ import {
   GlassGroup,
   GlassPanel,
   MenuButton,
+  Monogram,
   scaledToolbar,
   SFSymbol,
   ToolbarButton,
@@ -430,6 +442,44 @@ const styles = StyleSheet.create({
   suggestionText: { flex: 1 },
   suggestionName: { ...textStyles.body },
   suggestionAddress: { ...textStyles.footnote },
+  suggestionEmpty: {
+    ...textStyles.body,
+    paddingHorizontal: spacing.s + 2,
+    paddingVertical: spacing.xs,
+  },
+  suggestionNote: {
+    ...textStyles.footnote,
+    paddingHorizontal: spacing.s + 2,
+    paddingVertical: spacing.xs,
+  },
+  // The Body Recipient Shortcut's suggestions open under the query, over what follows. On iPhone
+  // they span the sheet as a system menu, each row led by a monogram.
+  bodySuggestions: {
+    position: 'absolute',
+    zIndex: 1,
+    left: 0,
+    right: 0,
+    pointerEvents: 'box-none',
+  },
+  bodyCopy: {
+    minHeight: 0,
+    paddingBottom: 0,
+    opacity: 0,
+    pointerEvents: 'none',
+  },
+  monogramSection: {
+    fontWeight: '400',
+    paddingLeft: 17,
+    paddingTop: 6,
+    paddingBottom: spacing.xs,
+  },
+  monogramSuggestion: {
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.touchMenuItem,
+  },
+  monogramAddress: { ...textStyles.subheadline },
   // The whole 44pt row height removes the recipient; its chip stays compact.
   token: { minHeight: 44, justifyContent: 'center' },
   tokenFill: {
@@ -493,6 +543,11 @@ export const layoutStyles = {
     suggestion: {},
     suggestionName: {},
     suggestionAddress: {},
+    bodySuggestions: {
+      marginHorizontal: inset - spacing.xs,
+      marginTop: spacing.xs,
+      padding: spacing.s,
+    },
     input: {
       fontSize: 16.25,
       lineHeight: 20,
@@ -548,6 +603,13 @@ export const layoutStyles = {
     },
     suggestionName: { ...typography.ipadList.body },
     suggestionAddress: { ...typography.ipadList.subheadline },
+    // The Mac's body suggestions at 1.15, their rows aligned with the text.
+    bodySuggestions: {
+      marginLeft: padFieldInset,
+      width: 320 * ipadListScale,
+      marginTop: 6 * ipadListScale,
+      padding: 6 * ipadListScale,
+    },
     token: { minHeight: padFieldHeight },
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
@@ -857,6 +919,181 @@ function FieldLabel({ children }: { readonly children: string }) {
   );
 }
 
+// Recipient Suggestions in a glass menu, Recent then Contacts, with the active one highlighted;
+// `empty` shows when none matches, and `note` beneath them. The iPhone body's menu leads each row
+// with a monogram, as its frames draw it.
+function SuggestionMenu({
+  sections,
+  active,
+  onAccept,
+  origin,
+  style,
+  empty,
+  note,
+  monograms = false,
+}: {
+  readonly sections: Readonly<{
+    recent: readonly Recipient[];
+    contacts: readonly Recipient[];
+  }>;
+  readonly active: Recipient | undefined;
+  readonly onAccept: (recipient: Recipient) => void;
+  readonly origin: string;
+  readonly style: StyleProp<ViewStyle>;
+  readonly empty?: string | undefined;
+  readonly note?: string | undefined;
+  readonly monograms?: boolean;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const { size } = use(ComposerLayoutContext);
+  const sized = layoutStyles[size];
+  const none = sections.recent.length + sections.contacts.length === 0;
+  return (
+    <GlassPanel
+      open
+      origin={origin}
+      {...(monograms ? { cornerRadius: radius.touchMenu } : {})}
+      style={style}>
+      <View accessibilityLabel={t('drafts.suggestions.title')}>
+        {none && empty !== undefined ? (
+          <Text
+            style={[
+              styles.suggestionEmpty,
+              sized.suggestionName,
+              { color: colors.textSecondary },
+            ]}>
+            {empty}
+          </Text>
+        ) : null}
+        {(['recent', 'contacts'] as const).map((section) =>
+          sections[section].length === 0 ? null : (
+            <Fragment key={section}>
+              <Text
+                style={[
+                  styles.suggestionSection,
+                  sized.suggestionSection,
+                  monograms && styles.monogramSection,
+                  { color: colors.textSecondary },
+                ]}>
+                {t(`drafts.suggestions.${section}`)}
+              </Text>
+              {sections[section].map((recipient) => {
+                // Return chooses the active suggestion, so it shows highlighted.
+                const chosen = recipient === active;
+                const filled = chosen && !monograms;
+                const primary = filled
+                  ? colors.accentOnFill
+                  : colors.textPrimary;
+                const secondary = filled
+                  ? colors.accentOnFill
+                  : colors.textSecondary;
+                let highlight = null;
+                if (chosen) {
+                  highlight = {
+                    backgroundColor: monograms
+                      ? colors.fillQuiet
+                      : colors.accentFill,
+                  };
+                }
+                return (
+                  <Pressable
+                    key={recipient.address}
+                    accessibilityLabel={
+                      recipient.name === undefined
+                        ? recipient.address
+                        : t('drafts.suggestions.named', {
+                            name: recipient.name,
+                            address: recipient.address,
+                          })
+                    }
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: chosen }}
+                    onPress={() => {
+                      onAccept(recipient);
+                    }}
+                    style={({ pressed }) => [
+                      styles.suggestion,
+                      sized.suggestion,
+                      monograms && styles.monogramSuggestion,
+                      pressed
+                        ? { backgroundColor: colors.accentSelectionSubtle }
+                        : null,
+                      highlight,
+                    ]}>
+                    {monograms ? (
+                      <Monogram name={recipient.name ?? recipient.address} />
+                    ) : (
+                      <SFSymbol
+                        name="person.fill"
+                        color={secondary}
+                        size={size === 'regular' ? 11 * ipadListScale : 13}
+                      />
+                    )}
+                    <View style={styles.suggestionText}>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.suggestionName,
+                          sized.suggestionName,
+                          { color: primary },
+                        ]}>
+                        {recipient.name ?? recipient.address}
+                      </Text>
+                      {recipient.name === undefined ? null : (
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.suggestionAddress,
+                            sized.suggestionAddress,
+                            monograms && styles.monogramAddress,
+                            { color: secondary },
+                          ]}>
+                          {recipient.address}
+                        </Text>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </Fragment>
+          ),
+        )}
+        {note === undefined ? null : (
+          <Text
+            style={[
+              styles.suggestionNote,
+              sized.suggestionAddress,
+              { color: colors.textSecondary },
+            ]}>
+            {note}
+          </Text>
+        )}
+      </View>
+    </GlassPanel>
+  );
+}
+
+// Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's,
+// newest first, and the Profile's own addresses, which are never suggested.
+function correspondentsFor(
+  draft: Draft,
+  connections: readonly MailboxConnection[],
+  held: ReturnType<typeof useAllMailboxes>,
+) {
+  const profile = profileOf(draft.connection, connections);
+  return {
+    correspondents: inboxMessages(
+      held.filter((mailbox) => mailbox.profile === profile),
+      { profile },
+    ).map(({ message }) => message),
+    // Including connections awaiting authorization, which hold no mail here.
+    excluded: connections.flatMap((mailbox) =>
+      mailbox.profile === profile ? [mailbox.address] : [],
+    ),
+  };
+}
+
 export function Recipients({
   draft,
   getDraft,
@@ -888,25 +1125,20 @@ export function Recipients({
   const [entering, setEntering] = useState(false);
   const account = use(AccountContext);
   const held = useAllMailboxes();
-  const contacts = useContactAddresses(entering && editable);
+  const contacts = useContactAddresses(entering && editable).addresses;
   const name = t(`drafts.fields.${field}`);
-  // Senders of the mail held on this device for the Draft's Mail Profile, never another Profile's,
-  // then Apple Contacts not already suggested; its own addresses are not suggested.
+  // Recent correspondents of the Draft's Mail Profile, then Apple Contacts not already suggested.
   const suggestions = useMemo(() => {
     if (!entering || !editable) {
       return { recent: [], contacts: [] };
     }
-    const connections = account?.mailboxes ?? [];
-    const profile = profileOf(draft.connection, connections);
-    // Including connections awaiting authorization, which hold no mail here.
-    const excluded = connections.flatMap((mailbox) =>
-      mailbox.profile === profile ? [mailbox.address] : [],
+    const { correspondents, excluded } = correspondentsFor(
+      draft,
+      account?.mailboxes ?? [],
+      held,
     );
     const recent = recipientSuggestions(draft, field, {
-      correspondents: inboxMessages(
-        held.filter((mailbox) => mailbox.profile === profile),
-        { profile },
-      ).map(({ message }) => message),
+      correspondents,
       excluded,
     });
     return {
@@ -940,92 +1172,13 @@ export function Recipients({
   return (
     <View>
       {first === undefined ? null : (
-        <GlassPanel
-          open
+        <SuggestionMenu
+          sections={suggestions}
+          active={first}
+          onAccept={accept}
           origin="bottom left"
-          style={[styles.suggestions, sized.suggestions]}>
-          <View accessibilityLabel={t('drafts.suggestions.title')}>
-            {(['recent', 'contacts'] as const).map((section) =>
-              suggestions[section].length === 0 ? null : (
-                <Fragment key={section}>
-                  <Text
-                    style={[
-                      styles.suggestionSection,
-                      sized.suggestionSection,
-                      { color: colors.textSecondary },
-                    ]}>
-                    {t(`drafts.suggestions.${section}`)}
-                  </Text>
-                  {suggestions[section].map((recipient) => {
-                    // Return accepts the first suggestion, so it shows highlighted.
-                    const chosen = recipient === first;
-                    const primary = chosen
-                      ? colors.accentOnFill
-                      : colors.textPrimary;
-                    const secondary = chosen
-                      ? colors.accentOnFill
-                      : colors.textSecondary;
-                    return (
-                      <Pressable
-                        key={recipient.address}
-                        accessibilityLabel={
-                          recipient.name === undefined
-                            ? recipient.address
-                            : t('drafts.suggestions.named', {
-                                name: recipient.name,
-                                address: recipient.address,
-                              })
-                        }
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: chosen }}
-                        onPress={() => {
-                          accept(recipient);
-                        }}
-                        style={({ pressed }) => [
-                          styles.suggestion,
-                          sized.suggestion,
-                          pressed
-                            ? { backgroundColor: colors.accentSelectionSubtle }
-                            : null,
-                          chosen
-                            ? { backgroundColor: colors.accentFill }
-                            : null,
-                        ]}>
-                        <SFSymbol
-                          name="person.fill"
-                          color={secondary}
-                          size={size === 'regular' ? 11 * ipadListScale : 13}
-                        />
-                        <View style={styles.suggestionText}>
-                          <Text
-                            numberOfLines={1}
-                            style={[
-                              styles.suggestionName,
-                              sized.suggestionName,
-                              { color: primary },
-                            ]}>
-                            {recipient.name ?? recipient.address}
-                          </Text>
-                          {recipient.name === undefined ? null : (
-                            <Text
-                              numberOfLines={1}
-                              style={[
-                                styles.suggestionAddress,
-                                sized.suggestionAddress,
-                                { color: secondary },
-                              ]}>
-                              {recipient.address}
-                            </Text>
-                          )}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </Fragment>
-              ),
-            )}
-          </View>
-        </GlassPanel>
+          style={[styles.suggestions, sized.suggestions]}
+        />
       )}
       <View
         style={[
@@ -2394,6 +2547,237 @@ function DraftReminder({
   );
 }
 
+// Up to four Recipient Suggestions for an @ in the body: recent correspondents of the Draft's
+// Mail Profile, newest first, then for typed text Apple Contacts, one row kept for a contact.
+// People already on the Draft are left out.
+function bodySuggestionSections(
+  draft: Draft,
+  query: BodyRecipientQuery,
+  {
+    connections,
+    held,
+    contacts,
+  }: Readonly<{
+    connections: readonly MailboxConnection[];
+    held: ReturnType<typeof useAllMailboxes>;
+    contacts: Iterable<Readonly<{ sender: string; address: string }>>;
+  }>,
+) {
+  const { correspondents, excluded } = correspondentsFor(
+    draft,
+    connections,
+    held,
+  );
+  const recent = bodyRecipientSuggestions(draft, query, {
+    correspondents,
+    excluded,
+    limit: 4,
+  });
+  const matched =
+    query.text === ''
+      ? []
+      : bodyRecipientSuggestions(draft, query, {
+          correspondents: contacts,
+          excluded: [...excluded, ...recent.map(({ address }) => address)],
+          limit: 4,
+        });
+  const shown = recent.slice(0, matched.length === 0 ? 4 : 3);
+  return {
+    query,
+    recent: shown,
+    contacts: matched.slice(0, 4 - shown.length),
+  };
+}
+
+// The Body Recipient Shortcut in an editor's body. Typing @ in an otherwise empty body opens
+// Recipient Suggestions under it; a space, a caret move, leaving the body or a choice closes
+// them, keeping the typed text.
+function useBodyRecipients(
+  draft: Draft,
+  selection: Selection,
+  {
+    paused,
+    pausedNow,
+  }: Readonly<{
+    paused: boolean;
+    // Ahead of rendering, as native events can arrive before a pause commits.
+    pausedNow: Readonly<{ current: boolean }>;
+  }>,
+) {
+  const { t } = useLocalization();
+  // The @ whose suggestions show.
+  const [armed, setArmed] = useState<number>();
+  const armedNow = useRef(armed);
+  // The statuses VoiceOver last heard for the shown suggestions.
+  const heard = useRef<
+    Readonly<{ empty?: string | undefined; note?: string | undefined }>
+  >({});
+  const arm = useCallback((at: number | undefined) => {
+    armedNow.current = at;
+    heard.current = {};
+    setArmed(at);
+  }, []);
+  const close = useCallback(() => {
+    arm(undefined);
+  }, [arm]);
+  const query = useMemo(
+    () => bodyRecipientQuery(draft.body, selection),
+    [draft.body, selection],
+  );
+  const open =
+    !paused &&
+    armed !== undefined &&
+    query?.start === armed &&
+    onlyQueryIn(draft.body, query);
+  // Read once each time an @ arms, never asking for Contacts access.
+  const contacts = useContactAddresses(armed !== undefined, false);
+  const connections = use(AccountContext)?.mailboxes;
+  const held = useAllMailboxes();
+  const sections = useMemo(
+    () =>
+      open && query !== undefined
+        ? bodySuggestionSections(draft, query, {
+            connections: connections ?? [],
+            held,
+            contacts: contacts.addresses,
+          })
+        : undefined,
+    [open, draft, query, connections, held, contacts.addresses],
+  );
+  const [active] =
+    sections === undefined ? [] : [...sections.recent, ...sections.contacts];
+  // A bare @ with no recent correspondent shows nothing; typed text shows No Matches.
+  const shown =
+    sections !== undefined &&
+    (active !== undefined || sections.query.text !== '')
+      ? {
+          sections,
+          active,
+          empty: t('drafts.bodyRecipient.noMatches'),
+          note:
+            contacts.failed && sections.query.text !== ''
+              ? t('drafts.bodyRecipient.contactsUnsearchable')
+              : undefined,
+        }
+      : undefined;
+  // VoiceOver hears No Matches and the note once each appears, after the typed character, since
+  // iOS ignores live regions. A bare @ that hides the menu clears them.
+  const emptyNow =
+    shown !== undefined && active === undefined ? shown.empty : undefined;
+  const noteNow = shown?.note;
+  const showing = shown !== undefined;
+  const hidden = sections !== undefined && !showing;
+  useEffect(() => {
+    if (!showing) {
+      if (hidden) {
+        heard.current = {};
+      }
+      return;
+    }
+    const now = { empty: emptyNow, note: noteNow };
+    for (const key of ['empty', 'note'] as const) {
+      const words = now[key];
+      if (words !== undefined && words !== heard.current[key]) {
+        AccessibilityInfo.announceForAccessibilityWithOptions(words, {
+          queue: true,
+        });
+      }
+    }
+    heard.current = now;
+  }, [showing, hidden, emptyNow, noteNow]);
+  return {
+    shown,
+    close,
+    // After a body edit inserting `inserted`: typing @ in an empty body opens suggestions, and
+    // leaving its query closes them.
+    typed: (next: SemanticDocument, caret: Selection, inserted: string) => {
+      const typed = bodyRecipientQuery(next, caret);
+      if (inserted === '@' && typed?.text === '' && onlyQueryIn(next, typed)) {
+        arm(typed.start);
+      } else if (
+        armedNow.current !== undefined &&
+        typed?.start !== armedNow.current
+      ) {
+        arm(undefined);
+      }
+    },
+    // The query a choice replaces in the latest body, while its suggestions show and the editor
+    // takes edits.
+    choosable: (latest: SemanticDocument, at: Selection) => {
+      const current = bodyRecipientQuery(latest, at);
+      return !pausedNow.current &&
+        current?.start === armedNow.current &&
+        current !== undefined &&
+        onlyQueryIn(latest, current)
+        ? current
+        : undefined;
+    },
+    // What VoiceOver hears once a choice added the person.
+    added: (recipient: Recipient) =>
+      t('drafts.bodyRecipient.added', {
+        name: recipient.name ?? recipient.address,
+      }),
+    greeting: (recipient: Recipient) => {
+      const name = greetingName(recipient, contacts.addresses);
+      return name === undefined
+        ? t('drafts.bodyRecipient.greetingUnnamed')
+        : t('drafts.bodyRecipient.greeting', { name });
+    },
+  };
+}
+
+// The body's Recipient Suggestions while they show, under the query's line: a transparent copy of
+// the body up to that line, in the body's place and style, holds them there.
+function BodyRecipientMenu({
+  shown,
+  display,
+  top,
+  bodyStyle,
+  onAccept,
+}: {
+  readonly shown: ReturnType<typeof useBodyRecipients>['shown'];
+  readonly display: ReturnType<typeof displayOf>;
+  // Where the body starts.
+  readonly top: number;
+  readonly bodyStyle: StyleProp<TextStyle>;
+  readonly onAccept: (recipient: Recipient) => void;
+}) {
+  const { size } = use(ComposerLayoutContext);
+  if (shown === undefined) {
+    return null;
+  }
+  const lines = display.lines.slice(
+    0,
+    display.text.slice(0, shown.sections.query.start).split('\n').length,
+  );
+  return (
+    <View style={[styles.bodySuggestions, { top }]}>
+      <Text
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[bodyStyle, styles.bodyCopy]}>
+        {lines.map((line, index) => (
+          <Text
+            // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+            key={index}
+            style={kindStyles[line.kind]}>
+            {line.marker}
+            {line.spans.map(({ text }) => text).join('')}
+            {index < lines.length - 1 ? '\n' : ''}
+          </Text>
+        ))}
+      </Text>
+      <SuggestionMenu
+        {...shown}
+        onAccept={onAccept}
+        origin="top left"
+        monograms={size === 'compact'}
+        style={layoutStyles[size].bodySuggestions}
+      />
+    </View>
+  );
+}
+
 function Editor({
   initial,
   onClose,
@@ -2619,6 +3003,12 @@ function Editor({
     commitHistory((current) => ({ ...current, typing: false }));
   };
   const display = displayOf(draft.body);
+  const recipientMenu = useBodyRecipients(draft, selection, {
+    paused: sending,
+    pausedNow: sendingNow,
+  });
+  // Where the body starts, for the Recipient Suggestions under its query.
+  const [bodyTop, setBodyTop] = useState(0);
   const appearance = useAppearance();
 
   // Set while Discard or Send finishes, which take the Draft as it was then.
@@ -2765,6 +3155,26 @@ function Editor({
     placeTyping(undefined);
     update(historyNow.current.present);
   };
+  // Choosing a person for the @ replaces it with the greeting and adds them to To, as one edit.
+  const chooseRecipient = (recipient: Recipient) => {
+    const latest = authored.current;
+    const query = recipientMenu.choosable(latest.body, selectionNow.current);
+    if (query === undefined) {
+      return;
+    }
+    const result = addBodyRecipient(latest, {
+      query,
+      recipient,
+      greeting: recipientMenu.greeting(recipient),
+    });
+    recipientMenu.close();
+    change(result.draft);
+    placeTyping(undefined);
+    caret.current = result.selection.start;
+    selectionNow.current = result.selection;
+    setPlaced(result.selection);
+    AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
+  };
   const edit = (text: string) => {
     if (sendingNow.current) {
       return;
@@ -2774,6 +3184,16 @@ function Editor({
     const textBefore = displayOf(latest.body).text;
     const after = changedSelection.current;
     changedSelection.current = undefined;
+    const inserted = text.slice(
+      at.start,
+      at.start + text.length - textBefore.length,
+    );
+    // Return and Tab choose the highlighted Recipient Suggestion instead of their character.
+    const { active } = recipientMenu.shown ?? {};
+    if ((inserted === '\n' || inserted === '\t') && active !== undefined) {
+      chooseRecipient(active);
+      return;
+    }
     // Forward deletion leaves the caret in place. Backspace moves it, even without a key event.
     const forward =
       at.start === at.end &&
@@ -2787,10 +3207,11 @@ function Editor({
       ...(forward ? { deletion: 'forward' } : {}),
     });
     // Native selection still uses the field's reported text if it dropped our display.
-    caret.current =
+    const typedTo =
       after?.start ??
       result.selection?.start ??
       at.end + text.length - textBefore.length;
+    caret.current = typedTo;
     if (result.literal === undefined) {
       change({ ...latest, body: result.document }, result.typing, 'body');
     } else {
@@ -2811,6 +3232,11 @@ function Editor({
       selectionNow.current = result.selection;
       setPlaced(result.selection);
     }
+    recipientMenu.typed(
+      result.document,
+      { start: typedTo, end: typedTo },
+      inserted,
+    );
   };
   const format = (mark: Mark) => {
     if (sendingNow.current) {
@@ -3538,16 +3964,24 @@ function Editor({
               editable={!sending}
               accessibilityState={{ disabled: sending }}
               multiline
+              onBlur={() => {
+                recipientMenu.close();
+              }}
               onChange={({ nativeEvent }) => {
                 changedSelection.current = nativeEvent.selection;
               }}
               onChangeText={edit}
+              onLayout={({ nativeEvent }) => {
+                setBodyTop(nativeEvent.layout.y);
+              }}
               onSelectionChange={({ nativeEvent }) => {
                 const next = nativeEvent.selection;
-                // Moving the caret anywhere but past typed text ends marks toggled for typing.
+                // Moving the caret anywhere but past typed text ends marks toggled for typing, and
+                // closes Recipient Suggestions.
                 if (next.start !== next.end || next.start !== caret.current) {
                   placeTyping(undefined);
                   commitHistory((current) => ({ ...current, typing: false }));
+                  recipientMenu.close();
                 }
                 caret.current = undefined;
                 setPlaced(undefined);
@@ -3592,6 +4026,13 @@ function Editor({
                 </Text>
               ))}
             </TextInput>
+            <BodyRecipientMenu
+              shown={recipientMenu.shown}
+              display={display}
+              top={bodyTop}
+              bodyStyle={[styles.body, sized.body, parts.body]}
+              onAccept={chooseRecipient}
+            />
             {draft.quoted === undefined ? null : (
               <QuotedText quoted={draft.quoted} />
             )}
