@@ -69,6 +69,19 @@ const holdingReads = (synthetic: SyntheticRegistrationScenario) => {
 };
 
 // The value of a snapshot field the scenario generated, such as a Recovery Key or Enrollment Code.
+// The store's snapshot and removal failure, with the Trusted Devices message they show.
+const revocationState = (store: Registration) => {
+  const { snapshot, revocationFailure } = store.getSnapshot();
+  return {
+    snapshot,
+    revocationFailure,
+    notice:
+      snapshot.kind === 'signed-out'
+        ? undefined
+        : revocationNotice(english, snapshot, revocationFailure),
+  };
+};
+
 const shown = (
   store: Registration,
   field:
@@ -1260,24 +1273,11 @@ describe('product registration', () => {
     const store = createRegistration(synthetic.vault);
     await store.register('google');
     await store.confirmRecoveryKey(recoveryKey.slice(-4));
-    const { snapshot } = store.getSnapshot();
-    expect(trustedDevicesOf(snapshot)).toStrictEqual([syntheticTrustedDevice]);
-    const notice = () =>
-      revocationNotice(
-        english,
-        store.getSnapshot().snapshot,
-        store.getSnapshot().revocationFailure,
-      );
+    const listed = store.getSnapshot().snapshot;
     // Product Sync cannot reach Convex while the removal is prepared.
     synthetic.sync.offline = true;
     await store.revokeTrustedDevice(syntheticTrustedDevice.id);
-    expect(store.getSnapshot()).toStrictEqual({
-      ...settled(snapshot),
-      revocationFailure: 'prepare-failed',
-    });
-    expect(notice()).toBe(
-      'Preparing the removal didn’t finish. Choose Remove… to try again.',
-    );
+    const prepared = revocationState(store);
     synthetic.sync.offline = false;
     await store.revokeTrustedDevice(syntheticTrustedDevice.id);
     const proposed = store.getSnapshot().snapshot;
@@ -1289,24 +1289,36 @@ describe('product registration', () => {
     await store.confirmRevocation(
       shown(store, 'revocationRecoveryKey').slice(-4),
     );
-    expect(store.getSnapshot()).toStrictEqual({
-      ...settled(proposed),
-      revocationFailure: 'failed',
-    });
-    expect(notice()).toBe(
-      'Removing iPad didn’t finish. Choose Remove iPad to try again.',
-    );
+    const confirmed = revocationState(store);
     vi.spyOn(synthetic.vault, 'discardRevocation').mockRejectedValueOnce(
       Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
     );
     await store.cancelRevocation();
-    expect(store.getSnapshot()).toStrictEqual({
-      ...settled(proposed),
-      revocationFailure: 'cancel-failed',
+    expect({
+      devices: trustedDevicesOf(listed),
+      prepared,
+      confirmed,
+      cancelled: revocationState(store),
+    }).toStrictEqual({
+      devices: [syntheticTrustedDevice],
+      prepared: {
+        snapshot: listed,
+        revocationFailure: 'prepare-failed',
+        notice:
+          'Preparing the removal didn’t finish. Choose Remove… to try again.',
+      },
+      confirmed: {
+        snapshot: proposed,
+        revocationFailure: 'failed',
+        notice: 'Removing iPad didn’t finish. Choose Remove iPad to try again.',
+      },
+      cancelled: {
+        snapshot: proposed,
+        revocationFailure: 'cancel-failed',
+        notice:
+          'Cancelling the removal didn’t finish. Choose Cancel to try again.',
+      },
     });
-    expect(notice()).toBe(
-      'Cancelling the removal didn’t finish. Choose Cancel to try again.',
-    );
   });
 
   /* oxlint-disable vitest/max-expects -- Each journey proves one sequence of removal states. */
