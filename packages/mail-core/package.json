@@ -47,6 +47,7 @@
     "./send-reminders": "./src/send-reminders.ts",
     "./blocked-senders": "./src/blocked-senders.ts",
     "./inbox-preferences": "./src/inbox-preferences.ts",
+    "./pins": "./src/pins.ts",
     "./testing/drafts": "./src/testing/drafts.ts",
     "./composer-navigation": "./src/composer-navigation.ts",
     "./responses": "./src/responses.ts",

@@ -135,6 +135,8 @@ RCT_EXTERN_METHOD(openBlockedSenders:(RCTPromiseResolveBlock)resolve rejecter:(R
 RCT_EXTERN_METHOD(commitBlockedSenders:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openInboxPreferences:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitInboxPreferences:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openPins:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(commitPins:(NSString *)owner expectedRevision:(double)expectedRevision document:(NSString *)document resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openComposerRecovery:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(writeComposerRecovery:(NSString *)owner id:(NSString *)id record:(NSDictionary *)record resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(removeComposerRecovery:(NSString *)owner id:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

@@ -537,6 +537,55 @@ struct DraftTests {
     #expect(!session.exists("inbox-preferences.enc"))
   }
 
+  // Pins are kept like Inbox preferences, in their own sealed file that the Inbox preferences
+  // document does not open as.
+  @Test @MainActor func pinsStayEncryptedWithTheirProductAccount() async throws {
+    let session = AssetSession()
+    defer { session.remove() }
+    let (store, cache) = (session.store, session.cache)
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.openPins()
+    }
+    let owner = try await session.owner()
+    let opened = try await store.openPins()
+    #expect(opened["owner"] as? String == owner && opened["revision"] as? Int == 0)
+    #expect(opened["document"] is NSNull)
+    let document = #"{"pins":[{"connection":"c1","thread":"private-thread-id","pinnedAt":1}]}"#
+    await #expect(throws: PrivateInboxError.mailboxInvalidated) {
+      _ = try await store.commitPins(
+        owner: "another-account", expectedRevision: 0, document: document)
+    }
+    let committed = try await store.commitPins(
+      owner: owner, expectedRevision: 0, document: document)
+    #expect(committed["revision"] as? Int == 1)
+    await #expect(throws: PrivateInboxError.conflict) {
+      _ = try await store.commitPins(owner: owner, expectedRevision: 0, document: "{}")
+    }
+    let file = session.directory.appendingPathComponent("pins.enc")
+    #expect(try Data(contentsOf: file).range(of: Data("private-thread-id".utf8)) == nil)
+    #expect(try cache.openInboxPreferenceDocument(owner: owner).document == nil)
+
+    let tmp = session.directory.appendingPathComponent("tmp")
+    let relaunched = PrivateInboxStore(
+      directory: session.directory, service: session.service, attachments: tmp,
+      protectedDataAvailable: { true })
+    #expect(try relaunched.openPinDocument(owner: owner) == (1, document))
+    #expect(try relaunched.openPinDocument(owner: "another-account") == (1, nil))
+
+    // The Inbox preferences document served in its place does not open.
+    _ = try cache.commitInboxPreferenceDocument(
+      owner: owner, expectedRevision: 0, document: document)
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.copyItem(
+      at: session.directory.appendingPathComponent("inbox-preferences.enc"), to: file)
+    #expect(throws: PrivateInboxError.invalidStore) {
+      _ = try relaunched.openPinDocument(owner: owner)
+    }
+
+    _ = try await store.purge(notice: "signed-out")
+    #expect(!session.exists("pins.enc"))
+  }
+
   // Send Reminders are kept like Mail Templates, in their own sealed file that neither the Drafts
   // nor the Mail Templates document opens as.
   @Test @MainActor func sendRemindersStayEncryptedWithTheirProductAccount() async throws {
