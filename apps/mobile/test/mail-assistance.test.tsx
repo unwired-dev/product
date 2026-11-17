@@ -386,7 +386,7 @@ describe('account settings availability', () => {
     await switchAssistance(false);
     expect(
       screen.getByText(
-        "This device's assistance choice could not be saved. Try again before leaving this page.",
+        'Your change wasn’t saved on this device. Choose Try Again.',
       ),
     ).toBeVisible();
     expect(
@@ -523,7 +523,7 @@ describe('account settings availability', () => {
         await press('Check Apple Intelligence Availability');
         expect(
           screen.getByText(
-            'Apple Intelligence availability could not be checked. Try again.',
+            'The availability check didn’t finish. Choose Check Apple Intelligence Availability again.',
           ),
         ).toBeVisible();
         availability.mockResolvedValue('available');
