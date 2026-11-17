@@ -525,7 +525,9 @@
     "renewed": "Your Unwired account changed before the removal finished, so nothing was removed. Save the new Recovery Key shown now and confirm it again; the key shown before will not work.",
     "unconfirmed": "The removal could not be confirmed. Keep the new Recovery Key shown here, and confirm again when you are online to finish.",
     "superseded": "The selected device was removed. The Recovery Key prepared here is not your current Recovery Key; keep the Recovery Key confirmed for the latest removal.",
-    "failed": "The device could not be removed. Try again.",
+    "prepare-failed": "Preparing the removal didn’t finish. Choose Remove… to try again.",
+    "failed": "Removing {{name}} didn’t finish. Choose Remove {{name}} to try again.",
+    "cancel-failed": "Cancelling the removal didn’t finish. Choose Cancel to try again.",
     "confirmTitle": "Remove “{{name}}”?"
   },
   "gmailSync": {

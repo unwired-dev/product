@@ -69,6 +69,19 @@ const holdingReads = (synthetic: SyntheticRegistrationScenario) => {
 };
 
 // The value of a snapshot field the scenario generated, such as a Recovery Key or Enrollment Code.
+// The store's snapshot and removal failure, with the Trusted Devices message they show.
+const revocationState = (store: Registration) => {
+  const { snapshot, revocationFailure } = store.getSnapshot();
+  return {
+    snapshot,
+    revocationFailure,
+    notice:
+      snapshot.kind === 'signed-out'
+        ? undefined
+        : revocationNotice(english, snapshot, revocationFailure),
+  };
+};
+
 const shown = (
   store: Registration,
   field:
@@ -1305,7 +1318,7 @@ describe('product registration', () => {
     );
   });
 
-  it('keeps the account when preparing a removal fails', async () => {
+  it('names which removal step did not finish and keeps the list or the proposal to choose again', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);
     const synthetic = await createRegistrationScenario(
@@ -1314,16 +1327,51 @@ describe('product registration', () => {
     const store = createRegistration(synthetic.vault);
     await store.register('google');
     await store.confirmRecoveryKey(recoveryKey.slice(-4));
-    const { snapshot } = store.getSnapshot();
-    expect(trustedDevicesOf(snapshot)).toStrictEqual([syntheticTrustedDevice]);
+    const listed = store.getSnapshot().snapshot;
     // Product Sync cannot reach Convex while the removal is prepared.
     synthetic.sync.offline = true;
     await store.revokeTrustedDevice(syntheticTrustedDevice.id);
-    expect(store.getSnapshot()).toStrictEqual({
-      snapshot,
-      busy: false,
-      failed: false,
-      revocationFailure: 'failed',
+    const prepared = revocationState(store);
+    synthetic.sync.offline = false;
+    await store.revokeTrustedDevice(syntheticTrustedDevice.id);
+    const proposed = store.getSnapshot().snapshot;
+    // Convex refuses the activation, so the proposal stays.
+    synthetic.sync.activationReply = {
+      status: 400,
+      body: JSON.stringify({ code: 'KEY_ROTATION_INVALID' }),
+    };
+    await store.confirmRevocation(
+      shown(store, 'revocationRecoveryKey').slice(-4),
+    );
+    const confirmed = revocationState(store);
+    vi.spyOn(synthetic.vault, 'discardRevocation').mockRejectedValueOnce(
+      Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
+    );
+    await store.cancelRevocation();
+    expect({
+      devices: trustedDevicesOf(listed),
+      prepared,
+      confirmed,
+      cancelled: revocationState(store),
+    }).toStrictEqual({
+      devices: [syntheticTrustedDevice],
+      prepared: {
+        snapshot: listed,
+        revocationFailure: 'prepare-failed',
+        notice:
+          'Preparing the removal didn’t finish. Choose Remove… to try again.',
+      },
+      confirmed: {
+        snapshot: proposed,
+        revocationFailure: 'failed',
+        notice: 'Removing iPad didn’t finish. Choose Remove iPad to try again.',
+      },
+      cancelled: {
+        snapshot: proposed,
+        revocationFailure: 'cancel-failed',
+        notice:
+          'Cancelling the removal didn’t finish. Choose Cancel to try again.',
+      },
     });
   });
 
@@ -1435,7 +1483,7 @@ describe('product registration', () => {
     expect(revocationProposal(english, unconfirmedProposal)?.recoveryKey).toBe(
       replacement,
     );
-    expect(revocationNotice(english, unconfirmedProposal, false)).toBe(
+    expect(revocationNotice(english, unconfirmedProposal, undefined)).toBe(
       english('revocation.unconfirmed'),
     );
     // A wrong retry entry cannot settle an earlier activation whose reply was lost.
@@ -1456,12 +1504,8 @@ describe('product registration', () => {
       revocationFailure: 'failed',
     });
     expect(
-      revocationNotice(
-        english,
-        unconfirmedProposal,
-        failed.revocationFailure === 'failed',
-      ),
-    ).toBe('The device could not be removed. Try again.');
+      revocationNotice(english, unconfirmedProposal, failed.revocationFailure),
+    ).toBe('Removing iPad didn’t finish. Choose Remove iPad to try again.');
     // The sign-in is no longer recent, and its renewal is cancelled.
     synthetic.sync.staleOnce = true;
     synthetic.google.outcome = 'cancelled';
