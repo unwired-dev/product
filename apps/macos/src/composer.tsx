@@ -2363,8 +2363,8 @@ function useBodyRecipients(
     armed !== undefined &&
     query?.start === armed &&
     onlyQueryIn(draft.body, query);
-  // Never asks for Contacts access.
-  const contacts = useContactAddresses(open, false);
+  // Read once each time an @ arms, never asking for Contacts access.
+  const contacts = useContactAddresses(armed !== undefined, false);
   const connections = use(AccountContext)?.mailboxes;
   const held = useAllMailboxes();
   const sections = useMemo(
