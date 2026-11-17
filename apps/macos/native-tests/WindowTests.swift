@@ -2005,6 +2005,13 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(pinned.waitForExistence(timeout: 10))
     XCTAssertTrue(window.buttons["Unpin"].waitForExistence(timeout: 5))
     attach("Pinned Thread")
+
+    // The Pin is stored on this device, so the marker and Unpin return after a relaunch.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(pinned.waitForExistence(timeout: 60))
+    pinned.click()
+    XCTAssertTrue(window.buttons["Unpin"].waitForExistence(timeout: 15))
     window.buttons["Unpin"].click()
     XCTAssertTrue(pinned.waitForNonExistence(timeout: 10))
     XCTAssertTrue(window.buttons["Pin"].waitForExistence(timeout: 5))

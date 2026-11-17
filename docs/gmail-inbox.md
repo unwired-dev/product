@@ -520,21 +520,7 @@ and, outside Trash and Spam, **Delete** (to Trash), placed last on every platfor
 Move to Spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state,
 on the Mac **Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
-the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)).
-
-### Pins
-
-On the Mac, **Pin** pins the message's **Thread** in its Mailbox Connection
-([#2280](https://github.com/unwired-dev/product/issues/2280)): Gmail's thread, Microsoft's
-conversation, or an IMAP message on its own. The reader toolbar's last group starts with
-**Pin**, or **Unpin** for a pinned Thread; the row and reader menus, VoiceOver's row actions
-and the [Command Palette](command-palette.md) offer the same. Every row of a pinned Thread
-shows `pin.fill` in `status/warning` before its date, and VoiceOver says Pinned. A Pin is
-stored on this device through `@private-email/mail-core/pins`, works offline, never waits
-for or changes the provider, and is offered while provider actions are not; a change
-storage refuses changes nothing and says This Thread couldn't be pinned (or unpinned). The
-Pins mailbox, synchronization and iPhone and iPad follow in
-[#2084](https://github.com/unwired-dev/product/issues/2084). A link in the reader's link list
+the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.
@@ -589,6 +575,20 @@ Inbox changes owner. Same-mailbox verification can renew access without dropping
 those changes. **Undo** preserves labels the message already had before a move. Reconnecting Gmail keeps the same mailbox; another Google account is
 [added](#gmail-mailboxes) as its own mailbox. Removing a mailbox removes its cache,
 including its waiting changes, after the account page explains that. A cache written before message labels were kept is listed again once, with its messages visible meanwhile; a message offers organizing actions once its labels are read. Previously saved changes still resume in order, including a change saved before those labels were known.
+
+### Pins
+
+On the Mac, **Pin** pins the message's **Thread** in its Mailbox Connection
+([#2280](https://github.com/unwired-dev/product/issues/2280)): Gmail's thread, Microsoft's
+conversation, or an IMAP message on its own. The reader toolbar's last group starts with
+**Pin**, or **Unpin** for a pinned Thread; the row and reader menus, VoiceOver's row actions
+and the [Command Palette](command-palette.md) offer the same. Every row of a pinned Thread
+shows `pin.fill` in `status/warning` before its date, and VoiceOver says Pinned. A Pin is
+stored on this device through `@private-email/mail-core/pins`, works offline, never waits
+for or changes the provider, and is offered while provider actions are not; a change
+storage refuses changes nothing and says This Thread couldn't be pinned (or unpinned). The
+Pins mailbox, synchronization and iPhone and iPad follow in
+[#2084](https://github.com/unwired-dev/product/issues/2084).
 
 ## Reading messages
 
