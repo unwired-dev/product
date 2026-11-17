@@ -56,6 +56,38 @@ const renderGmailInbox = async () => {
   return { gmail, inbox };
 };
 
+// Two mailboxes shown together, each from its own Inbox store.
+const twoMailboxes = (
+  work: ReturnType<typeof createInboxStore>,
+  home: ReturnType<typeof createInboxStore>,
+) => {
+  const both = [
+    singleMailbox(work, 'work-mailbox'),
+    singleMailbox(home, 'home-mailbox'),
+  ];
+  let shown = both.flatMap((mailbox) => mailbox.getSnapshot());
+  return {
+    getSnapshot: () => {
+      const next = both.flatMap((mailbox) => mailbox.getSnapshot());
+      if (next.some((mailbox, index) => mailbox !== shown[index])) {
+        shown = next;
+      }
+      return shown;
+    },
+    subscribe: (listener: () => void) => {
+      const stops = both.map((mailbox) => mailbox.subscribe(listener));
+      return () => {
+        for (const stop of stops) {
+          stop();
+        }
+      };
+    },
+    load: async () => {
+      await Promise.all(both.map((mailbox) => mailbox.load()));
+    },
+  };
+};
+
 describe('message list', () => {
   it('shows the last update only for Inboxes, leaving it out of a label and unified Sent', async () => {
     expect.hasAssertions();
@@ -270,31 +302,7 @@ describe('message list', () => {
     const home = createSyntheticGmail();
     const workInbox = createInboxStore(work.native);
     const homeInbox = createInboxStore(home.native);
-    const both = [
-      singleMailbox(workInbox, 'work-mailbox'),
-      singleMailbox(homeInbox, 'home-mailbox'),
-    ];
-    let shown: ReturnType<(typeof both)[number]['getSnapshot']> = [];
-    const mailboxes = {
-      getSnapshot: () => {
-        const next = both.flatMap((mailbox) => mailbox.getSnapshot());
-        if (next.some((mailbox, index) => mailbox !== shown[index])) {
-          shown = next;
-        }
-        return shown;
-      },
-      subscribe: (listener: () => void) => {
-        const stops = both.map((mailbox) => mailbox.subscribe(listener));
-        return () => {
-          for (const stop of stops) {
-            stop();
-          }
-        };
-      },
-      load: async () => {
-        await Promise.all(both.map((mailbox) => mailbox.load()));
-      },
-    };
+    const mailboxes = twoMailboxes(workInbox, homeInbox);
     await render(
       <InboxProvider mailboxes={mailboxes}>
         <Inbox
