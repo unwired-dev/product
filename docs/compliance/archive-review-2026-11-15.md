@@ -109,9 +109,9 @@ Ad hoc signature verification passes. Both hosts' text and JSON provenance
 resources reproduced byte-for-byte from that generator, manifest and installed
 inputs; the pinned notice changes the iOS text and coverage JSON.
 
-On 17 November 2026 a fresh arm64 iOS Simulator Release build with the pinned
-notice and the Expo 58.0.26 patch releases packages 216 components with none
-unresolved. Those patch releases had left the exact-version supplements for
+On 17 November 2026 an incremental arm64 iOS Simulator Release rebuild, after a
+clean generation and build, with the pinned notice and the Expo 58.0.26 patch
+releases packages 216 components with none unresolved. Those patch releases had left the exact-version supplements for
 `@expo/ui`, `expo-router` and `expo-file-system` stale; they are now pinned to
 the publishing Expo commit, with byte-identical texts. The packaged notice text
 hash is `730cc1bb8622ba2f69ed557272d8cd4dc56e940ab815379d751305088d5340b2`,
