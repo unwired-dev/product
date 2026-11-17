@@ -468,6 +468,8 @@ const styles = StyleSheet.create({
     opacity: 0,
     pointerEvents: 'none',
   },
+  // The body's top padding goes once, before the lines over the query's.
+  bodyCopyLine: { paddingTop: 0 },
   // Over a query too low in the editor for them to fit under it.
   bodySuggestionsAbove: {
     position: 'absolute',
@@ -971,6 +973,8 @@ function SuggestionMenu({
       {...(monograms ? { cornerRadius: radius.touchMenu } : {})}
       style={style}>
       <Rows
+        // A new highlighted suggestion starts the scrolling menu at the top, where it shows.
+        key={scroll === undefined ? undefined : active?.address}
         accessibilityLabel={t('drafts.suggestions.title')}
         {...(scroll === undefined
           ? {}
@@ -2754,7 +2758,8 @@ function useBodyRecipients(
 // The body's Recipient Suggestions while they show, under the query's line: a transparent copy of
 // the body up to that line, in the body's place and style, holds them there. They end `reserve`
 // above the bottom of the editor's `viewport`, scrolling inside when taller, and open over the line
-// when it sits too low for them and more room is above.
+// when it sits too low for them and more room is above. The editor calls `placeRef` as it scrolls or
+// resizes.
 function BodyRecipientMenu({
   shown,
   display,
@@ -2762,6 +2767,7 @@ function BodyRecipientMenu({
   bodyStyle,
   viewport,
   reserve,
+  placeRef,
   onAccept,
 }: {
   readonly shown: ReturnType<typeof useBodyRecipients>['shown'];
@@ -2771,13 +2777,36 @@ function BodyRecipientMenu({
   readonly bodyStyle: StyleProp<TextStyle>;
   readonly viewport: Readonly<{ current: ViewInstance | null }>;
   readonly reserve: number;
+  readonly placeRef: { current: (() => void) | undefined };
   readonly onAccept: (recipient: Recipient) => void;
 }) {
   const { size } = use(ComposerLayoutContext);
   const queryLine = useRef<ViewInstance>(null);
   const [room, setRoom] =
-    useState<Readonly<{ below: number; above: number; line: number }>>();
+    useState<Readonly<{ below: number; above: number; lift: number }>>();
   const [rows, setRows] = useState(0);
+  const measure = () => {
+    const view = viewport.current?.getBoundingClientRect();
+    const line = queryLine.current?.getBoundingClientRect();
+    if (view === undefined || line === undefined) {
+      return;
+    }
+    // The lowest the menu may end, and how far over the line's bottom it ends when it opens over
+    // the line, staying clear of the pill. Room is less the menu's padding and margin, at most 24pt.
+    const floor = view.bottom - reserve;
+    const lift = Math.max(line.height, line.bottom - floor);
+    setRoom({
+      below: floor - line.bottom - 24,
+      above: line.bottom - lift - view.top - spacing.s - 24,
+      lift,
+    });
+  };
+  useEffect(() => {
+    placeRef.current = measure;
+    return () => {
+      placeRef.current = undefined;
+    };
+  });
   if (shown === undefined) {
     return null;
   }
@@ -2796,19 +2825,6 @@ function BodyRecipientMenu({
         {index < each.length - 1 ? '\n' : ''}
       </Text>
     ));
-  const measure = () => {
-    const view = viewport.current?.getBoundingClientRect();
-    const line = queryLine.current?.getBoundingClientRect();
-    if (view === undefined || line === undefined) {
-      return;
-    }
-    // Less the menu's padding and margin, at most 24pt.
-    setRoom({
-      below: view.bottom - reserve - line.bottom - 24,
-      above: line.top - view.top - spacing.s - 24,
-      line: line.height,
-    });
-  };
   const above =
     room !== undefined && rows > room.below && room.above > room.below;
   const hidden = {
@@ -2824,13 +2840,14 @@ function BodyRecipientMenu({
       <Text
         ref={queryLine}
         onLayout={measure}
-        {...hidden}>
+        {...hidden}
+        style={[hidden.style, lines.length > 1 && styles.bodyCopyLine]}>
         {copy(lines.slice(-1))}
       </Text>
       <View
         style={
           above && room !== undefined
-            ? [styles.bodySuggestionsAbove, { bottom: room.line }]
+            ? [styles.bodySuggestionsAbove, { bottom: room.lift }]
             : null
         }>
         <SuggestionMenu
@@ -3083,8 +3100,9 @@ function Editor({
   });
   // Where the body starts, for the Recipient Suggestions under its query.
   const [bodyTop, setBodyTop] = useState(0);
-  // The editor's visible area, which those suggestions stay inside.
+  // The editor's visible area, which those suggestions stay inside, and their placing in it.
   const viewport = useRef<ViewInstance>(null);
+  const placeSuggestions = useRef<() => void>(undefined);
   // The key the body's last typed change came from; pasted text reports none.
   const pressed = useRef<string>(undefined);
   // The selection the body's field still reports for a Return or Tab a choice replaced.
@@ -3986,8 +4004,11 @@ function Editor({
         {regular ? formatBar : null}
         <View
           ref={viewport}
+          onLayout={() => placeSuggestions.current?.()}
           style={styles.fill}>
           <ScrollView
+            onScroll={() => placeSuggestions.current?.()}
+            scrollEventThrottle={16}
             contentContainerStyle={[
               styles.content,
               sized.content,
@@ -4135,6 +4156,7 @@ function Editor({
               top={bodyTop}
               bodyStyle={[styles.body, sized.body, parts.body]}
               viewport={viewport}
+              placeRef={placeSuggestions}
               // On iPhone they end 8pt above the floating pill's 44pt buttons, 10pt off the bottom.
               reserve={pillShown ? 10 + 44 + spacing.s : spacing.s}
               onAccept={chooseRecipient}
