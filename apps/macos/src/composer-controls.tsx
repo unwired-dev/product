@@ -69,10 +69,16 @@ const styles = StyleSheet.create({
   },
   divider: { width: StyleSheet.hairlineWidth, height: 16, marginHorizontal: 2 },
   // AppKit's regular pop-up is 24pt tall and 49pt wider than its title, for insets and chevrons.
-  popUp: { height: 24, flexShrink: 1, justifyContent: 'center' },
+  // Its 28pt target overhangs the 24pt line by 2pt on each side.
+  popUp: {
+    height: 28,
+    marginVertical: -2,
+    flexShrink: 1,
+    justifyContent: 'center',
+  },
   pullDown: { width: 46 },
   fieldPopUp: { flex: 1 },
-  toolbarPullDown: { width: 32, height: 28 },
+  toolbarPullDown: { width: 32, marginVertical: 0 },
   popUpSizing: { opacity: 0, paddingHorizontal: 25 },
   // A titled pull-down also draws its symbol, about 20pt with its gap, before the title.
   symbolSizing: { paddingLeft: 45 },

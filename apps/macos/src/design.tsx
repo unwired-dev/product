@@ -61,7 +61,6 @@ const NativePushButton = requireNativeComponent<
     readonly enabled: boolean;
     readonly returnKey: boolean;
     readonly escapeKey: boolean;
-    readonly large: boolean;
     readonly onPress: () => void;
   }
 >('UnwiredPushButton');
@@ -201,8 +200,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.m,
   },
-  // Welcome's Continue: AppKit's extra large rounded rectangle.
-  buttonLarge: { height: 36 },
   buttonSizing: { opacity: 0 },
 });
 
@@ -790,7 +787,7 @@ export function Notice({
 }
 
 // A push button, 28pt tall, that AppKit draws: the accent tint carries the view's main action and
-// the brand tint Welcome's 36pt Continue; the others take the standard bezel. The default button
+// the brand tint Welcome's Continue; the others take the standard bezel. The default button
 // also answers Return.
 export function Button({
   label,
@@ -821,7 +818,7 @@ export function Button({
   } as const;
   const [tint, textColor] = tints[fill];
   return (
-    <View style={[styles.button, fill === 'brand' && styles.buttonLarge]}>
+    <View style={styles.button}>
       {/* The hidden title sizes the button, which AppKit draws over it. */}
       <Text
         style={[
@@ -842,7 +839,6 @@ export function Button({
         onPress={onPress}
         returnKey={isDefault}
         escapeKey={isCancel}
-        large={fill === 'brand'}
         style={StyleSheet.absoluteFill}
         label={accessibilityLabel ?? label}
         text={label}

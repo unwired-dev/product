@@ -134,7 +134,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
   ASAuthorizationAppleIDButton *button = [ASAuthorizationAppleIDButton
       buttonWithType:ASAuthorizationAppleIDButtonTypeSignIn
                style:dark ? ASAuthorizationAppleIDButtonStyleWhite : ASAuthorizationAppleIDButtonStyleBlack];
-  button.cornerRadius = 8;
+  button.cornerRadius = 6;
   button.enabled = self.enabled;
   button.target = self;
   button.action = @selector(press);
@@ -200,8 +200,6 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @property (nonatomic) BOOL enabled;
 @property (nonatomic) BOOL returnKey;
 @property (nonatomic) BOOL escapeKey;
-// Welcome's Continue: the extra large size.
-@property (nonatomic) BOOL large;
 @property (nonatomic, copy) RCTDirectEventBlock onPress;
 @end
 
@@ -240,11 +238,6 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 // Escape presses a sheet's Cancel button.
 - (void)setEscapeKey:(BOOL)escapeKey { _escapeKey = escapeKey; [self updateKeyEquivalent]; }
 - (void)updateKeyEquivalent { _button.keyEquivalent = self.returnKey ? @"\r" : self.escapeKey ? @"\033" : @""; }
-- (void)setLarge:(BOOL)large
-{
-  _large = large;
-  _button.controlSize = large ? NSControlSizeExtraLarge : NSControlSizeLarge;
-}
 - (void)render
 {
   _button.enabled = self.enabled;
@@ -1575,7 +1568,6 @@ RCT_EXPORT_VIEW_PROPERTY(destructive, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(returnKey, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(escapeKey, BOOL)
-RCT_EXPORT_VIEW_PROPERTY(large, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredPushButtonView new]; }
 @end
