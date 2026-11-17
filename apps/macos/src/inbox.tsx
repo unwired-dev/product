@@ -1034,7 +1034,7 @@ export function Inbox({
         })),
       ];
     }
-    return [];
+    return [pin];
   };
   const empty =
     results === undefined ? (

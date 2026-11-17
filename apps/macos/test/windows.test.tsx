@@ -1789,6 +1789,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
         'accessibilityActions',
         [{ name: 'pin', label: 'Pin' }],
       );
+      expect(window.getByRole('button', { name: 'Pin' })).toBeVisible();
     }
     await act(async () => {
       held.release();

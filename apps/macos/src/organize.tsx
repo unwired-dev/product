@@ -692,12 +692,20 @@ function GmailMessageActions({
   // A label or folder the provider removed falls back to the Inbox, as the list does.
   const view = gmailViewName(state, opened, provider);
   const message = viewMessage(state, id, view);
-  // Responses also work for online results and saved mail without organizing permission.
-  if (message === undefined || !canOrganize(message)) {
+  if (message === undefined) {
     return children;
   }
-  if (!state.organize) {
-    return <View style={styles.toolbar}>{children}</View>;
+  // Responses and Pin also work for saved mail without organizing permission.
+  if (!canOrganize(message) || !state.organize) {
+    return (
+      <Toolbar
+        ref={anchor}
+        actions={[]}
+        pin={pinFor(message)}
+        more={[]}>
+        {children}
+      </Toolbar>
+    );
   }
   const act = (action: GmailAction) => {
     void store.organize(message, action);
