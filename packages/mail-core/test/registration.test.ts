@@ -797,6 +797,12 @@ describe('product registration', () => {
       linkFailure: 'failed',
       logsFailure: true,
     },
+    {
+      // The flow's `offline` reaches the store as `unavailable` with that cause.
+      code: 'offline',
+      linkFailure: 'offline',
+      logsFailure: true,
+    },
   ] as const)(
     'reports a $code link rejection without changing the Product Account or logging its message',
     async ({ code, linkFailure, logsFailure }) => {
@@ -811,16 +817,14 @@ describe('product registration', () => {
       synthetic.backend.stale = code === 'stale-authentication';
       const store = createRegistration({
         ...synthetic.vault,
-        // Only the unexpected link failure replaces a backend reply; the other refusals are real.
+        // Only the unexpected link failures replace a backend reply; the other refusals are real.
         call: (call) =>
           // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the named link request fails; every other real flow step still runs.
-          code === 'unavailable' && call.path === '/sign-in-links/request'
+          logsFailure && call.path === '/sign-in-links/request'
             ? Promise.reject(
                 Object.assign(
                   new Error('Link rejected for sealed@example.com'),
-                  {
-                    code: 'unavailable',
-                  },
+                  { code },
                 ),
               )
             : synthetic.vault.call(call),
@@ -836,7 +840,8 @@ describe('product registration', () => {
       });
       expect([
         logged.includes('Registration failed:'),
-        logged.includes(`code ${code}`),
+        // Hosts receive both unexpected failures as `unavailable`.
+        logged.includes('code unavailable'),
       ]).toStrictEqual([logsFailure, logsFailure]);
       expect(String(logged)).not.toMatch(/sealed@/u);
       const feedback = store.getSnapshot();

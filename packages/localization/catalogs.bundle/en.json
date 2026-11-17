@@ -265,7 +265,8 @@
   "linkFailure": {
     "identity-owned": "That {{provider}} sign-in already belongs to another Unwired account. Accounts are never merged, so it was not linked.",
     "stale-authentication": "Linking needs a recent sign-in with both providers. Try again to link {{provider}}.",
-    "failed": "{{provider}} could not be linked. Your Unwired account is unchanged. Try again."
+    "offline": "Linking {{provider}} didn’t finish because this device is offline. Choose Link {{provider}} Sign-In again when it’s online.",
+    "failed": "Linking {{provider}} didn’t finish. Choose Link {{provider}} Sign-In to try again."
   },
   "locked": {
     "title": "Unlock your device",

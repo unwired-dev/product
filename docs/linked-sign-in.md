@@ -68,7 +68,9 @@ The Product Account, its linked identities and the device record stay unchanged
 until completion commits. Cancelling either session, a stale token, an
 expired ticket or a network failure leaves the Product Account and its sign-ins
 unchanged. The host shows a link-specific
-message. Retrying starts a new request. If completion committed but the response
+message; offline, it says so. Any other unexplained failure says linking didn't
+finish and to choose **Link Google Sign-In** or **Link Apple Sign-In** again,
+without claiming the account is unchanged. Retrying starts a new request. If completion committed but the response
 was lost, retrying the consumed ticket returns the committed link. A later
 request also reports the provider as already linked.
 
