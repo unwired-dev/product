@@ -955,7 +955,9 @@ function SuggestionMenu({
   readonly note?: string | undefined;
   readonly monograms?: boolean;
   // Rows taller than `maxHeight` scroll inside the menu; `onContentHeight` hears their full height.
+  // They start at the top for each `query`.
   readonly scroll?: Readonly<{
+    query: string;
     maxHeight: number | undefined;
     onContentHeight: (height: number) => void;
   }>;
@@ -973,8 +975,13 @@ function SuggestionMenu({
       {...(monograms ? { cornerRadius: radius.touchMenu } : {})}
       style={style}>
       <Rows
-        // A new highlighted suggestion starts the scrolling menu at the top, where it shows.
-        key={scroll === undefined ? undefined : active?.address}
+        // A new query or highlighted suggestion starts the scrolling menu at the top, where the
+        // highlighted one shows.
+        key={
+          scroll === undefined
+            ? undefined
+            : `${scroll.query}\n${active?.address ?? ''}`
+        }
         accessibilityLabel={t('drafts.suggestions.title')}
         {...(scroll === undefined
           ? {}
@@ -2857,6 +2864,7 @@ function BodyRecipientMenu({
           monograms={size === 'compact'}
           style={layoutStyles[size].bodySuggestions}
           scroll={{
+            query: shown.sections.query.text,
             maxHeight:
               room === undefined
                 ? undefined
