@@ -2369,8 +2369,13 @@ export function useRecoveryOffer(
       if (!current || base === undefined) {
         return;
       }
+      // A record whose Draft moved to another Profile meanwhile stays for that Profile's windows.
+      if (!owned(draft)) {
+        wake();
+        return;
+      }
       own.offered.add(draft.id);
-      if (kept && owned(draft)) {
+      if (kept) {
         if (choice === 0) {
           latest.current.onRestore({ version: draft, base });
           return;
