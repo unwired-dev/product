@@ -241,6 +241,29 @@ describe('message list', () => {
     }
   });
 
+  it('says saved mail did not open when the mailbox fails to open for an unnamed reason, and Try Again opens it', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.failOpen('unavailable');
+      await act(inbox.load);
+      expect(
+        screen.getByRole('alert', {
+          name: 'Mail saved on this device didn’t open. It has been kept. Choose Try Again to open it again.',
+        }),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText('Saved mail remains available')).toBeNull();
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+      await expect(
+        screen.findByText('Saved mail remains available'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByRole('alert')).toBeNull();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
   it('clears an IMAP connection’s attention when Try Again succeeds while another folder is listed', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

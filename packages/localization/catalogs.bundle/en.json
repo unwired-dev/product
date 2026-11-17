@@ -62,7 +62,7 @@
   },
   "storage": {
     "locked": "Private storage is locked. Unlock your device and try again.",
-    "failed": "Private storage could not be opened or saved. Your stored data has been kept."
+    "failed": "Mail saved on this device didn’t open. It has been kept. Choose Try Again to open it again."
   },
   "message": {
     "loading": "Loading message",
