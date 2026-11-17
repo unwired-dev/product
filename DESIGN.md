@@ -627,7 +627,10 @@ form accessories, keyboards, status bar).
   [Category control requirements](docs/product/organization.md#category-controls).
 - **On Device Marker / Summary Card:** the cinnabar lock with "On device" marks
   Mail Assistance output while it is a summary, an incoming translation, or a
-  preview or suggestion awaiting acceptance. Accepted rewrites, Draft
+  preview or suggestion awaiting acceptance. On a result it heads the card as
+  "<Kind> · On device" (Summary · On device, Shorten Text · On device), never a
+  sentence; what that means (made on this device, may be inaccurate, not saved)
+  follows the result as secondary text. Accepted rewrites, Draft
   translations and subjects become ordinary Draft content without the marker.
   The Summary card sits at the top of a Thread; while summarizing it shows quiet
   placeholder lines with Cancel. Dismissible, non-authoritative previews sit beside unchanged mail

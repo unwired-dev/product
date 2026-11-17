@@ -379,11 +379,12 @@ function Outcome({
   }
   return (
     <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.title, { color: colors.textPrimary }]}>
-        {t('translation.title', { language: target })}
-      </Text>
+      <OnDeviceMarker
+        header
+        label={t('common.onDeviceMarker', {
+          kind: t('translation.title', { language: target }),
+        })}
+      />
       <Text
         selectable
         style={[styles.text, { color: colors.textPrimary }]}>
@@ -394,7 +395,11 @@ function Outcome({
           {t('translation.omitted')}
         </Text>
       ) : null}
-      <OnDeviceMarker label={t('translation.disclaimer', { source, target })} />
+      <Text
+        selectable
+        style={[styles.secondary, { color: colors.textSecondary }]}>
+        {t('translation.disclaimer', { source, target })}
+      </Text>
     </>
   );
 }

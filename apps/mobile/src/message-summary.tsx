@@ -50,7 +50,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xl,
   },
-  title: { ...textStyles.subheadline, fontWeight: '600' },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.subheadline },
 });
@@ -134,11 +133,10 @@ function SummaryContent({
   if (state.kind === 'ready') {
     return (
       <>
-        <Text
-          accessibilityRole="header"
-          style={[styles.title, { color: colors.textPrimary }]}>
-          {t('summary.title')}
-        </Text>
+        <OnDeviceMarker
+          header
+          label={t('common.onDeviceMarker', { kind: t('summary.title') })}
+        />
         <Text
           selectable
           style={[styles.text, { color: colors.textPrimary }]}>
@@ -149,7 +147,11 @@ function SummaryContent({
             {t('summary.omitted')}
           </Text>
         ) : null}
-        <OnDeviceMarker label={t('summary.disclaimer')} />
+        <Text
+          selectable
+          style={[styles.secondary, { color: colors.textSecondary }]}>
+          {t('summary.disclaimer')}
+        </Text>
         {dismiss}
       </>
     );
