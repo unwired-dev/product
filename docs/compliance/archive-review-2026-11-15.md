@@ -62,13 +62,14 @@ Each supplied file has an immutable source URL and a checked hash in
 The inventory checks the actual app resource and rejects a mismatched hash.
 
 The exact `standard-navigation@0.0.5` package declares MIT but supplies no
-copyright notice in either its published archive or gitHead tree. The resource
-includes accurately labelled canonical MIT preparation and author metadata; it
-does not invent a copyright holder/year. This attribution remains unresolved.
-A publisher request is prepared, unsent. The owner can seek the publisher's exact
-notice or obtain a determination on the supplied declaration and candidate.
-This is a narrow attribution question, not a claim that the package has no
-licence declaration.
+copyright notice in either its published archive or gitHead tree. On 17 November
+2026 this attribution was resolved: the maintainer
+[confirmed](https://github.com/react-navigation/standard-navigation/issues/7#issuecomment-6474665803)
+that the repository's MIT licence applies to all previous versions. The resource
+now carries the publisher's
+[exact licence text](https://github.com/react-navigation/standard-navigation/blob/33f3d3c976a24bad9fe32583939318bc143fa41b/LICENSE),
+`Copyright (c) 2026 React Navigation Contributors`, pinned by SHA-256 in place
+of the earlier labelled candidate.
 
 Known composite-library version changes require new notice review. The resolved
 Swift graph can include test-only dependencies; listing their notices does not
@@ -100,7 +101,8 @@ lines. This did not change the compiler version, optimization or emitted-code
 options. No warning suppression was added to the product build scripts.
 
 The arm64 iOS Simulator 27.2 Release build also passes. Its native bundle phase
-packages 216 components; only `standard-navigation@0.0.5` remains unresolved.
+packages 216 components; only `standard-navigation@0.0.5` remained unresolved
+before its publisher notice was pinned.
 The notice text hash is
 `90c069819060afc2fba14ec42c9ac2177dbdf2a7a6d9874fd9ba992252023324`.
 Ad hoc signature verification passes. Both hosts' text and JSON provenance

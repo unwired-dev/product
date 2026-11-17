@@ -789,10 +789,10 @@
     "ecosystem": "npm",
     "name": "standard-navigation",
     "version": "0.0.5",
-    "file": "standard-navigation/NOTICE.candidate.txt",
-    "url": "https://github.com/react-navigation/standard-navigation/blob/0016fae7800b9f27bab91326697b740a6d2266dc/package.json",
-    "role": "candidate",
-    "sha256": "70a4f53fcc97487a555b375ce998e19aed670bd02251ae3344d3af00951943cd"
+    "file": "standard-navigation/LICENSE",
+    "url": "https://raw.githubusercontent.com/react-navigation/standard-navigation/33f3d3c976a24bad9fe32583939318bc143fa41b/LICENSE",
+    "sha256": "77aa111867b23a7dd45fd66c958c410a0a4b09f2f49e1ea0c16af01d1582d291",
+    "role": "root"
   },
   {
     "ecosystem": "npm",
