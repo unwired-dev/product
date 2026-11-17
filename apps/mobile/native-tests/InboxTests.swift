@@ -20,6 +20,16 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
   XCTAssertFalse(unconfirmed.firstMatch.exists)
 }
 
+// Keeps a screenshot named with the runner's appearance, for comparison with the Light and Dark
+// frames.
+private func attachScreen(_ name: String, of app: XCUIApplication, to test: XCTestCase) {
+  let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
+  let shot = XCTAttachment(screenshot: app.screenshot())
+  shot.name = "\(name) (\(appearance))"
+  shot.lifetime = .keepAlways
+  test.add(shot)
+}
+
 final class InboxTests: XCTestCase {
   // A new Product Account connects the synthetic Gmail mailbox and confirms its Recovery Key.
   private func connectGmail(_ app: XCUIApplication) {
@@ -32,6 +42,10 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recoveryKey.waitForExistence(timeout: 15))
     let presented = recoveryKey.label
     XCTAssertEqual(presented.count, 64)
+    // #2070: the step's white Confirm stays disabled until a character is entered.
+    XCTAssertFalse(app.buttons["Confirm Recovery Key"].isEnabled)
+    recoveryKey.firstMatch.swipeUp()
+    attachScreen("Recovery Key", of: app, to: self)
     app.terminate()
     app.launch()
     waitWithoutWelcome(for: app.staticTexts["Connect your mail"], in: app)
@@ -154,7 +168,7 @@ final class InboxTests: XCTestCase {
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let labels = app.staticTexts["Labels"]
     // iPad's More is the system menu, titled as the row menu names its actions.
-    let panelItem = phone ? labels : app.buttons["Flag"]
+    let panelItem = phone ? labels : app.buttons["Mark as Unread"]
     if phone {
       XCTAssertFalse(app.buttons["More"].exists)
       app.buttons["Reply"].tap()
@@ -167,28 +181,29 @@ final class InboxTests: XCTestCase {
     bodyText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     XCTAssertTrue(panelItem.waitForNonExistence(timeout: 5))
     XCTAssertFalse(app.alerts["Open this link in your browser?"].waitForExistence(timeout: 5))
-    // Organizing goes through the packaged native Gmail modify: a star from the Reply sheet on
-    // iPhone or the More panel on iPad, then an archive and Undo.
-    app.buttons[phone ? "Reply" : "More"].tap()
-    app.buttons[phone ? "Star" : "Flag"].tap()
-    // Choosing closes the sheet or menu; it reopens with the new star state.
-    if phone {
-      XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
-    }
-    app.buttons[phone ? "Reply" : "More"].tap()
-    let unstar = app.buttons[phone ? "Remove Star" : "Unflag"]
-    XCTAssertTrue(unstar.waitForExistence(timeout: 10))
+    // Organizing goes through the packaged native Gmail modify: a star from the Command Palette,
+    // the only place that offers it (#2084), then an archive and Undo.
+    let query = app.textFields["Type a command"]
+    let subject = app.staticTexts["Garden plans for spring"].firstMatch
+    openPalette(app, header: subject)
+    waitForFocus(query)
+    submit("Star", into: query, in: app)
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     assertGmailActionsSettled(app)
-    XCTAssertTrue(unstar.exists)
-    if !phone {
-      bodyText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-      XCTAssertTrue(unstar.waitForNonExistence(timeout: 5))
-    }
-    // The starred row names its flag; opening it read it.
-    let starred = app.buttons["Rowan Hale. Garden plans for spring. Flagged"]
+    // The palette then offers to remove it.
+    openPalette(app, header: subject)
+    XCTAssertTrue(
+      app.buttons.matching(NSPredicate(format: "label ==[c] %@", "Remove Star")).firstMatch
+        .waitForExistence(timeout: 10))
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    // The row carries no star marker; opening it read it.
+    let starred = app.buttons["Rowan Hale. Garden plans for spring"]
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
       let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Move to Spam"))
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
       app.buttons["Labels"].tap()
       XCTAssertTrue(labels.waitForExistence(timeout: 5))
       app.buttons["Reply"].tap()
@@ -1511,15 +1526,16 @@ final class InboxTests: XCTestCase {
       app.buttons["Use Recovery Key Instead"].tap()
       XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
       XCTAssertFalse(app.staticTexts["enrollment-code"].exists)
-      let recoveryStep = XCTAttachment(screenshot: app.screenshot())
-      recoveryStep.name = "Recovery Key step"
-      recoveryStep.lifetime = .keepAlways
-      add(recoveryStep)
+      attachScreen("Recovery Key step", of: app, to: self)
       app.buttons["Wait for Approval Instead"].tap()
       XCTAssertTrue(app.staticTexts["enrollment-code"].waitForExistence(timeout: 5))
       app.buttons["Use Recovery Key Instead"].tap()
     }
     XCTAssertTrue(app.staticTexts["Use your Recovery Key"].waitForExistence(timeout: 5))
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      app.staticTexts["Use your Recovery Key"].firstMatch.swipeUp()
+      attachScreen("Recovery Key step", of: app, to: self)
+    }
     // The synthetic account's written Recovery Key, typed as the person would.
     let entry = app.textFields["Recovery Key"]
     enter("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG", into: entry, in: app)
@@ -3357,8 +3373,10 @@ final class InboxTests: XCTestCase {
     let arrow = app.buttons["Translate into"]
     waitUntil { arrow.value as? String == "German" }
     XCTAssertEqual(arrow.value as? String, "German", arrow.debugDescription)
-    // The title shows only once the German result is ready.
-    XCTAssertTrue(app.staticTexts["Translation into German"].firstMatch.waitForExistence(timeout: 10))
+    // The marker shows only once the German result is ready.
+    XCTAssertTrue(
+      app.descendants(matching: .any)["Translation into German · On device"].firstMatch
+        .waitForExistence(timeout: 10))
     let chosen = XCTAttachment(screenshot: app.screenshot())
     chosen.name = "Translated message into German"
     chosen.lifetime = .keepAlways

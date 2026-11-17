@@ -144,7 +144,7 @@ describe('language selection', () => {
     const first = within(app.getByTestId('first'));
     await choose(app, 'System Default');
     await expect(app.findByRole('alert')).resolves.toHaveTextContent(
-      'The language could not be saved. Try again.',
+      'The language wasn’t changed. Choose it again.',
     );
     expect(languagePopUp(app)).toHaveAccessibilityValue({ text: 'English' });
     await choose(app, 'System Default');

@@ -15,6 +15,7 @@ import { commandTarget } from '@private-email/mail-core/commands';
 import { draftsOf, profileDrafts } from '@private-email/mail-core/drafts';
 import {
   leavesView,
+  paletteOnly,
   quickActions,
 } from '@private-email/mail-core/gmail-actions';
 import { imapQuickActions } from '@private-email/mail-core/imap-actions';
@@ -527,8 +528,11 @@ function statusOf(
   if (downloading !== undefined) {
     return downloading;
   }
+  // iPhone's short heading says All read, as its frames draw it; iPad's keeps the Mac wording.
   const status =
-    unread === 0 ? t('inbox.noUnread') : t('inbox.unread', { count: unread });
+    unread === 0
+      ? t(ipad ? 'inbox.noUnread' : 'inbox.allRead')
+      : t('inbox.unread', { count: unread });
   if (!ipad || !inbox || signIn) {
     return status;
   }
@@ -1296,7 +1300,9 @@ export function Inbox({
                     actions={
                       section.key === 'gmail'
                         ? undefined
-                        : rowActions(item.mailbox, item.message)
+                        : rowActions(item.mailbox, item.message).filter(
+                            ({ name }) => !paletteOnly(name),
+                          )
                     }
                     now={now}
                     // The next day's divider follows a day's last row.

@@ -13,12 +13,19 @@ import type {
   RemovalFailure,
 } from '@private-email/mail-core/registration';
 
-import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
+import {
+  Host,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
 import {
   buttonStyle,
+  controlSize,
+  disabled as inactive,
   font,
   foregroundStyle,
   frame,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import {
@@ -72,6 +79,8 @@ import { TrustedDevices } from './trusted-devices.tsx';
 const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
 // iPhone draws trust steps on the brand fill, one step at a time.
 const phone = Platform.OS === 'ios' && !Platform.isPad;
+// iPad draws the Recovery Key steps on the brand fill too, at its onboarding sizes.
+const ipad = Platform.OS === 'ios' && Platform.isPad;
 // How often the iPhone approval step checks for its approval while it is on screen and the app is
 // not in the background; a request and its approval each last 15 minutes.
 const approvalInterval = 10_000;
@@ -536,6 +545,45 @@ function useCardButton(store: Registration) {
   };
 }
 
+// A Recovery Key step's action: white on brand deep, disabled while registration is busy.
+function StepAction({
+  label,
+  action,
+  store,
+  disabled = false,
+}: {
+  readonly label: string;
+  readonly action: () => Promise<void>;
+  readonly store: Registration;
+  readonly disabled?: boolean;
+}) {
+  const { busy } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const colors = usePalette();
+  return (
+    <Host matchContents={{ vertical: true }}>
+      <SwiftUIButton
+        modifiers={[
+          buttonStyle('borderedProminent'),
+          controlSize('large'),
+          tint(colors.brandOnDeep),
+          inactive(busy || disabled),
+        ]}
+        onPress={() => {
+          void action();
+        }}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'headline' }),
+            foregroundStyle(colors.brandDeep),
+            frame({ maxWidth: Infinity }),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
+  );
+}
+
 // A trust step's alternative: a text button in the brand step's ink.
 function StepLink({
   label,
@@ -612,6 +660,30 @@ function WaitingForApproval({ store }: { readonly store: Registration }) {
   );
 }
 
+// A Recovery Key step's field: outlined on iPhone, in a well on iPad, as the frames draw them.
+function brandField(colors: ReturnType<typeof usePalette>) {
+  return ipad
+    ? {
+        placeholderTextColor: `${colors.brandOnDeep}99`,
+        style: [
+          styles.input,
+          styles.ipadBrandInput,
+          {
+            backgroundColor: colors.brandWell,
+            borderColor: colors.brandWellBorder,
+            color: colors.textPrimary,
+          },
+        ],
+      }
+    : {
+        placeholderTextColor: colors.textSecondary,
+        style: [
+          styles.input,
+          { borderColor: colors.separator, color: colors.textPrimary },
+        ],
+      };
+}
+
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
 function PrivateSync({
   copy,
@@ -633,10 +705,10 @@ function PrivateSync({
     return null;
   }
   const { recoveryKey, enrollmentCode } = copy;
+  // iPad draws only the Recovery Key step on the brand fill.
   const brand =
-    Platform.OS === 'ios' &&
-    !Platform.isPad &&
-    (recoveryKey !== undefined || enrollmentCode !== undefined);
+    recoveryKey !== undefined || (phone && enrollmentCode !== undefined);
+  const body = [styles.text, brand && ipad && styles.padSheetText];
   const colors = brand
     ? {
         ...schemeColors,
@@ -649,12 +721,12 @@ function PrivateSync({
   const notes = (
     <>
       {copy.mailboxes === undefined ? null : (
-        <Text style={[styles.text, { color: colors.textSecondary }]}>
+        <Text style={[body, { color: colors.textSecondary }]}>
           {copy.mailboxes}
         </Text>
       )}
       {copy.pending === undefined ? null : (
-        <Text style={[styles.text, { color: colors.textPrimary }]}>
+        <Text style={[body, { color: colors.textPrimary }]}>
           {copy.pending}
         </Text>
       )}
@@ -663,7 +735,7 @@ function PrivateSync({
   if (recoveryKey !== undefined) {
     return (
       <TrustCard
-        fill={brand ? 'brand' : 'content'}
+        fill="brand"
         icon="key"
         title={copy.title}
         description={copy.description}>
@@ -672,18 +744,17 @@ function PrivateSync({
           testID="recovery-key"
           style={[
             styles.recoveryKey,
-            { color: colors.textPrimary, backgroundColor: colors.fillQuiet },
-            brand && [
-              styles.brandRecoveryKey,
-              {
-                backgroundColor: schemeColors.brandWell,
-                borderColor: schemeColors.brandWellBorder,
-              },
-            ],
+            styles.brandRecoveryKey,
+            ipad && styles.ipadBrandRecoveryKey,
+            {
+              color: colors.textPrimary,
+              backgroundColor: schemeColors.brandWell,
+              borderColor: schemeColors.brandWellBorder,
+            },
           ]}>
           {recoveryKey}
         </Text>
-        <Text style={[styles.text, { color: colors.textSecondary }]}>
+        <Text style={[body, { color: colors.textSecondary }]}>
           {t('recoveryKeyConfirmation.prompt')}
         </Text>
         <TextInput
@@ -695,23 +766,21 @@ function PrivateSync({
             setEntry(recoveryKeyEntry(text));
           }}
           placeholder={t('recoveryKeyConfirmation.label')}
-          placeholderTextColor={colors.textSecondary}
-          style={[
-            styles.input,
-            { borderColor: colors.separator, color: colors.textPrimary },
-          ]}
+          {...brandField(colors)}
           value={entry}
         />
         {failure === undefined ? null : (
-          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
+          <AnnouncedAlert style={[body, { color: colors.textPrimary }]}>
             {t(`recoveryKeyConfirmation.${failure}`)}
           </AnnouncedAlert>
         )}
-        {card(
-          t('recoveryKeyConfirmation.confirm'),
-          () => store.confirmRecoveryKey(entry),
-          'accent',
-        )}
+        <StepAction
+          label={t('recoveryKeyConfirmation.confirm')}
+          action={() => store.confirmRecoveryKey(entry)}
+          store={store}
+          // The frames draw Confirm disabled until a character is entered.
+          disabled={entry === ''}
+        />
         {notes}
       </TrustCard>
     );
@@ -774,31 +843,21 @@ function RecoveryKeyUnlock({
   readonly onBack?: () => void;
 }) {
   const schemeColors = usePalette();
-  const brand = Platform.OS === 'ios' && !Platform.isPad;
-  const colors = brand
-    ? {
-        ...schemeColors,
-        textPrimary: schemeColors.brandOnDeep,
-        textSecondary: palette.dark.textSecondary,
-        separator: palette.dark.textSecondary,
-      }
-    : schemeColors;
+  const colors = {
+    ...schemeColors,
+    textPrimary: schemeColors.brandOnDeep,
+    textSecondary: palette.dark.textSecondary,
+    separator: palette.dark.textSecondary,
+  };
   const { t } = useLocalization();
-  const card = useCardButton(store);
   const [entry, setEntry] = useState('');
   if (!offered) {
     return null;
   }
-  const notice = (
-    <Notice
-      icon="info.circle"
-      message={t('recovery.lost')}
-    />
-  );
   return (
     <>
       <TrustCard
-        fill={brand ? 'brand' : 'content'}
+        fill="brand"
         icon="key"
         title={t('recovery.title')}
         description={t('recovery.description')}>
@@ -809,24 +868,24 @@ function RecoveryKeyUnlock({
           autoCorrect={false}
           onChangeText={setEntry}
           placeholder={t('recovery.label')}
-          placeholderTextColor={colors.textSecondary}
-          style={[
-            styles.input,
-            { borderColor: colors.separator, color: colors.textPrimary },
-          ]}
+          {...brandField(colors)}
           value={entry}
         />
         {failure === undefined ? null : (
-          <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
+          <AnnouncedAlert
+            style={[
+              styles.text,
+              ipad && styles.padSheetText,
+              { color: colors.textPrimary },
+            ]}>
             {t(`recovery.${failure}`)}
           </AnnouncedAlert>
         )}
-        {card(
-          t('recovery.unlock'),
-          () => store.recoverWithRecoveryKey(entry),
-          'accent',
-        )}
-        {brand ? null : notice}
+        <StepAction
+          label={t('recovery.unlock')}
+          action={() => store.recoverWithRecoveryKey(entry)}
+          store={store}
+        />
         {onBack === undefined ? null : (
           <StepLink
             label={t('enrollment.waitInstead')}
@@ -834,7 +893,10 @@ function RecoveryKeyUnlock({
           />
         )}
       </TrustCard>
-      {brand ? notice : null}
+      <Notice
+        icon="info.circle"
+        message={t('recovery.lost')}
+      />
     </>
   );
 }

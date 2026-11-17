@@ -263,6 +263,16 @@ const styles = StyleSheet.create({
   cardDescription: { ...textStyles.subheadline, textAlign: 'center' },
   brandTitle: { ...textStyles.largeTitle, textAlign: 'left' },
   brandDescription: { ...textStyles.body, textAlign: 'left' },
+  // iPad's brand card uses the onboarding sizes: 13.8pt gaps and tile corners, a tile in the well,
+  // a Title 1 heading and the description at 80%.
+  ipadBrandCard: { gap: spacing.m * ipadListScale },
+  ipadBrandCardHeader: { gap: spacing.m * ipadListScale },
+  ipadBrandIconTile: {
+    borderRadius: spacing.m * ipadListScale,
+    backgroundColor: palette.dark.brandWell,
+  },
+  ipadBrandTitle: { fontSize: 25.3, lineHeight: 29.9, fontWeight: '400' },
+  ipadBrandDescription: { ...typography.ipadList.body, opacity: 0.8 },
 });
 
 // iPhone sets Welcome's content 14pt below the safe area's centre, whatever its footer holds.
@@ -806,11 +816,15 @@ export function TrustCard({
 }) {
   const colors = usePalette();
   const ink = fill === 'brand' ? colors.brandOnDeep : colors.textPrimary;
+  const regular = ipad && fill === 'brand';
+  // The brand tile's key is drawn 12×22pt, and 27pt tall on iPad.
+  const brandSymbol = ipad ? 22 : 18;
   return (
     <View
       style={[
         styles.card,
         fill === 'brand' && styles.brandCard,
+        regular && styles.ipadBrandCard,
         {
           backgroundColor:
             fill === 'brand' ? colors.brandDeep : colors.surfaceContent,
@@ -818,7 +832,11 @@ export function TrustCard({
         },
       ]}>
       <View
-        style={[styles.cardHeader, fill === 'brand' && styles.brandCardHeader]}>
+        style={[
+          styles.cardHeader,
+          fill === 'brand' && styles.brandCardHeader,
+          regular && styles.ipadBrandCardHeader,
+        ]}>
         <View
           style={[
             styles.iconTile,
@@ -827,11 +845,11 @@ export function TrustCard({
               backgroundColor:
                 fill === 'brand' ? palette.dark.fillQuiet : colors.fillQuiet,
             },
+            regular && styles.ipadBrandIconTile,
           ]}>
           <SFSymbol
             name={icon}
-            // The brand tile's key is drawn 12×22pt.
-            size={fill === 'brand' ? 18 : 24}
+            size={fill === 'brand' ? brandSymbol : 24}
             color={ink}
           />
         </View>
@@ -840,6 +858,7 @@ export function TrustCard({
           style={[
             styles.cardTitle,
             fill === 'brand' && styles.brandTitle,
+            regular && styles.ipadBrandTitle,
             { color: ink },
           ]}>
           {title}
@@ -849,6 +868,7 @@ export function TrustCard({
             style={[
               styles.cardDescription,
               fill === 'brand' && styles.brandDescription,
+              regular && styles.ipadBrandDescription,
               {
                 color:
                   fill === 'brand' ? colors.brandOnDeep : colors.textSecondary,

@@ -839,13 +839,21 @@ export function Button({
   );
 }
 
-// The existing disclosure stays beside unaccepted assistance output and disappears with it.
-export function OnDeviceMarker({ label }: { readonly label: string }) {
+// The existing disclosure stays beside unaccepted assistance output and disappears with it. A
+// result's marker heads its card.
+export function OnDeviceMarker({
+  label,
+  header = false,
+}: {
+  readonly label: string;
+  readonly header?: boolean;
+}) {
   const colors = usePalette();
   return (
     <View
       accessible
       accessibilityLabel={label}
+      accessibilityRole={header ? 'header' : undefined}
       style={styles.marker}>
       <SFSymbol
         name="lock.fill"

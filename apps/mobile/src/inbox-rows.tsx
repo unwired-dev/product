@@ -16,7 +16,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { useCommandRegistry } from './command-palette.tsx';
-import { ContextMenu, SFSymbol } from './design.tsx';
+import { ContextMenu } from './design.tsx';
 import { ipad, styles } from './inbox-styles.ts';
 import { useListDensity } from './list-density.tsx';
 import {
@@ -113,16 +113,8 @@ export function MessageRow({
     reader === undefined ? noSubscription : registry.subscribe,
     () => (reader === undefined ? noCommands : registry.getSnapshot()),
   );
-  // Gmail's star and IMAP's \Flagged are the list's flag; Microsoft mail lists none yet.
-  const flagged =
-    'flagged' in message
-      ? message.flagged
-      : 'labels' in message &&
-        message.labels !== undefined &&
-        message.labels.includes('STARRED');
   const label = t('inbox.rowLabel', {
     context: [
-      flagged ? 'flagged' : undefined,
       mailbox === undefined ? undefined : 'mailbox',
       status === undefined ? undefined : 'status',
     ]
@@ -192,13 +184,6 @@ export function MessageRow({
                   query={query}
                 />
               </Text>
-              {flagged ? (
-                <SFSymbol
-                  name="flag.fill"
-                  size={13}
-                  color={selected ? colors.accentOnFill : colors.statusWarning}
-                />
-              ) : null}
               <Text
                 numberOfLines={1}
                 style={[styles.date, { color: secondaryColor }]}>

@@ -44,7 +44,10 @@ results never appear in the palette. The vocabulary lives in the
   (Select a Thread, or Not available for this message) when nothing can
   run them. While the reader is already starting a reply or forward, Reply,
   Reply All and Forward stay listed and disabled with Already opening a
-  draft, as its buttons are. The palette lists only supported commands; Pin, Snooze, Flag,
+  draft, as its buttons are. The provider's star is offered only here, as **Star** and
+  **Remove Star**: no toolbar, menu, row action or row marker shows it
+  ([#2084](https://github.com/unwired-dev/product/issues/2084)). The palette lists only
+  supported commands; Pin, Snooze,
   thread-wide and bulk actions arrive with their owning work, such as
   [keyboard and bulk actions #849](https://github.com/unwired-dev/product/issues/849).
 - The [Thread view](catch-up.md#thread-view) opens the palette from its fixed

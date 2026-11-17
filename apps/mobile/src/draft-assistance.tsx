@@ -54,7 +54,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xl,
   },
-  title: { ...textStyles.subheadline, fontWeight: '600' },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.subheadline },
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.s },
@@ -413,11 +412,12 @@ function Status({
   }
   return (
     <>
-      <Text
-        accessibilityRole="header"
-        style={[styles.title, { color: colors.textPrimary }]}>
-        {t(`assistance.${purpose}Title`)}
-      </Text>
+      <OnDeviceMarker
+        header
+        label={t('common.onDeviceMarker', {
+          kind: t(`assistance.${purpose}Title`),
+        })}
+      />
       <Text
         selectable
         style={[styles.text, { color: colors.textPrimary }]}>
@@ -429,7 +429,11 @@ function Status({
         </Text>
       ) : null}
       {check === undefined ? null : <Checks check={check} />}
-      <OnDeviceMarker label={t('assistance.disclaimer')} />
+      <Text
+        selectable
+        style={[styles.secondary, { color: colors.textSecondary }]}>
+        {t('assistance.disclaimer')}
+      </Text>
     </>
   );
 }
@@ -694,8 +698,8 @@ export function DroppedAssistance({
         },
       ]}>
       <OnDeviceMarker
-        label={t('assistance.droppedMarker', {
-          tool: t(`assistance.${purpose}Title`),
+        label={t('common.onDeviceMarker', {
+          kind: t(`assistance.${purpose}Title`),
         })}
       />
       <Text

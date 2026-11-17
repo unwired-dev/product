@@ -6555,13 +6555,14 @@ describe('replying to and forwarding from the reader', () => {
         'Forward',
         'Archive',
         'Mark as Unread',
-        'Star',
         'Move to…',
         'Labels',
         'Delete',
         'Move to Spam',
       ].map((name) => screen.getAllByRole('button', { name }).at(-1)),
-    ).toHaveLength(9);
+    ).toHaveLength(8);
+    // The provider's star is offered only by the Command Palette (#2084).
+    expect(screen.queryByRole('button', { name: 'Star' })).toBeNull();
     expect(
       screen
         .getAllByRole('button', {
@@ -6570,23 +6571,11 @@ describe('replying to and forwarding from the reader', () => {
         .slice(-4)
         .map((button) => button.props.accessibilityLabel),
     ).toStrictEqual(['Move to…', 'Labels', 'Move to Spam', 'Delete']);
-    expect(
-      screen
-        .getAllByRole('button', { name: /^(?:Star|Mark as Unread)$/u })
-        .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Star', 'Mark as Unread']);
     // Choosing an action runs it and closes the sheet.
-    await act(async () => {
-      await fireEvent.press(screen.getByRole('button', { name: 'Star' }));
-    });
+    await pressLast('Mark as Unread');
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
     await press('Reply');
-    expect(screen.getByRole('button', { name: 'Remove Star' })).toBeVisible();
-    expect(
-      screen
-        .getAllByRole('button', { name: /^(?:Remove Star|Mark as Unread)$/u })
-        .map((button) => button.props.accessibilityLabel),
-    ).toStrictEqual(['Remove Star', 'Mark as Unread']);
+    expect(screen.getByRole('button', { name: 'Mark as Read' })).toBeVisible();
     await press('Close');
     expect(screen.queryByRole('button', { name: 'Move to Spam' })).toBeNull();
     // Labels opens the label checkboxes alone, without the actions the sheet already offers.

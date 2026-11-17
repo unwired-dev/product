@@ -31,6 +31,7 @@
     "unread_one": "{{count}} unread",
     "unread_other": "{{count}} unread",
     "noUnread": "No unread messages",
+    "allRead": "All read",
     "syncing": "Syncing",
     "offline": "Offline",
     "statusUpdated": "{{status}} · {{updated}}",
@@ -45,18 +46,15 @@
     "rowLabel": "{{row}}",
     "rowLabel_mailbox": "{{row}}. In {{mailbox}}",
     "rowLabel_status": "{{row}}. {{status}}",
-    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}",
-    "rowLabel_flagged": "{{row}}. Flagged",
-    "rowLabel_flagged_mailbox": "{{row}}. Flagged. In {{mailbox}}",
-    "rowLabel_flagged_status": "{{row}}. Flagged. {{status}}",
-    "rowLabel_flagged_mailbox_status": "{{row}}. Flagged. In {{mailbox}}. {{status}}"
+    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}"
   },
   "common": {
     "retry": "Try Again",
     "cancel": "Cancel",
     "ok": "OK",
     "done": "Done",
-    "allowAccess": "Allow {{provider}} Access"
+    "allowAccess": "Allow {{provider}} Access",
+    "onDeviceMarker": "{{kind}} · On device"
   },
   "storage": {
     "locked": "Private storage is locked. Unlock your device and try again.",
@@ -116,7 +114,7 @@
     "systemDefault": "System Default",
     "detail": "Also used for the menu bar and window titles. System Default follows the language set in System Settings.",
     "deviceDetail": "System Default follows your device’s preferred languages and falls back to English.",
-    "saveFailed": "The language could not be saved. Try again."
+    "saveFailed": "The language wasn’t changed. Choose it again."
   },
   "native": {
     "app": "Unwired Mail",
@@ -317,7 +315,7 @@
     "spam": "Spam",
     "trash": "Trash",
     "sent": "Sent",
-    "flagged": "Flagged",
+    "starred": "Starred",
     "allMailboxes": "All Mailboxes",
     "notIncluded": "{{mailbox}} isn’t included",
     "notIncludedDetail": "Its server doesn’t identify a folder that can be used for {{view}}. Its folders are still listed under it in the sidebar.",
@@ -390,7 +388,7 @@
     },
     "clear": "Clear Remote Content",
     "cleared": "Remote content saved on this device was removed.",
-    "clearFailed": "Remote content could not be removed. Try again.",
+    "clearFailed": "Some remote content may still be saved on this device. Your mail isn’t affected. Try clearing it again.",
     "clearing": "Clearing…",
     "notSaved": "Couldn’t save this change. {{setting}} is still set to {{choice}}. Try again."
   },
@@ -890,7 +888,6 @@
     "failed": "The suggestion could not be created. Your text is unchanged.",
     "cancelled": "Cancelled. Your text is unchanged.",
     "dropped": "Your Draft changed while this rewrite was being made, so it wasn’t used. Your text is as you left it.",
-    "droppedMarker": "{{tool}} · On device",
     "rewriteAgain": "Rewrite Again",
     "rewriteAgainLabel": "Rewrite your current text again",
     "close": "Close",
@@ -1512,8 +1509,6 @@
     "archive": "Archive",
     "restore": "Move to Inbox",
     "trash": "Delete",
-    "star": "Flag",
-    "unstar": "Unflag",
     "read": "Mark as Read",
     "unread": "Mark as Unread",
     "moveTo": "Move to…",

@@ -242,10 +242,12 @@ The pinned `react-native-screens` patch is native as well: CocoaPods records the
 patched package's directory, whose name carries the patch hash, so after changing
 the patch regenerate before rebuilding, or Xcode keeps compiling the previous patch.
 Check the built binary contains the changed symbol.
-Root `pnpm install` also applies the pinned `@expo/ui` patch. Changes to that JavaScript patch
+Root `pnpm install` also applies the pinned `@expo/ui` patch. Changes to its JavaScript
 require rebundling without regenerating the native project. Verify by swiping
 the Filters sheet away and confirming the floating bar stays visible throughout
-dismissal; repeat after Apply.
+dismissal; repeat after Apply. Its Swift change to `Popover` draws iPad popovers
+without an arrow, beside their control (#2255); like the screens patch, regenerate
+before rebuilding after changing it, and open Filters on iPad to verify.
 Keep native changes in
 config plugins. The design plugin compiles `native/design`, the SF Symbol and
 other native design views the Mac host shares: it copies their sources into the

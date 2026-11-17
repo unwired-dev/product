@@ -289,11 +289,11 @@ Graphite neutrals with a single warm seal.
 | On device ink     | `on-device/ink`            | `#A3321F`     | `#FF9E88`     | The cinnabar seal: On device marker text and icon              |
 | On device surface | `on-device/surface`        | `#FBEEEA`     | `#3A2420`     | Summary card and Mail Assistance surfaces                      |
 | Brand deep        | `brand/deep`               | `#15171B`     | `#15171B`     | Welcome, Recovery Key                                          |
-| On brand deep     | `brand/on-deep`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep                                   |
+| On brand deep     | `brand/on-deep`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand deep; the Recovery Key steps' action   |
 | Brand seal        | `brand/seal`               | `#C2412A`     | `#C2412A`     | Welcome "Continue" only                                        |
 | On brand seal     | `brand/on-seal`            | `#FFFFFF`     | `#FFFFFF`     | Text and icons on brand seal                                   |
 | Monogram          | `brand/monogram`           | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                  |
-| Brand well        | `brand/well`               | white 8%      | white 8%      | iPhone Recovery Key's well on brand deep                       |
+| Brand well        | `brand/well`               | white 8%      | white 8%      | Recovery Key's well, iPad tile and iPad field on brand deep    |
 | Brand well border | `brand/well-border`        | white 16%     | white 16%     | The Recovery Key well's outline                                |
 | Profile Blue      | `profile/blue`             | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                          |
 | Profile Indigo    | `profile/indigo`           | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                          |
@@ -627,7 +627,10 @@ form accessories, keyboards, status bar).
   [Category control requirements](docs/product/organization.md#category-controls).
 - **On Device Marker / Summary Card:** the cinnabar lock with "On device" marks
   Mail Assistance output while it is a summary, an incoming translation, or a
-  preview or suggestion awaiting acceptance. Accepted rewrites, Draft
+  preview or suggestion awaiting acceptance. On a result it heads the card as
+  "<Kind> · On device" (Summary · On device, Shorten Text · On device), never a
+  sentence; what that means (made on this device, may be inaccurate, not saved)
+  follows the result as secondary text. Accepted rewrites, Draft
   translations and subjects become ordinary Draft content without the marker.
   The Summary card sits at the top of a Thread; while summarizing it shows quiet
   placeholder lines with Cancel. Dismissible, non-authoritative previews sit beside unchanged mail

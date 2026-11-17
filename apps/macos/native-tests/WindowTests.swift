@@ -320,14 +320,24 @@ final class WindowTests: XCTestCase {
     resumed.typeKey("j", modifierFlags: [])
     XCTAssertTrue(seedOrder.waitForExistence(timeout: 5))
     XCTAssertEqual(app.state, .runningForeground)
-    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo,
-    // chosen as Edit › Undo, Command-Z (#2188).
+    // Organizing goes through the packaged native Gmail modify: a star from the Command Palette,
+    // the only place that offers it (#2084), then an archive and Undo, chosen as Edit › Undo,
+    // Command-Z (#2188).
+    XCTAssertFalse(resumed.buttons["Star"].exists)
+    let query = resumed.textFields["Type a command"]
+    app.typeKey("k", modifierFlags: .command)
+    XCTAssertTrue(query.waitForExistence(timeout: 15))
     resumed.buttons["Star"].click()
-    XCTAssertTrue(resumed.buttons["Remove Star"].waitForExistence(timeout: 10))
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     assertProviderActionsSettled(resumed)
-    XCTAssertTrue(resumed.buttons["Remove Star"].exists)
-    // The starred row names its flag.
-    let starred = opened + ". Flagged"
+    app.typeKey("k", modifierFlags: .command)
+    XCTAssertTrue(
+      resumed.buttons.matching(NSPredicate(format: "label ==[c] %@", "Remove Star")).firstMatch
+        .waitForExistence(timeout: 10))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    // The row carries no star marker.
+    let starred = opened
     resumed.buttons["Archive"].click()
     XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
     assertProviderActionsSettled(resumed)
@@ -1224,12 +1234,12 @@ final class WindowTests: XCTestCase {
         .waitForExistence(timeout: 10)
     }
     first.buttons["Translate this message"].click()
-    XCTAssertTrue(shows("Translation into English"))
+    XCTAssertTrue(text("Translation into English · On device", in: first).waitForExistence(timeout: 10))
     XCTAssertTrue(shows("Synthetic translation of local mail."))
     first.buttons["Translate Into"].click()
     XCTAssertFalse(app.menuItems["Translate into English"].exists)
     app.menuItems["Translate into German"].click()
-    XCTAssertTrue(shows("Translation into German"))
+    XCTAssertTrue(text("Translation into German · On device", in: first).waitForExistence(timeout: 10))
     XCTAssertTrue(first.buttons["Translate into German"].exists)
     first.buttons["Show the original message and forget the translation"].click()
     XCTAssertTrue(first.buttons["Translate Into"].waitForExistence(timeout: 10))

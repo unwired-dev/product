@@ -1879,11 +1879,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await fireEvent(
         second.getByRole('button', { name: readOliver }),
         'accessibilityAction',
-        { nativeEvent: { actionName: 'star' } },
+        { nativeEvent: { actionName: 'unread' } },
       );
     });
     const refusal =
-      'Gmail could not star “Saturday, by the river?”. The Inbox shows it as Gmail has it.';
+      'Gmail could not mark as unread “Saturday, by the river?”. The Inbox shows it as Gmail has it.';
     for (const window of [first, second]) {
       const status = window.getByRole('alert', { name: refusal });
       expect(status).toBeVisible();
@@ -1962,7 +1962,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       // Issue #905 requires destructive actions last, superseding the Mac frame's grouping.
       expect(menuSections(contextMenuOf(row))).toStrictEqual([
         ['Archive'],
-        ['Flag', 'Mark as Read'],
+        ['Mark as Read'],
         ['Delete'],
       ]);
       await fireEvent.press(row);
@@ -1990,7 +1990,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
           within(received).getByText(/UTC$/u).props.selectable === true,
       }).toStrictEqual({ selectableDate: false });
       expect(menuSections(message)).toStrictEqual([
-        ['Mark as Unread', 'Flag'],
+        ['Mark as Unread'],
         [['Move to…', ['Travel']], 'Delete'],
       ]);
       await chooseFromMenu(message, 'Delete');
@@ -2290,7 +2290,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     gmail.failModify({ code: 'mailbox-revoked' });
     await act(async () => {
       await fireEvent(row, 'accessibilityAction', {
-        nativeEvent: { actionName: 'star' },
+        nativeEvent: { actionName: 'archive' },
       });
     });
     await expect(
