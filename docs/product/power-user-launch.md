@@ -25,9 +25,12 @@ owns this specification and roadmap reconciliation.
 
 - Gmail is required at launch.
 - IMAP and SMTP are both required for a complete Standards-Based Mailbox
-  Connection. Certify iCloud Mail and Fastmail and support reviewed manual
+  Connection. Certify iCloud Mail and Seznam Email and support reviewed manual
   configuration for other compatible servers. Explain unsupported capabilities
   and connection failures without claiming universal server compatibility.
+  The owner selected Seznam's free mailboxes instead of Fastmail on 17 November
+  2026; [ADR 0069](../adr/0069-expand-the-apple-launch-to-power-user-mail.md#imap-and-smtp-certification-amendment-2026-11-17)
+  records the amended qualification target.
 - Support personal Outlook.com and work/school Microsoft 365 mailboxes. Test and
   certify on personal accounts only (owner decision of 13 November 2026);
   work/school accounts are supported without their own qualification.

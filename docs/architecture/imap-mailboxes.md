@@ -276,7 +276,7 @@ registration journeys exercise immediate password repair on both host components
 Registration Mock Mail Sessions connect any IMAP login to a synthetic server that
 marks only its Sent folder; the Mac Spam and Trash folder journey uses it.
 
-Real iCloud/Fastmail reads require accounts and remain release work in #632. Native
+Real iCloud/Seznam reads require accounts and remain release work in #632. Native
 Mac controlled-TLS reads, complete native IMAP setup/open/relaunch journeys and
 power-user parity remain explicitly unqualified. Connections saved before #631
 remain receive only until SMTP is verified; the reduced reader remains in scope.
@@ -304,6 +304,6 @@ SwiftMail implicit-TLS/STARTTLS submission and refused/uncertain outcomes, plus
 Sent header search and idempotent APPEND. It also records a successful Testing
 Mac host build compiling the SMTP adapter and bridge, superseding #630's
 unavailable Mac compile evidence for this tree. Shared sending journeys use
-controlled native bridge fixtures rather than wire servers. Real iCloud/Fastmail
+controlled native bridge fixtures rather than wire servers. Real iCloud/Seznam
 SMTP and Sent filing, native Mac controlled TLS and full native sending journeys
 on iPhone, iPad and Mac remain required release evidence in #632 and #855.
