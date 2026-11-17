@@ -1,4 +1,3 @@
-import type { Draft } from '@private-email/mail-core/drafts';
 import type { openedTarget } from '@private-email/mail-core/notifications';
 import type { ProfileChoicesStore } from '@private-email/mail-core/profile-windows';
 import type { NativeSyntheticEvent, ViewProps } from 'react-native';
@@ -26,6 +25,7 @@ import {
   View,
 } from 'react-native';
 
+import type { Recovered } from './composer.tsx';
 import type { Selection } from './inbox.tsx';
 import type { MailboxView } from './sidebar.tsx';
 
@@ -295,14 +295,14 @@ function WindowContents({
   );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
-  // The unsaved version a composer recovery record kept, while its restored composer is open.
-  const [recovered, setRecovered] = useState<Draft>();
-  if (recovered !== undefined && composing !== recovered.id) {
+  // The composer recovery record restored, while its composer is open.
+  const [recovered, setRecovered] = useState<Recovered>();
+  if (recovered !== undefined && composing !== recovered.version.id) {
     setRecovered(undefined);
   }
-  const recoveryAnchor = useRecoveryOffer(composing, (draft) => {
-    setComposing(draft.id);
-    setRecovered(draft);
+  const recoveryAnchor = useRecoveryOffer(composing, (restored) => {
+    setComposing(restored.version.id);
+    setRecovered(restored);
   });
   const [panes, setPanes] = useState({ width: 0, height: 0 });
   // Half the sidebar's visible width, which only the floating bar follows through the animation.

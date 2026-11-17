@@ -664,6 +664,10 @@ describe('mac window selection with the shared mock mailbox', () => {
       await waitFor(() => {
         expect(sheetsShown()).toStrictEqual([recover]);
       });
+      // The Draft changes elsewhere while the alert is open.
+      const opened = draftOf(drafts.getSnapshot(), restored);
+      ok(opened !== undefined);
+      await drafts.update({ ...opened, subject: 'Changed plan' }, opened);
       await act(async () => {
         chooseSheetButton('Restore');
       });
@@ -673,10 +677,6 @@ describe('mac window selection with the shared mock mailbox', () => {
       );
       // The other record waits while the restored composer is open.
       expect(sheetsShown()).toStrictEqual([]);
-      // The Draft changes elsewhere meanwhile.
-      const opened = draftOf(drafts.getSnapshot(), restored);
-      ok(opened !== undefined);
-      await drafts.update({ ...opened, subject: 'Changed plan' }, opened);
       // Close asks to save the restored edits, and Save keeps them as a conflicting copy.
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
       await act(async () => {

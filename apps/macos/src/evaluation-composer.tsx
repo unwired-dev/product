@@ -44,7 +44,7 @@ import {
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import type { Closing, Toolbar } from './composer.tsx';
+import type { Closing, Recovered, Toolbar } from './composer.tsx';
 import type {
   CaptureRequest,
   PageState,
@@ -939,8 +939,8 @@ function EvaluationComposer({
 
 type ComposerProps = Readonly<{
   id: string;
-  // The unsaved version a composer recovery record kept, which only the current composer opens.
-  recovered?: Draft | undefined;
+  // The composer recovery record restored, which only the current composer opens.
+  recovered?: Recovered | undefined;
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;

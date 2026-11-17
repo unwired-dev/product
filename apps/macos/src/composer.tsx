@@ -2250,6 +2250,13 @@ interface RecoveryOffer {
 }
 const recoveryOffers = new WeakMap<object, RecoveryOffer>();
 
+// A restored composer recovery record: the unsaved `version` and the Draft as listed when it was
+// offered, which the editor saves against.
+export interface Recovered {
+  readonly version: Draft;
+  readonly base: Draft;
+}
+
 const releaseOffer = (offer: RecoveryOffer | undefined, window: object) => {
   if (offer?.window === window) {
     delete offer.window;
@@ -2259,15 +2266,16 @@ const releaseOffer = (offer: RecoveryOffer | undefined, window: object) => {
   }
 };
 
-// Offers each composer recovery record the previous run left for this window's Profile (ADR 0077)
-// in its own alert, once the Drafts open and while this window has no composer open. Restore
-// passes the recovered version to `onRestore`, which opens it in a composer, and Discard removes
-// the record. A record changed or removed since it was read, as by another window's composer, an
-// alert closed without an answer and a Draft no longer listed leave the record for the next launch.
-// Returns the anchor for the window's root view.
+// Offers each composer recovery record the previous run left (ADR 0077) whose Draft and recovered
+// sender belong to this window's Profile, in its own alert, once the Drafts open and while this
+// window has no composer open. Restore passes the record to `onRestore`, which opens it in a
+// composer, and Discard removes it unless an editor has its Draft open. A record changed or removed
+// since it was read, an alert closed without an answer and a Draft no longer listed leave the record
+// for the next launch; a failed removal leaves it for the next offer. Returns the anchor for the
+// window's root view.
 export function useRecoveryOffer(
   composing: string | undefined,
-  onRestore: (draft: Draft) => void,
+  onRestore: (recovered: Recovered) => void,
 ) {
   const store = useDraftStore();
   const ready = useDrafts().kind === 'ready';
@@ -2324,17 +2332,23 @@ export function useRecoveryOffer(
         (each) => each.id === draft.id && sameContent(each, draft),
       );
     };
+    // Whether record `draft` and its Draft as listed now belong to this window's Profile.
+    const owned = (draft: Draft) => {
+      const listed = draftOf(store.getSnapshot(), draft.id);
+      const known = latest.current.mailboxes ?? [];
+      return (
+        listed !== undefined &&
+        profileOf(listed.connection, known) === profile &&
+        profileOf(draft.connection, known) === profile
+      );
+    };
+    // An editor holding the Draft keeps its record; this one holds nothing.
+    const discarding = () => undefined;
     const ask = async () => {
       const records = await own.records;
-      const draft = records.find(({ id }) => {
-        const listed = draftOf(store.getSnapshot(), id);
-        return (
-          !own.offered.has(id) &&
-          listed !== undefined &&
-          profileOf(listed.connection, latest.current.mailboxes ?? []) ===
-            profile
-        );
-      });
+      const draft = records.find(
+        (each) => !own.offered.has(each.id) && owned(each),
+      );
       if (!current) {
         return;
       }
@@ -2342,6 +2356,7 @@ export function useRecoveryOffer(
         releaseOffer(own, self);
         return;
       }
+      const base = draftOf(store.getSnapshot(), draft.id);
       question = askInSheet(anchor.current, {
         title: t('drafts.recover.title'),
         detail: t('drafts.recover.detail'),
@@ -2351,20 +2366,33 @@ export function useRecoveryOffer(
         destructive: 1,
       });
       const choice = await question.answer;
-      if (!current) {
+      if (!current || base === undefined) {
         return;
       }
-      own.offered.add(draft.id);
-      if (choice !== null && (await unchanged(draft))) {
+      if (choice !== null && owned(draft) && (await unchanged(draft))) {
         if (choice === 0) {
-          latest.current.onRestore(draft);
+          own.offered.add(draft.id);
+          latest.current.onRestore({ version: draft, base });
           return;
         }
-        await store.forget(draft.id);
+        if (!(await store.forget(draft.id, discarding))) {
+          releaseOffer(own, self);
+          return;
+        }
       }
+      own.offered.add(draft.id);
       wake();
     };
-    void ask();
+    // An offer that fails unexpectedly lets the other windows offer.
+    const offerNext = async () => {
+      try {
+        await ask();
+      } catch (error) {
+        releaseOffer(own, self);
+        throw error;
+      }
+    };
+    void offerNext();
     return () => {
       current = false;
       question?.retire();
@@ -4152,8 +4180,8 @@ export function Composer({
   renderToolbar,
 }: {
   readonly id: string;
-  // The unsaved version of Draft `id` a composer recovery record kept, to open on instead.
-  readonly recovered?: Draft | undefined;
+  // The composer recovery record of Draft `id` to open on instead.
+  readonly recovered?: Recovered | undefined;
   readonly onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   readonly onRebind: (id: string) => void;
@@ -4204,12 +4232,14 @@ export function Composer({
     },
     [onClose],
   );
+  const restoring =
+    recovered?.version.id === editor.key ? recovered : undefined;
   if (opened !== undefined) {
     return (
       <Editor
         key={editor.key}
-        initial={opened}
-        opening={recovered?.id === editor.key ? recovered : opened}
+        initial={restoring?.base ?? opened}
+        opening={restoring?.version ?? opened}
         onClose={onClose}
         onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}
