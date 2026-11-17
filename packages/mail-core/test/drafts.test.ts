@@ -3657,6 +3657,29 @@ describe('keeping composer recovery records', () => {
     );
   });
 
+  it('keeps no removal for a forget whose later journal reached storage first', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saved, closing, copied } =
+      await reboundCopy();
+    storage.setLocked(false);
+    storage.hold();
+    const first = drafts.journal({ ...saved, subject: 'First' });
+    const forgetting = drafts.forget(draft.id, closing);
+    storage.release();
+    await first;
+    const newer = { ...saved, subject: 'Newer edits' };
+    await drafts.journal(newer);
+    await forgetting;
+
+    // Once the copy is stored, a refused record leaves the stored one in place.
+    await drafts.update({ ...copied, subject: 'Copy saved' }, copied);
+    storage.setLocked(true);
+    await drafts.journal({ ...newer, subject: 'Newest edits' });
+    expect(storage.recoveryRecords().get(draft.id)?.document).toContain(
+      'Newer edits',
+    );
+  });
+
   it('removes the older record for a forget whose later journal storage refused', async () => {
     expect.hasAssertions();
     const { storage, drafts, draft, saving } = await savingDraft();

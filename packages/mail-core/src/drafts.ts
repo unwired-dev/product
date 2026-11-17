@@ -2255,13 +2255,14 @@ export function createDrafts(
 
   // A journal called after this forget owns the record once storage holds it, even when its pass
   // ran first; while it is pending, removing the older record leaves it for that journal to write.
+  const superseded = (id: string, call: number) =>
+    recordCalls.get(id) !== call && !unrecorded.has(id);
   const unrecording = Effect.fnUntraced(function* (
     account: string,
     id: string,
     call: number,
   ) {
-    const latest = recordCalls.get(id) === call;
-    if (!latest && !unrecorded.has(id)) {
+    if (superseded(id, call)) {
       return;
     }
     yield* Effect.tryPromise({
@@ -2380,7 +2381,7 @@ export function createDrafts(
       if (!live(current) || account === undefined) {
         return false;
       }
-      if (holds(id)) {
+      if (holds(id) && !superseded(id, call)) {
         withheld.set(id, call);
       } else {
         yield* unrecording(account, id, call);
