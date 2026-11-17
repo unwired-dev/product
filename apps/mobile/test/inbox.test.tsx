@@ -1388,6 +1388,38 @@ describe('connected Gmail Inbox', () => {
     },
   );
 
+  it('says what stays shown when a mail server search fails for an unnamed reason, and Try Again searches again', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saved Inbox message' });
+    gmail.archive(gmail.deliver({ subject: 'Saved in archive' }));
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Saved Inbox message/u });
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Saved');
+    // Gmail answers the search with Not Found, a failure the app can't name.
+    gmail.fail({ status: 404 });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Search Mail Servers for “Saved”',
+      }),
+    );
+    await expect(
+      screen.findByText(
+        'The mail server search didn’t finish. Mail saved on this device is still shown. Choose Try Again to search again.',
+      ),
+    ).resolves.toBeVisible();
+    // The saved result stays above the failure.
+    expect(
+      screen.getByRole('button', { name: /Saved Inbox message/u }),
+    ).toBeVisible();
+    await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+    await expect(
+      screen.findByRole('button', { name: /\. Saved in archive/u }),
+    ).resolves.toBeVisible();
+  });
+
   it('never shows a delayed online answer for a query the person has since replaced', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
