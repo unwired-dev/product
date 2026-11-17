@@ -85,7 +85,7 @@ const LinkFailureSchema = Schema.Literals([
   'identity-owned',
   'stale-authentication',
 ]);
-export type LinkFailure = typeof LinkFailureSchema.Type | 'failed';
+export type LinkFailure = typeof LinkFailureSchema.Type | 'offline' | 'failed';
 const linkFailureCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: LinkFailureSchema }),
 );
@@ -923,7 +923,10 @@ export function createRegistration(vault: NativeRegistrationVault) {
             ),
           ),
         ),
-        (snapshot) => ({ ...settled(snapshot), linkFailure: 'failed' }),
+        (snapshot, cause) => ({
+          ...settled(snapshot),
+          linkFailure: isOffline(cause) ? 'offline' : 'failed',
+        }),
       ),
     confirmRecoveryKey: (entry: string) =>
       execute(request(native.confirmRecoveryKey(entry)), (snapshot) => ({

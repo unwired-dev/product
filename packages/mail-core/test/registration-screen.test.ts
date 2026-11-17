@@ -202,6 +202,43 @@ describe('registration screen', () => {
       ),
     });
   });
+
+  // A completion can commit while its reply is lost, so neither message says nothing changed.
+  it.each([
+    {
+      code: 'unavailable',
+      failure:
+        'Linking Apple didn’t finish. Choose Link Apple Sign-In to try again.',
+    },
+    {
+      code: 'offline',
+      failure:
+        'Linking Apple didn’t finish because this device is offline. Choose Link Apple Sign-In again when it’s online.',
+    },
+  ])(
+    'names the link button to choose again after an $code link failure',
+    async ({ code, failure }) => {
+      expect.hasAssertions();
+      vi.spyOn(console, 'error').mockReturnValue(undefined);
+      const synthetic = await createRegistrationScenario(
+        'registration-success',
+      );
+      const store = createRegistration({
+        ...synthetic.vault,
+        call: (call) =>
+          // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the link request fails.
+          call.path === '/sign-in-links/request'
+            ? Promise.reject(Object.assign(new Error('Synthetic'), { code }))
+            : synthetic.vault.call(call),
+      });
+      await store.register('google');
+      await store.link('apple');
+      expect(
+        registrationScreen(english, store.getSnapshot(), undefined).identity
+          ?.signInMethods,
+      ).toMatchObject({ link: { provider: 'apple' }, failure });
+    },
+  );
 });
 
 describe('registration page copy', () => {
