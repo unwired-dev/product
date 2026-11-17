@@ -43,7 +43,7 @@ _Avoid_: Certified provider, universally compatible mail engine
 
 **Standards-Based Mail**:
 The IMAP/SMTP capability backed by the **Approved Mail Engine Dependency**. Its current exact pin is
-available in external Release builds after passing iCloud Mail and Fastmail provider certification.
+available in external Release builds after passing iCloud Mail and Seznam Email provider certification.
 _Avoid_: Experimental dependency, universally certified provider support
 
 **Mailbox Connection**:

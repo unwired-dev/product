@@ -559,6 +559,13 @@ preferences; another account reads none, and every account purge removes the
 document. A choice made offline applies at once and is published by compare-and-set
 once Private Sync is reachable.
 
+The account's **Pins**
+([#2272](https://github.com/unwired-dev/product/issues/2272)) are kept like its
+Inbox preferences, in their own sealed document that no other document opens as.
+TypeScript decodes each Pin's Mailbox Connection, Thread and date; another account
+reads none, and every account purge removes the document. They are not
+synchronized yet; see [Pins](architecture/product/organization.md#pins).
+
 The account's **Send Reminders**
 ([#2074](https://github.com/unwired-dev/product/issues/2074)) are kept like its
 Mail Templates, in their own sealed document that neither the Drafts nor the Mail

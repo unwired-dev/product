@@ -1870,6 +1870,26 @@ extension UnwiredRegistration {
     }
   }
 
+  @objc(openPins:rejecter:)
+  func openPins(
+    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openPins", resolve, reject: reject) { try await $0.openPins() }
+  }
+
+  @objc(commitPins:expectedRevision:document:resolver:rejecter:)
+  func commitPins(
+    _ owner: String, expectedRevision: Double, document: String,
+    resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("commitPins", resolve, reject: reject) {
+      guard let revision = Int(exactly: expectedRevision), revision >= 0 else {
+        throw RegistrationError.unavailable
+      }
+      return try await $0.commitPins(owner: owner, expectedRevision: revision, document: document)
+    }
+  }
+
   @objc(openComposerRecovery:rejecter:)
   func openComposerRecovery(
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
