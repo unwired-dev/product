@@ -2683,6 +2683,24 @@ describe('product registration', () => {
         [...lastFour(recoveryKey).toLowerCase()].join(' '),
       );
     });
+    // A failure the store doesn't name keeps the key shown and names the button to choose again.
+    jest
+      .spyOn(synthetic.vault, 'confirmRecoveryKey')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
+      );
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+      );
+    });
+    const failure =
+      'Confirming your Recovery Key didn’t finish. Choose Confirm Recovery Key to try again.';
+    expect(screen.getByRole('alert')).toHaveTextContent(failure);
+    expect(announce).toHaveBeenCalledWith(failure);
+    expect(screen.getByText(recoveryKey)).toBeVisible();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Confirm Recovery Key' }),
