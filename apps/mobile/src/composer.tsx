@@ -37,6 +37,7 @@ import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ComponentProps, ReactNode } from 'react';
 import type {
   StyleProp,
+  ScrollViewInstance,
   TextInputInstance,
   TextStyle,
   ViewInstance,
@@ -157,6 +158,7 @@ import {
 } from './composer-controls.tsx';
 import { useContactAddresses } from './contacts.ts';
 import {
+  ArrowKeys,
   Notice as Banner,
   Button,
   ContextMenu,
@@ -968,6 +970,21 @@ function SuggestionMenu({
   const sized = layoutStyles[size];
   const none = sections.recent.length + sections.contacts.length === 0;
   const Rows = scroll === undefined ? View : ScrollView;
+  // Where each row ends in the scrolling menu, by address, which scrolls as far as the
+  // highlighted row needs to show.
+  const list = useRef<ScrollViewInstance>(null);
+  const rowEnds = useRef(new Map<string, number>());
+  const maxHeight = scroll?.maxHeight;
+  useEffect(() => {
+    const end =
+      active === undefined ? undefined : rowEnds.current.get(active.address);
+    if (end !== undefined && maxHeight !== undefined) {
+      list.current?.scrollTo({
+        y: Math.max(end - maxHeight, 0),
+        animated: false,
+      });
+    }
+  }, [active, maxHeight]);
   return (
     <GlassPanel
       open
@@ -975,19 +992,15 @@ function SuggestionMenu({
       {...(monograms ? { cornerRadius: radius.touchMenu } : {})}
       style={style}>
       <Rows
-        // A new query or highlighted suggestion starts the scrolling menu at the top, where the
-        // highlighted one shows.
-        key={
-          scroll === undefined
-            ? undefined
-            : `${scroll.query}\n${active?.address ?? ''}`
-        }
+        // A new query starts the scrolling menu at the top.
+        key={scroll?.query}
         accessibilityLabel={t('drafts.suggestions.title')}
         {...(scroll === undefined
           ? {}
           : {
               keyboardShouldPersistTaps: 'always',
               style: { maxHeight: scroll.maxHeight },
+              ref: list,
               onContentSizeChange: (_width: number, height: number) => {
                 scroll.onContentHeight(height);
               },
@@ -1045,6 +1058,12 @@ function SuggestionMenu({
                     }
                     accessibilityRole="button"
                     accessibilityState={{ selected: chosen }}
+                    onLayout={({ nativeEvent: { layout } }) => {
+                      rowEnds.current.set(
+                        recipient.address,
+                        layout.y + layout.height,
+                      );
+                    }}
                     onPress={() => {
                       onAccept(recipient);
                     }}
@@ -2644,6 +2663,8 @@ function useBodyRecipients(
   // The @ whose suggestions show.
   const [armed, setArmed] = useState<number>();
   const armedNow = useRef(armed);
+  // The highlighted suggestion's place in the list.
+  const [chosen, setChosen] = useState(0);
   // The statuses VoiceOver last heard for the shown suggestions.
   const heard = useRef<
     Readonly<{ empty?: string | undefined; note?: string | undefined }>
@@ -2652,6 +2673,7 @@ function useBodyRecipients(
     armedNow.current = at;
     heard.current = {};
     setArmed(at);
+    setChosen(0);
   }, []);
   const close = useCallback(() => {
     arm(undefined);
@@ -2680,8 +2702,9 @@ function useBodyRecipients(
         : undefined,
     [open, draft, query, connections, held, contacts.addresses],
   );
-  const [active] =
+  const suggestions =
     sections === undefined ? [] : [...sections.recent, ...sections.contacts];
+  const active = suggestions[Math.min(chosen, suggestions.length - 1)];
   // A bare @ with no recent correspondent shows nothing; typed text shows No Matches.
   const shown =
     sections !== undefined &&
@@ -2730,11 +2753,21 @@ function useBodyRecipients(
       const typed = bodyRecipientQuery(next, caret);
       if (inserted === '@' && typed?.text === '' && onlyQueryIn(next, typed)) {
         arm(typed.start);
-      } else if (
-        armedNow.current !== undefined &&
-        typed?.start !== armedNow.current
-      ) {
+      } else if (typed?.start === armedNow.current) {
+        // The list changed, so the highlight starts over.
+        setChosen(0);
+      } else if (armedNow.current !== undefined) {
         arm(undefined);
+      }
+    },
+    // A hardware keyboard's Up and Down Arrow move the highlight while two or more show.
+    moving: suggestions.length > 1,
+    move: (key: string) => {
+      const last = suggestions.length - 1;
+      if (key === 'ArrowDown') {
+        setChosen((index) => Math.min(index + 1, last));
+      } else if (key === 'ArrowUp') {
+        setChosen((index) => Math.max(Math.min(index, last) - 1, 0));
       }
     },
     // The query a choice replaces in the latest body, while its suggestions show and the editor
@@ -2788,6 +2821,7 @@ function BodyRecipientMenu({
   readonly onAccept: (recipient: Recipient) => void;
 }) {
   const { size } = use(ComposerLayoutContext);
+  const appearance = useAppearance();
   const queryLine = useRef<ViewInstance>(null);
   const [room, setRoom] =
     useState<Readonly<{ below: number; above: number; lift: number }>>();
@@ -2828,7 +2862,18 @@ function BodyRecipientMenu({
         key={index}
         style={kindStyles[line.kind]}>
         {line.marker}
-        {line.spans.map(({ text }) => text).join('')}
+        {/* Formatted as the body shows them, since formatting can change a line's height. */}
+        {line.spans.map((span, at) => (
+          <Text
+            // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+            key={at}
+            style={[
+              markStyle(span.marks, 'link' in span),
+              formatStyleOf(span, appearance),
+            ]}>
+            {span.text}
+          </Text>
+        ))}
         {index < each.length - 1 ? '\n' : ''}
       </Text>
     ));
@@ -4080,84 +4125,92 @@ function Editor({
                 />
               </View>
             )}
-            <TextInput
-              ref={bodyInput}
-              accessibilityLabel={t('drafts.body')}
-              editable={!sending}
-              accessibilityState={{ disabled: sending }}
-              multiline
-              onBlur={() => {
-                recipientMenu.close();
-              }}
-              onChange={({ nativeEvent }) => {
-                changedSelection.current = nativeEvent.selection;
-              }}
-              onChangeText={edit}
-              onKeyPress={({ nativeEvent }) => {
-                pressed.current = nativeEvent.key;
+            <ArrowKeys
+              enabled={recipientMenu.moving}
+              onArrow={(key) => {
+                recipientMenu.move(key);
               }}
               onLayout={({ nativeEvent }) => {
                 setBodyTop(nativeEvent.layout.y);
-              }}
-              onSelectionChange={({ nativeEvent }) => {
-                const next = nativeEvent.selection;
-                // The field reports where its Return or Tab left the caret after a choice placed it
-                // in the greeting; the greeting's place stands.
-                const stale = replaced.current;
-                replaced.current = undefined;
-                if (stale?.start === next.start && stale.end === next.end) {
-                  return;
-                }
-                // Moving the caret anywhere but past typed text ends marks toggled for typing, and
-                // closes Recipient Suggestions.
-                if (next.start !== next.end || next.start !== caret.current) {
-                  placeTyping(undefined);
-                  commitHistory((current) => ({ ...current, typing: false }));
+              }}>
+              <TextInput
+                ref={bodyInput}
+                accessibilityLabel={t('drafts.body')}
+                editable={!sending}
+                accessibilityState={{ disabled: sending }}
+                multiline
+                onBlur={() => {
                   recipientMenu.close();
-                }
-                caret.current = undefined;
-                setPlaced(undefined);
-                selectionNow.current = next;
-                setSelection(next);
-              }}
-              placeholder={t('drafts.bodyPlaceholder')}
-              placeholderTextColor={colors.textSecondary}
-              scrollEnabled={false}
-              selection={placed}
-              style={[
-                styles.body,
-                sized.body,
-                parts.body,
-                { color: colors.textPrimary },
-              ]}
-              textAlignVertical="top">
-              {display.lines.map((line, index) => (
-                <Text
-                  // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
-                  key={index}
-                  style={[
-                    kindStyles[line.kind],
-                    line.kind === 'quote'
-                      ? { color: colors.textSecondary }
-                      : null,
-                    line.align === undefined ? null : { textAlign: line.align },
-                  ]}>
-                  {line.marker}
-                  {line.spans.map((span, at) => (
-                    <Text
-                      // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
-                      key={at}
-                      style={[
-                        markStyle(span.marks, 'link' in span),
-                        formatStyleOf(span, appearance),
-                      ]}>
-                      {span.text}
-                    </Text>
-                  ))}
-                  {index < display.lines.length - 1 ? '\n' : ''}
-                </Text>
-              ))}
-            </TextInput>
+                }}
+                onChange={({ nativeEvent }) => {
+                  changedSelection.current = nativeEvent.selection;
+                }}
+                onChangeText={edit}
+                onKeyPress={({ nativeEvent }) => {
+                  pressed.current = nativeEvent.key;
+                }}
+                onSelectionChange={({ nativeEvent }) => {
+                  const next = nativeEvent.selection;
+                  // The field reports where its Return or Tab left the caret after a choice placed it
+                  // in the greeting; the greeting's place stands.
+                  const stale = replaced.current;
+                  replaced.current = undefined;
+                  if (stale?.start === next.start && stale.end === next.end) {
+                    return;
+                  }
+                  // Moving the caret anywhere but past typed text ends marks toggled for typing, and
+                  // closes Recipient Suggestions.
+                  if (next.start !== next.end || next.start !== caret.current) {
+                    placeTyping(undefined);
+                    commitHistory((current) => ({ ...current, typing: false }));
+                    recipientMenu.close();
+                  }
+                  caret.current = undefined;
+                  setPlaced(undefined);
+                  selectionNow.current = next;
+                  setSelection(next);
+                }}
+                placeholder={t('drafts.bodyPlaceholder')}
+                placeholderTextColor={colors.textSecondary}
+                scrollEnabled={false}
+                selection={placed}
+                style={[
+                  styles.body,
+                  sized.body,
+                  parts.body,
+                  { color: colors.textPrimary },
+                ]}
+                textAlignVertical="top">
+                {display.lines.map((line, index) => (
+                  <Text
+                    // oxlint-disable-next-line react/no-array-index-key -- Blocks are positional.
+                    key={index}
+                    style={[
+                      kindStyles[line.kind],
+                      line.kind === 'quote'
+                        ? { color: colors.textSecondary }
+                        : null,
+                      line.align === undefined
+                        ? null
+                        : { textAlign: line.align },
+                    ]}>
+                    {line.marker}
+                    {line.spans.map((span, at) => (
+                      <Text
+                        // oxlint-disable-next-line react/no-array-index-key -- Spans are positional.
+                        key={at}
+                        style={[
+                          markStyle(span.marks, 'link' in span),
+                          formatStyleOf(span, appearance),
+                        ]}>
+                        {span.text}
+                      </Text>
+                    ))}
+                    {index < display.lines.length - 1 ? '\n' : ''}
+                  </Text>
+                ))}
+              </TextInput>
+            </ArrowKeys>
             <BodyRecipientMenu
               shown={recipientMenu.shown}
               display={display}

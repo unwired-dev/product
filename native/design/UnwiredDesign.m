@@ -1508,6 +1508,45 @@ RCT_EXPORT_METHOD(refresh)
 #endif
 
 #if !TARGET_OS_OSX
+// A hardware keyboard's Up and Down Arrow while `enabled`, ahead of the text view inside, which
+// would move its caret: the iPad body's Recipient Suggestions move their highlight with them.
+@interface UnwiredArrowKeysView : UIView
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onArrow;
+@end
+
+@implementation UnwiredArrowKeysView
+- (NSArray<UIKeyCommand *> *)keyCommands
+{
+  if (!self.enabled) return @[];
+  NSMutableArray<UIKeyCommand *> *commands = [NSMutableArray array];
+  for (NSString *input in @[UIKeyInputUpArrow, UIKeyInputDownArrow]) {
+    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:0 action:@selector(arrow:)];
+    command.wantsPriorityOverSystemBehavior = YES;
+    [commands addObject:command];
+  }
+  return commands;
+}
+
+- (void)arrow:(UIKeyCommand *)command
+{
+  if (!self.onArrow) return;
+  self.onArrow(@{@"key": [command.input isEqualToString:UIKeyInputUpArrow] ? @"ArrowUp" : @"ArrowDown"});
+}
+@end
+
+@interface UnwiredArrowKeysManager : RCTViewManager
+@end
+
+@implementation UnwiredArrowKeysManager
+RCT_EXPORT_MODULE(UnwiredArrowKeys)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onArrow, RCTDirectEventBlock)
+- (UIView *)view { return [UnwiredArrowKeysView new]; }
+@end
+#endif
+
+#if !TARGET_OS_OSX
 @interface UnwiredMenuButtonManager : RCTViewManager
 @end
 

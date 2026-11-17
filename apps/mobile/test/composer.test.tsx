@@ -443,6 +443,16 @@ const textStyleMenu = () => {
   return props;
 };
 
+// The native view taking a hardware keyboard's arrow keys around a rendered field.
+const arrowKeysAround = (element: Parameters<typeof fireEvent.press>[0]) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredArrowKeys') {
+    node = node.parent;
+  }
+  ok(node !== null);
+  return node;
+};
+
 const closeFormat = async () => {
   if (screen.queryByRole('button', { name: 'Close Format' }) !== null) {
     await press('Close Format');
@@ -1788,17 +1798,30 @@ describe('composing Drafts', () => {
       expect(lines()).toStrictEqual(['@and', '']);
       expect(to()).toBeNull();
 
-      // Return chooses the highlighted person instead of breaking the line; without a given
-      // name the greeting uses the full name. The caret stays in the greeting's empty paragraph
-      // though the field reports where its Return left it.
+      // A hardware keyboard's Down and Up Arrow move the highlight, and Return chooses the
+      // highlighted person instead of breaking the line; without a given name the greeting uses
+      // the full name. The caret stays in the greeting's empty paragraph though the field reports
+      // where its Return left it.
       await type('');
       await type('@');
-      await type('@and');
-      await screen.findByRole('button', {
+      await type('@an');
+      const andrea = await screen.findByRole('button', {
         name: 'Andrea Novak, andrea@northwind.invalid',
       });
+      const keys = arrowKeysAround(body);
+      expect(keys.props).toHaveProperty('enabled', true);
+      const highlighted = () =>
+        within(screen.getByLabelText('Recipient suggestions'))
+          .getAllByRole('button', { selected: true })
+          .map(({ props }) => props.accessibilityLabel);
+      expect(highlighted()).toStrictEqual(['Ana Kovač, ana@example.invalid']);
+      await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowDown' } });
+      expect(highlighted()).toStrictEqual([andrea.props.accessibilityLabel]);
+      await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowUp' } });
+      expect(highlighted()).toStrictEqual(['Ana Kovač, ana@example.invalid']);
+      await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowDown' } });
       await fireEvent(body, 'keyPress', { nativeEvent: { key: 'Enter' } });
-      await type('@and\n');
+      await type('@an\n');
       expect(lines()).toStrictEqual(['Hi Andrea Novak,', '', '']);
       expect(to()).toBeOnTheScreen();
       expect(body.props.selection).toStrictEqual({ start: 18, end: 18 });

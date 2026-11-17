@@ -183,17 +183,19 @@ transport and known native exit gaps.
   Contacts access. Typed text without a match shows **No Matches**, and when
   Contacts can't be read a note says only recent mail is shown. On the Mac, Up and
   Down Arrow move the highlight and Return, Tab or a click chooses; on iPhone and
-  iPad, a tap chooses, and Return or Tab chooses the highlighted first row instead
-  of breaking the line. Choosing a person not on
+  iPad, a tap chooses, a hardware keyboard's Up and Down Arrow move the highlight,
+  and a typed Return or Tab chooses the highlighted row instead of breaking the
+  line. Choosing a person not on
   the Draft adds them to To and replaces only the query with “Hi <given name>,”
   (the given name Apple Contacts records, else the display name, else “Hi,”), an
   empty paragraph and the caret, as one edit that one Undo reverts. A space,
   Escape on the Mac, a caret move or leaving the body closes the suggestions and
-  keeps the typed text. People already on the Draft, nonempty bodies and
-  hardware keyboard Up and Down on iPad are later slices. On the Mac, native code
+  keeps the typed text. People already on the Draft and nonempty bodies are a
+  later slice. On the Mac, native code
   reads Apple Contacts and supplies the frame of the @, which the composer uses
   to place the menu. On iPhone and iPad, Expo Contacts reads them, and a
-  transparent copy of the body up to the query's line holds the menu under it;
+  transparent copy of the body up to the query's line holds the menu under it,
+  while a native view around the body takes the arrow keys ahead of its caret;
   the iPhone menu spans the sheet and leads each row with a monogram. It is drawn
   by the app rather than as a system menu, which would close as typing continues
   to filter it. `@private-email/mail-core` owns the query, matching, the
