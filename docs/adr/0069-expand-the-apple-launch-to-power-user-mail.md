@@ -4,6 +4,23 @@ status: accepted
 
 # Expand the Apple launch to power-user mail
 
+## IMAP and SMTP certification amendment, 2026-11-17
+
+The owner selected Seznam Email's free hosted mailboxes instead of Fastmail for
+the maintained clients' launch certification. Certify dedicated iCloud Mail and
+Seznam Email mailboxes plus the controlled standards server under
+[#632](https://github.com/unwired-dev/product/issues/632); provisioning remains in
+[#1103](https://github.com/unwired-dev/product/issues/1103). The
+[provider research](../research/free-imap-smtp-provider.md) records the documented
+transports and signup requirements. Seznam uses the existing Other IMAP Account
+setup and reviewed server catalog. Fastmail's existing setup remains available,
+but Fastmail is no longer a required launch certification target.
+
+This changes the required provider pair, not the qualification scenarios,
+device-local credential boundary or need for real evidence on the maintained
+Apple hosts. Prototype Fastmail certification does not certify Seznam or the
+maintained clients.
+
 ## Usability amendment — 2026-11-11
 
 [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) replaces the explicit online search below with automatic provider search when
@@ -45,7 +62,7 @@ scope without claiming that the capabilities are implemented.
 ## Decision
 
 Launch on the maintained iPhone, iPad and Mac hosts with Gmail, IMAP/SMTP and
-Microsoft mail. Certify iCloud Mail and Fastmail, allow reviewed manual setup for
+Microsoft mail. Certify iCloud Mail and Seznam Email, allow reviewed manual setup for
 compatible standards-based servers, and make no universal compatibility promise.
 Microsoft mail covers personal Outlook.com and work/school users' own mailboxes;
 shared and delegated mailboxes follow later. POP3 and on-premises Exchange/EWS

@@ -8,7 +8,7 @@ iPhone, iPad and Mac. [#631](https://github.com/unwired-dev/product/issues/631) 
 through its SMTP server and files a copy in its Sent folder; a connection is complete
 only once both its IMAP and SMTP logins verified. [#630](https://github.com/unwired-dev/product/issues/630)
 organizes and searches IMAP mail at the server and keeps it fresh with IDLE where the
-server offers it; certification against real iCloud Mail and Fastmail mailboxes is
+server offers it; certification against real iCloud Mail and Seznam Email mailboxes is
 [#632](https://github.com/unwired-dev/product/issues/632).
 
 ## First mailbox and provider choice
@@ -675,7 +675,7 @@ a session's boundary search of the Sent folder and a single APPEND that the sear
 then finds. Its certificate
 never changes production validation or trust on the host Mac.
 
-Real iCloud Mail and Fastmail read, organizing, search, IDLE, SMTP submission and Sent
+Real iCloud Mail and Seznam Email read, organizing, search, IDLE, SMTP submission and Sent
 filing qualification remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
