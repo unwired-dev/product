@@ -2888,7 +2888,7 @@ describe('composing Drafts', () => {
     templates.state.refusing = true;
     await saveAsTemplate('Rent');
     await templateNotSaved(
-      'This device could not store the template. Try again.',
+      'Your message is unchanged. Choose New Template from This Message… to try again.',
     );
     await expect(
       templates.store.templates(defaultProfile),

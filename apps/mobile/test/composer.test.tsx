@@ -2960,7 +2960,7 @@ describe('composing Drafts', () => {
           ],
           [
             'Template not saved',
-            'This device could not store the template. Try again.',
+            'Your message is unchanged. Choose New Template from This Message… to try again.',
             [{ text: 'OK' }],
           ],
         ]);
