@@ -250,6 +250,13 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+`testPinThread` uses the same build and sign-in
+([#2280](https://github.com/unwired-dev/product/issues/2280)). It opens Gmail
+update 001 and chooses **Pin** in the reader's toolbar; the row then reads
+`… Pinned` with its marker and the toolbar offers **Unpin**, which removes both.
+The pinned window is kept as an attachment. It sets Light; `testPinThreadDark`
+runs it in Dark.
+
 On iPhone and iPad, the default Gmail registration journey
 ([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
 open message's sender, chooses **Block Sender…**, and confirms

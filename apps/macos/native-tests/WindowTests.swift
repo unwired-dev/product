@@ -1965,6 +1965,51 @@ final class WindowTests: XCTestCase {
     attach(settings, "Settings › Blocked Senders empty")
   }
 
+  // #2280: the reader's Pin pins the message's Thread, and its row shows the pinned marker until
+  // Unpin.
+  func testPinThread() throws {
+    try pinThread(appearance: "Light")
+  }
+
+  func testPinThreadDark() throws {
+    try pinThread(appearance: "Dark")
+  }
+
+  private func pinThread(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    func row(_ format: String) -> XCUIElement {
+      window.buttons.matching(NSPredicate(format: format, "Gmail update 001", ". Pinned")).firstMatch
+    }
+
+    row("label CONTAINS %@ AND NOT label CONTAINS %@").click()
+    XCTAssertTrue(window.buttons["Pin"].waitForExistence(timeout: 15))
+    window.buttons["Pin"].click()
+    let pinned = row("label CONTAINS %@ AND label CONTAINS %@")
+    XCTAssertTrue(pinned.waitForExistence(timeout: 10))
+    XCTAssertTrue(window.buttons["Unpin"].waitForExistence(timeout: 5))
+    attach("Pinned Thread")
+    window.buttons["Unpin"].click()
+    XCTAssertTrue(pinned.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(window.buttons["Pin"].waitForExistence(timeout: 5))
+  }
+
   // #2153: Settings › Appearance switches every window to Light or Dark at once, and a relaunch
   // opens in the saved choice before the first window draws.
   func testAppearance() throws {
