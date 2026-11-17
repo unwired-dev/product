@@ -40,6 +40,62 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(window.textFields["Subject"].exists)
   }
 
+  // #2271: @ in an empty body opens Recipient Suggestions under it without a Contacts prompt;
+  // Return adds the first to To with a greeting, and one Undo restores the @.
+  func testBodyRecipientShortcut() throws {
+    try bodyRecipientShortcut(appearance: "Light")
+  }
+
+  func testBodyRecipientShortcutDark() throws {
+    try bodyRecipientShortcut(appearance: "Dark")
+  }
+
+  private func bodyRecipientShortcut(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    let body = window.textViews["Message body"]
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    body.typeText("@")
+    let menu = window.descendants(matching: .any)["Recipient suggestions"]
+    XCTAssertTrue(menu.waitForExistence(timeout: 10))
+    XCTAssertGreaterThan(menu.frame.minY, body.frame.minY)
+    attach("Body Recipient Shortcut")
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(menu.waitForNonExistence(timeout: 10))
+    waitUntil { (body.value as? String ?? "").hasPrefix("Hi") }
+    let token = window.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "To: "))
+    XCTAssertEqual(token.count, 1)
+    attach("Body Recipient Shortcut greeting")
+    // The typed caret follows the greeting's empty paragraph.
+    app.typeText("Thanks")
+    waitUntil { (body.value as? String ?? "").hasSuffix("\n\nThanks") }
+    // Undo takes back the typing, then the greeting and the recipient together.
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { !(body.value as? String ?? "").hasSuffix("Thanks") }
+    app.typeKey("z", modifierFlags: .command)
+    waitUntil { body.value as? String == "@" }
+    XCTAssertEqual(token.count, 0)
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false

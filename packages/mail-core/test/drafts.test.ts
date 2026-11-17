@@ -14,8 +14,11 @@ import type {
 import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
   acceptRecipient,
+  addBodyRecipient,
   addRecipients,
   assetsOf,
+  bodyRecipientQuery,
+  bodyRecipientSuggestions,
   createDrafts,
   draftSummary,
   isEmptyDraft,
@@ -24,7 +27,9 @@ import {
   recipientSummary,
   draftOf,
   draftsOf,
+  greetingName,
   newMessageSender,
+  onlyQueryIn,
   profileOf,
   sendingMailboxes,
   sendingStateOf,
@@ -1135,6 +1140,132 @@ describe('entering Draft recipients', () => {
         address: 'MAYA@example.com',
       }).to,
     ).toStrictEqual([]);
+  });
+
+  it('turns @ in an otherwise empty body into a new To recipient and a greeting', () => {
+    expect.hasAssertions();
+    const paragraph = (text: string) => ({
+      kind: 'paragraph' as const,
+      spans: [{ text }].filter((span) => span.text !== ''),
+    });
+    const lines = (
+      first: string,
+      ...rest: readonly string[]
+    ): SemanticDocument => [paragraph(first), ...rest.map(paragraph)];
+    const at = (body: SemanticDocument, caret: number) =>
+      bodyRecipientQuery(body, { start: caret, end: caret });
+
+    // An @ at a paragraph start or after whitespace starts a query up to the caret.
+    expect(at(lines('@'), 1)).toStrictEqual({ start: 0, end: 1, text: '' });
+    expect(at(lines('', '  @an'), 6)).toStrictEqual({
+      start: 3,
+      end: 6,
+      text: 'an',
+    });
+    expect(at(lines('Hi @an'), 6)).toStrictEqual({
+      start: 3,
+      end: 6,
+      text: 'an',
+    });
+    // Never inside an address or a word, after whitespace, or in code.
+    expect(at(lines('ana@ex'), 6)).toBeUndefined();
+    expect(at(lines('@an a'), 5)).toBeUndefined();
+    expect(at(lines('@a@b'), 4)).toBeUndefined();
+    expect(at([{ kind: 'code', spans: [{ text: '@an' }] }], 3)).toBeUndefined();
+    expect(
+      at([{ kind: 'paragraph', spans: [{ text: '@an', marks: ['code'] }] }], 3),
+    ).toBeUndefined();
+    expect(
+      bodyRecipientQuery(lines('@an'), { start: 0, end: 3 }),
+    ).toBeUndefined();
+
+    // Only the query and whitespace make the body empty; text or an image does not.
+    const query = { start: 3, end: 6, text: 'an' };
+    expect(onlyQueryIn(lines(' ', '  @an', ''), query)).toBe(true);
+    expect(onlyQueryIn(lines('Hi @an'), query)).toBe(false);
+    expect(
+      onlyQueryIn(
+        [
+          {
+            kind: 'paragraph',
+            spans: [
+              {
+                text: '\uFFFC',
+                image: {
+                  id: 'image0001',
+                  name: 'a.png',
+                  type: '',
+                  state: 'importing',
+                },
+              },
+              { text: ' @an' },
+            ],
+          },
+        ],
+        query,
+      ),
+    ).toBe(false);
+
+    // A bare @ lists the newest correspondents; typed text filters them as To does.
+    const correspondents = [
+      { sender: 'Anna Svobodová', address: 'anna@example.com' },
+      { sender: 'Tomáš Dvořák', address: 'tomas@example.com' },
+      { sender: 'Ana Kovač', address: 'ana@example.com' },
+    ];
+    const withTomas = { ...draft, to: [{ address: 'tomas@example.com' }] };
+    expect(
+      bodyRecipientSuggestions(
+        withTomas,
+        { start: 0, end: 1, text: '' },
+        {
+          correspondents,
+        },
+      ),
+    ).toStrictEqual([
+      { name: 'Anna Svobodová', address: 'anna@example.com' },
+      { name: 'Ana Kovač', address: 'ana@example.com' },
+    ]);
+    expect(
+      bodyRecipientSuggestions(
+        withTomas,
+        { start: 0, end: 4, text: 'kov' },
+        {
+          correspondents,
+        },
+      ),
+    ).toStrictEqual([{ name: 'Ana Kovač', address: 'ana@example.com' }]);
+
+    // The greeting uses a recorded given name, else the display name; never the address.
+    const anna = { name: 'Anna Svobodová', address: 'anna@example.com' };
+    const contacts = [
+      { address: 'other@example.com', given: 'Other' },
+      { address: 'ANNA@example.com', given: 'Anna' },
+    ];
+    expect(greetingName(anna, contacts)).toBe('Anna');
+    expect(greetingName(anna, [])).toBe('Anna Svobodová');
+    expect(greetingName({ address: 'anna@example.com' }, [])).toBeUndefined();
+
+    // Choosing replaces only the query with the greeting, an empty paragraph and the caret,
+    // and adds the person to To once.
+    const typed = { ...withTomas, body: lines('', '@an') };
+    const choice = {
+      query: { start: 1, end: 4, text: 'an' },
+      recipient: anna,
+      greeting: 'Hi Anna,',
+    };
+    const added = addBodyRecipient(typed, choice);
+    expect(added.draft.body).toStrictEqual(lines('', 'Hi Anna,', '', ''));
+    expect(added.selection).toStrictEqual({ start: 11, end: 11 });
+    expect(added.draft.to).toStrictEqual([
+      { address: 'tomas@example.com' },
+      anna,
+    ]);
+    expect(
+      addBodyRecipient(
+        { ...typed, cc: [{ address: 'ANNA@example.com' }] },
+        choice,
+      ).draft.to,
+    ).toStrictEqual([{ address: 'tomas@example.com' }]);
   });
 
   it('summarizes recipients by their To, Cc and Bcc roles', () => {

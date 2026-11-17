@@ -134,6 +134,10 @@ _Avoid_: Plain-text mode, formatting disablement
 An on-device autocomplete candidate derived from recent local correspondence and permissioned Apple Contacts. Accepting one creates a validated recipient token and cannot duplicate an address already present in To, Cc, or Bcc.
 _Avoid_: Backend contact, uploaded address query
 
+**Body Recipient Shortcut**:
+Typing @ in the authored body to choose a person from **Recipient Suggestions**, adding them to the Draft's recipients from where the message is written. Behavior is in [Drafts](../drafts.md#composing).
+_Avoid_: Mention, @-mention, tagging
+
 **Raw Message Source**:
 The exact provider-returned RFC 822 or MIME bytes for one message, fetched only after an explicit source-inspector action. The Apple client may parse those bytes into a separate header view, but Copy Source and `.eml` export preserve the original byte sequence; metadata-only fallback is labelled as non-exact and is never reconstructed into synthetic source.
 _Avoid_: Reconstructed email, generated MIME source

@@ -1086,6 +1086,13 @@
       "contacts": "Contacts",
       "named": "{{name}}, {{address}}"
     },
+    "bodyRecipient": {
+      "greeting": "Hi {{name}},",
+      "greetingUnnamed": "Hi,",
+      "added": "{{name}} added to To",
+      "noMatches": "No Matches",
+      "contactsUnsearchable": "Contacts couldn’t be searched. Showing people from recent mail."
+    },
     "sending": {
       "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
       "authorization_microsoft": "This mailbox needs Microsoft access again before it can send. Allow access or choose another mailbox.",
