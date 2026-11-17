@@ -737,7 +737,7 @@
     "targetLabel": "Translate into {{language}}",
     "loading": "Loading languages",
     "noLanguages": "Translation is not available on this device.",
-    "languagesFailed": "Translation languages couldn’t be loaded.",
+    "languagesFailed": "Translation languages didn’t load. Choose Try Again to load them again.",
     "tryAgain": "Try Again",
     "tryAgainLabel": "Try Again to load translation languages",
     "progress": "Translating",

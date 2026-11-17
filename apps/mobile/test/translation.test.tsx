@@ -376,7 +376,9 @@ describe('on-device translation in the reader', () => {
     try {
       // Opening the message stays quiet; Translate into the app language needs no list.
       await expect(
-        screen.findByText('Translation languages couldn’t be loaded.'),
+        screen.findByText(
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ),
       ).resolves.toBeOnTheScreen();
       expect(announce).not.toHaveBeenCalled();
       expect(screen.queryByLabelText('Translate into')).toBeNull();
@@ -387,10 +389,14 @@ describe('on-device translation in the reader', () => {
         screen.getByLabelText('Try Again to load translation languages'),
       );
       await expect(
-        screen.findByText('Translation languages couldn’t be loaded.'),
+        screen.findByText(
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ),
       ).resolves.toBeOnTheScreen();
       expect(announce.mock.calls).toStrictEqual([
-        ['Translation languages couldn’t be loaded.'],
+        [
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ],
       ]);
 
       await fireEvent.press(
