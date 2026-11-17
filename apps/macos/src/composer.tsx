@@ -2464,11 +2464,11 @@ function useBodyRecipients(
     placeBody: ({ x, y }: Readonly<{ x: number; y: number }>) => {
       setBody({ x, y });
     },
-    // After a body edit inserting `inserted`: typing @ opens suggestions, and leaving its query
-    // closes them.
+    // After a body edit inserting `inserted`: typing @ in an empty body opens suggestions, and
+    // leaving its query closes them.
     typed: (next: SemanticDocument, caret: Selection, inserted: string) => {
       const typed = bodyRecipientQuery(next, caret);
-      if (inserted === '@' && typed?.text === '') {
+      if (inserted === '@' && typed?.text === '' && onlyQueryIn(next, typed)) {
         arm(typed.start);
       } else if (typed?.start === armedNow.current) {
         // The list changed, so the highlight starts over.
