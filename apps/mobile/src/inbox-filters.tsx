@@ -16,7 +16,11 @@ import {
 } from 'react-native';
 
 import { SFSymbol } from './design.tsx';
-import { FilterControl, WindowBarContext } from './inbox-bar.tsx';
+import {
+  FilterControl,
+  LeadingRoomContext,
+  WindowBarContext,
+} from './inbox-bar.tsx';
 import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
@@ -420,6 +424,7 @@ export function InboxFilterButton({
 }) {
   const { t } = useLocalization();
   const popover = use(WindowBarContext) !== undefined;
+  const grouped = use(LeadingRoomContext) !== undefined;
   const [open, setOpen] = useState(false);
   const [edited, setEdited] = useState(filter);
   const controlProps = {
@@ -459,6 +464,8 @@ export function InboxFilterButton({
   return popover ? (
     <Host matchContents>
       <Popover
+        // Beside a shown sidebar its leading edge lines up with the control's.
+        {...(grouped && { attachmentAnchor: 'leading' })}
         isPresented={open}
         onIsPresentedChange={setOpen}>
         <Popover.Trigger>

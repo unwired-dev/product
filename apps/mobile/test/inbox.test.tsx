@@ -67,6 +67,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
+import { SidebarToggleContext } from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { started } from './started.ts';
 
@@ -639,6 +640,76 @@ describe('preview Inbox', () => {
         height: makeMutable(0),
         progress: makeMutable(0),
       });
+      await act(() => {
+        Dimensions.set({ window });
+      });
+    }
+  });
+
+  it('centers the filtered control with the search field clear of a shown sidebar, truncating its summary', async () => {
+    expect.hasAssertions();
+    const window = Dimensions.get('window');
+    function WindowJourney({ shown }: { readonly shown: boolean }) {
+      const windowBar = useMemo(() => createWindowBar(), []);
+      return (
+        <WindowBarContext value={windowBar}>
+          <SidebarToggleContext value={{ shown, toggle: () => undefined }}>
+            <InboxJourney />
+            <WindowBarHost
+              windowBar={windowBar}
+              readerWidth={500}
+              bottom={20}
+              keyboardLift={0}
+            />
+          </SidebarToggleContext>
+        </WindowBarContext>
+      );
+    }
+    // The leading side and the glass of the Filter control, around its switch.
+    const filterControl = () => {
+      const glass = screen.getByRole('togglebutton', { name: 'Filter' }).parent;
+      ok(glass?.parent);
+      return { glass, side: glass.parent };
+    };
+    try {
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 1194, height: 834 } });
+      });
+      const app = await render(<WindowJourney shown />);
+      await screen.findByRole('button', {
+        name: 'Unread. Maya Chen. A little more room to think',
+      });
+      // Unfiltered, the search field centers alone.
+      expect(filterControl().side).not.toHaveStyle({ flex: 0 });
+      await fireEvent.press(
+        screen.getByRole('togglebutton', { name: 'Filter' }),
+      );
+      // Filtered, the control and the field center together; the control truncates past 180pt
+      // (1194 - 2 × 303 - 400 - 8), which would reach the list's content edge.
+      expect(filterControl().side).toHaveStyle({
+        flex: 0,
+        flexGrow: 1,
+        paddingLeft: 8,
+      });
+      expect(filterControl().glass).toHaveStyle({ maxWidth: 180 });
+      expect(
+        screen.getByRole('button', { name: 'Filtered by Unread' }),
+      ).toBeVisible();
+      // With the sidebar hidden, or where the field cannot fit beside it, nothing changes.
+      await app.rerender(<WindowJourney shown={false} />);
+      expect(filterControl().side).not.toHaveStyle({ flex: 0 });
+      expect(filterControl().glass).not.toHaveStyle({ maxWidth: 180 });
+      await app.rerender(<WindowJourney shown />);
+      // 56pt would leave the summary that opens Filters no room beside the switch.
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 1070, height: 834 } });
+      });
+      expect(filterControl().side).not.toHaveStyle({ flex: 0 });
+      await act(() => {
+        Dimensions.set({ window: { ...window, width: 834, height: 1194 } });
+      });
+      expect(filterControl().side).not.toHaveStyle({ flex: 0 });
+    } finally {
       await act(() => {
         Dimensions.set({ window });
       });

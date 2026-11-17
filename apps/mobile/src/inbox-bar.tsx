@@ -16,7 +16,14 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import {
   useKeyboardState,
   useReanimatedKeyboardAnimation,
@@ -34,9 +41,17 @@ import {
   useProfile,
 } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 export const barHeight = 48;
+
+// The list's content edge in a regular window, the frames' x303: the 286pt sidebar column, its 1pt
+// separator and the list's 16pt inset.
+const listContentEdge = 286 + 1 + spacing.l;
+
+// How wide the leading control may grow while it centers with the field beside a shown sidebar.
+export const LeadingRoomContext = createContext<number | undefined>(undefined);
 
 const styles = StyleSheet.create({
   newMessage: {
@@ -112,6 +127,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'center',
   },
+  // Its basis is the control and a gap, so the space before the control matches the space after
+  // the field and the two center together. Yoga bases a positive flex at zero, so it grows instead.
+  groupedSide: { flex: 0, flexGrow: 1, paddingLeft: spacing.s },
   field: { width: 400, flexDirection: 'row' },
   searchBar: {
     flex: 1,
@@ -268,9 +286,11 @@ export function FilterControl({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const room = use(LeadingRoomContext);
   const on = label !== undefined;
   return (
-    <GlassGroup style={on ? styles.filtered : styles.round}>
+    <GlassGroup
+      style={[on ? styles.filtered : styles.round, { maxWidth: room }]}>
       <Pressable
         accessibilityLabel={t('filters.filter')}
         accessibilityRole="togglebutton"
@@ -543,6 +563,7 @@ const listBar = createWindowBar();
 // window shows it across its bottom edge instead.
 export function FloatingBar({
   hidden = false,
+  centered = false,
   leading,
   trailing,
   notice = null,
@@ -552,6 +573,8 @@ export function FloatingBar({
   children,
 }: {
   readonly hidden?: boolean;
+  // The leading control centers together with the field, as a filtered Inbox's does.
+  readonly centered?: boolean;
   readonly leading: ReactNode;
   readonly trailing: ReactNode;
   // A toast above the bar.
@@ -566,6 +589,8 @@ export function FloatingBar({
   readonly children: ReactNode;
 }) {
   const windowBar = use(WindowBarContext);
+  const sidebar = use(SidebarToggleContext);
+  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { subscribe, lift: lifted } = windowBar ?? listBar;
   const lift = useSyncExternalStore(subscribe, lifted);
@@ -575,12 +600,25 @@ export function FloatingBar({
     windowBar === undefined
       ? bottomInset + spacing.xs
       : Math.max(spacing.l - insets.bottom, 0) + lift;
+  // Beside a shown sidebar the frames center the control, a gap and the field together in the
+  // window, the control starting no further left than the list's content and truncating before.
+  // Elsewhere, or where the switch, a 44pt summary and the control's padding cannot fit, the field
+  // centers alone.
+  const room =
+    width - 2 * listContentEdge - styles.field.width - styles.windowBar.gap;
+  const grouped =
+    centered &&
+    leading !== null &&
+    sidebar?.shown === true &&
+    room >= barHeight + 44 + spacing.l;
   const content = (
     <>
       <View
         pointerEvents="box-none"
-        style={styles.side}>
-        {leading}
+        style={[styles.side, grouped && styles.groupedSide]}>
+        <LeadingRoomContext value={grouped ? room : undefined}>
+          {leading}
+        </LeadingRoomContext>
       </View>
       <View style={styles.field}>{children}</View>
       <View
