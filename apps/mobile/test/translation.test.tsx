@@ -231,7 +231,7 @@ describe('on-device translation in the reader', () => {
 
   it.each([
     { action: 'target', queued: () => targetChoice('German') },
-    { action: 'retry', queued: () => queuedPress('Translate again') },
+    { action: 'retry', queued: () => queuedPress('Try Again to translate') },
   ])(
     'rejects queued $action input after reader dismissal or request replacement',
     async ({ queued }) => {
@@ -255,7 +255,7 @@ describe('on-device translation in the reader', () => {
         expect(asked).toHaveLength(1);
 
         // The next translation is a new session; input retained from the old one cannot affect it.
-        expect(screen.queryByLabelText('Translate again')).toBeNull();
+        expect(screen.queryByLabelText('Try Again to translate')).toBeNull();
         expect(screen.queryByLabelText('Cancel translation')).toBeNull();
         await translateInto('German');
         await act(() => {
@@ -269,7 +269,7 @@ describe('on-device translation in the reader', () => {
         const supersededCancel = queuedPress('Cancel translation');
         await fireEvent.press(screen.getByLabelText('Cancel translation'));
         await screen.findByText('Translation cancelled.');
-        const supersededRetry = queuedPress('Translate again');
+        const supersededRetry = queuedPress('Try Again to translate');
         await translateInto('Spanish');
         await act(() => {
           supersededRetry();
@@ -310,7 +310,7 @@ describe('on-device translation in the reader', () => {
       expect(
         screen.getByText('Please confirm the venue by Friday.'),
       ).toBeOnTheScreen();
-      expect(screen.getByLabelText('Translate again')).toBeOnTheScreen();
+      expect(screen.getByLabelText('Try Again to translate')).toBeOnTheScreen();
       expect(announce.mock.calls).toStrictEqual([
         [
           'Download this language in the system Translate settings, then try again. Nothing is downloaded here.',
@@ -398,7 +398,7 @@ describe('on-device translation in the reader', () => {
       expect(screen.getByText('Translation cancelled.')).toBeOnTheScreen();
       expect(cancelled).toStrictEqual([asked[0]?.request]);
 
-      await fireEvent.press(screen.getByLabelText('Translate again'));
+      await fireEvent.press(screen.getByLabelText('Try Again to translate'));
       await screen.findByLabelText('Cancel translation');
       await showLunch();
       await expect(
