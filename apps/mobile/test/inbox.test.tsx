@@ -1754,12 +1754,19 @@ describe('connected Gmail Inbox', () => {
     ).toBeNull();
     // On iPhone, More is the system menu iPad's frames draw, ending with Delete.
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
-      ['Mark as Unread', 'Flag', 'Move to…'],
+      ['Mark as Unread', 'Move to…'],
       ['Move to Spam', 'Labels'],
       ['Delete'],
     ]);
-    await chooseFromMenu(screen.getByLabelText('More'), 'Flag');
-    expect(menuSections(screen.getByLabelText('More'))[0]).toContain('Unflag');
+    // The provider's star is offered only by the Command Palette (#2084).
+    await openPalette(
+      screen.getByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Star' }),
+      );
+    });
     // Every outcome is stated, not only removals that can be undone.
     expect(
       screen.getByText('Starred: “Saturday, by the river?”.'),
@@ -1815,7 +1822,7 @@ describe('connected Gmail Inbox', () => {
     await waitFor(() => {
       expect(
         screen.getByRole('button', {
-          name: 'Oliver Park. Saturday, by the river?. Flagged',
+          name: 'Oliver Park. Saturday, by the river?',
         }),
       ).toBeVisible();
     });
@@ -1860,7 +1867,7 @@ describe('connected Gmail Inbox', () => {
     await act(async () => {
       await fireEvent(
         screen.getByRole('button', {
-          name: 'Oliver Park. Saturday, by the river?. Flagged',
+          name: 'Oliver Park. Saturday, by the river?',
         }),
         'accessibilityAction',
         { nativeEvent: { actionName: 'archive' } },
@@ -1880,7 +1887,7 @@ describe('connected Gmail Inbox', () => {
     // Foreground verification can close saving after the reader offered Archive.
     await fireEvent.press(
       screen.getByRole('button', {
-        name: 'Oliver Park. Saturday, by the river?. Flagged',
+        name: 'Oliver Park. Saturday, by the river?',
       }),
     );
     held.becomeCacheOnly();
@@ -2486,7 +2493,7 @@ describe('connected Gmail Inbox', () => {
     gmail.failModify({ code: 'mailbox-revoked' });
     await act(async () => {
       await fireEvent(row, 'accessibilityAction', {
-        nativeEvent: { actionName: 'star' },
+        nativeEvent: { actionName: 'archive' },
       });
     });
     await expect(
@@ -3538,23 +3545,20 @@ describe('context menus', () => {
       const listed = contextMenuOf(row());
       expect(menuSections(listed)).toStrictEqual([
         ['Archive'],
-        ['Flag', 'Mark as Read'],
+        ['Mark as Read'],
         ['Delete'],
       ]);
     });
-    await chooseFromMenu(contextMenuOf(row()), 'Flag');
+    // VoiceOver's row actions include Move to Spam but not the star, which only the Command
+    // Palette offers (#2084).
     const rowActions: ReadonlyArray<{ name: string }> =
       row().props.accessibilityActions;
-    const flagged = contextMenuOf(row());
-    expect({
-      starred: gmail.labelsOf(oliver).includes('STARRED'),
-      menu: menuSections(flagged)[1],
-      spam: rowActions.some(({ name }) => name === 'spam'),
-    }).toStrictEqual({
-      starred: true,
-      menu: ['Unflag', 'Mark as Read'],
-      spam: true,
-    });
+    expect(rowActions.map(({ name }) => name)).toStrictEqual([
+      'read',
+      'archive',
+      'trash',
+      'spam',
+    ]);
 
     // The open message's header offers its reader's actions; its sender offers Copy Address
     // and Block Sender….
@@ -3567,10 +3571,7 @@ describe('context menus', () => {
       message: menuSections(message),
     }).toStrictEqual({
       sender: [['Copy Address'], ['Block Sender…']],
-      message: [
-        ['Mark as Unread', 'Unflag'],
-        [['Move to…', ['Travel']], 'Delete'],
-      ],
+      message: [['Mark as Unread'], [['Move to…', ['Travel']], 'Delete']],
     });
     await chooseFromMenu(sender, 'Copy Address');
     expect(setStringAsync).toHaveBeenLastCalledWith('oliver@example.invalid');
@@ -3585,6 +3586,6 @@ describe('context menus', () => {
     expect({
       labels: gmail.labelsOf(oliver),
       shown: screen.queryByText('Saturday, by the river?') !== null,
-    }).toStrictEqual({ labels: ['STARRED', travel], shown: false });
+    }).toStrictEqual({ labels: [travel], shown: false });
   });
 });

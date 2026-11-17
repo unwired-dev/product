@@ -45,11 +45,7 @@
     "rowLabel": "{{row}}",
     "rowLabel_mailbox": "{{row}}. In {{mailbox}}",
     "rowLabel_status": "{{row}}. {{status}}",
-    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}",
-    "rowLabel_flagged": "{{row}}. Flagged",
-    "rowLabel_flagged_mailbox": "{{row}}. Flagged. In {{mailbox}}",
-    "rowLabel_flagged_status": "{{row}}. Flagged. {{status}}",
-    "rowLabel_flagged_mailbox_status": "{{row}}. Flagged. In {{mailbox}}. {{status}}"
+    "rowLabel_mailbox_status": "{{row}}. In {{mailbox}}. {{status}}"
   },
   "common": {
     "retry": "Try Again",
@@ -317,7 +313,7 @@
     "spam": "Spam",
     "trash": "Trash",
     "sent": "Sent",
-    "flagged": "Flagged",
+    "starred": "Starred",
     "allMailboxes": "All mailboxes",
     "notIncluded": "{{mailbox}} isn’t included",
     "notIncludedDetail": "Its server doesn’t identify a folder that can be used for {{view}}. Its folders are still listed under it in the sidebar.",
@@ -1512,8 +1508,6 @@
     "archive": "Archive",
     "restore": "Move to Inbox",
     "trash": "Delete",
-    "star": "Flag",
-    "unstar": "Unflag",
     "read": "Mark as Read",
     "unread": "Mark as Unread",
     "moveTo": "Move to…",

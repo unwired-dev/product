@@ -154,7 +154,7 @@ final class InboxTests: XCTestCase {
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let labels = app.staticTexts["Labels"]
     // iPad's More is the system menu, titled as the row menu names its actions.
-    let panelItem = phone ? labels : app.buttons["Flag"]
+    let panelItem = phone ? labels : app.buttons["Mark as Unread"]
     if phone {
       XCTAssertFalse(app.buttons["More"].exists)
       app.buttons["Reply"].tap()
@@ -167,25 +167,24 @@ final class InboxTests: XCTestCase {
     bodyText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     XCTAssertTrue(panelItem.waitForNonExistence(timeout: 5))
     XCTAssertFalse(app.alerts["Open this link in your browser?"].waitForExistence(timeout: 5))
-    // Organizing goes through the packaged native Gmail modify: a star from the Reply sheet on
-    // iPhone or the More panel on iPad, then an archive and Undo.
-    app.buttons[phone ? "Reply" : "More"].tap()
-    app.buttons[phone ? "Star" : "Flag"].tap()
-    // Choosing closes the sheet or menu; it reopens with the new star state.
-    if phone {
-      XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
-    }
-    app.buttons[phone ? "Reply" : "More"].tap()
-    let unstar = app.buttons[phone ? "Remove star" : "Unflag"]
-    XCTAssertTrue(unstar.waitForExistence(timeout: 10))
+    // Organizing goes through the packaged native Gmail modify: a star from the Command Palette,
+    // the only place that offers it (#2084), then an archive and Undo.
+    let query = app.textFields["Type a command"]
+    let subject = app.staticTexts["Garden plans for spring"].firstMatch
+    openPalette(app, header: subject)
+    waitForFocus(query)
+    submit("Star", into: query, in: app)
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     assertGmailActionsSettled(app)
-    XCTAssertTrue(unstar.exists)
-    if !phone {
-      bodyText.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-      XCTAssertTrue(unstar.waitForNonExistence(timeout: 5))
-    }
-    // The starred row names its flag; opening it read it.
-    let starred = app.buttons["Rowan Hale. Garden plans for spring. Flagged"]
+    // The palette then offers to remove it.
+    openPalette(app, header: subject)
+    XCTAssertTrue(
+      app.buttons.matching(NSPredicate(format: "label ==[c] %@", "Remove star")).firstMatch
+        .waitForExistence(timeout: 10))
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    // The row carries no star marker; opening it read it.
+    let starred = app.buttons["Rowan Hale. Garden plans for spring"]
     if phone {
       // #972: iPhone's Reply sheet replaces open labels, so closing it reveals no stale panel.
       let spam = app.buttons.matching(NSPredicate(format: "label == %@", "Move to Spam"))

@@ -127,8 +127,6 @@ const roleIcons: Readonly<Record<string, string>> = {
 const actionIcons: Readonly<Record<string, string>> = {
   read: 'envelope.open',
   unread: 'envelope.badge',
-  star: 'star',
-  unstar: 'star.slash',
   spam: 'xmark.bin',
   trash: 'trash',
   restore: 'tray.and.arrow.down',
@@ -423,14 +421,12 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
   ({
     read: [t('contextMenu.read'), 'envelope.open'],
     unread: [t('contextMenu.unread'), 'envelope.badge'],
-    star: [t('contextMenu.star'), 'flag'],
-    unstar: [t('contextMenu.unstar'), 'flag.slash'],
     restore: [t('contextMenu.restore'), 'tray.and.arrow.down'],
     spam: [t('contextMenu.spam'), 'xmark.bin'],
     trash: [t('contextMenu.trash'), 'trash'],
   }) as const;
 
-// More: the system menu the iPad frames draw: read state, the flag and Move to…, then the actions
+// More: the system menu the iPad frames draw: read state and Move to…, then the actions
 // that take the message elsewhere. Gmail's Labels, which toggle in place, open More's panel. The
 // iPhone toolbar has no Delete, so its menu ends with it.
 function MoreButton({
@@ -472,7 +468,7 @@ function MoreButton({
       sections={[
         {
           items: [
-            ...items(['read', 'unread', 'star', 'unstar']),
+            ...items(['read', 'unread']),
             ...(folders === undefined
               ? []
               : [
@@ -536,7 +532,7 @@ const threadActions = (
           run: archive,
         },
       ]),
-  ...['star', 'unstar', 'read', 'unread']
+  ...['read', 'unread']
     .flatMap((name) => more.actions.filter((action) => action.name === name))
     .map(({ name, label, run }) => ({
       name,

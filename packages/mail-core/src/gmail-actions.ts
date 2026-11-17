@@ -254,6 +254,10 @@ export const leavesView = (
   action: GmailAction,
 ) => inView(view, labels) && !inView(view, relabel(labels, action));
 
+// The provider's star is offered only by the Command Palette: toolbars, menus and rows leave it out.
+export const paletteOnly = (name: string) =>
+  name === 'star' || name === 'unstar';
+
 // Microsoft mail has no star; its Spam is the Junk Email folder. Mail in Gmail's Trash or Spam
 // moves back to the Inbox instead of being archived, trashed or reported again.
 export const quickActions = (

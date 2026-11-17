@@ -320,14 +320,24 @@ final class WindowTests: XCTestCase {
     resumed.typeKey("j", modifierFlags: [])
     XCTAssertTrue(seedOrder.waitForExistence(timeout: 5))
     XCTAssertEqual(app.state, .runningForeground)
-    // Organizing goes through the packaged native Gmail modify: a star, then an archive and Undo,
-    // chosen as Edit › Undo, Command-Z (#2188).
+    // Organizing goes through the packaged native Gmail modify: a star from the Command Palette,
+    // the only place that offers it (#2084), then an archive and Undo, chosen as Edit › Undo,
+    // Command-Z (#2188).
+    XCTAssertFalse(resumed.buttons["Star"].exists)
+    let query = resumed.textFields["Type a command"]
+    app.typeKey("k", modifierFlags: .command)
+    XCTAssertTrue(query.waitForExistence(timeout: 15))
     resumed.buttons["Star"].click()
-    XCTAssertTrue(resumed.buttons["Remove star"].waitForExistence(timeout: 10))
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
     assertProviderActionsSettled(resumed)
-    XCTAssertTrue(resumed.buttons["Remove star"].exists)
-    // The starred row names its flag.
-    let starred = opened + ". Flagged"
+    app.typeKey("k", modifierFlags: .command)
+    XCTAssertTrue(
+      resumed.buttons.matching(NSPredicate(format: "label ==[c] %@", "Remove star")).firstMatch
+        .waitForExistence(timeout: 10))
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+    // The row carries no star marker.
+    let starred = opened
     resumed.buttons["Archive"].click()
     XCTAssertTrue(resumed.buttons["Undo"].waitForExistence(timeout: 10))
     assertProviderActionsSettled(resumed)

@@ -17,7 +17,7 @@ const otherRoles = {
   drafts: 'drafts.heading',
   archive: 'mailboxes.archive',
   all: 'mailboxes.allMail',
-  flagged: 'mailboxes.flagged',
+  flagged: 'mailboxes.starred',
 } as const;
 
 // A server marking several folders with a role is left out of All Mail, since a choice can't say
