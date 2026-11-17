@@ -736,7 +736,9 @@ describe('private Cloud consent and readiness', () => {
     await switchPrivateCloud('Use Private Cloud', true);
     await answer(alerts, 'Turn On');
     expect(
-      screen.getByText('Couldn’t turn on Private Cloud. It’s still off.'),
+      screen.getByText(
+        'Private Cloud wasn’t turned on. The change wasn’t saved on this device. Choose Try Again to turn it on.',
+      ),
     ).toBeVisible();
     expect(
       screen.getByRole('switch', { name: 'Use Private Cloud' }),

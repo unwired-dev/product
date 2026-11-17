@@ -427,7 +427,7 @@
     "off": "Off by default. Applies only to {{profile}} on this {{device}}.",
     "on": "On for {{profile}} on this {{device}} only.",
     "needsAssistance": "Turn on Mail Assistance above to use Private Cloud.",
-    "saveFailed": "Couldn’t turn on Private Cloud. It’s still off.",
+    "saveFailed": "Private Cloud wasn’t turned on. The change wasn’t saved on this device. Choose Try Again to turn it on.",
     "footer": "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Translation and background assistance stay on this {{device}}. Each choice applies only to its Profile on this {{device}}. Other devices and accounts keep their own choices.",
     "confirmTitle": "Use Private Cloud for Mail Assistance on this {{device}}?",
     "confirmMessage": "When you ask, summaries and suggested replies may send the opened message, current-Thread context and readable attachments to Apple Private Cloud Compute. Rewrite sends the text you choose. Previews are temporary; accepted edits are saved to your Draft. Applies only to {{profile}} on this {{device}}. Other devices, accounts and Profiles keep their own choices.",
