@@ -890,6 +890,55 @@ describe('product registration', () => {
     );
   });
 
+  it('names whether declining or approving a request did not finish and keeps the request to choose again', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const synthetic = await createRegistrationScenario('registration-success');
+    const trusted = createRegistration(synthetic.vault);
+    const added = createRegistration(synthetic.otherDevice().vault);
+    await trusted.register('google');
+    await added.register('google');
+    await trusted.refreshPrivateSync();
+    const request = shown(trusted, 'enrollmentRequest');
+    const before = trusted.getSnapshot().snapshot;
+    // Each mutation fails once with a cause the store doesn't name; every other flow step still runs.
+    const failing = new Set([
+      'productSyncEnrollment:decline',
+      'productSyncEnrollment:approve',
+    ]);
+    const { call } = synthetic.vault;
+    vi.spyOn(synthetic.vault, 'call').mockImplementation((backend) =>
+      // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the two named mutations fail, once each.
+      failing.delete(backend.path)
+        ? Promise.reject(
+            Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
+          )
+        : call(backend),
+    );
+    await trusted.declineEnrollment(request);
+    const declined = trusted.getSnapshot();
+    await trusted.approveEnrollment(request, shown(added, 'enrollmentCode'));
+    expect({
+      failing: [...failing],
+      declined,
+      approved: trusted.getSnapshot(),
+    }).toStrictEqual({
+      failing: [],
+      declined: {
+        snapshot: before,
+        busy: false,
+        failed: false,
+        enrollmentFailure: 'decline-failed',
+      },
+      approved: {
+        snapshot: before,
+        busy: false,
+        failed: false,
+        enrollmentFailure: 'failed',
+      },
+    });
+  });
+
   it('unlocks a new device with the Recovery Key only after a wrong key and an interruption leave it unchanged', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);

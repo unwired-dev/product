@@ -505,7 +505,8 @@
     "decline": "Decline",
     "code-invalid": "That code is not valid. Check the code shown on the new device and try again.",
     "unavailable": "That request is no longer available. The new device shows a new code; check for it again.",
-    "failed": "The device could not be approved. Try again.",
+    "failed": "Approving the new device didn’t finish. Choose Approve Device to try again.",
+    "decline-failed": "Declining the new device didn’t finish. Choose Decline to try again.",
     "device": "device"
   },
   "revocation": {

@@ -2819,6 +2819,44 @@ describe('product registration', () => {
         code.toLowerCase().replaceAll('-', ' '),
       );
     });
+    // A Decline or approval that fails for a cause the store doesn't name keeps the request and
+    // names the button to choose again.
+    const failing = new Set([
+      'productSyncEnrollment:decline',
+      'productSyncEnrollment:approve',
+    ]);
+    const { call } = synthetic.vault;
+    const backend = jest
+      .spyOn(synthetic.vault, 'call')
+      .mockImplementation((request) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the two named mutations fail, once each.
+        failing.delete(request.path)
+          ? Promise.reject(
+              Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
+            )
+          : call(request),
+      );
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    for (const [button, failure] of [
+      [
+        'Decline',
+        'Declining the new device didn’t finish. Choose Decline to try again.',
+      ],
+      [
+        'Approve Device',
+        'Approving the new device didn’t finish. Choose Approve Device to try again.',
+      ],
+    ] as const) {
+      announce.mockClear();
+      await press(button);
+      expect(screen.getByRole('alert')).toHaveTextContent(failure);
+      expect(announce).toHaveBeenCalledWith(failure);
+      expect(
+        screen.getByRole('header', { name: 'Approve a new device' }),
+      ).toBeVisible();
+    }
+    expect(failing.size).toBe(0);
+    backend.mockRestore();
     await press('Approve Device');
     expect(
       screen.queryByRole('header', { name: 'Approve a new device' }),

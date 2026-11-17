@@ -104,7 +104,11 @@ const isEnrollmentCodeInvalid = Schema.is(
 const isEnrollmentUnavailable = Schema.is(
   Schema.Struct({ code: Schema.Literal('enrollment-unavailable') }),
 );
-export type EnrollmentFailure = 'code-invalid' | 'unavailable' | 'failed';
+export type EnrollmentFailure =
+  | 'code-invalid'
+  | 'unavailable'
+  | 'failed'
+  | 'decline-failed';
 
 const ImapFailureSchema = Schema.Literals([
   'imap-refused',
@@ -373,14 +377,14 @@ const revocationFailed = (
   revocationFailure: 'failed',
 });
 
-// A request that expired, was cancelled or was already approved cannot be approved again.
-const enrollmentFailed = (
-  snapshot: RegistrationSnapshot,
-  cause: unknown,
-): RegistrationState => ({
-  ...settled(snapshot),
-  enrollmentFailure: isEnrollmentUnavailable(cause) ? 'unavailable' : 'failed',
-});
+// A request that expired, was cancelled or was already approved cannot be approved again; any
+// other failure names the action that didn't finish.
+const enrollmentFailed =
+  (failure: 'failed' | 'decline-failed') =>
+  (snapshot: RegistrationSnapshot, cause: unknown): RegistrationState => ({
+    ...settled(snapshot),
+    enrollmentFailure: isEnrollmentUnavailable(cause) ? 'unavailable' : failure,
+  });
 
 export function createRegistration(vault: NativeRegistrationVault) {
   const native = createRegistrationFlow(vault);
@@ -943,10 +947,13 @@ export function createRegistration(vault: NativeRegistrationVault) {
     approveEnrollment: (requestId: string, code: string) =>
       execute(
         request(native.approveEnrollment(requestId, code)),
-        enrollmentFailed,
+        enrollmentFailed('failed'),
       ),
     declineEnrollment: (requestId: string) =>
-      execute(request(native.declineEnrollment(requestId)), enrollmentFailed),
+      execute(
+        request(native.declineEnrollment(requestId)),
+        enrollmentFailed('decline-failed'),
+      ),
     revokeTrustedDevice: (trustedDeviceId: string) =>
       execute(
         request(native.revokeTrustedDevice(trustedDeviceId)),
