@@ -320,7 +320,7 @@ describe('iPad reader', () => {
           expect(
             isScrollable(
               await screen.findByText(
-                'A reply or forward could not be started. Try again.',
+                'The reply or forward didn’t open. Choose Reply or Forward again.',
               ),
             ),
           ).toBe(true);

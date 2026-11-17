@@ -5968,7 +5968,7 @@ describe('adding files and images to a Draft', () => {
     await press('Attach invoice.pdf to a new message');
     await expect(
       screen.findByRole('alert', {
-        name: 'This attachment could not be added to a new message. Try again.',
+        name: 'The new message with this attachment didn’t open. Choose Attach to New Message again.',
       }),
     ).resolves.toBeOnTheScreen();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(0);
@@ -6569,7 +6569,7 @@ describe('replying to and forwarding from the reader', () => {
     try {
       await press('Forward');
       const failure = await screen.findByText(
-        'A reply or forward could not be started. Try again.',
+        'The reply or forward didn’t open. Choose Reply or Forward again.',
       );
       expect(isScrollable(failure)).toBe(true);
       expect(screen.getByRole('alert')).toBeVisible();

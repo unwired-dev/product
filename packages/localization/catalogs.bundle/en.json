@@ -85,7 +85,7 @@
     "forward": "Forward",
     "closeResponses": "Close",
     "preparingForward": "Preparing to forward…",
-    "respondFailed": "A reply or forward could not be started. Try again."
+    "respondFailed": "The reply or forward didn’t open. Choose Reply or Forward again."
   },
   "appearance": {
     "title": "Appearance",
@@ -604,7 +604,7 @@
     "downloadAction": "Download",
     "attachToNew": "Attach to New Message",
     "attachToNewLabel": "Attach {{name}} to a new message",
-    "attachFailed": "This attachment could not be added to a new message. Try again."
+    "attachFailed": "The new message with this attachment didn’t open. Choose Attach to New Message again."
   },
   "invitation": {
     "heading": "Invitation",
