@@ -459,6 +459,8 @@ export function InboxFilterButton({
   return popover ? (
     <Host matchContents>
       <Popover
+        // Its leading edge lines up with the control's.
+        attachmentAnchor="leading"
         isPresented={open}
         onIsPresentedChange={setOpen}>
         <Popover.Trigger>

@@ -423,14 +423,17 @@ styles) so the file stays editable.
   whose Back returns to Mailboxes; the bar hides while searching.
 - **Search bar:** search and New Message share one floating glass bar at the
   bottom of the window, as the [organization requirements](docs/product/organization.md)
-  specify. The search field is 400pt wide and centered, with New Message pinned
-  to the trailing edge. On compact layouts it spans the screen width and sits 4pt
-  above the bottom safe area, or 12pt above the software keyboard. Rows scroll
-  under it behind a 72pt scroll edge fade. On iPhone, Filter, the system search
-  field and New Message are items of the system toolbar instead, which UIKit
-  places and lifts above the software keyboard: 48pt glass with its bottom edge
-  28pt above the screen's bottom and 28pt from each side, a 226pt field and 12pt
-  gaps. The Quick Look, Select Messages and Ask About Calendar bars sit on the
+  specify. The search field is 400pt wide and centered, with New Message pinned to
+  the trailing edge. On iPad with the sidebar shown, a filtered Inbox's "Filtered
+  by" control, an 8pt gap and the field center together, the control starting no
+  further left than the list's content, and the Filters popover opens with its
+  leading edge on the control's. On compact layouts it spans the screen width and
+  sits 4pt above the bottom safe area, or 12pt above the software keyboard. Rows
+  scroll under it behind a 72pt scroll edge fade. On iPhone, Filter, the system
+  search field and New Message are items of the system toolbar instead, which
+  UIKit places and lifts above the software keyboard: 48pt glass with its bottom
+  edge 28pt above the screen's bottom and 28pt from each side, a 226pt field and
+  12pt gaps. The Quick Look, Select Messages and Ask About Calendar bars sit on the
   same line. Whether it shows while composing
   follows [Drafts](docs/drafts.md#composing).
 - **Command Palette:** on the Mac a glass command input (command symbol,

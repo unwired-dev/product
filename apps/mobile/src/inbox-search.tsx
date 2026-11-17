@@ -189,6 +189,7 @@ export function InboxBar({
   return (
     <FloatingBar
       hidden={hidden}
+      centered={filter.on}
       notice={notice}
       listNotice={listNotice}
       bottomInset={bottomInset}

@@ -1,8 +1,13 @@
 diff --git a/ios/Popover/PopoverView.swift b/ios/Popover/PopoverView.swift
-index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..ef3d8053b918fd9897362098327d93d6853c4d37 100644
+index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..cb5ad02b22604f1506e9ae7d98aa49b36cd496b1 100644
 --- a/ios/Popover/PopoverView.swift
 +++ b/ios/Popover/PopoverView.swift
-@@ -18,10 +18,10 @@ internal struct PopoverView: ExpoSwiftUI.View {
+@@ -14,14 +14,14 @@ internal struct PopoverView: ExpoSwiftUI.View {
+     triggerContent
+       .popover(
+         isPresented: $isPresented,
+-        attachmentAnchor: props.attachmentAnchor?.anchor ?? .rect(.bounds),
++        attachmentAnchor: leading ? .rect(.bounds) : props.attachmentAnchor?.anchor ?? .rect(.bounds),
          arrowEdge: props.arrowEdge?.edge
        ) {
          if #available(iOS 16.4, *) {
@@ -15,14 +20,23 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..ef3d8053b918fd9897362098327d93d6
          }
        }
        .onChange(
-@@ -48,6 +48,15 @@ internal struct PopoverView: ExpoSwiftUI.View {
+@@ -48,6 +48,24 @@ internal struct PopoverView: ExpoSwiftUI.View {
      }
    }
  
++  // An arrowless popover anchored to the leading edge lines its leading edge up with the control's.
++  private var leading: Bool {
++#if os(iOS)
++    props.attachmentAnchor == .leading
++#else
++    false
++#endif
++  }
++
 +  @ViewBuilder
 +  private var arrowlessContent: some View {
 +#if os(iOS)
-+    popoverContent.background(ArrowlessPopover())
++    popoverContent.background(ArrowlessPopover(leading: leading))
 +#else
 +    popoverContent
 +#endif
@@ -31,7 +45,7 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..ef3d8053b918fd9897362098327d93d6
    @ViewBuilder
    private var popoverContent: some View {
      if let content = props.children?.slot("popover") {
-@@ -55,3 +64,80 @@ internal struct PopoverView: ExpoSwiftUI.View {
+@@ -55,3 +73,90 @@ internal struct PopoverView: ExpoSwiftUI.View {
      }
    }
  }
@@ -39,18 +53,24 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..ef3d8053b918fd9897362098327d93d6
 +#if os(iOS)
 +// Unwired Mail draws popovers without an arrow (#2255). SwiftUI has no option for it, so the
 +// presenting UIPopoverPresentationController drops the arrow. An arrowless popover is centred on its
-+// source rect, so the rect moves above or below the control.
++// source rect, so the rect moves above or below the control, and for a leading popover spans its
++// width from the control's leading edge.
 +private struct ArrowlessPopover: UIViewControllerRepresentable {
++  let leading: Bool
++
 +  func makeUIViewController(context: Context) -> ArrowlessPopoverController {
 +    ArrowlessPopoverController()
 +  }
 +
-+  func updateUIViewController(_ controller: ArrowlessPopoverController, context: Context) {}
++  func updateUIViewController(_ controller: ArrowlessPopoverController, context: Context) {
++    controller.leading = leading
++  }
 +}
 +
 +internal final class ArrowlessPopoverController: UIViewController {
 +  // The gap between the control and the popover in the approved Filters frame.
 +  private static let gap: CGFloat = 13
++  var leading = false
 +  private var anchor: CGRect = .null
 +  private var placed: CGRect = .null
 +  private var arrow: UIPopoverArrowDirection = []
@@ -101,7 +121,11 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..ef3d8053b918fd9897362098327d93d6
 +    let room = window.bounds.maxY - window.safeAreaInsets.bottom - source.convert(anchor, to: window).maxY
 +    let below = arrow == .up || (arrow != .down && room >= Self.gap + height)
 +    let y = below ? anchor.maxY + Self.gap : anchor.minY - Self.gap - height
-+    placed = CGRect(x: anchor.minX, y: y, width: anchor.width, height: height)
++    let width = leading ? presented.preferredContentSize.width : anchor.width
++    let x =
++      leading && source.effectiveUserInterfaceLayoutDirection == .rightToLeft
++      ? anchor.maxX - width : anchor.minX
++    placed = CGRect(x: x, y: y, width: width, height: height)
 +    popover.permittedArrowDirections = []
 +    // Setting the rect notifies the observer, and UIKit may keep a slightly different rect, so the
 +    // kept rect is this placement.

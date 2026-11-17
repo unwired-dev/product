@@ -11,6 +11,25 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPad "Filtered by" beside the sidebar, 2026-11-17
+
+[#2086](https://github.com/unwired-dev/product/issues/2086) ran the `verifyFilters`
+step of the Inbox journey, stopped there by an uncommitted copy of the journey, on
+iPad Pro 11-inch (M5) with a Release Simulator build of 97bce84a1 plus the change,
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2, in Light and Dark. Host
+load was 77–175 from other work.
+
+- In landscape with the sidebar shown, filtered by Unread, the control starts at
+  x337.5, clear of the sidebar and of the list's content edge at x303; it and the
+  field center together in the 1210pt window; New Message stays at the trailing
+  edge. Before the layout fix the control started at x270, under the sidebar.
+- The Filters popover's leading edge is on the control's, above the bar.
+- Portrait, with the sidebar hidden, keeps the field centered alone; the journey's
+  portrait steps passed unchanged.
+- There is no German catalog yet, so German was not run; the control's width is
+  capped at the room beside the sidebar, and the summary truncates for any
+  length.
+
 ## iPad control sizes, 2026-11-17
 
 [#2278](https://github.com/unwired-dev/product/issues/2278) was checked on iPad

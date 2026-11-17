@@ -4102,10 +4102,29 @@ final class InboxTests: XCTestCase {
       XCUIDevice.shared.orientation = .landscapeLeft
       waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
       XCTAssertTrue(apply.waitForExistence(timeout: 5))
+      // #2086: beside the shown sidebar, the control and the search field center together in the
+      // window, the control starting no further left than the list's content, and the popover's
+      // leading edge lines up with the control's. The field's glass ends 8pt after its text.
+      let window = app.windows.firstMatch.frame
+      let control = toggle.frame
+      let field = app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label == %@", "Search senders and subjects")).firstMatch.frame
+      let list = app.staticTexts["All Inboxes"].firstMatch.frame
+      let popover = app.staticTexts["Filters"].firstMatch.frame
+      print("#2086 window \(window) control \(control) field \(field) list \(list) popover title \(popover)")
+      XCTAssertGreaterThanOrEqual(control.minX, list.minX - 0.5)
+      XCTAssertEqual((control.minX + field.maxX + 8) / 2, window.midX, accuracy: 2)
+      XCTAssertEqual(popover.midX - 210, control.minX, accuracy: 1)
       let rotated = XCTAttachment(screenshot: app.screenshot())
       rotated.name = "Filters popover after rotation"
       rotated.lifetime = .keepAlways
       add(rotated)
+      dismiss()
+      let filtered = XCTAttachment(screenshot: app.screenshot())
+      filtered.name = "Filtered by beside the sidebar"
+      filtered.lifetime = .keepAlways
+      add(filtered)
+      open()
       XCUIDevice.shared.orientation = .portrait
       waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
       XCTAssertTrue(apply.waitForExistence(timeout: 5))

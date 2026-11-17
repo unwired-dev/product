@@ -162,7 +162,11 @@ the newest 200 and the older ones scrolling has revealed from
   bottom of the list. In a regular-width iPad window it floats across the bottom of
   the whole window instead: the field is 400pt wide and centered, Filter or what the
   Inbox is filtered by leads it, and New Message or Close Search sits at the
-  trailing edge. The reader's content leaves room beneath it.
+  trailing edge. While the sidebar shows beside the list, what the Inbox is filtered
+  by and the field center together instead, and the summary truncates rather than
+  reach left of the list's content
+  ([#2086](https://github.com/unwired-dev/product/issues/2086)). The reader's content
+  leaves room beneath it.
 - **Scope.** Search follows the [chosen view](#gmail-mailboxes): **All Inboxes**
   searches every mailbox, newest first in the unified order, and a mailbox's address
   searches only its own mail. A removed mailbox's mail leaves the results at once,
@@ -197,11 +201,12 @@ filter's one criterion, or how many apply. On iPhone the field gives way to a
 **Search** button beside New Message; a regular-width iPad window keeps its field.
 Pressing the summary opens **Filters**: the system sheet (`BottomSheet` from
 `@expo/ui`) on iPhone and in a compact-width iPad window, and in a regular-width iPad
-window a 420pt system popover (`Popover` from `@expo/ui`) on the Filter control. iOS
-presents, places and dismisses both. Swipe down to dismiss the sheet, and tap outside
-or press Escape on a hardware keyboard to dismiss the popover. The popover stays on
-the control while the window changes size; narrowing the window to compact width
-closes it without applying. Both keep the edited choices until they close:
+window a 420pt system popover (`Popover` from `@expo/ui`) whose leading edge lines up
+with the Filter control's. iOS presents, places and dismisses both. Swipe down to
+dismiss the sheet, and tap outside or press Escape on a hardware keyboard to dismiss
+the popover. The popover stays on the control while the window changes size; narrowing
+the window to compact width closes it without applying. Both keep the edited choices
+until they close:
 
 - **Include Mail From**, in **All Inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.
