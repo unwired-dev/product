@@ -11,6 +11,16 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPad control sizes, 2026-11-17
+
+[#2278](https://github.com/unwired-dev/product/issues/2278) was checked on iPad
+Pro 11-inch (M5), landscape, with a `registration-apple` Release Simulator
+build of a60a7998b, Xcode 27.2 and the iOS 27.0 runtime, driven by hand in
+Light and Dark. Sign in with Apple's corners match Continue with Google's,
+the Connect your mail setup sheet draws the smaller 25.3pt corners, and the
+Profile Switcher's monogram measures 56px at 2×, 28pt, inside an unchanged
+32pt row. VoiceOver and physical-device checks were not run.
+
 ## iPad popovers without an arrow, 2026-11-16
 
 [#2255](https://github.com/unwired-dev/product/issues/2255) checked every iPad
