@@ -220,14 +220,15 @@ describe('stored Pins', () => {
     });
     await store.pin('imap', 'INBOX:7:42');
     expect(changes).toBe(1);
-    // Pinning again stores nothing, and a refused write changes nothing.
+    // Pinning again stores nothing but still tells hosts, so one whose read failed reads again; a
+    // refused write tells nothing.
     await store.pin('imap', 'INBOX:7:42');
     state.locked = true;
     await expect(store.unpin('imap', 'INBOX:7:42')).resolves.toBe(false);
-    expect(changes).toBe(1);
+    expect(changes).toBe(2);
     state.locked = false;
     unsubscribe();
     await store.unpin('imap', 'INBOX:7:42');
-    expect(changes).toBe(1);
+    expect(changes).toBe(2);
   });
 });

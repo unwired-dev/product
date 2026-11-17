@@ -74,7 +74,8 @@ export function createPins(
   registration: Pick<Registration, 'getSnapshot'>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
-  // Counts stored changes, so hosts read the Pins again after each.
+  // Counts kept Pins and Unpins, so hosts read the Pins again after each, also one storage already
+  // held: a host whose last read failed then recovers.
   const changes = createSubscribable(0);
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The Pins of `account`, the Product Account signed in when the action was called, so an action
@@ -108,6 +109,7 @@ export function createPins(
         const { owner, revision, pins } = yield* opened(account);
         const next = change(pins);
         if (next === pins) {
+          changes.set(changes.getSnapshot() + 1);
           return true;
         }
         const document = yield* Schema.encodeEffect(DocumentSchema)({
@@ -133,7 +135,7 @@ export function createPins(
   };
 
   return {
-    // Calls `listener` after each Pin or Unpin storage keeps.
+    // Calls `listener` after each Pin or Unpin storage holds.
     subscribe: changes.subscribe,
     // The Pins of `connections`, such as a Mail Profile's, or undefined while storage cannot read
     // them.
