@@ -305,7 +305,7 @@
     "cancel": "Cancel",
     "removing": "Removing…",
     "removeFailed": "Couldn’t remove {{address}}. It is still connected here and on your other devices. Try again.",
-    "removeUnconfirmed": "Couldn’t confirm whether {{address}} was removed. Try again.",
+    "removeUnconfirmed": "{{address}} may already be removed, but this device couldn’t check. Choose Remove {{address}} again to finish.",
     "removeFailed_mac": "Couldn’t remove {{address}} because this Mac is offline. It is still connected here and on your other devices. Try again when you’re online.",
     "removeFailed_ipad": "Couldn’t remove {{address}} because this iPad is offline. It is still connected here and on your other devices. Try again when you’re online.",
     "removeFailed_iphone": "Couldn’t remove {{address}} because this iPhone is offline. It is still connected here and on your other devices. Try again when you’re online.",
