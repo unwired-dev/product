@@ -1782,7 +1782,7 @@ describe('product registration', () => {
     synthetic.backend.loseReply = true;
     await press(remove);
     const unconfirmed =
-      'other@example.invalid may already be removed, but this device couldn’t check. Choose Remove other@example.invalid again to finish.';
+      'other@example.invalid may already be removed, but this device couldn’t check. Choose Remove again to finish.';
     await expect(screen.findByText(unconfirmed)).resolves.toBeVisible();
     expect(announce).toHaveBeenCalledWith(unconfirmed);
     expect([
