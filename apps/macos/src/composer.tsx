@@ -767,10 +767,6 @@ function SuggestionMenu({
   const colors = usePalette();
   const { t } = useLocalization();
   const none = sections.recent.length + sections.contacts.length === 0;
-  // VoiceOver hears No Matches and the note once each appears, after the typed character, since
-  // macOS ignores live regions.
-  useOutcomeAnnouncement(none ? empty : undefined, true);
-  useOutcomeAnnouncement(note, true);
   return (
     <View
       accessibilityLabel={t('drafts.suggestions.title')}
@@ -2345,8 +2341,13 @@ function useBodyRecipients(
   const [armed, setArmed] = useState<number>();
   const armedNow = useRef(armed);
   const [chosen, setChosen] = useState(0);
+  // The statuses VoiceOver last heard for the shown suggestions.
+  const heard = useRef<
+    Readonly<{ empty?: string | undefined; note?: string | undefined }>
+  >({});
   const arm = useCallback((at: number | undefined) => {
     armedNow.current = at;
+    heard.current = {};
     setArmed(at);
     setChosen(0);
   }, []);
@@ -2426,6 +2427,28 @@ function useBodyRecipients(
               : undefined,
         }
       : undefined;
+  // VoiceOver hears No Matches and the note once each appears, after the typed character, since
+  // macOS ignores live regions. Renders between a typed character and its caret, when nothing
+  // shows, change nothing.
+  const emptyNow =
+    shown !== undefined && suggestions.length === 0 ? shown.empty : undefined;
+  const noteNow = shown?.note;
+  const showing = shown !== undefined;
+  useEffect(() => {
+    if (!showing) {
+      return;
+    }
+    const now = { empty: emptyNow, note: noteNow };
+    for (const key of ['empty', 'note'] as const) {
+      const words = now[key];
+      if (words !== undefined && words !== heard.current[key]) {
+        AccessibilityInfo.announceForAccessibilityWithOptions(words, {
+          queue: true,
+        });
+      }
+    }
+    heard.current = now;
+  }, [showing, emptyNow, noteNow]);
   let keys: typeof choosingKeys = [];
   if (shown !== undefined) {
     keys = suggestions.length === 0 ? closingKeys : choosingKeys;
