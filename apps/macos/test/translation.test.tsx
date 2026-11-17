@@ -368,7 +368,9 @@ describe('on-device translation in the reader', () => {
     try {
       // The failure that comes with opening a message stays quiet.
       await expect(
-        screen.findByText('Translation languages couldn’t be loaded.'),
+        screen.findByText(
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ),
       ).resolves.toBeOnTheScreen();
       expect(screen.queryByLabelText('Translate this message')).toBeNull();
       expect(announce).not.toHaveBeenCalled();
@@ -388,10 +390,14 @@ describe('on-device translation in the reader', () => {
         await Promise.resolve();
       });
       await expect(
-        screen.findByText('Translation languages couldn’t be loaded.'),
+        screen.findByText(
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ),
       ).resolves.toBeOnTheScreen();
       expect(announce.mock.calls).toStrictEqual([
-        ['Translation languages couldn’t be loaded.'],
+        [
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ],
       ]);
       expect(screen.queryByLabelText('Loading languages')).toBeNull();
 
@@ -425,7 +431,9 @@ describe('on-device translation in the reader', () => {
       });
       // The failure takes the control's place; the requested translation stays.
       await expect(
-        screen.findByText('Translation languages couldn’t be loaded.'),
+        screen.findByText(
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ),
       ).resolves.toBeOnTheScreen();
       expect(screen.queryByLabelText('Translate this message')).toBeNull();
       expect(screen.getByLabelText('Cancel translation')).toBeOnTheScreen();

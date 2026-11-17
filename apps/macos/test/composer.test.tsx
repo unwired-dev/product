@@ -5402,7 +5402,8 @@ describe('composing Drafts', () => {
       await press('Writing tools');
       expect(submenuItems('Translate To')).toContainEqual(
         expect.objectContaining({
-          title: 'Translation languages couldn’t be loaded.',
+          title:
+            'Translation languages didn’t load. Choose Try Again to load them again.',
           disabled: true,
         }),
       );
@@ -5410,7 +5411,9 @@ describe('composing Drafts', () => {
       await chooseSubmenuItem('Translate To', 'Try Again');
       await waitFor(() => {
         expect(announce.mock.calls).toStrictEqual([
-          ['Translation languages couldn’t be loaded.'],
+          [
+            'Translation languages didn’t load. Choose Try Again to load them again.',
+          ],
         ]);
       });
 
@@ -5421,7 +5424,9 @@ describe('composing Drafts', () => {
       );
       await dismissMenu();
       expect(announce.mock.calls).toStrictEqual([
-        ['Translation languages couldn’t be loaded.'],
+        [
+          'Translation languages didn’t load. Choose Try Again to load them again.',
+        ],
       ]);
     } finally {
       logged.mockRestore();

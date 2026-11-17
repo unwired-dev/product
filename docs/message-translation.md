@@ -28,8 +28,8 @@ fallback and nothing is downloaded by the app.
   **Translate this message** on iPhone and beside the on-device symbol on iPad, and
   the system menu opens from the arrow.
 - When the device's Translation fails to list its languages, the reader says
-  **Translation languages couldn’t be loaded.** with **Try Again**, which asks the
-  device again. On Mac this banner takes the place of **Translate** and stays
+  **Translation languages didn’t load. Choose Try Again to load them again.** with
+  **Try Again**, which asks the device again. On Mac this banner takes the place of **Translate** and stays
   visible with **Loading languages** and a small activity indicator while the
   device answers; a Draft's
   translation menu shows the failure followed by **Try Again**; on iPhone and iPad it
