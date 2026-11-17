@@ -353,7 +353,7 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
 - **Failure.** The row says why and offers **Try Again**: **The mail server could not
   be reached to download this attachment.**, **The mail server needs your password
   again to download this attachment.** (the Inbox also asks for the password),
-  **This attachment could not be saved on this device.** or the locked-storage
+  **This attachment didn’t download. Choose Try Again to download it.** or the locked-storage
   message. **This attachment is no longer in this folder on the mail server.** has no
   **Try Again**.
 - **Removal.** A saved file is deleted when the message's last reader closes, the

@@ -1415,7 +1415,7 @@ attachment descriptors.
   **Gmail needs your permission again to download this attachment.** (the Inbox also
   offers **Allow Gmail Access**),
   **Gmail sent an incomplete or damaged copy of this attachment.**,
-  **This attachment could not be saved on this device.**, or the locked-storage
+  **This attachment didn’t download. Choose Try Again to download it.**, or the locked-storage
   message. **This attachment is no longer in Gmail.** has no **Try Again**.
 - **Attach.** A Downloaded Attachment also offers **Attach to New Message**, which
   copies its bytes into a new Draft through the mailbox's current generation; see

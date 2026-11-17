@@ -378,6 +378,43 @@ describe('received attachments in the reader', () => {
       await app.unmount();
     }
   });
+
+  it('says an attachment did not download when saving it fails, and Try Again downloads it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ content: { text: 'Notes attached.' } });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const app = await render(
+      <GmailMessageBody
+        inbox={inbox}
+        id={id}
+      />,
+    );
+    const save = gmail.native.saveAttachment;
+    gmail.native.saveAttachment = () => {
+      gmail.native.saveAttachment = save;
+      return Promise.reject(new Error('Synthetic save failure'));
+    };
+    try {
+      await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
+      await expect(
+        screen.findByText(
+          'This attachment didn’t download. Choose Try Again to download it.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      expect(gmail.savedFiles.size).toBe(0);
+      await fireEvent.press(
+        screen.getByLabelText('Try Again to download notes.txt'),
+      );
+      await expect(
+        screen.findByLabelText('Open notes.txt'),
+      ).resolves.toBeOnTheScreen();
+      expect(gmail.savedFiles.size).toBe(1);
+    } finally {
+      await app.unmount();
+    }
+  });
 });
 
 // The IMAP Inbox's only listed message.
