@@ -8,6 +8,7 @@ import type { Registration } from './registration.ts';
 import { runLogged } from './diagnostics.ts';
 import { malformed, native, ownerMismatch } from './draft-native.ts';
 import { ownerOf } from './drafts.ts';
+import { createSubscribable } from './subscribable.ts';
 
 // A Pin: the Mailbox Connection, the Thread's identity in it and when it was pinned, in
 // milliseconds since the epoch. The Thread is the provider's conversation, or one message that has
@@ -54,6 +55,15 @@ const report = (
     ? Effect.void
     : Effect.logError('Pin storage failed:', error.diagnostic);
 
+// The Thread a message is pinned as: its provider conversation, or the message itself when it has
+// none, as an IMAP message.
+export const pinnedThread = (
+  message: Readonly<{ id: string; threadId?: string }>,
+) =>
+  message.threadId === undefined || message.threadId === ''
+    ? message.id
+    : message.threadId;
+
 const isPin = (connection: string, thread: string) => (pin: Pin) =>
   pin.connection === connection && pin.thread === thread;
 
@@ -64,6 +74,9 @@ export function createPins(
   registration: Pick<Registration, 'getSnapshot'>,
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  // Counts kept Pins and Unpins, so hosts read the Pins again after each, also one storage already
+  // held: a host whose last read failed then recovers.
+  const changes = createSubscribable(0);
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The Pins of `account`, the Product Account signed in when the action was called, so an action
   // that waited, or whose read finished, while another account signed in reads and writes nothing
@@ -96,6 +109,7 @@ export function createPins(
         const { owner, revision, pins } = yield* opened(account);
         const next = change(pins);
         if (next === pins) {
+          changes.set(changes.getSnapshot() + 1);
           return true;
         }
         const document = yield* Schema.encodeEffect(DocumentSchema)({
@@ -108,6 +122,7 @@ export function createPins(
         if (committed.owner !== owner) {
           return yield* ownerMismatch();
         }
+        changes.set(changes.getSnapshot() + 1);
         return true;
       }).pipe(
         semaphore.withPermit,
@@ -120,6 +135,8 @@ export function createPins(
   };
 
   return {
+    // Calls `listener` after each Pin or Unpin storage holds.
+    subscribe: changes.subscribe,
     // The Pins of `connections`, such as a Mail Profile's, or undefined while storage cannot read
     // them.
     pins: (connections: readonly string[]) =>

@@ -1,7 +1,7 @@
 import type { NativePins } from '@private-email/mail-core/pins';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
-import { createPins } from '@private-email/mail-core/pins';
+import { createPins, pinnedThread } from '@private-email/mail-core/pins';
 
 const november8 = Date.UTC(2026, 10, 8);
 
@@ -200,5 +200,35 @@ describe('stored Pins', () => {
     state.document =
       '{"pins":[{"connection":"gmail","thread":"","pinnedAt":0}]}';
     await expect(store.pins(['gmail'])).resolves.toBeUndefined();
+  });
+
+  it('pins a message as its provider conversation, or as itself without one, and tells hosts of each stored change', async () => {
+    expect.hasAssertions();
+    vi.spyOn(console, 'error').mockReturnValue();
+    const { state, store } = storage();
+    // An IMAP message has no conversation; an empty one is none either.
+    expect(
+      [
+        { id: 'reply', threadId: 'thread-1' },
+        { id: 'INBOX:7:42' },
+        { id: 'graph-1', threadId: '' },
+      ].map(pinnedThread),
+    ).toStrictEqual(['thread-1', 'INBOX:7:42', 'graph-1']);
+    let changes = 0;
+    const unsubscribe = store.subscribe(() => {
+      changes += 1;
+    });
+    await store.pin('imap', 'INBOX:7:42');
+    expect(changes).toBe(1);
+    // Pinning again stores nothing but still tells hosts, so one whose read failed reads again; a
+    // refused write tells nothing.
+    await store.pin('imap', 'INBOX:7:42');
+    state.locked = true;
+    await expect(store.unpin('imap', 'INBOX:7:42')).resolves.toBe(false);
+    expect(changes).toBe(2);
+    state.locked = false;
+    unsubscribe();
+    await store.unpin('imap', 'INBOX:7:42');
+    expect(changes).toBe(2);
   });
 });

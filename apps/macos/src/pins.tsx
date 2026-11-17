@@ -1,0 +1,81 @@
+import type { Pins } from '@private-email/mail-core/pins';
+import type { RefObject } from 'react';
+import type { View } from 'react-native';
+
+import { pinnedThread } from '@private-email/mail-core/pins';
+import { createContext, use, useEffect, useState } from 'react';
+
+import { askInSheet } from './design.tsx';
+import { useLocalization } from './localization.ts';
+import { pins } from './registration.ts';
+
+export const PinsContext = createContext<Pins>(pins);
+
+// A listed message: its ID and, unless it has none, its provider conversation.
+type Listed = Parameters<typeof pinnedThread>[0];
+
+const key = (connection: string, thread: string) => `${connection}\n${thread}`;
+
+// Whether a message's Thread is pinned in its Mailbox Connection, among `connections`. Storage is
+// read again after every Pin or Unpin; until it is read, nothing is pinned.
+export function usePinned(connections: readonly string[]) {
+  const store = use(PinsContext);
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set());
+  const listed = connections.join('\n');
+  useEffect(() => {
+    let read = 0;
+    const load = async () => {
+      read += 1;
+      const reading = read;
+      const stored = await store.pins(listed.split('\n'));
+      if (reading === read && stored !== undefined) {
+        setPinned(
+          new Set(
+            stored.map(({ connection, thread }) => key(connection, thread)),
+          ),
+        );
+      }
+    };
+    void load();
+    const unsubscribe = store.subscribe(() => {
+      void load();
+    });
+    return () => {
+      read += 1;
+      unsubscribe();
+    };
+  }, [store, listed]);
+  return (connection: string, message: Listed) =>
+    pinned.has(key(connection, pinnedThread(message)));
+}
+
+// Pin, or Unpin when `pinned`, for a message's Thread in `connection`, as a row or toolbar action.
+// A change storage refuses is explained in a sheet on `anchor`'s window.
+export function usePinAction(anchor: RefObject<View | null>) {
+  const store = use(PinsContext);
+  const { t } = useLocalization();
+  return (connection: string, message: Listed, pinned: boolean) => {
+    const name = pinned ? 'unpin' : 'pin';
+    const change = async () => {
+      const thread = pinnedThread(message);
+      if (
+        !(await (pinned
+          ? store.unpin(connection, thread)
+          : store.pin(connection, thread)))
+      ) {
+        await askInSheet(anchor.current, {
+          title: t(`pins.${name}Failed`),
+          detail: t('pins.tryAgain'),
+          buttons: [t('common.ok')],
+        }).answer;
+      }
+    };
+    return {
+      name,
+      label: t(`contextMenu.${name}`),
+      run: () => {
+        void change();
+      },
+    } as const;
+  };
+}
