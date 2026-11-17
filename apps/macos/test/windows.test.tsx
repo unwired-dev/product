@@ -2116,7 +2116,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
   });
 
   it('pins and unpins a Thread from the reader, its rows and the Command Palette without changing the provider', async () => {
-    /* oxlint-disable vitest/max-expects -- One journey proves each surface and the refused write. */
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const first = gmail.deliver({
@@ -2181,11 +2180,12 @@ describe('mac windows over a connected Gmail mailbox', () => {
           await fireEvent.press(await window.findByRole('button', { name }));
         });
       };
-      expect(
-        menuSections(
-          contextMenuOf(await window.findByRole('button', { name: row })),
-        ),
-      ).toStrictEqual([['Archive'], ['Mark as Unread', 'Pin'], ['Delete']]);
+      const listed = await window.findByRole('button', { name: row });
+      expect(menuSections(contextMenuOf(listed))).toStrictEqual([
+        ['Archive'],
+        ['Mark as Unread', 'Pin'],
+        ['Delete'],
+      ]);
       await press(row);
       // A Pin storage refuses changes nothing and says so.
       await press('Pin');
@@ -2216,13 +2216,14 @@ describe('mac windows over a connected Gmail mailbox', () => {
         { connection: alex, thread: first },
       ]);
       expect(window.getByRole('button', { name: 'Unpin' })).toBeVisible();
-      expect(
-        menuSections(
-          contextMenuOf(
-            window.getByRole('button', { name: `${replyRow}. Pinned` }),
-          ),
-        ),
-      ).toStrictEqual([['Archive'], ['Mark as Unread', 'Unpin'], ['Delete']]);
+      const pinnedReply = window.getByRole('button', {
+        name: `${replyRow}. Pinned`,
+      });
+      expect(menuSections(contextMenuOf(pinnedReply))).toStrictEqual([
+        ['Archive'],
+        ['Mark as Unread', 'Unpin'],
+        ['Delete'],
+      ]);
       // The provider's star and labels stay as they were.
       expect([
         ...gmail.labelsOf(first),
@@ -2257,7 +2258,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
     } finally {
       await app.unmount();
     }
-    /* oxlint-enable vitest/max-expects */
   });
 
   it('adds, removes and creates Gmail labels from the reader’s More menu and moves from its folder menu', async () => {

@@ -206,24 +206,28 @@ describe('stored Pins', () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue();
     const { state, store } = storage();
-    expect(pinnedThread({ id: 'reply', threadId: 'thread-1' })).toBe(
-      'thread-1',
-    );
     // An IMAP message has no conversation; an empty one is none either.
-    expect(pinnedThread({ id: 'INBOX:7:42' })).toBe('INBOX:7:42');
-    expect(pinnedThread({ id: 'graph-1', threadId: '' })).toBe('graph-1');
-    const changed = vi.fn<() => void>();
-    const unsubscribe = store.subscribe(changed);
+    expect(
+      [
+        { id: 'reply', threadId: 'thread-1' },
+        { id: 'INBOX:7:42' },
+        { id: 'graph-1', threadId: '' },
+      ].map(pinnedThread),
+    ).toStrictEqual(['thread-1', 'INBOX:7:42', 'graph-1']);
+    let changes = 0;
+    const unsubscribe = store.subscribe(() => {
+      changes += 1;
+    });
     await store.pin('imap', 'INBOX:7:42');
-    expect(changed).toHaveBeenCalledOnce();
+    expect(changes).toBe(1);
     // Pinning again stores nothing, and a refused write changes nothing.
     await store.pin('imap', 'INBOX:7:42');
     state.locked = true;
     await expect(store.unpin('imap', 'INBOX:7:42')).resolves.toBe(false);
-    expect(changed).toHaveBeenCalledOnce();
+    expect(changes).toBe(1);
     state.locked = false;
     unsubscribe();
     await store.unpin('imap', 'INBOX:7:42');
-    expect(changed).toHaveBeenCalledOnce();
+    expect(changes).toBe(1);
   });
 });
