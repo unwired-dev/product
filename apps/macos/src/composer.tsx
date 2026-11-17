@@ -74,6 +74,7 @@ import {
   sendingMailboxes,
   pickLimit,
   recipientSuggestions,
+  sameContent,
   sendingStateOf,
   unsendableAssets,
   prepareFiles,
@@ -178,6 +179,7 @@ import {
   useLeaveComposer,
   useMailTemplates,
   useOutbox,
+  useProfile,
   useSendReminders,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
@@ -2167,7 +2169,7 @@ const journalDelay = 2000;
 // first returned function closes the journal, removing those records and that of Draft `id` the
 // editor closes on, which another editor's journal may have written; it resolves once they are
 // gone, so Quit waits for them. The second journals at once, as after a save that keeps the editor
-// open.
+// open. A version unsaved from the start, as a restored recovery record, counts as written.
 function useRecoveryJournal(
   edited: unknown,
   unsavedVersion: () => Draft | undefined,
@@ -2175,6 +2177,12 @@ function useRecoveryJournal(
 ) {
   const store = useDraftStore();
   const journaled = useRef(new Set<string>());
+  useEffect(() => {
+    const restored = unsavedVersion();
+    if (restored !== undefined) {
+      journaled.current.add(restored.id);
+    }
+  }, [unsavedVersion]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
   const forget = useCallback(() => {
@@ -2231,16 +2239,31 @@ function useRecoveryJournal(
 }
 
 // The composer recovery records the previous run left, read once each time the Drafts open, those
-// already offered, and the window offering them. Records this run writes are never offered.
-const recoveryOffers = new WeakMap<
-  object,
-  { records: Promise<readonly Draft[]>; offered: Set<string>; window?: object }
->();
+// already offered, and the window offering them. Records this run writes are never offered. One
+// window at a time offers, and keeps the offer while its restored composer is open; releasing it
+// wakes the windows waiting for it.
+interface RecoveryOffer {
+  readonly records: Promise<readonly Draft[]>;
+  readonly offered: Set<string>;
+  readonly waiting: Set<() => void>;
+  window?: object;
+}
+const recoveryOffers = new WeakMap<object, RecoveryOffer>();
 
-// Offers each composer recovery record the previous run left (ADR 0077) in its own alert, once the
-// Drafts open and while this window has no composer open; one window offers them. Restore passes
-// the recovered version to `onRestore`, Discard removes the record, and an alert dismissed
-// otherwise leaves it for the next launch. A record whose Draft is no longer listed stays too.
+const releaseOffer = (offer: RecoveryOffer | undefined, window: object) => {
+  if (offer?.window === window) {
+    delete offer.window;
+    for (const wake of offer.waiting) {
+      wake();
+    }
+  }
+};
+
+// Offers each composer recovery record the previous run left for this window's Profile (ADR 0077)
+// in its own alert, once the Drafts open and while this window has no composer open. Restore
+// passes the recovered version to `onRestore`, which opens it in a composer, and Discard removes
+// the record. A record changed or removed since it was read, as by another window's composer, an
+// alert closed without an answer and a Draft no longer listed leave the record for the next launch.
 // Returns the anchor for the window's root view.
 export function useRecoveryOffer(
   composing: string | undefined,
@@ -2248,20 +2271,19 @@ export function useRecoveryOffer(
 ) {
   const store = useDraftStore();
   const ready = useDrafts().kind === 'ready';
+  const profile = useProfile();
+  const mailboxes = use(AccountContext)?.mailboxes;
   const { t } = useLocalization();
   const anchor = useRef<View>(null);
   const window = useRef({});
   const [round, setRound] = useState(0);
-  const onRestoreNow = useRef(onRestore);
+  const latest = useRef({ onRestore, mailboxes });
   useLayoutEffect(() => {
-    onRestoreNow.current = onRestore;
+    latest.current = { onRestore, mailboxes };
   });
   useEffect(
     () => () => {
-      const offer = recoveryOffers.get(store);
-      if (offer?.window === window.current) {
-        delete offer.window;
-      }
+      releaseOffer(recoveryOffers.get(store), window.current);
     },
     [store],
   );
@@ -2272,24 +2294,52 @@ export function useRecoveryOffer(
     }
     let offer = recoveryOffers.get(store);
     if (offer === undefined) {
-      offer = { records: store.recovered(), offered: new Set() };
+      offer = {
+        records: store.recovered(),
+        offered: new Set(),
+        waiting: new Set(),
+      };
       recoveryOffers.set(store, offer);
     }
-    offer.window ??= window.current;
-    if (offer.window !== window.current || composing !== undefined) {
-      return;
+    const own = offer;
+    const self = window.current;
+    const wake = () => {
+      setRound((count) => count + 1);
+    };
+    if (own.window === undefined && composing === undefined) {
+      own.window = self;
     }
-    const { records, offered } = offer;
+    if (own.window !== self || composing !== undefined) {
+      own.waiting.add(wake);
+      return () => {
+        own.waiting.delete(wake);
+      };
+    }
     let current = true;
-    let question: ReturnType<typeof askInSheet> | undefined;
+    let question: ReturnType<typeof askInSheet> | undefined = undefined;
+    // The record `draft` as storage holds it now, if it has not changed since it was read.
+    const unchanged = async (draft: Draft) => {
+      const records = await store.recovered();
+      return records.some(
+        (each) => each.id === draft.id && sameContent(each, draft),
+      );
+    };
     const ask = async () => {
-      const draft = (await records).find(({ id }) => !offered.has(id));
-      if (!current || draft === undefined) {
+      const records = await own.records;
+      const draft = records.find(({ id }) => {
+        const listed = draftOf(store.getSnapshot(), id);
+        return (
+          !own.offered.has(id) &&
+          listed !== undefined &&
+          profileOf(listed.connection, latest.current.mailboxes ?? []) ===
+            profile
+        );
+      });
+      if (!current) {
         return;
       }
-      if (draftOf(store.getSnapshot(), draft.id) === undefined) {
-        offered.add(draft.id);
-        setRound((count) => count + 1);
+      if (draft === undefined) {
+        releaseOffer(own, self);
         return;
       }
       question = askInSheet(anchor.current, {
@@ -2304,22 +2354,23 @@ export function useRecoveryOffer(
       if (!current) {
         return;
       }
-      offered.add(draft.id);
-      if (choice === 0) {
-        onRestoreNow.current(draft);
-        return;
-      }
-      if (choice === 1) {
+      own.offered.add(draft.id);
+      if (choice !== null && (await unchanged(draft))) {
+        if (choice === 0) {
+          latest.current.onRestore(draft);
+          return;
+        }
         await store.forget(draft.id);
       }
-      setRound((count) => count + 1);
+      wake();
     };
     void ask();
     return () => {
       current = false;
       question?.retire();
     };
-  }, [composing, ready, round, store, t]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each answer asks again.
+  }, [composing, profile, ready, round, store, t]);
   return anchor;
 }
 
@@ -2635,7 +2686,7 @@ function BodyRecipientMenu({
 
 function Editor({
   initial,
-  recovered,
+  opening,
   onClose,
   onClosedAfterRemoval,
   onRebind,
@@ -2643,8 +2694,9 @@ function Editor({
   renderToolbar,
 }: {
   readonly initial: Draft;
-  // The unsaved version a composer recovery record kept, which the editor opens on instead.
-  readonly recovered?: Draft | undefined;
+  // The version the editor opens on: `initial`, or the unsaved version a composer recovery record
+  // kept.
+  readonly opening: Draft;
   readonly onClose: () => void;
   readonly onClosedAfterRemoval: (id: string) => void;
   // Another editor changed this Draft first, so this editor's version is now the copy `id`.
@@ -2656,7 +2708,7 @@ function Editor({
   const store = useDraftStore();
   const colors = usePalette();
   const { t } = useLocalization();
-  const [history, setHistory] = useState(() => historyOf(recovered ?? initial));
+  const [history, setHistory] = useState(() => historyOf(opening));
   const bodyID = `composer-body${useId()}`;
   // The body shows marks for typing before JavaScript renders them (ComposerFormatting.m); a
   // control or Undo that edits the body or toggles those marks ends that until its render shows,
@@ -2674,7 +2726,7 @@ function Editor({
     [],
   );
   // Native events can arrive before React commits a rebind or an earlier edit.
-  const authored = useRef(recovered ?? initial);
+  const authored = useRef(opening);
   const getDraft = useCallback(() => authored.current, []);
   // The version the store holds: the Draft as opened, until Save or Send stores this one.
   const stored = useRef(initial);
@@ -4157,7 +4209,7 @@ export function Composer({
       <Editor
         key={editor.key}
         initial={opened}
-        recovered={recovered?.id === editor.key ? recovered : undefined}
+        opening={recovered?.id === editor.key ? recovered : opened}
         onClose={onClose}
         onClosedAfterRemoval={closedAfterRemoval}
         onExpand={onExpand}

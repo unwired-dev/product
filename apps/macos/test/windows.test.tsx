@@ -615,8 +615,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     await previous.load();
     const stored = async (subject: string) => {
       const id = await previous.create(connection);
-      const state = previous.getSnapshot();
-      const created = state.kind === 'ready' ? draftOf(state, id) : undefined;
+      const created = draftOf(previous.getSnapshot(), id);
       ok(created !== undefined);
       const draft = { ...created, subject };
       await previous.update(draft, created);
@@ -658,9 +657,8 @@ describe('mac window selection with the shared mock mailbox', () => {
     };
     const subjects = () => {
       const state = drafts.getSnapshot();
-      return state.kind === 'ready'
-        ? state.drafts.map(({ id, subject }) => [id, subject])
-        : [];
+      ok(state.kind === 'ready');
+      return state.drafts.map(({ id, subject }) => [id, subject]);
     };
     try {
       await waitFor(() => {
@@ -675,7 +673,11 @@ describe('mac window selection with the shared mock mailbox', () => {
       );
       // The other record waits while the restored composer is open.
       expect(sheetsShown()).toStrictEqual([]);
-      // Close asks to save the restored edits, and Save stores them in the Draft.
+      // The Draft changes elsewhere meanwhile.
+      const opened = draftOf(drafts.getSnapshot(), restored);
+      ok(opened !== undefined);
+      await drafts.update({ ...opened, subject: 'Changed plan' }, opened);
+      // Close asks to save the restored edits, and Save keeps them as a conflicting copy.
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
       await act(async () => {
         chooseSheetButton('Save');
@@ -687,13 +689,14 @@ describe('mac window selection with the shared mock mailbox', () => {
       await act(async () => {
         chooseSheetButton('Discard');
       });
-      // Discard removes the record and keeps the stored version.
+      // Discard removes the record and keeps the stored version; the restored record went with Save.
       await waitFor(() => {
         expect(storage.recoveryRecords().size).toBe(0);
       });
       expect(subjects()).toStrictEqual([
-        [restored, 'Restored plan, unsaved'],
+        [restored, 'Changed plan'],
         [discarded, 'Discarded plan'],
+        [`${restored}-conflict-1`, 'Restored plan, unsaved'],
       ]);
       expect(sheetsShown()).toStrictEqual([]);
     } finally {

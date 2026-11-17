@@ -89,7 +89,7 @@ export type {
   SyncedAsset,
 } from './draft-model.ts';
 export type { NativeDraftSync } from './draft-sync.ts';
-export { assetsOf } from './draft-model.ts';
+export { assetsOf, sameContent } from './draft-model.ts';
 export type RecipientField = 'to' | 'cc' | 'bcc';
 
 const DeliveryCleanupSchema = Schema.Struct({
