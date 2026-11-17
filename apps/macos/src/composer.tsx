@@ -2369,8 +2369,8 @@ export function useRecoveryOffer(
       if (!current || base === undefined) {
         return;
       }
-      // A record whose Draft moved to another Profile meanwhile stays for that Profile's windows.
-      if (!owned(draft)) {
+      // A kept record whose Draft moved to another Profile meanwhile stays for that Profile's windows.
+      if (kept && !owned(draft)) {
         wake();
         return;
       }
