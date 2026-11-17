@@ -176,12 +176,11 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   // iPad's actions are the Mac recipe at 1.15×: Welcome's 41.4pt Continue and 46pt sign-in
-  // actions 368pt wide, Sign in with Apple with its own rounder corners.
+  // actions 368pt wide.
   regularAction: {
     minHeight: 36 * ipadListScale,
     borderRadius: radius.control * ipadListScale,
   },
-  regularAppleAction: { borderRadius: 8 * ipadListScale },
   quietAction: { borderWidth: 1 },
   regularQuietAction: { borderWidth: ipadListScale },
   privacy: {
@@ -662,7 +661,6 @@ export function OnboardingAction({
         styles.action,
         ipad && styles.regularAction,
         ipad && fill !== 'brand' && styles.regularSignInAction,
-        ipad && fill === 'apple' && styles.regularAppleAction,
         fill === 'quiet' && [
           ipad ? styles.regularQuietAction : styles.quietAction,
           { borderColor: colors.separator },

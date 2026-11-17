@@ -271,7 +271,7 @@ function ProfileSwitcher({
         <ProfileMonogram
           name={name}
           style={profileStyle(profiles, profile)}
-          size={compact ? 28 : 22 * ipadListScale}
+          size={28}
         />
         <Text
           numberOfLines={1}
