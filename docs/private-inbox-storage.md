@@ -514,7 +514,9 @@ exceed the Outgoing Content Store's 100 MB. Asset removal needs no key, and acco
 with the document. Interrupted imports are cleaned on the next save after relaunch.
 
 A **composer recovery record** holds one open composer's Draft as it last showed
-it, so the next launch can offer edits the app ended without storing. Each record
+it, and the stored version its edits started from, so the next launch can offer
+edits the app ended without storing and save them as a conflicting copy when the
+Draft changed since. Each record
 is its own file, named by a digest of the Draft's identifier, encrypted with the
 same device-only key and sealed to its file name; it names its Product Account,
 and it is excluded from backups. Records are never uploaded and never enter the Drafts

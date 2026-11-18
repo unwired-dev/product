@@ -768,7 +768,10 @@ the save still succeeds and a later save retries that cleanup.
 **Composer recovery records** ([ADR 0077](adr/0077-remove-friction-that-privacy-does-not-require.md),
 decision 2) keep an open composer's unsaved Draft on this device apart from the
 Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
-and `recovered` reads the account's records on demand. A record that storage
+and `recovered` reads the account's records on demand. A record holds the unsaved
+version and the stored version its edits started from, which a composer leaves out
+while its save is pending or failed, as storage may still hold the version before
+it ([#2332](https://github.com/unwired-dev/product/issues/2332)). A record that storage
 refuses, as while locked, stays in memory and is written with the next
 record. When an editor moves to a conflicting copy that storage holds neither
 as a Draft nor as its own record, `forget` keeps the original Draft's record,
@@ -798,7 +801,10 @@ saying only **Your unsaved changes were kept on this device.**
 ([#2329](https://github.com/unwired-dev/product/issues/2329)). **Restore**, the
 default that Return and Escape choose, opens the composer on the recovered version,
 so **Close** asks to save it and **Save** stores it, or keeps it as a conflicting
-copy when the Draft changed since the alert appeared; either way the record goes
+copy when the Draft changed since the version the edits started from, as when
+another composer saved it before the app ended. A record without that version,
+as one written before #2332, saves against the Draft as listed when the alert
+appeared; either way the record goes
 once the composer holds no unsaved version. **Discard** removes the record, unless
 another composer has the Draft open, and leaves the stored Draft as it was. The next
 record waits until the restored composer closes. Records this run writes are never

@@ -710,6 +710,127 @@ describe('mac window selection with the shared mock mailbox', () => {
     }
   });
 
+  it('restores an unsaved message against the version its edits started from (#2332)', async () => {
+    expect.hasAssertions();
+    const connection = {
+      id: alex,
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: defaultProfile,
+      provider: 'gmail',
+    } as const;
+    const account = 'synthetic-product-account';
+    const registration = {
+      subscribe: () => () => undefined,
+      getSnapshot: () =>
+        ({
+          snapshot: {
+            kind: 'connected',
+            productAccountId: account,
+            signInProvider: 'google',
+            mailboxes: connectedMailboxes,
+          },
+          busy: false,
+          failed: false,
+        }) as const,
+    };
+    const context = {
+      mailboxes: [connection],
+      openAccount: () => undefined,
+      authorizeMailbox: () => Promise.resolve(),
+      refreshInbox: (load: () => Promise<void>) => load(),
+      account,
+      profiles: [],
+      createProfile: () => Promise.resolve(undefined),
+      chooseFolders: () => Promise.resolve(true),
+    };
+    const registrationModule = jest.requireMock<{
+      drafts: ReturnType<typeof createDrafts>;
+    }>('../src/registration.ts');
+    const storage = createSyntheticDrafts(() => account);
+    // In the previous run, a composer journals its edits to a stored Draft, another composer saves
+    // that Draft and closes, and the app ends before the first composer closes.
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    const id = await previous.create(connection);
+    ok(id !== undefined);
+    const created = draftOf(previous.getSnapshot(), id);
+    ok(created !== undefined);
+    await previous.update({ ...created, subject: 'Plan' }, created);
+    await expect(previous.save()).resolves.toBe(true);
+    const ended = jest.replaceProperty(registrationModule, 'drafts', previous);
+    const composer = await render(
+      <AccountContext value={context}>
+        <ComposerWindow
+          windowId="1"
+          draft={id}
+          profile={defaultProfile}
+        />
+      </AccountContext>,
+    );
+    try {
+      await fireEvent.changeText(
+        await composer.findByLabelText('Subject'),
+        'Plan, unsaved',
+      );
+      await waitFor(
+        () => {
+          expect(storage.recoveryRecords().size).toBe(1);
+        },
+        { timeout: 4000 },
+      );
+      const opened = draftOf(previous.getSnapshot(), id);
+      ok(opened !== undefined);
+      await previous.update({ ...opened, subject: 'Plan, saved' }, opened);
+      await expect(previous.save()).resolves.toBe(true);
+    } finally {
+      await composer.unmount();
+      ended.restore();
+    }
+    const drafts = createDrafts(storage.native, registration);
+    const replacement = jest.replaceProperty(
+      registrationModule,
+      'drafts',
+      drafts,
+    );
+    const app = await render(
+      <AccountContext value={context}>
+        <InboxWindow windowId="recover" />
+      </AccountContext>,
+    );
+    try {
+      await waitFor(() => {
+        expect(sheetsShown()).toHaveLength(1);
+      });
+      await act(async () => {
+        chooseSheetButton('Restore');
+      });
+      await expect(app.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Plan, unsaved',
+      );
+      // Save keeps the restored edits as a conflicting copy of the version saved since.
+      await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      await act(async () => {
+        chooseSheetButton('Save');
+      });
+      await waitFor(() => {
+        expect(storage.recoveryRecords().size).toBe(0);
+      });
+      const state = drafts.getSnapshot();
+      ok(state.kind === 'ready');
+      expect(
+        state.drafts.map((draft) => [draft.id, draft.subject]),
+      ).toStrictEqual([
+        [id, 'Plan, saved'],
+        [`${id}-conflict-1`, 'Plan, unsaved'],
+      ]);
+    } finally {
+      await app.unmount();
+      replacement.restore();
+    }
+  });
+
   it('offers only the previous run’s records after a notification launch (#2329)', async () => {
     expect.hasAssertions();
     const connection = {

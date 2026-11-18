@@ -2409,8 +2409,9 @@ describe('composing Drafts', () => {
     );
     await press('Draft. No subject. No recipients. From alex@example.invalid');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
+    // The record keeps the stored version the edits started from.
     await expect(reopened.recovered()).resolves.toMatchObject([
-      { subject: 'Unsaved plan' },
+      { version: { subject: 'Unsaved plan' }, base: { subject: '' } },
     ]);
   });
 

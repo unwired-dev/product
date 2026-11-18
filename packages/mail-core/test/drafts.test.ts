@@ -3450,7 +3450,9 @@ describe('keeping composer recovery records', () => {
     // After relaunches, a save that dropped the attachment keeps its bytes while the record
     // names them.
     drafts = await relaunch();
-    await expect(drafts.recovered()).resolves.toStrictEqual([unsaved]);
+    await expect(drafts.recovered()).resolves.toStrictEqual([
+      { version: unsaved },
+    ]);
     const reopened = present(draftOf(drafts.getSnapshot(), id), 'the Draft');
     const dropped = { ...reopened, attachments: [] };
     await drafts.update(dropped, reopened);
@@ -3524,7 +3526,7 @@ describe('keeping composer recovery records', () => {
     await expect(
       Promise.all([saving, writing, forgetting, journaling]),
     ).resolves.toStrictEqual([true, true, true, true]);
-    await expect(recovered()).resolves.toStrictEqual([second]);
+    await expect(recovered()).resolves.toStrictEqual([{ version: second }]);
   });
 
   it('keeps a record journaled after a forget even when it reaches storage first', async () => {
@@ -3542,7 +3544,7 @@ describe('keeping composer recovery records', () => {
     await expect(drafts.journal(latest)).resolves.toBe(true);
 
     await expect(Promise.all(queued)).resolves.toStrictEqual([true, true]);
-    await expect(recovered()).resolves.toStrictEqual([latest]);
+    await expect(recovered()).resolves.toStrictEqual([{ version: latest }]);
   });
 
   it('omits a record stored under another Draft id', async () => {
@@ -3560,7 +3562,34 @@ describe('keeping composer recovery records', () => {
       document,
       assets: [],
     });
-    await expect(recovered()).resolves.toStrictEqual([draft]);
+    await expect(recovered()).resolves.toStrictEqual([{ version: draft }]);
+  });
+
+  it('keeps the stored version a record’s edits started from, and reads a record without one (#2332)', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving, recovered } = await savingDraft();
+    storage.release();
+    await saving;
+    const saved = present(
+      draftOf(drafts.getSnapshot(), draft.id),
+      'the saved Draft',
+    );
+    const unsaved = { ...saved, subject: 'Unsaved' };
+    await drafts.journal(unsaved, saved);
+    await expect(recovered()).resolves.toStrictEqual([
+      { version: unsaved, base: saved },
+    ]);
+
+    // A record written before #2332 holds the unsaved version alone.
+    const { owner } = present(
+      storage.recoveryRecords().get(draft.id),
+      'the record',
+    );
+    await storage.native.writeComposerRecovery(owner, draft.id, {
+      document: JSON.stringify(unsaved),
+      assets: [],
+    });
+    await expect(recovered()).resolves.toStrictEqual([{ version: unsaved }]);
   });
 
   it('recovers only the records an earlier run left, whatever order storage takes this run’s calls', async () => {
@@ -3602,7 +3631,7 @@ describe('keeping composer recovery records', () => {
     const read = next.recovered();
     await expect(next.forget(closed)).resolves.toBe(true);
     reading.resolve(undefined);
-    await expect(read).resolves.toStrictEqual([left]);
+    await expect(read).resolves.toStrictEqual([{ version: left }]);
     await expect(recovered()).resolves.toHaveLength(2);
   });
 
@@ -3751,6 +3780,6 @@ describe('keeping composer recovery records', () => {
     // The refused record stays pending and lands with the next write once storage opens.
     storage.setLocked(false);
     await expect(drafts.journal(later)).resolves.toBe(true);
-    await expect(recovered()).resolves.toStrictEqual([later]);
+    await expect(recovered()).resolves.toStrictEqual([{ version: later }]);
   });
 });
