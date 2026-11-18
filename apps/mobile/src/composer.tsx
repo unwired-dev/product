@@ -2823,17 +2823,12 @@ function useBodyRecipients(
         listed.find(({ address }) => address === chosenNow.current) ?? listed[0]
       );
     },
-    // The query a choice replaces in the latest body, while its suggestions show and the editor
-    // takes edits.
-    choosable: (latest: SemanticDocument, at: Selection) => {
-      const current = bodyRecipientQuery(latest, at);
-      return !pausedNow.current &&
-        current?.start === armedNow.current &&
-        current !== undefined &&
-        onlyQueryIn(latest, current)
-        ? current
-        : undefined;
-    },
+    // The query a choice of `address` replaces in the latest body, while the latest suggestions
+    // still list that person.
+    choosable: (latest: Draft, at: Selection, address: string) =>
+      candidates(latest, at)?.some((listed) => listed.address === address)
+        ? bodyRecipientQuery(latest.body, at)
+        : undefined,
     // What VoiceOver hears once a choice added the person.
     added: (recipient: Recipient) =>
       t('drafts.bodyRecipient.added', {
@@ -3362,7 +3357,11 @@ function Editor({
   // Choosing a person for the @ replaces it with the greeting and adds them to To, as one edit.
   const chooseRecipient = (recipient: Recipient) => {
     const latest = authored.current;
-    const query = recipientMenu.choosable(latest.body, selectionNow.current);
+    const query = recipientMenu.choosable(
+      latest,
+      selectionNow.current,
+      recipient.address,
+    );
     if (query === undefined) {
       return;
     }

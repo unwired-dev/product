@@ -1820,6 +1820,22 @@ describe('composing Drafts', () => {
       expect(highlighted()).toStrictEqual([andrea.props.accessibilityLabel]);
       await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowUp' } });
       expect(highlighted()).toStrictEqual(['Ana Kovač, ana@example.invalid']);
+      // A tap on a row the latest typed text no longer lists, before React removes it, adds no one.
+      const staleAna = queuedPress('Ana Kovač, ana@example.invalid');
+      await act(async () => {
+        body.props.onChangeText('@and');
+        body.props.onSelectionChange({
+          nativeEvent: { selection: { start: 4, end: 4 } },
+        });
+        staleAna();
+        await Promise.resolve();
+      });
+      expect(lines()).toStrictEqual(['@and']);
+      expect(
+        screen.queryByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeNull();
       // Typing, Down and Return in one native batch, before React commits: Down moves from the
       // list the typed text filters, where only Ana showed for the bare @.
       await type('');
