@@ -676,8 +676,9 @@ form accessories, keyboards, status bar).
   Send toast offers Undo during the Undo Send Window. Window preferences follow the
   [delivery requirements](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
   [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
-  states with recovery controls after the toast ends. Its refusal state follows
-  the [Outbox delivery rules](docs/outbox.md#delivery-rules).
+  states with recovery controls after the toast ends. On iPhone the reason shows
+  in full and the controls are 44pt `fill/quiet` capsules on a line under it. Its
+  refusal state follows the [Outbox delivery rules](docs/outbox.md#delivery-rules).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Suggest Reply, Proofread, Break into Paragraphs, Translate, Expand
@@ -856,8 +857,6 @@ app follows under the issue named:
   #2096.
 - **iPad top row and Settings groups:** the one centre line, and icons on every
   row of a group or on none, wait for #2097.
-- **iPhone Outbox:** the rows have their recovery controls; drawing them as
-  44pt quiet capsules under a two-line reason waits for #2098.
 - **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
   failing Mailbox Connection wait for #2099.
 - **iPhone alert, hint and Settings failure:** the two-sentence Trusted Device
