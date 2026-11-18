@@ -462,11 +462,15 @@ styles) so the file stays editable.
   On iPhone the navigation bar's system Back returns to the list and shows the
   mailbox's unread count on a disk beside its chevron, as Mail does; the subject
   sits on a fixed row beneath the bar.
+  No message is tinted while the Thread is simply open; the Selected Message
+  takes `accent/selection-subtle` and a 4pt bar only while the Command Palette
+  targets it.
   Received attachments sit below their message body, with availability and actions
   following the [received-attachment contract](docs/gmail-inbox.md#received-attachments).
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
-  safe area, and the reading pane runs to the screen's bottom edge beneath them.
+  safe area, and the reading pane runs to the screen's bottom edge beneath them,
+  its text fading out behind a 140pt scroll edge fade.
   On Mac and iPad it holds Archive, Delete, Move, Reply, Reply All, Forward, Pin,
   Snooze and More; on iPhone Archive, Move and Reply. More holds Mark as Unread,
   Mute Thread and Move to Spam, and the multi-select Category control sits in

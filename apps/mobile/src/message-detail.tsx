@@ -53,6 +53,7 @@ import {
   CommandInput,
   CommandInputRow,
   RegisterCommands,
+  useCommandPalette,
   useMessageCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
@@ -63,7 +64,7 @@ import {
   ToolbarButton,
 } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
-import { WindowBarContext } from './inbox-bar.tsx';
+import { ScrollEdge, WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -200,6 +201,16 @@ const styles = StyleSheet.create({
   },
   // A bar beside the opened message, so it stands out without relying on color.
   openedMessage: { borderLeftWidth: 4 },
+  // On iPhone the tint reaches 16pt beyond the text, which stays on the content's axis.
+  compactOpenedMessage: {
+    marginHorizontal: -spacing.l,
+    paddingLeft: spacing.l - 4,
+    paddingRight: spacing.l,
+    borderRadius: radius.card,
+  },
+  // iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the
+  // toolbar's glass.
+  readerEdge: { left: 0, right: 0, height: 140 },
 });
 
 const singleContent = [
@@ -1096,6 +1107,7 @@ function MailboxMessage({
               connection={mailbox?.id}
             />
           </ReaderScrollView>
+          {compact ? <ScrollEdge style={styles.readerEdge} /> : null}
           <PanelDismissal
             panel={panel}
             onPanel={setPanel}
@@ -1239,6 +1251,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
               pinned={pinned}
             />
           </ReaderScrollView>
+          {compact ? <ScrollEdge style={styles.readerEdge} /> : null}
         </LinkConfirmationProvider>
       </QuotedHistoryContext>
     </SafeAreaView>
@@ -1357,7 +1370,7 @@ function ThreadMessage({
 }: {
   readonly inbox: GmailInbox;
   readonly message: ThreadEntry;
-  // The opened message, which the Thread keeps scrolled into place.
+  // The opened message, which the Thread keeps scrolled into place and the Command Palette targets.
   readonly highlighted: boolean;
   // Whether the body is near enough to the viewport to be shown.
   readonly mounted: boolean;
@@ -1365,6 +1378,7 @@ function ThreadMessage({
 }) {
   const mailbox = useMailbox();
   const colors = usePalette();
+  const { isOpen } = useCommandPalette();
   const [bodyHeight, setBodyHeight] = useState(0);
   return (
     <View
@@ -1374,9 +1388,11 @@ function ThreadMessage({
       style={[
         styles.threadMessage,
         { borderBottomColor: colors.separator },
-        highlighted && !compact
+        // Tinted only while the Command Palette targets it as the Selected Message.
+        highlighted && isOpen
           ? [
               styles.openedMessage,
+              compact ? styles.compactOpenedMessage : null,
               {
                 backgroundColor: colors.accentSelectionSubtle,
                 borderLeftColor: colors.accentInk,

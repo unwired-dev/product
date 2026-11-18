@@ -2,6 +2,7 @@ import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
+import { palette as themes } from '@private-email/mail-core/theme';
 import {
   act,
   fireEvent,
@@ -114,9 +115,11 @@ function longThread() {
 }
 
 // A Thread message's section, found by its sender header: the nearest ancestor that reports
-// its layout for scrolling.
+// its layout for scrolling. The open Command Palette hides it from accessibility.
 const messageBy = (sender: string) => {
-  let section = screen.getByText(sender).parent;
+  let section = screen.getByText(sender, {
+    includeHiddenElements: true,
+  }).parent;
   while (section !== null && section.props.onLayout === undefined) {
     section = section.parent;
   }
@@ -454,6 +457,13 @@ describe('thread view', () => {
     expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     // The iPhone frames count a single message as they count a thread's.
     expect(screen.getByText('1 Message')).toBeVisible();
+    // Its text fades out beneath the toolbar, which the fade leaves taps to.
+    expect(
+      screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toHaveStyle({ position: 'absolute', bottom: 0, height: 140 });
+    expect(
+      screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toHaveProp('pointerEvents', 'none');
   });
 
   it('opens the Command Palette from the thread header beside its system Back', async () => {
@@ -472,6 +482,13 @@ describe('thread view', () => {
     );
     await act(store.load);
     expect(screen.queryByTestId('system-back')).not.toBeNull();
+    // The Thread's text fades out at the bottom edge, as the reader's does.
+    expect(
+      screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toHaveStyle({ height: 140 });
+    // The opened message is tinted only while the palette targets it as the Selected Message.
+    const tint = { backgroundColor: themes.light.accentSelectionSubtle };
+    expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
     await fireEvent(
       await screen.findByRole('header', { name: 'Re: Planning' }),
       'accessibilityAction',
@@ -488,6 +505,10 @@ describe('thread view', () => {
         name: 'Reply. Not available for this message',
       }),
     ).toBeDisabled();
+    expect(messageBy('Alex Rivera')).toHaveStyle(tint);
+    expect(messageBy('Sam Lee')).not.toHaveStyle(tint);
+    await fireEvent.press(palette.getByRole('button', { name: 'Cancel' }));
+    expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
   });
 
   it('shows the message as unavailable when it is not cached', async () => {
