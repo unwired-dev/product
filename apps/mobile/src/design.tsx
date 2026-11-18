@@ -307,7 +307,13 @@ const styles = StyleSheet.create({
   },
   monogramText: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-  markerText: { ...textStyles.footnote, flex: 1 },
+  // iPhone's On Device Marker is Caption 1 Emphasized.
+  markerText: {
+    ...(iphone
+      ? { ...textStyles.caption1, fontWeight: '600' }
+      : textStyles.footnote),
+    flex: 1,
+  },
   notice: {
     gap: spacing.s,
     paddingHorizontal: spacing.m,

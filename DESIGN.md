@@ -692,7 +692,11 @@ form accessories, keyboards, status bar).
   [grouped order](docs/draft-assistance.md#behavior)), the file controls and
   Templates; no glass on iPad and Mac),
   Compose Field (Filled, Placeholder, Recipients, Suggested), Attachment Chip,
-  From Pop-up. On iPhone a Compose Field is 44pt tall. A suggested subject carries the On device marker until explicit
+  From Pop-up. On iPhone a Compose Field is 44pt tall with a 1pt rule, its label,
+  value and recipient tokens Body 17/22 (a token is its name alone); the From
+  Pop-up is 34pt of Subheadline 15/20; an Attachment Chip's name is Subheadline
+  Emphasized and its size Footnote; the On device marker is Caption 1 Emphasized.
+  A suggested subject carries the On device marker until explicit
   Use Subject acceptance makes it ordinary Draft content. A subject the person
   types is ordinary Draft content.
 - **Compose editing and assets:** text styles cover paragraphs, headings 1–3,
