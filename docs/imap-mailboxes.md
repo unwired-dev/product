@@ -683,6 +683,37 @@ a session's boundary search of the Sent folder and a single APPEND that the sear
 then finds. Its certificate
 never changes production validation or trust on the host Mac.
 
+### Controlled standards server
+
+`mise exec -- zsh native/private-inbox/integration/standards-server.zsh` runs the iOS
+suite above against the controlled standards server of
+[#2388](https://github.com/unwired-dev/product/issues/2388): Dovecot 2.3 and Postfix 3.7
+in a local Docker container ([`standards-server/`](../native/private-inbox/integration/standards-server/))
+with synthetic `example.test` mailboxes only. The script makes a certificate authority
+for the run, which only the run's disposable simulator trusts, starts a second
+container presenting an untrusted self-signed certificate, and removes the containers
+and keys afterwards. It needs a running Docker engine. The unchanged engine exercises:
+
+| Endpoint                                              | Result                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| IMAP 993, implicit TLS, password                      | Login, SPECIAL-USE roles, delivered mail read, searched, marked and moved |
+| SMTP 465, implicit TLS, password                      | Submission delivered                                                      |
+| SMTP 587, STARTTLS before AUTH, password              | Submission delivered                                                      |
+| IMAP 993, Sent folder                                 | Sent copy appended and found by its boundary                              |
+| IMAP 143, STARTTLS offered, LOGIN allowed without TLS | Refused as insecure; IMAP STARTTLS is not offered                         |
+| SMTP without STARTTLS, AUTH offered in plaintext      | Refused as insecure                                                       |
+| IMAP 993 and SMTP 465, untrusted self-signed cert     | Refused as insecure                                                       |
+
+The run then checks the server logs: every IMAP login used TLS, 465 and 587 each
+authenticated, and nothing logged in over plaintext or to the untrusted server.
+On 18 November 2026 the run passed all 105 tests of the suite on an iOS 27.0 iPhone 18 Pro
+Simulator, built with Xcode 27.2 (27B52) against Docker Engine 29.9.3, from `main` at
+`9f706166f` with this change applied.
+
+This is not provider certification and does not run on the Mac host, whose trust the
+synthetic certificate authority never changes. Pinned certificates are
+[#2005](https://github.com/unwired-dev/product/issues/2005).
+
 Real iCloud Mail and Seznam Email read, organizing, search, IDLE, SMTP submission and Sent
 filing qualification remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac

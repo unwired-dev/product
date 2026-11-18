@@ -60,6 +60,9 @@ for attempt in 1 2; do
     xcrun simctl bootstatus "$owned_device" -b
     # Only this run's disposable simulator trusts the generated synthetic CA.
     xcrun simctl keychain "$owned_device" add-root-cert "$UNWIRED_STORAGE_PROBE/imap/ca.pem"
+    if [[ -n "${UNWIRED_STANDARDS_CA:-}" ]]; then
+      xcrun simctl keychain "$owned_device" add-root-cert "$UNWIRED_STANDARDS_CA"
+    fi
     destination="platform=iOS Simulator,id=$owned_device"
   fi
   result=0
