@@ -98,6 +98,57 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(token.count, 0)
   }
 
+  // #2350: Send stays unavailable until the Draft has a complete recipient, and To says why.
+  func testSendBlockedReason() throws {
+    try sendBlockedReason(appearance: "Light")
+  }
+
+  func testSendBlockedReasonDark() throws {
+    try sendBlockedReason(appearance: "Dark")
+  }
+
+  private func sendBlockedReason(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let send = window.buttons["Send"].firstMatch
+    XCTAssertTrue(text("Add a recipient to send.", in: window).waitForExistence(timeout: 10))
+    XCTAssertFalse(send.isEnabled)
+    attach("Send blocked without a recipient")
+    let to = window.textFields["To"]
+    typeRecipient(to, "not an address")
+    window.textFields["Subject"].click()
+    XCTAssertTrue(
+      text("“not an address” is not a complete address. Correct it to send.", in: window)
+        .waitForExistence(timeout: 10))
+    XCTAssertFalse(send.isEnabled)
+    attach("Send blocked by an incomplete address")
+    to.click()
+    window.typeKey("a", modifierFlags: .command)
+    window.typeKey(.delete, modifierFlags: [])
+    to.typeText("jordan@example.invalid")
+    window.textFields["Subject"].click()
+    waitUntil { send.isEnabled }
+    XCTAssertFalse(text("not a complete address", in: window).exists)
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false
