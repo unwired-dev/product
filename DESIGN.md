@@ -516,9 +516,10 @@ styles) so the file stays editable.
   stack. Detail failures follow the
   [Settings requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
 - **Modal placement:** alerts and sheets are centred in the Mac window and on the
-  iPad screen. iPhone alerts are centred, and partial-height sheets attach to the
-  screen edges. A backdrop covers the whole window or screen. Popovers have no
-  arrow.
+  iPad screen. iPhone alerts are centred. An iPhone sheet at a medium or smaller
+  detent floats 8pt inside the screen's sides and bottom, as iOS 27 draws it; at
+  or near full height, as the Move picker's detent is, it attaches to the screen
+  edges. A backdrop covers the whole window or screen. Popovers have no arrow.
 - **Dates and times:** the system formatter writes them in the interface
   language's conventions, and one language never mixes formats. The English
   reference frames write `13 Oct`, `Tue 13 Oct, 8:00` and `Today, 18:00`; the
@@ -557,8 +558,8 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
-- iPhone sheets have 34pt top corners. Partial-height sheets sit flush with the
-  screen's bottom edge.
+- iPhone sheets have 34pt top corners. A floating sheet also rounds its bottom
+  corners, concentric with the screen's; the system sheet draws both.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
   radius. They are drawn without an arrow.
 - iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
@@ -760,7 +761,8 @@ form accessories, keyboards, status bar).
   approved compose Writing tools control uses `sparkles`; other controls never use
   sparkle or "AI" iconography. A provider tile in Add a Mailbox shows an SF
   Symbol (`envelope`, `icloud`, `building.2`, `at`), never a provider logo or a
-  typed letter.
+  typed letter; it is semibold `text/primary`, 13pt in the Mac's 28pt tile,
+  14.95pt in iPad's 32.2pt tile and 17pt in iPhone's 36pt tile.
 - **App Icon:** "Horizon", the Icon Composer document
   `native/app-icon/UnwiredMail.icon` that the iPhone, iPad and Mac hosts share.
   It is an open envelope seen edge to edge: a pocket with a V-shaped lip in
@@ -848,8 +850,6 @@ app follows under the issue named:
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
   and Failed states, wait for #2092.
-- **Add a Mailbox:** the provider tiles' SF Symbols, on Mac, iPad and iPhone,
-  wait for #2093.
 - **iPad Portrait:** the Thread, inline composer, Search Results and Settings
   layouts at 834×1210 wait for #2095.
 - **German strings:** no check lays the screens out at German lengths until
