@@ -633,7 +633,8 @@ const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
 
 // A mail server search that failed or left IMAP folders out has not answered whether nothing matches.
 const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
-  Boolean(search.found?.failures.length || search.found?.limited.length);
+  search.found !== undefined &&
+  (search.found.failures.length > 0 || search.found.limited.length > 0);
 
 type Account = NonNullable<ContextType<typeof AccountContext>>;
 
