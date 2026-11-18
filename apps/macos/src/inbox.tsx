@@ -779,11 +779,13 @@ function headingOf(
     };
   }
   // Syncing and Offline above take precedence over a mail server search in progress.
+  const count = results.length + (search.found?.results.length ?? 0);
+  // No Results names the folder its empty state names; the mail servers search the whole mailbox.
   const subtitle = search.searching
     ? t('search.searchingScope', { scope: scopeName })
     : t('search.subtitleRegular', {
-        count: results.length + (search.found?.results.length ?? 0),
-        scope: scopeName,
+        count,
+        scope: count === 0 ? emptyScope : scopeName,
       });
   return { title, subtitle, emptyScope };
 }

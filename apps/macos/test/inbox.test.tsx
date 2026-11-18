@@ -126,6 +126,21 @@ describe('message list', () => {
           name: 'Travel. Preview mailbox · 1 unread',
         }),
       ).toBeVisible();
+      // No Results names the searched folder, as its empty state does.
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'no such trip',
+      );
+      await expect(
+        screen.findByText('No results · Travel'),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByText(/^No saved mail in Travel matches “no such trip”\./u),
+      ).toBeVisible();
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        '',
+      );
       await app.rerender(show({ unified: 'SENT' }));
       await screen.findByRole('button', { name: /Flight to Zagreb/u });
       expect(
