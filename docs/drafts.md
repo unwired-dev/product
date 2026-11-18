@@ -552,9 +552,9 @@ another attempt. Drafts and received mail share the Inbox column's scroll surfac
 If saving failed or private storage became locked, the Inbox also says that Draft
 changes are not saved and offers **Save Drafts**. Until saving succeeds, unsaved
 changes survive in memory. A process termination keeps only the version the
-composer recovery record last stored, which a later launch offers; edits made since that
-write, at most two seconds of typing, and a version that storage refused, as while
-locked, are lost.
+composer recovery record last stored, which a later launch offers; edits still waiting for
+the next write, which starts two seconds after an edit, and a version that storage
+refused, as while locked, are lost.
 Account removal removes the record. On iPhone and iPad only **Save Draft** or **Send** stores edits in the Draft;
 reopening after the app ends shows the stored version, and the composer keeps its
 unsaved edits in a composer recovery record, as on the Mac. On iPhone, selecting the current Draft again requests its composer without trying to

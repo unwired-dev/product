@@ -7,8 +7,8 @@ Mac amendment's acceptance below that edits are lost if the app ends before they
 are stored, and the same consequence of the iPhone and iPad amendment, as
 [ADR 0057's crash recovery amendment](0057-present-composing-inside-the-mail-shell.md#crash-recovery-amendment-2026-11-11)
 records. An open composer journals its unsaved edits to an encrypted device-local
-recovery record, which never enters the Drafts or Product Sync, and the next launch
-offers them ([#1989](https://github.com/unwired-dev/product/issues/1989)). Explicit
+recovery record, which never enters the Drafts or Product Sync, and offers them
+after an unexpected end ([#1989](https://github.com/unwired-dev/product/issues/1989)). Explicit
 saving, semantic content and conflict preservation are unchanged.
 
 ## Mac save decision amendment, 2026-10-30
