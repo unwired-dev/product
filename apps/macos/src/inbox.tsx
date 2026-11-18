@@ -751,14 +751,21 @@ function InboxFooter({
 }
 
 // The mail servers search whole mailboxes, so the Searching and No Results subtitles name a single
-// one by its address and several as All Mailboxes, as the frames do, not their Inboxes.
+// one by its address and several as All Mailboxes, as the frames do, not their Inboxes. Only ready
+// mailboxes that search their server are asked, as the search store does.
 function searchedScope(
   t: Translate,
   shown: readonly InboxMailbox[],
   scopeName: string,
 ) {
-  const [only] = shown;
-  return shown.length > 1
+  const searched = shown.filter(
+    ({ state, inbox }) =>
+      state.kind === 'ready' &&
+      'searchGmail' in inbox &&
+      inbox.searchGmail !== undefined,
+  );
+  const [only] = searched;
+  return searched.length > 1
     ? t('search.allMailboxes')
     : (only?.address ?? scopeName);
 }
