@@ -1,7 +1,9 @@
 import type { Translate } from '@private-email/localization';
 import type { MenuSection } from '@private-email/mail-core/context-menu';
+import type { ImapBodyState } from '@private-email/mail-core/imap-inbox';
 import type {
   GmailInbox,
+  MessageBodyState,
   ReceivedAttachment,
 } from '@private-email/mail-core/inbox-store';
 import type {
@@ -28,7 +30,16 @@ import {
   Spacer,
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
-import { frame } from '@expo/ui/swift-ui/modifiers';
+import {
+  background,
+  buttonStyle,
+  contentShape,
+  font,
+  foregroundStyle,
+  frame,
+  padding,
+  shapes,
+} from '@expo/ui/swift-ui/modifiers';
 import {
   inspectLink,
   messageLinkAt,
@@ -38,6 +49,7 @@ import {
   decodeRemoteImagePositions,
   labelImagePlaceholders,
 } from '@private-email/mail-core/message-body';
+import { ipadListScale, spacing } from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
 import {
   createContext,
@@ -51,6 +63,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Linking,
   Pressable,
@@ -62,6 +75,7 @@ import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
 import { ContextMenu, Notice, SFSymbol } from './design.tsx';
+import { ipad } from './inbox-styles.ts';
 import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
@@ -959,6 +973,168 @@ export const QuotedHistoryContext = createContext<'shown' | 'collapsible'>(
   'shown',
 );
 
+// The failure sentence VoiceOver last heard for each of the Thread's messages, so a body scrolled
+// away and back stays quiet until its failure changes or the person chooses Try Again.
+export const AnnouncedFailuresContext = createContext<
+  Map<string, string> | undefined
+>(undefined);
+
+// The iPad frame's six lines, as fractions of its 439pt column.
+const placeholderLines = ['100%', '96%', '88%', '100%', '92%', '54%'] as const;
+
+// Where the body will be while it opens, under the header that already shows. The iPad frame
+// names the provider above still lines, so Reduce Motion has nothing to stop; the iPhone frame
+// centres the indicator above its caption. VoiceOver hears either as one progress element.
+export function BodyLoading({
+  provider,
+}: {
+  // Undefined for an IMAP mailbox's server.
+  readonly provider: string | undefined;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  if (!ipad) {
+    return (
+      <View
+        accessible
+        accessibilityLabel={t('messageBody.loading')}
+        accessibilityRole="progressbar"
+        style={styles.loading}>
+        <ActivityIndicator />
+        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+          {t('messageBody.loading')}
+        </Text>
+      </View>
+    );
+  }
+  const caption =
+    provider === undefined
+      ? t('messageBody.downloadingFrom', { context: 'imap' })
+      : t('messageBody.downloadingFrom', { provider });
+  return (
+    <View style={styles.downloading}>
+      <View
+        accessible
+        accessibilityLabel={caption}
+        accessibilityRole="progressbar"
+        style={styles.caption}>
+        <ActivityIndicator />
+        <Text style={[styles.captionText, { color: colors.textSecondary }]}>
+          {caption}
+        </Text>
+      </View>
+      <View style={styles.placeholders}>
+        {placeholderLines.map((width, line) => (
+          <View
+            // oxlint-disable-next-line react/no-array-index-key -- A fixed list that never reorders.
+            key={line}
+            style={[
+              styles.placeholder,
+              { width, backgroundColor: colors.fillQuiet },
+            ]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+type UnavailableReason =
+  | Extract<MessageBodyState, { kind: 'unavailable' }>['reason']
+  | Extract<ImapBodyState, { kind: 'unavailable' }>['reason'];
+
+// A body that cannot be shown, in the Schedule Banner recipe: the reason's sentence, which
+// VoiceOver hears once after current speech, and Try Again unless the message is gone. A failed download says what
+// each device's frame says.
+export function BodyUnavailable({
+  id,
+  reason,
+  provider,
+  onTryAgain,
+}: {
+  readonly id: string;
+  readonly reason: UnavailableReason;
+  readonly provider: string | undefined;
+  readonly onTryAgain: () => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const scale = ipad ? ipadListScale : 1;
+  const download = reason === 'download' || reason === 'imap-download';
+  const sentence = t(`messageBody.${reason}`, {
+    provider,
+    ...(download ? { context: ipad ? 'ipad' : 'iphone' } : {}),
+  });
+  const announced = use(AnnouncedFailuresContext);
+  // Queued, so a Thread's other failing messages never cut off what VoiceOver is saying.
+  useEffect(() => {
+    if (announced?.get(id) !== sentence) {
+      announced?.set(id, sentence);
+      AccessibilityInfo.announceForAccessibilityWithOptions(sentence, {
+        queue: true,
+      });
+    }
+  }, [announced, id, sentence]);
+  return (
+    <View
+      style={[
+        ipad ? styles.padBanner : styles.banner,
+        { backgroundColor: colors.fillQuiet },
+      ]}>
+      <View style={styles.marker}>
+        <SFSymbol
+          name="exclamationmark.triangle.fill"
+          color={colors.statusWarning}
+          size={13 * scale}
+        />
+        <Text
+          style={[
+            ipad ? styles.padBannerTitle : styles.bannerTitle,
+            { color: colors.textPrimary },
+          ]}>
+          {t('messageBody.unavailable')}
+        </Text>
+      </View>
+      <Text
+        accessibilityRole="alert"
+        style={[
+          ipad ? styles.padBannerText : styles.bannerText,
+          { color: colors.textSecondary },
+        ]}>
+        {sentence}
+      </Text>
+      {reason === 'missing' || reason === 'imap-missing' ? null : (
+        <Host matchContents>
+          <Button
+            onPress={() => {
+              announced?.delete(id);
+              onTryAgain();
+            }}
+            modifiers={[buttonStyle('plain')]}>
+            {/* The frame's 28pt capsule, inside a 44pt touch target. */}
+            <SwiftUIText
+              modifiers={[
+                ipad
+                  ? font({ size: 13 * scale, weight: 'semibold' })
+                  : font({ textStyle: 'footnote', weight: 'semibold' }),
+                foregroundStyle(colors.textPrimary),
+                padding({
+                  horizontal: spacing.m * scale,
+                  vertical: 6 * scale,
+                }),
+                background(colors.fillTrack, shapes.capsule()),
+                frame({ minHeight: 44 }),
+                contentShape(shapes.rectangle()),
+              ]}>
+              {t('common.retry')}
+            </SwiftUIText>
+          </Button>
+        </Host>
+      )}
+    </View>
+  );
+}
+
 // The opened Gmail message's body, from this device or downloaded on demand. Links open only
 // after the person confirms the destination shown here.
 export function GmailMessageBody({
@@ -974,7 +1150,6 @@ export function GmailMessageBody({
   // The Mailbox Connection whose remote content policy applies.
   readonly connection?: string | undefined;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
   const quotes = use(QuotedHistoryContext);
   const [quotedRevision, setQuotedRevision] = useState(0);
@@ -1022,31 +1197,19 @@ export function GmailMessageBody({
   }, [body, confirm, inbox, id]);
 
   if (body === undefined || body.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('messageBody.opening')}
-        style={styles.body}
-      />
-    );
+    return <BodyLoading provider={provider} />;
   }
 
   if (body.kind === 'unavailable') {
     return (
-      <View style={styles.body}>
-        <Text
-          accessibilityRole="alert"
-          style={[styles.paragraph, { color: colors.textSecondary }]}>
-          {t(`messageBody.${body.reason}`, { provider })}
-        </Text>
-        {body.reason === 'missing' ? null : (
-          <Action
-            label={t('common.retry')}
-            onPress={() => {
-              void inbox.readMessage(id);
-            }}
-          />
-        )}
-      </View>
+      <BodyUnavailable
+        id={id}
+        reason={body.reason}
+        provider={provider}
+        onTryAgain={() => {
+          void inbox.readMessage(id);
+        }}
+      />
     );
   }
 

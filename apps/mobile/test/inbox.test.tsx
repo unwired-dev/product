@@ -2833,7 +2833,7 @@ describe('connected Gmail Inbox', () => {
     );
     await expect(
       screen.findByText(
-        'This message is not saved on this device, and Gmail could not be reached to download it.',
+        'It’s still in Gmail. Check your connection, then try again.',
       ),
     ).resolves.toBeVisible();
     await fireEvent.press(screen.getByRole('button', { name: /Garden plan/u }));

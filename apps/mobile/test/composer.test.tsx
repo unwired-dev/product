@@ -7347,7 +7347,7 @@ describe('replying to and forwarding from the reader', () => {
           registration={registration}
         />,
       );
-      await screen.findByLabelText('Opening message');
+      await screen.findByLabelText('Loading message…');
       // Each prerequisite keeps Reply unavailable when it is the last one still loading.
       expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
       expect(screen.queryByLabelText('More')).toBeNull();
