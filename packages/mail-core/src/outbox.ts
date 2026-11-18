@@ -1065,6 +1065,8 @@ export function createOutbox({
       }
       return snapshot;
     },
+    // Why Send would refuse the Draft before reading its files, so the composer can say so first.
+    refusal: refusalOf,
     // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends.
     // Resolves why it was refused, or undefined once admitted. `report` follows the file check.
     send: async (

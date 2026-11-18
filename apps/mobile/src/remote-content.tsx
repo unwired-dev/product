@@ -28,6 +28,7 @@ import type { SettingsButton } from './settings.tsx';
 import { AnnouncedAlert, MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
+  PopUpChevrons,
   settingsColumns,
   SettingsBlock,
   SettingsGroup,
@@ -125,15 +126,15 @@ export function useRemoteImages({
 
 const styles = StyleSheet.create({
   label: { ...textStyles.subheadline },
-  // On iPhone the pop-up's 44pt target reaches into the row's padding as far as a 36.4pt push
-  // button's, keeping the row 52pt.
-  popUpTarget: { marginVertical: settingsColumns ? 0 : (36.4 - 44) / 2 },
-  // The pop-up: the chosen policy and its chevrons at the row's trailing edge.
+  // On iPhone the pop-up's 44pt target reaches into the row's padding, keeping the row 52pt.
+  popUpTarget: { marginVertical: settingsColumns ? 0 : -spacing.m },
+  // The pop-up: the chosen policy and its chevrons at the row's trailing edge; iPhone's sit in the
+  // Settings Row's circle.
   popUp: {
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: settingsColumns ? spacing.xs : spacing.m,
   },
   popUpLabel: settingsColumns ? typography.ipadList.body : textStyles.body,
   text: { ...textStyles.body },
@@ -192,14 +193,25 @@ export function PolicyChoice({
       <View style={styles.popUp}>
         <Text
           numberOfLines={1}
-          style={[styles.popUpLabel, { color: colors.textSecondary }]}>
+          style={[
+            styles.popUpLabel,
+            {
+              color: settingsColumns
+                ? colors.textSecondary
+                : colors.textPrimary,
+            },
+          ]}>
           {title(selected)}
         </Text>
-        <SFSymbol
-          name="chevron.up.chevron.down"
-          size={12}
-          color={colors.textSecondary}
-        />
+        {settingsColumns ? (
+          <SFSymbol
+            name="chevron.up.chevron.down"
+            size={12}
+            color={colors.textSecondary}
+          />
+        ) : (
+          <PopUpChevrons />
+        )}
       </View>
     </MenuButton>
   );
@@ -333,6 +345,8 @@ export function RemoteContentSettings({
         />
       ))}
       <SettingsRow
+        // The iPad frames give this group's every row an icon; iPhone's keep this one without.
+        icon={settingsColumns ? 'eye' : undefined}
         title={t('settings.trackingPixels')}
         subtitle={t('settings.trackingPixelsDetail')}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>

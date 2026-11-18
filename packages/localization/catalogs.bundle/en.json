@@ -165,7 +165,7 @@
     },
     "revoked": {
       "title": "This device was removed",
-      "description": "One of your trusted devices removed this one from your Unwired account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected."
+      "description": "Another of your devices removed this one from your Unwired account, so its account data, keys and mailbox access were deleted from this device. Anything copied from it before then cannot be erased remotely. Your mail in Gmail is not affected."
     },
     "deleted": {
       "title": "Unwired account deleted",
@@ -191,9 +191,9 @@
     },
     "devicePending": {
       "title": "Add this device",
-      "approval": "Signing in does not add a device to your Unwired account. Approve this device from one of your trusted devices with the code below, or unlock it with your Recovery Key. Until then this device cannot read your private data or connect a mailbox.",
+      "approval": "Signing in does not add a device to your Unwired account. Approve this device from another of your devices with the code below, or unlock it with your Recovery Key. Until then this device cannot read your private data or connect a mailbox.",
       "setup-pending": "Your Unwired account is still being set up on the device that created it, so this device cannot ask to be added yet. Check again later. Until then this device cannot read your private data or connect a mailbox.",
-      "retry": "This device could not ask your trusted devices to approve it yet. Check again when you are online. Until then this device cannot read your private data or connect a mailbox."
+      "retry": "This device could not ask your other devices to approve it yet. Check again when you are online. Until then this device cannot read your private data or connect a mailbox."
     },
     "connected": {
       "title": "Gmail connected",
@@ -223,7 +223,7 @@
     "backToMail": "Back to Mail",
     "edit": "Edit",
     "title": "Settings",
-    "accountPrivateSync": "Account & Devices · Private Sync on",
+    "accountPrivateSync": "Account & Devices · Sync on",
     "sections": {
       "accounts": "Accounts",
       "composing": "Composing",
@@ -276,7 +276,7 @@
   "accountRemoval": {
     "title": "This device and your account",
     "signOut": "Sign Out of This Device",
-    "signOutConfirm": "Signing out removes this device from your Unwired account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail are not affected. To use this device again, sign in and approve it from a trusted device or with your Recovery Key.",
+    "signOutConfirm": "Signing out removes this device from your Unwired account and deletes its account data, keys and mailbox access from this device. Save and confirm any Recovery Key shown first. Your other devices and your mail are not affected. To use this device again, sign in and approve it from another of your devices or with your Recovery Key.",
     "delete": "Delete Unwired Account",
     "deleteConfirm": "Deleting your Unwired account permanently removes it, its private data and its sign-ins from Unwired Mail. Other devices remove their local data when they reconnect; copies on offline or compromised devices cannot be erased remotely. It cannot be undone. Your mail stays with your mail providers, and the mail access you allowed is not revoked. You sign in again to confirm.",
     "deletePermanently": "Delete Permanently",
@@ -448,28 +448,28 @@
   },
   "privateSync": {
     "setup-pending": {
-      "title": "Private sync",
-      "description": "Private sync setup has not finished. It continues the next time your Unwired account is verified. Sign in again to finish it now."
+      "title": "Sync",
+      "description": "End-to-end encrypted sync setup has not finished. It continues the next time your Unwired account is verified. Sign in again to finish it now."
     },
     "recovery-key": {
       "title": "Save your Recovery Key",
-      "description": "Your product data is end-to-end encrypted. If you lose every trusted device, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it."
+      "description": "Your product data is end-to-end encrypted. If you lose all your devices, this Recovery Key is the only way to unlock it. Write it down and keep it somewhere safe. Unwired Mail cannot show it to anyone else or reset it."
     },
     "ready": {
-      "title": "Private sync is on",
-      "description": "Your product data is end-to-end encrypted. Only your trusted devices can read it."
+      "title": "Sync is on",
+      "description": "Your product data is end-to-end encrypted. Only your devices can read it."
     },
     "enrollment-needed": {
       "title": "Unlock private data on this device",
-      "description": "This device no longer has the keys to your end-to-end encrypted data. Unlock it with your Recovery Key, or sign out and sign in again so one of your trusted devices can approve it. Nothing was reset or replaced."
+      "description": "This device no longer has the keys to your end-to-end encrypted data. Unlock it with your Recovery Key, or sign out and sign in again so another of your devices can approve it. Nothing was reset or replaced."
     },
     "enrollment-pending": {
       "title": "Approve this device",
-      "description": "This Unwired account already has end-to-end encrypted data. Signing in does not unlock it. On one of your trusted devices, open Unwired Mail and enter this code to approve this device."
+      "description": "This Unwired account already has end-to-end encrypted data. Signing in does not unlock it. On another of your devices, open Unwired Mail and enter this code to approve this device."
     },
     "unavailable": {
-      "title": "Private sync is unavailable",
-      "description": "Private sync data on this device could not be read, so private sync is paused here. Your sign-in and mailbox keep working, and nothing was reset or replaced."
+      "title": "Sync is unavailable",
+      "description": "End-to-end encrypted sync data on this device could not be read, so sync is paused here. Your sign-in and mailbox keep working, and nothing was reset or replaced."
     },
     "renewed": "The previous request expired or was declined, so this device shows a new code.",
     "rejected": "The last approval could not be verified on this device, so nothing was unlocked. Approve it again with the new code.",
@@ -486,12 +486,12 @@
   },
   "recovery": {
     "title": "Use your Recovery Key",
-    "description": "If none of your trusted devices is available, enter the Recovery Key you wrote down when you created your Unwired account. It is checked on this device and never sent to Unwired Mail.",
+    "description": "If none of your other devices is available, enter the Recovery Key you wrote down when you created your Unwired account. It is checked on this device and never sent to Unwired Mail.",
     "label": "Recovery Key",
     "unlock": "Unlock with Recovery Key",
     "rejected": "That Recovery Key does not unlock this Unwired account. Check each character of your written copy and try again. Your encrypted product data is kept.",
     "failed": "Recovery could not finish. Your encrypted product data is kept. Try again to resume.",
-    "lost": "If you have lost every trusted device and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected."
+    "lost": "If you have lost your other devices and your Recovery Key, your encrypted product data cannot be recovered, and Unwired Mail cannot unlock it for you. Your mail in Gmail is not affected."
   },
   "enrollment": {
     "check": "Check for Approval",
@@ -515,7 +515,7 @@
     "description": "These other devices can read your private data. Remove one you no longer use, or one that was lost or stolen.",
     "added": "Added {{date}}",
     "remove": "Remove {{name}}",
-    "confirm": "Removing {{name}} blocks it from your Unwired account, push notifications and private sync, and your other devices switch to new keys. You sign in again, then save and confirm a new Recovery Key; only then is {{name}} removed, and your previous Recovery Key stops opening new private data at once. It deletes its account data the next time it connects, but anything it already holds while offline or compromised cannot be erased remotely.",
+    "confirm": "Removing {{name}} blocks it from your Unwired account, push notifications and sync, and your other devices switch to new keys. You sign in again, then save and confirm a new Recovery Key; only then is {{name}} removed, and your previous Recovery Key stops opening new private data at once. It deletes its account data the next time it connects, but anything it already holds while offline or compromised cannot be erased remotely.",
     "cancel": "Cancel",
     "proposal": "Save a new Recovery Key to remove {{name}}",
     "prompt": "Write down this new Recovery Key and keep it safe. To confirm you saved it, enter its last four characters. {{name}} is removed only then, and your previous Recovery Key stops opening new private data.",
@@ -557,6 +557,7 @@
   },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",
+    "download_mac": "This message is not saved on this Mac, and {{provider}} could not be reached to download it.",
     "authentication": "{{provider}} needs your permission again to download this message.",
     "missing": "This message is no longer in {{provider}}.",
     "locked": "Private storage is locked. Unlock your device and try again.",
@@ -574,10 +575,12 @@
     "proceed": "Proceed",
     "warning": "• {{warning}}",
     "opening": "Opening message",
+    "downloading": "Downloading message…",
     "message": "Message",
     "showQuoted": "Show Quoted Text",
     "hideQuoted": "Hide Quoted Text",
     "imap-download": "This message is not saved on this device, and the mail server could not be reached to download it.",
+    "imap-download_mac": "This message is not saved on this Mac, and the mail server could not be reached to download it.",
     "imap-authentication": "The mail server needs your password again to download this message.",
     "imap-missing": "This message is no longer in this folder on the mail server.",
     "too-large": "This message is too large to open on this device."
@@ -1094,6 +1097,8 @@
     "recipientPlaceholder": "Name or email address",
     "recipient": {
       "invalid": "Enter a valid email address.",
+      "incomplete": "“{{address}}” is not a complete address. Correct it to send.",
+      "required": "Add a recipient to send.",
       "duplicate": "Already added"
     },
     "suggestions": {
@@ -1491,7 +1496,7 @@
       "assistance": "Assistance runs on this device.",
       "assistancePhone": "Assistance runs on this iPhone.",
       "mailProfiles": "Profiles keep personal and work apart.",
-      "privateSync": "Private Sync keeps your devices in step.",
+      "privateSync": "End-to-end encrypted sync keeps your devices in step.",
       "continue": "Continue"
     },
     "brand": {
@@ -1501,7 +1506,7 @@
     "signIn": {
       "title": "Sign in to Unwired Mail",
       "description": "Use the account you already use on your other devices.",
-      "finePrint": "Signing in starts Private Sync setup. A new Unwired account creates its Recovery Key on this device."
+      "finePrint": "Signing in starts end-to-end encrypted sync setup. A new Unwired account creates its Recovery Key on this device."
     },
     "back": "Back",
     "providers": {
@@ -1635,7 +1640,7 @@
     "name": "Name",
     "create": "Create",
     "upgradeTitle": "Update Your Other Devices",
-    "upgradeMessage": "Another Trusted Device runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then create the Profile again.",
+    "upgradeMessage": "Another of your devices runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then create the Profile again.",
     "newFailed": "Couldn’t create the Profile. Check your Profiles, then try again.",
     "ok": "OK",
     "startup": "Startup Profile",
@@ -1666,7 +1671,7 @@
     },
     "restyleTitle": "Profile Not Changed",
     "restyleFailed": "Couldn’t change the Profile’s color and icon. Check them, then try again.",
-    "upgradeRetry": "Another Trusted Device runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then try again.",
+    "upgradeRetry": "Another of your devices runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then try again.",
     "changed": "Another device changed these Profiles first. Check them, then try again.",
     "offline": "This device is offline. Try again when it’s online.",
     "moveMailbox": "Profile for {{address}}",
@@ -1678,7 +1683,7 @@
     "remove": "Remove Profile…",
     "removeAction": "Remove",
     "removeQuestion": "Remove “{{name}}”?",
-    "removeEmpty": "{{name}} is removed from all your Trusted Devices. It owns no mailboxes.",
+    "removeEmpty": "{{name}} is removed from all your devices. It owns no mailboxes.",
     "removeQuestionMailboxes": "Remove “{{name}}” and Its Mailboxes?",
     "removeMailboxes_one": "{{addresses}} is also removed from Unwired Mail on all your devices. Its mail stays with {{provider}}.",
     "removeMailboxes_other": "{{addresses}} are also removed from Unwired Mail on all your devices. Their mail stays with their providers.",
@@ -1687,11 +1692,11 @@
     "removeFailed": "Couldn’t remove the Profile. Check your Profiles and mailboxes, then try again.",
     "settings": {
       "profiles": "Profiles",
-      "synchronized": "Names, colors, icons and ownership synchronize through Private Sync.",
+      "synchronized": "Names, colors, icons and ownership sync across your devices, end-to-end encrypted.",
       "device": "This Device",
       "deviceFooter": "Window restoration and the Startup Profile stay only on this device.",
       "mailboxes": "Mailboxes",
-      "moveFooter": "Moving a mailbox keeps its mail, Drafts and sign-in. Moving needs Private Sync.",
+      "moveFooter": "Moving a mailbox keeps its mail, Drafts and sign-in. Moving needs sync to be on.",
       "emptyMailboxes": "No mailboxes in this Profile",
       "emptyMailboxesDetail": "Move a mailbox here from its current Profile.",
       "duplicateFooter": "Copies the name, color and icon into a new Profile. Mailboxes, sign-ins, mail and Drafts are not copied.",

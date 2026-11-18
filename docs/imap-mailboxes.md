@@ -436,10 +436,15 @@ the [Command Palette](command-palette.md) offers **Star** and **Remove Star**: n
 toolbar, menu, row action or row marker shows it, and the folder chooser names a
 virtual `\Flagged` folder's role Starred. A flag set or cleared elsewhere arrives with
 the next synchronization. Starring keeps the reader open and offers no Undo, like a
-read-state change. On the Mac, **Pin** is the product's own marker, never `\Flagged`: an
+read-state change. **Pin** is the product's own marker, never `\Flagged`: an
 IMAP message is pinned as its own Thread ([Pins](gmail-inbox.md#pins)) by its folder and
-UID, so moving it leaves the Pin behind and the moved message shows unpinned
-([#2283](https://github.com/unwired-dev/product/issues/2283)).
+UID. Once the server applies a move, Undo's included, the Pin follows the message to the
+UID MOVE or COPYUID reported and keeps its date. A server that reports none leaves the
+message without an identity to follow, so its Pin is removed rather than left under the
+old UID ([#2283](https://github.com/unwired-dev/product/issues/2283)). Pin storage that
+refuses the change, as while the device is locked, leaves the Pin under the old UID, and
+the moved message shows unpinned until it is pinned again
+([#2340](https://github.com/unwired-dev/product/issues/2340)).
 The folder listing keeps the server's hierarchy delimiter, so the Move picker nests
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
 unavailable.
@@ -451,7 +456,7 @@ not offered, and no folder is guessed by name. The row and reader
 
 Moves need a server that moves one message without expunging others: MOVE, or else
 COPY with UIDPLUS's `UID EXPUNGE` of that message alone. A server with neither offers
-only read state and the star among the server's actions (Pin, on the Mac, never asks the server); a plain `EXPUNGE`, which would also remove messages other clients marked
+only read state and the star among the server's actions (Pin never asks the server); a plain `EXPUNGE`, which would also remove messages other clients marked
 deleted, is never sent. A folder opened read-only refuses changes.
 
 Each change shows at once, is saved in the connection's encrypted cache and is sent to

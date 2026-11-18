@@ -147,7 +147,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.row,
     borderCurve: 'continuous',
   },
-  tileLetter: { ...textStyles.bodyEmphasized },
   providerText: { flex: 1, gap: 1 },
   providerName: { ...textStyles.bodyEmphasized },
   providerDetail: { ...textStyles.subheadline },
@@ -521,15 +520,15 @@ export function ProviderList({ children }: { readonly children: ReactNode }) {
 }
 
 export function ProviderRow({
-  letter,
+  symbol,
   name,
   detail,
   onPress,
   disabled,
   last = false,
 }: {
-  // The provider's initial on its tile, as the design draws it.
-  readonly letter: string;
+  // The SF Symbol on the provider's tile.
+  readonly symbol: string;
   readonly name: string;
   readonly detail: string;
   readonly onPress: () => void;
@@ -565,9 +564,12 @@ export function ProviderRow({
         },
       ]}>
       <View style={[styles.tile, { backgroundColor: colors.surfaceContent }]}>
-        <Text style={[styles.tileLetter, { color: colors.textPrimary }]}>
-          {letter}
-        </Text>
+        <SFSymbol
+          color={colors.textPrimary}
+          name={symbol}
+          semibold
+          size={13}
+        />
       </View>
       <View style={styles.providerText}>
         <Text style={[styles.providerName, { color: colors.textPrimary }]}>

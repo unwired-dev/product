@@ -52,11 +52,11 @@ RCT_EXPORT_VIEW_PROPERTY(accessibilityElementsHidden, BOOL)
 
 // A symbol at its point size, as Apple draws toolbar symbols, with unusually large glyphs such as
 // envelope.open or xmark.bin held to 1.25× that size, so a toolbar's icons read as one size.
-static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
+static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size, NSFontWeight weight)
 {
   NSImage *image = [[NSImage imageWithSystemSymbolName:name accessibilityDescription:nil]
       imageWithSymbolConfiguration:
-          [NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightRegular]];
+          [NSImageSymbolConfiguration configurationWithPointSize:size weight:weight]];
   CGFloat largest = MAX(image.size.width, image.size.height);
   CGFloat limit = size * 1.25;
   if (largest > limit) {
@@ -69,6 +69,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
 @property (nonatomic, copy) NSString *symbolScale;
+@property (nonatomic) BOOL semibold;
 @property (nonatomic, strong) NSColor *color;
 @end
 
@@ -85,10 +86,12 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size)
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
 - (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
+- (void)setSemibold:(BOOL)semibold { _semibold = semibold; [self render]; }
 - (void)setColor:(NSColor *)color { _color = color; self.contentTintColor = color; }
 - (void)render
 {
-  self.image = self.name == nil ? nil : UnwiredSymbolImage(self.name, self.size);
+  self.image = self.name == nil ? nil
+      : UnwiredSymbolImage(self.name, self.size, self.semibold ? NSFontWeightSemibold : NSFontWeightRegular);
 }
 @end
 
@@ -269,6 +272,7 @@ typedef UIView UnwiredPlatformView;
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) CGFloat size;
 @property (nonatomic, copy) NSString *symbolScale;
+@property (nonatomic) BOOL semibold;
 @property (nonatomic, strong) UIColor *color;
 @end
 
@@ -283,6 +287,7 @@ typedef UIView UnwiredPlatformView;
 - (void)setName:(NSString *)name { _name = [name copy]; [self render]; }
 - (void)setSize:(CGFloat)size { _size = size; [self render]; }
 - (void)setSymbolScale:(NSString *)symbolScale { _symbolScale = [symbolScale copy]; [self render]; }
+- (void)setSemibold:(BOOL)semibold { _semibold = semibold; [self render]; }
 - (void)setColor:(UIColor *)color { _color = color; self.tintColor = color; }
 - (void)render
 {
@@ -295,7 +300,8 @@ typedef UIView UnwiredPlatformView;
       self.symbolScale == nil ? UIImageSymbolScaleDefault : scales[self.symbolScale].integerValue;
   UIImageSymbolConfiguration *configuration =
       [UIImageSymbolConfiguration configurationWithPointSize:self.size
-                                                      weight:UIImageSymbolWeightRegular
+                                                      weight:self.semibold ? UIImageSymbolWeightSemibold
+                                                                           : UIImageSymbolWeightRegular
                                                        scale:scale];
   self.image = self.name == nil ? nil
       : [UIImage systemImageNamed:self.name withConfiguration:configuration];
@@ -1231,7 +1237,7 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
     shown.image = [NSImage imageWithSystemSymbolName:self.symbol accessibilityDescription:nil];
     if (self.toolbar) {
       // Drawn as UnwiredSymbolView draws the toolbar's buttons.
-      shown.image = UnwiredSymbolImage(self.symbol, 14);
+      shown.image = UnwiredSymbolImage(self.symbol, 14, NSFontWeightRegular);
     }
   }
   // A pull-down shows its first item, which its menu leaves out.
@@ -1508,6 +1514,45 @@ RCT_EXPORT_METHOD(refresh)
 #endif
 
 #if !TARGET_OS_OSX
+// A hardware keyboard's Up and Down Arrow while `enabled`, ahead of the text view inside, which
+// would move its caret: the iPad body's Recipient Suggestions move their highlight with them.
+@interface UnwiredArrowKeysView : UIView
+@property (nonatomic) BOOL enabled;
+@property (nonatomic, copy) RCTDirectEventBlock onArrow;
+@end
+
+@implementation UnwiredArrowKeysView
+- (NSArray<UIKeyCommand *> *)keyCommands
+{
+  if (!self.enabled) return @[];
+  NSMutableArray<UIKeyCommand *> *commands = [NSMutableArray array];
+  for (NSString *input in @[UIKeyInputUpArrow, UIKeyInputDownArrow]) {
+    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:0 action:@selector(arrow:)];
+    command.wantsPriorityOverSystemBehavior = YES;
+    [commands addObject:command];
+  }
+  return commands;
+}
+
+- (void)arrow:(UIKeyCommand *)command
+{
+  if (!self.onArrow) return;
+  self.onArrow(@{@"key": [command.input isEqualToString:UIKeyInputUpArrow] ? @"ArrowUp" : @"ArrowDown"});
+}
+@end
+
+@interface UnwiredArrowKeysManager : RCTViewManager
+@end
+
+@implementation UnwiredArrowKeysManager
+RCT_EXPORT_MODULE(UnwiredArrowKeys)
+RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onArrow, RCTDirectEventBlock)
+- (UIView *)view { return [UnwiredArrowKeysView new]; }
+@end
+#endif
+
+#if !TARGET_OS_OSX
 @interface UnwiredMenuButtonManager : RCTViewManager
 @end
 
@@ -1529,6 +1574,7 @@ RCT_EXPORT_MODULE(UnwiredSymbol)
 RCT_EXPORT_VIEW_PROPERTY(name, NSString)
 RCT_EXPORT_VIEW_PROPERTY(size, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(symbolScale, NSString)
+RCT_EXPORT_VIEW_PROPERTY(semibold, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(color, UIColor)
 - (UnwiredPlatformView *)view { return [UnwiredSymbolView new]; }
 @end

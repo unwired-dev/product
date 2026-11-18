@@ -171,7 +171,7 @@ import {
   MailAssistanceProfileContext,
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
-import { useAllMailboxes } from './mailbox-list.ts';
+import { MailboxesContext, useAllMailboxes } from './mailbox-list.ts';
 import {
   useComposerNavigation,
   useDrafts,
@@ -311,6 +311,15 @@ const styles = StyleSheet.create({
     paddingLeft: fieldLabelWidth + spacing.s,
     paddingBottom: spacing.xs,
   },
+  // The frame starts the reason a field inset beyond the field's text.
+  reason: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingLeft: fieldInset + fieldLabelWidth + spacing.s,
+    paddingBottom: 6,
+  },
+  reasonText: { ...textStyles.subheadline, flexShrink: 1 },
   // Its text centred on the first 28pt line, level with the field's label.
   input: {
     ...textStyles.body,
@@ -886,6 +895,48 @@ function correspondentsFor(
   };
 }
 
+// Whether Cc and Bcc show: also for text saved in them, which would otherwise hide why Send waits.
+const showsCopies = (draft: Draft) =>
+  draft.copies === true ||
+  draft.cc.length + draft.bcc.length > 0 ||
+  entryOf(draft, 'cc') !== '' ||
+  entryOf(draft, 'bcc') !== '';
+
+// Why Send is unavailable, under the field that causes it; announced once when it follows an
+// action, as macOS ignores live regions.
+function SendBlockedReason({
+  message,
+  announce = false,
+}: {
+  readonly message: string;
+  readonly announce?: boolean;
+}) {
+  const colors = usePalette();
+  useEffect(() => {
+    if (announce) {
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [announce, message]);
+  return (
+    <View
+      accessible
+      accessibilityLabel={message}
+      accessibilityRole="text"
+      style={styles.reason}>
+      <View collapsable={false}>
+        <SFSymbol
+          name="exclamationmark.triangle.fill"
+          size={11}
+          color={colors.statusWarning}
+        />
+      </View>
+      <Text style={[styles.reasonText, { color: colors.textSecondary }]}>
+        {message}
+      </Text>
+    </View>
+  );
+}
+
 export function Recipients({
   draft,
   getDraft,
@@ -893,12 +944,15 @@ export function Recipients({
   onChange,
   onCaretMove,
   editable,
+  required = false,
   trailing,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
   readonly field: RecipientField;
   readonly editable: boolean;
+  // Whether Send waits for a recipient, which this field then asks for.
+  readonly required?: boolean;
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
   readonly onCaretMove: () => void;
@@ -967,6 +1021,17 @@ export function Recipients({
     }
     setNotice(result.notice);
   };
+  // Text Send would leave in the field, once it is no longer typed in, is not an address it can use.
+  const entry = addRecipients(draft, {
+    field,
+    text: entryOf(draft, field),
+    all: true,
+  }).text;
+  const incomplete = !entering && entry !== '';
+  const requiredReason = required ? t('drafts.recipient.required') : undefined;
+  const reason = incomplete
+    ? t('drafts.recipient.incomplete', { address: entry })
+    : requiredReason;
   return (
     <View>
       {suggestions.length === 0 ? null : (
@@ -1046,6 +1111,7 @@ export function Recipients({
           ))}
           <TextInput
             accessibilityLabel={name}
+            accessibilityHint={incomplete ? reason : undefined}
             editable={editable}
             accessibilityState={{ disabled: !editable }}
             autoCapitalize="none"
@@ -1134,7 +1200,13 @@ export function Recipients({
         </View>
         {trailing}
       </View>
-      {notice === undefined ? null : (
+      {reason === undefined ? null : (
+        <SendBlockedReason
+          announce={incomplete}
+          message={reason}
+        />
+      )}
+      {reason !== undefined || notice === undefined ? null : (
         <View style={styles.fieldNotice}>
           <Notice style={[styles.notice, { color: colors.textSecondary }]}>
             {t(`drafts.recipient.${notice}`)}
@@ -1881,8 +1953,23 @@ function GeneratePrompt({
   );
 }
 
-// Why the last Send left the Draft in the composer, if it did. A message sent through an IMAP
-// connection's mail server or Microsoft is not limited by Gmail.
+// The Draft with the entries still being typed in To, Cc and Bcc finished, as Send finishes them;
+// invalid text stays in its field.
+const finishedEntries = (draft: Draft) => {
+  let finished = draft;
+  for (const field of ['to', 'cc', 'bcc'] as const) {
+    finished = addRecipients(finished, {
+      field,
+      text: entryOf(finished, field),
+      all: true,
+    }).draft;
+  }
+  return finished;
+};
+
+// Why Send is unavailable now, or else why the last Send left the Draft in the composer, if it
+// did; only the last Send's outcome is announced. A message sent through an IMAP connection's mail
+// server or Microsoft is not limited by Gmail.
 const tooLarge = {
   gmail: 'drafts.sendRefused.too-large',
   imap: 'drafts.sendRefused.too-large_imap',
@@ -1890,22 +1977,25 @@ const tooLarge = {
 } as const satisfies Readonly<Record<MailProvider, string>>;
 function SendRefusalNotice({
   refused,
+  blocked,
   connection,
 }: {
   readonly refused: SendRefusal | undefined;
+  readonly blocked: SendRefusal | undefined;
   readonly connection: string;
 }) {
   const { t } = useLocalization();
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === connection,
   )?.provider;
-  return refused === undefined ? null : (
+  const shown = blocked ?? refused;
+  return shown === undefined ? null : (
     <Alert
-      outcome
+      outcome={shown === refused}
       message={t(
-        refused === 'too-large'
+        shown === 'too-large'
           ? tooLarge[provider ?? 'gmail']
-          : `drafts.sendRefused.${refused}`,
+          : `drafts.sendRefused.${shown}`,
       )}
     />
   );
@@ -1978,6 +2068,7 @@ export function ComposerNotices({
   closing,
   draft,
   refused,
+  blocked,
   onClose,
   onDiscard,
   onKeepEditing,
@@ -1985,6 +2076,8 @@ export function ComposerNotices({
   readonly closing: Closing | undefined;
   readonly draft: Draft;
   readonly refused: SendRefusal | undefined;
+  // Why Send is unavailable now; To, Cc and Bcc show their own reasons, and From the sender's.
+  readonly blocked?: SendRefusal | undefined;
   readonly onClose: () => void;
   readonly onDiscard: () => void;
   readonly onKeepEditing: () => void;
@@ -2015,6 +2108,13 @@ export function ComposerNotices({
       <SendRefusalNotice
         connection={draft.connection}
         refused={refused}
+        blocked={
+          blocked === 'recipients' ||
+          blocked === 'entries' ||
+          blocked === 'sender'
+            ? undefined
+            : blocked
+        }
       />
       <SendingNotice draft={draft} />
       {closing === 'discard' ? (
@@ -2878,6 +2978,11 @@ function Editor({
   // A control that also waits while Save or Send is pending.
   const lockedUnless = (available: boolean) => paused || !available;
   const outbox = useOutbox();
+  // Why Send is unavailable for the Draft shown, followed as its mailboxes change.
+  const mailboxList = use(MailboxesContext);
+  const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
+    outbox.refusal(finishedEntries(history.present)),
+  );
   const sendReminders = useSendReminders();
   // The Mail Profile owning this Draft, and so its Send Reminder.
   const draftProfile = profileOf(
@@ -3264,14 +3369,7 @@ function Editor({
   // in its field. Returns the finished Draft.
   const finishEntries = useCallback(() => {
     const latest = authored.current;
-    let finished = latest;
-    for (const field of ['to', 'cc', 'bcc'] as const) {
-      finished = addRecipients(finished, {
-        field,
-        text: entryOf(finished, field),
-        all: true,
-      }).draft;
-    }
+    const finished = finishedEntries(latest);
     if (finished !== latest) {
       commitHistory((current) => keepIdentity(record(current, finished)));
       update(finished);
@@ -3712,6 +3810,7 @@ function Editor({
   const sendButton = (
     <SendMenu
       disabled={closing === 'saving'}
+      sendable={blocked === undefined}
       onSend={() => {
         void send();
       }}
@@ -3721,8 +3820,11 @@ function Editor({
     />
   );
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
-  const copiesShown =
-    draft.copies === true || draft.cc.length + draft.bcc.length > 0;
+  const copiesShown = showsCopies(draft);
+  // An edit in Cc or Bcc keeps both shown for the Draft, even once they are empty.
+  const changeCopies = (next: Draft, word: boolean, field: string) => {
+    change({ ...next, copies: true }, word, field);
+  };
 
   return (
     <View
@@ -3746,7 +3848,7 @@ function Editor({
             { id: draft.id, subject: draft.subject },
             {
               send:
-                closing === 'saving'
+                closing === 'saving' || blocked !== undefined
                   ? undefined
                   : () => {
                       void send();
@@ -3923,6 +4025,7 @@ function Editor({
           closing={closing}
           draft={draft}
           refused={refused}
+          blocked={blocked}
           onClose={() => {
             void saveDraft();
           }}
@@ -4122,6 +4225,7 @@ function Editor({
             getDraft={getDraft}
             editable={!paused}
             field="to"
+            required={blocked === 'recipients'}
             onChange={change}
             onCaretMove={breakTyping}
             trailing={
@@ -4145,7 +4249,7 @@ function Editor({
                 getDraft={getDraft}
                 editable={!paused}
                 field="cc"
-                onChange={change}
+                onChange={changeCopies}
                 onCaretMove={breakTyping}
               />
               <Recipients
@@ -4153,7 +4257,7 @@ function Editor({
                 getDraft={getDraft}
                 editable={!paused}
                 field="bcc"
-                onChange={change}
+                onChange={changeCopies}
                 onCaretMove={breakTyping}
               />
             </>

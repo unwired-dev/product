@@ -271,6 +271,13 @@ closes an open panel goes to the link in the rendered body, clear of iPhone's
 Labels panel ([#2169](https://github.com/unwired-dev/product/issues/2169)). The
 alert, the list and its edit mode are kept as attachments.
 
+Back in that message, the journey chooses **Pin**
+([#2343](https://github.com/unwired-dev/product/issues/2343)): from the
+toolbar's last group on iPad and from the Reply sheet on iPhone; the reader then
+offers **Unpin**. After a relaunch the row reads `… Pinned`, and **Unpin** in the
+reopened reader removes the Pin. The pinned reader and the relaunched Inbox are
+kept as attachments.
+
 After its relaunch, that journey ends in Settings › Appearance
 ([#2210](https://github.com/unwired-dev/product/issues/2210)). System and
 Comfortable are checked, and both footers show. Under System, the Inbox and

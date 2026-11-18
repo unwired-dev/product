@@ -98,6 +98,57 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(token.count, 0)
   }
 
+  // #2350: Send stays unavailable until the Draft has a complete recipient, and To says why.
+  func testSendBlockedReason() throws {
+    try sendBlockedReason(appearance: "Light")
+  }
+
+  func testSendBlockedReasonDark() throws {
+    try sendBlockedReason(appearance: "Dark")
+  }
+
+  private func sendBlockedReason(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let send = window.buttons["Send"].firstMatch
+    XCTAssertTrue(text("Add a recipient to send.", in: window).waitForExistence(timeout: 10))
+    XCTAssertFalse(send.isEnabled)
+    attach("Send blocked without a recipient")
+    let to = window.textFields["To"]
+    typeRecipient(to, "not an address")
+    window.textFields["Subject"].click()
+    XCTAssertTrue(
+      text("“not an address” is not a complete address. Correct it to send.", in: window)
+        .waitForExistence(timeout: 10))
+    XCTAssertFalse(send.isEnabled)
+    attach("Send blocked by an incomplete address")
+    to.click()
+    window.typeKey("a", modifierFlags: .command)
+    window.typeKey(.delete, modifierFlags: [])
+    to.typeText("jordan@example.invalid")
+    window.textFields["Subject"].click()
+    waitUntil { send.isEnabled }
+    XCTAssertFalse(text("not a complete address", in: window).exists)
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false
@@ -218,11 +269,11 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(text("The device was removed.", in: first).waitForExistence(timeout: 15))
     XCTAssertFalse(first.buttons["Remove iPad"].exists)
     XCTAssertFalse(recoveryKey(in: first).exists)
-    XCTAssertTrue(text("Private sync is on", in: first).exists)
+    XCTAssertTrue(text("Sync is on", in: first).exists)
     app.terminate()
     app.launch()
     let resumed = app.windows["Inbox 1"]
-    XCTAssertTrue(text("Private sync is on", in: resumed).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Sync is on", in: resumed).waitForExistence(timeout: 15))
     XCTAssertFalse(resumed.buttons["Remove iPad"].exists)
   }
 
@@ -273,7 +324,7 @@ final class WindowTests: XCTestCase {
     entry.click()
     entry.typeText(String(key.suffix(4)))
     first.buttons["Confirm Recovery Key"].click()
-    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Sync is on", in: first).waitForExistence(timeout: 15))
     first.buttons["Sign Out of This Device"].click()
     XCTAssertTrue(text("Your other devices", in: first).waitForExistence(timeout: 15))
     first.buttons["Sign Out of This Device"].click()
@@ -425,7 +476,7 @@ final class WindowTests: XCTestCase {
     let settings = app.windows["settings-window"]
     XCTAssertTrue(settings.waitForExistence(timeout: 15))
     XCTAssertTrue(text("connected on this device", in: settings).waitForExistence(timeout: 15))
-    XCTAssertTrue(text("Private sync is on", in: settings).exists)
+    XCTAssertTrue(text("Sync is on", in: settings).exists)
     XCTAssertFalse(recoveryKey(in: settings).exists)
     app.typeKey(",", modifierFlags: .command)
     XCTAssertEqual(app.windows.matching(identifier: "settings-window").count, 1)
@@ -976,14 +1027,14 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(text(mailboxes, in: first).exists)
     // The synthetic trusted device approves with the code shown on this device.
     first.buttons["Check for Approval"].click()
-    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Sync is on", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text(mailboxes, in: first).exists)
     // Gmail on this device still needs its own authorization.
     XCTAssertTrue(first.buttons["Gmail"].exists)
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
-    XCTAssertTrue(text("Private sync is on", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Sync is on", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text(mailboxes, in: relaunched).waitForExistence(timeout: 15))
     XCTAssertFalse(enrollmentCode(in: relaunched).exists)
   }
@@ -1011,7 +1062,7 @@ final class WindowTests: XCTestCase {
     entry.typeKey("a", modifierFlags: .command)
     entry.typeText("000G-40R4-0M30-E209-185G-R38E-1W81-24GK-2GAH-C5RR-34D1-P70X-3RFG")
     first.buttons["Unlock with Recovery Key"].click()
-    XCTAssertTrue(text("Private sync is on", in: first).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Sync is on", in: first).waitForExistence(timeout: 15))
     XCTAssertTrue(text(mailboxes, in: first).exists)
     XCTAssertFalse(enrollmentCode(in: first).exists)
     // Gmail on this device still needs its own authorization.
@@ -1019,7 +1070,7 @@ final class WindowTests: XCTestCase {
     app.terminate()
     app.launch()
     let relaunched = app.windows["Inbox 1"]
-    XCTAssertTrue(text("Private sync is on", in: relaunched).waitForExistence(timeout: 15))
+    XCTAssertTrue(text("Sync is on", in: relaunched).waitForExistence(timeout: 15))
     XCTAssertTrue(text(mailboxes, in: relaunched).waitForExistence(timeout: 15))
     XCTAssertFalse(relaunched.textFields["Recovery Key"].exists)
   }
@@ -2508,6 +2559,8 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(send.waitForExistence(timeout: 10))
     XCTAssertEqual(
       send.frame.midY, composer.buttons[XCUIIdentifierCloseWindow].frame.midY, accuracy: 3)
+    // #2094: closed, the Command Input keeps only its symbol and key cap in 75pt.
+    XCTAssertEqual(composer.buttons["Open Command Palette"].frame.width, 75, accuracy: 1)
     let composerClosed = composer.screenshot()
     composer.buttons["Open Command Palette"].click()
     let query = composer.textFields.matching(NSPredicate(format: "label == %@", "Type a command"))

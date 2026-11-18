@@ -243,7 +243,8 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   A result also listed in a cached view opens and caches as that listed message.
   Mail-server results offer organizing actions only when also listed in the Inbox,
   using Inbox actions even when the search started from another view. A result
-  outside the Inbox shows no organizing actions.
+  outside the Inbox shows no organizing actions; on iPad and iPhone its row and reader
+  still offer **Pin**, which needs no provider access.
 - **Failures.** Each mailbox that Gmail could not search says why, naming the mailbox
   when the view holds several, while the other mailboxes' results and the saved
   results stay: no connection, a refused grant, which also offers **Allow Gmail
@@ -520,11 +521,11 @@ Inbox rows and the reader also offer native context menus: long-press on iPhone 
 iPad, secondary click with an iPad pointer, and right-click or Control-click on the
 Mac. A row's menu lists the row's own actions in the design's order: **Archive**
 (or **Move to Inbox** in Trash and Spam),
-**Mark as Read** or **Mark as Unread**, on the Mac **Pin** or **Unpin**,
+**Mark as Read** or **Mark as Unread**, **Pin** or **Unpin**,
 and, outside Trash and Spam, **Delete** (to Trash), placed last on every platform.
 Move to Spam stays a row accessibility action and a reader action outside those views. The
 open message's header lists Reply, Reply All and Forward, its read state,
-on the Mac **Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
+**Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
 the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
@@ -583,16 +584,19 @@ including its waiting changes, after the account page explains that. A cache wri
 
 ### Pins
 
-On the Mac, **Pin** pins the message's **Thread** in its Mailbox Connection
-([#2280](https://github.com/unwired-dev/product/issues/2280)): Gmail's thread, Microsoft's
-conversation, or an IMAP message on its own. The reader toolbar's last group starts with
-**Pin**, or **Unpin** for a pinned Thread; the row and reader menus, VoiceOver's row actions
-and the [Command Palette](command-palette.md) offer the same. Every row of a pinned Thread
+**Pin** pins the message's **Thread** in its Mailbox Connection
+([#2280](https://github.com/unwired-dev/product/issues/2280) on the Mac,
+[#2343](https://github.com/unwired-dev/product/issues/2343) on iPad and iPhone): Gmail's
+thread, Microsoft's conversation, or an IMAP message on its own. On the Mac and iPad the
+reader toolbar's last group starts with **Pin**, or **Unpin** for a pinned Thread; iPhone
+lists it first in the reader's More menu and with the read state in its Reply sheet. The row
+and reader menus, VoiceOver's row actions and the [Command Palette](command-palette.md) offer
+the same. Every row of a pinned Thread
 shows `pin.fill` in `status/warning` before its date, and VoiceOver says Pinned. A Pin is
 stored on this device through `@private-email/mail-core/pins`, works offline, never waits
 for or changes the provider, and is offered while provider actions are not; a change
 storage refuses changes nothing and says This Thread couldn't be pinned (or unpinned). The
-Pins mailbox, synchronization and iPhone and iPad follow in
+Pins mailbox and synchronization follow in
 [#2084](https://github.com/unwired-dev/product/issues/2084).
 
 ## Reading messages
@@ -1259,7 +1263,14 @@ mismatched bodies read as absent and may be downloaded again.
 
 ### Unavailable bodies
 
-A body that cannot be shown says why, beside **Try Again**:
+The subject and sender show at once. On the Mac, while the body opens, the reader
+shows **Downloading message…** with an activity indicator above four still
+placeholder lines; VoiceOver reads it as one progress element
+([#2348](https://github.com/unwired-dev/product/issues/2348)).
+
+A body that cannot be shown says why, beside **Try Again**. On the Mac the
+sentence and **Try Again** sit in a quiet banner, VoiceOver hears the sentence
+once, and the two download sentences say "this Mac" instead of "this device":
 
 - **This message is not saved on this device, and Gmail could not be reached to
   download it.** This appears offline, or after a network, quota or server

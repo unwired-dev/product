@@ -15,9 +15,10 @@ results never appear in the palette. The vocabulary lives in the
   The reader offers the same handlers its buttons use: Reply, Reply All and
   Forward where a response can start; Mark as Read or Unread, Star, Archive,
   Delete and Move to Spam as the provider allows; and **Move to…**, which
-  lists the connection's folders or labels. On the Mac, **Pin** or **Unpin**
-  pins the open message's Thread, as the reader's toolbar does
-  ([#2280](https://github.com/unwired-dev/product/issues/2280)); it is product
+  lists the connection's folders or labels. **Pin** or **Unpin**
+  pins the open message's Thread, as the reader's toolbar or menu does
+  ([#2280](https://github.com/unwired-dev/product/issues/2280),
+  [#2343](https://github.com/unwired-dev/product/issues/2343)); it is product
   state, offered whatever the provider allows. The preview Inbox's reader offers its
   Mark as Read or Unread. The palette never chooses a message on its own.
 - **Draft commands** act on the open Draft, under a Draft section named for its
@@ -50,7 +51,7 @@ results never appear in the palette. The vocabulary lives in the
   draft, as its buttons are. The provider's star is offered only here, as **Star** and
   **Remove Star**: no toolbar, menu, row action or row marker shows it
   ([#2084](https://github.com/unwired-dev/product/issues/2084)). The palette lists only
-  supported commands; Pin on iPhone and iPad, Snooze,
+  supported commands; Snooze,
   thread-wide and bulk actions arrive with their owning work, such as
   [keyboard and bulk actions #849](https://github.com/unwired-dev/product/issues/849).
 - The [Thread view](catch-up.md#thread-view) opens the palette from its fixed

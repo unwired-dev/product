@@ -489,16 +489,12 @@ describe('mac window selection with the shared mock mailbox', () => {
       ).toStrictEqual([
         `Draft · ${String(window.getByLabelText('Subject').props.value)}`,
       ]);
+      // Send waits for a recipient, so the palette does not offer it yet.
       expect(
         palette
           .getAllByRole('button')
           .map((item) => String(item.props.accessibilityLabel)),
-      ).toStrictEqual([
-        'Send',
-        'Attach File…',
-        'Add Cc and Bcc',
-        'Discard Draft',
-      ]);
+      ).toStrictEqual(['Attach File…', 'Add Cc and Bcc', 'Discard Draft']);
       expect(window.queryByLabelText('Cc')).toBeNull();
       await fireEvent.press(
         palette.getByRole('button', { name: 'Add Cc and Bcc' }),

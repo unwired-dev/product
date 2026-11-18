@@ -1,40 +1,77 @@
-import { Contact, ContactField, requestPermissionsAsync } from 'expo-contacts';
+import {
+  Contact,
+  ContactField,
+  getPermissionsAsync,
+  requestPermissionsAsync,
+} from 'expo-contacts';
 import { useEffect, useRef, useState } from 'react';
 
-type ContactAddress = Readonly<{ sender: string; address: string }>;
+type ContactAddress = Readonly<{
+  sender: string;
+  address: string;
+  // The contact's recorded given name, empty when none is recorded.
+  given?: string;
+}>;
 
-const fields = [ContactField.FULL_NAME, ContactField.EMAILS] as const;
+const fields = [
+  ContactField.FULL_NAME,
+  ContactField.GIVEN_NAME,
+  ContactField.EMAILS,
+] as const;
 
-// Every email address of the Apple Contacts this app may read, under the contact's name. Contacts
-// access is requested the first time `asking` is true; until it is granted, or when reading fails,
-// there are none. They stay in memory on this device, never saved or synchronized.
+// Every email address of the Apple Contacts this app may read, under the contact's name. With
+// `ask`, they are read the first time `reading` is true, requesting Contacts access then; without
+// it, only contacts already readable are read, each time `reading` turns true, so access granted
+// meanwhile counts, and they are dropped when it turns false. Until access is granted there are
+// none; `failed` tells that reading them failed. They stay in memory on this device, never saved or synchronized.
 export function useContactAddresses(
-  asking: boolean,
-): readonly ContactAddress[] {
-  const [addresses, setAddresses] = useState<readonly ContactAddress[]>([]);
+  reading: boolean,
+  ask = true,
+): Readonly<{ addresses: readonly ContactAddress[]; failed: boolean }> {
+  const [read, setRead] = useState<{
+    addresses: readonly ContactAddress[];
+    failed: boolean;
+  }>({ addresses: [], failed: false });
   const asked = useRef(false);
   useEffect(() => {
-    if (!asking || asked.current) {
+    if (!reading || (ask && asked.current)) {
       return;
     }
     asked.current = true;
+    // A read still running when `reading` turns false is dropped without asking.
+    let current = true;
+    const keep = (next: Readonly<typeof read>) => {
+      if (current || ask) {
+        setRead(next);
+      }
+    };
     void (async () => {
       try {
-        const { granted } = await requestPermissionsAsync();
+        const { granted } = await (ask
+          ? requestPermissionsAsync()
+          : getPermissionsAsync());
         const contacts = granted ? await Contact.getAllDetails(fields) : [];
-        setAddresses(
-          contacts.flatMap(({ fullName, emails }) =>
+        keep({
+          addresses: contacts.flatMap(({ fullName, givenName, emails }) =>
             emails.flatMap(({ address }) =>
               address === undefined
                 ? []
-                : [{ sender: fullName ?? '', address }],
+                : [{ sender: fullName ?? '', address, given: givenName ?? '' }],
             ),
           ),
-        );
+          failed: false,
+        });
       } catch {
         // Unreadable contacts leave recent correspondents as the only suggestions.
+        keep({ addresses: [], failed: true });
       }
     })();
-  }, [asking]);
-  return addresses;
+    return () => {
+      current = false;
+      if (!ask) {
+        setRead({ addresses: [], failed: false });
+      }
+    };
+  }, [reading, ask]);
+  return read;
 }

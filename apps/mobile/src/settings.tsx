@@ -81,17 +81,20 @@ const sections = [
 // iPad uses a two-column workspace; iPhone pushes one destination over the list of them.
 export const settingsColumns = Platform.OS === 'ios' && Platform.isPad;
 
-// iPad scales the Mac recipe by 1.15, as its Inbox does; iPhone uses the iOS text styles.
+// iPad scales the Mac recipe by 1.15, as its Inbox does; iPhone uses the iOS text styles, with
+// Footnote subtitles in its rows.
 const type = settingsColumns
   ? {
       title: typography.ipadList.body,
       detail: typography.ipadList.subheadline,
+      subtitle: typography.ipadList.subheadline,
       page: typography.ipadList.title3Emphasized,
       account: typography.ipadList.title3Emphasized,
     }
   : {
       title: textStyles.body,
       detail: textStyles.subheadline,
+      subtitle: textStyles.footnote,
       page: textStyles.headline,
       // The iPhone frames title the account cards at 20/25 semibold.
       account: textStyles.title3Emphasized,
@@ -137,8 +140,11 @@ export type SettingsButton = (
 const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 
 // iPad rows follow the frames' Mac recipe at 1.15×: 46pt single-line and 61.3pt two-line rows.
-const rowPadding = settingsColumns ? 10 * ipadListScale : spacing.m;
-const phoneButtonHeight = 36.4;
+// iPhone's Settings Row pads 13pt, so a 36pt push button makes a 62pt row.
+const rowPadding = settingsColumns ? 10 * ipadListScale : 13;
+const phoneButtonHeight = 36;
+// iPhone's frames draw a row with a switch at least 56pt tall.
+export const switchRowHeight = settingsColumns ? undefined : 56;
 const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
 // iPad's row rules are the Mac recipe's point at 1.15×, as its frames draw them.
 const rule = settingsColumns ? ipadListScale : StyleSheet.hairlineWidth;
@@ -194,7 +200,7 @@ const styles = StyleSheet.create({
   grow: { flex: 1 },
   // Symbols centre in fixed slots, so a wide one such as translate keeps its label in line.
   itemIcon: { width: 18, alignItems: 'center' },
-  rowIcon: { width: 20, alignItems: 'center' },
+  rowIcon: { width: settingsColumns ? 20 : 24, alignItems: 'center' },
   // iPad's cards start 28pt beside the sidebar and end 32pt from the window's edge.
   content: {
     gap: settingsColumns ? spacing.s : 10,
@@ -228,8 +234,8 @@ const styles = StyleSheet.create({
   destinationIcon: { width: 24, alignItems: 'center' },
   // iPad's two-line rows are 61.3pt, as the frames draw them.
   rowText: { flex: 1, gap: settingsColumns ? 3.8 : 2 },
-  // Trailing controls may take the row's padding, so a push button or the native picker keeps
-  // iPad's 46pt row; on iPhone a 36.4pt push button centres in the 52pt row.
+  // On iPad trailing controls take the row's padding, so a push button or the native picker keeps
+  // its 46pt row.
   trailing: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -237,9 +243,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
     flexShrink: 1,
-    marginVertical: settingsColumns
-      ? -rowPadding
-      : (52 - phoneButtonHeight) / 2 - rowPadding,
+    marginVertical: settingsColumns ? -rowPadding : 0,
   },
   block: {
     gap: spacing.s,
@@ -277,12 +281,19 @@ const styles = StyleSheet.create({
     paddingVertical: 18.2,
     borderRadius: radius.settingsDetail,
   },
-  // iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36.4pt one; hit slop keeps
+  popUpChevrons: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36pt one; hit slop keeps
   // the 44pt target.
   button: {
     minHeight: settingsColumns ? 28 * ipadListScale : phoneButtonHeight,
     justifyContent: 'center',
-    paddingHorizontal: spacing.m,
+    paddingHorizontal: settingsColumns ? spacing.m : 14,
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
@@ -945,7 +956,7 @@ export function SettingsRow({
   minHeight,
   children,
 }: {
-  readonly icon?: string | ReactElement;
+  readonly icon?: string | ReactElement | undefined;
   readonly title: string;
   readonly titleTone?: 'accent' | 'destructive' | undefined;
   readonly titleNumberOfLines?: number;
@@ -1001,7 +1012,7 @@ export function SettingsRow({
         {subtitle === undefined ? null : (
           <Text
             style={[
-              type.detail,
+              type.subtitle,
               {
                 color:
                   subtitleTone === 'warning'
@@ -1016,6 +1027,21 @@ export function SettingsRow({
       {children === undefined ? null : (
         <View style={styles.trailing}>{children}</View>
       )}
+    </View>
+  );
+}
+
+// The iPhone Settings Row pop-up's up-down chevrons in a 22pt circle, 12pt after its value.
+export function PopUpChevrons() {
+  const colors = usePalette();
+  return (
+    <View
+      style={[styles.popUpChevrons, { backgroundColor: colors.fillControl }]}>
+      <SFSymbol
+        name="chevron.up.chevron.down"
+        size={13}
+        color={colors.textPrimary}
+      />
     </View>
   );
 }
