@@ -1220,8 +1220,8 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const pinned = useRef(true);
   // The opened message, once this Thread marked it read.
   const markedRef: Marked = useRef(undefined);
-  // oxlint-disable-next-line react/hook-use-state -- One set for this Thread visit, mutated in place.
-  const [announcedFailures] = useState(() => new Set<string>());
+  // oxlint-disable-next-line react/hook-use-state -- One map for this Thread visit, mutated in place.
+  const [announcedFailures] = useState(() => new Map<string, string>());
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state

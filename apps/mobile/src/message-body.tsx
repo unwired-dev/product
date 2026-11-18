@@ -973,11 +973,11 @@ export const QuotedHistoryContext = createContext<'shown' | 'collapsible'>(
   'shown',
 );
 
-// The Thread's failures VoiceOver already heard, by message and sentence, so a body scrolled away
-// and back stays quiet until Try Again.
-export const AnnouncedFailuresContext = createContext<Set<string> | undefined>(
-  undefined,
-);
+// The failure sentence VoiceOver last heard for each of the Thread's messages, so a body scrolled
+// away and back stays quiet until its failure changes or the person chooses Try Again.
+export const AnnouncedFailuresContext = createContext<
+  Map<string, string> | undefined
+>(undefined);
 
 // The iPad frame's six lines, as fractions of its 439pt column.
 const placeholderLines = ['100%', '96%', '88%', '100%', '92%', '54%'] as const;
@@ -1066,16 +1066,15 @@ export function BodyUnavailable({
     ...(download ? { context: ipad ? 'ipad' : 'iphone' } : {}),
   });
   const announced = use(AnnouncedFailuresContext);
-  const heard = `${id}\n${sentence}`;
   // Queued, so a Thread's other failing messages never cut off what VoiceOver is saying.
   useEffect(() => {
-    if (announced?.has(heard) !== true) {
-      announced?.add(heard);
+    if (announced?.get(id) !== sentence) {
+      announced?.set(id, sentence);
       AccessibilityInfo.announceForAccessibilityWithOptions(sentence, {
         queue: true,
       });
     }
-  }, [announced, heard, sentence]);
+  }, [announced, id, sentence]);
   return (
     <View
       style={[
@@ -1108,7 +1107,7 @@ export function BodyUnavailable({
         <Host matchContents>
           <Button
             onPress={() => {
-              announced?.delete(heard);
+              announced?.delete(id);
               onTryAgain();
             }}
             modifiers={[buttonStyle('plain')]}>
