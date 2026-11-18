@@ -1205,6 +1205,11 @@ export function createDrafts(
   let recordCall = 0;
   // Every Draft id this run journaled or forgot, across account changes, which `recovered` leaves out.
   const recordedThisRun = new Set<string>();
+  // Each account's records as read when its storage first opened this run, before it journaled any;
+  // an account whose read storage refused, as while locked, has none until `recovered` reads again.
+  const previousRun = new Map<string, readonly Draft[]>();
+  // The previous run's records whose offer the person answered, which `forget` then removes.
+  const taken = new Set<string>();
   const callRecord = (id: string) => {
     recordedThisRun.add(id);
     recordCall += 1;
@@ -1329,6 +1334,32 @@ export function createDrafts(
       }
     });
 
+  // The account's records as read once this run; a read storage refuses is tried again next call.
+  const capturing = Effect.fnUntraced(function* (
+    current: number,
+    account: string,
+  ) {
+    const captured = previousRun.get(account);
+    if (captured !== undefined) {
+      return captured;
+    }
+    const opened = yield* native(
+      storage.openComposerRecovery,
+      RecoveryOpenedSchema,
+    );
+    if (opened.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    const records = opened.records.flatMap(({ id, document }) => {
+      const draft = Option.getOrUndefined(recoveredDraft(document));
+      return draft?.id === id ? [draft] : [];
+    });
+    if (live(current)) {
+      previousRun.set(account, records);
+    }
+    return records;
+  });
+
   const opening = (current: number, account: string) =>
     Effect.gen(function* () {
       // An open account keeps its in-memory Drafts; a reload only follows a failure.
@@ -1360,6 +1391,9 @@ export function createDrafts(
       sent = confirmed;
       cleanup = opened.document?.deliveryCleanup ?? [];
       dirty = outbox.some((entry, index) => entry !== stored[index]);
+      yield* capturing(current, account).pipe(
+        Effect.catchTag('DraftStorageFailure', report),
+      );
       publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -2351,30 +2385,21 @@ export function createDrafts(
       return stored;
     }).pipe(semaphore.withPermit);
 
-  // The account's records; none while storage is locked, which keeps them for a later read.
+  // The account's previous-run records not yet answered; undefined while storage refuses the read.
   const recovering = (current: number) =>
     Effect.gen(function* () {
       const account = owner;
       if (account === undefined) {
         return [];
       }
-      const opened = yield* native(
-        storage.openComposerRecovery,
-        RecoveryOpenedSchema,
-      );
-      if (opened.owner !== account) {
-        return yield* ownerMismatch();
-      }
+      const records = yield* capturing(current, account);
       return live(current)
-        ? opened.records.flatMap(({ id, document }) => {
-            const draft = Option.getOrUndefined(recoveredDraft(document));
-            return draft?.id === id && !recordedThisRun.has(id) ? [draft] : [];
-          })
+        ? records.filter(({ id }) => !recordedThisRun.has(id) && !taken.has(id))
         : [];
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
       Effect.catchTag('DraftStorageFailure', (error) =>
-        report(error).pipe(Effect.as<readonly Draft[]>([])),
+        report(error).pipe(Effect.as(undefined)),
       ),
     );
 
@@ -2660,9 +2685,14 @@ export function createDrafts(
         void background();
       }
     },
-    // The composer recovery records an earlier run of this account left on this device; a Draft
-    // this store journaled or forgot meanwhile is left out, whenever storage takes those calls.
+    // The composer recovery records an earlier run of this account left on this device, as read
+    // when its storage opened; a Draft this store journaled, forgot or took meanwhile is left out,
+    // whenever storage takes those calls. Resolves undefined while storage refuses that read.
     recovered: () => runLogged(recovering(generation)),
+    // Marks the offer of Draft `id`'s previous-run record as answered, so `forget` removes it.
+    take: (id: string) => {
+      taken.add(id);
+    },
     // Keeps `draft` as its composer shows it in a recovery record on this device, without changing
     // the Drafts; a record refused earlier is written first. Resolves whether every record is stored,
     // leaving one replaced meanwhile to the call that replaced it. A Draft this account's session
@@ -2678,11 +2708,12 @@ export function createDrafts(
     },
     // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did
     // or a later `journal` took the record over. A closing `editor` leaves the record to another
-    // editor still open on that Draft.
+    // editor still open on that Draft, and a record the previous run left stays until `take`.
     forget: (id: string, editor?: (id: string) => void) => {
       if (
-        editor !== undefined &&
-        [...(editors.get(id) ?? [])].some((each) => each !== editor)
+        (editor !== undefined &&
+          [...(editors.get(id) ?? [])].some((each) => each !== editor)) ||
+        (!recordedThisRun.has(id) && !taken.has(id))
       ) {
         return Promise.resolve(true);
       }

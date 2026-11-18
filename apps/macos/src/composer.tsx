@@ -2342,9 +2342,10 @@ function useRecoveryJournal(
 // its Drafts first open, those already offered, and the window offering them. Records this run
 // writes later are never offered, also after switching accounts away and back. One
 // window at a time offers, and keeps the offer while its restored composer is open; releasing it
-// wakes the windows waiting for it.
+// wakes the windows waiting for it. A read storage refused, as while locked, is read again when a
+// window next offers.
 interface RecoveryOffer {
-  readonly records: Promise<readonly Draft[]>;
+  readonly records: Promise<readonly Draft[] | undefined>;
   readonly offered: Set<string>;
   readonly waiting: Set<() => void>;
   window?: object;
@@ -2409,12 +2410,21 @@ export function useRecoveryOffer(
     recoveryOffers.set(store, offers);
     let offer = offers.get(account);
     if (offer === undefined) {
-      offer = {
+      const created: RecoveryOffer = {
         records: store.recovered(),
         offered: new Set(),
         waiting: new Set(),
       };
-      offers.set(account, offer);
+      void (async () => {
+        if (
+          (await created.records) === undefined &&
+          offers.get(account) === created
+        ) {
+          offers.delete(account);
+        }
+      })();
+      offers.set(account, created);
+      offer = created;
     }
     const own = offer;
     const self = window.current;
@@ -2435,8 +2445,10 @@ export function useRecoveryOffer(
     // The record `draft` as storage holds it now, if it has not changed since it was read.
     const unchanged = async (draft: Draft) => {
       const records = await store.recovered();
-      return records.some(
-        (each) => each.id === draft.id && sameContent(each, draft),
+      return (
+        records?.some(
+          (each) => each.id === draft.id && sameContent(each, draft),
+        ) === true
       );
     };
     // Whether record `draft` and its Draft as listed now belong to this window's Profile.
@@ -2452,7 +2464,7 @@ export function useRecoveryOffer(
     // An editor holding the Draft keeps its record; this one holds nothing.
     const discarding = () => undefined;
     const ask = async () => {
-      const records = await own.records;
+      const records = (await own.records) ?? [];
       const draft = records.find(
         (each) => !own.offered.has(each.id) && owned(each),
       );
@@ -2497,6 +2509,7 @@ export function useRecoveryOffer(
       }
       own.offered.add(draft.id);
       if (kept) {
+        store.take(draft.id);
         if (choice === 0) {
           latest.current.onRestore({ version: draft, base });
           return;

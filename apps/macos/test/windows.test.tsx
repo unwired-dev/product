@@ -710,7 +710,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     }
   });
 
-  it('offers only the previous run’s records after a notification launch (#2329)', async () => {
+  it('offers only the previous run’s records after a notification launch (#2329, #2334)', async () => {
     expect.hasAssertions();
     const connection = {
       id: alex,
@@ -775,21 +775,37 @@ describe('mac window selection with the shared mock mailbox', () => {
         <InboxWindow windowId="recover" />
       </AccountContext>
     );
-    // A notification opens a New Message window before any Inbox window, and its edit is journaled.
+    // Notifications open New Message windows before any Inbox window: one journals an edit, and
+    // the other closes its Draft unchanged, which keeps the record not yet offered (#2334).
     const app = await render(
       <AccountContext value={context(account)}>
+        <View testID="current">
+          <ComposerWindow
+            windowId="1"
+            draft={current}
+            profile={defaultProfile}
+          />
+        </View>
         <ComposerWindow
-          windowId="1"
-          draft={current}
+          windowId="2"
+          draft={keptDraft.id}
           profile={defaultProfile}
         />
       </AccountContext>,
     );
     try {
       await fireEvent.changeText(
-        await app.findByLabelText('Subject'),
+        await within(app.getByTestId('current')).findByLabelText('Subject'),
         'Current plan, unsaved',
       );
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'composer-window-2',
+        });
+      });
+      await waitFor(() => {
+        expect(closedWindows()).toContain('composer-window-2');
+      });
       await waitFor(
         () => {
           expect(storage.recoveryRecords().size).toBe(2);
