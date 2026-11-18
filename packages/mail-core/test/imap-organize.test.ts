@@ -681,6 +681,69 @@ describe('organizing IMAP mail', () => {
     relaunched.forget();
   });
 
+  it('hands a receipt only memory held before the later move another window saved from where it left the message', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    imap.deliver('INBOX', { subject: 'Locked' });
+    imap.deliver('INBOX', { subject: 'Other' });
+    let during = () => Promise.resolve();
+    let { imapMessage } = imap.native;
+    const native: NativeImapMailbox = {
+      ...imap.native,
+      imapMessage: (...args) => imapMessage(...args),
+      imapMove: async (...args) => {
+        const receipt = await imap.native.imapMove(...args);
+        await during();
+        return receipt;
+      },
+    };
+    let keeps = false;
+    const relocated = vi.fn<
+      (from: string, to: string | undefined) => Promise<boolean>
+    >(() => Promise.resolve(keeps));
+    const inbox = createImapInbox(native, { relocated });
+    await inbox.load();
+    const state = inbox.getSnapshot();
+    const locked = inboxMessage(state, 'Locked');
+    const other = inboxMessage(state, 'Other');
+    // A concurrent read finds storage locked while the server moves the message.
+    during = async () => {
+      imapMessage = () =>
+        Promise.reject(
+          Object.assign(new Error('Synthetic locked'), { code: 'locked' }),
+        );
+      inbox.retainMessage(other.id, Symbol('reader'));
+      await inbox.readMessage(other.id);
+      ({ imapMessage } = imap.native);
+    };
+    await inbox.organize(locked, action(state, locked, 'archive'));
+    during = () => Promise.resolve();
+    const [from, archived] = first(relocated.mock.calls);
+
+    // Another window discards the blocked move and moves the message on to Trash.
+    const window = createImapInbox(native, { relocated });
+    await window.load();
+    await window.discardPending(blockedId(window.getSnapshot()));
+    await window.openFolder('Archive');
+    const filed = window.folder('Archive');
+    const moved = first(filed.kind === 'ready' ? filed.messages : []);
+    expect(moved.id).toBe(archived);
+    await window.organize(moved, action(window.getSnapshot(), moved, 'trash'));
+    const trashed = relocated.mock.calls.at(-1)?.[1];
+    window.forget();
+
+    keeps = true;
+    relocated.mockClear();
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(relocated.mock.calls).toStrictEqual([
+        [from, archived],
+        [archived, trashed],
+      ]);
+    });
+    inbox.forget();
+  });
+
   it('repeats a relocation not kept once an opening asked again while it was answering', async () => {
     expect.hasAssertions();
     const imap = organizedServer();

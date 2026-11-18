@@ -1422,7 +1422,13 @@ export function createImapInbox(
       const saved = stored.relocations ?? [];
       const known = new Set(saved.map(({ from }) => from));
       const unsaved = relocations.filter(({ from }) => !known.has(from));
-      relocations = [...saved, ...unsaved];
+      // Each goes before a saved move another window made from where it left the message.
+      relocations = unsaved.reduce((merged, receipt) => {
+        const next = merged.findIndex(({ from }) => from === receipt.to);
+        return next === -1
+          ? [...merged, receipt]
+          : [...merged.slice(0, next), receipt, ...merged.slice(next)];
+      }, saved);
       if (unsaved.length > 0) {
         // Another window's commit reopens the cache to save them again; another failure leaves
         // them to the next commit.
