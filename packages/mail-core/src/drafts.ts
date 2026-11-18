@@ -89,7 +89,7 @@ export type {
   SyncedAsset,
 } from './draft-model.ts';
 export type { NativeDraftSync } from './draft-sync.ts';
-export { assetsOf } from './draft-model.ts';
+export { assetsOf, sameContent } from './draft-model.ts';
 export type RecipientField = 'to' | 'cc' | 'bcc';
 
 const DeliveryCleanupSchema = Schema.Struct({
@@ -1203,7 +1203,10 @@ export function createDrafts(
   // The latest journal or forget call per Draft id; storage's semaphore does not keep call order.
   const recordCalls = new Map<string, number>();
   let recordCall = 0;
+  // Every Draft id this run journaled or forgot, across account changes, which `recovered` leaves out.
+  const recordedThisRun = new Set<string>();
   const callRecord = (id: string) => {
+    recordedThisRun.add(id);
     recordCall += 1;
     recordCalls.set(id, recordCall);
     return recordCall;
@@ -2365,7 +2368,7 @@ export function createDrafts(
       return live(current)
         ? opened.records.flatMap(({ id, document }) => {
             const draft = Option.getOrUndefined(recoveredDraft(document));
-            return draft?.id === id ? [draft] : [];
+            return draft?.id === id && !recordedThisRun.has(id) ? [draft] : [];
           })
         : [];
     }).pipe(
@@ -2657,7 +2660,8 @@ export function createDrafts(
         void background();
       }
     },
-    // The composer recovery records this account left on this device.
+    // The composer recovery records an earlier run of this account left on this device; a Draft
+    // this store journaled or forgot meanwhile is left out, whenever storage takes those calls.
     recovered: () => runLogged(recovering(generation)),
     // Keeps `draft` as its composer shows it in a recovery record on this device, without changing
     // the Drafts; a record refused earlier is written first. Resolves whether every record is stored,

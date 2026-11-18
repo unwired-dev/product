@@ -1063,6 +1063,12 @@
     "listLocked": "Drafts are locked. Unlock your device and try again.",
     "listFailed": "Your Drafts didn’t open. They have been kept. Choose Try Again to open them again.",
     "unavailable": "This Draft is not available.",
+    "recover": {
+      "title": "Recover unsaved message?",
+      "detail": "Your unsaved changes were kept on this device.",
+      "restore": "Restore",
+      "discard": "Discard"
+    },
     "loading": "Loading Draft",
     "badge": "DRAFT",
     "rowLabel": "Draft. {{subject}}. {{recipients}}. From {{from}}",
