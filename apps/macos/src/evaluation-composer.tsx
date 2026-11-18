@@ -60,6 +60,7 @@ import {
   Notice,
   retires,
   SendingMailbox,
+  useRecoverySnapshot,
 } from './composer.tsx';
 import { askInSheet, Button, MenuPresence, ToolbarButton } from './design.tsx';
 import { PageFormatBar, DraftFields } from './evaluation-composer-controls.tsx';
@@ -952,6 +953,7 @@ type ComposerProps = Readonly<{
 // `registration-draft-editor` builds open Drafts in the Tiptap evaluation editor; every other
 // build keeps the current composer.
 export function DraftComposer(props: ComposerProps) {
+  useRecoverySnapshot();
   const draft = draftOf(useDrafts(), props.id);
   const mailboxes = use(AccountContext)?.mailboxes ?? [];
   // Assistance for a Draft follows the consent of the Mail Profile that owns its sender.

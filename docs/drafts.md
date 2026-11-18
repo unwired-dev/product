@@ -796,7 +796,7 @@ copy when the Draft changed since the alert appeared; either way the record goes
 once the composer holds no unsaved version. **Discard** removes the record, unless
 another composer has the Draft open, and leaves the stored Draft as it was. The next
 record waits until the restored composer closes. Records this run writes after the
-account's first Inbox window opens are never offered, also after switching accounts
+account's first Inbox or New Message window opens are never offered, also after switching accounts
 away and back. While storage is locked the alerts wait for it to open. A record
 whose Draft is no longer listed, that changed since it was read, whose alert closed
 without an answer, or whose removal failed, stays for the next launch. The Mac
