@@ -353,10 +353,17 @@ extension PrivateInboxTests {
     #expect(throws: RegistrationError.unavailable) { try code("error=access_denied&state=other") }
     #expect(throws: RegistrationError.unavailable) { try code("error=access_denied") }
     #expect(throws: RegistrationError.unavailable) { try code("code=granted&state=expected&state=other") }
-    #expect(throws: RegistrationError.unavailable) {
+    // Outlook.com answers with the redirect URI's trailing slash.
+    #expect(
       try GraphMailProvider.authorizationCode(
-        #require(URL(string: "msauth.dev.unwired.mail://other?code=granted&state=expected")),
-        state: "expected", callbackScheme: "msauth.dev.unwired.mail")
+        #require(URL(string: "msauth.dev.unwired.mail://auth/?code=granted&state=expected")),
+        state: "expected", callbackScheme: "msauth.dev.unwired.mail") == "granted")
+    for other in ["other", "auth/other", "auth//"] {
+      #expect(throws: RegistrationError.unavailable) {
+        try GraphMailProvider.authorizationCode(
+          #require(URL(string: "msauth.dev.unwired.mail://\(other)?code=granted&state=expected")),
+          state: "expected", callbackScheme: "msauth.dev.unwired.mail")
+      }
     }
     #expect(
       GraphMailProvider.challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")

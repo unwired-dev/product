@@ -343,3 +343,25 @@ unknown outcome safely stays unknown), Bcc and threading in Outlook, and native
 iPhone, iPad and Mac send journeys, in
 [#637](https://github.com/unwired-dev/product/issues/637) and the launch
 qualification [#855](https://github.com/unwired-dev/product/issues/855).
+
+## Protected Outlook.com runs
+
+Each record holds only non-secret facts: no addresses, tokens, authorization URLs or
+mail content.
+
+- **2026-11-18, iPhone connect and read
+  ([#2386](https://github.com/unwired-dev/product/issues/2386)).** Target: Expo
+  client, Release build without a Mock Mail Session, iPhone Simulator on iOS 27.0, with
+  the development Convex deployment and the Microsoft public-client ID. Build: the app source of
+  `d9d685353b829a161babd7018ac216f8aea17dc6`, which adds the callback fix from
+  [#2389](https://github.com/unwired-dev/product/issues/2389).
+  Toolchain: Xcode 27.2 (27B52). Operator: agent, with credentials read at run time from
+  the approved password manager. Granted scopes, as the account's app permissions list
+  them: `offline_access`, `User.Read`, `Mail.ReadWrite` and `Mail.Send`, the full
+  requested set; Microsoft shows the app as unverified. Result: pass. Google Product Sign-In, then **Microsoft 365 and
+  Outlook** connected the personal mailbox; the Inbox listed real messages and one opened
+  in the reader. Before the fix, every real consent ended on **Mailbox access was
+  interrupted**. Limitations: after connecting, Private Sync pulls failed as unavailable
+  ([#2390](https://github.com/unwired-dev/product/issues/2390)). Mac, iPad, organizing,
+  search, attachments, sending, renewal after relaunch and revocation were not run and
+  stay on #637.
