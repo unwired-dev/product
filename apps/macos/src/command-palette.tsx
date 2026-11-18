@@ -181,6 +181,8 @@ const styles = StyleSheet.create({
   // In the reader's toolbar row, level with its glass groups.
   floating: { position: 'absolute', top: spacing.m, height: inputHeight },
   windowTitle: { ...textStyles.bodyEmphasized, width: 224, flexShrink: 1 },
+  // Open, the title returns the width the query takes, so the panel beneath it stays in the window.
+  openWindowTitle: { width: 120 },
   field: { width: inputWidth },
   toolbarField: { flex: 1, minWidth: toolbarInputWidth, maxWidth: inputWidth },
   compactToolbarField: { width: compactToolbarInputWidth },
@@ -623,7 +625,11 @@ export function CommandBar({
           <Text
             accessible={false}
             numberOfLines={1}
-            style={[styles.windowTitle, { color: colors.textPrimary }]}>
+            style={[
+              styles.windowTitle,
+              opened !== undefined && styles.openWindowTitle,
+              { color: colors.textPrimary },
+            ]}>
             {title}
           </Text>
         ) : null}
