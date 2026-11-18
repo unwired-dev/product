@@ -163,7 +163,8 @@ transport and known native exit gaps.
   [#2396](https://github.com/unwired-dev/product/issues/2396)). A docked iPad reply says it on one line above its From and Send
   instead. On iPhone and iPad, a sending mailbox that needs sign-in again shows
   the Authorization Needed banner under From with **Sign In…** (at the
-  accessibility text sizes it scrolls with the Draft), and the other
+  accessibility text sizes it scrolls with the Draft, except under a docked
+  reply's From and Send), and the other
   reasons the Outbox finds before Send show among the composer's notices. An address
   already in To, Cc or Bcc is not added again and shows **Already added**. Once Cc
   or Bcc is shown or holds a recipient or text, both stay shown for that Draft.
