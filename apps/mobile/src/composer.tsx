@@ -2496,6 +2496,9 @@ function ReplyFooter({
 // How long after an edit its composer recovery record is written: the most typing that ending the
 // app can lose (ADR 0077).
 const journalDelay = 2000;
+// Whether the Drafts store holds every edit it was given.
+const savedOf = (state: DraftsState) =>
+  state.kind === 'ready' && state.save === 'saved';
 
 // Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
 // returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
@@ -3221,7 +3224,7 @@ function Editor({
   // Another Draft's failed save does not make this editor's unchanged version unsaved.
   const unsaved = useRef(false);
   useLayoutEffect(() => {
-    if (state.kind === 'ready' && state.save === 'saved') {
+    if (savedOf(state)) {
       unsaved.current = false;
     }
   }, [state]);
@@ -3388,6 +3391,13 @@ function Editor({
     }, []),
     rebind,
   );
+  // Save Drafts in the Inbox can store this editor's version while it stays open.
+  const saved = savedOf(state);
+  useEffect(() => {
+    if (saved) {
+      journalNow();
+    }
+  }, [saved, journalNow]);
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
   const { linkEditor, generatePrompt } = useOpenPresenters({

@@ -2448,6 +2448,46 @@ describe('composing Drafts', () => {
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsent plan');
   });
 
+  it('removes the recovery record once a retry elsewhere stores the version a refused Save Draft kept open', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      await screen.findByLabelText('Subject'),
+      'Unsaved plan',
+    );
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    storage.setLocked(true);
+    await saveDraft();
+    expect(
+      screen.getByText(
+        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+      ),
+    ).toBeOnTheScreen();
+    // Save Drafts in the Inbox stores the version while the composer stays open.
+    storage.setLocked(false);
+    await act(async () => {
+      await drafts.save();
+    });
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(0);
+    });
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved plan');
+  });
+
   it('journals again on return to the foreground and removes the record on Save Draft and Delete Draft', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
