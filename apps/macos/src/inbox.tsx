@@ -374,7 +374,7 @@ function OnlineResults({
   }
   return (
     <View>
-      {found?.results.length === 0 && found.failures.length === 0 ? (
+      {found?.results.length === 0 && !searchIncomplete(search) ? (
         <Text style={[styles.notice, { color: colors.textSecondary }]}>
           {t('search.onlineEmpty', { query })}
         </Text>
