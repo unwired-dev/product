@@ -806,12 +806,14 @@ function headingOf(
     };
   }
   // No Results names the folder its empty state names; the mail servers search the whole mailbox.
-  // Without a complete answer, nothing is claimed about matches.
+  // Without a complete answer, or a ready mailbox to give one, nothing is claimed about matches.
   if (count === 0) {
     return {
       title,
       subtitle:
-        unlisted || searchIncomplete(search)
+        unlisted ||
+        searchIncomplete(search) ||
+        !shown.some(({ state }) => state.kind === 'ready')
           ? emptyScope
           : t('search.subtitleRegular', { count, scope: emptyScope }),
       emptyScope,
