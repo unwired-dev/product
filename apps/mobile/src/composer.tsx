@@ -569,7 +569,13 @@ export const layoutStyles = {
       minWidth: 60,
     },
     token: { minHeight: compactFieldHeight },
-    tokenFill: { paddingHorizontal: 10, paddingVertical: 3 },
+    // A short name's token still makes a 44pt wide target.
+    tokenFill: {
+      minWidth: 44,
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+    },
     tokenText: textStyles.body,
     trailing: { height: compactFieldHeight, justifyContent: 'center' },
     assetChip: { gap: 10 },
