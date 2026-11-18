@@ -240,8 +240,9 @@ const compactFieldHeight = 44 - compactRule;
 const padRule = ipadListScale;
 const padFieldHeight = 36 * ipadListScale - padRule;
 const titledSendHeight = 28 * ipadListScale;
+// iPhone's targets reach up over their own row's rule, so none reaches into the next row.
 export const fieldSlop = {
-  compact: (44 - compactFieldHeight) / 2,
+  compact: { top: compactRule, bottom: 0 },
   regular: (44 - padFieldHeight) / 2,
 } as const;
 
