@@ -35,6 +35,7 @@ import {
   SettingsRow,
   SettingsWorkspace,
   settingsColumns,
+  switchRowHeight,
 } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -45,7 +46,7 @@ const styles = StyleSheet.create({
   action: {
     minHeight: 52,
     justifyContent: 'center',
-    paddingHorizontal: settingsColumns ? spacing.m * ipadListScale : 15.6,
+    paddingHorizontal: settingsColumns ? spacing.m * ipadListScale : spacing.l,
     paddingVertical: 13,
     flexDirection: 'row',
     alignItems: 'center',
@@ -287,8 +288,7 @@ export function ErrorReportingSettings({
         <SettingsRow
           title={t('errorReporting.share')}
           disabled={!available}
-          // The frames draw the sharing switch's row at 52pt, as the reporting actions below.
-          minHeight={52}>
+          minHeight={switchRowHeight}>
           <Switch
             accessibilityLabel={t('errorReporting.share')}
             accessibilityState={{

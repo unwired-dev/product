@@ -11,7 +11,12 @@ import type { SettingsButton } from './settings.tsx';
 
 import { useLocalization } from './localization.ts';
 import { notifications } from './registration.ts';
-import { settingsColumns, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  settingsColumns,
+  SettingsGroup,
+  SettingsRow,
+  switchRowHeight,
+} from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 type NotificationSettingsStore = Omit<typeof notifications, 'arrived'>;
@@ -83,7 +88,8 @@ function MailboxNotifications({
       subtitle={
         notificationFailure === id ? t('notifications.changeFailed') : undefined
       }
-      subtitleTone="warning">
+      subtitleTone="warning"
+      minHeight={switchRowHeight}>
       <Switch
         accessibilityLabel={title}
         // Until permission is known, a first enable could not ask for it.
@@ -176,7 +182,9 @@ export function NotificationSettings({
             settings={settings}
           />
         </SettingsRow>
-        <SettingsRow title={t('notifications.previews')}>
+        <SettingsRow
+          title={t('notifications.previews')}
+          minHeight={switchRowHeight}>
           <Switch
             accessibilityLabel={t('notifications.previews')}
             disabled={settings === undefined}

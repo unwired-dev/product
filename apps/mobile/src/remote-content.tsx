@@ -125,9 +125,8 @@ export function useRemoteImages({
 
 const styles = StyleSheet.create({
   label: { ...textStyles.subheadline },
-  // On iPhone the pop-up's 44pt target reaches into the row's padding as far as a 36.4pt push
-  // button's, keeping the row 52pt.
-  popUpTarget: { marginVertical: settingsColumns ? 0 : (36.4 - 44) / 2 },
+  // On iPhone the pop-up's 44pt target reaches into the row's padding, keeping the row 52pt.
+  popUpTarget: { marginVertical: settingsColumns ? 0 : -spacing.m },
   // The pop-up: the chosen policy and its chevrons at the row's trailing edge.
   popUp: {
     minHeight: 44,
