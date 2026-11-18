@@ -2338,8 +2338,9 @@ function useRecoveryJournal(
   return [close, write] as const;
 }
 
-// The composer recovery records the previous run left, read once each time the Drafts open, those
-// already offered, and the window offering them. Records this run writes are never offered. One
+// The composer recovery records the previous run left for a Product Account, read once a run when
+// its Drafts first open, those already offered, and the window offering them. Records this run
+// writes later are never offered, also after switching accounts away and back. One
 // window at a time offers, and keeps the offer while its restored composer is open; releasing it
 // wakes the windows waiting for it.
 interface RecoveryOffer {
@@ -2348,7 +2349,10 @@ interface RecoveryOffer {
   readonly waiting: Set<() => void>;
   window?: object;
 }
-const recoveryOffers = new WeakMap<object, RecoveryOffer>();
+const recoveryOffers = new WeakMap<
+  object,
+  Map<string | undefined, RecoveryOffer>
+>();
 
 // A restored composer recovery record: the unsaved `version` and the Draft as listed when it was
 // offered, which the editor saves against.
@@ -2379,7 +2383,9 @@ export function useRecoveryOffer(
   const store = useDraftStore();
   const ready = useDrafts().kind === 'ready';
   const profile = useProfile();
-  const mailboxes = use(AccountContext)?.mailboxes;
+  const accountContext = use(AccountContext);
+  const mailboxes = accountContext?.mailboxes;
+  const account = accountContext?.account;
   const { t } = useLocalization();
   const anchor = useRef<View>(null);
   const window = useRef({});
@@ -2390,23 +2396,25 @@ export function useRecoveryOffer(
   });
   useEffect(
     () => () => {
-      releaseOffer(recoveryOffers.get(store), window.current);
+      releaseOffer(recoveryOffers.get(store)?.get(account), window.current);
     },
-    [store],
+    [account, store],
   );
   useEffect(() => {
     if (!ready) {
-      recoveryOffers.delete(store);
       return;
     }
-    let offer = recoveryOffers.get(store);
+    const offers =
+      recoveryOffers.get(store) ?? new Map<string | undefined, RecoveryOffer>();
+    recoveryOffers.set(store, offers);
+    let offer = offers.get(account);
     if (offer === undefined) {
       offer = {
         records: store.recovered(),
         offered: new Set(),
         waiting: new Set(),
       };
-      recoveryOffers.set(store, offer);
+      offers.set(account, offer);
     }
     const own = offer;
     const self = window.current;
@@ -2484,13 +2492,15 @@ export function useRecoveryOffer(
       }
       wake();
     };
-    // An offer that fails unexpectedly lets the other windows offer; store calls log their own
-    // failures.
+    // An offer that fails unexpectedly lets the other windows offer, unless a later attempt has
+    // replaced it; store calls log their own failures.
     const offerNext = async () => {
       try {
         await ask();
       } catch {
-        releaseOffer(own, self);
+        if (current) {
+          releaseOffer(own, self);
+        }
       }
     };
     void offerNext();
@@ -2499,7 +2509,7 @@ export function useRecoveryOffer(
       question?.retire();
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each answer asks again.
-  }, [composing, profile, ready, round, store, t]);
+  }, [account, composing, profile, ready, round, store, t]);
   return anchor;
 }
 

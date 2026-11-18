@@ -796,11 +796,14 @@ copy when the Draft changed since the alert appeared; either way the record goes
 once the composer holds no unsaved version. **Discard** removes the record, unless
 another composer has the Draft open, and leaves the stored Draft as it was. The next
 record waits until the restored composer closes. Records this run writes after the
-first Inbox window opens are never offered. While storage is locked the alerts wait
-for it to open. A record whose Draft is no longer listed, that changed since it was
-read, whose alert closed without an answer, or whose removal failed, stays for the
-next launch. Offering the records on iPhone and iPad follows in
-[#1989](https://github.com/unwired-dev/product/issues/1989).
+account's first Inbox window opens are never offered, also after switching accounts
+away and back. While storage is locked the alerts wait for it to open. A record
+whose Draft is no longer listed, that changed since it was read, whose alert closed
+without an answer, or whose removal failed, stays for the next launch. The Mac
+TypeScript client (`useRecoveryOffer` in `apps/macos/src/composer.tsx`) chooses each
+record and rechecks it before acting; AppKit presents the alert as a sheet on the
+Inbox window through `UnwiredAlert`. Offering the records on iPhone and iPad follows
+in [#1989](https://github.com/unwired-dev/product/issues/1989).
 
 A Draft's **Send Reminder** is stored on this device
 ([#2074](https://github.com/unwired-dev/product/issues/2074), a first slice of
