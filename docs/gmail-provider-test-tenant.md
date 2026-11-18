@@ -1,7 +1,7 @@
 # Dedicated Gmail test accounts
 
-Status: awaiting [operator attestation](https://github.com/unwired-dev/product/issues/1528)
-for the consumer-account setup.
+Status: ready. The owner attested the consumer-account setup on 2026-11-18
+([#1528](https://github.com/unwired-dev/product/issues/1528)).
 
 Use at least two dedicated ordinary `@gmail.com` accounts for protected Gmail
 qualification. The owner selected this setup on 2026-10-29 in
@@ -66,7 +66,8 @@ The earlier schema-1 Workspace attestation from 2026-10-23 covered the retired
 Swift client. It does not establish readiness of consumer accounts or the
 maintained clients. Schema 2 replaces `tenant` with `accounts`, and
 `audience_internal` with `audience_external`; old records must not authorize this
-setup. Account provisioning and protected execution have not been newly attested.
+setup. The owner attested the consumer accounts and protected execution on
+2026-11-18 in the record below.
 
 The canonical artifact remains the single YAML block in this section of
 `docs/gmail-provider-test-tenant.md`. After human verification, an authorized
@@ -77,26 +78,26 @@ secret names, recovery channels or links to protected systems.
 
 ```yaml
 schema_version: 2
-status: awaiting_operator_attestation
-verified_at: null
+status: ready
+verified_at: 2026-11-18T16:59:27Z
 accounts:
-  project_controlled: false
-  synthetic_only: false
-  at_least_two_test_users: false
+  project_controlled: true
+  synthetic_only: true
+  at_least_two_test_users: true
 oauth:
-  audience_external: false
-  scopes_match_client: false
+  audience_external: true
+  scopes_match_client: true
 operations:
-  administrative_owner_recorded: false
-  mfa_recorded: false
-  recovery_recorded: false
-  lifecycle_recorded: false
-  cost_owner_recorded: false
+  administrative_owner_recorded: true
+  mfa_recorded: true
+  recovery_recorded: true
+  lifecycle_recorded: true
+  cost_owner_recorded: true
 secrets:
-  approved_system_only: false
-  repository_exposure_reviewed: false
+  approved_system_only: true
+  repository_exposure_reviewed: true
 automation:
-  authorizer_role: null
+  authorizer_role: product owner
 ```
 
 The protected workflow must find exactly one artifact, parse schema 2, and reject
