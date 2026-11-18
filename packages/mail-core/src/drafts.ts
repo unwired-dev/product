@@ -129,8 +129,18 @@ const RecoveryOpenedSchema = Schema.Struct({
   ),
 });
 const RecordedSchema = Schema.Struct({ owner: Schema.NonEmptyString });
-const RecoveryRecordSchema = Schema.fromJsonString(DraftSchema);
-const recoveredDraft = Schema.decodeUnknownOption(RecoveryRecordSchema);
+// A composer recovery record: the unsaved `version` and the stored version its edits started
+// from, which a composer whose save is pending or failed leaves out.
+const RecoverySchema = Schema.Struct({
+  version: DraftSchema,
+  base: Schema.optionalKey(DraftSchema),
+});
+export type Recovery = typeof RecoverySchema.Type;
+const RecoveryRecordSchema = Schema.fromJsonString(RecoverySchema);
+// A record written before #2332 holds only the unsaved version.
+const recoveredRecord = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Union([RecoverySchema, DraftSchema])),
+);
 
 // Recipients ------------------------------------------------------------------------------------
 
@@ -1199,7 +1209,7 @@ export function createDrafts(
   // Edits in memory that storage does not hold yet.
   let dirty = false;
   // Composer recovery records storage refused, as while locked, which the next record write retries.
-  const unrecorded = new Map<string, Draft>();
+  const unrecorded = new Map<string, Recovery>();
   // The latest journal or forget call per Draft id; storage's semaphore does not keep call order.
   const recordCalls = new Map<string, number>();
   let recordCall = 0;
@@ -1207,7 +1217,7 @@ export function createDrafts(
   const recordedThisRun = new Set<string>();
   // The account's records as read once its storage opened, as the Drafts are first listed; none
   // while storage refuses that read, as while locked, until `recovered` reads again.
-  let previousRun: readonly Draft[] | undefined = undefined;
+  let previousRun: readonly Recovery[] | undefined = undefined;
   // The read the account's storage opening started, which `recovered` waits for before reading again.
   let reading: Promise<unknown> | undefined = undefined;
   // The previous run's records whose offer the person answered, which `forget` then removes.
@@ -1352,8 +1362,12 @@ export function createDrafts(
       return yield* ownerMismatch();
     }
     const records = opened.records.flatMap(({ id, document }) => {
-      const draft = Option.getOrUndefined(recoveredDraft(document));
-      return draft?.id === id ? [draft] : [];
+      const decoded = Option.getOrUndefined(recoveredRecord(document));
+      const record =
+        decoded === undefined || 'version' in decoded
+          ? decoded
+          : { version: decoded };
+      return record?.version.id === id ? [record] : [];
     });
     if (live(current)) {
       previousRun = records;
@@ -2340,10 +2354,11 @@ export function createDrafts(
 
   const writeRecord = Effect.fnUntraced(function* (
     account: string,
-    draft: Draft,
+    record: Recovery,
   ) {
+    const draft = record.version;
     const document = yield* Schema.encodeEffect(RecoveryRecordSchema)(
-      draft,
+      record,
     ).pipe(Effect.mapError(malformed));
     const assets = assetsOf(draft).flatMap((asset) =>
       asset.state === 'complete' ? [asset.id] : [],
@@ -2359,23 +2374,23 @@ export function createDrafts(
     copied.delete(draft.id);
     // This record replaces any a forget kept for Draft `draft.id`.
     withheld.delete(draft.id);
-    if (unrecorded.get(draft.id) === draft) {
+    if (unrecorded.get(draft.id) === record) {
       unrecorded.delete(draft.id);
     }
   });
 
   // Writes every record storage has not taken yet, oldest first; one refused stays for the next.
   // `pending` is the call's snapshot: an entry replaced or forgotten meanwhile belongs to a later call.
-  const journaling = (current: number, pending: readonly Draft[]) =>
+  const journaling = (current: number, pending: readonly Recovery[]) =>
     Effect.gen(function* () {
       const account = owner;
       let stored = true;
-      for (const draft of pending) {
+      for (const record of pending) {
         if (!live(current) || account === undefined) {
           return false;
         }
-        if (unrecorded.get(draft.id) === draft) {
-          const written = yield* writeRecord(account, draft).pipe(
+        if (unrecorded.get(record.version.id) === record) {
+          const written = yield* writeRecord(account, record).pipe(
             Effect.as(true),
             Effect.catchTag('DraftStorageFailure', (error) =>
               report(error).pipe(Effect.as(false)),
@@ -2403,7 +2418,9 @@ export function createDrafts(
       }
       const records = yield* capturing(current, account);
       return live(current)
-        ? records.filter(({ id }) => !recordedThisRun.has(id) && !taken.has(id))
+        ? records.filter(
+            ({ version: { id } }) => !recordedThisRun.has(id) && !taken.has(id),
+          )
         : [];
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -2696,25 +2713,32 @@ export function createDrafts(
         void background();
       }
     },
-    // The composer recovery records an earlier run of this account left on this device, as read
-    // when its storage opened; a Draft this store journaled, forgot or took meanwhile is left out,
-    // whenever storage takes those calls. Resolves undefined while storage refuses that read.
+    // The composer recovery records an earlier run of this account left on this device, each the
+    // unsaved version and any base it was journaled with, as read when its storage opened; a Draft
+    // this store journaled, forgot or took meanwhile is left out, whenever storage takes those
+    // calls. Resolves undefined while storage refuses that read.
     recovered: () => runLogged(recovering(generation)),
     // Marks the offer of Draft `id`'s previous-run record as answered, so `forget` removes it.
     take: (id: string) => {
       taken.add(id);
     },
-    // Keeps `draft` as its composer shows it in a recovery record on this device, without changing
-    // the Drafts; a record refused earlier is written first. Resolves whether every record is stored,
-    // leaving one replaced meanwhile to the call that replaced it. A Draft this account's session
-    // never listed, as one an editor opened before the Product Account changed, writes nothing.
-    journal: (draft: Draft) => {
+    // Keeps `draft` as its composer shows it in a recovery record on this device, with `origin`, the
+    // stored version its edits started from, without changing the Drafts; a record refused earlier
+    // is written first. Resolves whether every record is stored, leaving one replaced meanwhile to
+    // the call that replaced it. A Draft this account's session never listed, as one an editor
+    // opened before the Product Account changed, writes nothing.
+    journal: (draft: Draft, origin?: Draft) => {
       if (!known.has(draft.id)) {
         return Promise.resolve(false);
       }
       callRecord(draft.id);
       unrecorded.delete(draft.id);
-      unrecorded.set(draft.id, draft);
+      unrecorded.set(
+        draft.id,
+        origin === undefined
+          ? { version: draft }
+          : { version: draft, base: origin },
+      );
       return runLogged(journaling(generation, [...unrecorded.values()]));
     },
     // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did

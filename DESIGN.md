@@ -400,6 +400,10 @@ styles) so the file stays editable.
 - **iPad top row:** the sidebar's buttons, the Command Input with Select, and the
   reader toolbar share one centre line, 36pt below the top safe area. The
   full-screen frames, with their 32pt status bar, draw it 68pt from the top.
+- **iPad Portrait:** when the columns sit side by side, Mailboxes hides; at
+  834×1210 the 391pt list sits beside a 442pt reader, whose content is inset 23pt with no initials beside the sender and
+  whose Thread lies flat between separators, as on iPhone; **Show Sidebar** beside the Command Input brings Mailboxes back. Settings
+  keeps its 248pt sidebar beside the detail.
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
   then the primary Unified Mailboxes (Inbox, Snoozed, Pins and Sent),
   secondary Archive, All Mail, Spam and Trash, one collapsible section per
@@ -676,8 +680,9 @@ form accessories, keyboards, status bar).
   Send toast offers Undo during the Undo Send Window. Window preferences follow the
   [delivery requirements](docs/product/messages-and-delivery.md#authored-content-and-delivery-attempts).
   [Outbox rows](docs/outbox.md#sending) show waiting, refusal and unknown-outcome
-  states with recovery controls after the toast ends. Its refusal state follows
-  the [Outbox delivery rules](docs/outbox.md#delivery-rules).
+  states with recovery controls after the toast ends. On iPhone the reason shows
+  in full and the controls are 44pt `fill/quiet` capsules on a line under it. Its
+  refusal state follows the [Outbox delivery rules](docs/outbox.md#delivery-rules).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Suggest Reply, Proofread, Break into Paragraphs, Translate, Expand
@@ -850,12 +855,15 @@ app follows under the issue named:
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
   and Failed states, wait for #2092.
-- **iPad Portrait:** the Thread, inline composer, Search Results and Settings
-  layouts at 834×1210 wait for #2095.
+- **iPad Portrait:** the inline composer's size and format bar at 834×1210
+  wait for #2095.
+- **Thread view toolbar:** the Thread Long frames draw the reader toolbar over
+  the Thread; the Thread view offers its actions once #846 tells message actions
+  from Thread actions.
+- **iPad top search match:** the frames put the best match directly under Top
+  Results, above the date sections, which waits for #2372.
 - **German strings:** no check lays the screens out at German lengths until
   #2096.
-- **iPhone Outbox:** the rows have their recovery controls; drawing them as
-  44pt quiet capsules under a two-line reason waits for #2098.
 - **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
   failing Mailbox Connection wait for #2099.
 - **iPhone alert, hint and Settings failure:** the two-sentence Trusted Device

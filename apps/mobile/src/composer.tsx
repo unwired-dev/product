@@ -14,6 +14,7 @@ import type {
   Recipient,
   RecipientField,
   RecipientNotice,
+  Recovery,
 } from '@private-email/mail-core/drafts';
 import type {
   MailTemplate,
@@ -2494,14 +2495,14 @@ function ReplyFooter({
 // app can lose (ADR 0077).
 const journalDelay = 2000;
 
-// Keeps the editor's unsaved version, which `unsavedVersion` returns, in a composer recovery record
-// a few seconds after each `edited` change and when the app returns to the foreground, retrying a
+// Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
+// returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
 // record locked storage refused. The records it wrote go once the version is unchanged again. The
 // returned function closes the journal, removing those records and that of Draft `id` the editor
 // closes on, which another editor's journal may have written.
 function useRecoveryJournal(
   edited: unknown,
-  unsavedVersion: () => Draft | undefined,
+  unsaved: () => Recovery | undefined,
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
@@ -2517,14 +2518,14 @@ function useRecoveryJournal(
   const write = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
-    const version = closed.current ? undefined : unsavedVersion();
-    if (version === undefined) {
+    const kept = closed.current ? undefined : unsaved();
+    if (kept === undefined) {
       forget();
       return;
     }
-    journaled.current.add(version.id);
-    void store.journal(version);
-  }, [forget, store, unsavedVersion]);
+    journaled.current.add(kept.version.id);
+    void store.journal(kept.version, kept.base);
+  }, [forget, store, unsaved]);
   const seen = useRef(edited);
   useEffect(() => {
     if (seen.current === edited) {
@@ -3168,13 +3169,15 @@ function Editor({
   const draft = history.present;
   const closeRecord = useRecoveryJournal(
     draft,
-    useCallback(
-      () =>
-        authored.current !== stored.current || unsaved.current
-          ? authored.current
-          : undefined,
-      [],
-    ),
+    useCallback(() => {
+      if (authored.current === stored.current && !unsaved.current) {
+        return undefined;
+      }
+      // No base while a save is pending or failed: storage may still hold the version before it.
+      return unsaved.current
+        ? { version: authored.current }
+        : { version: authored.current, base: stored.current };
+    }, []),
     rebind,
   );
   const assistance = use(AssistanceContext);

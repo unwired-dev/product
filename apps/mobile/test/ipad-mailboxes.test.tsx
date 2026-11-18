@@ -3,11 +3,12 @@ import type { Platform } from 'react-native';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { act, render, screen } from '@testing-library/react-native';
+import { act, render, renderHook, screen } from '@testing-library/react-native';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { useSidebarToggle } from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 
 // Set the device boundary before the sidebar's platform-specific modules load.
@@ -38,6 +39,28 @@ jest.mock('react-native-safe-area-context', () => ({
 const ignore = () => undefined;
 
 describe('iPad Mailboxes', () => {
+  it('hides Mailboxes again after a swipe shows them over the Portrait default', async () => {
+    expect.hasAssertions();
+    const { result } = await renderHook(() => useSidebarToggle(true, true));
+    // UIKit places the columns; then Portrait asks for the list beside the reader alone.
+    await act(() => {
+      result.current.follow('twoBesideSecondary');
+    });
+    expect(result.current.displayMode).toBe('oneBesideSecondary');
+    await act(() => {
+      result.current.follow('oneBesideSecondary');
+    });
+    // A swipe from the leading edge shows Mailboxes, so Hide Sidebar asks UIKit for a change.
+    await act(() => {
+      result.current.follow('twoBesideSecondary');
+    });
+    expect(result.current.displayMode).toBe('twoBesideSecondary');
+    await act(() => {
+      result.current.value?.toggle();
+    });
+    expect(result.current.displayMode).toBe('oneBesideSecondary');
+  });
+
   it('shows a connection that needs sign-in beside its header and in the list subtitle', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

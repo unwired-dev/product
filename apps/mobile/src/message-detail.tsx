@@ -38,6 +38,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -111,6 +112,14 @@ const toolbarLift = 2;
 // The iPad reader follows the Mac reading pane at 1.15×: 46pt side padding, and the subject 82.8pt
 // beneath the safe area, under the toolbar.
 const sideInset = compact ? spacing.l : 40 * ipadListScale;
+// The iPad Portrait frames halve it beside the 442pt reader, leaving no room for hanging initials.
+const portraitInset = { paddingHorizontal: 20 * ipadListScale };
+// Only a reader beside the list; a collapsed window's full-width reader keeps the wide inset.
+const usePortrait = () => {
+  const { width, height } = useWindowDimensions();
+  return use(SidebarToggleContext) !== undefined && height > width;
+};
+const usePortraitInset = () => (usePortrait() ? portraitInset : undefined);
 const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
 // iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the toolbar's
 // glass.
@@ -211,7 +220,10 @@ const styles = StyleSheet.create({
   // A bar beside the opened message, so it stands out without relying on color. It takes its
   // width from the padding, so the body keeps its width as the palette opens and closes.
   openedMessage: { borderLeftWidth: 4, paddingLeft: spacing.l - 4 },
-  // On iPhone the tint reaches 16pt beyond the text, which stays on the content's axis.
+  // The iPad Portrait frames draw the Thread flat as iPhone's, on the reader's 23pt inset.
+  flatMessage: { paddingHorizontal: 0, borderRadius: 0 },
+  // On iPhone and in iPad Portrait the tint reaches 16pt beyond the text, which stays on the
+  // content's axis.
   compactOpenedMessage: {
     marginHorizontal: -spacing.l,
     paddingRight: spacing.l,
@@ -454,9 +466,10 @@ function RegularHeader({ subject }: { readonly subject: string }) {
   const colors = usePalette();
   const header = usePaletteHeader();
   const besideList = use(SidebarToggleContext) !== undefined;
+  const inset = usePortraitInset();
   return (
     <View
-      style={styles.header}
+      style={[styles.header, inset]}
       {...header.swipe}>
       <View
         accessible
@@ -851,6 +864,7 @@ function MessageMetadata({
 }) {
   const state = useInbox();
   const inbox = useInboxActions();
+  const portrait = usePortrait();
   const headers = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox
       ? inbox.responseSource(message.id)?.headers
@@ -880,6 +894,7 @@ function MessageMetadata({
         <MessageHeader
           message={message}
           hanging={!compact}
+          monogram={!portrait}
           recipients={[
             ...(to === '' ? [] : [t(recipientKeys.to, { recipients: to })]),
             ...(cc === '' ? [] : [t(recipientKeys.cc, { recipients: cc })]),
@@ -1036,6 +1051,7 @@ function MailboxMessage({
   const account = use(AccountContext);
   const windowBar = use(WindowBarContext);
   const insets = useSafeAreaInsets();
+  const inset = usePortraitInset();
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [panel, setPanel] = useState<ReaderPanel>();
   const colors = usePalette();
@@ -1107,6 +1123,7 @@ function MailboxMessage({
           <ReaderScrollView
             contentContainerStyle={[
               singleContent,
+              inset,
               clearsBottom(windowBar !== undefined, insets.bottom),
             ]}>
             {/* iPhone counts a single message as its frames count a thread's. */}
@@ -1196,6 +1213,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const mailbox = useMailbox();
   const windowBar = use(WindowBarContext);
   const insets = useSafeAreaInsets();
+  const inset = usePortraitInset();
   // The opened message stays scrolled into place as the Thread lays out until the person scrolls.
   const pinned = useRef(true);
   // The opened message, once this Thread marked it read.
@@ -1256,6 +1274,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
           <ReaderScrollView
             contentContainerStyle={[
               compact ? singleContent : styles.content,
+              inset,
               clearsBottom(windowBar !== undefined, insets.bottom),
             ]}
             maintainVisibleContentPosition={keepVisibleMessage}
@@ -1397,6 +1416,7 @@ function ThreadMessage({
 }) {
   const mailbox = useMailbox();
   const colors = usePalette();
+  const portrait = usePortrait();
   const { targets } = useCommandPalette();
   const [bodyHeight, setBodyHeight] = useState(0);
   return (
@@ -1407,11 +1427,12 @@ function ThreadMessage({
       style={[
         styles.threadMessage,
         { borderBottomColor: colors.separator },
+        portrait && styles.flatMessage,
         // Tinted only while the Command Palette targets it as the Selected Message.
         targets(commandTarget(mailbox?.id, message).id)
           ? [
               styles.openedMessage,
-              compact ? styles.compactOpenedMessage : null,
+              compact || portrait ? styles.compactOpenedMessage : null,
               {
                 backgroundColor: colors.accentSelectionSubtle,
                 borderLeftColor: colors.accentInk,
@@ -1422,6 +1443,7 @@ function ThreadMessage({
       <MessageHeader
         message={message}
         highlighted={highlighted}
+        monogram={!portrait}
       />
       {mounted ? (
         <View
