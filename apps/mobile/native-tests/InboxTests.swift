@@ -2200,6 +2200,17 @@ final class InboxTests: XCTestCase {
     return control
   }
 
+  // Whether a format control is on, closing the overflow menu again when a folded bar keeps it there.
+  private func formatSelected(_ name: String, in app: XCUIApplication) -> Bool {
+    let control = formatControl(name, in: app)
+    let selected = control.isSelected
+    if control.elementType == .cell {
+      app.otherElements["PopoverDismissRegion"].tap()
+      _ = control.waitForNonExistence(timeout: 5)
+    }
+    return selected
+  }
+
   // A control in a menu that `menu` opens, such as Writing tools or iPhone's Add files. On iPhone
   // the Format panel takes the menus' place, so it closes first.
   private func menuControl(_ name: String, from menu: String, in app: XCUIApplication) -> XCUIElement {
@@ -2330,13 +2341,12 @@ final class InboxTests: XCTestCase {
     let bold = formatControl("Bold", in: app)
     bold.tap()
     waitUntil { bold.isSelected }
-    // A folded bar's menu closes after each choice, so each check finds Numbered List again.
     formatControl("Numbered List", in: app).tap()
-    waitUntil { self.formatControl("Numbered List", in: app).isSelected }
+    waitUntil { self.formatSelected("Numbered List", in: app) }
     formatControl("Undo", in: app).tap()
-    waitUntil { !self.formatControl("Numbered List", in: app).isSelected }
+    waitUntil { !self.formatSelected("Numbered List", in: app) }
     formatControl("Redo", in: app).tap()
-    waitUntil { self.formatControl("Numbered List", in: app).isSelected }
+    waitUntil { self.formatSelected("Numbered List", in: app) }
     let formatted = XCTAttachment(screenshot: app.screenshot())
     formatted.name = "Evaluation editor formatted"
     formatted.lifetime = .keepAlways
@@ -2347,7 +2357,7 @@ final class InboxTests: XCTestCase {
     webText("Evaluation paragraph", in: app).doubleTap()
     waitUntil {
       self.formatControl("Bold", in: app).isSelected
-        && self.formatControl("Numbered List", in: app).isSelected
+        && self.formatSelected("Numbered List", in: app)
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
       selectWord(app) { self.menuControl("Rewrite the selected text", from: "Writing tools", in: app).exists }
@@ -2431,23 +2441,23 @@ final class InboxTests: XCTestCase {
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } != original }
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }.joined(separator: " ").contains(result) }
       let accepted = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
-      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
+      waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       waitUntil { self.formatControl("Undo", in: app).isEnabled }
       formatControl("Undo", in: app).tap()
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == original }
-      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
+      waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
       if !leaveUndone {
         waitUntil { self.formatControl("Redo", in: app).isEnabled }
         formatControl("Redo", in: app).tap()
         waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == accepted }
-        waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
+        waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       }
       reopenDraft(app, titled: title)
       // The reopened page replaces any editor shown at launch once it has loaded.
       let expected = leaveUndone ? original : accepted
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == expected }
       let expectedBold = leaveUndone ? originalBold : boldAfterApply
-      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == expectedBold }
+      waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == expectedBold }
     }
   }
 
