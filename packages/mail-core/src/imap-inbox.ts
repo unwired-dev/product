@@ -1415,6 +1415,10 @@ export function createImapInbox(
   // harmlessly: no Pin remains under its `from`.
   function restoreRelocations(stored: ImapDocument) {
     return Effect.gen(function* () {
+      // A subscriber may have forgotten the Inbox while it opened.
+      if (forgotten) {
+        return;
+      }
       const saved = stored.relocations ?? [];
       const known = new Set(saved.map(({ from }) => from));
       const unsaved = relocations.filter(({ from }) => !known.has(from));
