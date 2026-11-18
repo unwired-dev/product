@@ -1121,14 +1121,17 @@ describe('composing Drafts', () => {
     }
   });
 
-  // A stored Draft from Alex's mailbox in `state`, as a reply when `reply`, opened in the composer.
+  // A stored Draft from Alex's mailbox, now in `state` at `address`, as a reply when `reply`,
+  // opened in the composer.
   const openStored = async ({
     reply,
     state = 'connected',
+    address = 'alex@example.invalid',
     to = [],
   }: {
     readonly reply: boolean;
     readonly state?: 'authorization' | 'connected';
+    readonly address?: string;
     readonly to?: Draft['to'];
   }) => {
     const initial = connected(['alex@example.invalid']);
@@ -1173,9 +1176,7 @@ describe('composing Drafts', () => {
     // The mailbox needs sign-in only after the Draft is made, which it would refuse.
     registration.change({
       ...initial,
-      mailboxes: JSON.stringify([
-        { id: alex, address: 'alex@example.invalid', state },
-      ]),
+      mailboxes: JSON.stringify([{ id: alex, address, state }]),
     });
     const authorizeMailbox = jest.fn(() => Promise.resolve());
     await render(
@@ -1234,9 +1235,53 @@ describe('composing Drafts', () => {
       const reason =
         'Gmail needs you to sign in again before this address can send.';
       expect(screen.getAllByText(reason)).toHaveLength(1);
+      expect(isScrollable(screen.getByText(reason))).not.toBe(true);
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await press('Sign In…');
       expect(authorizeMailbox).toHaveBeenCalledWith(alex);
+    } finally {
+      outbox.dispose();
+    }
+  });
+
+  it.each([
+    ['stays under From at the default text size', 1, false],
+    ['scrolls with the Draft at an accessibility text size', 2, true],
+  ])(
+    'asks for sign-in on iPhone in a banner that %s',
+    async (_, fontScale, scrolls) => {
+      expect.hasAssertions();
+      const window = Dimensions.get('window');
+      Dimensions.set({ window: { ...window, fontScale } });
+      try {
+        const { outbox } = await openStored({
+          reply: false,
+          state: 'authorization',
+          to: [{ address: 'sam@example.invalid' }],
+        });
+        try {
+          expect(isScrollable(screen.getByText('Sign In…'))).toBe(scrolls);
+        } finally {
+          outbox.dispose();
+        }
+      } finally {
+        Dimensions.set({ window });
+      }
+    },
+  );
+
+  it('keeps another sender warning among a docked iPad reply’s notices', async () => {
+    expect.hasAssertions();
+    const { outbox } = await openStored({
+      reply: true,
+      address: 'alex.new@example.invalid',
+      to: [{ address: 'sam@example.invalid' }],
+    });
+    try {
+      const reason =
+        'This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox.';
+      expect(isScrollable(screen.getByText(reason))).toBe(true);
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
     } finally {
       outbox.dispose();
     }

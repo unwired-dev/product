@@ -2653,7 +2653,9 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
 
 // From sits in the iPad header and on its own row beneath the iPhone header. At the accessibility
 // text sizes the iPad card's From takes its own row too, so Expand and Send stay in view. The
-// Authorization Needed banner follows From; a docked reply's ReplyFooter places both.
+// Authorization Needed banner stays in view under From; at those sizes it would crowd out the
+// Draft, so it scrolls with it among the notices (`signInNotice`). A docked reply's
+// ReplyFooter places From and the banner.
 const placeSender = ({
   sender,
   draft,
@@ -2666,10 +2668,10 @@ const placeSender = ({
   readonly large: boolean;
 }) => {
   if (presentation === 'docked') {
-    return { header: sender, row: null };
+    return { header: sender, row: null, signInNotice: false };
   }
   const compact = presentation === 'compact';
-  const signIn = (
+  const signIn = large ? null : (
     <SignInBanner
       draft={draft}
       style={compact ? styles.phoneSignIn : styles.cardSignIn}
@@ -2677,6 +2679,7 @@ const placeSender = ({
   );
   return compact || large
     ? {
+        signInNotice: large,
         header: null,
         row: (
           <>
@@ -2687,7 +2690,7 @@ const placeSender = ({
           </>
         ),
       }
-    : { header: sender, row: signIn };
+    : { header: sender, row: signIn, signInNotice: false };
 };
 
 // A docked or iPhone response is titled by its kind; otherwise the subject names the Draft. Only a
@@ -4808,7 +4811,7 @@ function Editor({
               draft={draft}
               blocked={blocked.notice}
               refused={refused}
-              signIn={false}
+              signIn={senderPlace.signInNotice}
               onClose={() => {
                 void saveDraft();
               }}
