@@ -816,8 +816,18 @@ was read, whose alert closed without an answer, or whose removal failed, stays f
 next launch. The Mac
 TypeScript client (`useRecoveryOffer` in `apps/macos/src/composer.tsx`) chooses each
 record and rechecks it before acting; AppKit presents the alert as a sheet on the
-Inbox window through `UnwiredAlert`. Offering the records on iPhone and iPad follows
-in [#1989](https://github.com/unwired-dev/product/issues/1989).
+Inbox window through `UnwiredAlert`.
+
+iPhone and iPad offer the same records the same way in a system alert, with
+**Restore** as its preferred action and **Discard** as its destructive one,
+while the mail shell shows no composer
+([#2379](https://github.com/unwired-dev/product/issues/2379)). Only records
+whose Draft and recovered sender belong to the shown Mail Profile are offered,
+so switching Profile offers that Profile's records. Restore opens the composer
+over the Inbox, and the next record waits until it closes. An answer given after
+the shell moved on, as when a notification opened a composer meanwhile, changes
+nothing, and the record is asked about again once no composer is open
+(`useRecoveryOffer` in `apps/mobile/src/composer.tsx`).
 
 A Draft's **Send Reminder** is stored on this device
 ([#2074](https://github.com/unwired-dev/product/issues/2074), a first slice of
