@@ -2172,11 +2172,24 @@ final class InboxTests: XCTestCase {
   // iPhone shows its Format and writing tools controls, and iPad its format bar, once the page is ready.
   private func pageReady(_ app: XCUIApplication) -> Bool {
     app.buttons["Format"].exists || app.buttons["Undo"].exists
+      || app.buttons["More Lists and Links"].exists
   }
 
-  // A formatting or history control: iPad keeps it on the format bar; iPhone opens the Format panel.
+  // A formatting or history control: iPad keeps it on the format bar, or in More Lists and Links when
+  // the bar is too narrow for it (#2357); iPhone opens the Format panel.
   private func formatControl(_ name: String, in app: XCUIApplication) -> XCUIElement {
     let control = app.buttons[name]
+    let item = app.cells[name]
+    let more = app.buttons["More Lists and Links"]
+    if !control.isHittable, item.exists || more.isHittable,
+      ["Numbered List", "Add Link", "Edit Link", "Undo", "Redo"].contains(name)
+    {
+      if !item.exists {
+        more.tap()
+        _ = item.waitForExistence(timeout: 10)
+      }
+      return item
+    }
     if !control.exists, app.buttons["Format"].exists {
       app.buttons["Format"].tap()
       _ = control.waitForExistence(timeout: 10)

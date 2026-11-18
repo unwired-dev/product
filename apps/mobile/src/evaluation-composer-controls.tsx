@@ -314,6 +314,34 @@ export function PadFormatBar({
   const colors = usePalette();
   const { t } = useLocalization();
   const offersTools = useOffersTools();
+  const travels = [
+    {
+      key: 'undo',
+      title: t('drafts.undo'),
+      symbol: 'arrow.uturn.backward',
+      disabled: !page.undo,
+      run: () => {
+        run({ type: 'undo' });
+      },
+    },
+    {
+      key: 'redo',
+      title: t('drafts.redo'),
+      symbol: 'arrow.uturn.forward',
+      disabled: !page.redo,
+      run: () => {
+        run({ type: 'redo' });
+      },
+    },
+  ];
+  const assets = assetPickers.map(([label, from, inline, icon]) => ({
+    key: label,
+    title: t(label),
+    symbol: icon,
+    run: () => {
+      onAdd(from, inline);
+    },
+  }));
   return (
     <View style={styles.padBar}>
       <FormatBar
@@ -340,29 +368,33 @@ export function PadFormatBar({
                       <OverflowMenu
                         accessibilityLabel={t('drafts.moreLists')}
                         disabled={false}
-                        sections={[{ items: [...lists, link] }]}
+                        sections={[
+                          { items: [...lists, link] },
+                          { items: travels },
+                        ]}
                       />
                     ),
                   })}
               onChange={onLink}
             />
-            <View style={[s.divider, { backgroundColor: colors.separator }]} />
-            <ToolbarButton
-              disabled={!page.undo}
-              icon="arrow.uturn.backward"
-              label={t('drafts.undo')}
-              onPress={() => {
-                run({ type: 'undo' });
-              }}
-            />
-            <ToolbarButton
-              disabled={!page.redo}
-              icon="arrow.uturn.forward"
-              label={t('drafts.redo')}
-              onPress={() => {
-                run({ type: 'redo' });
-              }}
-            />
+            {lists === undefined ? (
+              <>
+                <View
+                  style={[s.divider, { backgroundColor: colors.separator }]}
+                />
+                {travels.map((item) => (
+                  <ToolbarButton
+                    key={item.key}
+                    disabled={item.disabled}
+                    icon={item.symbol}
+                    label={item.title}
+                    onPress={() => {
+                      item.run();
+                    }}
+                  />
+                ))}
+              </>
+            ) : null}
             <View style={s.grow} />
             {offersTools ? (
               <ToolbarButton
@@ -375,16 +407,25 @@ export function PadFormatBar({
               />
             ) : null}
             <View style={[s.divider, { backgroundColor: colors.separator }]} />
-            {assetPickers.map(([label, from, inline, icon]) => (
-              <ToolbarButton
-                key={label}
-                icon={icon}
-                label={t(label)}
-                onPress={() => {
-                  onAdd(from, inline);
-                }}
+            {assets
+              .slice(0, lists === undefined ? undefined : 1)
+              .map((item) => (
+                <ToolbarButton
+                  key={item.key}
+                  icon={item.symbol}
+                  label={item.title}
+                  onPress={() => {
+                    item.run();
+                  }}
+                />
+              ))}
+            {lists === undefined ? null : (
+              <OverflowMenu
+                accessibilityLabel={t('drafts.moreFiles')}
+                disabled={false}
+                sections={[{ items: assets.slice(1) }]}
               />
-            ))}
+            )}
           </>
         )}
       </FormatBar>
