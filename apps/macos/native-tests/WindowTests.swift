@@ -24,7 +24,7 @@ final class WindowTests: XCTestCase {
     let env = ProcessInfo.processInfo.environment
     let appURL = URL(fileURLWithPath: try XCTUnwrap(env["UNWIRED_APP_PATH"]))
     let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -56,7 +56,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -113,7 +113,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -155,7 +155,7 @@ final class WindowTests: XCTestCase {
     let environment = ProcessInfo.processInfo.environment
     let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
     let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -507,7 +507,7 @@ final class WindowTests: XCTestCase {
     for appearance in ["Dark", "Light"] {
       app.terminate()
       app.launchArguments =
-        ["-ApplePersistenceIgnoreState", "YES"]
+        ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
         + (appearance == "Dark"
           ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
       app.launch()
@@ -1203,7 +1203,7 @@ final class WindowTests: XCTestCase {
     let app = XCUIApplication(
       url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     // Every launch starts from one new window, whatever AppKit saved at the previous quit.
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     // Past Welcome, the sign-in page of `window` ends with the Language pop-up.
@@ -1279,7 +1279,7 @@ final class WindowTests: XCTestCase {
     }
     let app = XCUIApplication(url: appURL)
     // Every launch starts from one new window, whatever AppKit saved at the previous quit.
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
@@ -1442,7 +1442,7 @@ final class WindowTests: XCTestCase {
     let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
     let app = XCUIApplication(url: appURL)
     // Every launch starts from one new window, whatever AppKit saved at the previous quit.
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
@@ -1638,7 +1638,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -1785,7 +1785,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -2025,7 +2025,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -2090,7 +2090,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -2126,6 +2126,131 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(window.buttons["Pin"].waitForExistence(timeout: 5))
   }
 
+  // #2359: with the German test catalog, the Inbox with a Thread open, the Command Palette, a New
+  // Message window and Settings › Notifications lay out as #2096's frames draw them.
+  func testGermanStrings() throws {
+    try germanStrings(appearance: "Light")
+  }
+
+  func testGermanStringsDark() throws {
+    try germanStrings(appearance: "Dark")
+  }
+
+  private func germanStrings(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    // Sign-in runs in English even where the Mac prefers German, which this build offers.
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["inbox-window-1"]
+    performanceSetup(app, window: window)
+    // The relaunch chooses German and the appearance for this launch only.
+    app.terminate()
+    app.launchArguments = [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "de",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    func attach(_ element: XCUIElement, _ name: String) {
+      let attachment = XCTAttachment(screenshot: element.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    // Each element lies inside its window, and no two overlap.
+    func assertLaidOut(_ elements: [XCUIElement], in container: XCUIElement, line: UInt = #line) {
+      let frames = elements.map { element in
+        XCTAssertTrue(element.waitForExistence(timeout: 10), "\(element)", line: line)
+        return element.frame
+      }
+      for (index, frame) in frames.enumerated() {
+        XCTAssertTrue(
+          container.frame.insetBy(dx: -1, dy: -1).contains(frame), "\(elements[index])", line: line)
+        for (other, next) in frames.enumerated().dropFirst(index + 1) {
+          XCTAssertFalse(
+            frame.insetBy(dx: 1, dy: 1).intersects(next),
+            "\(elements[index]) overlaps \(elements[other])", line: line)
+        }
+      }
+    }
+
+    // The Inbox frame's size.
+    let row = window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001"))
+      .firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 60))
+    let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+      .withOffset(CGVector(dx: -2, dy: -2))
+    // Slow, holding at the end: a quick drag ends before the window catches up.
+    corner.click(
+      forDuration: 0.2,
+      thenDragTo: corner.withOffset(
+        CGVector(dx: 1280 - window.frame.width, dy: 800 - window.frame.height)),
+      withVelocity: .slow, thenHoldForDuration: 0.5)
+    XCTAssertEqual(window.frame.width, 1280, accuracy: 5)
+    row.click()
+    XCTAssertTrue(window.buttons["Antworten"].waitForExistence(timeout: 15))
+    let toolbar = [
+      window.buttons["Befehlspalette öffnen"], window.buttons["Archivieren"],
+      window.buttons["Löschen"], window.menuButtons["Ordner"], window.buttons["Antworten"],
+      window.buttons["Allen antworten"], window.buttons["Weiterleiten"],
+      window.buttons["Anheften"], window.buttons["Als ungelesen markieren"],
+      window.buttons["In Spam bewegen"], window.menuButtons["Mehr"],
+    ]
+    assertLaidOut(toolbar, in: window)
+    // One toolbar row, as drawn.
+    for button in toolbar {
+      XCTAssertEqual(button.frame.midY, toolbar[0].frame.midY, accuracy: 3, "\(button)")
+    }
+    // The heading stays in the list column, clear of the reader's toolbar.
+    let heading = window.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Alle Posteingänge. ")
+    ).firstMatch
+    XCTAssertLessThanOrEqual(heading.frame.maxX, toolbar[0].frame.minX)
+    attach(window, "Inbox with a Thread open")
+
+    app.typeKey("k", modifierFlags: .command)
+    let query = window.textFields["Befehl eingeben"]
+    XCTAssertTrue(query.waitForExistence(timeout: 15))
+    let commands = ["Antworten", "Bewegen nach …", "Als ungelesen markieren", "E-Mails durchsuchen"]
+      .map { window.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", $0)).firstMatch }
+    assertLaidOut([query] + commands, in: window)
+    attach(window, "Command Palette")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(query.waitForNonExistence(timeout: 10))
+
+    window.buttons["Neue Nachricht"].click()
+    XCTAssertTrue(window.buttons["Erweitern"].waitForExistence(timeout: 15))
+    window.buttons["Erweitern"].click()
+    let composer = app.windows["composer-window-1"]
+    XCTAssertTrue(composer.waitForExistence(timeout: 15))
+    XCTAssertEqual(composer.title, "Neue Nachricht")
+    // Send grows with its German title, and the title beside the window controls gives way.
+    assertLaidOut(
+      [
+        composer.buttons[XCUIIdentifierCloseWindow], composer.buttons["Befehlspalette öffnen"],
+        composer.popUpButtons.matching(NSPredicate(format: "label BEGINSWITH %@", "Senden von"))
+          .firstMatch,
+        composer.menuButtons["Aktionen zum Verfassen"], composer.buttons["Senden"],
+      ], in: composer)
+    attach(composer, "New Message")
+
+    app.typeKey(",", modifierFlags: .command)
+    let settings = app.windows["settings-window"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Mitteilungen"].click()
+    assertLaidOut(
+      [
+        text("Berechtigung", in: settings), settings.buttons["Erlauben …"],
+        text("Absender und Betreff anzeigen", in: settings),
+        settings.switches["Absender und Betreff anzeigen"],
+        settings.buttons["Befehlspalette öffnen"],
+      ], in: settings)
+    attach(settings, "Settings › Notifications")
+  }
+
   // #2153: Settings › Appearance switches every window to Light or Dark at once, and a relaunch
   // opens in the saved choice before the first window draws.
   func testAppearance() throws {
@@ -2133,7 +2258,7 @@ final class WindowTests: XCTestCase {
     let environment = ProcessInfo.processInfo.environment
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -2247,6 +2372,7 @@ final class WindowTests: XCTestCase {
     let environment = ProcessInfo.processInfo.environment
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += ["-interfaceLanguage", "en"]
     app.launchArguments +=
       appearance == "Dark"
       ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]
@@ -2318,6 +2444,7 @@ final class WindowTests: XCTestCase {
       pasteboard.writeObjects(saved)
     }
     let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-interfaceLanguage", "en"]
     app.launchArguments +=
       appearance == "Dark"
       ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]

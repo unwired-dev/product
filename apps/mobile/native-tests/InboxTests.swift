@@ -2216,16 +2216,43 @@ final class InboxTests: XCTestCase {
   // iPhone shows its Format and writing tools controls, and iPad its format bar, once the page is ready.
   private func pageReady(_ app: XCUIApplication) -> Bool {
     app.buttons["Format"].exists || app.buttons["Undo"].exists
+      || app.buttons["More Lists and Links"].exists
   }
 
-  // A formatting or history control: iPad keeps it on the format bar; iPhone opens the Format panel.
+  // A formatting or history control: iPad keeps it on the format bar, or in More Lists and Links when
+  // the bar is too narrow for it (#2357); iPhone opens the Format panel.
   private func formatControl(_ name: String, in app: XCUIApplication) -> XCUIElement {
-    let control = app.buttons[name]
+    // iPad's keyboard shortcut bar repeats Undo and Redo under `assistant` identifiers.
+    let control = app.buttons.matching(
+      NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'assistant')", name)
+    ).firstMatch
+    let item = app.cells[name]
+    let more = app.buttons["More Lists and Links"]
+    if !control.isHittable, item.exists || more.isHittable,
+      ["Numbered List", "Add Link", "Edit Link", "Undo", "Redo"].contains(name)
+    {
+      if !item.exists {
+        more.tap()
+        _ = item.waitForExistence(timeout: 10)
+      }
+      return item
+    }
     if !control.exists, app.buttons["Format"].exists {
       app.buttons["Format"].tap()
       _ = control.waitForExistence(timeout: 10)
     }
     return control
+  }
+
+  // Whether a format control is on, closing the overflow menu again when a folded bar keeps it there.
+  private func formatSelected(_ name: String, in app: XCUIApplication) -> Bool {
+    let control = formatControl(name, in: app)
+    let selected = control.isSelected
+    if control.elementType == .cell {
+      app.otherElements["PopoverDismissRegion"].tap()
+      XCTAssertTrue(control.waitForNonExistence(timeout: 5))
+    }
+    return selected
   }
 
   // A control in a menu that `menu` opens, such as Writing tools or iPhone's Add files. On iPhone
@@ -2336,6 +2363,25 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(settled.exists)
   }
 
+  // #2363: on iPad the sidebar toggle, the Command Input and the reader toolbar share the top row's
+  // centre line.
+  private func verifyTopRowCentreLine(_ app: XCUIApplication) {
+    let toggle = app.buttons.matching(
+      NSPredicate(format: "label IN %@", ["Hide Sidebar", "Show Sidebar"])
+    ).firstMatch
+    let input = app.buttons["Open Command Palette"].firstMatch
+    // The preview reader's toolbar holds only its read state.
+    let read = app.buttons.matching(
+      NSPredicate(format: "label IN %@", ["Mark as Read", "Mark as Unread"])
+    ).firstMatch
+    for element in [toggle, input, read] {
+      XCTAssertTrue(element.waitForExistence(timeout: 10))
+    }
+    for element in [toggle, input] {
+      XCTAssertEqual(element.frame.midY, read.frame.midY, accuracy: 0.5, element.debugDescription)
+    }
+  }
+
   private func waitUntil(_ condition: @escaping () -> Bool, timeout: TimeInterval = 20) {
     let met = NSPredicate { _, _ in condition() }
     XCTAssertEqual(
@@ -2358,13 +2404,12 @@ final class InboxTests: XCTestCase {
     let bold = formatControl("Bold", in: app)
     bold.tap()
     waitUntil { bold.isSelected }
-    let numbered = formatControl("Numbered List", in: app)
-    numbered.tap()
-    waitUntil { numbered.isSelected }
+    formatControl("Numbered List", in: app).tap()
+    waitUntil { self.formatSelected("Numbered List", in: app) }
     formatControl("Undo", in: app).tap()
-    waitUntil { !numbered.isSelected }
+    waitUntil { !self.formatSelected("Numbered List", in: app) }
     formatControl("Redo", in: app).tap()
-    waitUntil { numbered.isSelected }
+    waitUntil { self.formatSelected("Numbered List", in: app) }
     let formatted = XCTAttachment(screenshot: app.screenshot())
     formatted.name = "Evaluation editor formatted"
     formatted.lifetime = .keepAlways
@@ -2375,7 +2420,7 @@ final class InboxTests: XCTestCase {
     webText("Evaluation paragraph", in: app).doubleTap()
     waitUntil {
       self.formatControl("Bold", in: app).isSelected
-        && self.formatControl("Numbered List", in: app).isSelected
+        && self.formatSelected("Numbered List", in: app)
     }
     assistanceRoundTrips(app, result: "Synthetic rewrite of local mail.", apply: "Replace your text with this rewrite", boldAfterApply: true) {
       selectWord(app) { self.menuControl("Rewrite the selected text", from: "Writing tools", in: app).exists }
@@ -2459,23 +2504,23 @@ final class InboxTests: XCTestCase {
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } != original }
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }.joined(separator: " ").contains(result) }
       let accepted = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
-      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
+      waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       waitUntil { self.formatControl("Undo", in: app).isEnabled }
-      app.buttons["Undo"].tap()
+      formatControl("Undo", in: app).tap()
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == original }
-      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
+      waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
       if !leaveUndone {
         waitUntil { self.formatControl("Redo", in: app).isEnabled }
-        app.buttons["Redo"].tap()
+        formatControl("Redo", in: app).tap()
         waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == accepted }
-        waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
+        waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       }
       reopenDraft(app, titled: title)
       // The reopened page replaces any editor shown at launch once it has loaded.
       let expected = leaveUndone ? original : accepted
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == expected }
       let expectedBold = leaveUndone ? originalBold : boldAfterApply
-      waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == expectedBold }
+      waitUntil { self.formatSelected("Numbered List", in: app) == numbered && self.formatControl("Bold", in: app).isSelected == expectedBold }
     }
   }
 
@@ -2593,7 +2638,7 @@ final class InboxTests: XCTestCase {
     waitUntil { app.webViews.images.count == 1 }
     formatControl("Undo", in: app).tap()
     waitUntil { app.webViews.images.count == 0 }
-    app.buttons["Redo"].tap()
+    formatControl("Redo", in: app).tap()
     waitUntil { app.webViews.images.count == 1 }
     let typed = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
     // Reopened from encrypted storage, the image keeps its place and shows its thumbnail again.
@@ -3104,19 +3149,11 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(destination.value as? String, "https://example.com")
     dismissLinkEditor(app, field: destination, pad: pad)
 
-    // One Undo removes the link and keeps its text; Redo restores it. iPad's keyboard shortcut bar
-    // repeats Undo and Redo.
-    func history(_ name: String) -> XCUIElement {
-      pad
-        ? app.buttons.matching(
-          NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'assistant')", name)
-        ).firstMatch
-        : formatControl(name, in: app)
-    }
-    history("Undo").tap()
+    // One Undo removes the link and keeps its text; Redo restores it.
+    formatControl("Undo", in: app).tap()
     XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
-    history("Redo").tap()
+    formatControl("Redo", in: app).tap()
     XCTAssertTrue(formatControl("Edit Link", in: app).waitForExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
     if pad {
@@ -3397,6 +3434,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(sender.waitForExistence(timeout: 10))
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCTAssertGreaterThan(sender.frame.minX, maya.frame.maxX)
+      verifyTopRowCentreLine(app)
     }
     // A summary runs only when asked, through the packaged assistance bridge, whose synthetic
     // model answers in this build.

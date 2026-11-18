@@ -4,7 +4,11 @@ import type { ReactNode } from 'react';
 import type { AppStateStatus, TurboModule } from 'react-native';
 
 import { createBlockedSenders } from '@private-email/mail-core/blocked-senders';
-import { createDrafts, ownerOf } from '@private-email/mail-core/drafts';
+import {
+  createDrafts,
+  draftOf,
+  ownerOf,
+} from '@private-email/mail-core/drafts';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
@@ -577,6 +581,241 @@ describe('mac window selection with the shared mock mailbox', () => {
     }
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('offers each unsaved message the previous run kept, restoring or discarding it (#2329)', async () => {
+    expect.hasAssertions();
+    const connection = {
+      id: alex,
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: defaultProfile,
+      provider: 'gmail',
+    } as const;
+    const registration = {
+      subscribe: () => () => undefined,
+      getSnapshot: () =>
+        ({
+          snapshot: {
+            kind: 'connected',
+            productAccountId: 'synthetic-product-account',
+            signInProvider: 'google',
+            mailboxes: connectedMailboxes,
+          },
+          busy: false,
+          failed: false,
+        }) as const,
+    };
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    // The previous run stored two Drafts and kept unsaved edits to both when it ended.
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    const stored = async (subject: string) => {
+      const id = await previous.create(connection);
+      const created = draftOf(previous.getSnapshot(), id);
+      ok(created !== undefined);
+      const draft = { ...created, subject };
+      await previous.update(draft, created);
+      await expect(previous.save()).resolves.toBe(true);
+      await expect(
+        previous.journal({ ...draft, subject: `${subject}, unsaved` }),
+      ).resolves.toBe(true);
+      return draft.id;
+    };
+    const restored = await stored('Restored plan');
+    const discarded = await stored('Discarded plan');
+    const edited = await stored('Edited plan');
+    const drafts = createDrafts(storage.native, registration);
+    const replacement = jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    const app = await render(
+      <AccountContext
+        value={{
+          mailboxes: [connection],
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load: () => Promise<void>) => load(),
+          account: 'synthetic-product-account',
+          profiles: [],
+          createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
+        }}>
+        <InboxWindow windowId="recover" />
+      </AccountContext>,
+    );
+    const recover = {
+      title: 'Recover unsaved message?',
+      detail: 'Your unsaved changes were kept on this device.',
+      buttons: ['Restore', 'Discard'],
+      cancel: 0,
+      destructive: 1,
+    };
+    const subjects = () => {
+      const state = drafts.getSnapshot();
+      ok(state.kind === 'ready');
+      return state.drafts.map(({ id, subject }) => [id, subject]);
+    };
+    try {
+      await waitFor(() => {
+        expect(sheetsShown()).toStrictEqual([recover]);
+      });
+      // The Draft changes elsewhere while the alert is open.
+      const opened = draftOf(drafts.getSnapshot(), restored);
+      ok(opened !== undefined);
+      await drafts.update({ ...opened, subject: 'Changed plan' }, opened);
+      await act(async () => {
+        chooseSheetButton('Restore');
+      });
+      await expect(app.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Restored plan, unsaved',
+      );
+      // The other record waits while the restored composer is open.
+      expect(sheetsShown()).toStrictEqual([]);
+      // An editor in another window journals the third Draft meanwhile, so its record is not offered.
+      const elsewhere = draftOf(drafts.getSnapshot(), edited);
+      ok(elsewhere !== undefined);
+      ok(await drafts.journal({ ...elsewhere, subject: 'Edited elsewhere' }));
+      // Close asks to save the restored edits, and Save keeps them as a conflicting copy.
+      await fireEvent.press(app.getByRole('button', { name: 'Close' }));
+      await act(async () => {
+        chooseSheetButton('Save');
+      });
+      await waitFor(() => {
+        expect(sheetsShown()).toStrictEqual([recover]);
+      });
+      expect(app.queryByLabelText('Subject')).toBeNull();
+      await act(async () => {
+        chooseSheetButton('Discard');
+      });
+      // Discard removes the record and keeps the stored version; the restored record went with Save.
+      await waitFor(() => {
+        expect([...storage.recoveryRecords().keys()]).toStrictEqual([edited]);
+      });
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(subjects()).toStrictEqual([
+        [restored, 'Changed plan'],
+        [discarded, 'Discarded plan'],
+        [edited, 'Edited plan'],
+        [`${restored}-conflict-1`, 'Restored plan, unsaved'],
+      ]);
+      expect(sheetsShown()).toStrictEqual([]);
+    } finally {
+      await app.unmount();
+      replacement.restore();
+    }
+  });
+
+  it('offers only the previous run’s records after a notification launch (#2329)', async () => {
+    expect.hasAssertions();
+    const connection = {
+      id: alex,
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: defaultProfile,
+      provider: 'gmail',
+    } as const;
+    const account = 'synthetic-product-account';
+    const registration = {
+      subscribe: () => () => undefined,
+      getSnapshot: () =>
+        ({
+          snapshot: {
+            kind: 'connected',
+            productAccountId: account,
+            signInProvider: 'google',
+            mailboxes: connectedMailboxes,
+          },
+          busy: false,
+          failed: false,
+        }) as const,
+    };
+    const storage = createSyntheticDrafts(() => account);
+    // The previous run kept unsaved edits to one stored Draft and none to the other.
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    const stored = async (subject: string) => {
+      const id = await previous.create(connection);
+      const created = draftOf(previous.getSnapshot(), id);
+      ok(created !== undefined);
+      await previous.update({ ...created, subject }, created);
+      await expect(previous.save()).resolves.toBe(true);
+      return id;
+    };
+    const kept = await stored('Kept plan');
+    const current = await stored('Current plan');
+    ok(current !== undefined);
+    const keptDraft = draftOf(previous.getSnapshot(), kept);
+    ok(keptDraft !== undefined);
+    await expect(
+      previous.journal({ ...keptDraft, subject: 'Kept plan, unsaved' }),
+    ).resolves.toBe(true);
+    const drafts = createDrafts(storage.native, registration);
+    const replacement = jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    const context = (productAccount: string) => ({
+      mailboxes: [connection],
+      openAccount: () => undefined,
+      authorizeMailbox: () => Promise.resolve(),
+      refreshInbox: (load: () => Promise<void>) => load(),
+      account: productAccount,
+      profiles: [],
+      createProfile: () => Promise.resolve(undefined),
+      chooseFolders: () => Promise.resolve(true),
+    });
+    const inbox = (productAccount: string) => (
+      <AccountContext value={context(productAccount)}>
+        <InboxWindow windowId="recover" />
+      </AccountContext>
+    );
+    // A notification opens a New Message window before any Inbox window, and its edit is journaled.
+    const app = await render(
+      <AccountContext value={context(account)}>
+        <ComposerWindow
+          windowId="1"
+          draft={current}
+          profile={defaultProfile}
+        />
+      </AccountContext>,
+    );
+    try {
+      await fireEvent.changeText(
+        await app.findByLabelText('Subject'),
+        'Current plan, unsaved',
+      );
+      await waitFor(
+        () => {
+          expect(storage.recoveryRecords().size).toBe(2);
+        },
+        { timeout: 4000 },
+      );
+      // The Inbox window offers the previous run's record only.
+      await app.rerender(inbox(account));
+      await waitFor(() => {
+        expect(sheetsShown()).toHaveLength(1);
+      });
+      await act(async () => {
+        chooseSheetButton('Discard');
+      });
+      await waitFor(() => {
+        expect([...storage.recoveryRecords().keys()]).toStrictEqual([current]);
+      });
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(sheetsShown()).toStrictEqual([]);
+    } finally {
+      await app.unmount();
+      replacement.restore();
+    }
+  });
 
   it.each(['light', 'dark'] as const)(
     'keeps the selected row legible after focus leaves in %s appearance',

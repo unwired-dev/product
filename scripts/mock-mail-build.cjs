@@ -57,10 +57,23 @@ const substitutes = {
   }),
 };
 
+// Mac Mock Mail Session builds also offer the German test catalog, which their native build bundles.
+const macSubstitutes = {
+  ...substitutes,
+  ...(scenario && {
+    './shipped-catalogs.ts': path.resolve(
+      __dirname,
+      '../packages/localization/src/testing/catalogs.ts',
+    ),
+  }),
+};
+
 module.exports = {
   scenario,
   resolveSeed(context, moduleName, platform) {
-    const filePath = substitutes[moduleName];
+    const filePath = (platform === 'macos' ? macSubstitutes : substitutes)[
+      moduleName
+    ];
     return filePath
       ? { type: 'sourceFile', filePath }
       : context.resolveRequest(context, moduleName, platform);

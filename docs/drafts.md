@@ -132,6 +132,12 @@ transport and known native exit gaps.
   Attach File, Attach Photo, Insert Image and Paste Image. The controls are
   unavailable while sending. In the iPad format bar, Text style stays at the leading
   edge while the remaining controls scroll horizontally at their full touch size.
+  A bar narrower than 522pt, such as the 442pt Portrait reader's, shows Bold, Italic,
+  Bulleted List, Writing tools when available, and Attach File, and ends each crowded section with an
+  overflow menu: **More Formatting** (Underline, Strikethrough, Inline code), **More
+  Lists and Links** (Numbered List, Add Link or Edit Link, whose Link Editor popover
+  opens from the menu, then Undo and Redo) and **More Files and Templates** (Attach
+  Photo, Insert Image, Paste Image and the Templates menu).
   In the Mac overlay, **From** and **Send** share the bottom row; in its New
   Message window they share the toolbar row above the format bar;
   on iPhone and iPad, **From** sits under the header and **Send** in it.
@@ -783,8 +789,29 @@ composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
 an unchanged one. While another composer has the same Draft open, the record stays
 until that composer closes too. Both composers write the same record, so it holds
-the version journaled last. Offering the records at the next launch follows in
-[#1989](https://github.com/unwired-dev/product/issues/1989).
+the version journaled last.
+
+On the Mac, once the Drafts open after a relaunch, an Inbox window asks **Recover
+unsaved message?** for each record the previous run left whose Draft and recovered
+sender belong to the window's Mail Profile, one alert at a time across windows,
+saying only **Your unsaved changes were kept on this device.**
+([#2329](https://github.com/unwired-dev/product/issues/2329)). **Restore**, the
+default that Return and Escape choose, opens the composer on the recovered version,
+so **Close** asks to save it and **Save** stores it, or keeps it as a conflicting
+copy when the Draft changed since the alert appeared; either way the record goes
+once the composer holds no unsaved version. **Discard** removes the record, unless
+another composer has the Draft open, and leaves the stored Draft as it was. The next
+record waits until the restored composer closes. Records this run writes are never
+offered: `recovered()` leaves out every Draft the store journaled or forgot this run,
+whatever order storage takes those calls in. While storage is locked the alerts wait
+for it to open. A record whose Draft is no longer listed, that a read locked out
+([#2334](https://github.com/unwired-dev/product/issues/2334)), that changed since it
+was read, whose alert closed without an answer, or whose removal failed, stays for the
+next launch. The Mac
+TypeScript client (`useRecoveryOffer` in `apps/macos/src/composer.tsx`) chooses each
+record and rechecks it before acting; AppKit presents the alert as a sheet on the
+Inbox window through `UnwiredAlert`. Offering the records on iPhone and iPad follows
+in [#1989](https://github.com/unwired-dev/product/issues/1989).
 
 A Draft's **Send Reminder** is stored on this device
 ([#2074](https://github.com/unwired-dev/product/issues/2074), a first slice of
