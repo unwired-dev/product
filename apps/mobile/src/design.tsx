@@ -439,6 +439,41 @@ export function ContextMenu({
   );
 }
 
+const NativeArrowKeys = requireNativeComponent<
+  ViewProps & {
+    readonly enabled: boolean;
+    readonly onArrow: (event: NativeSyntheticEvent<{ key: string }>) => void;
+  }
+>('UnwiredArrowKeys');
+
+// A hardware keyboard's Up and Down Arrow, as `ArrowUp` and `ArrowDown`, while `enabled`: taken
+// ahead of a text field among the children, which would otherwise move its caret.
+export function ArrowKeys({
+  enabled,
+  onArrow,
+  children,
+  ...props
+}: ViewProps & {
+  readonly enabled: boolean;
+  readonly onArrow: (key: string) => void;
+}) {
+  return (
+    <NativeArrowKeys
+      {...props}
+      enabled={enabled}
+      onArrow={({ nativeEvent }) => {
+        onArrow(nativeEvent.key);
+      }}>
+      {/* Fabric would flatten a layout-only child the legacy view takes as its own. */}
+      <View
+        collapsable={false}
+        style={styles.menuContent}>
+        {children}
+      </View>
+    </NativeArrowKeys>
+  );
+}
+
 const NativeMenuButton = requireNativeComponent<
   ViewProps & {
     readonly sections: ReadonlyArray<

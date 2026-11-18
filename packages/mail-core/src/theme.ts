@@ -15,6 +15,9 @@ export const radius = {
   alertTouch: 32,
   // The iPhone and iPad invitation card.
   touchCard: 18,
+  // An iPhone system menu and its rows.
+  touchMenu: 24,
+  touchMenuItem: 14,
   // An invitation card's status badge, such as Cancelled.
   badgeMac: 4,
   badgeTouch: 8,

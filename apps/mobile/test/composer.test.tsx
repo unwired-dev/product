@@ -443,6 +443,16 @@ const textStyleMenu = () => {
   return props;
 };
 
+// The native view taking a hardware keyboard's arrow keys around a rendered field.
+const arrowKeysAround = (element: Parameters<typeof fireEvent.press>[0]) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredArrowKeys') {
+    node = node.parent;
+  }
+  ok(node !== null);
+  return node;
+};
+
 const closeFormat = async () => {
   if (screen.queryByRole('button', { name: 'Close Format' }) !== null) {
     await press('Close Format');
@@ -1562,6 +1572,301 @@ describe('composing Drafts', () => {
       });
     } finally {
       Object.assign(appleContacts, { granted: false, contacts: [], reads: 0 });
+    }
+  });
+
+  it('turns @ in an empty body into a new To recipient and a greeting', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Anders Berg <anders@example.invalid>' });
+    appleContacts.granted = true;
+    appleContacts.contacts = [
+      {
+        id: 'ana',
+        fullName: 'Ana Kovač',
+        givenName: 'Ana',
+        emails: [{ id: 'ana-home', address: 'ana@example.invalid' }],
+      },
+      {
+        id: 'andrea',
+        fullName: 'Andrea Novak',
+        givenName: 'Andrea',
+        emails: [{ id: 'andrea-work', address: 'andrea@northwind.invalid' }],
+      },
+    ];
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    const { requests } = appleContacts;
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+          mailboxes={createMailboxes(
+            syntheticConnections({ [alex]: personal }),
+            registration,
+          )}
+        />,
+      );
+      await press('New Message');
+      const body = () => screen.getByLabelText('Message body');
+      // The native body reports the caret after each typed character.
+      const type = async (text: string) => {
+        await fireEvent.changeText(body(), text);
+        await fireEvent(body(), 'selectionChange', {
+          nativeEvent: { selection: { start: text.length, end: text.length } },
+        });
+      };
+      const menu = () => screen.queryByLabelText('Recipient suggestions');
+      const lines = () =>
+        shownLines().map(({ spans }) => spans.map(({ text }) => text).join(''));
+
+      // A bare @ lists recent correspondents at once, without asking for Contacts access.
+      await type('@');
+      await expect(
+        screen.findByRole('button', {
+          name: 'Anders Berg, anders@example.invalid',
+        }),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByRole('button', { name: 'Ana Kovač, ana@example.invalid' }),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText('Contacts')).toBeNull();
+      expect(appleContacts.requests).toBe(requests);
+
+      // Moving the caret closes them and keeps the text; typing on does not reopen them.
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 0 } },
+      });
+      expect(menu()).toBeNull();
+      await type('@a');
+      expect(menu()).toBeNull();
+
+      // Typed text filters recent people, then readable contacts; nothing matching says so,
+      // and a space closes the suggestions.
+      await type('');
+      await type('@');
+      await type('@an');
+      await expect(screen.findByText('Contacts')).resolves.toBeOnTheScreen();
+      expect(
+        screen.getByRole('button', {
+          name: 'Andrea Novak, andrea@northwind.invalid',
+        }),
+      ).toBeOnTheScreen();
+      await type('@anz');
+      expect(screen.getByText('No Matches')).toBeOnTheScreen();
+      expect(
+        AccessibilityInfo.announceForAccessibilityWithOptions,
+      ).toHaveBeenLastCalledWith('No Matches', { queue: true });
+      await type('@anz ');
+      expect(menu()).toBeNull();
+
+      // Text before the @ is content, so it opens nothing.
+      await type('Hi @');
+      expect(menu()).toBeNull();
+
+      // An @ typed over the body's only character opens them.
+      await type(' ');
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: 0, end: 1 } },
+      });
+      await type('@');
+      await expect(
+        screen.findByLabelText('Recipient suggestions'),
+      ).resolves.toBeOnTheScreen();
+
+      // A tap chooses: the query becomes the greeting with the contact's given name, an empty
+      // paragraph and the caret, and the person joins To.
+      await type('');
+      await type('@');
+      await type('@an');
+      await press('Ana Kovač, ana@example.invalid');
+      expect(lines()).toStrictEqual(['Hi Ana,', '', '']);
+      expect(body().props.selection).toStrictEqual({ start: 9, end: 9 });
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeOnTheScreen();
+      expect(menu()).toBeNull();
+      expect(announce).toHaveBeenLastCalledWith('Ana Kovač added to To');
+
+      // One Undo restores the query and removes the recipient; Redo reapplies both.
+      await openFormat();
+      await press('Undo');
+      expect(lines()).toStrictEqual(['@an']);
+      expect(
+        screen.queryByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeNull();
+      expect(menu()).toBeNull();
+      await press('Redo');
+      expect(lines()).toStrictEqual(['Hi Ana,', '', '']);
+      expect(
+        screen.getByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeOnTheScreen();
+      expect(appleContacts.requests).toBe(requests);
+    } finally {
+      Object.assign(appleContacts, { granted: false, contacts: [], reads: 0 });
+    }
+  });
+
+  it('says when the body’s @ cannot search Contacts, and chooses by Return', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const personal = createSyntheticGmail();
+    personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Bob Stone <bob@example.invalid>' });
+    Object.assign(appleContacts, { granted: true, unreadable: true });
+    try {
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+          mailboxes={createMailboxes(
+            syntheticConnections({ [alex]: personal }),
+            registration,
+          )}
+        />,
+      );
+      await press('New Message');
+      const body = screen.getByLabelText('Message body');
+      const type = async (text: string) => {
+        await fireEvent.changeText(body, text);
+        await fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection: { start: text.length, end: text.length } },
+        });
+      };
+      await type('@');
+      await type('@an');
+      const note =
+        'Contacts couldn’t be searched. Showing people from recent mail.';
+      await expect(screen.findByText(note)).resolves.toBeOnTheScreen();
+      const announced = jest.mocked(
+        AccessibilityInfo.announceForAccessibilityWithOptions,
+      );
+      expect(announced).toHaveBeenLastCalledWith(note, { queue: true });
+      // Each status is heard once as it appears, not again beside the other.
+      await type('@anz');
+      await type('@an');
+      expect(
+        announced.mock.calls.filter(([words]) => words === note),
+      ).toHaveLength(1);
+      expect(announced).toHaveBeenLastCalledWith('No Matches', {
+        queue: true,
+      });
+
+      // Contacts readable by the time the suggestions reopen are searched then.
+      Object.assign(appleContacts, {
+        unreadable: false,
+        contacts: [
+          {
+            id: 'andrea',
+            fullName: 'Andrea Novak',
+            emails: [
+              { id: 'andrea-work', address: 'andrea@northwind.invalid' },
+            ],
+          },
+        ],
+      });
+      await type('');
+      await type('@');
+      await type('@and');
+      await expect(
+        screen.findByRole('button', {
+          name: 'Andrea Novak, andrea@northwind.invalid',
+        }),
+      ).resolves.toHaveProp(
+        'accessibilityState',
+        expect.objectContaining({ selected: true }),
+      );
+      expect(screen.queryByText(note)).toBeNull();
+
+      const lines = () =>
+        shownLines().map(({ spans }) => spans.map(({ text }) => text).join(''));
+      const to = () =>
+        screen.queryByRole('button', {
+          name: 'To: Andrea Novak <andrea@northwind.invalid>',
+        });
+      // A pasted line break is text, not a choice.
+      await type('@and\n');
+      expect(lines()).toStrictEqual(['@and', '']);
+      expect(to()).toBeNull();
+
+      // A hardware keyboard's Down and Up Arrow move the highlight, and Return chooses the
+      // highlighted person instead of breaking the line; without a given name the greeting uses
+      // the full name. The caret stays in the greeting's empty paragraph though the field reports
+      // where its Return left it.
+      await type('');
+      await type('@');
+      await type('@an');
+      const andrea = await screen.findByRole('button', {
+        name: 'Andrea Novak, andrea@northwind.invalid',
+      });
+      const keys = arrowKeysAround(body);
+      expect(keys.props).toHaveProperty('enabled', true);
+      const highlighted = () =>
+        within(screen.getByLabelText('Recipient suggestions'))
+          .getAllByRole('button', { selected: true })
+          .map(({ props }) => props.accessibilityLabel);
+      expect(highlighted()).toStrictEqual(['Ana Kovač, ana@example.invalid']);
+      await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowDown' } });
+      expect(highlighted()).toStrictEqual([andrea.props.accessibilityLabel]);
+      await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowUp' } });
+      expect(highlighted()).toStrictEqual(['Ana Kovač, ana@example.invalid']);
+      // A tap on a row the latest typed text no longer lists, before React removes it, adds no one.
+      const staleAna = queuedPress('Ana Kovač, ana@example.invalid');
+      await act(async () => {
+        body.props.onChangeText('@and');
+        body.props.onSelectionChange({
+          nativeEvent: { selection: { start: 4, end: 4 } },
+        });
+        staleAna();
+        await Promise.resolve();
+      });
+      expect(lines()).toStrictEqual(['@and']);
+      expect(
+        screen.queryByRole('button', {
+          name: 'To: Ana Kovač <ana@example.invalid>',
+        }),
+      ).toBeNull();
+      // Typing, Down and Return in one native batch, before React commits: Down moves through the
+      // list the typed text filters (Ana, Andrea), not the rendered one for the bare @ (Ana, Bob).
+      await type('');
+      await type('@');
+      // The bare @ lists Ana and Bob, so the keyboard's arrows are taken.
+      expect(arrowKeysAround(body).props).toHaveProperty('enabled', true);
+      await act(async () => {
+        body.props.onChangeText('@an');
+        body.props.onSelectionChange({
+          nativeEvent: { selection: { start: 3, end: 3 } },
+        });
+        keys.props.onArrow({ nativeEvent: { key: 'ArrowDown' } });
+        body.props.onKeyPress({ nativeEvent: { key: 'Enter' } });
+        body.props.onChangeText('@an\n');
+        body.props.onSelectionChange({
+          nativeEvent: { selection: { start: 4, end: 4 } },
+        });
+        await Promise.resolve();
+      });
+      expect(lines()).toStrictEqual(['Hi Andrea Novak,', '', '']);
+      expect(to()).toBeOnTheScreen();
+      expect(body.props.selection).toStrictEqual({ start: 18, end: 18 });
+      await type('Hi Andrea Novak,\n\nThanks');
+      expect(lines()).toStrictEqual(['Hi Andrea Novak,', '', 'Thanks']);
+    } finally {
+      Object.assign(appleContacts, {
+        granted: false,
+        unreadable: false,
+        contacts: [],
+        reads: 0,
+      });
     }
   });
 

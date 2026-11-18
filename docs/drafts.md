@@ -173,7 +173,7 @@ transport and known native exit gaps.
   iPhone and iPad suggests only the contacts shared with the app. Contacts are read on the device into
   memory and are never saved with the Draft, synchronized or sent anywhere.
   Hardware keyboard Up, Down and Tab on iPad are a later slice.
-- On the Mac, the **Body Recipient Shortcut** adds a person from the body: typing
+- The **Body Recipient Shortcut** adds a person from the body: typing
   @ at a paragraph start or after whitespace in an otherwise empty authored body
   opens Recipient Suggestions under the @. Whitespace, the signature and quoted
   history leave the body empty; text or an Inline Image does not. An @ inside an
@@ -181,16 +181,25 @@ transport and known native exit gaps.
   correspondents of the Draft's Mail Profile; typed text filters them as To does
   and adds Apple Contacts the app can already read, so the body never asks for
   Contacts access. Typed text without a match shows **No Matches**, and when
-  Contacts can't be read a note says only recent mail is shown. Up and Down Arrow
-  move the highlight; Return, Tab or a click chooses. Choosing a person not on
+  Contacts can't be read a note says only recent mail is shown. On the Mac, Up and
+  Down Arrow move the highlight and Return, Tab or a click chooses; on iPhone and
+  iPad, a tap chooses, a hardware keyboard's Up and Down Arrow move the highlight,
+  and a typed Return or Tab chooses the highlighted row instead of breaking the
+  line. Choosing a person not on
   the Draft adds them to To and replaces only the query with “Hi <given name>,”
   (the given name Apple Contacts records, else the display name, else “Hi,”), an
   empty paragraph and the caret, as one edit that one Undo reverts. A space,
-  Escape, a caret move or leaving the body closes the suggestions and keeps the
-  typed text. People already on the Draft, nonempty bodies and iPhone and iPad
-  are later slices. Native code reads Apple Contacts and supplies the frame of
-  the @, which the Mac composer uses to place the menu; `@private-email/mail-core`
-  owns the query, matching, the greeting's name and the combined body and To edit.
+  Escape on the Mac, a caret move or leaving the body closes the suggestions and
+  keeps the typed text. People already on the Draft and nonempty bodies are a
+  later slice. On the Mac, native code
+  reads Apple Contacts and supplies the frame of the @, which the composer uses
+  to place the menu. On iPhone and iPad, Expo Contacts reads them, and a
+  transparent copy of the body up to the query's line holds the menu under it,
+  while a native view around the body takes the arrow keys ahead of its caret;
+  the iPhone menu spans the sheet and leads each row with a monogram. It is drawn
+  by the app rather than as a system menu, which would close as typing continues
+  to filter it. `@private-email/mail-core` owns the query, matching, the
+  greeting's name and the combined body and To edit.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The format bar applies marks to
