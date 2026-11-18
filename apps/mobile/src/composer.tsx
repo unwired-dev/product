@@ -3894,8 +3894,22 @@ function Editor({
     }
     return closed;
   };
-  // Stores this editor's version, then saves it; a Draft that changed elsewhere since it was
-  // opened becomes a conflicting copy.
+  // Stores this editor's version; a Draft that changed elsewhere since it was opened becomes a
+  // conflicting copy. False when the store declines it, as one moving into another Mail Profile:
+  // it stays unstored, so Save Draft tries it again and Close keeps its recovery record.
+  const storeShown = () => {
+    if (authored.current === stored.current) {
+      return true;
+    }
+    if (store.declines(authored.current, stored.current)) {
+      return false;
+    }
+    void store.update(authored.current, stored.current, rebind);
+    stored.current = authored.current;
+    unsaved.current = true;
+    return true;
+  };
+  // Stores this editor's version, then saves it.
   const storeAndSave = async () => {
     // Edits accepted while storage saves are stored too before the editor closes.
     do {
@@ -3903,12 +3917,8 @@ function Editor({
         setClosing('recipients');
         return false;
       }
-      if (authored.current !== stored.current) {
-        void store.update(authored.current, stored.current, rebind);
-        stored.current = authored.current;
-        unsaved.current = true;
-      }
-      if (!(await store.save())) {
+      const kept = storeShown();
+      if (!(await store.save()) || !kept) {
         return false;
       }
       unsaved.current = false;
@@ -4084,11 +4094,7 @@ function Editor({
       setDropped(undefined);
       // As for Discard, later edits wait: the version shown at Send is the one sent.
       discarded.current = true;
-      if (previous !== stored.current) {
-        unsaved.current = true;
-      }
-      void store.update(previous, stored.current, rebind);
-      stored.current = authored.current;
+      const kept = storeShown();
       const cleanup = reminderCleanup();
       const baseline = () => {
         const id = cleanup.target();
@@ -4099,8 +4105,9 @@ function Editor({
       let refusal: SendRefusal | undefined = 'storage';
       try {
         refusal = await outbox.send(baseline);
-        // A refused Send still stored the version shown, so its record goes once that is saved.
-        if (refusal !== undefined && (await store.save())) {
+        // A refused Send still stored the version shown, unless the store declined it, so its
+        // record goes once that is saved.
+        if (refusal !== undefined && (await store.save()) && kept) {
           unsaved.current = false;
           journalNow();
         }
