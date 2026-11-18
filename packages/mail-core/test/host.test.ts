@@ -1232,16 +1232,16 @@ describe('the host assembly', () => {
     });
     await vi.waitFor(async () => {
       await expect(pinned()).resolves.toStrictEqual([
-        { connection: mailbox.id, thread: '3.1.Archive', pinnedAt },
         expect.objectContaining({ thread: `7.${dropped}.INBOX` }),
+        { connection: mailbox.id, thread: '3.1.Archive', pinnedAt },
       ]);
     });
     await inbox.undo();
     expect(imap.server.changes.at(-1)).toBe('move Archive 1 INBOX');
     await vi.waitFor(async () => {
       await expect(pinned()).resolves.toStrictEqual([
-        { connection: mailbox.id, thread: '7.3.INBOX', pinnedAt },
         expect.objectContaining({ thread: `7.${dropped}.INBOX` }),
+        { connection: mailbox.id, thread: '7.3.INBOX', pinnedAt },
       ]);
     });
 

@@ -1915,6 +1915,13 @@ export function createImapInbox(
     }
   };
 
+  // Tells `relocated` where a move the server applied left its message.
+  const reportMoved = (change: ImapPending, answer: Answer) => {
+    if (deliveredTo(change, answer) !== undefined) {
+      relocated?.(change.message.id, movedId(change, answer));
+    }
+  };
+
   const acceptAnswer = Effect.fnUntraced(function* (
     head: ImapPending,
     rest: readonly ImapPending[],
@@ -1941,10 +1948,8 @@ export function createImapInbox(
     if (!applied(answer)) {
       restoring.delete(head.id);
     }
+    reportMoved(head, answer);
     const moved = movedId(head, answer);
-    if (answer.outcome === 'moved' && moves(head.action)) {
-      relocated?.(head.message.id, moved);
-    }
     if (moved !== undefined) {
       originalIds = new Map([
         ...originalIds,
