@@ -57,8 +57,7 @@ describe('application-owned Outbox execution', () => {
       });
     const initial = AppState.currentState;
     AppState.currentState = 'background';
-    // Effect schedules fibers with setImmediate, which stays real.
-    jest.useFakeTimers({ doNotFake: ['setImmediate', 'clearImmediate'] });
+    jest.useFakeTimers();
     try {
       const host = jest.requireActual<ReturnType<typeof createHost>>(
         '../src/registration.ts',

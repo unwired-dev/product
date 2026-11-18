@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { setImmediate } from 'node:timers/promises';
 
 import { createLocalization, english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
@@ -3588,29 +3589,31 @@ describe('keeping composer recovery records', () => {
     await expect(next.recovered()).resolves.toStrictEqual([]);
   });
 
-  it('opens no Drafts of an account that changed while its records were read', async () => {
+  it('keeps no records an account read after the Product Account changed', async () => {
     expect.hasAssertions();
-    const { storage, saving, session } = await savingDraft();
+    const { storage, drafts, draft, saving, session } = await savingDraft();
     storage.release();
     await saving;
+    await drafts.journal({ ...draft, subject: 'Left' });
+    // The first records read waits for `reading`.
     const reading = Promise.withResolvers<unknown>();
+    const waits = [reading.promise];
     const native = {
       ...storage.native,
       openComposerRecovery: async () => {
         const opened = await storage.native.openComposerRecovery();
-        await reading.promise;
+        await waits.shift();
         return opened;
       },
     };
     const next = createDrafts(native, session.registration);
-    const loading = next.load();
-    await vi.waitFor(() => {
-      expect(next.getSnapshot().kind).toBe('loading');
-    });
-    session.change({ kind: 'signed-out' });
+    await next.load();
+    session.change(connected('account-b'));
+    await vi.waitFor(() => ready(next.getSnapshot()));
+    await expect(next.recovered()).resolves.toStrictEqual([]);
     reading.resolve(undefined);
-    await loading;
-    expect(next.getSnapshot().kind).toBe('closed');
+    await setImmediate();
+    await expect(next.recovered()).resolves.toStrictEqual([]);
   });
 
   it('tells a locked read of the records from an empty one and reads them again', async () => {

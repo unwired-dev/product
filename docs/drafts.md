@@ -769,7 +769,7 @@ the save still succeeds and a later save retries that cleanup.
 decision 2) keep an open composer's unsaved Draft on this device apart from the
 Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` lists the records the account's previous run left, as the store
-read them when the account's storage opened, before this run journaled any
+read them as the account's storage opened and listed the Drafts
 ([#2334](https://github.com/unwired-dev/product/issues/2334)); a Product Account
 change discards that read. A read that storage refused, as while locked, resolves
 `undefined` instead of an empty list, and the next `recovered` reads again. While

@@ -1205,7 +1205,7 @@ export function createDrafts(
   let recordCall = 0;
   // Every Draft id this run journaled or forgot, across account changes, which `recovered` leaves out.
   const recordedThisRun = new Set<string>();
-  // The account's records as read when its storage opened, before this run journaled any; none
+  // The account's records as read once its storage opened, as the Drafts are first listed; none
   // while storage refuses that read, as while locked, until `recovered` reads again.
   let previousRun: readonly Draft[] | undefined = undefined;
   // The previous run's records whose offer the person answered, which `forget` then removes.
@@ -1390,12 +1390,6 @@ export function createDrafts(
       sent = confirmed;
       cleanup = opened.document?.deliveryCleanup ?? [];
       dirty = outbox.some((entry, index) => entry !== stored[index]);
-      yield* capturing(current, account).pipe(
-        Effect.catchTag('DraftStorageFailure', report),
-      );
-      if (!live(current)) {
-        return;
-      }
       publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -1403,6 +1397,17 @@ export function createDrafts(
         report(error).pipe(Effect.andThen(failed(current, error))),
       ),
       semaphore.withPermit,
+      // Reads the records as the Drafts are listed, without delaying them; a record this run
+      // journals meanwhile is left out by `recordedThisRun`.
+      Effect.andThen(
+        Effect.sync(() => {
+          void runLogged(
+            capturing(current, account).pipe(
+              Effect.catchTag('DraftStorageFailure', report),
+            ),
+          );
+        }),
+      ),
     );
 
   // Rebases the Drafts in memory onto the revision another writer stored.
