@@ -222,11 +222,13 @@ struct MicrosoftTokens: Codable {
   }
 
   // The code from the authorization callback for this request. A refused or cancelled consent is
-  // declined; a tenant or account Microsoft does not admit is gmailUnavailable.
+  // declined; a tenant or account Microsoft does not admit is gmailUnavailable. Microsoft returns
+  // the redirect URI with a trailing slash.
   static func authorizationCode(_ callback: URL, state: String, callbackScheme: String) throws -> String {
     let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
     let value = { (name: String) in items.first { $0.name == name }?.value }
-    guard callback.scheme == callbackScheme, callback.host == "auth", callback.path.isEmpty,
+    guard callback.scheme == callbackScheme, callback.host == "auth",
+      ["", "/"].contains(callback.path(percentEncoded: true)),
       callback.port == nil, callback.user == nil, callback.password == nil, callback.fragment == nil,
       items.filter({ $0.name == "state" }).count == 1, value("state") == state
     else { throw RegistrationError.unavailable }
