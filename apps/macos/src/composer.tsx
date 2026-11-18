@@ -14,6 +14,7 @@ import type {
   Recipient,
   RecipientField,
   RecipientNotice,
+  Recovery,
 } from '@private-email/mail-core/drafts';
 import type {
   MailTemplate,
@@ -2263,8 +2264,8 @@ function DraftTemplates({
 // app can lose (ADR 0077).
 const journalDelay = 2000;
 
-// Keeps the editor's unsaved version, which `unsavedVersion` returns, in a composer recovery record
-// a few seconds after each `edited` change and when the app returns to the foreground, retrying a
+// Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
+// returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
 // record locked storage refused. The records it wrote go once the version is unchanged again. The
 // first returned function closes the journal, removing those records and that of Draft `id` the
 // editor closes on, which another editor's journal may have written; it resolves once they are
@@ -2272,17 +2273,17 @@ const journalDelay = 2000;
 // open. A version unsaved from the start, as a restored recovery record, counts as written.
 function useRecoveryJournal(
   edited: unknown,
-  unsavedVersion: () => Draft | undefined,
+  unsaved: () => Recovery | undefined,
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
   const journaled = useRef(new Set<string>());
   useEffect(() => {
-    const restored = unsavedVersion();
+    const restored = unsaved();
     if (restored !== undefined) {
-      journaled.current.add(restored.id);
+      journaled.current.add(restored.version.id);
     }
-  }, [unsavedVersion]);
+  }, [unsaved]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
   const forget = useCallback(() => {
@@ -2295,14 +2296,14 @@ function useRecoveryJournal(
   const write = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
-    const version = closed.current ? undefined : unsavedVersion();
-    if (version === undefined) {
+    const kept = closed.current ? undefined : unsaved();
+    if (kept === undefined) {
       void forget();
       return;
     }
-    journaled.current.add(version.id);
-    void store.journal(version);
-  }, [forget, store, unsavedVersion]);
+    journaled.current.add(kept.version.id);
+    void store.journal(kept.version, kept.base);
+  }, [forget, store, unsaved]);
   const seen = useRef(edited);
   useEffect(() => {
     if (seen.current === edited) {
@@ -2344,7 +2345,7 @@ function useRecoveryJournal(
 // window at a time offers, and keeps the offer while its restored composer is open; releasing it
 // wakes the windows waiting for it.
 interface RecoveryOffer {
-  readonly records: Promise<readonly Draft[]>;
+  readonly records: Promise<readonly Recovery[]>;
   readonly offered: Set<string>;
   readonly waiting: Set<() => void>;
   window?: object;
@@ -2354,8 +2355,9 @@ const recoveryOffers = new WeakMap<
   Map<string | undefined, RecoveryOffer>
 >();
 
-// A restored composer recovery record: the unsaved `version` and the Draft as listed when it was
-// offered, which the editor saves against.
+// A restored composer recovery record: the unsaved `version` and the stored version its edits
+// started from, or for a record without one, the Draft as listed when it was offered, which the
+// editor saves against.
 export interface Recovered {
   readonly version: Draft;
   readonly base: Draft;
@@ -2436,7 +2438,7 @@ export function useRecoveryOffer(
     const unchanged = async (draft: Draft) => {
       const records = await store.recovered();
       return records.some(
-        (each) => each.id === draft.id && sameContent(each, draft),
+        ({ version }) => version.id === draft.id && sameContent(version, draft),
       );
     };
     // Whether record `draft` and its Draft as listed now belong to this window's Profile.
@@ -2453,16 +2455,17 @@ export function useRecoveryOffer(
     const discarding = () => undefined;
     const ask = async () => {
       const records = await own.records;
-      const draft = records.find(
-        (each) => !own.offered.has(each.id) && owned(each),
+      const pending = records.find(
+        ({ version }) => !own.offered.has(version.id) && owned(version),
       );
       if (!current) {
         return;
       }
-      if (draft === undefined) {
+      if (pending === undefined) {
         releaseOffer(own, self);
         return;
       }
+      const draft = pending.version;
       // A record changed or removed since it was read, as by an editor in another window, is not
       // offered; it stays for the next launch. One whose Draft moved meanwhile stays for its Profile.
       const intact = await unchanged(draft);
@@ -2476,7 +2479,7 @@ export function useRecoveryOffer(
         wake();
         return;
       }
-      const base = draftOf(store.getSnapshot(), draft.id);
+      const base = pending.base ?? draftOf(store.getSnapshot(), draft.id);
       question = askInSheet(anchor.current, {
         title: t('drafts.recover.title'),
         detail: t('drafts.recover.detail'),
@@ -3040,13 +3043,15 @@ function Editor({
   const draft = history.present;
   const [closeRecord, journalNow] = useRecoveryJournal(
     draft,
-    useCallback(
-      () =>
-        authored.current !== stored.current || unsaved.current
-          ? authored.current
-          : undefined,
-      [],
-    ),
+    useCallback(() => {
+      if (authored.current === stored.current && !unsaved.current) {
+        return undefined;
+      }
+      // No base while a save is pending or failed: storage may still hold the version before it.
+      return unsaved.current
+        ? { version: authored.current }
+        : { version: authored.current, base: stored.current };
+    }, []),
     rebind,
   );
   const assistance = use(AssistanceContext);
