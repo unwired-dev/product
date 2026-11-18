@@ -623,6 +623,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     };
     const restored = await stored('Restored plan');
     const discarded = await stored('Discarded plan');
+    const edited = await stored('Edited plan');
     const drafts = createDrafts(storage.native, registration);
     const replacement = jest.replaceProperty(
       jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
@@ -673,6 +674,10 @@ describe('mac window selection with the shared mock mailbox', () => {
       );
       // The other record waits while the restored composer is open.
       expect(sheetsShown()).toStrictEqual([]);
+      // An editor in another window journals the third Draft meanwhile, so its record is not offered.
+      const elsewhere = draftOf(drafts.getSnapshot(), edited);
+      ok(elsewhere !== undefined);
+      ok(await drafts.journal({ ...elsewhere, subject: 'Edited elsewhere' }));
       // Close asks to save the restored edits, and Save keeps them as a conflicting copy.
       await fireEvent.press(app.getByRole('button', { name: 'Close' }));
       await act(async () => {
@@ -687,11 +692,15 @@ describe('mac window selection with the shared mock mailbox', () => {
       });
       // Discard removes the record and keeps the stored version; the restored record went with Save.
       await waitFor(() => {
-        expect(storage.recoveryRecords().size).toBe(0);
+        expect([...storage.recoveryRecords().keys()]).toStrictEqual([edited]);
+      });
+      await act(async () => {
+        await drafts.recovered();
       });
       expect(subjects()).toStrictEqual([
         [restored, 'Changed plan'],
         [discarded, 'Discarded plan'],
+        [edited, 'Edited plan'],
         [`${restored}-conflict-1`, 'Restored plan, unsaved'],
       ]);
       expect(sheetsShown()).toStrictEqual([]);

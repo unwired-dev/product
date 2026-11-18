@@ -2463,6 +2463,15 @@ export function useRecoveryOffer(
         releaseOffer(own, self);
         return;
       }
+      // A record changed or removed since it was read, as by an editor in another window, is not
+      // offered; it stays for the next launch.
+      if (!(await unchanged(draft))) {
+        if (current) {
+          own.offered.add(draft.id);
+          wake();
+        }
+        return;
+      }
       const base = draftOf(store.getSnapshot(), draft.id);
       question = askInSheet(anchor.current, {
         title: t('drafts.recover.title'),
