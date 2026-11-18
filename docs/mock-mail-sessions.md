@@ -151,8 +151,12 @@ New Message end 40pt above it (the 52pt glass 2pt above the 34pt safe area), and
 the body's end scrolls clear of them. In
 Settings, a swipe from Account & Devices returns to the list of destinations, and
 another to Mailboxes. Open Inbox from Account & Devices then shows the Inbox with
-the Thread's row, and Account reopens Settings on its list of destinations. CI
-does not run this scenario; it is local native evidence.
+the Thread's row, and Account reopens Settings on its list of destinations. On
+iPad, which the journey holds in Portrait, Mailboxes stays hidden beside the 391pt
+list; the flat Thread scrolls to Crew 5, the list opens Crew 6 under the reader's
+toolbar, a search for "Trail" shows Top Results, and Show Sidebar leads to
+Settings, each captured for the iPad Portrait frames (#2361). CI does not run this scenario; it is local native
+evidence.
 In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
 also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and
 Outlook update 001 to 125, each with its own body. Every other Gmail body is HTML.

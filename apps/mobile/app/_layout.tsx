@@ -305,10 +305,10 @@ function floatingComposer({
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
   const leave = useLeaveComposer();
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
-  const sidebarToggle = useSidebarToggle(regular);
+  const sidebarToggle = useSidebarToggle(regular, windowHeight > width);
   const [expanded, setExpanded] = useState(false);
   // On iPad the composer floats over the reader until it is expanded to the full window.
   const floating = regular && !expanded;
@@ -493,9 +493,11 @@ function MailShell() {
                 // The iPad frames: a floating sidebar inset 8pt, beside a 391pt list (the Mac columns
                 // at 1.15×). The system's 1pt column separators place the list at x287 and the
                 // reader at x679, as the frames do.
+                // UIKit would keep the reader 448pt wide in portrait, narrowing the list to 385pt.
                 columnMetrics={{
                   preferredPrimaryColumnWidthOrFraction: 286,
                   preferredSupplementaryColumnWidthOrFraction: 391,
+                  minimumSecondaryColumnWidth: 442,
                 }}
                 displayModeButtonVisibility="never"
                 onDisplayModeWillChange={({ nativeEvent }) => {
@@ -508,8 +510,8 @@ function MailShell() {
                   setCollapsed(false);
                 }}
                 style={styles.fill}
-                // Both sidebars beside the reader in landscape; portrait hides Mailboxes, which the
-                // system's sidebar button shows over the list.
+                // Both sidebars beside the reader in landscape; portrait hides Mailboxes until Show
+                // Sidebar brings it back beside the list.
                 preferredDisplayMode={sidebarToggle.displayMode}
                 preferredSplitBehavior="tile"
                 // The sidebar draws its own floating glass panel over the window's surface.
