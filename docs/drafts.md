@@ -833,8 +833,10 @@ whose Draft and recovered sender belong to the shown Mail Profile are offered,
 so switching Profile offers that Profile's records. Restore opens the composer
 over the Inbox, and the next record waits until it closes. An answer given after
 the shell moved on, as when a notification opened a composer meanwhile, changes
-nothing, and the record is asked about again once no composer is open
-(`useRecoveryOffer` in `apps/mobile/src/composer.tsx`).
+nothing, and the record is asked about again once no composer is open. The
+TypeScript client (`useRecoveryOffer` in `apps/mobile/src/composer.tsx`) chooses
+each record and rechecks it before acting; UIKit presents the alert through React
+Native's `Alert`.
 
 A Draft's **Send Reminder** is stored on this device
 ([#2074](https://github.com/unwired-dev/product/issues/2074), a first slice of

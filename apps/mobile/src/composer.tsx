@@ -2505,7 +2505,8 @@ const savedOf = (state: DraftsState) =>
 // record locked storage refused. The records it wrote go once the version is unchanged again. The
 // first returned function closes the journal, removing those records and that of Draft `id` the
 // editor closes on, which another editor's journal may have written. The second journals at once,
-// as after a save that keeps the editor open. A version unsaved from the start, as
+// as after a save that keeps the editor open; the third too, unless unsaved edits have a write
+// scheduled. A version unsaved from the start, as
 // a restored recovery record, counts as written.
 function useRecoveryJournal(
   edited: unknown,
@@ -2569,7 +2570,13 @@ function useRecoveryJournal(
     },
     [write],
   );
-  return [close, write] as const;
+  // Writes at once, except that unsaved edits keep a write already scheduled for them.
+  const settle = useCallback(() => {
+    if (timer.current === undefined || unsaved() === undefined) {
+      write();
+    }
+  }, [unsaved, write]);
+  return [close, write, settle] as const;
 }
 
 // A Product Account's offer of the composer recovery records the previous run left: those already
@@ -3408,7 +3415,7 @@ function Editor({
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
   const subjectCaret = useRef<number | undefined>(undefined);
   const draft = history.present;
-  const [closeRecord, journalNow] = useRecoveryJournal(
+  const [closeRecord, journalNow, settleJournal] = useRecoveryJournal(
     draft,
     useCallback(() => {
       if (authored.current === stored.current && !unsaved.current) {
@@ -3425,9 +3432,9 @@ function Editor({
   const saved = savedOf(state);
   useEffect(() => {
     if (saved) {
-      journalNow();
+      settleJournal();
     }
-  }, [saved, journalNow]);
+  }, [saved, settleJournal]);
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
   const { linkEditor, generatePrompt } = useOpenPresenters({
