@@ -295,14 +295,18 @@ function WindowContents({
   );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState<string>();
-  // The composer recovery record restored, while its composer is open.
-  const [recovered, setRecovered] = useState<Recovered>();
-  if (recovered !== undefined && composing !== recovered.version.id) {
+  // The composer recovery record restored, while its composer is open under Draft `id`, which
+  // follows the composer to a conflicting copy.
+  const [recovered, setRecovered] = useState<{
+    readonly record: Recovered;
+    readonly id: string;
+  }>();
+  if (recovered !== undefined && composing !== recovered.id) {
     setRecovered(undefined);
   }
   const recoveryAnchor = useRecoveryOffer(composing, (restored) => {
     setComposing(restored.version.id);
-    setRecovered(restored);
+    setRecovered({ record: restored, id: restored.version.id });
   });
   const [panes, setPanes] = useState({ width: 0, height: 0 });
   // Half the sidebar's visible width, which only the floating bar follows through the animation.
@@ -473,7 +477,7 @@ function WindowContents({
                         ]}>
                         <DraftComposer
                           id={composing}
-                          recovered={recovered}
+                          recovered={recovered?.record}
                           onClose={() => {
                             setComposing(undefined);
                           }}
@@ -482,7 +486,12 @@ function WindowContents({
                             windowHost()?.openComposer(id, profile);
                             setComposing(undefined);
                           }}
-                          onRebind={setComposing}
+                          onRebind={(id) => {
+                            setRecovered(
+                              (current) => current && { ...current, id },
+                            );
+                            setComposing(id);
+                          }}
                         />
                       </View>
                     )}
