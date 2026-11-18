@@ -601,11 +601,11 @@ describe('organizing IMAP mail', () => {
     reopened.forget();
   });
 
-  it('keeps where a move left its message when access closes while the server answers, and reports nothing once forgotten', async () => {
+  it('keeps where a move left its message when access closes while the server answers, also after relaunch, and reports nothing once forgotten', async () => {
     expect.hasAssertions();
     const imap = organizedServer();
-    imap.deliver('INBOX', { subject: 'Locked' });
     imap.deliver('INBOX', { subject: 'Forgotten' });
+    imap.deliver('INBOX', { subject: 'Locked' });
     imap.deliver('INBOX', { subject: 'Other' });
     // While the server moves a message, `during` runs before it answers.
     let during = () => Promise.resolve();
@@ -619,11 +619,26 @@ describe('organizing IMAP mail', () => {
         return receipt;
       },
     };
+    let keeps = false;
     const relocated = vi.fn<
       (from: string, to: string | undefined) => Promise<boolean>
-    >(() => Promise.resolve(true));
+    >(() => Promise.resolve(keeps));
+    const earlier = createImapInbox(native, { relocated });
+    await earlier.load();
+    const forgotten = inboxMessage(earlier.getSnapshot(), 'Forgotten');
+    during = async () => {
+      earlier.forget();
+    };
+    await earlier.organize(
+      forgotten,
+      action(earlier.getSnapshot(), forgotten, 'archive'),
+    );
+    expect(imap.server.changes).toHaveLength(1);
+    expect(relocated).not.toHaveBeenCalled();
+
     const inbox = createImapInbox(native, { relocated });
     await inbox.load();
+    await inbox.discardPending(blockedId(inbox.getSnapshot()));
     const state = inbox.getSnapshot();
     const locked = inboxMessage(state, 'Locked');
     const other = inboxMessage(state, 'Other');
@@ -639,20 +654,52 @@ describe('organizing IMAP mail', () => {
       expect(inbox.getSnapshot()).toStrictEqual({ kind: 'locked' });
     };
     await inbox.organize(locked, action(state, locked, 'archive'));
-    expect(relocated).toHaveBeenCalledWith(
-      locked.id,
-      expect.stringMatching(/\.Archive$/u),
-    );
-
+    const [from, archived] = first(relocated.mock.calls);
+    expect(from).toBe(locked.id);
+    expect(archived).toMatch(/\.Archive$/u);
+    // Reopening while the server cannot be reached saves the receipt for a relaunch.
+    imap.server.failure = 'retry';
     await inbox.load();
-    const reopened = inbox.getSnapshot();
-    const forgotten = inboxMessage(reopened, 'Forgotten');
+    imap.server.failure = undefined;
+    inbox.forget();
+
+    keeps = true;
     relocated.mockClear();
-    during = async () => {
-      inbox.forget();
-    };
-    await inbox.organize(forgotten, action(reopened, forgotten, 'archive'));
-    expect(relocated).not.toHaveBeenCalled();
+    const relaunched = createImapInbox(native, { relocated });
+    await relaunched.load();
+    await vi.waitFor(() => {
+      expect(relocated).toHaveBeenCalledWith(locked.id, archived);
+    });
+    relaunched.forget();
+  });
+
+  it('repeats a relocation not kept once an opening asked again while it was answering', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    imap.deliver('INBOX', { subject: 'Hello' });
+    const answers: Array<(kept: boolean) => void> = [];
+    const relocated = vi.fn<
+      (from: string, to: string | undefined) => Promise<boolean>
+    >(
+      () =>
+        // oxlint-disable-next-line promise/avoid-new -- Answer each relocation when the test says.
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+    const inbox = createImapInbox(imap.native, { relocated });
+    await inbox.load();
+    const state = inbox.getSnapshot();
+    const message = inboxMessage(state, 'Hello');
+    await inbox.organize(message, action(state, message, 'archive'));
+    expect(answers).toHaveLength(1);
+    await inbox.load();
+    first(answers)(false);
+    await vi.waitFor(() => {
+      expect(relocated).toHaveBeenCalledTimes(2);
+    });
+    answers[1]?.(true);
+    inbox.forget();
   });
 
   it('settles read state and removal in an opened non-Inbox folder', async () => {

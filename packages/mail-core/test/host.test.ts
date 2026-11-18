@@ -1352,6 +1352,8 @@ describe('the host assembly', () => {
     await expect(pinned()).resolves.toStrictEqual([original]);
 
     Object.assign(native, { commitPins });
+    // Pinned again while it showed unpinned, it keeps the first date.
+    await host.pins.pin(mailbox.id, '3.1.Archive');
     await host.gmailMailboxes.load();
     await vi.waitFor(async () => {
       await expect(pinned()).resolves.toStrictEqual([

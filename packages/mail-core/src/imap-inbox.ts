@@ -887,33 +887,32 @@ export function createImapInbox(
   // outlive closed access, so a move answered while storage is locked still counts.
   let relocations: readonly ImapRelocation[] = [];
   let relocating = false;
+  // A request that arrived while `relocated` was still answering, which runs once it has.
+  let requested = false;
   // Hands each relocation to `relocated` in order, until one it does not keep.
   const handRelocations = async () => {
-    if (relocated === undefined || relocating) {
+    if (relocated === undefined) {
+      return;
+    }
+    if (relocating) {
+      requested = true;
       return;
     }
     relocating = true;
     try {
-      let [head] = relocations;
-      // Forgetting the Inbox empties `relocations`.
-      while (head !== undefined && (await relocated(head.from, head.to))) {
-        const kept = head;
-        relocations = relocations.filter((entry) => entry !== kept);
-        [head] = relocations;
-      }
+      do {
+        requested = false;
+        let [head] = relocations;
+        // Forgetting the Inbox empties `relocations`.
+        while (head !== undefined && (await relocated(head.from, head.to))) {
+          const kept = head;
+          relocations = relocations.filter((entry) => entry !== kept);
+          [head] = relocations;
+        }
+      } while (requested);
     } finally {
       relocating = false;
     }
-  };
-  // Puts the relocations a cache saved ahead of this run's and hands them on. One this run
-  // already kept repeats harmlessly: no Pin remains under its `from`.
-  const restoreRelocations = (saved: readonly ImapRelocation[] = []) => {
-    const known = new Set(relocations.map(({ from }) => from));
-    relocations = [
-      ...saved.filter(({ from }) => !known.has(from)),
-      ...relocations,
-    ];
-    void handRelocations();
   };
   const closedFolder = { kind: 'failed' } as const;
   // Folder snapshots read before any view is recorded stay the same object across reads, as
@@ -1359,7 +1358,7 @@ export function createImapInbox(
       lifetime,
     };
     document = stored;
-    restoreRelocations(stored.relocations);
+    yield* restoreRelocations(stored);
     retireSuperseded();
     // Reopening refreshes no other folder, so one whose last read failed keeps saying so.
     const previous = new Map(folderViews);
@@ -1410,6 +1409,23 @@ export function createImapInbox(
     document = next;
     retireSuperseded();
   });
+
+  // Keeps the relocations the opened cache saved, in their order, then this run's others, which it
+  // saves at once so they outlast a relaunch, and hands them on. One already kept repeats
+  // harmlessly: no Pin remains under its `from`.
+  function restoreRelocations(stored: ImapDocument) {
+    return Effect.gen(function* () {
+      const saved = stored.relocations ?? [];
+      const known = new Set(saved.map(({ from }) => from));
+      const unsaved = relocations.filter(({ from }) => !known.has(from));
+      relocations = [...saved, ...unsaved];
+      if (unsaved.length > 0) {
+        // A save that fails leaves them to the next commit.
+        yield* commit(stored).pipe(Effect.ignore);
+      }
+      void handRelocations();
+    });
+  }
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
   // pruning stops keeping their bodies. The Inbox always stays.
