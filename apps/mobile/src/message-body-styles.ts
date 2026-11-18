@@ -1,4 +1,9 @@
-import { radius, spacing } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  radius,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
 import { StyleSheet } from 'react-native';
 
 import { textStyles } from './theme.ts';
@@ -38,4 +43,36 @@ export const styles = StyleSheet.create({
   rich: { width: '100%' },
   hidden: { opacity: 0 },
   fill: { flex: 1 },
+  // The iPhone frame centres the indicator above its caption in the empty reader.
+  loading: {
+    alignItems: 'center',
+    gap: spacing.xl + spacing.xs,
+    paddingVertical: 4 * spacing.xl,
+  },
+  // The iPad frame: the caption, then still lines where the text will appear.
+  downloading: { gap: 14 * ipadListScale },
+  caption: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  captionText: { ...typography.ipadList.subheadline },
+  placeholders: { gap: 13.3 },
+  placeholder: { height: 12, borderRadius: 6 },
+  // The Schedule Banner recipe, which the iPad frame draws at 1.15×.
+  banner: {
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    padding: spacing.m,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  padBanner: {
+    alignItems: 'flex-start',
+    gap: spacing.xs * ipadListScale,
+    padding: spacing.m * ipadListScale,
+    borderRadius: radius.card * ipadListScale,
+    borderCurve: 'continuous',
+  },
+  marker: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  bannerTitle: { ...textStyles.footnote, fontWeight: '500' },
+  bannerText: { ...textStyles.footnote },
+  padBannerTitle: { ...typography.ipadList.body, fontWeight: '500' },
+  padBannerText: { ...typography.ipadList.body },
 });

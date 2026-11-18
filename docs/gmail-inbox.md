@@ -1266,11 +1266,20 @@ mismatched bodies read as absent and may be downloaded again.
 The subject and sender show at once. On the Mac, while the body opens, the reader
 shows **Downloading message…** with an activity indicator above four still
 placeholder lines; VoiceOver reads it as one progress element
-([#2348](https://github.com/unwired-dev/product/issues/2348)).
+([#2348](https://github.com/unwired-dev/product/issues/2348)). On iPad it shows
+**Downloading from Gmail…** (**Downloading from the mail server…** for IMAP)
+above six still lines, and on iPhone a centred indicator above **Loading
+message…**, each one progress element too
+([#2395](https://github.com/unwired-dev/product/issues/2395)).
 
 A body that cannot be shown says why, beside **Try Again**. On the Mac the
 sentence and **Try Again** sit in a quiet banner, VoiceOver hears the sentence
-once, and the two download sentences say "this Mac" instead of "this device":
+once, and the two download sentences say "this Mac" instead of "this device".
+On iPhone and iPad the banner is titled **Couldn’t load this message** after a
+warning symbol, VoiceOver hears the sentence once, and the download sentence is
+the frame's: **It’s still in Gmail. Check your connection, then try again.** on
+iPhone, and **Gmail didn’t respond, so the message text isn’t on this iPad yet.
+Nothing was changed.** on iPad, with "the mail server" for IMAP:
 
 - **This message is not saved on this device, and Gmail could not be reached to
   download it.** This appears offline, or after a network, quota or server
