@@ -2515,7 +2515,8 @@ function useRecoveryJournal(
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
-  // Each Draft id journaled, with its latest write: only a removal storage accepted retires it.
+  // Each Draft id journaled, with its latest write or removal: only the latest, once storage accepts
+  // its removal, retires it.
   const journaled = useRef(new Map<string, object>());
   useEffect(() => {
     const restored = unsaved();
@@ -2528,10 +2529,12 @@ function useRecoveryJournal(
   const forget = useCallback(
     () =>
       Promise.allSettled(
-        [...journaled.current].map(async ([id, written]) => {
+        [...journaled.current.keys()].map(async (id) => {
+          const attempt = {};
+          journaled.current.set(id, attempt);
           if (
             (await store.forget(id, editor)) &&
-            journaled.current.get(id) === written
+            journaled.current.get(id) === attempt
           ) {
             journaled.current.delete(id);
           }
@@ -2641,6 +2644,8 @@ const askRecovery = (t: Translate) =>
 export function useRecoveryOffer(
   composing: string | undefined,
   onRestore: (id: string) => void,
+  // The Draft the shell is opening a composer on, before its route commits.
+  opening: () => string | undefined,
 ) {
   const store = useDraftStore();
   const navigation = useComposerNavigation();
@@ -2690,9 +2695,9 @@ export function useRecoveryOffer(
       (current) => current && { ...current, ids: [...current.ids, copy] },
     );
   }, []);
-  const latest = useRef({ onRestore, mailboxes });
+  const latest = useRef({ onRestore, mailboxes, opening });
   useLayoutEffect(() => {
-    latest.current = { onRestore, mailboxes };
+    latest.current = { onRestore, mailboxes, opening };
   });
   useEffect(() => {
     if (!ready || composing !== undefined) {
@@ -2771,11 +2776,14 @@ export function useRecoveryOffer(
       }
       const base = pending.base ?? draftOf(store.getSnapshot(), draft.id);
       // A pending New Message owns the next composer: the record is offered once that creation
-      // settles, or after its composer closes.
+      // settles without one, or after its composer closes.
       const creating = navigation.creating();
       if (creating !== undefined) {
         await creating;
         askNext();
+        return;
+      }
+      if (latest.current.opening() !== undefined) {
         return;
       }
       own.asking = askRecovery(t);

@@ -2417,7 +2417,14 @@ describe('composer recovery after relaunch', () => {
         await drafts.recovered();
       });
       expect(alert).not.toHaveBeenCalled();
-      // New Message opens its composer, and the record waits while it is open.
+      // New Message opens its composer, whose route the router commits later, and the record waits
+      // while it is open.
+      const { replace } = route.router;
+      jest.spyOn(route.router, 'replace').mockImplementationOnce((target) => {
+        setTimeout(() => {
+          replace(target);
+        }, 0);
+      });
       await act(async () => {
         stored();
         await Promise.resolve();

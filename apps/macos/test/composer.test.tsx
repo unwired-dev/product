@@ -1835,7 +1835,7 @@ describe('composing Drafts', () => {
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
 
-  it('tries a refused recovery record removal again while the composer stays open', async () => {
+  it('tries a refused recovery record removal again while the composer stays open, after an earlier one it replaced', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1858,12 +1858,14 @@ describe('composing Drafts', () => {
       />,
     );
     await press('New Message');
+    // Storage holds the record's write while the edit is undone and two removals queue behind it;
+    // the first finds the second has replaced it, and storage refuses the second.
+    storage.hold();
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Plan');
     await activate();
-    await waitFor(() => {
-      expect(records()).toBe(1);
-    });
-    // The edit is undone, and storage refuses the removal once.
+    await press('Undo');
+    await activate();
+    await activate();
     const remove = jest
       .spyOn(storage.native, 'removeComposerRecovery')
       .mockRejectedValueOnce(
@@ -1871,8 +1873,10 @@ describe('composing Drafts', () => {
           code: 'unavailable',
         }),
       );
-    await press('Undo');
-    await activate();
+    await act(async () => {
+      storage.release();
+      await Promise.resolve();
+    });
     await waitFor(() => {
       expect(remove).toHaveBeenCalledWith(
         'synthetic-product-account',
