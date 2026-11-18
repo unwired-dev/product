@@ -2999,10 +2999,22 @@ describe('composing Drafts', () => {
     });
     ok(created);
     const id: string = created;
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
     const editor = (name: string) => (
       <View testID={name}>
         <App
           drafts={drafts}
+          mailboxes={mailboxes}
+          outbox={outbox}
           registration={registration}
           initialDraft={id}
         />
@@ -3040,6 +3052,11 @@ describe('composing Drafts', () => {
     storage.setLocked(true);
     await inWindow(second, 'Send');
     storage.setLocked(false);
+    expect(
+      second.getByRole('alert', {
+        name: 'This message wasn’t sent. It stays open. Choose Send to try again.',
+      }),
+    ).toBeOnTheScreen();
     expect(second.getByLabelText('Subject')).toHaveProp(
       'value',
       'Second window',
@@ -3053,6 +3070,7 @@ describe('composing Drafts', () => {
         .map(({ subject }) => subject)
         .toSorted(),
     ).toStrictEqual(['First window', 'Second edit']);
+    outbox.dispose();
   });
 
   it('undoes subject typing a word at a time wherever the caret is', async () => {

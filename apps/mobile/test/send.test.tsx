@@ -777,6 +777,7 @@ describe('sending a Draft', () => {
       );
       expect(screen.queryByText(required)).toBeNull();
       expect(send()).toBeDisabled();
+      expect(send()).toHaveProp('accessibilityHint', incomplete);
       await fireEvent.changeText(
         screen.getByLabelText('To'),
         'sam@example.invalid',

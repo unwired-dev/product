@@ -301,6 +301,7 @@ const styles = StyleSheet.create({
     paddingBottom: 5 * ipadListScale,
     paddingHorizontal: padFieldInset,
   },
+  sendDisabled: { opacity: 0.5 },
   // iPad's Send is the Mac button at 1.15×: 65.6×32.2pt with 6.9pt corners, within its 44pt target.
   sendTitled: {
     minHeight: titledSendHeight,
@@ -1903,17 +1904,22 @@ function useBlockedSend({
   const outbox = useOutbox();
   const mailboxList = useMailboxList();
   const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  const finished = finishedEntries(shown);
   const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
-    outbox.refusal(finishedEntries(shown)),
+    outbox.refusal(finished),
   );
   if (blocked === undefined) {
     return { blocked, reason: undefined, notice: undefined, line: undefined };
   }
-  const reason = blockedMessage(
-    t,
-    blocked,
-    sendingMessage(t, draft, mailboxes),
-  );
+  // Text left in To, Cc or Bcc says why Send waits, as its field does.
+  const incomplete = (['to', 'cc', 'bcc'] as const)
+    .map((field) => entryOf(finished, field))
+    .find((entry) => entry !== '');
+  const reason =
+    incomplete !== undefined &&
+    (blocked === 'recipients' || blocked === 'entries')
+      ? t('drafts.recipient.incomplete', { address: incomplete })
+      : blockedMessage(t, blocked, sendingMessage(t, draft, mailboxes));
   const ownPlace =
     blocked === 'recipients' || blocked === 'entries' || blocked === 'sender';
   return {
@@ -2084,7 +2090,8 @@ export function CloseQuestion({
   );
 }
 
-// The header's Send: the accent fill shows at 80% (CC) while pressed and dims to 40% disabled.
+// The header's Send: the accent fill shows at 80% (CC) while pressed; disabled, the quiet fill holds
+// the arrow or name in the secondary text color at 50%, as the blocked Send frames draw it.
 export function SendButton({
   disabled,
   hint,
@@ -2111,23 +2118,30 @@ export function SendButton({
       onPress={onPress}
       style={({ pressed }) => [
         titled ? styles.sendTitled : styles.circle,
-        {
-          backgroundColor: pressed
-            ? `${colors.accentFill}CC`
-            : colors.accentFill,
-          opacity: disabled ? 0.4 : 1,
-        },
+        disabled
+          ? { backgroundColor: colors.fillQuiet }
+          : {
+              backgroundColor: pressed
+                ? `${colors.accentFill}CC`
+                : colors.accentFill,
+            },
       ]}>
-      {titled ? (
-        <Text style={[styles.sendLabel, { color: colors.accentOnFill }]}>
-          {t('drafts.send')}
-        </Text>
-      ) : (
-        <SFSymbol
-          name="arrow.up"
-          color={colors.accentOnFill}
-        />
-      )}
+      <View style={disabled && styles.sendDisabled}>
+        {titled ? (
+          <Text
+            style={[
+              styles.sendLabel,
+              { color: disabled ? colors.textSecondary : colors.accentOnFill },
+            ]}>
+            {t('drafts.send')}
+          </Text>
+        ) : (
+          <SFSymbol
+            name="arrow.up"
+            color={disabled ? colors.textSecondary : colors.accentOnFill}
+          />
+        )}
+      </View>
     </Pressable>
   );
 }
