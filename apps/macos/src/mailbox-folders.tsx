@@ -198,6 +198,7 @@ export function useListedMailbox<E>(
     ...chosen,
     title: unifiedRow(t, role).title,
     listed: unified.entries,
+    opening: unified.opening,
     failure:
       unified.failed.length === 0 ? undefined : t('imap.foldersUnavailable'),
     // Reaching the end reveals each Gmail mailbox's older downloaded mail with the role.

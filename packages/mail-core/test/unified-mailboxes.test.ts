@@ -217,6 +217,24 @@ describe('unified mailboxes across connections', () => {
     expect(selectedFolders(sidebar)).toStrictEqual([]);
   });
 
+  it('is opening until each folder of the role has listed once', async () => {
+    expect.hasAssertions();
+    const { gmail, imap, stores } = await connections();
+    gmail.setLabel(gmail.deliver({ subject: 'Gmail sent' }), 'SENT', true);
+    imap.deliver('Sent Messages', {
+      subject: 'IMAP sent',
+      received: minute(1),
+    });
+    for (const { inbox } of stores) {
+      await inbox.load();
+    }
+    // An empty list before the first listing is no answer to a search.
+    expect(unifiedMailbox(snapshot(stores), 'SENT').opening).toBe(true);
+    const sent = await opened(stores, 'SENT');
+    expect(sent.opening).toBe(false);
+    expect(rows(sent)).toContainEqual(['gmail', 'Gmail sent', 'SENT']);
+  });
+
   it('reads past an unreadable All folder and never takes an All folder as Archive', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

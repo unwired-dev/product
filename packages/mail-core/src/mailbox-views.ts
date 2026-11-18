@@ -596,21 +596,30 @@ const viewMessages = (
   label: string,
 ) => {
   const view = views?.find((shown) => shown.label === label);
-  return { messages: view?.messages ?? [], failed: view?.status === 'failed' };
+  return {
+    messages: view?.messages ?? [],
+    failed: view?.status === 'failed',
+    opening:
+      view === undefined ||
+      (view.status === 'syncing' && view.messages.length === 0),
+  };
 };
 
 const imapFolderMessages = (view: ImapFolderView | undefined) => ({
   messages: view?.kind === 'ready' ? view.messages : [],
   failed: imapFolderFailed(view),
+  opening: view?.kind === 'loading',
 });
 
-// The messages a mailbox lists in one of its folders or views, and whether reading it failed.
+// The messages a mailbox lists in one of its folders or views, whether reading it failed, and
+// whether its first listing is still to arrive.
 const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
   const { inbox, state } = mailbox;
   if (name === inboxFolder) {
     return {
       messages: 'messages' in state ? state.messages : [],
       failed: false,
+      opening: false,
     };
   }
   const gmail = gmailMailbox(mailbox);
@@ -625,7 +634,7 @@ const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
 // A Unified Mailbox of a Profile's ready mailboxes, newest first. Each entry names the folder or
 // view it is listed in, so its actions are those of that folder at its own connection. Mailboxes
 // without the role are `missing`; a folder or view that could not be read makes its mailbox
-// `failed`.
+// `failed`, and one whose first listing has not arrived makes the Unified Mailbox `opening`.
 export const unifiedMailbox = <
   M extends BrowsableMailbox & Readonly<{ id: string }>,
 >(
@@ -634,6 +643,7 @@ export const unifiedMailbox = <
 ) => {
   const missing: M[] = [];
   const failed: M[] = [];
+  let opening = false;
   const entries = mailboxes.flatMap((mailbox) => {
     const names = unifiedFolders(mailbox, role);
     if (names === undefined) {
@@ -645,6 +655,7 @@ export const unifiedMailbox = <
       if (listed.failed) {
         failed.push(mailbox);
       }
+      opening ||= listed.opening;
       return listed.messages;
     };
     return names.flatMap((name) =>
@@ -659,5 +670,6 @@ export const unifiedMailbox = <
     entries: newestFirst(mailboxes, entries),
     missing,
     failed: Arr.dedupe(failed),
+    opening,
   };
 };

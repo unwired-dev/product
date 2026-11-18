@@ -756,7 +756,7 @@ function headingOf(
     results,
     search,
     unconnected,
-    opening,
+    unlisted,
   }: Readonly<{
     scope: string | undefined;
     folder: string | undefined;
@@ -766,8 +766,8 @@ function headingOf(
     results: readonly unknown[] | undefined;
     search: ReturnType<typeof useGmailSearch>;
     unconnected: boolean;
-    // A chosen folder whose first listing has not arrived.
-    opening: boolean;
+    // The listed folder or view is still opening or could not be read, so it has not answered.
+    unlisted: boolean;
   }>,
 ) {
   const title =
@@ -806,7 +806,7 @@ function headingOf(
     return {
       title,
       subtitle:
-        opening || searchIncomplete(search)
+        unlisted || searchIncomplete(search)
           ? emptyScope
           : t('search.subtitleRegular', { count, scope: emptyScope }),
       emptyScope,
@@ -937,6 +937,8 @@ export function Inbox({
     folderOf,
     showOlder,
   } = useListedMailbox(shown, inboxListed, { view, onView });
+  // A folder still opening, or one that failed before listing anything, has not answered a search.
+  const unlisted = opening || (failure !== undefined && listed.length === 0);
   // A message chosen outside the Inbox names its folder, which its actions can take it out of.
   const selectionOf = (mailbox: string, id: string) => {
     const listedIn = folderOf(mailbox, id);
@@ -1048,7 +1050,7 @@ export function Inbox({
     results,
     search: online,
     unconnected: unconnected !== undefined,
-    opening,
+    unlisted,
   });
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
@@ -1297,7 +1299,7 @@ export function Inbox({
                 />
               ) : null}
               <NoResults
-                ready={ready && !opening}
+                ready={ready && !unlisted}
                 results={results}
                 search={online}
                 scope={emptyScope}
