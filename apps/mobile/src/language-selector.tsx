@@ -5,9 +5,10 @@ import { spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import { StyleSheet, Text as NativeText, View } from 'react-native';
 
-import { AnnouncedAlert, MenuButton, SFSymbol } from './design.tsx';
+import { AnnouncedAlert, MenuButton } from './design.tsx';
 import { localization, useLocalization } from './localization.ts';
 import {
+  PopUpChevrons,
   settingsColumns,
   SettingsBlock,
   SettingsGroup,
@@ -27,13 +28,6 @@ const styles = StyleSheet.create({
     gap: spacing.m,
   },
   choice: { ...textStyles.body },
-  accessory: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });
 
 // SwiftUI tags cannot be null, so System Default's null preference takes a UI-only tag.
@@ -130,17 +124,7 @@ export function LanguageSelector({
                 style={[styles.choice, { color: colors.textPrimary }]}>
                 {nameOf(shown)}
               </NativeText>
-              <View
-                style={[
-                  styles.accessory,
-                  { backgroundColor: colors.fillControl },
-                ]}>
-                <SFSymbol
-                  name="chevron.up.chevron.down"
-                  size={13}
-                  color={colors.textPrimary}
-                />
-              </View>
+              <PopUpChevrons />
             </View>
           </MenuButton>
         )}

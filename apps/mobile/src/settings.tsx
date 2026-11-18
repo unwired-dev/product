@@ -143,7 +143,7 @@ const groupRadius = settingsColumns ? radius.card : radius.settingsDetail;
 // iPhone's Settings Row pads 13pt, so a 36pt push button makes a 62pt row.
 const rowPadding = settingsColumns ? 10 * ipadListScale : 13;
 const phoneButtonHeight = 36;
-// iPhone's frames draw a row with a switch 56pt tall.
+// iPhone's frames draw a row with a switch at least 56pt tall.
 export const switchRowHeight = settingsColumns ? undefined : 56;
 const rowInset = settingsColumns ? spacing.m * ipadListScale : spacing.l;
 // iPad's row rules are the Mac recipe's point at 1.15×, as its frames draw them.
@@ -280,6 +280,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20.8,
     paddingVertical: 18.2,
     borderRadius: radius.settingsDetail,
+  },
+  popUpChevrons: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // iPad draws the Mac's 28pt push button at 1.15×, iPhone's frames a 36pt one; hit slop keeps
   // the 44pt target.
@@ -1020,6 +1027,21 @@ export function SettingsRow({
       {children === undefined ? null : (
         <View style={styles.trailing}>{children}</View>
       )}
+    </View>
+  );
+}
+
+// The iPhone Settings Row pop-up's up-down chevrons in a 22pt circle, 12pt after its value.
+export function PopUpChevrons() {
+  const colors = usePalette();
+  return (
+    <View
+      style={[styles.popUpChevrons, { backgroundColor: colors.fillControl }]}>
+      <SFSymbol
+        name="chevron.up.chevron.down"
+        size={13}
+        color={colors.textPrimary}
+      />
     </View>
   );
 }

@@ -42,6 +42,9 @@ import { textStyles, usePalette } from './theme.ts';
 export const ErrorReportingContext =
   createContext<ErrorReporting>(errorReporting);
 
+// The iPad frames draw the sharing switch's row at 52pt, as the reporting actions below.
+const shareRowHeight = switchRowHeight ?? 52;
+
 const styles = StyleSheet.create({
   action: {
     minHeight: 52,
@@ -288,7 +291,7 @@ export function ErrorReportingSettings({
         <SettingsRow
           title={t('errorReporting.share')}
           disabled={!available}
-          minHeight={switchRowHeight}>
+          minHeight={shareRowHeight}>
           <Switch
             accessibilityLabel={t('errorReporting.share')}
             accessibilityState={{
