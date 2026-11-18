@@ -2387,10 +2387,16 @@ export function useRecoveryOffer(
   const anchor = useRef<View>(null);
   const window = useRef({});
   const [round, setRound] = useState(0);
+  // Whether the last records read was refused, and how often the app became active.
   const refused = useRef(false);
+  const activations = useRef(0);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active' && refused.current) {
+      if (next !== 'active') {
+        return;
+      }
+      activations.current += 1;
+      if (refused.current) {
         refused.current = false;
         setRound((count) => count + 1);
       }
@@ -2459,6 +2465,7 @@ export function useRecoveryOffer(
     // An editor holding the Draft keeps its record; this one holds nothing.
     const discarding = () => undefined;
     const ask = async () => {
+      const activated = activations.current;
       const records = await store.recovered();
       const draft = records?.find(
         (each) => !own.offered.has(each.id) && owned(each),
@@ -2467,7 +2474,11 @@ export function useRecoveryOffer(
         return;
       }
       // A read storage refused, as while locked, is read again once the app is active again.
-      refused.current = records === undefined;
+      if (records === undefined && activations.current !== activated) {
+        wake();
+      }
+      refused.current =
+        records === undefined && activations.current === activated;
       if (draft === undefined) {
         releaseOffer(own, self);
         return;
