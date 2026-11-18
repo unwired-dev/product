@@ -27,8 +27,13 @@ repository adds:
   behavior recorded from the real app, and a link to each approved Figma frame
   it implements, one per changed state. Delegate the capture to the latest
   available GPT Sol model with high reasoning through `delegate_task`. Upload
-  the media to the PR body; do not commit it. A PR with no visual change says so. Media you could not capture is
-  reported as deferred with the reason; a CI E2E capture may stand in.
+  the media to the PR body with `gh pr create|edit --attach <file>` (see
+  [attaching files](https://docs.github.com/en/github-cli/github-cli/attaching-files-with-github-cli));
+  reference each file from the body so it renders in place: `![alt](./shot.png)`
+  for an image, `![](./demo.mov)` alone in its paragraph for a video. Do not
+  commit it.
+  A PR with no visual change says so. Media you could not capture is reported
+  as deferred with the reason; a CI E2E capture may stand in.
 - A `[skip review]` or `Version packages` title, `do-not-review` label or bot
   author blocks automatic merge. Leave it in place and report the blocker.
 - A PR that builds on another unmerged PR is a stacked PR: create and update
