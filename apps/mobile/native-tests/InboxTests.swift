@@ -2206,7 +2206,7 @@ final class InboxTests: XCTestCase {
     let selected = control.isSelected
     if control.elementType == .cell {
       app.otherElements["PopoverDismissRegion"].tap()
-      _ = control.waitForNonExistence(timeout: 5)
+      XCTAssertTrue(control.waitForNonExistence(timeout: 5))
     }
     return selected
   }
