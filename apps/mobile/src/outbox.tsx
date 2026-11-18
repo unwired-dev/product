@@ -60,7 +60,8 @@ const styles = StyleSheet.create({
   grow: { flex: 1, gap: 4 },
   subject: { ...textStyles.subheadline },
   detail: { ...textStyles.footnote },
-  recovery: { flexBasis: '100%', gap: 4 },
+  // The iPhone frames leave 8pt above a row's capsules.
+  recovery: { flexBasis: '100%', gap: phone ? spacing.s : 4 },
   actions: { flexDirection: 'row', gap: spacing.s },
   toast: {
     flexDirection: 'row',

@@ -139,7 +139,9 @@ it.
   address, or choose another mailbox.
 - The **Outbox** appears in the Inbox column above the Drafts only while it holds
   a message. Each row names its subject and recipients and says where the message
-  stands, and is hidden during search with the Drafts.
+  stands, and is hidden during search with the Drafts. On iPhone the row shows
+  that reason in full, with its controls as quiet capsules on a line under it; on
+  iPad Undo and Edit sit beside it.
 - VoiceOver announces each change of where a message stands, and each answer to
   **Check Again** that leaves delivery unknown, once however many Mac windows show
   it. In the composer, a refused Send, a Draft that could not be saved on Close or Discard, and the
