@@ -977,6 +977,12 @@ export const QuotedHistoryContext = createContext<'shown' | 'collapsible'>(
   'shown',
 );
 
+// The Thread's messages whose failure VoiceOver already heard, so a body scrolled away and back
+// stays quiet until Try Again.
+export const AnnouncedFailuresContext = createContext<Set<string> | undefined>(
+  undefined,
+);
+
 // The iPad frame's six lines, as fractions of its 439pt column.
 const placeholderLines = ['100%', '96%', '88%', '100%', '92%', '54%'] as const;
 
@@ -1045,10 +1051,12 @@ type UnavailableReason =
 // VoiceOver hears once after current speech, and Try Again unless the message is gone. A failed download says what
 // each device's frame says.
 export function BodyUnavailable({
+  id,
   reason,
   provider,
   onTryAgain,
 }: {
+  readonly id: string;
   readonly reason: UnavailableReason;
   readonly provider: string | undefined;
   readonly onTryAgain: () => void;
@@ -1061,8 +1069,14 @@ export function BodyUnavailable({
     provider,
     ...(download ? { context: ipad ? 'ipad' : 'iphone' } : {}),
   });
+  const announced = use(AnnouncedFailuresContext);
+  // oxlint-disable-next-line react/hook-use-state -- Whether it was heard is fixed at mount.
+  const [heard] = useState(() => announced?.has(id) === true);
   // Queued, so a Thread's other failing messages never cut off what VoiceOver is saying.
-  useOutcomeAnnouncement(sentence, true);
+  useOutcomeAnnouncement(heard ? undefined : sentence, true);
+  useEffect(() => {
+    announced?.add(id);
+  }, [announced, id]);
   return (
     <View
       style={[
@@ -1094,7 +1108,10 @@ export function BodyUnavailable({
       {reason === 'missing' || reason === 'imap-missing' ? null : (
         <Host matchContents>
           <Button
-            onPress={onTryAgain}
+            onPress={() => {
+              announced?.delete(id);
+              onTryAgain();
+            }}
             modifiers={[buttonStyle('plain')]}>
             {/* The frame's 28pt capsule, inside a 44pt touch target. */}
             <SwiftUIText
@@ -1188,6 +1205,7 @@ export function GmailMessageBody({
   if (body.kind === 'unavailable') {
     return (
       <BodyUnavailable
+        id={id}
         reason={body.reason}
         provider={provider}
         onTryAgain={() => {

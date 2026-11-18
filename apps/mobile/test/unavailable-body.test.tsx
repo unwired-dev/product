@@ -1,3 +1,5 @@
+import type { ReactElement } from 'react';
+
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
@@ -6,7 +8,10 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
-import { GmailMessageBody } from '../src/message-body.tsx';
+import {
+  AnnouncedFailuresContext,
+  GmailMessageBody,
+} from '../src/message-body.tsx';
 
 // The iPhone and iPad frames draw the body states differently, so each case sets the device.
 const onDevice = (isPad: boolean) =>
@@ -95,6 +100,60 @@ describe('unavailable message body', () => {
       }
     },
   );
+
+  it('announces a Thread message’s failure once as it scrolls away and back, and again after Try Again', async () => {
+    expect.hasAssertions();
+    const sentence =
+      'It’s still in Gmail. Check your connection, then try again.';
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    announce.mockClear();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Not downloaded yet' });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const offline = () => {
+      gmail.fail({ code: 'unavailable' }, { code: 'unavailable' });
+    };
+    const announced = new Set<string>();
+    const body = (
+      <GmailMessageBody
+        inbox={inbox}
+        id={id}
+      />
+    );
+    const thread = (message: ReactElement | null) => (
+      <AnnouncedFailuresContext value={announced}>
+        {message}
+      </AnnouncedFailuresContext>
+    );
+    offline();
+    const app = await render(thread(body));
+    try {
+      await expect(
+        screen.findByRole('alert', { name: sentence }),
+      ).resolves.toBeOnTheScreen();
+      offline();
+      await app.rerender(thread(null));
+      await app.rerender(thread(body));
+      await expect(
+        screen.findByRole('alert', { name: sentence }),
+      ).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([[sentence, { queue: true }]]);
+      offline();
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+      await expect(
+        screen.findByRole('alert', { name: sentence }),
+      ).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([
+        [sentence, { queue: true }],
+        [sentence, { queue: true }],
+      ]);
+    } finally {
+      await app.unmount();
+    }
+  });
 
   it('offers no Try Again for an IMAP message gone from its folder', async () => {
     expect.hasAssertions();

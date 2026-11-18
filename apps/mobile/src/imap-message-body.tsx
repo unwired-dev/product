@@ -83,6 +83,7 @@ export function ImapMessageBody({
   if (body.kind === 'unavailable') {
     return (
       <BodyUnavailable
+        id={id}
         reason={body.reason}
         provider={undefined}
         onTryAgain={() => {

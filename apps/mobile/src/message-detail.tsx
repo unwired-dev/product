@@ -79,6 +79,7 @@ import {
   useProfile,
 } from './mailbox.tsx';
 import {
+  AnnouncedFailuresContext,
   AssistanceRow,
   AttachContext,
   GmailMessageBody,
@@ -1219,6 +1220,8 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const pinned = useRef(true);
   // The opened message, once this Thread marked it read.
   const markedRef: Marked = useRef(undefined);
+  // oxlint-disable-next-line react/hook-use-state -- One set for this Thread visit, mutated in place.
+  const [announcedFailures] = useState(() => new Set<string>());
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -1247,51 +1250,53 @@ function ThreadMessages({ id }: { readonly id: string }) {
       edges={readerEdges}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <QuotedHistoryContext value="collapsible">
-        <LinkConfirmationProvider
-          inbox={inbox}
-          ids={messages.map((message) => message.id)}>
-          {/* Opening reads only the opened message, never the rest of its Thread. */}
-          {'organize' in state && state.organize && canOrganize(opened) ? (
-            <ReadWhenOpened
-              markedRef={markedRef}
-              store={inbox}
-              message={opened}
-              read={inbox.readOpened}
+        <AnnouncedFailuresContext value={announcedFailures}>
+          <LinkConfirmationProvider
+            inbox={inbox}
+            ids={messages.map((message) => message.id)}>
+            {/* Opening reads only the opened message, never the rest of its Thread. */}
+            {'organize' in state && state.organize && canOrganize(opened) ? (
+              <ReadWhenOpened
+                markedRef={markedRef}
+                store={inbox}
+                message={opened}
+                read={inbox.readOpened}
+              />
+            ) : null}
+            <RegisterCommands
+              offer={() =>
+                expectedCommands(t, {
+                  target: commandTarget(mailbox?.id, opened),
+                  disabled: t('commands.unavailable'),
+                })
+              }
             />
-          ) : null}
-          <RegisterCommands
-            offer={() =>
-              expectedCommands(t, {
-                target: commandTarget(mailbox?.id, opened),
-                disabled: t('commands.unavailable'),
-              })
-            }
-          />
-          {compact ? (
-            <ReaderHeader subject={opened.subject} />
-          ) : (
-            <RegularHeader subject={opened.subject} />
-          )}
-          <ReaderScrollView
-            contentContainerStyle={[
-              compact ? singleContent : styles.content,
-              inset,
-              clearsBottom(windowBar !== undefined, insets.bottom),
-            ]}
-            maintainVisibleContentPosition={keepVisibleMessage}
-            onScrollBeginDrag={() => {
-              pinned.current = false;
-            }}>
-            <MessageCount count={messages.length} />
-            <ThreadMessageList
-              inbox={inbox}
-              messages={messages}
-              opened={id}
-              pinned={pinned}
-            />
-          </ReaderScrollView>
-          {compact ? <ReaderEdge /> : null}
-        </LinkConfirmationProvider>
+            {compact ? (
+              <ReaderHeader subject={opened.subject} />
+            ) : (
+              <RegularHeader subject={opened.subject} />
+            )}
+            <ReaderScrollView
+              contentContainerStyle={[
+                compact ? singleContent : styles.content,
+                inset,
+                clearsBottom(windowBar !== undefined, insets.bottom),
+              ]}
+              maintainVisibleContentPosition={keepVisibleMessage}
+              onScrollBeginDrag={() => {
+                pinned.current = false;
+              }}>
+              <MessageCount count={messages.length} />
+              <ThreadMessageList
+                inbox={inbox}
+                messages={messages}
+                opened={id}
+                pinned={pinned}
+              />
+            </ReaderScrollView>
+            {compact ? <ReaderEdge /> : null}
+          </LinkConfirmationProvider>
+        </AnnouncedFailuresContext>
       </QuotedHistoryContext>
     </SafeAreaView>
   );
