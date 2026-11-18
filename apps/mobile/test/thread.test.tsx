@@ -542,7 +542,12 @@ describe('thread view', () => {
       'accessibilityAction',
       { nativeEvent: { actionName: 'openCommandPalette' } },
     );
-    expect(messageBy('Alex Rivera')).toHaveStyle(tint);
+    // Its bar takes its width from the padding, so the body keeps its width.
+    expect(messageBy('Alex Rivera')).toHaveStyle({
+      ...tint,
+      borderLeftWidth: 4,
+      paddingLeft: 12,
+    });
     expect(messageBy('Sam Lee')).not.toHaveStyle(tint);
     await fireEvent.press(
       within(screen.getByTestId('command-palette')).getByRole('button', {

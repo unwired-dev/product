@@ -117,10 +117,11 @@ const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
 const readerEdgeHeight = 140;
 // The content's bottom padding lets its last line scroll clear of iPhone's scroll edge, or of a
 // regular window's floating bar and on iPhone the home indicator it runs beneath.
-const clearsBottom = (bar: boolean, inset: number, edge = compact) => ({
-  paddingBottom: edge
-    ? readerEdgeHeight
-    : (bar ? 52 + 2 * spacing.l : spacing.s) + (compact ? inset : 0),
+const clearsBottom = (bar: boolean, inset: number) => ({
+  paddingBottom:
+    compact && !bar
+      ? readerEdgeHeight
+      : (bar ? 52 + 2 * spacing.l : spacing.s) + (compact ? inset : 0),
 });
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -204,12 +205,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderRadius: compact ? 0 : radius.card,
   },
-  // A bar beside the opened message, so it stands out without relying on color.
-  openedMessage: { borderLeftWidth: 4 },
+  // A bar beside the opened message, so it stands out without relying on color. It takes its
+  // width from the padding, so the body keeps its width as the palette opens and closes.
+  openedMessage: { borderLeftWidth: 4, paddingLeft: spacing.l - 4 },
   // On iPhone the tint reaches 16pt beyond the text, which stays on the content's axis.
   compactOpenedMessage: {
     marginHorizontal: -spacing.l,
-    paddingLeft: spacing.l - 4,
     paddingRight: spacing.l,
     borderRadius: radius.card,
   },
@@ -227,6 +228,13 @@ const keepVisibleMessage = { minIndexForVisible: 0 };
 // Beside the list, its command input serves the reader too; a reader alone keeps its own.
 function ReaderCommandRow() {
   return use(SidebarToggleContext) === undefined ? <CommandInputRow /> : null;
+}
+
+// iPhone's fade beneath the reader's toolbar. A regular-width window's floating bar brings its own.
+function ReaderEdge() {
+  return use(WindowBarContext) === undefined ? (
+    <ScrollEdge style={styles.readerEdge} />
+  ) : null;
 }
 
 // Nothing selected, or a message that is not in any open mailbox.
@@ -1116,7 +1124,7 @@ function MailboxMessage({
           />
           {compact ? (
             <>
-              <ScrollEdge style={styles.readerEdge} />
+              <ReaderEdge />
               <View
                 // The gaps between its groups leave taps to the panel dismissal beneath.
                 pointerEvents="box-none"
@@ -1182,8 +1190,6 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const mailbox = useMailbox();
   const windowBar = use(WindowBarContext);
   const insets = useSafeAreaInsets();
-  // A regular-width window's floating bar brings its own scroll edge.
-  const edge = compact && windowBar === undefined;
   // The opened message stays scrolled into place as the Thread lays out until the person scrolls.
   const pinned = useRef(true);
   // The opened message, once this Thread marked it read.
@@ -1244,7 +1250,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
           <ReaderScrollView
             contentContainerStyle={[
               compact ? singleContent : styles.content,
-              clearsBottom(windowBar !== undefined, insets.bottom, edge),
+              clearsBottom(windowBar !== undefined, insets.bottom),
             ]}
             maintainVisibleContentPosition={keepVisibleMessage}
             onScrollBeginDrag={() => {
@@ -1258,7 +1264,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
               pinned={pinned}
             />
           </ReaderScrollView>
-          {edge ? <ScrollEdge style={styles.readerEdge} /> : null}
+          {compact ? <ReaderEdge /> : null}
         </LinkConfirmationProvider>
       </QuotedHistoryContext>
     </SafeAreaView>
