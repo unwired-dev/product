@@ -799,6 +799,7 @@ export function createImapInbox(
     shared = createBodyLoads(),
     connection = '',
     chosen: initiallyChosen,
+    relocated,
   }: Readonly<{
     // Called after native code purged this device because another device removed it.
     removed?: (() => void) | undefined;
@@ -814,6 +815,9 @@ export function createImapInbox(
     connection?: string;
     // The Spam and Trash folders the person chose for this connection.
     chosen?: ChosenFolders | undefined;
+    // Called once the server moved message `from`, Undo's moves included, with the ID it has now,
+    // or undefined when the server did not say its new UID.
+    relocated?: ((from: string, to: string | undefined) => void) | undefined;
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
@@ -1911,6 +1915,13 @@ export function createImapInbox(
     }
   };
 
+  // Tells `relocated` where a move the server applied left its message.
+  const reportMoved = (change: ImapPending, answer: Answer) => {
+    if (deliveredTo(change, answer) !== undefined) {
+      relocated?.(change.message.id, movedId(change, answer));
+    }
+  };
+
   const acceptAnswer = Effect.fnUntraced(function* (
     head: ImapPending,
     rest: readonly ImapPending[],
@@ -1933,6 +1944,8 @@ export function createImapInbox(
       });
       return {};
     }
+    // The server moved the message even when saving that fails.
+    reportMoved(head, answer);
     yield* commit(settle(document, head, answer));
     if (!applied(answer)) {
       restoring.delete(head.id);
