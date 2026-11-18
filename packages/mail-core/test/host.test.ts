@@ -96,6 +96,12 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       return completed.promise;
     },
   };
+  // The signed-in account's stored Pins.
+  const pinStorage = {
+    owner: 'account-synthetic-product-subject',
+    revision: 0,
+    document: null as string | null,
+  };
   // While set, settings reads wait for it, as a slow native reply would.
   const settingsGate: { held?: Promise<void>; started?: () => void } = {};
   const native: NativeHostModule = {
@@ -165,10 +171,15 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushInboxPreferences: (owner) =>
       Promise.resolve({ owner, committed: false }),
-    openPins: () =>
-      Promise.resolve({ owner: 'account', revision: 0, document: null }),
-    commitPins: (owner, expectedRevision) =>
-      Promise.resolve({ owner, revision: expectedRevision + 1 }),
+    openPins: () => Promise.resolve({ ...pinStorage }),
+    commitPins: (owner, expectedRevision, document) => {
+      Object.assign(pinStorage, {
+        owner,
+        revision: expectedRevision + 1,
+        document,
+      });
+      return Promise.resolve({ owner, revision: pinStorage.revision });
+    },
     notificationSettings: async () => {
       settingsGate.started?.();
       await settingsGate.held;
@@ -1162,6 +1173,88 @@ describe('the host assembly', () => {
       `move INBOX ${archived} Archive`,
       `read INBOX ${read}`,
     ]);
+  });
+
+  it('carries a Pin with its IMAP message across a move and its Undo, and drops it where the server reports no new UID', async () => {
+    expect.hasAssertions();
+    const { host, shared, imapServers } = syntheticHost(undefined, true);
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    // The server reports no COPYUID for the next move.
+    let unmapped = false;
+    await host.registration.register('google');
+    await host.registration.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: shared.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    const mailbox = required(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+    );
+    imapServers[mailbox.id] = {
+      ...imap.native,
+      imapMove: async (...args) => {
+        const receipt = await imap.native.imapMove(...args);
+        return unmapped ? {} : receipt;
+      },
+    };
+    const kept = imap.deliver('INBOX', { subject: 'Kept' });
+    const dropped = imap.deliver('INBOX', { subject: 'Dropped' });
+    await host.gmailMailboxes.load();
+    const { inbox } = required(host.gmailMailboxes.getConnections()[0]);
+    if (!('watch' in inbox)) {
+      throw new Error('Expected an IMAP connection');
+    }
+    const listed = (uid: number) => {
+      const state = inbox.getSnapshot();
+      return required(
+        state.kind === 'ready'
+          ? state.messages.find((message) => message.uid === uid)
+          : undefined,
+      );
+    };
+    const pinned = () => host.pins.pins([mailbox.id]);
+    await host.pins.pin(mailbox.id, `7.${kept}.INBOX`);
+    await host.pins.pin(mailbox.id, `7.${dropped}.INBOX`);
+    const { pinnedAt } = required((await pinned())?.[0]);
+
+    await inbox.organize(listed(kept), {
+      kind: 'archive',
+      destination: 'Archive',
+    });
+    await vi.waitFor(async () => {
+      await expect(pinned()).resolves.toStrictEqual([
+        { connection: mailbox.id, thread: '3.1.Archive', pinnedAt },
+        expect.objectContaining({ thread: `7.${dropped}.INBOX` }),
+      ]);
+    });
+    await inbox.undo();
+    expect(imap.server.changes.at(-1)).toBe('move Archive 1 INBOX');
+    await vi.waitFor(async () => {
+      await expect(pinned()).resolves.toStrictEqual([
+        { connection: mailbox.id, thread: '7.3.INBOX', pinnedAt },
+        expect.objectContaining({ thread: `7.${dropped}.INBOX` }),
+      ]);
+    });
+
+    unmapped = true;
+    await inbox.organize(listed(dropped), {
+      kind: 'archive',
+      destination: 'Archive',
+    });
+    await vi.waitFor(async () => {
+      await expect(pinned()).resolves.toStrictEqual([
+        { connection: mailbox.id, thread: '7.3.INBOX', pinnedAt },
+      ]);
+    });
   });
 
   it('posts nothing for a connection turned off or removed while posting waited, and groups a moved one under its new Profile', async () => {

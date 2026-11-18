@@ -485,6 +485,7 @@ export function createMailboxes(
     removed,
     arrived,
     screen,
+    relocated,
   }: Readonly<{
     removed?: () => void;
     // New Inbox mail for a connection whose New Mail Notifications are on, while it still
@@ -510,6 +511,13 @@ export function createMailboxes(
       | Readonly<{ blocked: ReadonlySet<string>; move: readonly string[] }>
       | undefined
     >;
+    // An IMAP message `connection`'s server moved from ID `from`, with the ID it has now, or
+    // undefined when the server did not say its new UID.
+    relocated?: (
+      connection: string,
+      from: string,
+      to: string | undefined,
+    ) => void;
   }> = {},
 ) {
   const shared = createBodyLoads();
@@ -714,6 +722,7 @@ export function createMailboxes(
                 shared,
                 connection: id,
                 chosen: folders,
+                relocated: (from, to) => relocated?.(id, from, to),
               }),
             }
           : {

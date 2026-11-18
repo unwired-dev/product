@@ -799,6 +799,7 @@ export function createImapInbox(
     shared = createBodyLoads(),
     connection = '',
     chosen: initiallyChosen,
+    relocated,
   }: Readonly<{
     // Called after native code purged this device because another device removed it.
     removed?: (() => void) | undefined;
@@ -814,6 +815,9 @@ export function createImapInbox(
     connection?: string;
     // The Spam and Trash folders the person chose for this connection.
     chosen?: ChosenFolders | undefined;
+    // Called once the server moved message `from`, Undo's moves included, with the ID it has now,
+    // or undefined when the server did not say its new UID.
+    relocated?: ((from: string, to: string | undefined) => void) | undefined;
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
@@ -1938,6 +1942,9 @@ export function createImapInbox(
       restoring.delete(head.id);
     }
     const moved = movedId(head, answer);
+    if (answer.outcome === 'moved' && moves(head.action)) {
+      relocated?.(head.message.id, moved);
+    }
     if (moved !== undefined) {
       originalIds = new Map([
         ...originalIds,

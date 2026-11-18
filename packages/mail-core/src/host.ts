@@ -326,6 +326,16 @@ export function createHost(
     },
   );
 
+  // Each pinned Thread, stored encrypted on this device.
+  const pins = createPins(
+    {
+      openPins: () => native().openPins(),
+      commitPins: (owner, expectedRevision, document) =>
+        native().commitPins(owner, expectedRevision, document),
+    },
+    registration,
+  );
+
   // One Inbox per Mailbox Connection, from Gmail or Microsoft Graph; each forgets its mail when its
   // connection or owner leaves.
   const gmailMailboxes = createMailboxes(
@@ -435,6 +445,10 @@ export function createHost(
       removed,
       arrived: notifications.arrived,
       screen: blockedSenders.screen,
+      // A Pin follows its IMAP message to the ID a move gave it.
+      relocated: (connection, from, to) => {
+        void pins.move(connection, from, to);
+      },
     },
   );
 
@@ -520,16 +534,6 @@ export function createHost(
       openSendReminders: () => native().openSendReminders(),
       commitSendReminders: (owner, expectedRevision, document) =>
         native().commitSendReminders(owner, expectedRevision, document),
-    },
-    registration,
-  );
-
-  // Each pinned Thread, stored encrypted on this device.
-  const pins = createPins(
-    {
-      openPins: () => native().openPins(),
-      commitPins: (owner, expectedRevision, document) =>
-        native().commitPins(owner, expectedRevision, document),
     },
     registration,
   );

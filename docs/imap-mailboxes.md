@@ -438,8 +438,10 @@ virtual `\Flagged` folder's role Starred. A flag set or cleared elsewhere arrive
 the next synchronization. Starring keeps the reader open and offers no Undo, like a
 read-state change. On the Mac, **Pin** is the product's own marker, never `\Flagged`: an
 IMAP message is pinned as its own Thread ([Pins](gmail-inbox.md#pins)) by its folder and
-UID, so moving it leaves the Pin behind and the moved message shows unpinned
-([#2283](https://github.com/unwired-dev/product/issues/2283)).
+UID. Once the server applies a move, Undo's included, the Pin follows the message to the
+UID MOVE or COPYUID reported and keeps its date. A server that reports none leaves the
+message without an identity to follow, so its Pin is removed rather than left under the
+old UID ([#2283](https://github.com/unwired-dev/product/issues/2283)).
 The folder listing keeps the server's hierarchy delimiter, so the Move picker nests
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
 unavailable.
