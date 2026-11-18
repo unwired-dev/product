@@ -3280,9 +3280,6 @@ function Editor({
   const stored = useRef(initial);
   // Another Draft's failed save does not make this editor's unchanged version unsaved.
   const unsaved = useRef(false);
-  // Whether the store declines the version this editor last tried to store, as one moving into
-  // another Mail Profile.
-  const declined = useRef(false);
   useLayoutEffect(() => {
     if (savedOf(state)) {
       unsaved.current = false;
@@ -3898,17 +3895,19 @@ function Editor({
     return closed;
   };
   // Stores this editor's version; a Draft that changed elsewhere since it was opened becomes a
-  // conflicting copy. A declined version stays unstored, so Save Draft tries it again and Close
-  // keeps its recovery record.
+  // conflicting copy. False when the store declines it, as one moving into another Mail Profile:
+  // it stays unstored, so Save Draft tries it again and Close keeps its recovery record.
   const storeShown = () => {
-    const changed = authored.current !== stored.current;
-    declined.current =
-      changed && store.declines(authored.current, stored.current);
-    if (changed && !declined.current) {
-      void store.update(authored.current, stored.current, rebind);
-      stored.current = authored.current;
-      unsaved.current = true;
+    if (authored.current === stored.current) {
+      return true;
     }
+    if (store.declines(authored.current, stored.current)) {
+      return false;
+    }
+    void store.update(authored.current, stored.current, rebind);
+    stored.current = authored.current;
+    unsaved.current = true;
+    return true;
   };
   // Stores this editor's version, then saves it.
   const storeAndSave = async () => {
@@ -3918,8 +3917,8 @@ function Editor({
         setClosing('recipients');
         return false;
       }
-      storeShown();
-      if (!(await store.save()) || declined.current) {
+      const kept = storeShown();
+      if (!(await store.save()) || !kept) {
         return false;
       }
       unsaved.current = false;

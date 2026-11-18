@@ -956,15 +956,19 @@ describe('mac window selection with the shared mock mailbox', () => {
     }
   });
 
-  it('offers a record once its mailbox moves into an idle window’s Profile (#2373)', async () => {
-    expect.hasAssertions();
-    const connection = {
-      id: alex,
-      address: 'alex@example.invalid',
-      state: 'connected',
-      profile: defaultProfile,
-      provider: 'gmail',
-    } as const;
+  const connection = {
+    id: alex,
+    address: 'alex@example.invalid',
+    state: 'connected',
+    profile: defaultProfile,
+    provider: 'gmail',
+  } as const;
+  // The previous run kept unsaved edits to a Draft sending from `record`, which `inbox`
+  // windows of `profile` may offer.
+  async function previousRunRecord(
+    record: MailboxConnection,
+    profile?: string,
+  ) {
     const account = 'synthetic-product-account';
     const registration = {
       subscribe: () => () => undefined,
@@ -974,17 +978,18 @@ describe('mac window selection with the shared mock mailbox', () => {
             kind: 'connected',
             productAccountId: account,
             signInProvider: 'google',
-            mailboxes: connectedMailboxes,
+            mailboxes: JSON.stringify(
+              record.id === connection.id ? [record] : [connection, record],
+            ),
           },
           busy: false,
           failed: false,
         }) as const,
     };
     const storage = createSyntheticDrafts(() => account);
-    // The previous run kept unsaved edits to a Draft in the Default Profile.
     const previous = createDrafts(storage.native, registration);
     await previous.load();
-    const id = await previous.create(connection);
+    const id = await previous.create(record);
     const created = draftOf(previous.getSnapshot(), id);
     ok(created !== undefined);
     await expect(
@@ -1012,9 +1017,18 @@ describe('mac window selection with the shared mock mailbox', () => {
         }}>
         <InboxWindow
           windowId="recover"
-          profile="work"
+          {...(profile === undefined ? {} : { profile })}
         />
       </AccountContext>
+    );
+    return { storage, drafts, replacement, inbox };
+  }
+
+  it('offers a record once its mailbox moves into an idle window’s Profile (#2373)', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, replacement, inbox } = await previousRunRecord(
+      connection,
+      'work',
     );
     const app = await render(inbox([connection]));
     try {
@@ -1042,6 +1056,49 @@ describe('mac window selection with the shared mock mailbox', () => {
       });
       await waitFor(() => {
         expect(storage.recoveryRecords().size).toBe(0);
+      });
+    } finally {
+      await app.unmount();
+      replacement.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('keeps an alert offered after a window went idle open when a mailbox later leaves its Profile (#2373)', async () => {
+    expect.hasAssertions();
+    const work = {
+      id: 'synthetic-connection-work',
+      address: 'work@example.invalid',
+      state: 'connected',
+      profile: 'work',
+      provider: 'gmail',
+    } as const;
+    const { drafts, replacement, inbox } = await previousRunRecord(work);
+    const app = await render(inbox([connection, work]));
+    try {
+      // The Default Profile window has nothing of its own to offer.
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(sheetsShown()).toStrictEqual([]);
+      // Once the Work mailbox is removed, its Draft counts as the Default Profile's; a composer
+      // closing in the window makes it look again, with the same mailboxes in its Profile.
+      await app.rerender(inbox([connection]));
+      await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
+      await fireEvent.press(await app.findByRole('button', { name: 'Close' }));
+      await waitFor(() => {
+        expect(sheetsShown()).toHaveLength(1);
+      });
+      // A mailbox moving out of the Profile afterwards leaves that alert open.
+      const asked = jest.spyOn(unwiredAlert, 'show');
+      await app.rerender(inbox([{ ...connection, profile: 'work' }]));
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(asked).not.toHaveBeenCalled();
+      expect(sheetsShown()).toHaveLength(1);
+      await act(async () => {
+        chooseSheetButton('Discard');
       });
     } finally {
       await app.unmount();

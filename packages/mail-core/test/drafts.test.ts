@@ -3085,6 +3085,9 @@ describe('adding files and images to Drafts', () => {
     const before = draft();
     expect(drafts.declines(withSender(before, personal), before)).toBe(true);
     expect(drafts.declines(withSender(before, other), before)).toBe(false);
+    // A version unchanged from the one it edits stores nothing, so it is never declined.
+    const elsewhere = withSender(before, personal);
+    expect(drafts.declines({ ...elsewhere }, elsewhere)).toBe(false);
     await drafts.update(withSender(before, personal), before);
     expect(draft().connection).toBe(alex.id);
     await drafts.update(withSender(before, other), before);

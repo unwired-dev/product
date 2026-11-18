@@ -2854,6 +2854,7 @@ export function createDrafts(
     // another Mail Profile, so an editor never counts that version as stored.
     declines: (draft: Draft, previous?: Draft) =>
       state.kind === 'ready' &&
+      (previous === undefined || !sameContent(draft, previous)) &&
       leavesProfile(
         state.drafts.find((each) => each.id === draft.id) ?? previous,
         draft,
