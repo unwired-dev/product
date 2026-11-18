@@ -725,8 +725,7 @@ describe('organizing IMAP mail', () => {
     await window.load();
     await window.discardPending(blockedId(window.getSnapshot()));
     await window.openFolder('Archive');
-    const filed = window.folder('Archive');
-    const moved = first(filed.kind === 'ready' ? filed.messages : []);
+    const moved = first(folderMessages(window.folder('Archive')));
     expect(moved.id).toBe(archived);
     await window.organize(moved, action(window.getSnapshot(), moved, 'trash'));
     const trashed = relocated.mock.calls.at(-1)?.[1];
