@@ -1836,8 +1836,8 @@ describe('composing Drafts', () => {
           name: 'To: Ana Kovač <ana@example.invalid>',
         }),
       ).toBeNull();
-      // Typing, Down and Return in one native batch, before React commits: Down moves from the
-      // list the typed text filters, where only Ana showed for the bare @.
+      // Typing, Down and Return in one native batch, before React commits: Down moves through the
+      // list the typed text filters (Ana, Andrea), not the rendered one for the bare @ (Ana, Bob).
       await type('');
       await type('@');
       // The bare @ lists Ana and Bob, so the keyboard's arrows are taken.
