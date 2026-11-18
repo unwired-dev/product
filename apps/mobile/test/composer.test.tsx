@@ -2684,6 +2684,103 @@ describe('composing Drafts', () => {
     );
   });
 
+  it('tries a refused recovery record removal again, and an older removal leaves a newer record', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const listeners = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const activate = () =>
+      act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+    const records = () => storage.recoveryRecords().size;
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      await screen.findByLabelText('Subject'),
+      'Unsaved plan',
+    );
+    await waitFor(
+      () => {
+        expect(records()).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // A refused Save Draft keeps the composer open; storage then refuses the removal once Save
+    // Drafts stores the version shown.
+    storage.setLocked(true);
+    await saveDraft();
+    storage.setLocked(false);
+    const { removeComposerRecovery } = storage.native;
+    const remove = jest
+      .spyOn(storage.native, 'removeComposerRecovery')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Draft storage: unavailable'), {
+          code: 'unavailable',
+        }),
+      );
+    await act(async () => {
+      await drafts.save();
+    });
+    await waitFor(() => {
+      expect(remove).toHaveBeenCalledWith(
+        'synthetic-product-account',
+        expect.any(String),
+      );
+    });
+    expect(records()).toBe(1);
+    // The next write tries again; this removal is still pending when newer edits are journaled.
+    let release: () => void = () => undefined;
+    remove.mockImplementationOnce(
+      async (...call) =>
+        // oxlint-disable-next-line promise/avoid-new -- The test releases the removal.
+        new Promise((resolve) => {
+          release = () => {
+            resolve(removeComposerRecovery(...call));
+          };
+        }),
+    );
+    const journal = jest.spyOn(drafts, 'journal');
+    await activate();
+    expect(remove).toHaveBeenCalledTimes(2);
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Newer plan');
+    await waitFor(
+      () => {
+        expect(journal).toHaveBeenCalledWith(
+          expect.objectContaining({ subject: 'Newer plan' }),
+          expect.objectContaining({ subject: 'Unsaved plan' }),
+        );
+      },
+      { timeout: 4000 },
+    );
+    await act(async () => {
+      release();
+      await drafts.recovered();
+    });
+    expect(records()).toBe(1);
+    // Storing the newer version removes its record.
+    storage.setLocked(true);
+    await saveDraft();
+    storage.setLocked(false);
+    await act(async () => {
+      await drafts.save();
+    });
+    await waitFor(() => {
+      expect(records()).toBe(0);
+    });
+  });
+
   it('journals again on return to the foreground and removes the record on Save Draft and Delete Draft', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
@@ -2736,6 +2833,61 @@ describe('composing Drafts', () => {
     });
     expect(records()).toBe(0);
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
+  });
+
+  it('keeps the composer open and its recovery record when a declined sender leaves the Profile (#2373)', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Plan');
+    await choose(
+      'Send from alex@example.invalid',
+      'Send from other@example.invalid',
+    );
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // The chosen mailbox moves into another Profile before Save Draft, so the store declines it.
+    await act(async () => {
+      registration.change({
+        ...initial,
+        mailboxes: JSON.stringify([
+          { id: alex, address: 'alex@example.invalid', state: 'connected' },
+          {
+            id: other,
+            address: 'other@example.invalid',
+            state: 'connected',
+            profile: 'work',
+          },
+        ]),
+      });
+    });
+    await saveDraft();
+    await expect(
+      screen.findByText(
+        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+      ),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Plan');
+    expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+      { connection: alex, subject: '' },
+    ]);
+    expect(storage.recoveryRecords().size).toBe(1);
   });
 
   it('undoes recipient corrections without erasing earlier typing', async () => {
@@ -7406,7 +7558,7 @@ describe('replying to and forwarding from the reader', () => {
           registration={registration}
         />,
       );
-      await screen.findByLabelText('Opening message');
+      await screen.findByLabelText('Loading message…');
       // Each prerequisite keeps Reply unavailable when it is the last one still loading.
       expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled();
       expect(screen.queryByLabelText('More')).toBeNull();

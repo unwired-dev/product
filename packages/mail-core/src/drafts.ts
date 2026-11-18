@@ -2850,6 +2850,15 @@ export function createDrafts(
           ? drafts
           : drafts.filter((draft) => draft !== abandoned);
       }),
+    // Whether `update` would decline `draft`, an edit of `previous` that moves the Draft into
+    // another Mail Profile, so an editor never counts that version as stored.
+    declines: (draft: Draft, previous?: Draft) =>
+      state.kind === 'ready' &&
+      (previous === undefined || !sameContent(draft, previous)) &&
+      leavesProfile(
+        state.drafts.find((each) => each.id === draft.id) ?? previous,
+        draft,
+      ),
     // Replaces a Draft's content; resolves true once it is saved. When another editor changed the
     // Draft since `previous`, its newer version keeps the identifier and this edit becomes a
     // conflicting copy: `moved` learns the copy's identifier at once and again if storage

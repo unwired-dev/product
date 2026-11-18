@@ -291,6 +291,7 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
   }),
   accessibilityLabel: (label) => ({ $type: 'accessibilityLabel', label }),
   accessibilityHint: (hint) => ({ $type: 'accessibilityHint', hint }),
+  background: (style, shape) => ({ $type: 'background', style, shape }),
   buttonBorderShape: (shape) => ({ $type: 'buttonBorderShape', shape }),
   buttonStyle: (style) => ({ $type: 'buttonStyle', style }),
   contentShape: (shape) => ({ $type: 'contentShape', shape }),
@@ -312,7 +313,10 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
     $type: 'scrollContentBackground',
     visible,
   }),
-  shapes: { rectangle: () => ({ type: 'rectangle' }) },
+  shapes: {
+    capsule: () => ({ type: 'capsule' }),
+    rectangle: () => ({ type: 'rectangle' }),
+  },
   tag: (tag) => ({ $type: 'tag', tag }),
   tint: (tint) => ({ $type: 'tint', tint }),
   presentationBackground: (style) => ({

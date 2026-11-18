@@ -1,5 +1,6 @@
 import { ok } from 'node:assert/strict';
 
+import type { MailboxConnection } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 import type { AppStateStatus, TurboModule } from 'react-native';
 
@@ -76,6 +77,7 @@ import {
   enterSheetText,
   sheetShown,
   sheetsShown,
+  unwiredAlert,
 } from './native-alert.ts';
 import {
   chooseMenuItem,
@@ -951,6 +953,155 @@ describe('mac window selection with the shared mock mailbox', () => {
     } finally {
       await app.unmount();
       replacement.restore();
+    }
+  });
+
+  const connection = {
+    id: alex,
+    address: 'alex@example.invalid',
+    state: 'connected',
+    profile: defaultProfile,
+    provider: 'gmail',
+  } as const;
+  // The previous run kept unsaved edits to a Draft sending from `record`, which `inbox`
+  // windows of `profile` may offer.
+  async function previousRunRecord(
+    record: MailboxConnection,
+    profile?: string,
+  ) {
+    const account = 'synthetic-product-account';
+    const registration = {
+      subscribe: () => () => undefined,
+      getSnapshot: () =>
+        ({
+          snapshot: {
+            kind: 'connected',
+            productAccountId: account,
+            signInProvider: 'google',
+            mailboxes: JSON.stringify(
+              record.id === connection.id ? [record] : [connection, record],
+            ),
+          },
+          busy: false,
+          failed: false,
+        }) as const,
+    };
+    const storage = createSyntheticDrafts(() => account);
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    const id = await previous.create(record);
+    const created = draftOf(previous.getSnapshot(), id);
+    ok(created !== undefined);
+    await expect(
+      previous.journal({ ...created, subject: 'Plan, unsaved' }),
+    ).resolves.toBe(true);
+    const drafts = createDrafts(storage.native, registration);
+    const replacement = jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    const inbox = (mailboxes: readonly MailboxConnection[]) => (
+      <AccountContext
+        value={{
+          mailboxes,
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load: () => Promise<void>) => load(),
+          account,
+          profiles: [
+            { id: 'work', name: 'Work', color: 'teal', icon: 'laptop' },
+          ],
+          createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
+        }}>
+        <InboxWindow
+          windowId="recover"
+          {...(profile === undefined ? {} : { profile })}
+        />
+      </AccountContext>
+    );
+    return { storage, drafts, replacement, inbox };
+  }
+
+  it('offers a record once its mailbox moves into an idle window’s Profile (#2373)', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, replacement, inbox } = await previousRunRecord(
+      connection,
+      'work',
+    );
+    const app = await render(inbox([connection]));
+    try {
+      // The Work window has nothing of its own to offer.
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(sheetsShown()).toStrictEqual([]);
+      // Once the mailbox moves into Work, the idle window offers its record.
+      const moved = { ...connection, profile: 'work' };
+      await app.rerender(inbox([moved]));
+      await waitFor(() => {
+        expect(sheetsShown()).toHaveLength(1);
+      });
+      // Other mailbox updates leave the open alert alone rather than asking again.
+      const asked = jest.spyOn(unwiredAlert, 'show');
+      await app.rerender(inbox([{ ...moved, provider: 'gmail' }]));
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(asked).not.toHaveBeenCalled();
+      expect(sheetsShown()).toHaveLength(1);
+      await act(async () => {
+        chooseSheetButton('Discard');
+      });
+      await waitFor(() => {
+        expect(storage.recoveryRecords().size).toBe(0);
+      });
+    } finally {
+      await app.unmount();
+      replacement.restore();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('keeps an alert offered after a window went idle open when a mailbox later leaves its Profile (#2373)', async () => {
+    expect.hasAssertions();
+    const work = {
+      id: 'synthetic-connection-work',
+      address: 'work@example.invalid',
+      state: 'connected',
+      profile: 'work',
+      provider: 'gmail',
+    } as const;
+    const { drafts, replacement, inbox } = await previousRunRecord(work);
+    const app = await render(inbox([connection, work]));
+    try {
+      // The Default Profile window has nothing of its own to offer.
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(sheetsShown()).toStrictEqual([]);
+      // Once the Work mailbox is removed, its Draft counts as the Default Profile's, so the idle
+      // window looks again.
+      await app.rerender(inbox([connection]));
+      await waitFor(() => {
+        expect(sheetsShown()).toHaveLength(1);
+      });
+      // A mailbox moving out of the Profile afterwards leaves that alert open.
+      const asked = jest.spyOn(unwiredAlert, 'show');
+      await app.rerender(inbox([{ ...connection, profile: 'work' }]));
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(asked).not.toHaveBeenCalled();
+      expect(sheetsShown()).toHaveLength(1);
+      await act(async () => {
+        chooseSheetButton('Discard');
+      });
+    } finally {
+      await app.unmount();
+      replacement.restore();
+      jest.restoreAllMocks();
     }
   });
 

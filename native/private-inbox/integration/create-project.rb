@@ -98,6 +98,9 @@ if platform == :ios
     { key: 'UNWIRED_IMAP_TLS_TEST_PORT', value: ENV.fetch('UNWIRED_IMAP_TLS_TEST_PORT'), enabled: true },
     { key: 'UNWIRED_SMTP_TLS_TEST_PORTS', value: ENV.fetch('UNWIRED_SMTP_TLS_TEST_PORTS'), enabled: true }
   ]
+  if ENV['UNWIRED_STANDARDS_SERVER_PORTS']
+    environment << { key: 'UNWIRED_STANDARDS_SERVER_PORTS', value: ENV['UNWIRED_STANDARDS_SERVER_PORTS'], enabled: true }
+  end
 end
 scheme.test_action.should_use_launch_scheme_args_env = false
 scheme.test_action.environment_variables = Xcodeproj::XCScheme::EnvironmentVariables.new(environment)

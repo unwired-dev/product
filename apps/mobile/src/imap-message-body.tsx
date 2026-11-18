@@ -9,13 +9,13 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { View } from 'react-native';
 
-import { Action } from './action.tsx';
 import { InvitationCard } from './invitation.tsx';
-import { useLocalization } from './localization.ts';
 import { styles } from './message-body-styles.ts';
 import {
+  BodyLoading,
+  BodyUnavailable,
   LinkConfirmationContext,
   Presentation,
   ReceivedAttachments,
@@ -23,7 +23,6 @@ import {
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { useRemoteImages } from './remote-content.tsx';
-import { usePalette } from './theme.ts';
 import { MessageTranslation } from './translation.tsx';
 
 // An IMAP message's body, downloaded once and then read from this device. Remote Message Content
@@ -41,8 +40,6 @@ export function ImapMessageBody({
   // The Mailbox Connection whose remote content policy applies.
   readonly connection?: string | undefined;
 }) {
-  const colors = usePalette();
-  const { t } = useLocalization();
   const confirm = use(LinkConfirmationContext);
   // oxlint-disable-next-line react/hook-use-state -- This immutable reader identity has no setter.
   const [reader] = useState(() => Symbol('IMAP reader'));
@@ -81,30 +78,18 @@ export function ImapMessageBody({
     };
   }, [body, confirm, inbox, id]);
   if (body === undefined || body.kind === 'loading') {
-    return (
-      <ActivityIndicator
-        accessibilityLabel={t('messageBody.opening')}
-        style={styles.body}
-      />
-    );
+    return <BodyLoading provider={undefined} />;
   }
   if (body.kind === 'unavailable') {
     return (
-      <View style={styles.body}>
-        <Text
-          accessibilityRole="alert"
-          style={[styles.paragraph, { color: colors.textSecondary }]}>
-          {t(`messageBody.${body.reason}`)}
-        </Text>
-        {body.reason === 'imap-missing' ? null : (
-          <Action
-            label={t('common.retry')}
-            onPress={() => {
-              void inbox.readMessage(id);
-            }}
-          />
-        )}
-      </View>
+      <BodyUnavailable
+        id={id}
+        reason={body.reason}
+        provider={undefined}
+        onTryAgain={() => {
+          void inbox.readMessage(id);
+        }}
+      />
     );
   }
   function current() {

@@ -512,12 +512,12 @@ export function createMailboxes(
       | undefined
     >;
     // An IMAP message `connection`'s server moved from ID `from`, with the ID it has now, or
-    // undefined when the server did not say its new UID.
+    // undefined when the server did not say its new UID; resolves whether it kept that.
     relocated?: (
       connection: string,
       from: string,
       to: string | undefined,
-    ) => void;
+    ) => Promise<boolean>;
   }> = {},
 ) {
   const shared = createBodyLoads();
@@ -722,7 +722,7 @@ export function createMailboxes(
                 shared,
                 connection: id,
                 chosen: folders,
-                relocated: (from, to) => relocated?.(id, from, to),
+                relocated: relocated && ((from, to) => relocated(id, from, to)),
               }),
             }
           : {

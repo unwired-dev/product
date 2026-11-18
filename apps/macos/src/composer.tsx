@@ -2266,7 +2266,8 @@ const journalDelay = 2000;
 
 // Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
 // returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
-// record locked storage refused. The records it wrote go once the version is unchanged again. The
+// record locked storage refused. The records it wrote go once the version is unchanged again; a
+// removal storage refused is tried again on the next write. The
 // first returned function closes the journal, removing those records and that of Draft `id` the
 // editor closes on, which another editor's journal may have written; it resolves once they are
 // gone, so Quit waits for them. The second journals at once, as after a save that keeps the editor
@@ -2277,22 +2278,33 @@ function useRecoveryJournal(
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
-  const journaled = useRef(new Set<string>());
+  // Each Draft id journaled, with its latest write or removal: only the latest, once storage accepts
+  // its removal, retires it.
+  const journaled = useRef(new Map<string, object>());
   useEffect(() => {
     const restored = unsaved();
     if (restored !== undefined) {
-      journaled.current.add(restored.version.id);
+      journaled.current.set(restored.version.id, {});
     }
   }, [unsaved]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
-  const forget = useCallback(() => {
-    const removals = [...journaled.current].map((id) =>
-      store.forget(id, editor),
-    );
-    journaled.current.clear();
-    return Promise.allSettled(removals);
-  }, [editor, store]);
+  const forget = useCallback(
+    () =>
+      Promise.allSettled(
+        [...journaled.current.keys()].map(async (id) => {
+          const attempt = {};
+          journaled.current.set(id, attempt);
+          if (
+            (await store.forget(id, editor)) &&
+            journaled.current.get(id) === attempt
+          ) {
+            journaled.current.delete(id);
+          }
+        }),
+      ),
+    [editor, store],
+  );
   const write = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
@@ -2301,7 +2313,7 @@ function useRecoveryJournal(
       void forget();
       return;
     }
-    journaled.current.add(kept.version.id);
+    journaled.current.set(kept.version.id, {});
     void store.journal(kept.version, kept.base);
   }, [forget, store, unsaved]);
   const seen = useRef(edited);
@@ -2331,7 +2343,7 @@ function useRecoveryJournal(
       closed.current = true;
       clearTimeout(timer.current);
       timer.current = undefined;
-      journaled.current.add(id);
+      journaled.current.set(id, {});
       return forget();
     },
     [forget],
@@ -2407,10 +2419,24 @@ export function useRecoveryOffer(
       subscription.remove();
     };
   }, []);
-  const latest = useRef({ onRestore, mailboxes });
+  // Each mailbox with the Profile it belongs to.
+  const members = (mailboxes ?? [])
+    .map(({ id }) => `${id} ${profileOf(id, mailboxes ?? [])}`)
+    .join('\n');
+  const latest = useRef({ onRestore, mailboxes, members });
   useLayoutEffect(() => {
-    latest.current = { onRestore, mailboxes };
+    latest.current = { onRestore, mailboxes, members };
   });
+  // The mailboxes and their Profiles when this window last found no record to offer. A mailbox
+  // joining, leaving or moving between Profiles can make one its own, so it looks again; other
+  // mailbox updates leave an open alert alone.
+  const idle = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (idle.current !== undefined && idle.current !== members) {
+      idle.current = undefined;
+      setRound((count) => count + 1);
+    }
+  }, [members]);
   useEffect(
     () => () => {
       releaseOffer(recoveryOffers.get(store)?.get(account), window.current);
@@ -2483,6 +2509,7 @@ export function useRecoveryOffer(
       refused.current =
         records === undefined && activations.current === activated;
       if (pending === undefined) {
+        idle.current = latest.current.members;
         releaseOffer(own, self);
         return;
       }
@@ -2541,6 +2568,7 @@ export function useRecoveryOffer(
         }
       }
     };
+    idle.current = undefined;
     void offerNext();
     return () => {
       current = false;
@@ -3125,21 +3153,27 @@ function Editor({
     }
   }, []);
   // Stores this editor's version; a Draft that changed elsewhere since it was opened becomes a
-  // conflicting copy.
+  // conflicting copy. False when the store declines it, as one moving into another Mail Profile:
+  // it stays unstored, so Save tries it again and Close keeps its recovery record.
   const storeShown = useCallback(() => {
-    if (authored.current !== stored.current) {
-      void store.update(authored.current, stored.current, rebind);
-      stored.current = authored.current;
-      unsaved.current = true;
+    if (authored.current === stored.current) {
+      return true;
     }
+    if (store.declines(authored.current, stored.current)) {
+      return false;
+    }
+    void store.update(authored.current, stored.current, rebind);
+    stored.current = authored.current;
+    unsaved.current = true;
+    return true;
   }, [rebind, store]);
   const storeAndSave = useCallback(async () => {
-    storeShown();
+    const kept = storeShown();
     const saved = await store.save();
     if (saved) {
       unsaved.current = false;
     }
-    return saved;
+    return saved && kept;
   }, [store, storeShown]);
   const change = (next: Draft, word = false, field?: string) => {
     if (pausedNow.current) {
@@ -3750,7 +3784,7 @@ function Editor({
     let refusal: SendRefusal | undefined = 'storage';
     const cleanup = reminderCleanup();
     try {
-      storeShown();
+      const kept = storeShown();
       refusal = await outbox.send(
         () => ({
           ...shown,
@@ -3759,8 +3793,9 @@ function Editor({
         }),
         setCheck,
       );
-      // A refused Send still stored the version shown; Close asks only if saving it failed.
-      if (refusal !== undefined && (await store.save())) {
+      // A refused Send still stored the version shown, unless the store declined it; Close asks
+      // only if saving it failed.
+      if (refusal !== undefined && (await store.save()) && kept) {
         unsaved.current = false;
         journalNow();
       }

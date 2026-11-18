@@ -235,15 +235,16 @@ const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 const padFieldInset = 24 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
-// Compact 36pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
-// iPhone's 1.25pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
-const compactRule = 1.25;
-const compactFieldHeight = 36 - compactRule;
+// Compact 44pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
+// iPhone's 1pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
+const compactRule = 1;
+const compactFieldHeight = 44 - compactRule;
 const padRule = ipadListScale;
 const padFieldHeight = 36 * ipadListScale - padRule;
 const titledSendHeight = 28 * ipadListScale;
+// iPhone's targets reach up over their own row's rule, so none reaches into the next row.
 export const fieldSlop = {
-  compact: (44 - compactFieldHeight) / 2,
+  compact: { top: compactRule, bottom: 0 },
   regular: (44 - padFieldHeight) / 2,
 } as const;
 
@@ -567,8 +568,8 @@ const styles = StyleSheet.create({
 // composer's 15/22 at that scale; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt
 // label column.
 export const layoutStyles = {
-  // iPhone's fields are 36pt rows of 16.25/20 text beneath 1.25pt rules, 10pt from their labels.
-  // Inputs keep 44pt targets through hit slop, and an entry stays beside recipients while 60pt fit.
+  // iPhone's fields are 44pt rows of Body text beneath 1pt rules, 10pt from their labels, with
+  // Body recipient tokens. An entry stays beside recipients while 60pt fit.
   compact: StyleSheet.create({
     content: { flexGrow: 1 },
     body: { flexGrow: 1 },
@@ -577,14 +578,13 @@ export const layoutStyles = {
     fields: {},
     field: {
       gap: 10,
-      minHeight: 36,
+      minHeight: 44,
       paddingVertical: 0,
       borderTopWidth: compactRule,
     },
     fieldLabel: {
-      fontSize: 16.25,
-      lineHeight: 20,
-      paddingVertical: (compactFieldHeight - 20) / 2,
+      ...textStyles.body,
+      paddingVertical: (compactFieldHeight - textStyles.body.lineHeight) / 2,
     },
     fieldNotice: { paddingLeft: fieldLabelWidth + 10 },
     suggestions: {},
@@ -598,14 +598,21 @@ export const layoutStyles = {
       padding: spacing.s,
     },
     input: {
-      fontSize: 16.25,
-      lineHeight: 20,
+      ...textStyles.body,
       minHeight: compactFieldHeight,
       minWidth: 60,
     },
     token: { minHeight: compactFieldHeight },
-    // Cc/Bcc's 44pt target overhangs the 36pt row rather than growing it.
+    // A short name's token still makes a 44pt wide target.
+    tokenFill: {
+      minWidth: 44,
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+    },
+    tokenText: textStyles.body,
     trailing: { height: compactFieldHeight, justifyContent: 'center' },
+    assetChip: { gap: 10 },
   }),
   // The New Message card's text starts 23pt down and its fields end 6.9pt above its edge.
   regular: StyleSheet.create({
@@ -660,8 +667,11 @@ export const layoutStyles = {
       padding: 6 * ipadListScale,
     },
     token: { minHeight: padFieldHeight },
+    tokenFill: {},
+    tokenText: {},
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
+    assetChip: {},
   }),
 };
 
@@ -1417,6 +1427,7 @@ export function Recipients({
                 <View
                   style={[
                     styles.tokenFill,
+                    sized.tokenFill,
                     {
                       backgroundColor: pressed
                         ? colors.accentSelectionSubtle
@@ -1425,14 +1436,21 @@ export function Recipients({
                     },
                   ]}>
                   <Text
-                    style={[styles.tokenText, { color: colors.textPrimary }]}>
+                    style={[
+                      styles.tokenText,
+                      sized.tokenText,
+                      { color: colors.textPrimary },
+                    ]}>
                     {recipient.name ?? recipient.address}
                   </Text>
-                  <SFSymbol
-                    name="xmark"
-                    size={10}
-                    color={colors.textSecondary}
-                  />
+                  {/* iPhone's tokens are their name alone, as its frames draw them. */}
+                  {size === 'compact' ? null : (
+                    <SFSymbol
+                      name="xmark"
+                      size={10}
+                      color={colors.textSecondary}
+                    />
+                  )}
                 </View>
               )}
             </Pressable>
@@ -1658,7 +1676,12 @@ function AssetRow({
   const convertible =
     onConvert !== undefined && (inline || asset.type.startsWith('image/'));
   const chip = (
-    <View style={[styles.assetChip, { backgroundColor: colors.fillQuiet }]}>
+    <View
+      style={[
+        styles.assetChip,
+        layoutStyles[use(ComposerLayoutContext).size].assetChip,
+        { backgroundColor: colors.fillQuiet },
+      ]}>
       {preview?.kind === 'ready' ? (
         <Image
           accessibilityIgnoresInvertColors
@@ -2752,7 +2775,8 @@ const savedOf = (state: DraftsState) =>
 
 // Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
 // returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
-// record locked storage refused. The records it wrote go once the version is unchanged again. The
+// record locked storage refused. The records it wrote go once the version is unchanged again; a
+// removal storage refused is tried again on the next write. The
 // first returned function closes the journal, removing those records and that of Draft `id` the
 // editor closes on, which another editor's journal may have written. The second journals at once,
 // as after a save that keeps the editor open; the third too, unless unsaved edits have a write
@@ -2764,30 +2788,42 @@ function useRecoveryJournal(
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
-  const journaled = useRef(new Set<string>());
+  // Each Draft id journaled, with its latest write or removal: only the latest, once storage accepts
+  // its removal, retires it.
+  const journaled = useRef(new Map<string, object>());
   useEffect(() => {
     const restored = unsaved();
     if (restored !== undefined) {
-      journaled.current.add(restored.version.id);
+      journaled.current.set(restored.version.id, {});
     }
   }, [unsaved]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
-  const forget = useCallback(() => {
-    for (const id of journaled.current) {
-      void store.forget(id, editor);
-    }
-    journaled.current.clear();
-  }, [editor, store]);
+  const forget = useCallback(
+    () =>
+      Promise.allSettled(
+        [...journaled.current.keys()].map(async (id) => {
+          const attempt = {};
+          journaled.current.set(id, attempt);
+          if (
+            (await store.forget(id, editor)) &&
+            journaled.current.get(id) === attempt
+          ) {
+            journaled.current.delete(id);
+          }
+        }),
+      ),
+    [editor, store],
+  );
   const write = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
     const kept = closed.current ? undefined : unsaved();
     if (kept === undefined) {
-      forget();
+      void forget();
       return;
     }
-    journaled.current.add(kept.version.id);
+    journaled.current.set(kept.version.id, {});
     void store.journal(kept.version, kept.base);
   }, [forget, store, unsaved]);
   const seen = useRef(edited);
@@ -2815,7 +2851,7 @@ function useRecoveryJournal(
   const close = useCallback(
     (id: string) => {
       closed.current = true;
-      journaled.current.add(id);
+      journaled.current.set(id, {});
       write();
     },
     [write],
@@ -2872,10 +2908,10 @@ const askRecovery = (t: Translate) =>
 
 // Offers each composer recovery record the previous run left (ADR 0077) whose Draft and recovered
 // sender belong to the shown Profile, in its own alert, once the Drafts open and while no composer
-// is open. Restore opens the record's Draft through `onRestore` and returns the record as
-// `recovered` for the composer to open on, until that composer closes or another Draft opens;
-// `follow` keeps it while that composer moves to a conflicting copy. Discard removes the record
-// unless an editor has its Draft open. A record changed or removed since it was read, a
+// is open or being created. Restore opens the record's Draft through `onRestore` and returns the
+// record as `recovered` for the composer to open on, until that composer closes or another Draft
+// opens; `follow` keeps it while that composer moves to a conflicting copy. Discard removes the
+// record unless an editor has its Draft open. A record changed or removed since it was read, a
 // failed removal and a Draft no longer listed leave the record for the next launch; an answer
 // given after the shell moved on, as to a composer a notification opened, is asked again.
 export function useRecoveryOffer(
@@ -2883,6 +2919,7 @@ export function useRecoveryOffer(
   onRestore: (id: string) => void,
 ) {
   const store = useDraftStore();
+  const navigation = useComposerNavigation();
   const ready = useDrafts().kind === 'ready';
   const profile = useProfile();
   const accountContext = use(AccountContext);
@@ -2975,6 +3012,7 @@ export function useRecoveryOffer(
     // An editor holding the Draft keeps its record; this one holds nothing.
     const discarding = () => undefined;
     const ask = async () => {
+      const creations = navigation.creations();
       // An alert an earlier attempt left open is answered first.
       await own.asking;
       const activated = activations.current;
@@ -3009,6 +3047,11 @@ export function useRecoveryOffer(
         return;
       }
       const base = pending.base ?? draftOf(store.getSnapshot(), draft.id);
+      // A New Message pending or finished meanwhile owns the next composer: the record is offered
+      // once that composer closes.
+      if (creations === undefined || navigation.creations() !== creations) {
+        return;
+      }
       own.asking = askRecovery(t);
       const restore = await own.asking;
       const kept = await unchanged(draft);
@@ -3048,7 +3091,7 @@ export function useRecoveryOffer(
       current = false;
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each answer asks again.
-  }, [account, composing, profile, ready, round, store, t]);
+  }, [account, composing, navigation, profile, ready, round, store, t]);
   return { recovered: restored?.record, follow };
 }
 
@@ -4117,8 +4160,22 @@ function Editor({
     }
     return closed;
   };
-  // Stores this editor's version, then saves it; a Draft that changed elsewhere since it was
-  // opened becomes a conflicting copy.
+  // Stores this editor's version; a Draft that changed elsewhere since it was opened becomes a
+  // conflicting copy. False when the store declines it, as one moving into another Mail Profile:
+  // it stays unstored, so Save Draft tries it again and Close keeps its recovery record.
+  const storeShown = () => {
+    if (authored.current === stored.current) {
+      return true;
+    }
+    if (store.declines(authored.current, stored.current)) {
+      return false;
+    }
+    void store.update(authored.current, stored.current, rebind);
+    stored.current = authored.current;
+    unsaved.current = true;
+    return true;
+  };
+  // Stores this editor's version, then saves it.
   const storeAndSave = async () => {
     // Edits accepted while storage saves are stored too before the editor closes.
     do {
@@ -4126,12 +4183,8 @@ function Editor({
         setClosing('recipients');
         return false;
       }
-      if (authored.current !== stored.current) {
-        void store.update(authored.current, stored.current, rebind);
-        stored.current = authored.current;
-        unsaved.current = true;
-      }
-      if (!(await store.save())) {
+      const kept = storeShown();
+      if (!(await store.save()) || !kept) {
         return false;
       }
       unsaved.current = false;
@@ -4307,11 +4360,7 @@ function Editor({
       setDropped(undefined);
       // As for Discard, later edits wait: the version shown at Send is the one sent.
       discarded.current = true;
-      if (previous !== stored.current) {
-        unsaved.current = true;
-      }
-      void store.update(previous, stored.current, rebind);
-      stored.current = authored.current;
+      const kept = storeShown();
       const cleanup = reminderCleanup();
       const baseline = () => {
         const id = cleanup.target();
@@ -4322,8 +4371,9 @@ function Editor({
       let refusal: SendRefusal | undefined = 'storage';
       try {
         refusal = await outbox.send(baseline);
-        // A refused Send still stored the version shown, so its record goes once that is saved.
-        if (refusal !== undefined && (await store.save())) {
+        // A refused Send still stored the version shown, unless the store declined it, so its
+        // record goes once that is saved.
+        if (refusal !== undefined && (await store.save()) && kept) {
           unsaved.current = false;
           journalNow();
         }

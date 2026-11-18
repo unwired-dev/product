@@ -797,19 +797,30 @@ Account change cannot write under the new account.
 The composers on iPhone, iPad and Mac journal their unsaved version two seconds
 after an edit, so continuous typing is recorded every two seconds, and again when
 the app returns to the foreground, which writes a record that locked storage
-refused. A version undone back to the stored one removes its record. Closing the
+refused. A version undone back to the stored one removes its record; a removal
+that storage refuses is tried again with the next write, as when the app returns
+to the foreground, and never takes a record written after it
+([#2381](https://github.com/unwired-dev/product/issues/2381)). Closing the
 composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
 an unchanged one. While another composer has the same Draft open, the record stays
 until that composer closes too. A record the previous run left and the person has
-not answered yet stays through a close that keeps its Draft listed. Both composers write the same record, so it holds
-the version journaled last.
+not answered yet stays through a close that keeps its Draft listed. Both composers
+write the same record, so it holds the version journaled last. A version the
+store declines, as one that chooses a sending mailbox which has since moved into a
+different Mail Profile than the stored Draft’s mailbox, is not stored: the composer
+asks `declines` before `update`, so Save, Save Draft and a refused Send keep it
+open with **This Draft could not be saved, so it stays open.** and the record stays
+([#2373](https://github.com/unwired-dev/product/issues/2373)).
 
 On the Mac, once the Drafts open after a relaunch, an Inbox window asks **Recover
 unsaved message?** for each record the previous run left whose Draft and recovered
 sender belong to the window's Mail Profile, one alert at a time across windows,
 saying only **Your unsaved changes were kept on this device.**
-([#2329](https://github.com/unwired-dev/product/issues/2329)). **Restore**, the
+([#2329](https://github.com/unwired-dev/product/issues/2329)). A window with
+nothing to offer looks again when a mailbox joins, leaves or moves between Mail
+Profiles, which can make a record its own; other mailbox updates leave an open alert as it is
+([#2373](https://github.com/unwired-dev/product/issues/2373)). **Restore**, the
 default that Return and Escape choose, opens the composer on the recovered version,
 so **Close** asks to save it and **Save** stores it, or keeps it as a conflicting
 copy when the Draft changed since the version the edits started from, as when
@@ -837,7 +848,12 @@ whose Draft and recovered sender belong to the shown Mail Profile are offered,
 so switching Profile offers that Profile's records. Restore opens the composer
 over the Inbox, and the next record waits until it closes. An answer given after
 the shell moved on, as when a notification opened a composer meanwhile, changes
-nothing, and the record is asked about again once no composer is open. The
+nothing, and the record is asked about again once no composer is open. No alert
+appears while a new Draft is being created, as when **New Message** waits for
+storage, or when one was created while the records were read, before its
+composer opens: the record is offered once that composer closes, and one whose
+creation opens no composer waits for the next offer, at the latest the next
+launch ([#2381](https://github.com/unwired-dev/product/issues/2381)). The
 TypeScript client (`useRecoveryOffer` in `apps/mobile/src/composer.tsx`) chooses
 each record and rechecks it before acting; UIKit presents the alert through React
 Native's `Alert`.

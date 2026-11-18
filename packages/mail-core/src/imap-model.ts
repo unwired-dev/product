@@ -83,6 +83,13 @@ const PendingSchema = Schema.Struct({
 });
 export type ImapPending = typeof PendingSchema.Type;
 
+// A move the server applied, from message ID `from` to `to`, or to no ID the server said.
+const RelocationSchema = Schema.Struct({
+  from: Schema.NonEmptyString,
+  to: Schema.optionalKey(Schema.NonEmptyString),
+});
+export type ImapRelocation = typeof RelocationSchema.Type;
+
 const FolderCacheSchema = Schema.Struct({
   uidValidity: Validity,
   uidNext: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -132,6 +139,8 @@ const DocumentSchema = Schema.Struct({
   // What the server advertised at the last listing; absent before it was first read.
   capabilities: Schema.optionalKey(Capabilities),
   pending: Schema.optionalKey(Schema.Array(PendingSchema)),
+  // Applied moves the Inbox's `relocated` has not kept yet, oldest first, repeated after relaunch.
+  relocations: Schema.optionalKey(Schema.Array(RelocationSchema)),
   // Historical Metadata Backfill of each folder that began one; kept apart from the cached folders,
   // so evicting a folder's newest messages never discards its downloaded history.
   history: Schema.optionalKey(Schema.Array(FolderHistorySchema)),
