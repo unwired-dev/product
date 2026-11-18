@@ -1116,10 +1116,7 @@ export function AccountActions({
         </SettingsBlock>
       )}
       {selected === undefined ? (
-        <SettingsRow
-          title={t('settings.signOut')}
-          // The iPhone frame centres its push button in a 62.4pt row.
-          minHeight={settingsColumns ? undefined : 62.4}>
+        <SettingsRow title={t('settings.signOut')}>
           {button(
             t('accountRemoval.signOut'),
             async () => {

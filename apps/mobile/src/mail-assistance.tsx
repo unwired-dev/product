@@ -16,6 +16,7 @@ import {
   privateCloudEnabled,
 } from '@private-email/mail-core/assistance-enablement';
 import { defaultProfile } from '@private-email/mail-core/registration';
+import { spacing } from '@private-email/mail-core/theme';
 import {
   createContext,
   use,
@@ -24,7 +25,14 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import { ActivityIndicator, Alert, Platform, Switch } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  StyleSheet,
+  Switch,
+  View,
+} from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
@@ -38,11 +46,21 @@ import {
 } from './mail-assistance-lifetime.ts';
 import { AssistanceContext, nativePrivateCloud } from './message-summary.tsx';
 import { native } from './registration.ts';
-import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
+import {
+  settingsColumns,
+  SettingsBlock,
+  SettingsGroup,
+  SettingsRow,
+} from './settings.tsx';
 import { usePalette } from './theme.ts';
 import { TranslationContext } from './translation.tsx';
 
 export { MailAssistanceContext } from './mail-assistance-lifetime.ts';
+
+const styles = StyleSheet.create({
+  // On iPhone an action's 44pt target reaches into its row's padding, as a pop-up's does.
+  action: { marginVertical: settingsColumns ? 0 : -spacing.m },
+});
 
 // This device's Mail Assistance Enablement.
 export const mailAssistance = createMailAssistanceEnablement({
@@ -388,19 +406,21 @@ function PrivateCloudReadiness({
           color={colors.textSecondary}
         />
       ) : (
-        <Action
-          label={action}
-          // Begins with the visible title, so Voice Control finds it by what it shows.
-          accessibilityLabel={t('privateCloud.readinessLabel', {
-            ...named,
-            action,
-          })}
-          onPress={() => {
-            if (committed.current === check && enabled()) {
-              void check.start(input);
-            }
-          }}
-        />
+        <View style={styles.action}>
+          <Action
+            label={action}
+            // Begins with the visible title, so Voice Control finds it by what it shows.
+            accessibilityLabel={t('privateCloud.readinessLabel', {
+              ...named,
+              action,
+            })}
+            onPress={() => {
+              if (committed.current === check && enabled()) {
+                void check.start(input);
+              }
+            }}
+          />
+        </View>
       )}
     </SettingsRow>
   );
@@ -494,14 +514,16 @@ function AssistanceAvailability({
     <SettingsRow
       title={t('settings.availability')}
       subtitle={availability()}>
-      <Action
-        label={t('mailAssistance.checkAvailability')}
-        onPress={() => {
-          if (committed.current === check && enabled()) {
-            void check.start(account);
-          }
-        }}
-      />
+      <View style={styles.action}>
+        <Action
+          label={t('mailAssistance.checkAvailability')}
+          onPress={() => {
+            if (committed.current === check && enabled()) {
+              void check.start(account);
+            }
+          }}
+        />
+      </View>
     </SettingsRow>
   );
 }
