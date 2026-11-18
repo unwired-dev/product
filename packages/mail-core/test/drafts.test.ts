@@ -3642,6 +3642,32 @@ describe('keeping composer recovery records', () => {
     await expect(recovered).resolves.toStrictEqual([left]);
   });
 
+  it('reads the records when the Drafts open after a locked launch', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving, session } = await savingDraft();
+    storage.release();
+    await saving;
+    const left = { ...draft, subject: 'Left' };
+    await drafts.journal(left);
+    // The first open finds storage locked; the second opens the Drafts.
+    const native = {
+      ...storage.native,
+      openDrafts: vi
+        .fn<typeof storage.native.openDrafts>(storage.native.openDrafts)
+        .mockRejectedValueOnce(
+          Object.assign(new Error('locked'), { code: 'locked' }),
+        ),
+    };
+    storage.setLocked(true);
+    const next = createDrafts(native, session.registration);
+    await next.load();
+    storage.setLocked(false);
+    await next.load();
+    await setImmediate();
+    storage.setLocked(true);
+    await expect(next.recovered()).resolves.toStrictEqual([left]);
+  });
+
   it('tells a locked read of the records from an empty one and reads them again', async () => {
     expect.hasAssertions();
     const { storage, drafts, draft, saving, session } = await savingDraft();

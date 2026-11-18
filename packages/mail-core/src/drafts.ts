@@ -1392,6 +1392,13 @@ export function createDrafts(
       sent = confirmed;
       cleanup = opened.document?.deliveryCleanup ?? [];
       dirty = outbox.some((entry, index) => entry !== stored[index]);
+      // Reads the records as the Drafts are listed, without delaying them; a record this run
+      // journals meanwhile is left out by `recordedThisRun`.
+      reading ??= runLogged(
+        capturing(current, account).pipe(
+          Effect.catchTag('DraftStorageFailure', report),
+        ),
+      );
       publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -1399,17 +1406,6 @@ export function createDrafts(
         report(error).pipe(Effect.andThen(failed(current, error))),
       ),
       semaphore.withPermit,
-      // Reads the records as the Drafts are listed, without delaying them; a record this run
-      // journals meanwhile is left out by `recordedThisRun`.
-      Effect.andThen(
-        Effect.sync(() => {
-          reading ??= runLogged(
-            capturing(current, account).pipe(
-              Effect.catchTag('DraftStorageFailure', report),
-            ),
-          );
-        }),
-      ),
     );
 
   // Rebases the Drafts in memory onto the revision another writer stored.
