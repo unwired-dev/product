@@ -750,6 +750,19 @@ function InboxFooter({
   );
 }
 
+// The mail servers search whole mailboxes, so the Searching and No Results subtitles name a single
+// one by its address and several as All Mailboxes, as the frames do, not their Inboxes.
+function searchedScope(
+  t: Translate,
+  shown: readonly InboxMailbox[],
+  scopeName: string,
+) {
+  const [only] = shown;
+  return shown.length > 1
+    ? t('search.allMailboxes')
+    : (only?.address ?? scopeName);
+}
+
 function headingOf(
   t: Translate,
   {
@@ -762,9 +775,12 @@ function headingOf(
     search,
     unconnected,
     unlisted,
+    unified,
   }: Readonly<{
     scope: string | undefined;
     folder: string | undefined;
+    // A Unified Mailbox, whose No Results names the mailboxes searched rather than its title.
+    unified: boolean;
     scopeName: string;
     status: string;
     shown: readonly InboxMailbox[];
@@ -798,11 +814,7 @@ function headingOf(
   }
   // Syncing and Offline above take precedence over a mail server search in progress.
   const count = results.length + (search.found?.results.length ?? 0);
-  // The mail servers search whole mailboxes, so the Searching and No Results subtitles name several
-  // as All Mailboxes, as the frames do, not their Inboxes.
-  const [only] = shown;
-  const searched =
-    shown.length > 1 ? t('search.allMailboxes') : (only?.address ?? scopeName);
+  const searched = searchedScope(t, shown, scopeName);
   if (search.searching) {
     return {
       title,
@@ -820,7 +832,10 @@ function headingOf(
         searchIncomplete(search) ||
         !shown.some(({ state }) => state.kind === 'ready')
           ? emptyScope
-          : t('search.subtitleRegular', { count, scope: folder ?? searched }),
+          : t('search.subtitleRegular', {
+              count,
+              scope: unified ? searched : (folder ?? searched),
+            }),
       emptyScope,
     };
   }
@@ -1061,6 +1076,7 @@ export function Inbox({
     search: online,
     unconnected: unconnected !== undefined,
     unlisted,
+    unified: view.unified !== undefined,
   });
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (

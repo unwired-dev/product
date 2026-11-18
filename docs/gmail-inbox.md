@@ -190,8 +190,9 @@ the newest 200 and the older ones scrolling has revealed from
   list on iPhone and iPad says **No mail saved on this device matches “…”**. On Mac, when neither saved mail nor
   an answer from the mail servers matches, the list shows **No Results** with a magnifying glass and the line
   **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, VoiceOver hears
-  **No Results** once as it appears, and the subtitle reads **No results · [scope]**: the searched
-  folder, or **All Mailboxes** for several mailboxes, which the mail servers search
+  **No Results** once as it appears, and the subtitle reads **No results · [scope]**: the folder
+  searched in one mailbox, or else the mailbox, or **All Mailboxes** for several, which the mail
+  servers search
   ([#2346](https://github.com/unwired-dev/product/issues/2346)). A mail server search that fails, leaves
   IMAP folders out or has another page replaces No Results with its failure and **Try Again**, its
   note or **More from Mail Servers**, and the subtitle then names only the scope, or adds **Offline**
