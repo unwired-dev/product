@@ -719,8 +719,41 @@ This is not provider certification and does not run on the Mac host, whose trust
 synthetic certificate authority never changes. Pinned certificates are
 [#2005](https://github.com/unwired-dev/product/issues/2005).
 
-Real iCloud Mail and Seznam Email read, organizing, search, IDLE, SMTP submission and Sent
-filing qualification remains required before release
+### Certification mailboxes
+
+`native/private-inbox/integration/providers.zsh [ios|macos]` runs the iOS suite, the
+Mac suite or both against the dedicated iCloud Mail and Seznam Email certification
+mailboxes of [#2399](https://github.com/unwired-dev/product/issues/2399). Run it under
+`op run --env-file <file outside the repository> -- mise exec -- zsh …`, with that file
+naming the password-manager fields for `UNWIRED_ICLOUD_ADDRESS`, `UNWIRED_SEZNAM_ADDRESS`
+and their mail-client passwords `UNWIRED_ICLOUD_PASSWORD` and `UNWIRED_SEZNAM_PASSWORD`,
+as the [operator setup](https://github.com/unwired-dev/product/issues/632) describes. The
+script hands them to the test process alone through xcodebuild's `TEST_RUNNER_`
+variables, so no credential is written to the generated scheme, and fails if an address or
+password appears in the run's evidence. The Mac run needs `UNWIRED_STORAGE_PROFILE`, like
+`test.zsh macos`. Each mailbox sends one message to the other through the unchanged
+engine; the test then reads, marks, moves and files it, and removes this run's messages and
+any an interrupted run left.
+
+| Step               | iCloud Mail                                                                           | Seznam Email                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| IMAP 993 login     | Name part of the address, app-specific password                                       | Full address, mail-client password                                                                               |
+| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                 | Refused as an authentication failure on IMAP and SMTP                                                            |
+| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                              | 465, SSL/TLS; delivered to iCloud Mail                                                                           |
+| Delivered message  | Found by text search; envelope, source and `\Seen` change                             | Found by text search; envelope, source, `\Seen` change and MOVE to Trash                                         |
+| Folders and roles  | `INBOX` alone, no roles ([#2401](https://github.com/unwired-dev/product/issues/2401)) | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                              |
+| Sent filing        | Not possible: without a Sent folder, Send refuses                                     | Boundary search drops the connection ([#2402](https://github.com/unwired-dev/product/issues/2402)); APPEND works |
+| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                    | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                        |
+
+The test marks #2401 and #2402 as known issues, which fail the run once they are fixed so
+the markers get removed. On 19 November 2026 it passed on an iOS 27.0 iPhone 18 Pro
+Simulator and on the Mac host (macOS 27.2), built with Xcode 27.2 (27B52), from `main` at
+`92f1de1c7` with this change applied. That Mac run's Keychain tests failed with `.locked`,
+the same as `main` on that host at the time. The run is engine evidence only: the app's
+setup and reader journeys, IDLE, recovery and large folders are still to be qualified.
+
+Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
+the app on both hosts, remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
 hosts, and backfilling large real IMAP folders. Registration Mock Mail Sessions connect any
