@@ -2270,6 +2270,11 @@ describe('composer recovery after relaunch', () => {
       await waitFor(() => {
         expect(asked()).toStrictEqual([recover]);
       });
+      // The Draft is saved again while the alert is open, after the version the edits started from.
+      const opened = draftOf(drafts.getSnapshot(), restored);
+      ok(opened !== undefined);
+      await drafts.update({ ...opened, subject: 'Changed plan' }, opened);
+      await expect(drafts.save()).resolves.toBe(true);
       // The router commits the composer's route after the render that restores the record.
       const { replace } = route.router;
       jest.spyOn(route.router, 'replace').mockImplementationOnce((target) => {
@@ -2288,7 +2293,7 @@ describe('composer recovery after relaunch', () => {
       ok(elsewhere !== undefined);
       ok(await drafts.journal({ ...elsewhere, subject: 'Edited elsewhere' }));
       expect(asked()).toStrictEqual([recover]);
-      // Close asks to save the restored edits, and Save Draft stores them.
+      // Close asks to save the restored edits, and Save Draft keeps them as a conflicting copy.
       await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
       await fireEvent.press(
         await screen.findByRole('button', { name: 'Save Draft' }),
@@ -2307,9 +2312,10 @@ describe('composer recovery after relaunch', () => {
         await drafts.recovered();
       });
       expect(subjects()).toStrictEqual([
-        [restored, 'Restored plan, unsaved'],
+        [restored, 'Changed plan'],
         [discarded, 'Discarded plan'],
         [edited, 'Edited plan'],
+        [`${restored}-conflict-1`, 'Restored plan, unsaved'],
       ]);
       expect(alert).toHaveBeenCalledTimes(2);
     } finally {

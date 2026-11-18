@@ -2500,8 +2500,9 @@ const journalDelay = 2000;
 // Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
 // returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
 // record locked storage refused. The records it wrote go once the version is unchanged again. The
-// returned function closes the journal, removing those records and that of Draft `id` the editor
-// closes on, which another editor's journal may have written. A version unsaved from the start, as
+// first returned function closes the journal, removing those records and that of Draft `id` the
+// editor closes on, which another editor's journal may have written. The second journals at once,
+// as after a save that keeps the editor open. A version unsaved from the start, as
 // a restored recovery record, counts as written.
 function useRecoveryJournal(
   edited: unknown,
@@ -2557,7 +2558,7 @@ function useRecoveryJournal(
       timer.current = undefined;
     };
   }, [write]);
-  return useCallback(
+  const close = useCallback(
     (id: string) => {
       closed.current = true;
       journaled.current.add(id);
@@ -2565,6 +2566,7 @@ function useRecoveryJournal(
     },
     [write],
   );
+  return [close, write] as const;
 }
 
 // The composer recovery records the previous run left for a Product Account, read once a run when
@@ -3373,7 +3375,7 @@ function Editor({
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
   const subjectCaret = useRef<number | undefined>(undefined);
   const draft = history.present;
-  const closeRecord = useRecoveryJournal(
+  const [closeRecord, journalNow] = useRecoveryJournal(
     draft,
     useCallback(() => {
       if (authored.current === stored.current && !unsaved.current) {
@@ -4029,6 +4031,11 @@ function Editor({
       let refusal: SendRefusal | undefined = 'storage';
       try {
         refusal = await outbox.send(baseline);
+        // A refused Send still stored the version shown, so its record goes once that is saved.
+        if (refusal !== undefined && (await store.save())) {
+          unsaved.current = false;
+          journalNow();
+        }
       } catch {
         // An unexpected rejection keeps the Draft open to send again.
       }

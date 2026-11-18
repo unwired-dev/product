@@ -2415,6 +2415,39 @@ describe('composing Drafts', () => {
     ]);
   });
 
+  it('removes the recovery record once a refused Send stores the version shown', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(
+      await screen.findByLabelText('Subject'),
+      'Unsent plan',
+    );
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // Send without a recipient is refused, and the composer stays open on the stored version.
+    await press('Send');
+    await expect(
+      screen.findByRole('alert', { name: 'Add a recipient before sending.' }),
+    ).resolves.toBeOnTheScreen();
+    await waitFor(() => {
+      expect(storage.recoveryRecords().size).toBe(0);
+    });
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsent plan');
+  });
+
   it('journals again on return to the foreground and removes the record on Save Draft and Delete Draft', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));
