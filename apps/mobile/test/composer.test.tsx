@@ -1121,6 +1121,127 @@ describe('composing Drafts', () => {
     }
   });
 
+  // A stored Draft from Alex's mailbox in `state`, as a reply when `reply`, opened in the composer.
+  const openStored = async ({
+    reply,
+    state = 'connected',
+    to = [],
+  }: {
+    readonly reply: boolean;
+    readonly state?: 'authorization' | 'connected';
+    readonly to?: Draft['to'];
+  }) => {
+    const initial = connected(['alex@example.invalid']);
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const id: string = created;
+    const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(draft);
+    await drafts.update(
+      {
+        ...draft,
+        to,
+        subject: 'Re: Plans',
+        ...(reply && {
+          response: {
+            kind: 'reply',
+            message: 'plans',
+            inReplyTo: '<plans@example.invalid>',
+            references: [],
+          },
+        }),
+      },
+      draft,
+    );
+    // The mailbox needs sign-in only after the Draft is made, which it would refuse.
+    registration.change({
+      ...initial,
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state },
+      ]),
+    });
+    const authorizeMailbox = jest.fn(() => Promise.resolve());
+    await render(
+      <ComposerLayoutContext
+        value={{
+          size: reply ? 'regular' : 'compact',
+          avoidKeyboard: true,
+          top: 0,
+        }}>
+        <App
+          drafts={drafts}
+          mailboxes={mailboxes}
+          outbox={outbox}
+          authorizeMailbox={authorizeMailbox}
+          registration={registration}
+          initialDraft={id}
+        />
+      </ComposerLayoutContext>,
+    );
+    await screen.findByLabelText('Message body');
+    return { outbox, authorizeMailbox };
+  };
+
+  it.each([
+    ['on iPhone', false],
+    ['in a docked iPad reply', true],
+  ])(
+    'says why Send waits for an address among the notices %s',
+    async (_, reply) => {
+      expect.hasAssertions();
+      const { outbox } = await openStored({
+        reply,
+        to: [{ address: 'žofie@example.invalid' }],
+      });
+      try {
+        const reason =
+          'An address in this message uses characters this app cannot send yet. Use a plain email address.';
+        const send = screen.getByRole('button', { name: 'Send' });
+        expect(screen.getByText(reason)).toBeOnTheScreen();
+        expect(send).toBeDisabled();
+        expect(send).toHaveProp('accessibilityHint', reason);
+      } finally {
+        outbox.dispose();
+      }
+    },
+  );
+
+  it('asks for sign-in under a docked iPad reply’s From and Send', async () => {
+    expect.hasAssertions();
+    const { outbox, authorizeMailbox } = await openStored({
+      reply: true,
+      state: 'authorization',
+      to: [{ address: 'sam@example.invalid' }],
+    });
+    try {
+      const reason =
+        'Gmail needs you to sign in again before this address can send.';
+      expect(screen.getAllByText(reason)).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await press('Sign In…');
+      expect(authorizeMailbox).toHaveBeenCalledWith(alex);
+    } finally {
+      outbox.dispose();
+    }
+  });
+
   it('lists only the window Profile’s Drafts', async () => {
     expect.hasAssertions();
     const registration = account({

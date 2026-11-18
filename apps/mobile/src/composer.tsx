@@ -320,8 +320,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 22,
   },
-  // A docked reply's sender notice beneath its From and Send.
-  dockedSending: {
+  // Under From, in line with it: 4pt above and 8pt below on iPhone, as its frame draws it.
+  phoneSignIn: {
+    marginHorizontal: inset,
+    marginTop: spacing.xs,
+    marginBottom: spacing.s,
+  },
+  cardSignIn: { marginHorizontal: padFieldInset, marginBottom: spacing.s },
+  dockedSignIn: {
     marginHorizontal: padFieldInset,
     marginBottom: 12 * ipadListScale,
   },
@@ -960,9 +966,31 @@ const sendingMessage = (
   return state === 'available' ? undefined : t(`drafts.sending.${state}`);
 };
 
-// A mailbox that needs sign-in again offers Sign In… in the Authorization Needed banner, as the
-// iPhone frame draws it; other sender problems say what to do instead. `style` places it.
+// Why the sending mailbox cannot send, among the notices; `signIn` includes the Authorization
+// Needed banner, which the editor otherwise shows under From.
 function SendingNotice({
+  draft,
+  signIn,
+}: {
+  readonly draft: Draft;
+  readonly signIn: boolean;
+}) {
+  const account = use(AccountContext);
+  const { t } = useLocalization();
+  const mailboxes = account?.mailboxes ?? [];
+  const message = sendingMessage(t, draft, mailboxes);
+  if (message === undefined) {
+    return null;
+  }
+  if (sendingStateOf(draft, mailboxes) === 'authorization') {
+    return signIn ? <SignInBanner draft={draft} /> : null;
+  }
+  return <Alert message={message} />;
+}
+
+// A mailbox that needs sign-in again offers Sign In… in the Authorization Needed banner, as the
+// iPhone frame draws it. `style` places it.
+function SignInBanner({
   draft,
   style,
 }: {
@@ -974,15 +1002,11 @@ function SendingNotice({
   const { t } = useLocalization();
   const mailboxes = account?.mailboxes ?? [];
   const message = sendingMessage(t, draft, mailboxes);
-  if (message === undefined) {
+  if (
+    message === undefined ||
+    sendingStateOf(draft, mailboxes) !== 'authorization'
+  ) {
     return null;
-  }
-  if (sendingStateOf(draft, mailboxes) !== 'authorization') {
-    return (
-      <View style={style}>
-        <Alert message={message} />
-      </View>
-    );
   }
   // The frame's Banner: its message in emphasized Subheadline, Sign In… in a content-coloured pill
   // beneath, in line with the symbol.
@@ -2240,7 +2264,7 @@ export function ComposerNotices({
   draft,
   blocked,
   refused,
-  sender = true,
+  signIn = true,
   onClose,
   onDiscard,
   onKeepEditing,
@@ -2249,8 +2273,8 @@ export function ComposerNotices({
   readonly draft: Draft;
   // Why Send is unavailable now, when no field or line beside Send says it.
   readonly blocked?: SendRefusal | undefined;
-  // Whether why the sending mailbox cannot send shows here; a docked reply shows it under From.
-  readonly sender?: boolean;
+  // Whether the Authorization Needed banner shows here; the editor shows it under From.
+  readonly signIn?: boolean;
   readonly refused: SendRefusal | undefined;
   readonly onClose: () => void;
   readonly onDiscard: () => void;
@@ -2266,7 +2290,8 @@ export function ComposerNotices({
     (closing === undefined || closing === 'saving') &&
     blocked === undefined &&
     refused === undefined &&
-    (!sender || sendingStateOf(draft, mailboxes) === 'available')
+    (sendingStateOf(draft, mailboxes) === 'available' ||
+      (!signIn && sendingStateOf(draft, mailboxes) === 'authorization'))
   ) {
     return null;
   }
@@ -2298,7 +2323,10 @@ export function ComposerNotices({
         connection={draft.connection}
         refused={refused}
       />
-      {sender ? <SendingNotice draft={draft} /> : null}
+      <SendingNotice
+        draft={draft}
+        signIn={signIn}
+      />
       {closing === 'discard' ? (
         <Alert
           outcome
@@ -2624,22 +2652,43 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
 };
 
 // From sits in the iPad header and on its own row beneath the iPhone header. At the accessibility
-// text sizes the iPad card's From takes its own row too, so Expand and Send stay in view.
-const placeSender = (
-  sender: ReactNode,
-  presentation: Presentation,
-  large: boolean,
-) =>
-  presentation === 'compact' || (large && presentation === 'card')
+// text sizes the iPad card's From takes its own row too, so Expand and Send stay in view. The
+// Authorization Needed banner follows From; a docked reply's ReplyFooter places both.
+const placeSender = ({
+  sender,
+  draft,
+  presentation,
+  large,
+}: {
+  readonly sender: ReactNode;
+  readonly draft: Draft;
+  readonly presentation: Presentation;
+  readonly large: boolean;
+}) => {
+  if (presentation === 'docked') {
+    return { header: sender, row: null };
+  }
+  const compact = presentation === 'compact';
+  const signIn = (
+    <SignInBanner
+      draft={draft}
+      style={compact ? styles.phoneSignIn : styles.cardSignIn}
+    />
+  );
+  return compact || large
     ? {
         header: null,
         row: (
-          <View style={styles.fromRow}>
-            <View style={styles.bar}>{sender}</View>
-          </View>
+          <>
+            <View style={styles.fromRow}>
+              <View style={styles.bar}>{sender}</View>
+            </View>
+            {signIn}
+          </>
         ),
       }
-    : { header: sender, row: null };
+    : { header: sender, row: signIn };
+};
 
 // A docked or iPhone response is titled by its kind; otherwise the subject names the Draft. Only a
 // clipped subject is announced as shortened.
@@ -2758,9 +2807,9 @@ function ReplyFooter({
         <View style={styles.grow} />
         {send}
       </View>
-      <SendingNotice
+      <SignInBanner
         draft={draft}
-        style={styles.dockedSending}
+        style={styles.dockedSignIn}
       />
     </>
   );
@@ -4414,7 +4463,7 @@ function Editor({
       }}
     />
   );
-  const senderPlace = placeSender(sender, presentation, large);
+  const senderPlace = placeSender({ sender, draft, presentation, large });
   // Send: a tap sends, and a long press opens its menu of Remind Me to Send….
   const sendControl = (titled: boolean) => (
     <SendMenu
@@ -4759,7 +4808,7 @@ function Editor({
               draft={draft}
               blocked={blocked.notice}
               refused={refused}
-              sender={!docked}
+              signIn={false}
               onClose={() => {
                 void saveDraft();
               }}
