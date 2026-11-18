@@ -541,7 +541,7 @@ describe('the Tiptap evaluation composer', () => {
         ['Redo', 'arrow.uturn.forward', true],
       ],
     ]);
-    expect(menuGroups('More Files and Templates')).toStrictEqual([
+    expect(menuGroups('More Files')).toStrictEqual([
       [
         ['Attach Photo', 'photo', undefined],
         ['Insert Image', 'photo.on.rectangle', undefined],

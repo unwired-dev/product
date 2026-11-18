@@ -2178,7 +2178,10 @@ final class InboxTests: XCTestCase {
   // A formatting or history control: iPad keeps it on the format bar, or in More Lists and Links when
   // the bar is too narrow for it (#2357); iPhone opens the Format panel.
   private func formatControl(_ name: String, in app: XCUIApplication) -> XCUIElement {
-    let control = app.buttons[name]
+    // iPad's keyboard shortcut bar repeats Undo and Redo under `assistant` identifiers.
+    let control = app.buttons.matching(
+      NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'assistant')", name)
+    ).firstMatch
     let item = app.cells[name]
     let more = app.buttons["More Lists and Links"]
     if !control.isHittable, item.exists || more.isHittable,
@@ -2327,13 +2330,13 @@ final class InboxTests: XCTestCase {
     let bold = formatControl("Bold", in: app)
     bold.tap()
     waitUntil { bold.isSelected }
-    let numbered = formatControl("Numbered List", in: app)
-    numbered.tap()
-    waitUntil { numbered.isSelected }
+    // A folded bar's menu closes after each choice, so each check finds Numbered List again.
+    formatControl("Numbered List", in: app).tap()
+    waitUntil { self.formatControl("Numbered List", in: app).isSelected }
     formatControl("Undo", in: app).tap()
-    waitUntil { !numbered.isSelected }
+    waitUntil { !self.formatControl("Numbered List", in: app).isSelected }
     formatControl("Redo", in: app).tap()
-    waitUntil { numbered.isSelected }
+    waitUntil { self.formatControl("Numbered List", in: app).isSelected }
     let formatted = XCTAttachment(screenshot: app.screenshot())
     formatted.name = "Evaluation editor formatted"
     formatted.lifetime = .keepAlways
@@ -3073,19 +3076,11 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(destination.value as? String, "https://example.com")
     dismissLinkEditor(app, field: destination, pad: pad)
 
-    // One Undo removes the link and keeps its text; Redo restores it. iPad's keyboard shortcut bar
-    // repeats Undo and Redo.
-    func history(_ name: String) -> XCUIElement {
-      pad
-        ? app.buttons.matching(
-          NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'assistant')", name)
-        ).firstMatch
-        : formatControl(name, in: app)
-    }
-    history("Undo").tap()
+    // One Undo removes the link and keeps its text; Redo restores it.
+    formatControl("Undo", in: app).tap()
     XCTAssertTrue(formatControl("Add Link", in: app).waitForExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
-    history("Redo").tap()
+    formatControl("Redo", in: app).tap()
     XCTAssertTrue(formatControl("Edit Link", in: app).waitForExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Keyboard reply")
     if pad {

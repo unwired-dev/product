@@ -133,7 +133,7 @@ transport and known native exit gaps.
   unavailable while sending. In the iPad format bar, Text style stays at the leading
   edge while the remaining controls scroll horizontally at their full touch size.
   A bar narrower than 522pt, such as the 442pt Portrait reader's, shows Bold, Italic,
-  Bulleted List, Writing tools and Attach File, and ends each crowded section with an
+  Bulleted List, Writing tools when available, and Attach File, and ends each crowded section with an
   overflow menu: **More Formatting** (Underline, Strikethrough, Inline code), **More
   Lists and Links** (Numbered List, Add Link or Edit Link, whose Link Editor popover
   opens from the menu, then Undo and Redo) and **More Files and Templates** (Attach

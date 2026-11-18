@@ -421,7 +421,7 @@ export function PadFormatBar({
               ))}
             {lists === undefined ? null : (
               <OverflowMenu
-                accessibilityLabel={t('drafts.moreFiles')}
+                accessibilityLabel={t('drafts.moreFileActions')}
                 disabled={false}
                 sections={[{ items: assets.slice(1) }]}
               />
