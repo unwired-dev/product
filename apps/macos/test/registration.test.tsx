@@ -3238,7 +3238,7 @@ describe('product registration', () => {
         'No saved mail in All Inboxes matches “nothing like this”. Check the spelling or search for fewer words.',
       ),
     ).toBeVisible();
-    expect(screen.getByText('No results · All Inboxes')).toBeVisible();
+    expect(screen.getByText('No results · All Mailboxes')).toBeVisible();
     // VoiceOver hears the outcome once, not again for each query that keeps it.
     await search('nothing like this either');
     expect(

@@ -281,7 +281,7 @@ export function SkeletonRows({
         <View
           key={row}
           style={[styles.skeleton, { borderBottomColor: colors.separator }]}>
-          {(['38%', '64%', '84%'] as const).map((width) => (
+          {(['46%', '77%', '97%'] as const).map((width) => (
             <View
               key={width}
               style={[

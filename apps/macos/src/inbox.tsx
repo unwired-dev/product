@@ -798,13 +798,13 @@ function headingOf(
   }
   // Syncing and Offline above take precedence over a mail server search in progress.
   const count = results.length + (search.found?.results.length ?? 0);
-  // The mail servers search whole mailboxes, so several are named All Mailboxes, not their Inboxes.
+  // The mail servers search whole mailboxes, so the Searching and No Results subtitles name several
+  // as All Mailboxes, as the frames do, not their Inboxes.
+  const searched = shown.length > 1 ? t('search.allMailboxes') : scopeName;
   if (search.searching) {
     return {
       title,
-      subtitle: t('search.searchingScope', {
-        scope: shown.length > 1 ? t('search.allMailboxes') : scopeName,
-      }),
+      subtitle: t('search.searchingScope', { scope: searched }),
       emptyScope,
     };
   }
@@ -818,7 +818,7 @@ function headingOf(
         searchIncomplete(search) ||
         !shown.some(({ state }) => state.kind === 'ready')
           ? emptyScope
-          : t('search.subtitleRegular', { count, scope: emptyScope }),
+          : t('search.subtitleRegular', { count, scope: folder ?? searched }),
       emptyScope,
     };
   }
