@@ -33,7 +33,7 @@ extension PrivateInboxTests {
     func message(_ subject: String) -> Data {
       Data(
         ("From: alex@example.test\r\nTo: sam@example.test\r\nSubject: \(subject) \(token)\r\n"
-          + "Content-Type: multipart/mixed; boundary=\"\(boundary(subject))\"\r\n\r\n"
+          + "MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"\(boundary(subject))\"\r\n\r\n"
           + "--\(boundary(subject))\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
           + "Standards body \(token)\r\n--\(boundary(subject))--\r\n").utf8)
     }
