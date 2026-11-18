@@ -69,6 +69,7 @@ import {
   draftSummary,
   profileOf,
   recipientSuggestions,
+  sameContent,
   sendingMailboxes,
   sendingStateOf,
   unsendableAssets,
@@ -187,6 +188,7 @@ import {
   useLeaveComposer,
   useMailTemplates,
   useOutbox,
+  useProfile,
   useSendReminders,
 } from './mailbox.tsx';
 import { fileSize } from './message-body.tsx';
@@ -2494,12 +2496,18 @@ function ReplyFooter({
 // How long after an edit its composer recovery record is written: the most typing that ending the
 // app can lose (ADR 0077).
 const journalDelay = 2000;
+// Whether the Drafts store holds every edit it was given.
+const savedOf = (state: DraftsState) =>
+  state.kind === 'ready' && state.save === 'saved';
 
 // Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
 // returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
 // record locked storage refused. The records it wrote go once the version is unchanged again. The
-// returned function closes the journal, removing those records and that of Draft `id` the editor
-// closes on, which another editor's journal may have written.
+// first returned function closes the journal, removing those records and that of Draft `id` the
+// editor closes on, which another editor's journal may have written. The second journals at once,
+// as after a save that keeps the editor open; the third too, unless unsaved edits have a write
+// scheduled. A version unsaved from the start, as
+// a restored recovery record, counts as written.
 function useRecoveryJournal(
   edited: unknown,
   unsaved: () => Recovery | undefined,
@@ -2507,6 +2515,12 @@ function useRecoveryJournal(
 ) {
   const store = useDraftStore();
   const journaled = useRef(new Set<string>());
+  useEffect(() => {
+    const restored = unsaved();
+    if (restored !== undefined) {
+      journaled.current.add(restored.version.id);
+    }
+  }, [unsaved]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
   const forget = useCallback(() => {
@@ -2548,7 +2562,7 @@ function useRecoveryJournal(
       timer.current = undefined;
     };
   }, [write]);
-  return useCallback(
+  const close = useCallback(
     (id: string) => {
       closed.current = true;
       journaled.current.add(id);
@@ -2556,6 +2570,236 @@ function useRecoveryJournal(
     },
     [write],
   );
+  // Writes at once, except that unsaved edits keep a write already scheduled for them.
+  const settle = useCallback(() => {
+    if (timer.current === undefined || unsaved() === undefined) {
+      write();
+    }
+  }, [unsaved, write]);
+  return [close, write, settle] as const;
+}
+
+// A Product Account's offer of the composer recovery records the previous run left: those already
+// offered, and the latest alert asking about one.
+interface RecoveryOffer {
+  readonly offered: Set<string>;
+  asking?: Promise<boolean>;
+}
+const recoveryOffers = new WeakMap<
+  object,
+  Map<string | undefined, RecoveryOffer>
+>();
+
+// A restored composer recovery record: the unsaved `version` and the stored version its edits
+// started from, or for a record without one, the Draft as listed when it was offered, which the
+// editor saves against.
+export interface Recovered {
+  readonly version: Draft;
+  readonly base: Draft;
+}
+
+// Asks about one record in the system alert; resolves whether the person chose Restore.
+const askRecovery = (t: Translate) =>
+  // oxlint-disable-next-line promise/avoid-new -- The alert answers through its button callbacks.
+  new Promise<boolean>((resolve) => {
+    SystemAlert.alert(t('drafts.recover.title'), t('drafts.recover.detail'), [
+      {
+        text: t('drafts.recover.restore'),
+        isPreferred: true,
+        onPress: () => {
+          resolve(true);
+        },
+      },
+      {
+        text: t('drafts.recover.discard'),
+        style: 'destructive',
+        onPress: () => {
+          resolve(false);
+        },
+      },
+    ]);
+  });
+
+// Offers each composer recovery record the previous run left (ADR 0077) whose Draft and recovered
+// sender belong to the shown Profile, in its own alert, once the Drafts open and while no composer
+// is open. Restore opens the record's Draft through `onRestore` and returns the record as
+// `recovered` for the composer to open on, until that composer closes or another Draft opens;
+// `follow` keeps it while that composer moves to a conflicting copy. Discard removes the record
+// unless an editor has its Draft open. A record changed or removed since it was read, a
+// failed removal and a Draft no longer listed leave the record for the next launch; an answer
+// given after the shell moved on, as to a composer a notification opened, is asked again.
+export function useRecoveryOffer(
+  composing: string | undefined,
+  onRestore: (id: string) => void,
+) {
+  const store = useDraftStore();
+  const ready = useDrafts().kind === 'ready';
+  const profile = useProfile();
+  const accountContext = use(AccountContext);
+  const mailboxes = accountContext?.mailboxes;
+  const account = accountContext?.account;
+  const { t } = useLocalization();
+  const [round, setRound] = useState(0);
+  // Whether the last records read was refused, and how often the app became active.
+  const refused = useRef(false);
+  const activations = useRef(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') {
+        return;
+      }
+      activations.current += 1;
+      if (refused.current) {
+        refused.current = false;
+        setRound((count) => count + 1);
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+  // The record restored, under the Draft ids its composer showed, and whether it opened: the route
+  // reaches the composer after the render that restores it.
+  const [restored, setRestored] = useState<{
+    readonly record: Recovered;
+    readonly ids: readonly string[];
+    readonly shown: boolean;
+  }>();
+  if (restored !== undefined) {
+    if (composing !== undefined && restored.ids.includes(composing)) {
+      if (!restored.shown) {
+        setRestored({ ...restored, shown: true });
+      }
+    } else if (restored.shown || composing !== undefined) {
+      setRestored(undefined);
+    }
+  }
+  const follow = useCallback((copy: string) => {
+    setRestored(
+      (current) => current && { ...current, ids: [...current.ids, copy] },
+    );
+  }, []);
+  const latest = useRef({ onRestore, mailboxes });
+  useLayoutEffect(() => {
+    latest.current = { onRestore, mailboxes };
+  });
+  useEffect(() => {
+    if (!ready || composing !== undefined) {
+      return;
+    }
+    const offers =
+      recoveryOffers.get(store) ?? new Map<string | undefined, RecoveryOffer>();
+    recoveryOffers.set(store, offers);
+    let offer = offers.get(account);
+    if (offer === undefined) {
+      offer = { offered: new Set() };
+      offers.set(account, offer);
+    }
+    const own = offer;
+    let current = true;
+    const askNext = () => {
+      if (current) {
+        setRound((count) => count + 1);
+      }
+    };
+    // The record `draft` as storage holds it now, if it has not changed since it was read.
+    const unchanged = async (draft: Draft) => {
+      const records = await store.recovered();
+      return (
+        records?.some(
+          ({ version }) =>
+            version.id === draft.id && sameContent(version, draft),
+        ) === true
+      );
+    };
+    // Whether record `draft` and its Draft as listed now belong to the shown Profile.
+    const owned = (draft: Draft) => {
+      const listed = draftOf(store.getSnapshot(), draft.id);
+      const known = latest.current.mailboxes ?? [];
+      return (
+        listed !== undefined &&
+        profileOf(listed.connection, known) === profile &&
+        profileOf(draft.connection, known) === profile
+      );
+    };
+    // An editor holding the Draft keeps its record; this one holds nothing.
+    const discarding = () => undefined;
+    const ask = async () => {
+      // An alert an earlier attempt left open is answered first.
+      await own.asking;
+      const activated = activations.current;
+      const records = await store.recovered();
+      const pending = records?.find(
+        ({ version }) => !own.offered.has(version.id) && owned(version),
+      );
+      if (!current) {
+        return;
+      }
+      // A read storage refused, as while locked, is read again once the app is active again.
+      if (records === undefined && activations.current !== activated) {
+        askNext();
+      }
+      refused.current =
+        records === undefined && activations.current === activated;
+      if (pending === undefined) {
+        return;
+      }
+      const draft = pending.version;
+      // A record changed or removed since it was read is not offered; it stays for the next launch.
+      // One whose Draft moved meanwhile stays for its Profile.
+      const intact = await unchanged(draft);
+      if (!current) {
+        return;
+      }
+      if (!intact || !owned(draft)) {
+        if (!intact) {
+          own.offered.add(draft.id);
+        }
+        askNext();
+        return;
+      }
+      const base = pending.base ?? draftOf(store.getSnapshot(), draft.id);
+      own.asking = askRecovery(t);
+      const restore = await own.asking;
+      const kept = await unchanged(draft);
+      if (!current || base === undefined) {
+        return;
+      }
+      // A kept record whose Draft moved to another Profile meanwhile stays for that Profile.
+      if (kept && !owned(draft)) {
+        askNext();
+        return;
+      }
+      own.offered.add(draft.id);
+      if (kept) {
+        store.take(draft.id);
+        if (restore) {
+          setRestored({
+            record: { version: draft, base },
+            ids: [draft.id],
+            shown: false,
+          });
+          latest.current.onRestore(draft.id);
+          return;
+        }
+        await store.forget(draft.id, discarding);
+      }
+      askNext();
+    };
+    const offerNext = async () => {
+      try {
+        await ask();
+      } catch {
+        // Store calls log their own failures; the records stay for the next launch.
+      }
+    };
+    void offerNext();
+    return () => {
+      current = false;
+    };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each answer asks again.
+  }, [account, composing, profile, ready, round, store, t]);
+  return { recovered: restored?.record, follow };
 }
 
 // The Mail Profile owning Draft `draft` on `connection`, and so its Send Reminder, and that
@@ -2974,6 +3218,7 @@ function BodyRecipientMenu({
 
 function Editor({
   initial,
+  opening,
   onClose,
   onClosedAfterRemoval,
   onRebind,
@@ -2981,6 +3226,9 @@ function Editor({
   onExpand,
 }: {
   readonly initial: Draft;
+  // The version the editor opens on: `initial`, or the unsaved version a composer recovery record
+  // kept.
+  readonly opening: Draft;
   readonly onClose: () => void;
   // Closing an empty Draft, discarding one or sending one removes it, which can unmount this editor
   // before it can call `onClose`; the composer closes in its place while it still shows Draft `id`.
@@ -2995,7 +3243,7 @@ function Editor({
   const state = useDrafts();
   const colors = usePalette();
   const { t } = useLocalization();
-  const [history, setHistory] = useState(() => historyOf(initial));
+  const [history, setHistory] = useState(() => historyOf(opening));
   // The latest history, ahead of rendering, so consecutive events each build on the last one.
   const historyNow = useRef(history);
   const commitHistory = useCallback(
@@ -3006,14 +3254,14 @@ function Editor({
     [],
   );
   // Native events can arrive before React commits a rebind or an earlier edit.
-  const authored = useRef(initial);
+  const authored = useRef(opening);
   const getDraft = useCallback(() => authored.current, []);
   // The version the store holds: the Draft as opened, until Save Draft or Send stores this one.
   const stored = useRef(initial);
   // Another Draft's failed save does not make this editor's unchanged version unsaved.
   const unsaved = useRef(false);
   useLayoutEffect(() => {
-    if (state.kind === 'ready' && state.save === 'saved') {
+    if (savedOf(state)) {
       unsaved.current = false;
     }
   }, [state]);
@@ -3088,7 +3336,7 @@ function Editor({
   // The field opens with its caret after the body and reports no selection until the caret moves,
   // so a tap there sends none (#1801).
   const [selection, setSelection] = useState<Selection>(() => {
-    const end = displayOf(initial.body).text.length;
+    const end = displayOf(opening.body).text.length;
     return { start: end, end };
   });
   // Body text captured for an explicitly requested translation, rewrite or reply suggestion, until
@@ -3167,7 +3415,7 @@ function Editor({
   const subjectSelection = useRef<Selection>({ start: 0, end: 0 });
   const subjectCaret = useRef<number | undefined>(undefined);
   const draft = history.present;
-  const closeRecord = useRecoveryJournal(
+  const [closeRecord, journalNow, settleJournal] = useRecoveryJournal(
     draft,
     useCallback(() => {
       if (authored.current === stored.current && !unsaved.current) {
@@ -3180,6 +3428,13 @@ function Editor({
     }, []),
     rebind,
   );
+  // Save Drafts in the Inbox can store this editor's version while it stays open.
+  const saved = savedOf(state);
+  useEffect(() => {
+    if (saved) {
+      settleJournal();
+    }
+  }, [saved, settleJournal]);
   const assistance = use(AssistanceContext);
   const translation = use(TranslationContext);
   const { linkEditor, generatePrompt } = useOpenPresenters({
@@ -3679,6 +3934,7 @@ function Editor({
     let set: SendReminder | undefined = undefined;
     try {
       if (await storeAndSave()) {
+        journalNow();
         const next = { draft: authored.current.id, dueAt, timeZone };
         if (await sendReminders.remind(draftProfile, next)) {
           set = { ...next, profile: draftProfile };
@@ -3823,6 +4079,11 @@ function Editor({
       let refusal: SendRefusal | undefined = 'storage';
       try {
         refusal = await outbox.send(baseline);
+        // A refused Send still stored the version shown, so its record goes once that is saved.
+        if (refusal !== undefined && (await store.save())) {
+          unsaved.current = false;
+          journalNow();
+        }
       } catch {
         // An unexpected rejection keeps the Draft open to send again.
       }
@@ -4559,12 +4820,15 @@ function ComposerFallback({
 // Opens a Draft directly for editing; it has no read-only presentation.
 export function Composer({
   id,
+  recovered,
   onClose,
   onRebind,
   expanded,
   onExpand,
 }: {
   readonly id: string;
+  // The composer recovery record of Draft `id` to open on instead.
+  readonly recovered?: Recovered | undefined;
   readonly onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   readonly onRebind: (id: string) => void;
@@ -4613,11 +4877,14 @@ export function Composer({
   );
   const opened =
     editor.followed === id && state.kind === 'ready' ? editor.opened : draft;
+  const restoring =
+    recovered?.version.id === editor.key ? recovered : undefined;
   if (opened !== undefined) {
     return (
       <Editor
         key={editor.key}
-        initial={opened}
+        initial={restoring?.base ?? opened}
+        opening={restoring?.version ?? opened}
         expanded={expanded}
         onClose={onClose}
         onClosedAfterRemoval={closedAfterRemoval}

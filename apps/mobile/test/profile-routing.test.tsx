@@ -21,7 +21,7 @@ import {
   commandTarget,
   runWhenOffered,
 } from '@private-email/mail-core/commands';
-import { createDrafts } from '@private-email/mail-core/drafts';
+import { createDrafts, draftOf } from '@private-email/mail-core/drafts';
 import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
@@ -2166,4 +2166,162 @@ describe('the mobile Profile Switcher', () => {
       jest.restoreAllMocks();
     }
   });
+});
+
+describe('composer recovery after relaunch', () => {
+  /* oxlint-disable vitest/max-expects -- One relaunch offers, restores and discards records in turn. */
+  it('offers each unsaved message the previous run left, one alert at a time', async () => {
+    expect.hasAssertions();
+    const connection = {
+      id: syntheticMailboxes['alex@example.invalid'],
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: defaultProfile,
+      provider: 'gmail',
+    } as const;
+    const registration = {
+      subscribe: () => () => undefined,
+      getSnapshot: () =>
+        ({
+          snapshot: {
+            kind: 'connected',
+            productAccountId: 'synthetic-product-account',
+            signInProvider: 'google',
+            mailboxes: JSON.stringify([connection]),
+          },
+          busy: false,
+          failed: false,
+        }) as const,
+    };
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    // The previous run stored three Drafts and kept unsaved edits to each when it ended.
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    const stored = async (subject: string) => {
+      const id = await previous.create(connection);
+      const created = draftOf(previous.getSnapshot(), id);
+      ok(created !== undefined);
+      const draft = { ...created, subject };
+      await previous.update(draft, created);
+      await expect(previous.save()).resolves.toBe(true);
+      await expect(
+        previous.journal({ ...draft, subject: `${subject}, unsaved` }, draft),
+      ).resolves.toBe(true);
+      return id;
+    };
+    const restored = await stored('Restored plan');
+    // The Draft was saved again after the version its unsaved edits started from.
+    const saved = draftOf(previous.getSnapshot(), restored);
+    ok(saved !== undefined);
+    await previous.update({ ...saved, subject: 'Changed plan' }, saved);
+    await expect(previous.save()).resolves.toBe(true);
+    const discarded = await stored('Discarded plan');
+    const edited = await stored('Edited plan');
+    const drafts = createDrafts(storage.native, registration);
+    jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    const asked = () =>
+      alert.mock.calls.map(([title, message, buttons]) => ({
+        title,
+        message,
+        buttons: buttons?.map(({ text, style, isPreferred }) => ({
+          text,
+          style,
+          isPreferred,
+        })),
+      }));
+    const recover = {
+      title: 'Recover unsaved message?',
+      message: 'Your unsaved changes were kept on this device.',
+      buttons: [
+        { text: 'Restore', style: undefined, isPreferred: true },
+        { text: 'Discard', style: 'destructive', isPreferred: undefined },
+      ],
+    };
+    const answer = (text: string) =>
+      act(async () => {
+        alert.mock.lastCall?.[2]
+          ?.find((button) => button.text === text)
+          ?.onPress?.();
+        await Promise.resolve();
+      });
+    const subjects = () => {
+      const state = drafts.getSnapshot();
+      ok(state.kind === 'ready');
+      return state.drafts.map(({ id, subject }) => [id, subject]);
+    };
+    try {
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(
+        <AccountContext
+          value={{
+            mailboxes: [connection],
+            openAccount: () => undefined,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
+            profiles: [],
+            createProfile: () => Promise.resolve(undefined),
+            chooseFolders: () => Promise.resolve(true),
+          }}>
+          <RootLayout />
+        </AccountContext>,
+      );
+      await waitFor(() => {
+        expect(asked()).toStrictEqual([recover]);
+      });
+      // The router commits the composer's route after the render that restores the record.
+      const { replace } = route.router;
+      jest.spyOn(route.router, 'replace').mockImplementationOnce((target) => {
+        setTimeout(() => {
+          replace(target);
+        }, 0);
+      });
+      await answer('Restore');
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Restored plan, unsaved',
+      );
+      // The other records wait while the restored composer is open. An editor journals the third
+      // Draft meanwhile, so its record is not offered in this run.
+      const elsewhere = draftOf(drafts.getSnapshot(), edited);
+      ok(elsewhere !== undefined);
+      ok(await drafts.journal({ ...elsewhere, subject: 'Edited elsewhere' }));
+      expect(asked()).toStrictEqual([recover]);
+      // Close asks to save the restored edits, and Save Draft keeps them as a conflicting copy.
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Save Draft' }),
+      );
+      await waitFor(() => {
+        expect(alert).toHaveBeenCalledTimes(2);
+      });
+      expect(asked()).toStrictEqual([recover, recover]);
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await answer('Discard');
+      // Discard removes the record and keeps the stored version; the restored record went with Save.
+      await waitFor(() => {
+        expect([...storage.recoveryRecords().keys()]).toStrictEqual([edited]);
+      });
+      await act(async () => {
+        await drafts.recovered();
+      });
+      expect(subjects()).toStrictEqual([
+        [restored, 'Changed plan'],
+        [discarded, 'Discarded plan'],
+        [edited, 'Edited plan'],
+        [`${restored}-conflict-1`, 'Restored plan, unsaved'],
+      ]);
+      expect(alert).toHaveBeenCalledTimes(2);
+    } finally {
+      await cleanup();
+      jest.restoreAllMocks();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
 });
