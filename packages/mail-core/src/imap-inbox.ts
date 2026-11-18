@@ -604,30 +604,27 @@ const movedTo = (
       }
     : undefined;
 
-// The ID a move the server mapped to a new UID gave the message, Undo's included.
-// Places this run's receipts among the saved ones from the last: each goes before this run's next,
-// after the saved move that left the message where it starts and before a saved move another window
-// made from where it left the message.
+// Places each of this run's receipts after the latest move that left its message where it starts,
+// and before a move another window made from where it left the message.
 const followMoves = (
   saved: readonly ImapRelocation[],
   unsaved: readonly ImapRelocation[],
 ) => {
   const merged = [...saved];
-  let bound = merged.length;
-  for (const receipt of Arr.reverse(unsaved)) {
-    let next = bound;
-    while (next > 0 && merged[next - 1]?.to !== receipt.from) {
-      next -= 1;
+  for (const receipt of unsaved) {
+    let after = merged.length;
+    while (after > 0 && merged[after - 1]?.to !== receipt.from) {
+      after -= 1;
     }
-    while (next < bound && merged[next]?.from !== receipt.to) {
-      next += 1;
-    }
-    merged.splice(next, 0, receipt);
-    bound = next;
+    const next = merged.findIndex(
+      ({ from }, index) => index >= after && from === receipt.to,
+    );
+    merged.splice(next === -1 ? after : next, 0, receipt);
   }
   return merged;
 };
 
+// The ID a move the server mapped to a new UID gave the message, Undo's included.
 const movedId = ({ action }: ImapPending, answer: Answer) =>
   answer.outcome === 'moved' &&
   answer.uid !== undefined &&
