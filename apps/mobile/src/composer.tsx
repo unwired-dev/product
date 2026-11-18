@@ -4094,7 +4094,7 @@ function Editor({
       setDropped(undefined);
       // As for Discard, later edits wait: the version shown at Send is the one sent.
       discarded.current = true;
-      storeShown();
+      const kept = storeShown();
       const cleanup = reminderCleanup();
       const baseline = () => {
         const id = cleanup.target();
@@ -4105,8 +4105,9 @@ function Editor({
       let refusal: SendRefusal | undefined = 'storage';
       try {
         refusal = await outbox.send(baseline);
-        // A refused Send still stored the version shown, so its record goes once that is saved.
-        if (refusal !== undefined && (await store.save())) {
+        // A refused Send still stored the version shown, unless the store declined it, so its
+        // record goes once that is saved.
+        if (refusal !== undefined && (await store.save()) && kept) {
           unsaved.current = false;
           journalNow();
         }

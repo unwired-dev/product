@@ -2419,18 +2419,17 @@ export function useRecoveryOffer(
       subscription.remove();
     };
   }, []);
-  // The mailboxes in this window's Profile.
+  // Each mailbox with the Profile it belongs to.
   const members = (mailboxes ?? [])
-    .filter(({ id }) => profileOf(id, mailboxes ?? []) === profile)
-    .map(({ id }) => id)
+    .map(({ id }) => `${id} ${profileOf(id, mailboxes ?? [])}`)
     .join('\n');
   const latest = useRef({ onRestore, mailboxes, members });
   useLayoutEffect(() => {
     latest.current = { onRestore, mailboxes, members };
   });
-  // The Profile's mailboxes when this window last found no record to offer. A mailbox moving into
-  // its Profile can make one its own, so it looks again; other mailbox updates leave an open alert
-  // alone.
+  // The mailboxes and their Profiles when this window last found no record to offer. A mailbox
+  // joining, leaving or moving between Profiles can make one its own, so it looks again; other
+  // mailbox updates leave an open alert alone.
   const idle = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (idle.current !== undefined && idle.current !== members) {
@@ -3785,7 +3784,7 @@ function Editor({
     let refusal: SendRefusal | undefined = 'storage';
     const cleanup = reminderCleanup();
     try {
-      storeShown();
+      const kept = storeShown();
       refusal = await outbox.send(
         () => ({
           ...shown,
@@ -3794,8 +3793,9 @@ function Editor({
         }),
         setCheck,
       );
-      // A refused Send still stored the version shown; Close asks only if saving it failed.
-      if (refusal !== undefined && (await store.save())) {
+      // A refused Send still stored the version shown, unless the store declined it; Close asks
+      // only if saving it failed.
+      if (refusal !== undefined && (await store.save()) && kept) {
         unsaved.current = false;
         journalNow();
       }

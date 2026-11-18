@@ -1081,11 +1081,9 @@ describe('mac window selection with the shared mock mailbox', () => {
         await drafts.recovered();
       });
       expect(sheetsShown()).toStrictEqual([]);
-      // Once the Work mailbox is removed, its Draft counts as the Default Profile's; a composer
-      // closing in the window makes it look again, with the same mailboxes in its Profile.
+      // Once the Work mailbox is removed, its Draft counts as the Default Profile's, so the idle
+      // window looks again.
       await app.rerender(inbox([connection]));
-      await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
-      await fireEvent.press(await app.findByRole('button', { name: 'Close' }));
       await waitFor(() => {
         expect(sheetsShown()).toHaveLength(1);
       });
