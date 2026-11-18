@@ -2343,12 +2343,15 @@ final class InboxTests: XCTestCase {
       NSPredicate(format: "label IN %@", ["Hide Sidebar", "Show Sidebar"])
     ).firstMatch
     let input = app.buttons["Open Command Palette"].firstMatch
-    let more = app.buttons["More"].firstMatch
-    for element in [toggle, input, more] {
+    // The preview reader's toolbar holds only its read state.
+    let read = app.buttons.matching(
+      NSPredicate(format: "label IN %@", ["Mark as Read", "Mark as Unread"])
+    ).firstMatch
+    for element in [toggle, input, read] {
       XCTAssertTrue(element.waitForExistence(timeout: 10))
     }
     for element in [toggle, input] {
-      XCTAssertEqual(element.frame.midY, more.frame.midY, accuracy: 0.5, element.debugDescription)
+      XCTAssertEqual(element.frame.midY, read.frame.midY, accuracy: 0.5, element.debugDescription)
     }
   }
 
