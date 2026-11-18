@@ -631,6 +631,10 @@ const hasNoMail = ({
 const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
   search.found?.failures.some(({ reason }) => reason === 'offline') === true;
 
+// A mail server search that failed or left IMAP folders out has not answered whether nothing matches.
+const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
+  Boolean(search.found?.failures.length || search.found?.limited.length);
+
 type Account = NonNullable<ContextType<typeof AccountContext>>;
 
 // A Mail Profile that owns no mailbox lists nothing and synchronizes nothing until one moves in.
@@ -673,7 +677,7 @@ function EmptyInbox({
 }
 
 // Neither saved mail nor a mail server's answer matches; VoiceOver hears it once as it appears.
-// A failed mail server search shows its failure and Try Again instead.
+// An incomplete mail server search shows its failure or skipped folders instead.
 function NoResults({
   ready,
   results,
@@ -693,7 +697,7 @@ function NoResults({
     results?.length === 0 &&
     !search.searching &&
     !search.found?.results.length &&
-    !search.found?.failures.length;
+    !searchIncomplete(search);
   const title = t('search.noResults');
   useOutcomeAnnouncement(shown ? title : undefined, true);
   return shown ? (
@@ -782,14 +786,29 @@ function headingOf(
   }
   // Syncing and Offline above take precedence over a mail server search in progress.
   const count = results.length + (search.found?.results.length ?? 0);
+  if (search.searching) {
+    return {
+      title,
+      subtitle: t('search.searchingScope', { scope: scopeName }),
+      emptyScope,
+    };
+  }
   // No Results names the folder its empty state names; the mail servers search the whole mailbox.
-  const subtitle = search.searching
-    ? t('search.searchingScope', { scope: scopeName })
-    : t('search.subtitleRegular', {
-        count,
-        scope: count === 0 ? emptyScope : scopeName,
-      });
-  return { title, subtitle, emptyScope };
+  // Without a complete answer, nothing is claimed about matches.
+  if (count === 0) {
+    return {
+      title,
+      subtitle: searchIncomplete(search)
+        ? emptyScope
+        : t('search.subtitleRegular', { count, scope: emptyScope }),
+      emptyScope,
+    };
+  }
+  return {
+    title,
+    subtitle: t('search.subtitleRegular', { count, scope: scopeName }),
+    emptyScope,
+  };
 }
 
 function useComposeSearch(

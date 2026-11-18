@@ -189,6 +189,7 @@ describe('message list', () => {
         screen.findByRole('button', { name: 'Try Again' }),
       ).resolves.toBeVisible();
       expect(screen.queryByText('No Results')).toBeNull();
+      expect(screen.queryByText('No results · Travel')).toBeNull();
     } finally {
       await cleanup();
       inbox.forget();
