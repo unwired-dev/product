@@ -295,7 +295,9 @@ unread count. On iPhone the problem replaces the Inbox row's count. On iPhone an
 and **Top Results** reports the result count; each mailbox an online search could
 not reach says so under **From mail servers**. On Mac, search changes the title to
 Search and the subtitle to the displayed saved and online result count, with Syncing
-and Offline still taking precedence. Opening a message shows its body, as described in
+and Offline still taking precedence; when nothing matches, and while the mail servers are
+searched, the subtitle follows [Searching saved mail](#searching-saved-mail) and
+[Searching Gmail online](#searching-gmail-online). Opening a message shows its body, as described in
 [Reading messages](#reading-messages). The detail view also shows the message's
 own labels and the [organizing actions](#organizing-mail).
 
