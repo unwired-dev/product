@@ -516,9 +516,10 @@ styles) so the file stays editable.
   stack. Detail failures follow the
   [Settings requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior).
 - **Modal placement:** alerts and sheets are centred in the Mac window and on the
-  iPad screen. iPhone alerts are centred, and partial-height sheets attach to the
-  screen edges. A backdrop covers the whole window or screen. Popovers have no
-  arrow.
+  iPad screen. iPhone alerts are centred. An iPhone sheet at a medium or smaller
+  detent floats 8pt inside the screen's sides and bottom, as iOS 27 draws it; at
+  or near full height, as the Move picker's detent is, it attaches to the screen
+  edges. A backdrop covers the whole window or screen. Popovers have no arrow.
 - **Dates and times:** the system formatter writes them in the interface
   language's conventions, and one language never mixes formats. The English
   reference frames write `13 Oct`, `Tue 13 Oct, 8:00` and `Today, 18:00`; the
@@ -557,8 +558,8 @@ content.
 - iPhone Settings root groups and account cards use the 22pt inset-group token.
   Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
   matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
-- iPhone sheets have 34pt top corners. Partial-height sheets sit flush with the
-  screen's bottom edge.
+- iPhone sheets have 34pt top corners. A floating sheet also rounds its bottom
+  corners, concentric with the screen's; the system sheet draws both.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
   radius. They are drawn without an arrow.
 - iPad Sign In's deep brand panel uses `radius.brandPanel`, 24pt, and the iPad's
