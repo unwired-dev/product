@@ -130,7 +130,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     gap: ipad ? 4 * scale : 6,
   },
-  // At accessibility text sizes the sender takes the full width, its flag and date beneath it.
+  // At accessibility text sizes the sender takes the full width, its pin and date beneath it.
   rowHeadingWrap: { flexWrap: 'wrap' },
   sender: { ...(ipad ? body : textStyles.headline), flex: 1 },
   senderWrap: { flexBasis: '100%' },

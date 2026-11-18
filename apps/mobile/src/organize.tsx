@@ -1,3 +1,4 @@
+import type { CommandTarget } from '@private-email/mail-core/commands';
 import type { GmailAction } from '@private-email/mail-core/gmail-actions';
 import type {
   ImapAction,
@@ -61,6 +62,7 @@ import {
 } from './mailbox.tsx';
 import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { ActionButton } from './organize-action-button.tsx';
+import { usePinAction, usePinned } from './pins.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -130,8 +132,30 @@ const actionIcons: Readonly<Record<string, string>> = {
   spam: 'xmark.bin',
   trash: 'trash',
   restore: 'tray.and.arrow.down',
+  pin: 'pin',
+  unpin: 'pin.slash',
 };
 type Named = Readonly<{ name: string; label: string; run: () => void }>;
+
+// Pin or Unpin for the reader's message: its Thread in the reader's Mailbox Connection.
+type PinAction = Named &
+  Readonly<{ name: 'pin' | 'unpin'; target: CommandTarget }>;
+
+// Pin or Unpin for a message of the reader's mailbox.
+function usePinFor() {
+  const mailbox = useMailbox();
+  const pinned = usePinned(mailbox === undefined ? [] : [mailbox.id]);
+  const action = usePinAction();
+  return (
+    message: Readonly<{ id: string; subject: string; threadId?: string }>,
+  ): PinAction | undefined =>
+    mailbox === undefined
+      ? undefined
+      : {
+          ...action(mailbox.id, message, pinned(mailbox.id, message)),
+          target: commandTarget(mailbox.id, message),
+        };
+}
 
 const folderIcon = (name: string, roles: readonly string[]) => {
   if (name === inboxFolder) {
@@ -419,6 +443,8 @@ function MorePanel({
 // The More menu's titles and symbols, as the row menu names the same actions.
 const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
   ({
+    pin: [t('contextMenu.pin'), 'pin'],
+    unpin: [t('contextMenu.unpin'), 'pin.slash'],
     read: [t('contextMenu.read'), 'envelope.open'],
     unread: [t('contextMenu.unread'), 'envelope.badge'],
     restore: [t('contextMenu.restore'), 'tray.and.arrow.down'],
@@ -428,7 +454,7 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
 
 // More: the system menu the iPad frames draw: read state and Move to…, then the actions
 // that take the message elsewhere. Gmail's Labels, which toggle in place, open More's panel. The
-// iPhone toolbar has no Delete, so its menu ends with it.
+// iPhone toolbar has no Delete or Pin, so its menu ends with Delete and starts with Pin.
 function MoreButton({
   more,
   folders,
@@ -468,7 +494,9 @@ function MoreButton({
       sections={[
         {
           items: [
-            ...items(['read', 'unread']),
+            ...items(
+              compact ? ['pin', 'unpin', 'read', 'unread'] : ['read', 'unread'],
+            ),
             ...(folders === undefined
               ? []
               : [
@@ -532,7 +560,7 @@ const threadActions = (
           run: archive,
         },
       ]),
-  ...['read', 'unread']
+  ...['pin', 'unpin', 'read', 'unread']
     .flatMap((name) => more.actions.filter((action) => action.name === name))
     .map(({ name, label, run }) => ({
       name,
@@ -581,11 +609,75 @@ const threadActions = (
     })),
 ];
 
-// The toolbar and the panel or sheet one of its buttons opened.
+// The Command Palette's Pin or Unpin for the reader's message.
+function PinCommand({ pin }: { readonly pin: PinAction | undefined }) {
+  const { t } = useLocalization();
+  if (pin === undefined) {
+    return null;
+  }
+  return (
+    <RegisterCommands
+      offer={() =>
+        organizeCommands(t, {
+          target: pin.target,
+          actions: [{ name: pin.name, label: pin.label, action: pin }],
+          act: ({ run }) => {
+            run();
+          },
+          destinations: [],
+        })
+      }
+    />
+  );
+}
+
+// iPhone's More lists Pin first.
+const withPin = <More extends Readonly<{ actions: readonly Named[] }>>(
+  more: More,
+  pin: PinAction | undefined,
+) =>
+  compact && pin !== undefined
+    ? { ...more, actions: [pin, ...more.actions] }
+    : more;
+
+// The toolbar's last group: Pin on iPad, then More, which mail with no organizing actions, such as
+// saved mail without organizing permission, lacks.
+const lastGroup = (
+  pin: PinAction | undefined,
+  more: Parameters<typeof MoreButton>[0]['more'],
+  folders: Parameters<typeof MoreButton>[0]['folders'],
+) => {
+  const buttons = [
+    compact || pin === undefined ? null : (
+      <ToolbarButton
+        key="pin"
+        icon={actionIcons[pin.name] ?? 'pin'}
+        label={pin.label}
+        onPress={() => {
+          pin.run();
+        }}
+      />
+    ),
+    more.actions.length === 0 &&
+    more.labels === undefined &&
+    folders === undefined ? null : (
+      <MoreButton
+        key="more"
+        more={more}
+        folders={folders}
+      />
+    ),
+  ];
+  return buttons.every((button) => button === null) ? null : buttons;
+};
+
+// The toolbar and the panel or sheet one of its buttons opened. iPad shows Pin first in the last
+// group, before More; iPhone lists it in More and the Reply sheet, with the read state.
 function Toolbar({
   archive,
   folders,
-  more,
+  more: organizing,
+  pin,
   onPanel,
   children,
 }: {
@@ -616,9 +708,11 @@ function Toolbar({
     // Reply sheet opens them in More's panel.
     labels?: ReactNode;
   }>;
+  readonly pin?: PinAction | undefined;
   readonly children: ReactNode;
 }) {
   const { t } = useLocalization();
+  const more = withPin(organizing, pin);
   // The reader's open panel lasts only while this toolbar shows it. Closing it, Move or organizing
   // becoming unavailable, or the toolbar leaving clears it, so no dismissal stays behind.
   const shown = more.open || folders?.open === true;
@@ -648,6 +742,7 @@ function Toolbar({
     shownPanel === 'folders' && folders !== undefined && 'panel' in folders;
   return (
     <>
+      <PinCommand pin={pin} />
       <View
         pointerEvents="box-none"
         style={styles.toolbar}>
@@ -662,14 +757,7 @@ function Toolbar({
               </ThreadActionsContext>
             )
           }
-          more={
-            replySheet ? null : (
-              <MoreButton
-                more={more}
-                folders={folders}
-              />
-            )
-          }
+          more={replySheet ? null : lastGroup(pin, more, folders)}
         />
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
@@ -779,6 +867,7 @@ function ImapMessageActions({
   const state = useInbox();
   const { t } = useLocalization();
   const mailbox = useMailbox();
+  const pinFor = usePinFor();
   const message = useSyncExternalStore(inbox.subscribe, () =>
     inbox.message(id),
   );
@@ -824,6 +913,7 @@ function ImapMessageActions({
       />
       <Toolbar
         onPanel={setPanel}
+        pin={pinFor(message)}
         archive={
           archive === undefined
             ? undefined
@@ -906,6 +996,13 @@ function ImapMessageActions({
   );
 }
 
+// More with no actions, for mail that offers only responses and Pin.
+const noMore = {
+  open: false,
+  toggle: () => undefined,
+  actions: [],
+} as const;
+
 // The reader's Gmail and Microsoft actions. A message that leaves the view it was chosen in, the
 // Inbox or another Gmail view, closes the reader.
 function GmailMessageActions({
@@ -928,6 +1025,7 @@ function GmailMessageActions({
   const colors = usePalette();
   const { t } = useLocalization();
   const mailbox = useMailbox();
+  const pinFor = usePinFor();
   const provider = mailbox?.provider ?? 'gmail';
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
   useLayoutEffect(() => {
@@ -946,15 +1044,20 @@ function GmailMessageActions({
   // A label or folder the provider removed falls back to the Inbox, as the list does.
   const view = gmailViewName(state, opened, provider);
   const message = viewMessage(state, id, view);
-  // Responses also work for online results and saved mail without organizing permission.
-  if (message === undefined || !canOrganize(message)) {
+  if (message === undefined) {
     return <GlassGroup>{children}</GlassGroup>;
   }
-  if (!state.organize) {
+  // Responses and Pin also work for online results and saved mail without organizing permission.
+  if (!canOrganize(message) || !state.organize) {
     return (
-      <View style={styles.toolbar}>
-        <GlassGroup>{children}</GlassGroup>
-      </View>
+      <Toolbar
+        onPanel={setPanel}
+        pin={pinFor(message)}
+        archive={undefined}
+        folders={undefined}
+        more={noMore}>
+        {children}
+      </Toolbar>
     );
   }
   const act = (action: GmailAction) => {
@@ -1049,6 +1152,7 @@ function GmailMessageActions({
       />
       <Toolbar
         onPanel={setPanel}
+        pin={pinFor(message)}
         archive={
           archive === undefined
             ? undefined

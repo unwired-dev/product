@@ -1,7 +1,10 @@
 import { ok } from 'node:assert/strict';
 
 import type { NativeGmailMailbox } from '@private-email/mail-core/inbox-store';
+import type { Pins } from '@private-email/mail-core/pins';
+import type { Registration } from '@private-email/mail-core/registration';
 
+import { ownerOf } from '@private-email/mail-core/drafts';
 import { gmailAction } from '@private-email/mail-core/gmail-actions';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
@@ -10,6 +13,7 @@ import {
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
 import { createPersistentInbox } from '@private-email/mail-core/persistent-inbox';
+import { createPins } from '@private-email/mail-core/pins';
 import {
   createRegistration,
   defaultProfile,
@@ -38,6 +42,7 @@ import { setStringAsync } from 'expo-clipboard';
 import { useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
+  Alert,
   Animated,
   AppState,
   Dimensions,
@@ -66,6 +71,7 @@ import {
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import { PinsContext } from '../src/pins.tsx';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { SidebarToggleContext } from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
@@ -993,7 +999,14 @@ function connectedMessage(store: ReturnType<typeof createInboxStore>) {
 async function renderConnected(
   native: NativeGmailMailbox,
   provider: 'gmail' | 'microsoft-graph' = 'gmail',
-  windowBar?: ReturnType<typeof createWindowBar>,
+  {
+    windowBar,
+    pinsFor,
+  }: Readonly<{
+    windowBar?: ReturnType<typeof createWindowBar>;
+    // Pin storage for the registered Product Account, instead of the host's.
+    pinsFor?: (registration: Registration) => Pins;
+  }> = {},
 ) {
   const synthetic = await createRegistrationScenario('registration-success');
   // The mailbox connections the person authorizes, by connection.
@@ -1029,10 +1042,11 @@ async function renderConnected(
     },
   );
   const store = started(registration);
+  const pins = pinsFor?.(registration);
   function Connected() {
     const [selected, setSelected] = useState<Selection>();
     const [view, setView] = useState<MailboxView>({});
-    return (
+    const gate = (
       <RegistrationGate
         store={store}
         preview={false}>
@@ -1063,6 +1077,11 @@ async function renderConnected(
           </CommandPaletteProvider>
         </InboxProvider>
       </RegistrationGate>
+    );
+    return pins === undefined ? (
+      gate
+    ) : (
+      <PinsContext value={pins}>{gate}</PinsContext>
     );
   }
   await render(
@@ -1209,11 +1228,9 @@ describe('connected Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     gmail.deliver({ subject: 'Saved mail remains available' });
-    const connected = await renderConnected(
-      gmail.native,
-      'gmail',
-      createWindowBar(),
-    );
+    const connected = await renderConnected(gmail.native, 'gmail', {
+      windowBar: createWindowBar(),
+    });
     await screen.findByText('Saved mail remains available');
     gmail.fail({ code: 'unavailable' });
     await act(connected.store().load);
@@ -1667,11 +1684,9 @@ describe('connected Gmail Inbox', () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     gmail.deliver({ subject: 'Saturday, by the river?' });
-    const connected = await renderConnected(
-      gmail.native,
-      'gmail',
-      createWindowBar(),
-    );
+    const connected = await renderConnected(gmail.native, 'gmail', {
+      windowBar: createWindowBar(),
+    });
     await screen.findByRole('button', { name: /Saturday, by the river\?/u });
     gmail.fail({ code: 'unavailable' });
     await act(connected.store().load);
@@ -1882,11 +1897,12 @@ describe('connected Gmail Inbox', () => {
     expect(screen.getByText('oliver@example.invalid')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Mark as Read' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Folders' })).toBeNull();
+    // Pin is product state, so it does not wait for Gmail access.
     expect(
       screen.getByRole('button', {
         name: 'Unread. Oliver Park. Saturday, by the river?',
       }),
-    ).toHaveProp('accessibilityActions', []);
+    ).toHaveProp('accessibilityActions', [{ name: 'pin', label: 'Pin' }]);
     // Local search still reports no match while the cached Inbox is synchronizing.
     await fireEvent.changeText(
       screen.getByLabelText('Search senders and subjects'),
@@ -1915,9 +1931,10 @@ describe('connected Gmail Inbox', () => {
     expect(
       screen.queryByText('Marked as read: “Saturday, by the river?”.'),
     ).toBeNull();
-    // On iPhone, More is the system menu iPad's frames draw, ending with Delete.
+    // On iPhone, More is the system menu iPad's frames draw, starting with Pin and ending with
+    // Delete.
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
-      ['Mark as Unread', 'Move to…'],
+      ['Pin', 'Mark as Unread', 'Move to…'],
       ['Move to Spam', 'Labels'],
       ['Delete'],
     ]);
@@ -2471,7 +2488,7 @@ describe('connected Gmail Inbox', () => {
     ).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
-      ['Mark as Unread', 'Move to…'],
+      ['Pin', 'Mark as Unread', 'Move to…'],
       ['Move to Spam'],
       ['Delete'],
     ]);
@@ -3701,15 +3718,16 @@ describe('context menus', () => {
       const listed = contextMenuOf(row());
       expect(menuSections(listed)).toStrictEqual([
         ['Archive'],
-        ['Mark as Read'],
+        ['Mark as Read', 'Pin'],
         ['Delete'],
       ]);
     });
-    // VoiceOver's row actions include Move to Spam but not the star, which only the Command
-    // Palette offers (#2084).
+    // VoiceOver's row actions include Pin and Move to Spam but not the star, which only the
+    // Command Palette offers (#2084).
     const rowActions: ReadonlyArray<{ name: string }> =
       row().props.accessibilityActions;
     expect(rowActions.map(({ name }) => name)).toStrictEqual([
+      'pin',
       'read',
       'archive',
       'trash',
@@ -3727,7 +3745,10 @@ describe('context menus', () => {
       message: menuSections(message),
     }).toStrictEqual({
       sender: [['Copy Address'], ['Block Sender…']],
-      message: [['Mark as Unread'], [['Move to…', ['Travel']], 'Delete']],
+      message: [
+        ['Mark as Unread', 'Pin'],
+        [['Move to…', ['Travel']], 'Delete'],
+      ],
     });
     await chooseFromMenu(sender, 'Copy Address');
     expect(setStringAsync).toHaveBeenLastCalledWith('oliver@example.invalid');
@@ -3743,5 +3764,139 @@ describe('context menus', () => {
       labels: gmail.labelsOf(oliver),
       shown: screen.queryByText('Saturday, by the river?') !== null,
     }).toStrictEqual({ labels: [travel], shown: false });
+  });
+});
+
+describe('pinning', () => {
+  const row = 'Oliver Park. Saturday, by the river?';
+  const replyRow = 'Oliver Park. Re: Saturday, by the river?';
+
+  // A Thread of two Gmail messages, its first open in the reader, with Pin storage on this device
+  // that refuses the next write while `storage.refusing`.
+  async function openThread() {
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const first = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+      unread: false,
+      at: Date.now() - 60_000,
+    });
+    const reply = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Re: Saturday, by the river?',
+      unread: false,
+      thread: first,
+    });
+    const saved = { revision: 0, document: null as string | null };
+    const storage = { refusing: false };
+    let pins: Pins | undefined = undefined;
+    await renderConnected(gmail.native, 'gmail', {
+      pinsFor: (registration) => {
+        pins = createPins(
+          {
+            openPins: () =>
+              Promise.resolve({
+                owner: ownerOf(registration.getSnapshot().snapshot),
+                ...saved,
+              }),
+            commitPins: (owner, revision, document) => {
+              if (storage.refusing) {
+                storage.refusing = false;
+                return Promise.reject(
+                  Object.assign(new Error('conflict'), { code: 'conflict' }),
+                );
+              }
+              Object.assign(saved, { revision: revision + 1, document });
+              return Promise.resolve({ owner, revision: saved.revision });
+            },
+          },
+          registration,
+        );
+        return pins;
+      },
+    });
+    ok(pins !== undefined);
+    const stored: Pins = pins;
+    await fireEvent.press(await screen.findByRole('button', { name: row }));
+    await screen.findByRole('button', { name: 'Folders' });
+    return { gmail, first, reply, pins: stored, storage };
+  }
+
+  it('says when Pin storage refuses a Pin, and changes nothing', async () => {
+    expect.hasAssertions();
+    const failed = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    const { pins, storage } = await openThread();
+    storage.refusing = true;
+    await chooseFromMenu(screen.getByLabelText('More'), 'Pin');
+    await waitFor(() => {
+      expect(failed).toHaveBeenCalledWith(
+        'This Thread couldn’t be pinned',
+        'The change wasn’t saved on this device, so nothing changed. Try again.',
+        [{ text: 'OK' }],
+      );
+    });
+    await expect(pins.pins([alex])).resolves.toStrictEqual([]);
+    expect(screen.queryByRole('button', { name: `${row}. Pinned` })).toBeNull();
+  });
+
+  it('pins a Thread from the reader without changing the provider', async () => {
+    expect.hasAssertions();
+    const { gmail, first, reply, pins } = await openThread();
+    await chooseFromMenu(screen.getByLabelText('More'), 'Pin');
+    // Both its messages show the marker, and the reader offers Unpin.
+    await screen.findByRole('button', { name: `${replyRow}. Pinned` });
+    expect(
+      screen.getByRole('button', { name: `${row}. Pinned` }),
+    ).toBeVisible();
+    await expect(pins.pins([alex])).resolves.toMatchObject([
+      { connection: alex, thread: first },
+    ]);
+    expect(menuSections(screen.getByLabelText('More'))[0]).toStrictEqual([
+      'Unpin',
+      'Mark as Unread',
+      'Move to…',
+    ]);
+    // The provider's star and labels stay as they were.
+    expect([...gmail.labelsOf(first), ...gmail.labelsOf(reply)]).not.toContain(
+      'STARRED',
+    );
+  });
+
+  it('unpins the whole Thread from one of its rows', async () => {
+    expect.hasAssertions();
+    const { first, pins } = await openThread();
+    await act(async () => {
+      await pins.pin(alex, first);
+    });
+    const pinnedReply = await screen.findByRole('button', {
+      name: `${replyRow}. Pinned`,
+    });
+    expect(menuSections(contextMenuOf(pinnedReply))).toStrictEqual([
+      ['Archive'],
+      ['Mark as Unread', 'Unpin'],
+      ['Delete'],
+    ]);
+    await chooseFromMenu(contextMenuOf(pinnedReply), 'Unpin');
+    await expect(
+      screen.findByRole('button', { name: row }),
+    ).resolves.toBeVisible();
+    expect(screen.getByRole('button', { name: replyRow })).toBeVisible();
+    await expect(pins.pins([alex])).resolves.toStrictEqual([]);
+  });
+
+  it('pins the open message’s Thread from the Command Palette', async () => {
+    expect.hasAssertions();
+    await openThread();
+    await openPalette(
+      screen.getByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Pin' }),
+      );
+    });
+    await expect(
+      screen.findByRole('button', { name: `${row}. Pinned` }),
+    ).resolves.toBeVisible();
   });
 });
