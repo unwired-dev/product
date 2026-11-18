@@ -845,7 +845,6 @@ app follows under the issue named:
   and Failed states, wait for #2092.
 - **Add a Mailbox:** the provider tiles' SF Symbols, on Mac, iPad and iPhone,
   wait for #2093.
-- **Mac New Message window:** the compact Command Input waits for #2094.
 - **iPad Portrait:** the Thread, inline composer, Search Results and Settings
   layouts at 834×1210 wait for #2095.
 - **German strings:** no check lays the screens out at German lengths until
