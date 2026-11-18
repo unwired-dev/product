@@ -77,6 +77,7 @@ function useMailboxFolder<E>(
     },
     title: folder === inboxFolder ? undefined : folder,
     listed: browsing?.entries ?? inbox,
+    opening: browsing?.view.kind === 'loading',
     failure: imapFolderFailed(browsing?.view)
       ? t('imap.foldersUnavailable')
       : undefined,
@@ -119,6 +120,10 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
   return {
     title,
     listed,
+    // The label's first page has not arrived, so its empty list says nothing yet.
+    opening:
+      shown === undefined ||
+      (shown.status === 'syncing' && shown.messages.length === 0),
     failure,
     limited,
     downloading,

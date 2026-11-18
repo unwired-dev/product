@@ -756,6 +756,7 @@ function headingOf(
     results,
     search,
     unconnected,
+    opening,
   }: Readonly<{
     scope: string | undefined;
     folder: string | undefined;
@@ -765,6 +766,8 @@ function headingOf(
     results: readonly unknown[] | undefined;
     search: ReturnType<typeof useGmailSearch>;
     unconnected: boolean;
+    // A chosen folder whose first listing has not arrived.
+    opening: boolean;
   }>,
 ) {
   const title =
@@ -802,9 +805,10 @@ function headingOf(
   if (count === 0) {
     return {
       title,
-      subtitle: searchIncomplete(search)
-        ? emptyScope
-        : t('search.subtitleRegular', { count, scope: emptyScope }),
+      subtitle:
+        opening || searchIncomplete(search)
+          ? emptyScope
+          : t('search.subtitleRegular', { count, scope: emptyScope }),
       emptyScope,
     };
   }
@@ -926,6 +930,7 @@ export function Inbox({
     limited,
     downloading,
     listed,
+    opening,
     title: folderTitle,
     failure,
     missing,
@@ -1043,6 +1048,7 @@ export function Inbox({
     results,
     search: online,
     unconnected: unconnected !== undefined,
+    opening,
   });
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
@@ -1291,7 +1297,7 @@ export function Inbox({
                 />
               ) : null}
               <NoResults
-                ready={ready}
+                ready={ready && !opening}
                 results={results}
                 search={online}
                 scope={emptyScope}
