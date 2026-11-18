@@ -906,7 +906,7 @@ export function createImapInbox(
         // Forgetting the Inbox empties `relocations`.
         while (head !== undefined && (await relocated(head.from, head.to))) {
           const kept = head;
-          relocations = relocations.filter((entry) => entry !== kept);
+          relocations = relocations.filter(({ from }) => from !== kept.from);
           [head] = relocations;
         }
       } while (requested);
@@ -1358,7 +1358,6 @@ export function createImapInbox(
       lifetime,
     };
     document = stored;
-    yield* restoreRelocations(stored);
     retireSuperseded();
     // Reopening refreshes no other folder, so one whose last read failed keeps saying so.
     const previous = new Map(folderViews);
@@ -1378,6 +1377,7 @@ export function createImapInbox(
         folderViews.set(name, view);
       }
     }
+    yield* restoreRelocations(stored);
     return cache.availability === undefined;
   });
 
@@ -1420,8 +1420,14 @@ export function createImapInbox(
       const unsaved = relocations.filter(({ from }) => !known.has(from));
       relocations = [...saved, ...unsaved];
       if (unsaved.length > 0) {
-        // A save that fails leaves them to the next commit.
-        yield* commit(stored).pipe(Effect.ignore);
+        // Another window's commit reopens the cache to save them again; another failure leaves
+        // them to the next commit.
+        yield* commit(stored).pipe(
+          Effect.catchIf(
+            ({ kind }) => kind !== 'conflict',
+            () => Effect.void,
+          ),
+        );
       }
       void handRelocations();
     });

@@ -609,10 +609,11 @@ describe('organizing IMAP mail', () => {
     imap.deliver('INBOX', { subject: 'Other' });
     // While the server moves a message, `during` runs before it answers.
     let during = () => Promise.resolve();
-    let { imapMessage } = imap.native;
+    let { imapMessage, commitMailbox } = imap.native;
     const native: NativeImapMailbox = {
       ...imap.native,
       imapMessage: (...args) => imapMessage(...args),
+      commitMailbox: (...args) => commitMailbox(...args),
       imapMove: async (...args) => {
         const receipt = await imap.native.imapMove(...args);
         await during();
@@ -657,8 +658,15 @@ describe('organizing IMAP mail', () => {
     const [from, archived] = first(relocated.mock.calls);
     expect(from).toBe(locked.id);
     expect(archived).toMatch(/\.Archive$/u);
-    // Reopening while the server cannot be reached saves the receipt for a relaunch.
+    // Reopening while the server cannot be reached saves the receipt for a relaunch, also when
+    // another window committed the cache first.
     imap.server.failure = 'retry';
+    commitMailbox = () => {
+      ({ commitMailbox } = imap.native);
+      return Promise.reject(
+        Object.assign(new Error('Synthetic conflict'), { code: 'conflict' }),
+      );
+    };
     await inbox.load();
     imap.server.failure = undefined;
     inbox.forget();
