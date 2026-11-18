@@ -1835,6 +1835,61 @@ describe('composing Drafts', () => {
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
 
+  it('tries a refused recovery record removal again while the composer stays open, after an earlier one it replaced', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const listeners = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const activate = () =>
+      act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+    const records = () => storage.recoveryRecords().size;
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    // Storage holds the record's write while the edit is undone and two removals queue behind it;
+    // the first finds the second has replaced it, and storage refuses the second.
+    storage.hold();
+    await fireEvent.changeText(screen.getByLabelText('Subject'), 'Plan');
+    await activate();
+    await press('Undo');
+    await activate();
+    await activate();
+    const remove = jest
+      .spyOn(storage.native, 'removeComposerRecovery')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Draft storage: unavailable'), {
+          code: 'unavailable',
+        }),
+      );
+    await act(async () => {
+      storage.release();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(remove).toHaveBeenCalledWith(
+        'synthetic-product-account',
+        expect.any(String),
+      );
+    });
+    expect(records()).toBe(1);
+    await activate();
+    await waitFor(() => {
+      expect(records()).toBe(0);
+    });
+  });
+
   it('suggests recent correspondents of the Draft’s Profile and accepts one by key', async () => {
     expect.hasAssertions();
     const initial = connected([
