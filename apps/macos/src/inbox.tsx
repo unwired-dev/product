@@ -347,6 +347,11 @@ const savedStatus = (t: Translate, saved: boolean | undefined) => {
 
 // Gmail's own search, asked for explicitly below the results saved on this device, which it never
 // replaces. Each mailbox that Gmail could not search says why.
+// A mail server search that failed or left IMAP folders out has not answered whether nothing matches.
+const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
+  search.found !== undefined &&
+  (search.found.failures.length > 0 || search.found.limited.length > 0);
+
 function OnlineResults({
   search,
   query,
@@ -630,11 +635,6 @@ const hasNoMail = ({
 // A mail server an explicit online search could not reach, which the subtitle reports as Offline.
 const searchOffline = (search: ReturnType<typeof useGmailSearch>) =>
   search.found?.failures.some(({ reason }) => reason === 'offline') === true;
-
-// A mail server search that failed or left IMAP folders out has not answered whether nothing matches.
-const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
-  search.found !== undefined &&
-  (search.found.failures.length > 0 || search.found.limited.length > 0);
 
 type Account = NonNullable<ContextType<typeof AccountContext>>;
 
