@@ -12,7 +12,7 @@ cleanup() {
   for container in "$trusted" "$untrusted"; do
     [[ -n "$container" ]] && docker rm -f "$container" >/dev/null 2>&1 || true
   done
-  rm -f "$run"/*.key "$run"/*/server.key "$run/server.csr"
+  rm -f "$run/ca.key" "$run/trusted/server.key" "$run/untrusted/server.key" "$run/server.csr"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -56,15 +56,20 @@ zsh "$here/test.zsh" ios || result=$?
 docker logs "$trusted" > "$run/trusted.log" 2>&1
 docker logs "$untrusted" > "$run/untrusted.log" 2>&1
 (( result == 0 )) || exit $result
-# The suite logged in over TLS on 993, 465 and 587, and never over plaintext or to the untrusted
-# server.
+# The suite logged in on 993, 465 and 587, and sent no credentials over plaintext or to the
+# untrusted server.
 fail() { print -u2 "Standards server: $1"; exit 1; }
-logins=$(grep 'imap-login: Info: Login:' "$run/trusted.log" || true)
-[[ -n "$logins" ]] || fail 'no IMAP login'
-[[ -z $(print -r -- "$logins" | grep -v ', TLS,' || true) ]] || fail 'IMAP login without TLS'
+matching() { grep -E "$2" "$run/$1.log" || true; }
+unauthenticated() { [[ -n "$1" && -z $(print -r -- "$1" | grep -v '(no auth attempts' || true) ]]; }
+[[ -n $(matching trusted 'Login: .*lport=993,') ]] || fail 'no IMAP login on 993'
+unauthenticated "$(matching trusted 'imap-login: .*lport=143,')" || fail 'credentials sent to IMAP 143'
 for service in submissions submission; do
-  grep -q "postfix/$service/smtpd.*sasl_username=" "$run/trusted.log" || fail "no SMTP login on $service"
+  [[ -n $(matching trusted "postfix/$service/smtpd.*sasl_method=") ]] || fail "no SMTP login on $service"
 done
-! grep -q 'postfix/plaintext/smtpd.*sasl_username=' "$run/trusted.log" || fail 'SMTP login without TLS'
-! grep -Eq 'imap-login: Info: Login:|sasl_username=' "$run/untrusted.log" || fail 'login to the untrusted server'
+[[ -n $(matching trusted 'postfix/plaintext/smtpd.*disconnect') &&
+  -z $(matching trusted 'postfix/plaintext/smtpd.*(auth=|sasl_)') ]] ||
+  fail 'credentials sent to SMTP without TLS'
+unauthenticated "$(matching untrusted 'imap-login:')" &&
+  [[ -n $(matching untrusted 'postfix/submissions/smtpd.*disconnect') &&
+    -z $(matching untrusted 'auth=|sasl_') ]] || fail 'credentials sent to the untrusted server'
 print "Standards server evidence: $run"
