@@ -46,6 +46,7 @@ const NativeSymbol = requireNativeComponent<
   ViewProps & {
     readonly name: string;
     readonly size: number;
+    readonly semibold?: boolean | undefined;
     readonly color: ColorValue;
   }
 >('UnwiredSymbol');
@@ -203,16 +204,19 @@ const styles = StyleSheet.create({
   buttonSizing: { opacity: 0 },
 });
 
-// An SF Symbol at regular weight. It is decorative: the control around it carries the label.
+// An SF Symbol at regular weight unless semibold. It is decorative: the control around it carries
+// the label.
 export function SFSymbol({
   name,
   color,
   size = 16,
+  semibold,
   style,
 }: {
   readonly name: string;
   readonly color: ColorValue;
   readonly size?: number;
+  readonly semibold?: boolean | undefined;
   // A slot other than the square of its point size, the symbol centred in it.
   readonly style?: StyleProp<ViewStyle>;
 }) {
@@ -222,6 +226,7 @@ export function SFSymbol({
       importantForAccessibility="no-hide-descendants"
       name={name}
       size={size}
+      semibold={semibold}
       color={color}
       style={[{ width: size, height: size }, style]}
     />

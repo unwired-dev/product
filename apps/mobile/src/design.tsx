@@ -45,6 +45,7 @@ const NativeSymbol = requireNativeComponent<
     readonly name: string;
     readonly size: number;
     readonly symbolScale?: SymbolScale | undefined;
+    readonly semibold?: boolean | undefined;
     readonly color: ColorValue;
   }
 >('UnwiredSymbol');
@@ -356,18 +357,20 @@ export const ipadFrameSymbolSize = 14.5 * (18.4 / 18);
 
 type SymbolScale = 'small' | 'medium' | 'large';
 
-// An SF Symbol at regular weight, at the system's default symbol scale unless one is given. It is
-// decorative: the control around it carries the label.
+// An SF Symbol at regular weight unless semibold, at the system's default symbol scale unless one
+// is given. It is decorative: the control around it carries the label.
 export function SFSymbol({
   name,
   color,
   size = 16,
   scale,
+  semibold,
 }: {
   readonly name: string;
   readonly color: ColorValue;
   readonly size?: number;
   readonly scale?: SymbolScale | undefined;
+  readonly semibold?: boolean | undefined;
 }) {
   return (
     <NativeSymbol
@@ -376,6 +379,7 @@ export function SFSymbol({
       name={name}
       size={size}
       symbolScale={scale}
+      semibold={semibold}
       color={color}
       style={{ width: size, height: size }}
     />

@@ -151,35 +151,35 @@ export function FirstMailbox({
   };
   const rows: Array<{
     key: 'gmail' | 'icloud' | 'microsoft' | 'fastmail' | 'other';
-    letter: string;
+    symbol: string;
     onPress: () => void;
   }> = [
-    { key: 'gmail', letter: 'G', onPress: authorize('gmail') },
-    { key: 'icloud', letter: 'i', onPress: imapRow('icloud') },
+    { key: 'gmail', symbol: 'envelope', onPress: authorize('gmail') },
+    { key: 'icloud', symbol: 'icloud', onPress: imapRow('icloud') },
   ];
   if (microsoft) {
     rows.push({
       key: 'microsoft',
-      letter: 'M',
+      symbol: 'building.2',
       onPress: authorize('microsoft-graph'),
     });
   }
   rows.push(
-    { key: 'fastmail', letter: 'F', onPress: imapRow('fastmail') },
-    { key: 'other', letter: '@', onPress: imapRow('other') },
+    { key: 'fastmail', symbol: 'envelope', onPress: imapRow('fastmail') },
+    { key: 'other', symbol: 'at', onPress: imapRow('other') },
   );
   return (
     <>
       <ProviderList>
-        {rows.map(({ key, letter, onPress }, index) => (
+        {rows.map(({ key, symbol, onPress }, index) => (
           <ProviderRow
             key={key}
             detail={t(`onboarding.providers.${key}.detail`)}
             disabled={busy}
             last={index === rows.length - 1}
-            letter={letter}
             name={t(`onboarding.providers.${key}.name`)}
             onPress={onPress}
+            symbol={symbol}
           />
         ))}
       </ProviderList>
