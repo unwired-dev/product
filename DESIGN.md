@@ -401,8 +401,8 @@ styles) so the file stays editable.
   reader toolbar share one centre line, 36pt below the top safe area. The
   full-screen frames, with their 32pt status bar, draw it 68pt from the top.
 - **iPad Portrait:** Mailboxes hides and the 391pt list sits beside a 442pt
-  reader, whose content is inset 23pt with no initials beside the sender;
-  **Show Sidebar** beside the Command Input brings Mailboxes back. Settings
+  reader, whose content is inset 23pt with no initials beside the sender and
+  whose Thread lies flat between separators, as on iPhone; **Show Sidebar** beside the Command Input brings Mailboxes back. Settings
   keeps its 248pt sidebar beside the detail.
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
   then the primary Unified Mailboxes (Inbox, Snoozed, Pins and Sent),
@@ -852,6 +852,11 @@ app follows under the issue named:
 - **Mac New Message window:** the compact Command Input waits for #2094.
 - **iPad Portrait:** the inline composer's size and format bar at 834×1210
   wait for #2095.
+- **Thread view toolbar:** the Thread Long frames draw the reader toolbar over
+  the Thread; the Thread view offers its actions once #846 tells message actions
+  from Thread actions.
+- **iPad top search match:** the frames put the best match directly under Top
+  Results, above the date sections, which waits for #2372.
 - **German strings:** no check lays the screens out at German lengths until
   #2096.
 - **iPad top row and Settings groups:** the one centre line, and icons on every

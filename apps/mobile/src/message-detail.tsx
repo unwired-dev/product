@@ -209,6 +209,8 @@ const styles = StyleSheet.create({
   },
   // A bar beside the opened message, so it stands out without relying on color.
   openedMessage: { borderLeftWidth: 4 },
+  // The iPad Portrait frames draw the Thread flat as iPhone's, on the reader's 23pt inset.
+  flatMessage: { paddingHorizontal: 0, borderRadius: 0 },
 });
 
 const singleContent = [
@@ -1381,6 +1383,7 @@ function ThreadMessage({
 }) {
   const mailbox = useMailbox();
   const colors = usePalette();
+  const portrait = usePortrait();
   const [bodyHeight, setBodyHeight] = useState(0);
   return (
     <View
@@ -1390,7 +1393,8 @@ function ThreadMessage({
       style={[
         styles.threadMessage,
         { borderBottomColor: colors.separator },
-        highlighted && !compact
+        portrait && styles.flatMessage,
+        highlighted && !compact && !portrait
           ? [
               styles.openedMessage,
               {
@@ -1403,6 +1407,7 @@ function ThreadMessage({
       <MessageHeader
         message={message}
         highlighted={highlighted}
+        monogram={!portrait}
       />
       {mounted ? (
         <View

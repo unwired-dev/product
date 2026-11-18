@@ -1774,7 +1774,7 @@ final class InboxTests: XCTestCase {
     top.lifetime = .keepAlways
     add(top)
     guard UIDevice.current.userInterfaceIdiom == .phone else {
-      portraitJourney(app)
+      portraitJourney(app, onScreen: onScreen)
       return
     }
     // The cold-opened Thread view has no Inbox beneath it to swipe back to; its Back shows one. The
@@ -1842,8 +1842,13 @@ final class InboxTests: XCTestCase {
 
   // #2361: the iPad Portrait frames hide Mailboxes and tile the 391pt list beside the 442pt reader;
   // Show Sidebar brings Mailboxes and its Settings back.
-  private func portraitJourney(_ app: XCUIApplication) {
+  private func portraitJourney(_ app: XCUIApplication, onScreen: (XCUIElement) -> Bool) {
     waitUntil { app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height }
+    // The Thread lies flat on the reader's inset, an earlier message beneath the newest.
+    let earlier = app.staticTexts["crew5@example.invalid"].firstMatch
+    for _ in 0..<30 where !onScreen(earlier) { app.swipeUp(velocity: .slow) }
+    XCTAssertTrue(onScreen(earlier))
+    attachScreen("Portrait Thread", of: app, to: self)
     let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
       .firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 10))
@@ -1851,7 +1856,7 @@ final class InboxTests: XCTestCase {
     XCTAssertLessThanOrEqual(row.frame.maxX, 392)
     XCTAssertGreaterThanOrEqual(app.staticTexts["crew6@example.invalid"].firstMatch.frame.minX, 392)
     XCTAssertFalse(app.buttons["Settings"].firstMatch.isHittable)
-    // The list opens the Thread in the reader, under its toolbar.
+    // The list opens a message of the Thread in the reader, under its toolbar.
     app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Crew 6.")).firstMatch.tap()
     let replyAll = app.buttons["Reply All"].firstMatch
     XCTAssertTrue(replyAll.waitForExistence(timeout: 20))
@@ -1861,7 +1866,7 @@ final class InboxTests: XCTestCase {
       .matching(NSPredicate(format: "label == %@", "Re: Trail maintenance")).firstMatch
     XCTAssertEqual(subject.frame.minX, 415, accuracy: 1)
     XCTAssertEqual(subject.frame.width, 396, accuracy: 1)
-    attachScreen("Portrait Thread", of: app, to: self)
+    attachScreen("Portrait Reader", of: app, to: self)
     let search = app.searchFields.firstMatch
     XCTAssertTrue(search.waitForExistence(timeout: 10))
     search.tap()
