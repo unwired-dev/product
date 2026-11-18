@@ -2419,7 +2419,6 @@ export function useRecoveryOffer(
       subscription.remove();
     };
   }, []);
-  const latest = useRef({ onRestore, mailboxes });
   // The mailboxes in this window's Profile.
   const members = (mailboxes ?? [])
     .filter(({ id }) => profileOf(id, mailboxes ?? []) === profile)
