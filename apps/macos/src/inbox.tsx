@@ -800,7 +800,9 @@ function headingOf(
   const count = results.length + (search.found?.results.length ?? 0);
   // The mail servers search whole mailboxes, so the Searching and No Results subtitles name several
   // as All Mailboxes, as the frames do, not their Inboxes.
-  const searched = shown.length > 1 ? t('search.allMailboxes') : scopeName;
+  const [only] = shown;
+  const searched =
+    shown.length > 1 ? t('search.allMailboxes') : (only?.address ?? scopeName);
   if (search.searching) {
     return {
       title,
