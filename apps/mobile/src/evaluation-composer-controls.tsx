@@ -25,7 +25,12 @@ import type { LinkEditorState } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
-import { FormatBar, LinkEditor, MenuItem } from './composer-controls.tsx';
+import {
+  FormatBar,
+  LinkEditor,
+  MenuItem,
+  OverflowMenu,
+} from './composer-controls.tsx';
 import {
   assetPickers,
   CloseButton,
@@ -321,52 +326,67 @@ export function PadFormatBar({
         onMark={(mark) => {
           run({ type: 'mark', mark });
         }}>
-        <LinkEditor
-          state={linkEditor}
-          disabled={false}
-          link={editableLinkAt(draft.body, page.selection)}
-          popover
-          onChange={onLink}
-        />
-        <View style={[s.divider, { backgroundColor: colors.separator }]} />
-        <ToolbarButton
-          disabled={!page.undo}
-          icon="arrow.uturn.backward"
-          label={t('drafts.undo')}
-          onPress={() => {
-            run({ type: 'undo' });
-          }}
-        />
-        <ToolbarButton
-          disabled={!page.redo}
-          icon="arrow.uturn.forward"
-          label={t('drafts.redo')}
-          onPress={() => {
-            run({ type: 'redo' });
-          }}
-        />
-        <View style={s.grow} />
-        {offersTools ? (
-          <ToolbarButton
-            expanded={open === 'tools'}
-            icon="sparkles"
-            label={t('drafts.writingTools')}
-            onPress={() => {
-              onOpen(open === 'tools' ? undefined : 'tools');
-            }}
-          />
-        ) : null}
-        <View style={[s.divider, { backgroundColor: colors.separator }]} />
-        {assetPickers.map(([label, from, inline, icon]) => (
-          <ToolbarButton
-            key={label}
-            icon={icon}
-            label={t(label)}
-            onPress={() => {
-              onAdd(from, inline);
-            }}
-          />
-        ))}
+        {(lists) => (
+          <>
+            <LinkEditor
+              state={linkEditor}
+              disabled={false}
+              link={editableLinkAt(draft.body, page.selection)}
+              popover
+              {...(lists === undefined
+                ? {}
+                : {
+                    renderMenu: (link) => (
+                      <OverflowMenu
+                        accessibilityLabel={t('drafts.moreLists')}
+                        disabled={false}
+                        sections={[{ items: [...lists, link] }]}
+                      />
+                    ),
+                  })}
+              onChange={onLink}
+            />
+            <View style={[s.divider, { backgroundColor: colors.separator }]} />
+            <ToolbarButton
+              disabled={!page.undo}
+              icon="arrow.uturn.backward"
+              label={t('drafts.undo')}
+              onPress={() => {
+                run({ type: 'undo' });
+              }}
+            />
+            <ToolbarButton
+              disabled={!page.redo}
+              icon="arrow.uturn.forward"
+              label={t('drafts.redo')}
+              onPress={() => {
+                run({ type: 'redo' });
+              }}
+            />
+            <View style={s.grow} />
+            {offersTools ? (
+              <ToolbarButton
+                expanded={open === 'tools'}
+                icon="sparkles"
+                label={t('drafts.writingTools')}
+                onPress={() => {
+                  onOpen(open === 'tools' ? undefined : 'tools');
+                }}
+              />
+            ) : null}
+            <View style={[s.divider, { backgroundColor: colors.separator }]} />
+            {assetPickers.map(([label, from, inline, icon]) => (
+              <ToolbarButton
+                key={label}
+                icon={icon}
+                label={t(label)}
+                onPress={() => {
+                  onAdd(from, inline);
+                }}
+              />
+            ))}
+          </>
+        )}
       </FormatBar>
       {/* The bar's controls scroll and would clip the menu, so it opens below the bar. */}
       <View

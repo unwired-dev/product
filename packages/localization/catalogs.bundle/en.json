@@ -1184,6 +1184,9 @@
     "ccBcc": "Cc/Bcc",
     "subject": "Subject",
     "formatting": "Formatting",
+    "moreFormatting": "More Formatting",
+    "moreLists": "More Lists and Links",
+    "moreFiles": "More Files and Templates",
     "body": "Message body",
     "bodyPlaceholder": "Message",
     "marks": {

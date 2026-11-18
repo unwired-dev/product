@@ -139,6 +139,7 @@ import {
   kindStyles,
   LinkEditor,
   markStyle,
+  OverflowMenu,
   PopUp,
   useGeneratePrompt,
   useLinkEditor,
@@ -3281,6 +3282,50 @@ function Editor({
     getDraft,
     onInsert: insertTemplate,
   });
+  const travels = [
+    {
+      key: 'undo',
+      title: t('drafts.undo'),
+      symbol: 'arrow.uturn.backward',
+      disabled: lockedUnless(history.past.length > 0),
+      run: () => {
+        travel(undo);
+      },
+    },
+    {
+      key: 'redo',
+      title: t('drafts.redo'),
+      symbol: 'arrow.uturn.forward',
+      disabled: lockedUnless(history.future.length > 0),
+      run: () => {
+        travel(redo);
+      },
+    },
+  ];
+  const assets = assetPickers.map(([label, from, inline, icon]) => ({
+    key: label,
+    title: t(label),
+    symbol: icon,
+    disabled: sending,
+    run: () => {
+      void choose(from, inline);
+    },
+  }));
+  const templateSections = [
+    {
+      items: [
+        {
+          key: 'heading',
+          title: t('drafts.templates.insert'),
+          symbol: '',
+          disabled: true,
+          run: () => undefined,
+        },
+        ...templates.templates,
+      ],
+    },
+    { items: [templates.save] },
+  ];
   const formatBar = (
     <FormatBar
       active={active}
@@ -3289,69 +3334,95 @@ function Editor({
       onBlock={block}
       onMark={format}
       style={parts.formatBar}>
-      <LinkEditor
-        state={linkEditor}
-        disabled={sending}
-        link={editableLinkAt(draft.body, selection)}
-        popover
-        onChange={editLink}
-      />
-      <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-      <ToolbarButton
-        disabled={lockedUnless(history.past.length > 0)}
-        icon="arrow.uturn.backward"
-        label={t('drafts.undo')}
-        onPress={() => {
-          travel(undo);
-        }}
-      />
-      <ToolbarButton
-        disabled={lockedUnless(history.future.length > 0)}
-        icon="arrow.uturn.forward"
-        label={t('drafts.redo')}
-        onPress={() => {
-          travel(redo);
-        }}
-      />
-      <View style={styles.grow} />
-      {writingTools}
-      <View style={[styles.divider, { backgroundColor: colors.separator }]} />
-      {assetPickers.map(([label, from, inline, icon]) => (
-        <ToolbarButton
-          key={label}
-          disabled={sending}
-          icon={icon}
-          label={t(label)}
-          onPress={() => {
-            void choose(from, inline);
-          }}
-        />
-      ))}
-      <MenuButton
-        accessibilityLabel={t('drafts.templates.menu')}
-        disabled={sending}
-        sections={[
-          {
-            items: [
-              {
-                key: 'heading',
-                title: t('drafts.templates.insert'),
-                symbol: '',
-                disabled: true,
-                run: () => undefined,
-              },
-              ...templates.templates,
-            ],
-          },
-          { items: [templates.save] },
-        ]}
-        style={styles.menuControl}>
-        <SFSymbol
-          name="doc.on.doc"
-          size={scaledToolbar.symbol}
-          color={colors.textPrimary}
-        />
-      </MenuButton>
+      {(lists) => (
+        <>
+          <LinkEditor
+            state={linkEditor}
+            disabled={sending}
+            link={editableLinkAt(draft.body, selection)}
+            popover
+            {...(lists === undefined
+              ? {}
+              : {
+                  renderMenu: (link) => (
+                    <OverflowMenu
+                      accessibilityLabel={t('drafts.moreLists')}
+                      disabled={sending}
+                      sections={[
+                        { items: [...lists, link] },
+                        { items: travels },
+                      ]}
+                    />
+                  ),
+                })}
+            onChange={editLink}
+          />
+          {lists === undefined ? (
+            <>
+              <View
+                style={[styles.divider, { backgroundColor: colors.separator }]}
+              />
+              {travels.map((item) => (
+                <ToolbarButton
+                  key={item.key}
+                  disabled={item.disabled}
+                  icon={item.symbol}
+                  label={item.title}
+                  onPress={() => {
+                    item.run();
+                  }}
+                />
+              ))}
+            </>
+          ) : null}
+          <View style={styles.grow} />
+          {writingTools}
+          <View
+            style={[styles.divider, { backgroundColor: colors.separator }]}
+          />
+          {assets.slice(0, lists === undefined ? undefined : 1).map((item) => (
+            <ToolbarButton
+              key={item.key}
+              disabled={item.disabled}
+              icon={item.symbol}
+              label={item.title}
+              onPress={() => {
+                item.run();
+              }}
+            />
+          ))}
+          {lists === undefined ? (
+            <MenuButton
+              accessibilityLabel={t('drafts.templates.menu')}
+              disabled={sending}
+              sections={templateSections}
+              style={styles.menuControl}>
+              <SFSymbol
+                name="doc.on.doc"
+                size={scaledToolbar.symbol}
+                color={colors.textPrimary}
+              />
+            </MenuButton>
+          ) : (
+            <OverflowMenu
+              accessibilityLabel={t('drafts.moreFiles')}
+              disabled={sending}
+              sections={[
+                { items: assets.slice(1) },
+                {
+                  items: [
+                    {
+                      title: t('drafts.templates.menu'),
+                      symbol: 'doc.on.doc',
+                      sections: templateSections,
+                    },
+                  ],
+                },
+              ]}
+            />
+          )}
+        </>
+      )}
     </FormatBar>
   );
   // iPhone's Format and Attach controls in one glass pill, with Writing tools beside it.
