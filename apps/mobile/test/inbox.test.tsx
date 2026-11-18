@@ -1,7 +1,7 @@
 import { ok } from 'node:assert/strict';
 
 import type { NativeGmailMailbox } from '@private-email/mail-core/inbox-store';
-import type { Pins } from '@private-email/mail-core/pins';
+import type { NativePins, Pins } from '@private-email/mail-core/pins';
 import type { Registration } from '@private-email/mail-core/registration';
 
 import { ownerOf } from '@private-email/mail-core/drafts';
@@ -3779,7 +3779,8 @@ describe('pinning', () => {
   const replyRow = 'Oliver Park. Re: Saturday, by the river?';
 
   // A Thread of two Gmail messages, its first open in the reader, with Pin storage on this device
-  // that refuses the next write while `storage.refusing`.
+  // that refuses the next write while `storage.refusing`. `another` writes that storage without
+  // telling the reader's Pins, as storage that was locked for the reader's read.
   async function openThread() {
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const first = gmail.deliver({
@@ -3797,36 +3798,37 @@ describe('pinning', () => {
     const saved = { revision: 0, document: null as string | null };
     const storage = { refusing: false };
     let pins: Pins | undefined = undefined;
+    let another: (() => Pins) | undefined = undefined;
     await renderConnected(gmail.native, 'gmail', {
       pinsFor: (registration) => {
-        pins = createPins(
-          {
-            openPins: () =>
-              Promise.resolve({
-                owner: ownerOf(registration.getSnapshot().snapshot),
-                ...saved,
-              }),
-            commitPins: (owner, revision, document) => {
-              if (storage.refusing) {
-                storage.refusing = false;
-                return Promise.reject(
-                  Object.assign(new Error('conflict'), { code: 'conflict' }),
-                );
-              }
-              Object.assign(saved, { revision: revision + 1, document });
-              return Promise.resolve({ owner, revision: saved.revision });
-            },
+        const native: NativePins = {
+          openPins: () =>
+            Promise.resolve({
+              owner: ownerOf(registration.getSnapshot().snapshot),
+              ...saved,
+            }),
+          commitPins: (owner, revision, document) => {
+            if (storage.refusing) {
+              storage.refusing = false;
+              return Promise.reject(
+                Object.assign(new Error('conflict'), { code: 'conflict' }),
+              );
+            }
+            Object.assign(saved, { revision: revision + 1, document });
+            return Promise.resolve({ owner, revision: saved.revision });
           },
-          registration,
-        );
+        };
+        pins = createPins(native, registration);
+        another = () => createPins(native, registration);
         return pins;
       },
     });
-    ok(pins !== undefined);
+    ok(pins !== undefined && another !== undefined);
     const stored: Pins = pins;
+    const elsewhere: () => Pins = another;
     await fireEvent.press(await screen.findByRole('button', { name: row }));
     await screen.findByRole('button', { name: 'Folders' });
-    return { gmail, first, reply, pins: stored, storage };
+    return { gmail, first, reply, pins: stored, another: elsewhere, storage };
   }
 
   it('says when Pin storage refuses a Pin, and changes nothing', async () => {
@@ -3844,6 +3846,27 @@ describe('pinning', () => {
     });
     await expect(pins.pins([alex])).resolves.toStrictEqual([]);
     expect(screen.queryByRole('button', { name: `${row}. Pinned` })).toBeNull();
+  });
+
+  it('reads Pins again when the app becomes active', async () => {
+    expect.hasAssertions();
+    const listeners = jest.mocked(AppState.addEventListener).mock.calls.length;
+    const { first, another } = await openThread();
+    await act(async () => {
+      await another().pin(alex, first);
+    });
+    expect(screen.queryByRole('button', { name: `${row}. Pinned` })).toBeNull();
+    await act(async () => {
+      for (const [, activate] of jest
+        .mocked(AppState.addEventListener)
+        .mock.calls.slice(listeners)) {
+        activate('active');
+      }
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByRole('button', { name: `${row}. Pinned` }),
+    ).resolves.toBeVisible();
   });
 
   it('pins a Thread from the reader without changing the provider', async () => {

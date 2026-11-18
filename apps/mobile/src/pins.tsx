@@ -2,7 +2,7 @@ import type { Pins } from '@private-email/mail-core/pins';
 
 import { pinnedThread } from '@private-email/mail-core/pins';
 import { createContext, use, useEffect, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 
 import { useLocalization } from './localization.ts';
 import { pins } from './registration.ts';
@@ -15,7 +15,8 @@ type Listed = Parameters<typeof pinnedThread>[0];
 const key = (connection: string, thread: string) => `${connection}\n${thread}`;
 
 // Whether a message's Thread is pinned in its Mailbox Connection, among `connections`. Storage is
-// read again after every Pin or Unpin; until it is read, nothing is pinned.
+// read again after every Pin or Unpin and when the app becomes active, so a read refused while storage
+// was locked recovers; until it is read, nothing is pinned.
 export function usePinned(connections: readonly string[]) {
   const store = use(PinsContext);
   const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set());
@@ -38,9 +39,15 @@ export function usePinned(connections: readonly string[]) {
     const unsubscribe = store.subscribe(() => {
       void load();
     });
+    const activation = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void load();
+      }
+    });
     return () => {
       read += 1;
       unsubscribe();
+      activation.remove();
     };
   }, [store, listed]);
   return (connection: string, message: Listed) =>
