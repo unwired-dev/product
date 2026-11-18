@@ -673,6 +673,7 @@ function EmptyInbox({
 }
 
 // Neither saved mail nor a mail server's answer matches; VoiceOver hears it once as it appears.
+// A failed mail server search shows its failure and Try Again instead.
 function NoResults({
   ready,
   results,
@@ -691,7 +692,8 @@ function NoResults({
     ready &&
     results?.length === 0 &&
     !search.searching &&
-    !search.found?.results.length;
+    !search.found?.results.length &&
+    !search.found?.failures.length;
   const title = t('search.noResults');
   useOutcomeAnnouncement(shown ? title : undefined, true);
   return shown ? (

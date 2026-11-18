@@ -146,7 +146,7 @@ describe('message list', () => {
     }
   });
 
-  it('names the searched folder when a search in it finds nothing', async () => {
+  it('names the searched folder when a search in it finds nothing, until a mail server search fails', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();
     const travel = gmail.createLabel('Travel');
@@ -178,6 +178,17 @@ describe('message list', () => {
       expect(
         screen.getByText(/^No saved mail in Travel matches “no such trip”\./u),
       ).toBeVisible();
+      // A mail server search that fails gives no answer, so No Results makes way for the failure.
+      gmail.fail({ status: 404 });
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Search Mail Servers for “no such trip”',
+        }),
+      );
+      await expect(
+        screen.findByRole('button', { name: 'Try Again' }),
+      ).resolves.toBeVisible();
+      expect(screen.queryByText('No Results')).toBeNull();
     } finally {
       await cleanup();
       inbox.forget();
