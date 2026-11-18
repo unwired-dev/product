@@ -604,24 +604,25 @@ const movedTo = (
       }
     : undefined;
 
-// Places each of this run's receipts after the latest move that left its message where it starts,
-// and before a move another window made from where it left the message.
-const followMoves = (
-  saved: readonly ImapRelocation[],
-  unsaved: readonly ImapRelocation[],
-) => {
-  const merged = [...saved];
-  for (const receipt of unsaved) {
-    let after = merged.length;
-    while (after > 0 && merged[after - 1]?.to !== receipt.from) {
-      after -= 1;
+// Puts each receipt after the move that left its message where it starts, keeping their order
+// otherwise. IMAP message IDs never recur, so each message's moves form one chain.
+const followMoves = (receipts: readonly ImapRelocation[]) => {
+  const before = new Map(receipts.map((receipt) => [receipt.to, receipt]));
+  const ordered = new Set<ImapRelocation>();
+  for (const receipt of receipts) {
+    const chain: ImapRelocation[] = [];
+    for (
+      let at: ImapRelocation | undefined = receipt;
+      at !== undefined && !ordered.has(at) && !chain.includes(at);
+      at = before.get(at.from)
+    ) {
+      chain.push(at);
     }
-    const next = merged.findIndex(
-      ({ from }, index) => index >= after && from === receipt.to,
-    );
-    merged.splice(next === -1 ? after : next, 0, receipt);
+    for (const link of Arr.reverse(chain)) {
+      ordered.add(link);
+    }
   }
-  return merged;
+  return [...ordered];
 };
 
 // The ID a move the server mapped to a new UID gave the message, Undo's included.
@@ -1442,7 +1443,7 @@ export function createImapInbox(
       const saved = stored.relocations ?? [];
       const known = new Set(saved.map(({ from }) => from));
       const unsaved = relocations.filter(({ from }) => !known.has(from));
-      relocations = followMoves(saved, unsaved);
+      relocations = followMoves([...saved, ...unsaved]);
       if (unsaved.length > 0) {
         // Another window's commit reopens the cache to save them again; another failure leaves
         // them to the next commit.

@@ -61,12 +61,13 @@ const interruption = () =>
   Object.assign(new Error('Synthetic interruption'), {
     code: 'imap-interrupted',
   });
-// Refuses the next writes over the current cache revision: storage first unavailable, then locked.
+// Refuses the next writes over the current cache revision, by default with storage first
+// unavailable, then locked.
 const failingRecovery = (imap: ReturnType<typeof createSyntheticImap>) => {
   const refusals: string[] = [];
   return {
-    fail: () => {
-      refusals.push('unavailable', 'locked');
+    fail: (...codes: string[]) => {
+      refusals.push(...(codes.length > 0 ? codes : ['unavailable', 'locked']));
     },
     pending: () => refusals.length,
     commitMailbox: async (
@@ -118,6 +119,19 @@ const decodeRelocations = Schema.decodeUnknownSync(
 );
 const savedRelocations = (imap: ReturnType<typeof createSyntheticImap>) =>
   decodeRelocations(imap.cache.document).relocations;
+// A Pin that follows each relocation Pin storage keeps: none while `keeps` is false.
+const pinFollower = (pinned: string) => {
+  const state = { pinned, keeps: false };
+  return {
+    state,
+    relocated: (from: string, to: string | undefined) => {
+      if (state.keeps && from === state.pinned) {
+        state.pinned = to ?? '';
+      }
+      return Promise.resolve(state.keeps);
+    },
+  };
+};
 const heldCommit = (native: NativeImapMailbox) => {
   const entered = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
@@ -948,6 +962,87 @@ describe('organizing IMAP mail', () => {
       expect(handed.indexOf(message.id)).toBeLessThan(handed.indexOf(archived));
     });
     local.forget();
+  });
+
+  it('carries a Pin through a move whose answer came after another window moved the message on', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    for (const folder of ['B', 'C', 'D']) {
+      imap.addFolder(folder);
+    }
+    imap.deliver('INBOX', { subject: 'Pinned' });
+    const pin = pinFollower('');
+    const { relocated } = pin;
+
+    // Pin storage refuses the first move, which the cache keeps.
+    const earliest = createImapInbox(imap.native, { relocated });
+    await earliest.load();
+    const message = first(ready(earliest.getSnapshot()).messages);
+    pin.state.pinned = message.id;
+    await earliest.organize(message, { kind: 'move', destination: 'B' });
+    await earliest.openFolder('B');
+    const inB = first(folderMessages(earliest.folder('B')));
+    expect(savedRelocations(imap)).toStrictEqual([
+      { from: message.id, to: inB.id },
+    ]);
+    earliest.forget();
+
+    // A second window's move to C waits for its answer while a third moves the message on to D;
+    // the third's first save of that receipt fails.
+    const applied = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const second = createImapInbox(
+      {
+        ...imap.native,
+        imapMove: async (...args) => {
+          const receipt = await imap.native.imapMove(...args);
+          applied.resolve(undefined);
+          await release.promise;
+          return receipt;
+        },
+      },
+      { relocated },
+    );
+    await second.load();
+    await second.openFolder('B');
+    const moving = second.organize(inB, { kind: 'move', destination: 'C' });
+    await applied.promise;
+    const recovery = failingRecovery(imap);
+    const third = createImapInbox(
+      {
+        ...imap.native,
+        commitMailbox: recovery.commitMailbox,
+        imapMove: async (...args) => {
+          const receipt = await imap.native.imapMove(...args);
+          recovery.fail('locked');
+          return receipt;
+        },
+      },
+      { relocated },
+    );
+    await third.load();
+    await third.discardPending(blockedId(third.getSnapshot()));
+    await third.openFolder('C');
+    await third.organize(first(folderMessages(third.folder('C'))), {
+      kind: 'move',
+      destination: 'D',
+    });
+    expect(third.getSnapshot().kind).toBe('locked');
+    await third.load();
+    await third.openFolder('D');
+    const inD = first(folderMessages(third.folder('D')));
+    third.forget();
+    release.resolve(undefined);
+    await moving;
+    second.forget();
+
+    pin.state.keeps = true;
+    const relaunched = createImapInbox(imap.native, { relocated });
+    await relaunched.load();
+    await vi.waitFor(() => {
+      expect(pin.state.pinned).toBe(inD.id);
+    });
+    relaunched.forget();
   });
 
   it('repeats a relocation not kept once an opening asked again while it was answering', async () => {
