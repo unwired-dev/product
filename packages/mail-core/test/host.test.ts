@@ -1199,8 +1199,10 @@ describe('the host assembly', () => {
     const { host, shared, imapServers } = syntheticHost(undefined, true);
     const imap = createSyntheticImap();
     imap.addFolder('Archive', ['archive']);
-    // What the server reports of a move's COPYUID.
+    // What the server reports of a move's COPYUID, and what happens once it moved a message.
     let reported = (receipt: unknown) => receipt;
+    let afterMove = () => undefined;
+    let { commitMailbox } = imap.native;
     await host.registration.register('google');
     await host.registration.connectImap({
       address: 'alex@example.invalid',
@@ -1220,11 +1222,16 @@ describe('the host assembly', () => {
     );
     imapServers[mailbox.id] = {
       ...imap.native,
-      imapMove: async (...args) =>
-        reported(await imap.native.imapMove(...args)),
+      imapMove: async (...args) => {
+        const receipt = reported(await imap.native.imapMove(...args));
+        afterMove();
+        return receipt;
+      },
+      commitMailbox: (...args) => commitMailbox(...args),
     };
     const kept = imap.deliver('INBOX', { subject: 'Kept' });
     const dropped = imap.deliver('INBOX', { subject: 'Dropped' });
+    const conflicted = imap.deliver('INBOX', { subject: 'Conflicted' });
     await host.gmailMailboxes.load();
     const inbox = imapInbox(host);
     const listed = (uid: number) => listedImap(inbox, uid);
@@ -1249,7 +1256,7 @@ describe('the host assembly', () => {
     await vi.waitFor(async () => {
       await expect(pinned()).resolves.toStrictEqual([
         expect.objectContaining({ thread: `7.${dropped}.INBOX` }),
-        { connection: mailbox.id, thread: '7.3.INBOX', pinnedAt },
+        { connection: mailbox.id, thread: '7.4.INBOX', pinnedAt },
       ]);
     });
 
@@ -1260,7 +1267,33 @@ describe('the host assembly', () => {
     });
     await vi.waitFor(async () => {
       await expect(pinned()).resolves.toStrictEqual([
-        { connection: mailbox.id, thread: '7.3.INBOX', pinnedAt },
+        { connection: mailbox.id, thread: '7.4.INBOX', pinnedAt },
+      ]);
+    });
+
+    // Another window saves the cache while the server moves the message, so settling it fails;
+    // the server still said where the message went.
+    reported = (receipt) => receipt;
+    afterMove = () => {
+      commitMailbox = () => {
+        ({ commitMailbox } = imap.native);
+        return Promise.reject(
+          Object.assign(new Error('Synthetic conflict'), { code: 'conflict' }),
+        );
+      };
+      return undefined;
+    };
+    await host.pins.unpin(mailbox.id, '7.4.INBOX');
+    await host.pins.pin(mailbox.id, `7.${conflicted}.INBOX`);
+    const repinned = await pinned();
+    const conflictedPin = required(repinned?.[0]);
+    await inbox.organize(listed(conflicted), {
+      kind: 'archive',
+      destination: 'Archive',
+    });
+    await vi.waitFor(async () => {
+      await expect(pinned()).resolves.toStrictEqual([
+        { ...conflictedPin, thread: '3.3.Archive' },
       ]);
     });
   });

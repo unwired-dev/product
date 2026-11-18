@@ -1944,11 +1944,12 @@ export function createImapInbox(
       });
       return {};
     }
+    // The server moved the message even when saving that fails.
+    reportMoved(head, answer);
     yield* commit(settle(document, head, answer));
     if (!applied(answer)) {
       restoring.delete(head.id);
     }
-    reportMoved(head, answer);
     const moved = movedId(head, answer);
     if (moved !== undefined) {
       originalIds = new Map([
