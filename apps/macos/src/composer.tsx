@@ -893,9 +893,28 @@ function correspondentsFor(
   };
 }
 
-// Why Send is unavailable, under the field that causes it.
-function SendBlockedReason({ message }: { readonly message: string }) {
+// Whether Cc and Bcc show: also for text saved in them, which would otherwise hide why Send waits.
+const showsCopies = (draft: Draft) =>
+  draft.copies === true ||
+  draft.cc.length + draft.bcc.length > 0 ||
+  entryOf(draft, 'cc') !== '' ||
+  entryOf(draft, 'bcc') !== '';
+
+// Why Send is unavailable, under the field that causes it; announced once when it follows an
+// action, as macOS ignores live regions.
+function SendBlockedReason({
+  message,
+  announce = false,
+}: {
+  readonly message: string;
+  readonly announce?: boolean;
+}) {
   const colors = usePalette();
+  useEffect(() => {
+    if (announce) {
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [announce, message]);
   return (
     <View
       accessible
@@ -1006,11 +1025,11 @@ export function Recipients({
     text: entryOf(draft, field),
     all: true,
   }).text;
+  const incomplete = !entering && entry !== '';
   const requiredReason = required ? t('drafts.recipient.required') : undefined;
-  const reason =
-    !entering && entry !== ''
-      ? t('drafts.recipient.incomplete', { address: entry })
-      : requiredReason;
+  const reason = incomplete
+    ? t('drafts.recipient.incomplete', { address: entry })
+    : requiredReason;
   return (
     <View>
       {suggestions.length === 0 ? null : (
@@ -1090,6 +1109,7 @@ export function Recipients({
           ))}
           <TextInput
             accessibilityLabel={name}
+            accessibilityHint={incomplete ? reason : undefined}
             editable={editable}
             accessibilityState={{ disabled: !editable }}
             autoCapitalize="none"
@@ -1178,7 +1198,12 @@ export function Recipients({
         </View>
         {trailing}
       </View>
-      {reason === undefined ? null : <SendBlockedReason message={reason} />}
+      {reason === undefined ? null : (
+        <SendBlockedReason
+          announce={incomplete}
+          message={reason}
+        />
+      )}
       {reason !== undefined || notice === undefined ? null : (
         <View style={styles.fieldNotice}>
           <Notice style={[styles.notice, { color: colors.textSecondary }]}>
@@ -3618,8 +3643,7 @@ function Editor({
     />
   );
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
-  const copiesShown =
-    draft.copies === true || draft.cc.length + draft.bcc.length > 0;
+  const copiesShown = showsCopies(draft);
 
   return (
     <View

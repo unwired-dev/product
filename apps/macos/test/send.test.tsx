@@ -1064,11 +1064,16 @@ describe('sending a Draft', () => {
       expect(screen.getByLabelText(required)).toBeOnTheScreen();
       await fireEvent.changeText(screen.getByLabelText('To'), 'sam@example');
       await fireEvent(screen.getByLabelText('To'), 'blur');
-      expect(
-        screen.getByLabelText(
-          '“sam@example” is not a complete address. Correct it to send.',
-        ),
-      ).toBeOnTheScreen();
+      const incomplete =
+        '“sam@example” is not a complete address. Correct it to send.';
+      expect(screen.getByLabelText(incomplete)).toBeOnTheScreen();
+      // Leaving the field says why once, and the field keeps the reason as its hint.
+      expect(announce.mock.calls).toStrictEqual([[incomplete]]);
+      expect(screen.getByLabelText('To')).toHaveProp(
+        'accessibilityHint',
+        incomplete,
+      );
+      announce.mockClear();
       expect(screen.queryByLabelText(required)).toBeNull();
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await fireEvent.changeText(
