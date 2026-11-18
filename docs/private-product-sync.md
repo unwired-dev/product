@@ -43,8 +43,8 @@ The key stays on screen, across relaunches, until the person enters its final
 group under **Last four characters** and chooses **Confirm Recovery Key**, which on
 iPhone and iPad stays disabled until something is entered. Case,
 spaces and the look-alikes O, I and L are accepted. A mismatch keeps the key
-visible and explains the error. After confirmation the screen shows **Private sync
-is on**, and the key is no longer shown. Showing or replacing it again needs a
+visible and explains the error. After confirmation the screen shows **Sync is on**,
+and the key is no longer shown. Showing or replacing it again needs a
 recent-authentication flow that belongs to a later slice.
 
 Once Gmail is connected, the section lists the mailbox addresses decrypted from
@@ -123,7 +123,7 @@ the device only with the key its approval or proof named.
 On the new device, **Check for Approval**, or the iPhone's own check, collects
 the approval. The device stores the account keys and then confirms them; only
 that confirmation makes it a Trusted Device, already at the approval's key epoch.
-It shows **Private sync is on** with the mailbox list decrypted from Private
+It shows **Sync is on** with the mailbox list decrypted from Private
 Sync, and the **Gmail** provider row appears.
 Gmail on that device still needs its own authorization, and the Recovery Key stays
 with the device that created it. If the approving device is removed, or a removal
@@ -180,8 +180,8 @@ recovery envelope, and only on a match returns the envelope. The device opens it
 with the key, saves the account keys and confirms them, and only then becomes a
 Trusted Device. A Trusted Device that lost its keys reads its account's envelope
 directly. The Recovery Key never leaves the device, and only after the envelope
-opens does the device save the account keys. The device shows **Private sync is
-on** with the mailbox list decrypted from Private Sync, and the **Gmail** provider
+opens does the device save the account keys. The device shows **Sync is on**
+with the mailbox list decrypted from Private Sync, and the **Gmail** provider
 row appears. Gmail on this device still needs its own authorization. The device does
 not keep or show the Recovery Key afterwards.
 

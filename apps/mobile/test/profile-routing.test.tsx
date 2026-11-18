@@ -2158,7 +2158,7 @@ describe('the mobile Profile Switcher', () => {
       await waitFor(() => {
         expect(alert).toHaveBeenCalledWith(
           'Update Your Other Devices',
-          'Another Trusted Device runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then create the Profile again.',
+          'Another of your devices runs a version of Unwired Mail that can’t keep Profiles apart. Update it, then create the Profile again.',
           [{ text: 'OK' }],
         );
       });

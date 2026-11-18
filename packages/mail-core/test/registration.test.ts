@@ -335,7 +335,7 @@ describe('product registration', () => {
       registrationScreen(english, store.getSnapshot(), undefined).privateSync,
     ).toMatchObject({
       copy: {
-        title: 'Private sync is unavailable',
+        title: 'Sync is unavailable',
         recoveryKey: undefined,
         enrollmentCode: undefined,
         pending: undefined,
