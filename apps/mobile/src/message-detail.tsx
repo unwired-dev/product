@@ -127,9 +127,10 @@ const clearsBottom = (bar: boolean, inset: number) => ({
 });
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  // The regular-width toolbar: glass groups at the pane's trailing edge.
+  // The regular-width toolbar: glass groups at the pane's trailing edge. Groups that wrap in a
+  // narrow pane push the content down.
   topToolbar: {
-    height: topToolbarHeight,
+    minHeight: topToolbarHeight,
     zIndex: 1,
     alignItems: 'flex-end',
     paddingTop: readerToolbarInset,
