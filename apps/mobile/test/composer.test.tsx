@@ -1819,8 +1819,15 @@ describe('composing Drafts', () => {
       expect(highlighted()).toStrictEqual([andrea.props.accessibilityLabel]);
       await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowUp' } });
       expect(highlighted()).toStrictEqual(['Ana Kovač, ana@example.invalid']);
-      // Down and Return in one native batch, before React commits the highlight.
+      // Typing, Down and Return in one native batch, before React commits: Down moves from the
+      // list the typed text filters, where only Ana showed for the bare @.
+      await type('');
+      await type('@');
       await act(async () => {
+        body.props.onChangeText('@an');
+        body.props.onSelectionChange({
+          nativeEvent: { selection: { start: 3, end: 3 } },
+        });
         keys.props.onArrow({ nativeEvent: { key: 'ArrowDown' } });
         body.props.onKeyPress({ nativeEvent: { key: 'Enter' } });
         body.props.onChangeText('@an\n');

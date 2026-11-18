@@ -2767,6 +2767,24 @@ function useBodyRecipients(
     }
     heard.current = now;
   }, [showing, hidden, emptyNow, noteNow]);
+  // The suggestions for the latest Draft and caret, ahead of rendering, while they show.
+  const candidates = (latest: Draft, at: Selection) => {
+    const current = bodyRecipientQuery(latest.body, at);
+    if (
+      pausedNow.current ||
+      current === undefined ||
+      current.start !== armedNow.current ||
+      !onlyQueryIn(latest.body, current)
+    ) {
+      return undefined;
+    }
+    const listed = bodySuggestionSections(latest, current, {
+      connections: connections ?? [],
+      held,
+      contacts: contacts.addresses,
+    });
+    return [...listed.recent, ...listed.contacts];
+  };
   return {
     shown,
     close,
@@ -2785,43 +2803,24 @@ function useBodyRecipients(
     },
     // A hardware keyboard's Up and Down Arrow move the highlight while two or more show.
     moving: suggestions.length > 1,
-    move: (key: string) => {
+    // Up and Down move from the highlighted suggestion for the latest Draft and caret.
+    move: (key: string, latest: Draft, at: Selection) => {
+      const listed = candidates(latest, at) ?? [];
       const index = Math.max(
-        suggestions.findIndex(({ address }) => address === chosenNow.current),
+        listed.findIndex(({ address }) => address === chosenNow.current),
         0,
       );
       const step = { ArrowDown: 1, ArrowUp: -1 }[key] ?? 0;
       const next =
-        suggestions[
-          Math.min(Math.max(index + step, 0), suggestions.length - 1)
-        ];
+        listed[Math.min(Math.max(index + step, 0), listed.length - 1)];
       choose(next?.address);
     },
     // The highlighted suggestion for the latest Draft and caret, which Return or Tab chooses:
     // the keyboard's choice while it still matches, else the first.
     highlighted: (latest: Draft, at: Selection) => {
-      const current = bodyRecipientQuery(latest.body, at);
-      if (
-        pausedNow.current ||
-        current === undefined ||
-        current.start !== armedNow.current ||
-        !onlyQueryIn(latest.body, current)
-      ) {
-        return undefined;
-      }
-      const latestSections = bodySuggestionSections(latest, current, {
-        connections: connections ?? [],
-        held,
-        contacts: contacts.addresses,
-      });
-      const latestSuggestions = [
-        ...latestSections.recent,
-        ...latestSections.contacts,
-      ];
+      const listed = candidates(latest, at) ?? [];
       return (
-        latestSuggestions.find(
-          ({ address }) => address === chosenNow.current,
-        ) ?? latestSuggestions[0]
+        listed.find(({ address }) => address === chosenNow.current) ?? listed[0]
       );
     },
     // The query a choice replaces in the latest body, while its suggestions show and the editor
@@ -4183,7 +4182,7 @@ function Editor({
               style={styles.bodyKeys}
               enabled={recipientMenu.moving}
               onArrow={(key) => {
-                recipientMenu.move(key);
+                recipientMenu.move(key, authored.current, selectionNow.current);
               }}
               onLayout={({ nativeEvent }) => {
                 setBodyTop(nativeEvent.layout.y);
