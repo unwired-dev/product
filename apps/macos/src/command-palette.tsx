@@ -627,7 +627,7 @@ export function CommandBar({
             numberOfLines={1}
             style={[
               styles.windowTitle,
-              opened !== undefined && styles.openWindowTitle,
+              motion.shown && styles.openWindowTitle,
               { color: colors.textPrimary },
             ]}>
             {title}
@@ -638,7 +638,8 @@ export function CommandBar({
             toolbar,
             height,
             floating,
-            open: opened !== undefined,
+            // A New Message window's toolbar keeps the open layout until its panel has faded.
+            open: toolbar ? motion.shown : opened !== undefined,
           })}>
           {opened === undefined ? (
             <Pressable
