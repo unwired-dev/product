@@ -352,8 +352,9 @@ mail content.
 - **2026-11-18, iPhone connect and read
   ([#2386](https://github.com/unwired-dev/product/issues/2386)).** Target: Expo
   client, Release build without a Mock Mail Session, iPhone Simulator on iOS 27.0, with
-  the development Convex deployment and the Microsoft public-client ID. Build: `4fb4d479a`
-  plus the callback fix from [#2389](https://github.com/unwired-dev/product/issues/2389).
+  the development Convex deployment and the Microsoft public-client ID. Build: the app source of
+  `d9d685353b829a161babd7018ac216f8aea17dc6`, which adds the callback fix from
+  [#2389](https://github.com/unwired-dev/product/issues/2389).
   Toolchain: Xcode 27.2 (27B52). Operator: agent, with credentials read at run time from
   the approved password manager. Granted scopes, as the account's app permissions list
   them: `offline_access`, `User.Read`, `Mail.ReadWrite` and `Mail.Send`, the full
