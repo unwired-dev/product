@@ -39,7 +39,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ActivityIndicator, SectionList, Text, View } from 'react-native';
+import { SectionList, Text, View } from 'react-native';
 
 import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
@@ -53,7 +53,13 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
-import { Button, Notice, SFSymbol, useNow } from './design.tsx';
+import {
+  Button,
+  Notice,
+  SFSymbol,
+  useNow,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { FolderChoice } from './folder-choice.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
@@ -373,9 +379,7 @@ function OnlineResults({
           {t('search.onlineEmpty', { query })}
         </Text>
       ) : null}
-      {searching ? (
-        <ActivityIndicator accessibilityLabel={t('search.searching')} />
-      ) : null}
+      {searching ? <SkeletonRows label={t('search.searching')} /> : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
         <View style={styles.noticeAction}>
           <Action
@@ -637,16 +641,22 @@ const unconnectedAccount = (
 ) => (connections.length === 0 && mailboxes.length === 0 ? account : undefined);
 
 function EmptyInbox({
+  icon = 'tray.2',
   title,
   detail,
   children,
-}: Readonly<{ title: string; detail: string; children?: ReactNode }>) {
+}: Readonly<{
+  icon?: string;
+  title: string;
+  detail: string;
+  children?: ReactNode;
+}>) {
   const colors = usePalette();
   return (
     <View style={styles.empty}>
       <View style={styles.emptyIcon}>
         <SFSymbol
-          name="tray.2"
+          name={icon}
           size={36}
           color={colors.textSecondary}
         />
@@ -659,6 +669,23 @@ function EmptyInbox({
       </Label>
       {children}
     </View>
+  );
+}
+
+// Neither saved mail nor a mail server's answer matches; VoiceOver hears it once as it appears.
+function NoResults({
+  scope,
+  query,
+}: Readonly<{ scope: string; query: string }>) {
+  const { t } = useLocalization();
+  const title = t('search.noResults');
+  useOutcomeAnnouncement(title, true);
+  return (
+    <EmptyInbox
+      icon="magnifyingglass"
+      title={title}
+      detail={t('search.noResultsDetail', { scope, query })}
+    />
   );
 }
 
@@ -726,15 +753,18 @@ function headingOf(
   if (unconnected) {
     return { title, subtitle: t('profiles.noMailboxes'), emptyScope };
   }
+  // Syncing and Offline take precedence over a mail server search in progress.
   const subtitle =
     results === undefined ||
     searchOffline(search) ||
     shown.some(({ state }) => checking(state) || offline(state))
       ? t('inbox.subtitleLabel', { scope: scopeName, status })
-      : t('search.subtitleRegular', {
-          count: results.length + (search.found?.results.length ?? 0),
-          scope: scopeName,
-        });
+      : search.searching
+        ? t('search.searchingScope', { scope: scopeName })
+        : t('search.subtitleRegular', {
+            count: results.length + (search.found?.results.length ?? 0),
+            scope: scopeName,
+          });
   return { title, subtitle, emptyScope };
 }
 
@@ -1036,17 +1066,6 @@ export function Inbox({
     }
     return [pin];
   };
-  const empty =
-    results === undefined ? (
-      <EmptyInbox
-        title={t('inbox.empty')}
-        detail={t('inbox.emptyDetail', { scope: emptyScope })}
-      />
-    ) : (
-      <Text style={[styles.notice, { color: colors.textSecondary }]}>
-        {t('search.empty', { query: searched })}
-      </Text>
-    );
   return (
     <View style={styles.panes}>
       <View
@@ -1218,9 +1237,21 @@ export function Inbox({
               unconnected={unconnected}
               profile={profile}>
               {results === undefined &&
-              hasNoMail({ ready, syncing, count: messages.length })
-                ? empty
-                : null}
+              hasNoMail({ ready, syncing, count: messages.length }) ? (
+                <EmptyInbox
+                  title={t('inbox.empty')}
+                  detail={t('inbox.emptyDetail', { scope: emptyScope })}
+                />
+              ) : null}
+              {ready &&
+              results?.length === 0 &&
+              !online.searching &&
+              !online.found?.results.length ? (
+                <NoResults
+                  scope={emptyScope}
+                  query={searched}
+                />
+              ) : null}
               {results === undefined && syncing ? <SkeletonRows /> : null}
               <OnlineResults
                 query={searched}
@@ -1240,11 +1271,6 @@ export function Inbox({
             </InboxFooter>
           }
           ListFooterComponentStyle={styles.listFooter}
-          renderSectionFooter={({ section }) =>
-            section.key === 'saved' && ready && results !== undefined
-              ? empty
-              : null
-          }
           renderItem={({ item, section, index }) => {
             if ('outbox' in item) {
               return (

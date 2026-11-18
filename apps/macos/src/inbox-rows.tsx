@@ -263,13 +263,13 @@ export function DateDivider({
 }
 
 // Rows still arriving from the mail server.
-export function SkeletonRows() {
+export function SkeletonRows({ label }: { readonly label?: string }) {
   const colors = usePalette();
   const { t } = useLocalization();
   return (
     <View
       accessible
-      accessibilityLabel={t('inbox.loading')}
+      accessibilityLabel={label ?? t('inbox.loading')}
       accessibilityRole="progressbar">
       {[0, 1, 2].map((row) => (
         <View

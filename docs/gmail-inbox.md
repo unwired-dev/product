@@ -187,7 +187,11 @@ the newest 200 and the older ones scrolling has revealed from
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
   change, when a result is opened or the reader closes, and whenever this device saves or
   prunes a body while the results are shown, such as recent-body prefetch finishing. When nothing matches, the
-  list says **No mail saved on this device matches “…”**.
+  list on iPhone and iPad says **No mail saved on this device matches “…”**. On Mac, when neither saved mail nor
+  an answer from the mail servers matches, the list shows **No Results** with a magnifying glass and the line
+  **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, VoiceOver hears
+  **No Results** once as it appears, and the subtitle reads **No results**
+  ([#2346](https://github.com/unwired-dev/product/issues/2346)).
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier
   search is discarded rather than shown.
@@ -235,6 +239,8 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   as they were. Each mailbox returns 20 results per page, newest first across
   mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
   When nothing matches, the section says **Mail servers found no mail matching “…”**.
+  On Mac, while the mail servers are searched, skeleton rows hold their answer's place and the
+  subtitle reads **Searching [scope]…**, unless Syncing or Offline takes precedence.
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
