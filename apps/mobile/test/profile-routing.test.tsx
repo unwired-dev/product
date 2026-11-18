@@ -2411,22 +2411,35 @@ describe('composer recovery after relaunch', () => {
       await waitFor(() => {
         expect(inboxNewMessage()).toBeEnabled();
       });
+      // New Message's Draft is stored while the records are read, and the router commits its
+      // composer's route only after the read.
+      const { replace } = route.router;
+      let commit: () => void = () => undefined;
+      const routed = jest
+        .spyOn(route.router, 'replace')
+        .mockImplementationOnce((target) => {
+          commit = () => {
+            replace(target);
+          };
+        });
       await fireEvent.press(inboxNewMessage());
+      await act(async () => {
+        stored();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(routed).toHaveBeenCalledWith(
+          expect.objectContaining({ pathname: '/compose/[draft]' }),
+        );
+      });
       await act(async () => {
         read();
         await drafts.recovered();
       });
       expect(alert).not.toHaveBeenCalled();
-      // New Message opens its composer, whose route the router commits later, and the record waits
-      // while it is open.
-      const { replace } = route.router;
-      jest.spyOn(route.router, 'replace').mockImplementationOnce((target) => {
-        setTimeout(() => {
-          replace(target);
-        }, 0);
-      });
+      // The record waits while that composer is open.
       await act(async () => {
-        stored();
+        commit();
         await Promise.resolve();
       });
       await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(

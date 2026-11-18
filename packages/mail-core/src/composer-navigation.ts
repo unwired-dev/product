@@ -20,8 +20,9 @@ export interface ComposerNavigation {
       before?: () => Promise<boolean>;
     }>,
   ) => Promise<string | undefined>;
-  // Whether a Draft creation is pending, which owns the next composer.
-  readonly creating: () => boolean;
+  // How many Draft creations have finished, or undefined while one is pending: a creation owns the
+  // next composer, whose route may commit only after it finishes.
+  readonly creations: () => number | undefined;
   readonly attachReceived: (
     drafts: Pick<Drafts, 'create' | 'abandon' | 'attach'>,
     attachment: Readonly<{
@@ -38,7 +39,8 @@ export function createComposerNavigation(): ComposerNavigation {
   let pending = false;
   let navigations = 0;
   let selectedDraft: string | undefined = undefined;
-  let creations = 0;
+  let creating = 0;
+  let created = 0;
   const leave = async (draft?: string) => {
     if (pending) {
       return false;
@@ -90,11 +92,12 @@ export function createComposerNavigation(): ComposerNavigation {
     return undefined;
   };
   const create: ComposerNavigation['create'] = async (...request) => {
-    creations += 1;
+    creating += 1;
     try {
       return await starting(...request);
     } finally {
-      creations -= 1;
+      creating -= 1;
+      created += 1;
     }
   };
   return {
@@ -108,7 +111,7 @@ export function createComposerNavigation(): ComposerNavigation {
       };
     },
     create,
-    creating: () => creations > 0,
+    creations: () => (creating > 0 ? undefined : created),
     attachReceived: async (drafts, { mailbox, mailboxes, saved }) => {
       // The new Draft sends from the reader's Mail Profile, never moving the file into another.
       const sender = newMessageSender(

@@ -2739,6 +2739,7 @@ export function useRecoveryOffer(
     // An editor holding the Draft keeps its record; this one holds nothing.
     const discarding = () => undefined;
     const ask = async () => {
+      const creations = navigation.creations();
       // An alert an earlier attempt left open is answered first.
       await own.asking;
       const activated = activations.current;
@@ -2773,9 +2774,9 @@ export function useRecoveryOffer(
         return;
       }
       const base = pending.base ?? draftOf(store.getSnapshot(), draft.id);
-      // A pending New Message owns the next composer, whose route may commit only after it
-      // settles: the record is offered once that composer closes.
-      if (navigation.creating()) {
+      // A New Message pending or finished meanwhile owns the next composer: the record is offered
+      // once that composer closes.
+      if (creations === undefined || navigation.creations() !== creations) {
         return;
       }
       own.asking = askRecovery(t);

@@ -838,7 +838,8 @@ over the Inbox, and the next record waits until it closes. An answer given after
 the shell moved on, as when a notification opened a composer meanwhile, changes
 nothing, and the record is asked about again once no composer is open. No alert
 appears while a new Draft is being created, as when **New Message** waits for
-storage: the record is offered once that composer closes, and one whose
+storage, or when one was created while the records were read, before its
+composer opens: the record is offered once that composer closes, and one whose
 creation opens no composer waits for the next offer, at the latest the next
 launch ([#2381](https://github.com/unwired-dev/product/issues/2381)). The
 TypeScript client (`useRecoveryOffer` in `apps/mobile/src/composer.tsx`) chooses
