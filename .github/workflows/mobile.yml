@@ -290,6 +290,7 @@ jobs:
             artifacts/expo-bootstrap/**/result.json
             artifacts/expo-bootstrap/**/ownership.json
             artifacts/expo-bootstrap/**/devices.txt
+            artifacts/expo-bootstrap/**/host-load.txt
             artifacts/expo-bootstrap/**/*.log
             artifacts/expo-bootstrap/**/*.xcresult/**
           if-no-files-found: warn
