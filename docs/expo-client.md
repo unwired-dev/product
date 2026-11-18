@@ -334,7 +334,7 @@ on them so typing a recipient raises no system prompt, and keeps logs and xcresu
 under `artifacts/expo-bootstrap/`. Before each journey it waits, for at most five
 minutes, until the new simulator's own processes are quiet: after boot a fresh
 device renders its wallpaper gallery for minutes, and on CI's three-core runners
-that stalled XCUITest's launch and terminate (#2336). It prints how long the wait took. Simulator device type identifiers after the
+that stalled XCUITest's launch and terminate (#2336). It prints how long the wait took and whether the device went quiet. Simulator device type identifiers after the
 app path limit the run to those devices; without them both devices run in turn. A testmanagerd socket/CoreSimulator disconnect
 or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
@@ -378,8 +378,8 @@ No signing credentials, provider accounts or running Metro server are required.
 
 Assertion failures fail immediately, zero selected tests never pass, and only
 recognized infrastructure failures or zero-test success receive one fresh-device
-retry. The build job has a 35-minute timeout and each journey job a 25-minute
-timeout; the interaction step has a separate 18-minute limit for harness
+retry. The build job has a 35-minute timeout and each journey job a 30-minute
+timeout; the interaction step has a separate 25-minute limit for harness
 compilation, one simulator startup, its settle wait and its journey, including
 the bounded infrastructure retry. The storage job has a 50-minute timeout; its native
 integration step has a 40-minute limit, including the bounded infrastructure

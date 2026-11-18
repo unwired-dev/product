@@ -74,7 +74,8 @@ for device_type in "${device_types[@]}"; do
       (( device_cpu < 30 )) && (( ++quiet )) || quiet=0
       sleep 5
     done
-    print "Simulator settled in $(( SECONDS - settle_start ))s: $device_type"
+    (( quiet >= 3 )) && settled=settled || settled="not settled"
+    print "Simulator $settled after $(( SECONDS - settle_start ))s: $device_type"
     "$repo_root/scripts/record-host-load.sh" "$run_dir/host-load.txt" "before $device_type attempt $attempt"
     test_exit=0
     xcodebuild test-without-building -project InboxProbe.xcodeproj -scheme InboxProbe \
