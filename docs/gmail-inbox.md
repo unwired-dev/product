@@ -1276,7 +1276,9 @@ A body that cannot be shown says why, beside **Try Again**. On the Mac the
 sentence and **Try Again** sit in a quiet banner, VoiceOver hears the sentence
 once, and the two download sentences say "this Mac" instead of "this device".
 On iPhone and iPad the banner is titled **Couldn’t load this message** after a
-warning symbol, VoiceOver hears the sentence once, and the download sentence is
+warning symbol, VoiceOver hears the sentence once (a message scrolled out of a
+Thread and back stays quiet until its sentence changes or Try Again is chosen),
+and the download sentence is
 the frame's: **It’s still in Gmail. Check your connection, then try again.** on
 iPhone, and **Gmail didn’t respond, so the message text isn’t on this iPad yet.
 Nothing was changed.** on iPad, with "the mail server" for IMAP:
