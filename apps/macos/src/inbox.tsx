@@ -752,17 +752,25 @@ function InboxFooter({
 
 // The mail servers search whole mailboxes, so the Searching and No Results subtitles name a single
 // one by its address and several as All Mailboxes, as the frames do, not their Inboxes. Only ready
-// mailboxes that search their server are asked, as the search store does.
+// mailboxes that search their server are asked, as the search store does, and More from Mail
+// Servers asks only those with another page.
 function searchedScope(
   t: Translate,
   shown: readonly InboxMailbox[],
-  scopeName: string,
+  {
+    scopeName,
+    more,
+  }: Readonly<{
+    scopeName: string;
+    more?: Readonly<{ next: ReadonlyMap<string, string> }> | undefined;
+  }>,
 ) {
   const searched = shown.filter(
-    ({ state, inbox }) =>
+    ({ id, state, inbox }) =>
       state.kind === 'ready' &&
       'searchGmail' in inbox &&
-      inbox.searchGmail !== undefined,
+      inbox.searchGmail !== undefined &&
+      (more === undefined || more.next.has(id)),
   );
   const [only] = searched;
   return searched.length > 1
@@ -821,11 +829,13 @@ function headingOf(
   }
   // Syncing and Offline above take precedence over a mail server search in progress.
   const count = results.length + (search.found?.results.length ?? 0);
-  const searched = searchedScope(t, shown, scopeName);
   if (search.searching) {
     return {
       title,
-      subtitle: t('search.searchingScope', { scope: searched }),
+      // A search already answered is asked for its next pages.
+      subtitle: t('search.searchingScope', {
+        scope: searchedScope(t, shown, { scopeName, more: search.found }),
+      }),
       emptyScope,
     };
   }
@@ -841,7 +851,10 @@ function headingOf(
           ? emptyScope
           : t('search.subtitleRegular', {
               count,
-              scope: unified ? searched : (folder ?? searched),
+              scope:
+                unified || folder === undefined
+                  ? searchedScope(t, shown, { scopeName })
+                  : folder,
             }),
       emptyScope,
     };
