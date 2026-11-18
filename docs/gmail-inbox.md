@@ -245,7 +245,8 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
   When nothing matches, the section says **Mail servers found no mail matching “…”**.
   On Mac, while the mail servers are searched, five skeleton rows hold their answer's place and the
-  subtitle reads **Searching [scope]…**, unless Syncing or Offline takes precedence.
+  subtitle reads **Searching [mailbox]…**, or **Searching All Mailboxes…** for several mailboxes, unless
+  Syncing or Offline takes precedence.
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own

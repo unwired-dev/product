@@ -3576,7 +3576,7 @@ describe('product registration', () => {
       screen.findByLabelText('Searching mail servers'),
     ).resolves.toBeVisible();
     // Skeleton rows hold the answer's place while the subtitle names what is searched.
-    expect(screen.getByText('Searching All Inboxes…')).toBeVisible();
+    expect(screen.getByText('Searching All Mailboxes…')).toBeVisible();
     await search('plans');
     await act(async () => {
       release();
