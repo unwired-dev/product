@@ -1107,33 +1107,35 @@ function MailboxMessage({
               connection={mailbox?.id}
             />
           </ReaderScrollView>
-          {compact ? <ScrollEdge style={styles.readerEdge} /> : null}
           <PanelDismissal
             panel={panel}
             onPanel={setPanel}
           />
           {compact ? (
-            <View
-              // The gaps between its groups leave taps to the panel dismissal beneath.
-              pointerEvents="box-none"
-              style={[
-                styles.bottomToolbar,
-                { bottom: insets.bottom + toolbarLift },
-              ]}>
+            <>
+              <ScrollEdge style={styles.readerEdge} />
               <View
+                // The gaps between its groups leave taps to the panel dismissal beneath.
                 pointerEvents="box-none"
-                style={styles.bottomActions}>
-                {toolbar}
-              </View>
-              {sender === undefined || onCompose === undefined ? null : (
-                <View pointerEvents="box-none">
-                  <ComposeButton
-                    mailbox={sender}
-                    onCompose={onCompose}
-                  />
+                style={[
+                  styles.bottomToolbar,
+                  { bottom: insets.bottom + toolbarLift },
+                ]}>
+                <View
+                  pointerEvents="box-none"
+                  style={styles.bottomActions}>
+                  {toolbar}
                 </View>
-              )}
-            </View>
+                {sender === undefined || onCompose === undefined ? null : (
+                  <View pointerEvents="box-none">
+                    <ComposeButton
+                      mailbox={sender}
+                      onCompose={onCompose}
+                    />
+                  </View>
+                )}
+              </View>
+            </>
           ) : null}
         </LinkConfirmationProvider>
       </ResponseStatusContext>

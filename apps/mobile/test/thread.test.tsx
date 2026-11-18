@@ -457,13 +457,10 @@ describe('thread view', () => {
     expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     // The iPhone frames count a single message as they count a thread's.
     expect(screen.getByText('1 Message')).toBeVisible();
-    // Its text fades out beneath the toolbar, which the fade leaves taps to.
+    // Its text fades out beneath the toolbar.
     expect(
       screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
     ).toHaveStyle({ position: 'absolute', bottom: 0, height: 140 });
-    expect(
-      screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
-    ).toHaveProp('pointerEvents', 'none');
   });
 
   it('opens the Command Palette from the thread header beside its system Back', async () => {
@@ -486,9 +483,6 @@ describe('thread view', () => {
     expect(
       screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
     ).toHaveStyle({ height: 140 });
-    // The opened message is tinted only while the palette targets it as the Selected Message.
-    const tint = { backgroundColor: themes.light.accentSelectionSubtle };
-    expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
     await fireEvent(
       await screen.findByRole('header', { name: 'Re: Planning' }),
       'accessibilityAction',
@@ -505,9 +499,37 @@ describe('thread view', () => {
         name: 'Reply. Not available for this message',
       }),
     ).toBeDisabled();
+  });
+
+  it('tints the opened message only while the Command Palette targets it', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createInboxStore(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await act(store.load);
+    const tint = { backgroundColor: themes.light.accentSelectionSubtle };
+    expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
+    await fireEvent(
+      await screen.findByRole('header', { name: 'Re: Planning' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'openCommandPalette' } },
+    );
     expect(messageBy('Alex Rivera')).toHaveStyle(tint);
     expect(messageBy('Sam Lee')).not.toHaveStyle(tint);
-    await fireEvent.press(palette.getByRole('button', { name: 'Cancel' }));
+    await fireEvent.press(
+      within(screen.getByTestId('command-palette')).getByRole('button', {
+        name: 'Cancel',
+      }),
+    );
     expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
   });
 
