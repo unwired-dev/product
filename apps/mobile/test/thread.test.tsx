@@ -11,9 +11,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { Dimensions, ScrollView, StyleSheet } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet } from 'react-native';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import {
+  CommandPaletteProvider,
+  useCommandPalette,
+} from '../src/command-palette.tsx';
 import { createWindowBar, WindowBarContext } from '../src/inbox-bar.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail, ThreadView } from '../src/message-detail.tsx';
@@ -175,6 +178,20 @@ const layOut = async (senders: readonly string[]) => {
 };
 
 // The rendered Thread view over the real Gmail store; only native scrolling is observed.
+// Opens the Command Palette, as a reader's header does.
+function PaletteOpener() {
+  const { open } = useCommandPalette();
+  return (
+    <Pressable
+      accessibilityLabel="Open Palette"
+      accessibilityRole="button"
+      onPress={() => {
+        open();
+      }}
+    />
+  );
+}
+
 describe('thread view', () => {
   /* oxlint-disable vitest/max-expects -- One Thread journey checks membership, order, highlight, scrolling and quoted history. */
   it('stacks the thread newest first, keeps the opened message in place until the reader is dragged, and collapses quoted history', async () => {
@@ -479,10 +496,12 @@ describe('thread view', () => {
     );
     await act(store.load);
     expect(screen.queryByTestId('system-back')).not.toBeNull();
-    // The Thread's text fades out at the bottom edge, as the reader's does.
+    // The Thread's text fades out at the bottom edge, as the reader's does, and its last line
+    // scrolls clear of the fade.
     expect(
       screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
     ).toHaveStyle({ height: 140 });
+    expect(readerContent()).toMatchObject({ paddingBottom: 140 });
     await fireEvent(
       await screen.findByRole('header', { name: 'Re: Planning' }),
       'accessibilityAction',
@@ -531,6 +550,36 @@ describe('thread view', () => {
       }),
     );
     expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
+  });
+
+  it('leaves the opened message untinted when the palette opened before the Thread offered it', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createInboxStore(native);
+    await act(store.load);
+    const { rerender } = await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <PaletteOpener />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    // A reader still loading offers no message, so the palette opens without a target.
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Palette' }));
+    await rerender(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <PaletteOpener />
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    expect(messageBy('Alex Rivera')).not.toHaveStyle({
+      backgroundColor: themes.light.accentSelectionSubtle,
+    });
   });
 
   it('shows the message as unavailable when it is not cached', async () => {

@@ -112,10 +112,15 @@ const toolbarLift = 2;
 // beneath the safe area, under the toolbar.
 const sideInset = compact ? spacing.l : 40 * ipadListScale;
 const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
-// The content's bottom padding clears iPhone's bottom toolbar or a regular window's floating bar,
-// and on iPhone the home indicator it runs beneath.
-const clearsBottom = (bar: boolean, inset: number) => ({
-  paddingBottom: (bar ? 52 + 2 * spacing.l : spacing.s) + (compact ? inset : 0),
+// iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the toolbar's
+// glass.
+const readerEdgeHeight = 140;
+// The content's bottom padding lets its last line scroll clear of iPhone's scroll edge, or of a
+// regular window's floating bar and on iPhone the home indicator it runs beneath.
+const clearsBottom = (bar: boolean, inset: number, edge = compact) => ({
+  paddingBottom: edge
+    ? readerEdgeHeight
+    : (bar ? 52 + 2 * spacing.l : spacing.s) + (compact ? inset : 0),
 });
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -208,9 +213,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing.l,
     borderRadius: radius.card,
   },
-  // iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the
-  // toolbar's glass.
-  readerEdge: { left: 0, right: 0, height: 140 },
+  readerEdge: { left: 0, right: 0, height: readerEdgeHeight },
 });
 
 const singleContent = [
@@ -1090,7 +1093,7 @@ function MailboxMessage({
           <ReaderScrollView
             contentContainerStyle={[
               singleContent,
-              clearsBottom(compact || windowBar !== undefined, insets.bottom),
+              clearsBottom(windowBar !== undefined, insets.bottom),
             ]}>
             {/* iPhone counts a single message as its frames count a thread's. */}
             {compact ? <MessageCount count={1} /> : null}
@@ -1179,6 +1182,8 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const mailbox = useMailbox();
   const windowBar = use(WindowBarContext);
   const insets = useSafeAreaInsets();
+  // A regular-width window's floating bar brings its own scroll edge.
+  const edge = compact && windowBar === undefined;
   // The opened message stays scrolled into place as the Thread lays out until the person scrolls.
   const pinned = useRef(true);
   // The opened message, once this Thread marked it read.
@@ -1239,7 +1244,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
           <ReaderScrollView
             contentContainerStyle={[
               compact ? singleContent : styles.content,
-              clearsBottom(windowBar !== undefined, insets.bottom),
+              clearsBottom(windowBar !== undefined, insets.bottom, edge),
             ]}
             maintainVisibleContentPosition={keepVisibleMessage}
             onScrollBeginDrag={() => {
@@ -1253,7 +1258,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
               pinned={pinned}
             />
           </ReaderScrollView>
-          {compact ? <ScrollEdge style={styles.readerEdge} /> : null}
+          {edge ? <ScrollEdge style={styles.readerEdge} /> : null}
         </LinkConfirmationProvider>
       </QuotedHistoryContext>
     </SafeAreaView>
@@ -1372,7 +1377,7 @@ function ThreadMessage({
 }: {
   readonly inbox: GmailInbox;
   readonly message: ThreadEntry;
-  // The opened message, which the Thread keeps scrolled into place and the Command Palette targets.
+  // The opened message, which the Thread keeps scrolled into place.
   readonly highlighted: boolean;
   // Whether the body is near enough to the viewport to be shown.
   readonly mounted: boolean;
@@ -1380,7 +1385,7 @@ function ThreadMessage({
 }) {
   const mailbox = useMailbox();
   const colors = usePalette();
-  const { isOpen } = useCommandPalette();
+  const { targets } = useCommandPalette();
   const [bodyHeight, setBodyHeight] = useState(0);
   return (
     <View
@@ -1391,7 +1396,7 @@ function ThreadMessage({
         styles.threadMessage,
         { borderBottomColor: colors.separator },
         // Tinted only while the Command Palette targets it as the Selected Message.
-        highlighted && isOpen
+        targets(commandTarget(mailbox?.id, message).id)
           ? [
               styles.openedMessage,
               compact ? styles.compactOpenedMessage : null,
