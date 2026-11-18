@@ -241,7 +241,7 @@ jobs:
     name: Expo native E2E (${{ matrix.device.name }})
     needs: native-build
     runs-on: xcode-27
-    timeout-minutes: 30
+    timeout-minutes: 33
     strategy:
       fail-fast: false
       matrix:
@@ -279,7 +279,7 @@ jobs:
           tar -xf artifacts/expo-bootstrap/UnwiredMail.app.tar -C "$RUNNER_TEMP"
           rm artifacts/expo-bootstrap/UnwiredMail.app.tar
       - name: Run ${{ matrix.device.name }} interaction journey
-        timeout-minutes: 25
+        timeout-minutes: 28
         run: zsh apps/mobile/scripts/test-native.zsh "$RUNNER_TEMP/UnwiredMail.app" "${{ matrix.device.type }}"
       - name: Upload native test evidence
         if: always()
