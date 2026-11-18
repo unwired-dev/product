@@ -79,8 +79,11 @@ useful next step. Never invent a cause.
    menu section. Missing keys fall back to English.
 2. Add its code and native language name to `languages.json`. Keep English first
    as the native fallback. Import the new JSON file and register its translation
-   resource in `packages/localization/src/index.ts`. The selector reads the
-   manifest automatically; never register a language whose catalog is not shipped.
+   resource in `packages/localization/src/shipped-catalogs.ts`, and add the same
+   entries to `src/testing/catalogs.ts` and `src/testing/languages.json` so the
+   [German test catalog](#german-length-strings) keeps every shipped language.
+   The selector reads the manifest automatically; never register a language whose
+   catalog is not shipped.
 3. Add the code to `CFBundleLocalizations` in
    `apps/macos/macos/UnwiredMail/Info.plist`. Expo generates this list from the
    manifest. Regenerate both native projects so their resource bundles are current.
@@ -132,3 +135,26 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 Without a test name the runner selects the mailbox lifecycle journey. Every Mac
 journey runs in the runner's disposable signed identity, so both require the
 signing/provisioning setup described in the [Mac client guide](macos-client.md#verification).
+
+### German-length strings
+
+[`src/testing/de.json`](../packages/localization/src/testing/de.json) is a German
+test catalog for layout checks, never a shipped language. It translates the
+strings of the screens in [#2096](https://github.com/unwired-dev/product/issues/2096)'s
+frames; other keys fall back to English. Mac Mock Mail Session builds offer it as
+**Deutsch** after the shipped languages: Metro substitutes
+`src/testing/catalogs.ts` for `src/shipped-catalogs.ts`, and the native build copies
+the catalog and its manifest into `catalogs.bundle`. Release builds and bundles
+without a scenario never carry it, which the bundle check enforces.
+
+The Mac German strings journey signs in, relaunches with `-interfaceLanguage de`
+and checks the Inbox with a Thread open, the Command Palette, a New Message window
+and Settings › Notifications against the frames, in Light and Dark:
+
+```sh
+UNWIRED_MOCK_SCENARIO=registration-performance \
+  mise exec -- pnpm --filter @private-email/macos native:build Testing
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testGermanStrings # or testGermanStringsDark
+```
