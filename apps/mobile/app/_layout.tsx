@@ -43,7 +43,7 @@ import {
   useCommandRegistry,
   useCommandPalette,
 } from '../src/command-palette.tsx';
-import { ComposerLayoutContext } from '../src/composer.tsx';
+import { ComposerLayoutContext, useRecoveryOffer } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import {
   followOpenedDrafts,
@@ -441,6 +441,8 @@ function MailShell() {
     });
   }
 
+  const recovery = useRecoveryOffer(draft, compose);
+
   function closeReader() {
     reader.current = {
       id: undefined,
@@ -640,6 +642,7 @@ function MailShell() {
             <ComposerLayoutContext value={composerLayout}>
               <DraftComposer
                 id={draft}
+                recovered={recovery.recovered}
                 expanded={expanded}
                 onExpand={
                   regular
@@ -672,6 +675,7 @@ function MailShell() {
                   }
                 }}
                 onRebind={(copy) => {
+                  recovery.follow(copy);
                   composing.current = copy;
                   router.setParams({ draft: copy });
                 }}
