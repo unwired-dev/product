@@ -1102,6 +1102,13 @@ describe('composing Drafts', () => {
       expect(screen.getAllByText(required)).toHaveLength(1);
       expect(send()).toBeDisabled();
       expect(send()).toHaveProp('accessibilityHint', required);
+      // Unfinished text: Send's hint names it, and the line above Send stays short.
+      await fireEvent.changeText(screen.getByLabelText('To'), 'sam@example');
+      expect(send()).toHaveProp(
+        'accessibilityHint',
+        '“sam@example” is not a complete address. Correct it to send.',
+      );
+      expect(screen.getByText(required)).toBeOnTheScreen();
       await fireEvent.changeText(
         screen.getByLabelText('To'),
         'sam@example.invalid',

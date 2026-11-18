@@ -302,6 +302,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: padFieldInset,
   },
   sendDisabled: { opacity: 0.5 },
+  // The Authorization Needed banner: 16 by 12pt inside, its message row 10pt above Sign In….
+  signInBanner: {
+    gap: 10,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  signInMessage: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  signInText: { ...textStyles.subheadline, fontWeight: '600' },
+  signInButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 22,
+  },
+  // A docked reply's sender notice beneath its From and Send.
+  dockedSending: {
+    marginHorizontal: padFieldInset,
+    marginBottom: 12 * ipadListScale,
+  },
   // iPad's Send is the Mac button at 1.15×: 65.6×32.2pt with 6.9pt corners, within its 44pt target.
   sendTitled: {
     minHeight: titledSendHeight,
@@ -929,8 +951,14 @@ const sendingMessage = (
 };
 
 // A mailbox that needs sign-in again offers Sign In… in the Authorization Needed banner, as the
-// iPhone frame draws it; other sender problems say what to do instead.
-function SendingNotice({ draft }: { readonly draft: Draft }) {
+// iPhone frame draws it; other sender problems say what to do instead. `style` places it.
+function SendingNotice({
+  draft,
+  style,
+}: {
+  readonly draft: Draft;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
   const account = use(AccountContext);
   const colors = usePalette();
   const { t } = useLocalization();
@@ -939,20 +967,55 @@ function SendingNotice({ draft }: { readonly draft: Draft }) {
   if (message === undefined) {
     return null;
   }
-  return sendingStateOf(draft, mailboxes) === 'authorization' ? (
-    <Banner
-      icon="person.crop.circle.badge.exclamationmark"
-      iconColor={colors.statusWarning}
-      message={message}>
-      <Button
-        label={t('drafts.sending.signInAction')}
+  if (sendingStateOf(draft, mailboxes) !== 'authorization') {
+    return (
+      <View style={style}>
+        <Alert message={message} />
+      </View>
+    );
+  }
+  // The frame's Banner: its message in emphasized Subheadline, Sign In… in a content-coloured pill
+  // beneath, in line with the symbol.
+  return (
+    <View
+      style={[
+        styles.signInBanner,
+        { backgroundColor: colors.fillQuiet },
+        style,
+      ]}>
+      <View style={styles.signInMessage}>
+        <SFSymbol
+          name="person.crop.circle.badge.exclamationmark"
+          color={colors.statusWarning}
+          size={16}
+        />
+        <Text
+          style={[
+            styles.signInText,
+            styles.grow,
+            { color: colors.textPrimary },
+          ]}>
+          {message}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityRole="button"
         onPress={() => {
           void account?.authorizeMailbox(draft.connection);
         }}
-      />
-    </Banner>
-  ) : (
-    <Alert message={message} />
+        style={({ pressed }) => [
+          styles.signInButton,
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : colors.surfaceContent,
+          },
+        ]}>
+        <Text style={[styles.signInText, { color: colors.accentInk }]}>
+          {t('drafts.sending.signInAction')}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1870,7 +1933,7 @@ function SendRefusalNotice({
   );
 }
 
-// Why Send is unavailable, for VoiceOver on Send and the docked reply's line above it; `sender`
+// Why Send is unavailable, for VoiceOver on Send; `sender`
 // says why the sending mailbox cannot send, if it says.
 const blockedMessage = (
   t: Translate,
@@ -1888,8 +1951,8 @@ const blockedMessage = (
 
 // Why Send is unavailable for the Draft shown, followed as its mailboxes change, and where the
 // composer says it. To, Cc and Bcc say why Send waits for them, and From's notice why the sender
-// cannot send; a docked reply says the rest on one line above Send, other composers among the
-// notices.
+// cannot send, and the notices the rest; a docked reply asks for a recipient on one line above
+// Send instead of under To.
 function useBlockedSend({
   shown,
   draft,
@@ -1925,9 +1988,11 @@ function useBlockedSend({
   return {
     blocked,
     reason,
-    notice: docked || ownPlace ? undefined : blocked,
+    notice: ownPlace ? undefined : blocked,
     line:
-      docked && (blocked === 'recipients' || !ownPlace) ? reason : undefined,
+      docked && blocked === 'recipients'
+        ? t('drafts.recipient.required')
+        : undefined,
   };
 }
 
@@ -2152,6 +2217,7 @@ export function ComposerNotices({
   draft,
   blocked,
   refused,
+  sender = true,
   onClose,
   onDiscard,
   onKeepEditing,
@@ -2160,6 +2226,8 @@ export function ComposerNotices({
   readonly draft: Draft;
   // Why Send is unavailable now, when no field or line beside Send says it.
   readonly blocked?: SendRefusal | undefined;
+  // Whether why the sending mailbox cannot send shows here; a docked reply shows it under From.
+  readonly sender?: boolean;
   readonly refused: SendRefusal | undefined;
   readonly onClose: () => void;
   readonly onDiscard: () => void;
@@ -2175,7 +2243,7 @@ export function ComposerNotices({
     (closing === undefined || closing === 'saving') &&
     blocked === undefined &&
     refused === undefined &&
-    sendingStateOf(draft, mailboxes) === 'available'
+    (!sender || sendingStateOf(draft, mailboxes) === 'available')
   ) {
     return null;
   }
@@ -2207,7 +2275,7 @@ export function ComposerNotices({
         connection={draft.connection}
         refused={refused}
       />
-      <SendingNotice draft={draft} />
+      {sender ? <SendingNotice draft={draft} /> : null}
       {closing === 'discard' ? (
         <Alert
           outcome
@@ -2643,13 +2711,15 @@ function HeaderControls({
 
 // The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame.
 function ReplyFooter({
+  draft,
   sender,
   send,
   reason,
 }: {
+  readonly draft: Draft;
   readonly sender: ReactNode;
   readonly send: ReactNode;
-  // Why Send is unavailable, on one line above it as the iPad frame draws it.
+  // Why Send waits for a recipient, on one line above it as the iPad frame draws it.
   readonly reason: string | undefined;
 }) {
   const colors = usePalette();
@@ -2665,6 +2735,10 @@ function ReplyFooter({
         <View style={styles.grow} />
         {send}
       </View>
+      <SendingNotice
+        draft={draft}
+        style={styles.dockedSending}
+      />
     </>
   );
 }
@@ -4635,6 +4709,7 @@ function Editor({
               draft={draft}
               blocked={blocked.notice}
               refused={refused}
+              sender={!docked}
               onClose={() => {
                 void saveDraft();
               }}
@@ -4902,6 +4977,7 @@ function Editor({
         </View>
         {docked ? (
           <ReplyFooter
+            draft={draft}
             sender={sender}
             send={sendControl(true)}
             reason={blocked.line}
