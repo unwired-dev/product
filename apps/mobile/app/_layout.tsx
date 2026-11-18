@@ -441,7 +441,7 @@ function MailShell() {
     });
   }
 
-  const recovery = useRecoveryOffer(draft, compose, () => composing.current);
+  const recovery = useRecoveryOffer(draft, compose);
 
   function closeReader() {
     reader.current = {

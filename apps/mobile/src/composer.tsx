@@ -2644,8 +2644,6 @@ const askRecovery = (t: Translate) =>
 export function useRecoveryOffer(
   composing: string | undefined,
   onRestore: (id: string) => void,
-  // The Draft the shell is opening a composer on, before its route commits.
-  opening: () => string | undefined,
 ) {
   const store = useDraftStore();
   const navigation = useComposerNavigation();
@@ -2695,9 +2693,9 @@ export function useRecoveryOffer(
       (current) => current && { ...current, ids: [...current.ids, copy] },
     );
   }, []);
-  const latest = useRef({ onRestore, mailboxes, opening });
+  const latest = useRef({ onRestore, mailboxes });
   useLayoutEffect(() => {
-    latest.current = { onRestore, mailboxes, opening };
+    latest.current = { onRestore, mailboxes };
   });
   useEffect(() => {
     if (!ready || composing !== undefined) {
@@ -2775,15 +2773,9 @@ export function useRecoveryOffer(
         return;
       }
       const base = pending.base ?? draftOf(store.getSnapshot(), draft.id);
-      // A pending New Message owns the next composer: the record is offered once that creation
-      // settles without one, or after its composer closes.
-      const creating = navigation.creating();
-      if (creating !== undefined) {
-        await creating;
-        askNext();
-        return;
-      }
-      if (latest.current.opening() !== undefined) {
+      // A pending New Message owns the next composer, whose route may commit only after it
+      // settles: the record is offered once that composer closes.
+      if (navigation.creating()) {
         return;
       }
       own.asking = askRecovery(t);
