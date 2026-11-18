@@ -1148,10 +1148,14 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
   }
 
-  // iPad Portrait hides Mailboxes until Show Sidebar brings it back (#2361).
+  // iPad Portrait hides Mailboxes until Show Sidebar brings it back (#2361); while Mailboxes
+  // shows, the toggle reads Hide Sidebar.
   private func showSidebar(_ app: XCUIApplication) {
     let show = app.buttons["Show Sidebar"].firstMatch
-    if show.exists && show.isHittable { show.tap() }
+    let hide = app.buttons["Hide Sidebar"].firstMatch
+    waitUntil { show.exists || hide.exists }
+    if !hide.exists { show.tap() }
+    waitUntil { hide.isHittable }
   }
 
   // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
@@ -1922,14 +1926,8 @@ final class InboxTests: XCTestCase {
         .firstMatch.waitForExistence(timeout: 10))
     attachScreen("Portrait Search Results", of: app, to: self)
     closeSearch(app).tap()
-    // A swipe from the leading edge brings Mailboxes too, and Hide Sidebar puts it away again.
-    let settings = app.buttons["Settings"].firstMatch
-    edgeSwipe(app, completing: true)
-    let hide = app.buttons["Hide Sidebar"].firstMatch
-    waitUntil { settings.isHittable && hide.isHittable }
-    hide.tap()
-    waitUntil { !settings.isHittable }
     app.buttons["Show Sidebar"].firstMatch.tap()
+    let settings = app.buttons["Settings"].firstMatch
     waitUntil { settings.isHittable }
     settings.tap()
     XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 15))
