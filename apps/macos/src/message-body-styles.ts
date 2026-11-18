@@ -39,4 +39,14 @@ export const styles = StyleSheet.create({
   rich: { width: '100%' },
   hidden: { opacity: 0 },
   fill: { flex: 1 },
+  downloading: { gap: spacing.m },
+  status: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  placeholder: { height: 10, borderRadius: 5 },
+  banner: {
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: spacing.m,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
 });
