@@ -63,6 +63,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Linking,
   Pressable,
@@ -73,12 +74,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import {
-  ContextMenu,
-  Notice,
-  SFSymbol,
-  useOutcomeAnnouncement,
-} from './design.tsx';
+import { ContextMenu, Notice, SFSymbol } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
 import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
@@ -977,8 +973,8 @@ export const QuotedHistoryContext = createContext<'shown' | 'collapsible'>(
   'shown',
 );
 
-// The Thread's messages whose failure VoiceOver already heard, so a body scrolled away and back
-// stays quiet until Try Again.
+// The Thread's failures VoiceOver already heard, by message and sentence, so a body scrolled away
+// and back stays quiet until Try Again.
 export const AnnouncedFailuresContext = createContext<Set<string> | undefined>(
   undefined,
 );
@@ -1070,13 +1066,16 @@ export function BodyUnavailable({
     ...(download ? { context: ipad ? 'ipad' : 'iphone' } : {}),
   });
   const announced = use(AnnouncedFailuresContext);
-  // oxlint-disable-next-line react/hook-use-state -- Whether it was heard is fixed at mount.
-  const [heard] = useState(() => announced?.has(id) === true);
+  const heard = `${id}\n${sentence}`;
   // Queued, so a Thread's other failing messages never cut off what VoiceOver is saying.
-  useOutcomeAnnouncement(heard ? undefined : sentence, true);
   useEffect(() => {
-    announced?.add(id);
-  }, [announced, id]);
+    if (announced?.has(heard) !== true) {
+      announced?.add(heard);
+      AccessibilityInfo.announceForAccessibilityWithOptions(sentence, {
+        queue: true,
+      });
+    }
+  }, [announced, heard, sentence]);
   return (
     <View
       style={[
@@ -1109,7 +1108,7 @@ export function BodyUnavailable({
         <Host matchContents>
           <Button
             onPress={() => {
-              announced?.delete(id);
+              announced?.delete(heard);
               onTryAgain();
             }}
             modifiers={[buttonStyle('plain')]}>

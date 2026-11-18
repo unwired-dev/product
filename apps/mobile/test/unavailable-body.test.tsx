@@ -155,6 +155,52 @@ describe('unavailable message body', () => {
     }
   });
 
+  it('announces a Thread message’s new failure after it scrolls away and back', async () => {
+    expect.hasAssertions();
+    const offline =
+      'It’s still in Gmail. Check your connection, then try again.';
+    const gone = 'This message is no longer in Gmail.';
+    const announce = jest.mocked(
+      AccessibilityInfo.announceForAccessibilityWithOptions,
+    );
+    announce.mockClear();
+    const gmail = createSyntheticGmail();
+    const id = gmail.deliver({ subject: 'Deleted while away' });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const announced = new Set<string>();
+    const body = (
+      <GmailMessageBody
+        inbox={inbox}
+        id={id}
+      />
+    );
+    const thread = (message: ReactElement | null) => (
+      <AnnouncedFailuresContext value={announced}>
+        {message}
+      </AnnouncedFailuresContext>
+    );
+    gmail.fail({ code: 'unavailable' }, { code: 'unavailable' });
+    const app = await render(thread(body));
+    try {
+      await expect(
+        screen.findByRole('alert', { name: offline }),
+      ).resolves.toBeOnTheScreen();
+      gmail.fail({ status: 404 });
+      await app.rerender(thread(null));
+      await app.rerender(thread(body));
+      await expect(
+        screen.findByRole('alert', { name: gone }),
+      ).resolves.toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([
+        [offline, { queue: true }],
+        [gone, { queue: true }],
+      ]);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('offers no Try Again for an IMAP message gone from its folder', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap({ address: 'alex@example.invalid' });
