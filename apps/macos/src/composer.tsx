@@ -2464,12 +2464,16 @@ export function useRecoveryOffer(
         return;
       }
       // A record changed or removed since it was read, as by an editor in another window, is not
-      // offered; it stays for the next launch.
-      if (!(await unchanged(draft))) {
-        if (current) {
+      // offered; it stays for the next launch. One whose Draft moved meanwhile stays for its Profile.
+      const intact = await unchanged(draft);
+      if (!current) {
+        return;
+      }
+      if (!intact || !owned(draft)) {
+        if (!intact) {
           own.offered.add(draft.id);
-          wake();
         }
+        wake();
         return;
       }
       const base = draftOf(store.getSnapshot(), draft.id);

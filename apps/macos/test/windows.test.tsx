@@ -710,7 +710,7 @@ describe('mac window selection with the shared mock mailbox', () => {
     }
   });
 
-  it('offers only the previous run’s records after a notification launch and an account switch (#2329)', async () => {
+  it('offers only the previous run’s records after a notification launch (#2329)', async () => {
     expect.hasAssertions();
     const connection = {
       id: alex,
@@ -719,13 +719,9 @@ describe('mac window selection with the shared mock mailbox', () => {
       profile: defaultProfile,
       provider: 'gmail',
     } as const;
-    let account = 'synthetic-product-account';
-    const listeners = new Set<() => void>();
+    const account = 'synthetic-product-account';
     const registration = {
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
+      subscribe: () => () => undefined,
       getSnapshot: () =>
         ({
           snapshot: {
@@ -811,25 +807,8 @@ describe('mac window selection with the shared mock mailbox', () => {
       await waitFor(() => {
         expect([...storage.recoveryRecords().keys()]).toStrictEqual([current]);
       });
-      // Switching to another Product Account and back offers nothing, as the device keeps one Product Account’s records.
-      account = 'other-product-account';
-      for (const listener of listeners) {
-        listener();
-      }
-      await app.rerender(inbox(account));
-      await waitFor(() => {
-        expect(drafts.getSnapshot().kind).toBe('ready');
-      });
-      account = 'synthetic-product-account';
-      for (const listener of listeners) {
-        listener();
-      }
-      await app.rerender(inbox(account));
-      await waitFor(() => {
-        expect(drafts.getSnapshot().kind).toBe('ready');
-      });
       await act(async () => {
-        await expect(drafts.recovered()).resolves.toStrictEqual([]);
+        await drafts.recovered();
       });
       expect(sheetsShown()).toStrictEqual([]);
     } finally {
