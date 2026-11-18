@@ -43,11 +43,13 @@ export const styles = StyleSheet.create({
   rich: { width: '100%' },
   hidden: { opacity: 0 },
   fill: { flex: 1 },
-  // The iPhone frame centres the indicator above its caption in the empty reader.
+  // The iPhone frame centres the indicator above its caption in the reader's empty space.
   loading: {
+    flexGrow: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.xl + spacing.xs,
-    paddingVertical: 4 * spacing.xl,
+    paddingVertical: 2 * spacing.xl,
   },
   // The iPad frame: the caption, then still lines where the text will appear.
   downloading: { gap: 14 * ipadListScale },

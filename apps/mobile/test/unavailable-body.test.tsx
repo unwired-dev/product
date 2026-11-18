@@ -131,15 +131,11 @@ describe('unavailable message body', () => {
         body: 'Quarterly numbers.',
       });
       // The mail server answers the body download only once the test has seen the progress.
-      let answer: () => void = () => undefined;
-      // oxlint-disable-next-line promise/avoid-new -- Hold the external boundary until the test answers.
-      const answered = new Promise<void>((resolve) => {
-        answer = resolve;
-      });
+      const answered = Promise.withResolvers<undefined>();
       const inbox = createImapInbox({
         ...imap.native,
         imapMessage: async (...request) => {
-          await answered;
+          await answered.promise;
           return imap.native.imapMessage(...request);
         },
       });
@@ -154,12 +150,13 @@ describe('unavailable message body', () => {
         await expect(
           screen.findByRole('progressbar', { name: progress }),
         ).resolves.toBeOnTheScreen();
-        answer();
+        answered.resolve(undefined);
         await expect(
           screen.findByText('Quarterly numbers.'),
         ).resolves.toBeOnTheScreen();
         expect(screen.queryByRole('progressbar')).toBeNull();
       } finally {
+        answered.resolve(undefined);
         await app.unmount();
         device.restore();
       }

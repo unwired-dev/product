@@ -170,7 +170,8 @@ const styles = StyleSheet.create({
   },
   // A single message on iPhone lines its sender and body up with a thread's cards, 24pt in, 8pt
   // below its count.
-  compactContent: { paddingHorizontal: 24, gap: spacing.s },
+  // It fills the screen, so a body still loading can centre itself in the space left.
+  compactContent: { flexGrow: 1, paddingHorizontal: 24, gap: spacing.s },
   // On iPad the sender sits 18.4pt beneath the frames' 29pt subject line, which holds the 25pt
   // Reading Subject, so it keeps the frames' y.
   padSingleContent: { paddingTop: spacing.l * ipadListScale + (29 - 25) },

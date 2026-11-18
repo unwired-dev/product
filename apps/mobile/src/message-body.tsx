@@ -31,12 +31,14 @@ import {
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
-  buttonBorderShape,
+  background,
   buttonStyle,
-  controlSize,
+  contentShape,
   font,
+  foregroundStyle,
   frame,
-  tint,
+  padding,
+  shapes,
 } from '@expo/ui/swift-ui/modifiers';
 import {
   inspectLink,
@@ -47,7 +49,7 @@ import {
   decodeRemoteImagePositions,
   labelImagePlaceholders,
 } from '@private-email/mail-core/message-body';
-import { ipadListScale } from '@private-email/mail-core/theme';
+import { ipadListScale, spacing } from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
 import {
   createContext,
@@ -1048,6 +1050,7 @@ export function BodyUnavailable({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const scale = ipad ? ipadListScale : 1;
   const download = reason === 'download' || reason === 'imap-download';
   const sentence = t(`messageBody.${reason}`, {
     provider,
@@ -1063,7 +1066,7 @@ export function BodyUnavailable({
         <SFSymbol
           name="exclamationmark.triangle.fill"
           color={colors.statusWarning}
-          size={ipad ? 13 * ipadListScale : 13}
+          size={13 * scale}
         />
         <Text
           style={[
@@ -1084,17 +1087,21 @@ export function BodyUnavailable({
         <Host matchContents>
           <Button
             onPress={onTryAgain}
-            modifiers={[
-              buttonStyle('bordered'),
-              buttonBorderShape('capsule'),
-              controlSize('small'),
-              tint(colors.textPrimary),
-            ]}>
+            modifiers={[buttonStyle('plain')]}>
+            {/* The frame's 28pt capsule, inside a 44pt touch target. */}
             <SwiftUIText
               modifiers={[
                 ipad
-                  ? font({ size: 13 * ipadListScale, weight: 'semibold' })
+                  ? font({ size: 13 * scale, weight: 'semibold' })
                   : font({ textStyle: 'footnote', weight: 'semibold' }),
+                foregroundStyle(colors.textPrimary),
+                padding({
+                  horizontal: spacing.m * scale,
+                  vertical: 6 * scale,
+                }),
+                background(colors.fillTrack, shapes.capsule()),
+                frame({ minHeight: 44 }),
+                contentShape(shapes.rectangle()),
               ]}>
               {t('common.retry')}
             </SwiftUIText>
