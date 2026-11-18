@@ -5,9 +5,10 @@ import { spacing } from '@private-email/mail-core/theme';
 import { useState } from 'react';
 import { StyleSheet, Text as NativeText, View } from 'react-native';
 
-import { AnnouncedAlert, MenuButton, SFSymbol } from './design.tsx';
+import { AnnouncedAlert, MenuButton } from './design.tsx';
 import { localization, useLocalization } from './localization.ts';
 import {
+  PopUpChevrons,
   settingsColumns,
   SettingsBlock,
   SettingsGroup,
@@ -17,29 +18,16 @@ import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   text: { ...textStyles.subheadline },
-  // The iPhone frames' pop-up: the choice in SF Pro Medium at 16.9/20.8pt, set without the system
-  // font's own -0.42pt tracking at that size, then a 20.8pt circle holding the up-down chevrons
-  // 15.6pt after it, at the row's trailing edge.
+  // The iPhone Settings Row's pop-up: the choice in Body, then a 22pt circle holding the up-down
+  // chevrons 12pt after it, at the row's trailing edge.
   menu: { minHeight: 44, marginVertical: -spacing.m },
   popUp: {
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15.6,
+    gap: spacing.m,
   },
-  choice: {
-    fontSize: 16.9,
-    lineHeight: 20.8,
-    fontWeight: '500',
-    letterSpacing: 0.42,
-  },
-  accessory: {
-    width: 20.8,
-    height: 20.8,
-    borderRadius: 10.4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  choice: { ...textStyles.body },
 });
 
 // SwiftUI tags cannot be null, so System Default's null preference takes a UI-only tag.
@@ -136,17 +124,7 @@ export function LanguageSelector({
                 style={[styles.choice, { color: colors.textPrimary }]}>
                 {nameOf(shown)}
               </NativeText>
-              <View
-                style={[
-                  styles.accessory,
-                  { backgroundColor: colors.fillControl },
-                ]}>
-                <SFSymbol
-                  name="chevron.up.chevron.down"
-                  size={13}
-                  color={colors.textPrimary}
-                />
-              </View>
+              <PopUpChevrons />
             </View>
           </MenuButton>
         )}

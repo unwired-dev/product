@@ -747,7 +747,10 @@ form accessories, keyboards, status bar).
 - **Settings Row:** title, optional subtitle and icon, and one trailing control
   (switch, pop-up, value, button or disclosure). Within a group every row has a
   leading icon or none, so the titles share one edge. The switch track uses the
-  accent fill when on and `fill/track` when off.
+  accent fill when on and `fill/track` when off. On iPhone the title is Body
+  17/22 and the subtitle Footnote 13/18, the icon sits in a 24pt slot, and a row
+  pads 13pt: at least 52pt tall, 56pt with a switch and 62pt with its 36pt push
+  button.
 - **Icons:** SF Symbols only, regular weight, tinted with a color token. The
   approved compose Writing tools control uses `sparkles`; other controls never use
   sparkle or "AI" iconography. A provider tile in Add a Mailbox shows an SF
