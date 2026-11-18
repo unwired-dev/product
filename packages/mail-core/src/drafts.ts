@@ -1215,6 +1215,13 @@ export function createDrafts(
   let recordCall = 0;
   // Every Draft id this run journaled or forgot, across account changes, which `recovered` leaves out.
   const recordedThisRun = new Set<string>();
+  // The account's records as read once its storage opened, as the Drafts are first listed; none
+  // while storage refuses that read, as while locked, until `recovered` reads again.
+  let previousRun: readonly Recovery[] | undefined = undefined;
+  // The read the account's storage opening started, which `recovered` waits for before reading again.
+  let reading: Promise<unknown> | undefined = undefined;
+  // The previous run's records whose offer the person answered, which `forget` then removes.
+  const taken = new Set<string>();
   const callRecord = (id: string) => {
     recordedThisRun.add(id);
     recordCall += 1;
@@ -1339,6 +1346,35 @@ export function createDrafts(
       }
     });
 
+  // The account's records as read once this run; a read storage refuses is tried again next call.
+  const capturing = Effect.fnUntraced(function* (
+    current: number,
+    account: string,
+  ) {
+    if (previousRun !== undefined) {
+      return previousRun;
+    }
+    const opened = yield* native(
+      storage.openComposerRecovery,
+      RecoveryOpenedSchema,
+    );
+    if (opened.owner !== account) {
+      return yield* ownerMismatch();
+    }
+    const records = opened.records.flatMap(({ id, document }) => {
+      const decoded = Option.getOrUndefined(recoveredRecord(document));
+      const record =
+        decoded === undefined || 'version' in decoded
+          ? decoded
+          : { version: decoded };
+      return record?.version.id === id ? [record] : [];
+    });
+    if (live(current)) {
+      previousRun = records;
+    }
+    return records;
+  });
+
   const opening = (current: number, account: string) =>
     Effect.gen(function* () {
       // An open account keeps its in-memory Drafts; a reload only follows a failure.
@@ -1370,6 +1406,13 @@ export function createDrafts(
       sent = confirmed;
       cleanup = opened.document?.deliveryCleanup ?? [];
       dirty = outbox.some((entry, index) => entry !== stored[index]);
+      // Reads the records as the Drafts are listed, without delaying them; a record this run
+      // journals meanwhile is left out by `recordedThisRun`.
+      reading ??= runLogged(
+        capturing(current, account).pipe(
+          Effect.catchTag('DraftStorageFailure', report),
+        ),
+      );
       publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -2362,36 +2405,27 @@ export function createDrafts(
       return stored;
     }).pipe(semaphore.withPermit);
 
-  // The account's records; none while storage is locked, which keeps them for a later read.
+  // The account's previous-run records not yet answered; undefined while storage refuses the read.
   const recovering = (current: number) =>
     Effect.gen(function* () {
       const account = owner;
       if (account === undefined) {
         return [];
       }
-      const opened = yield* native(
-        storage.openComposerRecovery,
-        RecoveryOpenedSchema,
-      );
-      if (opened.owner !== account) {
-        return yield* ownerMismatch();
+      const pending = reading;
+      if (pending !== undefined) {
+        yield* Effect.tryPromise(() => pending).pipe(Effect.ignore);
       }
+      const records = yield* capturing(current, account);
       return live(current)
-        ? opened.records.flatMap(({ id, document }) => {
-            const decoded = Option.getOrUndefined(recoveredRecord(document));
-            const record =
-              decoded === undefined || 'version' in decoded
-                ? decoded
-                : { version: decoded };
-            return record?.version.id === id && !recordedThisRun.has(id)
-              ? [record]
-              : [];
-          })
+        ? records.filter(
+            ({ version: { id } }) => !recordedThisRun.has(id) && !taken.has(id),
+          )
         : [];
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
       Effect.catchTag('DraftStorageFailure', (error) =>
-        report(error).pipe(Effect.as<readonly Recovery[]>([])),
+        report(error).pipe(Effect.as(undefined)),
       ),
     );
 
@@ -2431,6 +2465,8 @@ export function createDrafts(
     sent = [];
     cleanup = [];
     dirty = false;
+    previousRun = undefined;
+    reading = undefined;
     unrecorded.clear();
     recordCalls.clear();
     copied.clear();
@@ -2678,9 +2714,14 @@ export function createDrafts(
       }
     },
     // The composer recovery records an earlier run of this account left on this device, each the
-    // unsaved version and any base it was journaled with; a Draft this store journaled or forgot
-    // meanwhile is left out, whenever storage takes those calls.
+    // unsaved version and any base it was journaled with, as read when its storage opened; a Draft
+    // this store journaled, forgot or took meanwhile is left out, whenever storage takes those
+    // calls. Resolves undefined while storage refuses that read.
     recovered: () => runLogged(recovering(generation)),
+    // Marks the offer of Draft `id`'s previous-run record as answered, so `forget` removes it.
+    take: (id: string) => {
+      taken.add(id);
+    },
     // Keeps `draft` as its composer shows it in a recovery record on this device, with `origin`, the
     // stored version its edits started from, without changing the Drafts; a record refused earlier
     // is written first. Resolves whether every record is stored, leaving one replaced meanwhile to
@@ -2702,11 +2743,16 @@ export function createDrafts(
     },
     // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did
     // or a later `journal` took the record over. A closing `editor` leaves the record to another
-    // editor still open on that Draft.
+    // editor still open on that Draft, and a record the previous run left stays until `take` while
+    // its Draft is listed.
     forget: (id: string, editor?: (id: string) => void) => {
       if (
-        editor !== undefined &&
-        [...(editors.get(id) ?? [])].some((each) => each !== editor)
+        (editor !== undefined &&
+          [...(editors.get(id) ?? [])].some((each) => each !== editor)) ||
+        (!recordedThisRun.has(id) &&
+          !taken.has(id) &&
+          state.kind === 'ready' &&
+          state.drafts.some((draft) => draft.id === id))
       ) {
         return Promise.resolve(true);
       }
