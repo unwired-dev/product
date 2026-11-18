@@ -1078,6 +1078,14 @@ describe('sending a Draft', () => {
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
       expect(screen.queryByLabelText(/is not a complete address/u)).toBeNull();
       expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+      // Undo returns the address to the field as text, which Send would still accept.
+      await press('Undo');
+      expect(screen.getByLabelText('To')).toHaveDisplayValue(
+        'sam@example.invalid',
+      );
+      expect(screen.queryByLabelText(/is not a complete address/u)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
       await press('To: sam@example.invalid');
       expect(screen.getByLabelText(required)).toBeOnTheScreen();
       expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();

@@ -1000,6 +1000,17 @@ export function Recipients({
     }
     setNotice(result.notice);
   };
+  // Text Send would leave in the field, once it is no longer typed in, is not an address it can use.
+  const entry = addRecipients(draft, {
+    field,
+    text: entryOf(draft, field),
+    all: true,
+  }).text;
+  const requiredReason = required ? t('drafts.recipient.required') : undefined;
+  const reason =
+    !entering && entry !== ''
+      ? t('drafts.recipient.incomplete', { address: entry })
+      : requiredReason;
   return (
     <View>
       {suggestions.length === 0 ? null : (
@@ -1167,16 +1178,8 @@ export function Recipients({
         </View>
         {trailing}
       </View>
-      {/* Text left in the field once it is no longer typed in is not an address Send can use. */}
-      {!entering && entryOf(draft, field) !== '' ? (
-        <SendBlockedReason
-          message={t('drafts.recipient.incomplete', {
-            address: entryOf(draft, field),
-          })}
-        />
-      ) : required ? (
-        <SendBlockedReason message={t('drafts.recipient.required')} />
-      ) : notice === undefined ? null : (
+      {reason === undefined ? null : <SendBlockedReason message={reason} />}
+      {reason !== undefined || notice === undefined ? null : (
         <View style={styles.fieldNotice}>
           <Notice style={[styles.notice, { color: colors.textSecondary }]}>
             {t(`drafts.recipient.${notice}`)}
@@ -1937,8 +1940,8 @@ const finishedEntries = (draft: Draft) => {
   return finished;
 };
 
-// Why the last Send left the Draft in the composer, if it did, or else why Send is unavailable;
-// only the last Send's outcome is announced. A message sent through an IMAP connection's mail
+// Why Send is unavailable now, or else why the last Send left the Draft in the composer, if it
+// did; only the last Send's outcome is announced. A message sent through an IMAP connection's mail
 // server or Microsoft is not limited by Gmail.
 const tooLarge = {
   gmail: 'drafts.sendRefused.too-large',
@@ -1958,10 +1961,10 @@ function SendRefusalNotice({
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === connection,
   )?.provider;
-  const shown = refused ?? blocked;
+  const shown = blocked ?? refused;
   return shown === undefined ? null : (
     <Alert
-      outcome={refused !== undefined}
+      outcome={shown === refused}
       message={t(
         shown === 'too-large'
           ? tooLarge[provider ?? 'gmail']
@@ -2774,8 +2777,8 @@ function Editor({
   const lockedUnless = (available: boolean) => paused || !available;
   const outbox = useOutbox();
   // Why Send is unavailable for the Draft shown, followed as its mailboxes change.
-  const listed = use(MailboxesContext);
-  const blocked = useSyncExternalStore(listed.subscribe, () =>
+  const mailboxList = use(MailboxesContext);
+  const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
     outbox.refusal(finishedEntries(history.present)),
   );
   const sendReminders = useSendReminders();
