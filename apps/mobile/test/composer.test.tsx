@@ -2485,7 +2485,10 @@ describe('composing Drafts', () => {
     await waitFor(() => {
       expect(storage.recoveryRecords().size).toBe(0);
     });
-    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved plan');
+    expect(screen.getByLabelText('Subject')).toHaveProp(
+      'value',
+      'Unsaved plan',
+    );
   });
 
   it('journals again on return to the foreground and removes the record on Save Draft and Delete Draft', async () => {
