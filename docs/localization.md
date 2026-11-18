@@ -145,7 +145,8 @@ frames; other keys fall back to English. Mac Mock Mail Session builds offer it a
 **Deutsch** after the shipped languages: Metro substitutes
 `src/testing/catalogs.ts` for `src/shipped-catalogs.ts`, and the native build copies
 the catalog and its manifest into `catalogs.bundle`. Release builds and bundles
-without a scenario never carry it, which the bundle check enforces.
+without a scenario never carry it, which the bundle check enforces. Every other Mac
+journey launches with `-interfaceLanguage en`, so a German Mac still runs them in English.
 
 The Mac German strings journey signs in, relaunches with `-interfaceLanguage de`
 and checks the Inbox with a Thread open, the Command Palette, a New Message window

@@ -24,7 +24,7 @@ final class WindowTests: XCTestCase {
     let env = ProcessInfo.processInfo.environment
     let appURL = URL(fileURLWithPath: try XCTUnwrap(env["UNWIRED_APP_PATH"]))
     let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -56,7 +56,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -113,7 +113,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -155,7 +155,7 @@ final class WindowTests: XCTestCase {
     let environment = ProcessInfo.processInfo.environment
     let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
     let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -507,7 +507,7 @@ final class WindowTests: XCTestCase {
     for appearance in ["Dark", "Light"] {
       app.terminate()
       app.launchArguments =
-        ["-ApplePersistenceIgnoreState", "YES"]
+        ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
         + (appearance == "Dark"
           ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
       app.launch()
@@ -1203,7 +1203,7 @@ final class WindowTests: XCTestCase {
     let app = XCUIApplication(
       url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     // Every launch starts from one new window, whatever AppKit saved at the previous quit.
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     // Past Welcome, the sign-in page of `window` ends with the Language pop-up.
@@ -1279,7 +1279,7 @@ final class WindowTests: XCTestCase {
     }
     let app = XCUIApplication(url: appURL)
     // Every launch starts from one new window, whatever AppKit saved at the previous quit.
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
@@ -1442,7 +1442,7 @@ final class WindowTests: XCTestCase {
     let evidence = appURL.deletingLastPathComponent().appendingPathComponent("lifecycle.jsonl")
     let app = XCUIApplication(url: appURL)
     // Every launch starts from one new window, whatever AppKit saved at the previous quit.
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launchEnvironment["UNWIRED_LIFECYCLE_PATH"] = evidence.path
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
@@ -1638,7 +1638,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -1785,7 +1785,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -2025,7 +2025,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -2090,7 +2090,7 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
     app.launchArguments +=
-      ["-ApplePersistenceIgnoreState", "YES"]
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
       + (appearance == "Dark"
         ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
     app.launch()
@@ -2258,7 +2258,7 @@ final class WindowTests: XCTestCase {
     let environment = ProcessInfo.processInfo.environment
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -2372,6 +2372,7 @@ final class WindowTests: XCTestCase {
     let environment = ProcessInfo.processInfo.environment
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += ["-interfaceLanguage", "en"]
     app.launchArguments +=
       appearance == "Dark"
       ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]
@@ -2443,6 +2444,7 @@ final class WindowTests: XCTestCase {
       pasteboard.writeObjects(saved)
     }
     let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-interfaceLanguage", "en"]
     app.launchArguments +=
       appearance == "Dark"
       ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]
