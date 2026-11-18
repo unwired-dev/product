@@ -700,12 +700,12 @@ and keys afterwards. It needs a running Docker engine. The unchanged engine exer
 | SMTP 465, implicit TLS, password                      | Submission delivered                                                      |
 | SMTP 587, STARTTLS before AUTH, password              | Submission delivered                                                      |
 | IMAP 993, Sent folder                                 | Sent copy appended and found by its boundary                              |
-| IMAP 143, STARTTLS offered, LOGIN allowed without TLS | Refused as insecure; IMAP STARTTLS is not offered                         |
+| IMAP 143, STARTTLS offered, LOGIN allowed without TLS | Refused as insecure; the engine has no IMAP STARTTLS                      |
 | SMTP without STARTTLS, AUTH offered in plaintext      | Refused as insecure                                                       |
 | IMAP 993 and SMTP 465, untrusted self-signed cert     | Refused as insecure                                                       |
 
-The run then checks the server logs: IMAP logged in on 993, 465 and 587 each
-authenticated, and no credentials reached 143, the plaintext SMTP listener or the
+The run then checks the server logs: IMAP authenticated on 993, SMTP
+authenticated on 465 and 587, and no credentials reached 143, the plaintext SMTP listener or the
 untrusted server.
 On 18 November 2026 the run passed all 105 tests of the suite on an iOS 27.0 iPhone 18 Pro
 Simulator, built with Xcode 27.2 (27B52) against Docker Engine 29.9.3, from `main` at
