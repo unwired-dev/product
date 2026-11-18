@@ -1298,6 +1298,70 @@ describe('the host assembly', () => {
     });
   });
 
+  it('carries a Pin to its moved IMAP message once Pin storage accepts writes again', async () => {
+    expect.hasAssertions();
+    const { host, native, shared, imapServers } = syntheticHost(
+      undefined,
+      true,
+    );
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive', ['archive']);
+    await host.registration.register('google');
+    await host.registration.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: shared.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    const mailbox = required(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+    );
+    imapServers[mailbox.id] = imap.native;
+    const uid = imap.deliver('INBOX', { subject: 'Kept' });
+    await host.gmailMailboxes.load();
+    const inbox = imapInbox(host);
+    const pinned = () => host.pins.pins([mailbox.id]);
+    await host.pins.pin(mailbox.id, `7.${uid}.INBOX`);
+    const stored = await pinned();
+    const original = required(stored?.[0]);
+
+    const { commitPins } = native;
+    let refusals = 0;
+    Object.assign(native, {
+      commitPins: () => {
+        refusals += 1;
+        return Promise.reject(
+          Object.assign(new Error('Synthetic locked'), { code: 'locked' }),
+        );
+      },
+    });
+    await inbox.organize(listedImap(inbox, uid), {
+      kind: 'archive',
+      destination: 'Archive',
+    });
+    await vi.waitFor(() => {
+      expect(refusals).toBe(1);
+    });
+    await expect(pinned()).resolves.toStrictEqual([original]);
+
+    Object.assign(native, { commitPins });
+    // Pinned again while it showed unpinned, it keeps the first date.
+    await host.pins.pin(mailbox.id, '3.1.Archive');
+    await host.gmailMailboxes.load();
+    await vi.waitFor(async () => {
+      await expect(pinned()).resolves.toStrictEqual([
+        { ...original, thread: '3.1.Archive' },
+      ]);
+    });
+  });
+
   it('posts nothing for a connection turned off or removed while posting waited, and groups a moved one under its new Profile', async () => {
     expect.hasAssertions();
     const { host, gmail, notified, settingsGate } = syntheticHost(

@@ -441,10 +441,14 @@ IMAP message is pinned as its own Thread ([Pins](gmail-inbox.md#pins)) by its fo
 UID. Once the server applies a move, Undo's included, the Pin follows the message to the
 UID MOVE or COPYUID reported and keeps its date. A server that reports none leaves the
 message without an identity to follow, so its Pin is removed rather than left under the
-old UID ([#2283](https://github.com/unwired-dev/product/issues/2283)). Pin storage that
-refuses the change, as while the device is locked, leaves the Pin under the old UID, and
-the moved message shows unpinned until it is pinned again
-([#2340](https://github.com/unwired-dev/product/issues/2340)).
+old UID ([#2283](https://github.com/unwired-dev/product/issues/2283)). When Pin storage
+refuses the change, as while the device is locked, the Inbox keeps the move and saves it
+with the connection's encrypted cache at its next write. A move answered while the cache
+itself was locked is held in memory and saved when the cache reopens, so quitting before
+then loses it. Each later opening of the Inbox repeats those moves in order until Pin
+storage keeps them, also after relaunch; until then the Pin stays under the old UID and
+the moved message shows unpinned, and once storage keeps the move no Pin stays under the
+old UID ([#2340](https://github.com/unwired-dev/product/issues/2340)).
 The folder listing keeps the server's hierarchy delimiter, so the Move picker nests
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
 unavailable.
@@ -682,6 +686,38 @@ earlier interruptions remain safe to retry. The IMAP fixture checks
 a session's boundary search of the Sent folder and a single APPEND that the search
 then finds. Its certificate
 never changes production validation or trust on the host Mac.
+
+### Controlled standards server
+
+`mise exec -- zsh native/private-inbox/integration/standards-server.zsh` runs the iOS
+suite above against the controlled standards server of
+[#2388](https://github.com/unwired-dev/product/issues/2388): Dovecot 2.3 and Postfix 3.7
+in a local Docker container ([`standards-server/`](../native/private-inbox/integration/standards-server/))
+with synthetic `example.test` mailboxes only. The script makes a certificate authority
+for the run, which only the run's disposable simulator trusts, starts a second
+container presenting an untrusted self-signed certificate, and removes the containers
+and keys afterwards. It needs a running Docker engine. The unchanged engine exercises:
+
+| Endpoint                                              | Result                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| IMAP 993, implicit TLS, password                      | Login, SPECIAL-USE roles, delivered mail read, searched, marked and moved |
+| SMTP 465, implicit TLS, password                      | Submission delivered                                                      |
+| SMTP 587, STARTTLS before AUTH, password              | Submission delivered                                                      |
+| IMAP 993, Sent folder                                 | Sent copy appended and found by its boundary                              |
+| IMAP 143, STARTTLS offered, LOGIN allowed without TLS | Refused as insecure; the engine has no IMAP STARTTLS                      |
+| SMTP without STARTTLS, AUTH offered in plaintext      | Refused as insecure                                                       |
+| IMAP 993 and SMTP 465, untrusted self-signed cert     | Refused as insecure                                                       |
+
+The run then checks the server logs: IMAP authenticated on 993, SMTP
+authenticated on 465 and 587, and no credentials reached 143, the plaintext SMTP listener or the
+untrusted server.
+On 18 November 2026 the run passed all 105 tests of the suite on an iOS 27.0 iPhone 18 Pro
+Simulator, built with Xcode 27.2 (27B52) against Docker Engine 29.9.3, from `main` at
+`9f706166f` with this change applied.
+
+This is not provider certification and does not run on the Mac host, whose trust the
+synthetic certificate authority never changes. Pinned certificates are
+[#2005](https://github.com/unwired-dev/product/issues/2005).
 
 Real iCloud Mail and Seznam Email read, organizing, search, IDLE, SMTP submission and Sent
 filing qualification remains required before release

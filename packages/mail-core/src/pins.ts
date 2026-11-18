@@ -165,16 +165,20 @@ export function createPins(
           ? pins.filter((pin) => !isPin(connection, thread)(pin))
           : pins,
       ),
-    // Carries `connection`'s Pin of Thread `from` to `to`, keeping its date, as an IMAP message's
-    // to the ID a move gave it; without `to`, the Pin is removed.
+    // Carries `connection`'s Pin of Thread `from` to `to`, keeping its date, also where `to` was
+    // pinned again since, as an IMAP message's to the ID a move gave it; without `to`, the Pin is
+    // removed.
     move: (connection: string, from: string, to: string | undefined) =>
       changing(connection, from, (pins) => {
         const moved = pins.find(isPin(connection, from));
         if (moved === undefined) {
           return pins;
         }
-        const others = pins.filter((pin) => pin !== moved);
-        return to === undefined || others.some(isPin(connection, to))
+        const others = pins.filter(
+          (pin) =>
+            pin !== moved && (to === undefined || !isPin(connection, to)(pin)),
+        );
+        return to === undefined
           ? others
           : [...others, { ...moved, thread: to }];
       }),
