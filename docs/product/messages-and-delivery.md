@@ -30,8 +30,8 @@ implemented.
 ## Prototype composer presentation
 
 The [2026-11-11 usability decisions](power-user-launch.md#confirmed-usability-decisions-from-2026-11-11) add crash recovery for unsaved composer edits.
-[ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records them; the notes here describe the current behavior until each issue
-ships.
+[ADR 0077](../adr/0077-remove-friction-that-privacy-does-not-require.md) records them, and the crash recovery shipped
+([#1989](https://github.com/unwired-dev/product/issues/1989)).
 
 - On regular-width layouts, composing starts as a nonmodal overlay: bottom-anchored in the detail column on the Mac and for a reply or forward on iPad, and a card centred on the window for a new message on iPad; expanding that composer takes over the entire app surface while preserving the same editor and Draft state; on the Mac, expanding instead saves the Draft and moves it into its own New Message window, closing the overlay with no way back
 - While that composer is not expanded, the sidebar and Thread list remain interactive, the part of the detail column under the composer does not (on the Mac, the reader's toolbar and uncovered content above it stay interactive), and changing Thread selection updates the reader behind the composer without dismissing or resetting its Draft; closing reveals the latest selection
@@ -41,6 +41,7 @@ ships.
 - Selecting a product-authored **Draft** enters that same editor directly; Drafts have no read-only reader state
 - Each mail window has one active composer. On iPhone and iPad its `x` closes an unchanged Draft at once and removes an empty one; otherwise **Delete Draft** and **Save Draft** grow out of it, and the composer closes only once the chosen save or deletion succeeds. Discard remains an explicit destructive overflow action
 - On the Mac, as in Mail, a Draft is stored only when the person chooses Save or sends it ([#991](https://github.com/unwired-dev/product/issues/991)). Closing an unchanged Draft closes at once and an empty one is removed; otherwise the window asks “Do you want to save this message as a draft?” with Save, Don’t Save and Cancel, where Don’t Save deletes the Draft. Opening another Draft, New Message, received mail on compact layouts, Command-W, the window's close button and Quit ask the same question first
+- While a composer is open, its unsaved edits are kept in an encrypted recovery record on this device, never in Drafts, at the provider or in Product Sync. Storing, sending or discarding the message removes the record, and so does closing an empty or unchanged one. After the app ends with a record present, the next launch asks **Recover unsaved message?** with **Restore** and **Discard**, and Drafts still follow the explicit save above (the [Draft guide](../drafts.md#storage-and-isolation) owns the details)
 - Starting another message, selecting another product-authored Draft or received mail, or leaving through the Command Palette first asks the same question on iPhone and iPad and follows the person's answer on the Mac; the same editor then switches to the requested Draft, and a refused save keeps the current Draft open and visible inline
 - The expand or collapse control remains directly visible in both regular-width states and is absent on compact iPhone, where the sheet has no second state, and in the Mac New Message window
 - The **Formatting Toolbar Preference** synchronizes globally and hides only the formatting toolbar; Markdown, keyboard, context-menu, document, and delivery formatting remain available

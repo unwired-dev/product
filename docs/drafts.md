@@ -550,9 +550,10 @@ while a failed discard waited save into that same copy without an extra conflict
 Draft. An unexpected failure while leaving keeps the composer open and allows
 another attempt. Drafts and received mail share the Inbox column's scroll surface.
 If saving failed or private storage became locked, the Inbox also says that Draft
-changes are not saved and offers **Save Drafts**. Keep the app open until saving
-succeeds; unsaved changes survive in memory, not a process termination or account
-removal. On iPhone and iPad only **Save Draft** or **Send** stores edits in the Draft;
+changes are not saved and offers **Save Drafts**. Until saving succeeds, unsaved
+changes survive in memory and in the composer recovery record, so the next launch
+offers them after a process termination; a record that storage refused, as while
+locked, is kept only in memory until a later write. Account removal removes both. On iPhone and iPad only **Save Draft** or **Send** stores edits in the Draft;
 reopening after the app ends shows the stored version, and the composer keeps its
 unsaved edits in a composer recovery record, as on the Mac. On iPhone, selecting the current Draft again requests its composer without trying to
 leave it, so unfinished recipient text remains available to correct.
