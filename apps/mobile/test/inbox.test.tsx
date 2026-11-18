@@ -1420,6 +1420,10 @@ describe('connected Gmail Inbox', () => {
         expect(
           screen.getByRole('button', { name: /Studio archive/u }),
         ).toBeVisible();
+        // A server result offers Pin alone, which needs no Gmail access.
+        expect(
+          screen.getByRole('button', { name: /Studio archive/u }),
+        ).toHaveProp('accessibilityActions', [{ name: 'pin', label: 'Pin' }]);
       } finally {
         platform.restore();
       }
@@ -2203,7 +2207,8 @@ describe('connected Gmail Inbox', () => {
       'Move to Inbox',
     );
 
-    // A cached label-only message found online still has no Inbox organizing actions.
+    // A cached label-only message found online still has no Inbox organizing actions; More
+    // offers only Pin, which needs no Gmail access.
     await fireEvent.changeText(field, 'Flight');
     await fireEvent.press(
       screen.getByRole('button', { name: 'Search Mail Servers for “Flight”' }),
@@ -2212,7 +2217,9 @@ describe('connected Gmail Inbox', () => {
       await screen.findByRole('button', { name: /Flight to Zagreb/u }),
     );
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    expect(screen.queryByLabelText('More')).toBeNull();
+    expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
+      ['Pin'],
+    ]);
   });
 
   it('shows how much of All Mail has downloaded and asks to try again when its download pauses', async () => {

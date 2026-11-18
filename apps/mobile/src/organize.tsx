@@ -48,7 +48,6 @@ import {
   MenuButton,
   Notice,
   scaledToolbar,
-  scaledToolbarHeight,
   scaledToolbarSlop,
   SFSymbol,
   ToolbarButton,
@@ -102,7 +101,9 @@ const styles = StyleSheet.create({
   panels: { maxHeight: 280, flexGrow: 0 },
   floatingPanels: {
     position: 'absolute',
-    top: readerToolbarInset + scaledToolbarHeight + spacing.s,
+    // Beneath the toolbar, also when its groups wrap in a narrow pane.
+    top: '100%',
+    marginTop: spacing.s,
     right: spacing.l,
     gap: spacing.s,
   },
@@ -1003,6 +1004,42 @@ const noMore = {
   actions: [],
 } as const;
 
+// Responses and Pin, for online results, also those the view does not list, and saved mail
+// without organizing permission. Other mail the reader cannot find shows its responses alone.
+function RespondAndPin({
+  message,
+  onPanel,
+  children,
+}: {
+  readonly message: Parameters<ReturnType<typeof usePinFor>>[0] | undefined;
+  readonly onPanel: PanelState['onPanel'];
+  readonly children: ReactNode;
+}) {
+  const pinFor = usePinFor();
+  if (message === undefined) {
+    return <GlassGroup>{children}</GlassGroup>;
+  }
+  return (
+    <Toolbar
+      onPanel={onPanel}
+      pin={pinFor(message)}
+      archive={undefined}
+      folders={undefined}
+      more={noMore}>
+      {children}
+    </Toolbar>
+  );
+}
+
+// The message the reader shows: the one its view lists, or an online result the view does not list.
+const shownMessage = <Listed,>(
+  state: Extract<ReturnType<typeof useInbox>, { kind: 'ready' }>,
+  id: string,
+  listed: Listed | undefined,
+) =>
+  listed ??
+  ('found' in state ? state.found?.find((item) => item.id === id) : undefined);
+
 // The reader's Gmail and Microsoft actions. A message that leaves the view it was chosen in, the
 // Inbox or another Gmail view, closes the reader.
 function GmailMessageActions({
@@ -1044,20 +1081,13 @@ function GmailMessageActions({
   // A label or folder the provider removed falls back to the Inbox, as the list does.
   const view = gmailViewName(state, opened, provider);
   const message = viewMessage(state, id, view);
-  if (message === undefined) {
-    return <GlassGroup>{children}</GlassGroup>;
-  }
-  // Responses and Pin also work for online results and saved mail without organizing permission.
-  if (!canOrganize(message) || !state.organize) {
+  if (message === undefined || !canOrganize(message) || !state.organize) {
     return (
-      <Toolbar
-        onPanel={setPanel}
-        pin={pinFor(message)}
-        archive={undefined}
-        folders={undefined}
-        more={noMore}>
+      <RespondAndPin
+        message={shownMessage(state, id, message)}
+        onPanel={setPanel}>
         {children}
-      </Toolbar>
+      </RespondAndPin>
     );
   }
   const act = (action: GmailAction) => {

@@ -243,7 +243,8 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   A result also listed in a cached view opens and caches as that listed message.
   Mail-server results offer organizing actions only when also listed in the Inbox,
   using Inbox actions even when the search started from another view. A result
-  outside the Inbox shows no organizing actions.
+  outside the Inbox shows no organizing actions; on iPad and iPhone its row and reader
+  still offer **Pin**, which needs no provider access.
 - **Failures.** Each mailbox that Gmail could not search says why, naming the mailbox
   when the view holds several, while the other mailboxes' results and the saved
   results stay: no connection, a refused grant, which also offers **Allow Gmail

@@ -1309,8 +1309,15 @@ export function Inbox({
                     message={item.message}
                     pinned={pinned(item.mailbox.id, item.message)}
                     actions={
+                      // A server result offers only Pin, which needs no provider access.
                       section.key === 'gmail'
-                        ? undefined
+                        ? [
+                            pinAction(
+                              item.mailbox.id,
+                              item.message,
+                              pinned(item.mailbox.id, item.message),
+                            ),
+                          ]
                         : rowActions(item.mailbox, item.message).filter(
                             ({ name }) => !paletteOnly(name),
                           )
