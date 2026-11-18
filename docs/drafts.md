@@ -793,7 +793,10 @@ Account change cannot write under the new account.
 The composers on iPhone, iPad and Mac journal their unsaved version two seconds
 after an edit, so continuous typing is recorded every two seconds, and again when
 the app returns to the foreground, which writes a record that locked storage
-refused. A version undone back to the stored one removes its record. Closing the
+refused. A version undone back to the stored one removes its record; a removal
+that storage refuses is tried again with the next write, as when the app returns
+to the foreground, and never takes a record written after it
+([#2381](https://github.com/unwired-dev/product/issues/2381)). Closing the
 composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
 an unchanged one. While another composer has the same Draft open, the record stays
@@ -833,7 +836,10 @@ whose Draft and recovered sender belong to the shown Mail Profile are offered,
 so switching Profile offers that Profile's records. Restore opens the composer
 over the Inbox, and the next record waits until it closes. An answer given after
 the shell moved on, as when a notification opened a composer meanwhile, changes
-nothing, and the record is asked about again once no composer is open. The
+nothing, and the record is asked about again once no composer is open. No alert
+appears while a new Draft is being created, as when **New Message** waits for
+storage: the record is offered once that creation ends without a composer, or
+once its composer closes ([#2381](https://github.com/unwired-dev/product/issues/2381)). The
 TypeScript client (`useRecoveryOffer` in `apps/mobile/src/composer.tsx`) chooses
 each record and rechecks it before acting; UIKit presents the alert through React
 Native's `Alert`.

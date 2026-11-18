@@ -2266,7 +2266,8 @@ const journalDelay = 2000;
 
 // Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
 // returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
-// record locked storage refused. The records it wrote go once the version is unchanged again. The
+// record locked storage refused. The records it wrote go once the version is unchanged again; a
+// removal storage refused is tried again on the next write. The
 // first returned function closes the journal, removing those records and that of Draft `id` the
 // editor closes on, which another editor's journal may have written; it resolves once they are
 // gone, so Quit waits for them. The second journals at once, as after a save that keeps the editor
@@ -2277,22 +2278,30 @@ function useRecoveryJournal(
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
-  const journaled = useRef(new Set<string>());
+  // Each Draft id journaled, with its latest write: only a removal storage accepted retires it.
+  const journaled = useRef(new Map<string, object>());
   useEffect(() => {
     const restored = unsaved();
     if (restored !== undefined) {
-      journaled.current.add(restored.version.id);
+      journaled.current.set(restored.version.id, {});
     }
   }, [unsaved]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
-  const forget = useCallback(() => {
-    const removals = [...journaled.current].map((id) =>
-      store.forget(id, editor),
-    );
-    journaled.current.clear();
-    return Promise.allSettled(removals);
-  }, [editor, store]);
+  const forget = useCallback(
+    () =>
+      Promise.allSettled(
+        [...journaled.current].map(async ([id, written]) => {
+          if (
+            (await store.forget(id, editor)) &&
+            journaled.current.get(id) === written
+          ) {
+            journaled.current.delete(id);
+          }
+        }),
+      ),
+    [editor, store],
+  );
   const write = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
@@ -2301,7 +2310,7 @@ function useRecoveryJournal(
       void forget();
       return;
     }
-    journaled.current.add(kept.version.id);
+    journaled.current.set(kept.version.id, {});
     void store.journal(kept.version, kept.base);
   }, [forget, store, unsaved]);
   const seen = useRef(edited);
@@ -2331,7 +2340,7 @@ function useRecoveryJournal(
       closed.current = true;
       clearTimeout(timer.current);
       timer.current = undefined;
-      journaled.current.add(id);
+      journaled.current.set(id, {});
       return forget();
     },
     [forget],

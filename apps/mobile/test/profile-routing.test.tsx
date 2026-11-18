@@ -2324,4 +2324,131 @@ describe('composer recovery after relaunch', () => {
     }
   });
   /* oxlint-enable vitest/max-expects */
+
+  it('leaves a record unanswered while New Message is pending, and offers it once that composer closes', async () => {
+    expect.hasAssertions();
+    const connection = {
+      id: syntheticMailboxes['alex@example.invalid'],
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: defaultProfile,
+      provider: 'gmail',
+    } as const;
+    const registration = {
+      subscribe: () => () => undefined,
+      getSnapshot: () =>
+        ({
+          snapshot: {
+            kind: 'connected',
+            productAccountId: 'synthetic-product-account',
+            signInProvider: 'google',
+            mailboxes: JSON.stringify([connection]),
+          },
+          busy: false,
+          failed: false,
+        }) as const,
+    };
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    // The previous run stored a Draft and kept unsaved edits to it when it ended.
+    const previous = createDrafts(storage.native, registration);
+    await previous.load();
+    const id = await previous.create(connection);
+    const created = draftOf(previous.getSnapshot(), id);
+    ok(created !== undefined);
+    const draft = { ...created, subject: 'Plan' };
+    await previous.update(draft, created);
+    await expect(previous.save()).resolves.toBe(true);
+    await expect(
+      previous.journal({ ...draft, subject: 'Plan, unsaved' }, draft),
+    ).resolves.toBe(true);
+    const drafts = createDrafts(storage.native, registration);
+    jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    // The records are read only after New Message starts, and its Draft waits for storage.
+    const { recovered, create } = drafts;
+    let read: () => void = () => undefined;
+    jest.spyOn(drafts, 'recovered').mockImplementationOnce(
+      async () =>
+        // oxlint-disable-next-line promise/avoid-new -- The test releases the read.
+        new Promise((resolve) => {
+          read = () => {
+            resolve(recovered());
+          };
+        }),
+    );
+    let stored: () => void = () => undefined;
+    jest.spyOn(drafts, 'create').mockImplementationOnce(
+      async (...request) =>
+        // oxlint-disable-next-line promise/avoid-new -- The test releases the creation.
+        new Promise((resolve) => {
+          stored = () => {
+            resolve(create(...request));
+          };
+        }),
+    );
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    try {
+      showMail(defaultProfile);
+      route.setParams({});
+      await render(
+        <AccountContext
+          value={{
+            mailboxes: [connection],
+            openAccount: () => undefined,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
+            profiles: [],
+            createProfile: () => Promise.resolve(undefined),
+            chooseFolders: () => Promise.resolve(true),
+          }}>
+          <RootLayout />
+        </AccountContext>,
+      );
+      await waitFor(() => {
+        expect(inboxNewMessage()).toBeEnabled();
+      });
+      await fireEvent.press(inboxNewMessage());
+      await act(async () => {
+        read();
+        await drafts.recovered();
+      });
+      expect(alert).not.toHaveBeenCalled();
+      // New Message opens its composer, and the record waits while it is open.
+      await act(async () => {
+        stored();
+        await Promise.resolve();
+      });
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        '',
+      );
+      expect(alert).not.toHaveBeenCalled();
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      await waitFor(() => {
+        expect(alert).toHaveBeenCalledWith(
+          'Recover unsaved message?',
+          'Your unsaved changes were kept on this device.',
+          expect.any(Array),
+        );
+      });
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await act(async () => {
+        alert.mock.lastCall?.[2]
+          ?.find((button) => button.text === 'Restore')
+          ?.onPress?.();
+        await Promise.resolve();
+      });
+      await expect(screen.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Plan, unsaved',
+      );
+    } finally {
+      await cleanup();
+      jest.restoreAllMocks();
+    }
+  });
 });

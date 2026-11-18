@@ -2502,7 +2502,8 @@ const savedOf = (state: DraftsState) =>
 
 // Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
 // returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
-// record locked storage refused. The records it wrote go once the version is unchanged again. The
+// record locked storage refused. The records it wrote go once the version is unchanged again; a
+// removal storage refused is tried again on the next write. The
 // first returned function closes the journal, removing those records and that of Draft `id` the
 // editor closes on, which another editor's journal may have written. The second journals at once,
 // as after a save that keeps the editor open; the third too, unless unsaved edits have a write
@@ -2514,30 +2515,39 @@ function useRecoveryJournal(
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
-  const journaled = useRef(new Set<string>());
+  // Each Draft id journaled, with its latest write: only a removal storage accepted retires it.
+  const journaled = useRef(new Map<string, object>());
   useEffect(() => {
     const restored = unsaved();
     if (restored !== undefined) {
-      journaled.current.add(restored.version.id);
+      journaled.current.set(restored.version.id, {});
     }
   }, [unsaved]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closed = useRef(false);
-  const forget = useCallback(() => {
-    for (const id of journaled.current) {
-      void store.forget(id, editor);
-    }
-    journaled.current.clear();
-  }, [editor, store]);
+  const forget = useCallback(
+    () =>
+      Promise.allSettled(
+        [...journaled.current].map(async ([id, written]) => {
+          if (
+            (await store.forget(id, editor)) &&
+            journaled.current.get(id) === written
+          ) {
+            journaled.current.delete(id);
+          }
+        }),
+      ),
+    [editor, store],
+  );
   const write = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
     const kept = closed.current ? undefined : unsaved();
     if (kept === undefined) {
-      forget();
+      void forget();
       return;
     }
-    journaled.current.add(kept.version.id);
+    journaled.current.set(kept.version.id, {});
     void store.journal(kept.version, kept.base);
   }, [forget, store, unsaved]);
   const seen = useRef(edited);
@@ -2565,7 +2575,7 @@ function useRecoveryJournal(
   const close = useCallback(
     (id: string) => {
       closed.current = true;
-      journaled.current.add(id);
+      journaled.current.set(id, {});
       write();
     },
     [write],
@@ -2622,10 +2632,10 @@ const askRecovery = (t: Translate) =>
 
 // Offers each composer recovery record the previous run left (ADR 0077) whose Draft and recovered
 // sender belong to the shown Profile, in its own alert, once the Drafts open and while no composer
-// is open. Restore opens the record's Draft through `onRestore` and returns the record as
-// `recovered` for the composer to open on, until that composer closes or another Draft opens;
-// `follow` keeps it while that composer moves to a conflicting copy. Discard removes the record
-// unless an editor has its Draft open. A record changed or removed since it was read, a
+// is open or being created. Restore opens the record's Draft through `onRestore` and returns the
+// record as `recovered` for the composer to open on, until that composer closes or another Draft
+// opens; `follow` keeps it while that composer moves to a conflicting copy. Discard removes the
+// record unless an editor has its Draft open. A record changed or removed since it was read, a
 // failed removal and a Draft no longer listed leave the record for the next launch; an answer
 // given after the shell moved on, as to a composer a notification opened, is asked again.
 export function useRecoveryOffer(
@@ -2633,6 +2643,7 @@ export function useRecoveryOffer(
   onRestore: (id: string) => void,
 ) {
   const store = useDraftStore();
+  const navigation = useComposerNavigation();
   const ready = useDrafts().kind === 'ready';
   const profile = useProfile();
   const accountContext = use(AccountContext);
@@ -2759,6 +2770,14 @@ export function useRecoveryOffer(
         return;
       }
       const base = pending.base ?? draftOf(store.getSnapshot(), draft.id);
+      // A pending New Message owns the next composer: the record is offered once that creation
+      // settles, or after its composer closes.
+      const creating = navigation.creating();
+      if (creating !== undefined) {
+        await creating;
+        askNext();
+        return;
+      }
       own.asking = askRecovery(t);
       const restore = await own.asking;
       const kept = await unchanged(draft);
@@ -2798,7 +2817,7 @@ export function useRecoveryOffer(
       current = false;
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each answer asks again.
-  }, [account, composing, profile, ready, round, store, t]);
+  }, [account, composing, navigation, profile, ready, round, store, t]);
   return { recovered: restored?.record, follow };
 }
 

@@ -20,6 +20,8 @@ export interface ComposerNavigation {
       before?: () => Promise<boolean>;
     }>,
   ) => Promise<string | undefined>;
+  // The Draft creations still pending, settling together, or undefined when none is.
+  readonly creating: () => Promise<void> | undefined;
   readonly attachReceived: (
     drafts: Pick<Drafts, 'create' | 'abandon' | 'attach'>,
     attachment: Readonly<{
@@ -36,6 +38,7 @@ export function createComposerNavigation(): ComposerNavigation {
   let pending = false;
   let navigations = 0;
   let selectedDraft: string | undefined = undefined;
+  const creations = new Set<Promise<unknown>>();
   const leave = async (draft?: string) => {
     if (pending) {
       return false;
@@ -55,7 +58,7 @@ export function createComposerNavigation(): ComposerNavigation {
       pending = false;
     }
   };
-  const create: ComposerNavigation['create'] = async (
+  const starting: ComposerNavigation['create'] = async (
     drafts,
     mailbox,
     { prepare, before } = {},
@@ -86,6 +89,18 @@ export function createComposerNavigation(): ComposerNavigation {
     }
     return undefined;
   };
+  const create: ComposerNavigation['create'] = async (...request) => {
+    const creation = starting(...request);
+    creations.add(creation);
+    try {
+      return await creation;
+    } finally {
+      creations.delete(creation);
+    }
+  };
+  const settled = async () => {
+    await Promise.allSettled(creations);
+  };
   return {
     leave,
     register: (next) => {
@@ -97,6 +112,7 @@ export function createComposerNavigation(): ComposerNavigation {
       };
     },
     create,
+    creating: () => (creations.size === 0 ? undefined : settled()),
     attachReceived: async (drafts, { mailbox, mailboxes, saved }) => {
       // The new Draft sends from the reader's Mail Profile, never moving the file into another.
       const sender = newMessageSender(
