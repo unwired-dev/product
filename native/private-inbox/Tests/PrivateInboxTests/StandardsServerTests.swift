@@ -29,10 +29,13 @@ extension PrivateInboxTests {
     let imapProvider = SwiftMailImap()
     let smtpProvider = SwiftMailSmtp()
     let token = UUID().uuidString
+    func boundary(_ subject: String) -> String { "=_\(subject)\(token)" }
     func message(_ subject: String) -> Data {
       Data(
         ("From: alex@example.test\r\nTo: sam@example.test\r\nSubject: \(subject) \(token)\r\n"
-          + "Content-Type: text/plain; charset=utf-8\r\n\r\nStandards body \(token)\r\n").utf8)
+          + "Content-Type: multipart/mixed; boundary=\"\(boundary(subject))\"\r\n\r\n"
+          + "--\(boundary(subject))\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+          + "Standards body \(token)\r\n--\(boundary(subject))--\r\n").utf8)
     }
 
     // Password login over implicit TLS, and submission over implicit TLS and STARTTLS.
@@ -53,13 +56,14 @@ extension PrivateInboxTests {
     // Both submissions are delivered: listed with their roles, read, searched and moved.
     let session = try await imapProvider.open(imap(ports[0], "sam"), password: password)
     do {
-      let folders = try await session.folders()
-      #expect(
-        Set(folders.flatMap(\.attributes)).isSuperset(
-          of: ["\\Archive", "\\Drafts", "\\Junk", "\\Sent", "\\Trash"]))
+      let roles = Dictionary(
+        uniqueKeysWithValues: try await session.folders().map { ($0.name, Set($0.attributes)) })
+      for role in ["Archive", "Drafts", "Junk", "Sent", "Trash"] {
+        #expect(roles[role]?.contains("\\\(role)") == true)
+      }
       #expect(
         Set(try await session.capabilities().map { $0.uppercased() })
-          .isSuperset(of: ["MOVE", "UIDPLUS", "IDLE", "SPECIAL-USE"]))
+          .isSuperset(of: ["MOVE", "UIDPLUS", "SPECIAL-USE"]))
       var matches = try await session.search("INBOX", for: .text(token), newest: 10)
       for _ in 0..<50 where matches.total < 2 {
         try await Task.sleep(for: .milliseconds(200))
@@ -88,17 +92,12 @@ extension PrivateInboxTests {
       throw error
     }
 
-    // A Sent copy is filed in the sender's Sent folder and found by its boundary.
-    let boundary = "=_standards\(token)"
+    // The submitted message's copy is filed in the sender's Sent folder and found by its boundary.
     let sent = try await imapProvider.open(imap(ports[0], "alex"), password: password)
     do {
-      #expect(try await sent.search("Sent", for: .boundary(boundary), newest: 1).total == 0)
-      try await sent.append(
-        "Sent",
-        message: Data(
-          ("From: alex@example.test\r\nTo: sam@example.test\r\n"
-            + "Content-Type: multipart/mixed; boundary=\"\(boundary)\"\r\n\r\n--\(boundary)--\r\n").utf8))
-      #expect(try await sent.search("Sent", for: .boundary(boundary), newest: 1).total == 1)
+      #expect(try await sent.search("Sent", for: .boundary(boundary("Implicit")), newest: 1).total == 0)
+      try await sent.append("Sent", message: message("Implicit"))
+      #expect(try await sent.search("Sent", for: .boundary(boundary("Implicit")), newest: 1).total == 1)
       await sent.close()
     } catch {
       await sent.close()

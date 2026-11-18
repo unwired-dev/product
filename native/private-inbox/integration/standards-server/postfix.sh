@@ -11,6 +11,8 @@ postconf -e \
   'maillog_file = /dev/stdout' \
   'virtual_mailbox_domains = example.test' \
   'virtual_transport = lmtp:unix:private/dovecot-lmtp' \
+  'default_transport = error:only example.test is delivered' \
+  'relay_transport = error:only example.test is delivered' \
   'smtpd_tls_cert_file = /certs/server.pem' \
   'smtpd_tls_key_file = /certs/server.key' \
   'smtpd_tls_mandatory_protocols = >=TLSv1.2' \
