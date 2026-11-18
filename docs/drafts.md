@@ -798,9 +798,10 @@ another composer has the Draft open, and leaves the stored Draft as it was. The 
 record waits until the restored composer closes. Records this run writes are never
 offered: `recovered()` leaves out every Draft the store journaled or forgot this run,
 whatever order storage takes those calls in. While storage is locked the alerts wait
-for it to open. A record
-whose Draft is no longer listed, that changed since it was read, whose alert closed
-without an answer, or whose removal failed, stays for the next launch. The Mac
+for it to open. A record whose Draft is no longer listed, that a read locked out
+([#2334](https://github.com/unwired-dev/product/issues/2334)), that changed since it
+was read, whose alert closed without an answer, or whose removal failed, stays for the
+next launch. The Mac
 TypeScript client (`useRecoveryOffer` in `apps/macos/src/composer.tsx`) chooses each
 record and rechecks it before acting; AppKit presents the alert as a sheet on the
 Inbox window through `UnwiredAlert`. Offering the records on iPhone and iPad follows
