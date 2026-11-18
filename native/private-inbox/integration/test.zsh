@@ -3,6 +3,9 @@ set -euo pipefail
 root=${0:A:h:h:h:h}
 platform=${1:-ios}
 [[ "$platform" == ios || "$platform" == macos ]] || { print -u2 'Expected ios or macos'; exit 2; }
+# TEST_RUNNER_ variables a caller forwards, such as credentials, reach only xcodebuild.
+forwarded=(${(k)parameters[(I)TEST_RUNNER_*]})
+for name in $forwarded; do typeset +x $name; done
 (( $(df -k "$root" | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
 mkdir -p "$root/artifacts/private-inbox"
 export UNWIRED_STORAGE_PROBE=$(mktemp -d "$root/artifacts/private-inbox/integration.XXXXXX")
@@ -67,12 +70,14 @@ for attempt in 1 2; do
   fi
   result=0
   log="$UNWIRED_STORAGE_PROBE/test-$attempt.log"
-  xcodebuild test -project "$UNWIRED_STORAGE_PROBE/StorageProbe.xcodeproj" -scheme StorageProbe \
-    -onlyUsePackageVersionsFromResolvedFile \
-    -destination "$destination" -derivedDataPath "$UNWIRED_STORAGE_PROBE/DerivedData" \
-    -resultBundlePath "$UNWIRED_STORAGE_PROBE/result-$attempt.xcresult" -parallel-testing-enabled NO \
-    -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
-    > "$log" 2>&1 || result=$?
+  (
+    for name in $forwarded; do export $name; done
+    xcodebuild test -project "$UNWIRED_STORAGE_PROBE/StorageProbe.xcodeproj" -scheme StorageProbe \
+      -onlyUsePackageVersionsFromResolvedFile \
+      -destination "$destination" -derivedDataPath "$UNWIRED_STORAGE_PROBE/DerivedData" \
+      -resultBundlePath "$UNWIRED_STORAGE_PROBE/result-$attempt.xcresult" -parallel-testing-enabled NO \
+      -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120
+  ) > "$log" 2>&1 || result=$?
   if (( result == 0 )) && grep -Eq 'Test run with [1-9][0-9]* tests .* passed' "$log"; then
     if [[ -n "$imap_server" ]]; then
       kill -TERM "$imap_server" "$smtp_server"

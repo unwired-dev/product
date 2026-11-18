@@ -39,6 +39,8 @@ extension PrivateInboxTests {
     let imapProvider = SwiftMailImap()
     let smtpProvider = SwiftMailSmtp()
     let token = UUID().uuidString
+    // Mailboxes the server accepted a message for that the test has not yet waited for.
+    var unread = Set<String>()
 
     // Logins with the mail-client password, retrying iCloud Mail once with the full address as the
     // product does; a wrong password is refused as an authentication failure.
@@ -102,7 +104,9 @@ extension PrivateInboxTests {
           #expect(sent != nil && trash != nil)
         }
 
-        // The other mailbox's message is delivered, found by search, read and marked.
+        // The other mailbox's message is delivered, found by search, read and marked. Each write
+        // first requires the folder's UIDVALIDITY to be the one the search's UIDs belong to.
+        unread.remove(provider.name)
         var matches = try await session.search("INBOX", for: .text(token), newest: 10)
         for _ in 0..<45 where matches.total == 0 {
           try await Task.sleep(for: .seconds(2))
@@ -110,7 +114,7 @@ extension PrivateInboxTests {
         }
         try #require(matches.total == 1)
         let uid = try #require(matches.uids.first)
-        _ = try await session.examine("INBOX")
+        try #require(try await session.examine("INBOX").uidValidity == matches.uidValidity)
         let envelope = try #require(try await session.envelopes(.uids([uid])).first)
         #expect(envelope.subject == "Unwired certification \(token)")
         // Compared as values, so a failure prints no address.
@@ -121,7 +125,7 @@ extension PrivateInboxTests {
           uidValidity: matches.uidValidity, uid: uid, limit: RegistrationStore.imapMessageLimit)
         let hasBody = String(decoding: raw, as: UTF8.self).contains("Certification body \(token)")
         #expect(hasBody)
-        #expect(try await session.select("INBOX") == matches.uidValidity)
+        try #require(try await session.select("INBOX") == matches.uidValidity)
         try await session.store(uid, flag: .seen, set: true)
         #expect(try await session.flags([uid])[uid]?.contains("\\Seen") == true)
 
@@ -138,25 +142,44 @@ extension PrivateInboxTests {
           #expect(try await session.search(trash, for: .text(token), newest: 2).total == 1)
         }
 
-        // Filing appends the submitted message unless a copy is already in Sent, which then holds
-        // exactly one copy that the boundary search finds.
+        // The product's filing rule: a MIME-boundary lookup in Sent, an append only when it finds no
+        // copy, and then exactly one copy.
         if let sent {
-          // What the provider filed itself, read without the boundary search.
-          let provided = try await session.search(sent, for: .text(token), newest: 2).total
-          record("\(provider.name): \(provided) Sent copy filed by the provider")
-          if provided == 0 {
-            try await session.append(sent, message: message(from: provider, to: sender))
-          }
-          #expect(try await session.search(sent, for: .text(token), newest: 2).total == 1)
-          let found = { try await session.search(sent, for: .boundary(boundary(provider)), newest: 2).total }
-          if provider.name == "Seznam Email" {
-            // Only in a folder that holds messages, as Sent now does.
+          var appended = false
+          var dropped = false
+          func lookup() async throws -> Int? {
+            // A sound connection before the lookup, so a dropped one is the lookup's.
+            let messages = try await session.examine(sent).messages
+            let found = { try await session.search(sent, for: .boundary(boundary(provider)), newest: 2).total }
+            guard provider.name == "Seznam Email", messages > 0 else { return try await found() }
+            var count: Int?
             try await withKnownIssue("Seznam Email drops the connection on a Content-Type search (#2402)") {
-              let count = try await found()
-              #expect(count == 1)
+              count = try await found()
             } matching: { ($0.error as? ImapFailure) == .offline }
-          } else {
-            #expect(try await found() == 1)
+            dropped = count == nil
+            return count
+          }
+          if let filed = try await lookup() {
+            record("\(provider.name): \(filed) Sent copy filed by the provider")
+            if filed == 0 {
+              try await session.append(sent, message: message(from: provider, to: sender))
+              appended = true
+            }
+            if let copies = try await lookup() { #expect(copies == 1) }
+          }
+          // The product stops filing when its lookup fails; a new session reads Sent by text.
+          if dropped {
+            let reader = try await imapProvider.open(provider.imap, password: provider.password)
+            let copies: Int
+            do {
+              copies = try await reader.search(sent, for: .text(token), newest: 2).total
+            } catch {
+              await reader.close()
+              throw error
+            }
+            await reader.close()
+            record("\(provider.name): the Sent lookup dropped the connection, appended \(appended), \(copies) copy")
+            if appended { #expect(copies == 1) }
           }
         }
         await session.close()
@@ -166,27 +189,42 @@ extension PrivateInboxTests {
       }
     }
 
-    // Removes this run's messages from INBOX, Sent and Trash.
+    // Removes this run's messages from INBOX, Sent and Trash, trying every folder, and reports the
+    // first failure. A message accepted for a mailbox the test never waited for is waited for here.
     func clean(_ provider: Provider) async throws {
       let session = try await imapProvider.open(provider.imap, password: provider.password)
+      var failure: (any Error)?
+      var removed = 0
       do {
         let folders = try await session.folders().filter {
           $0.name == "INBOX" || !Set($0.attributes).isDisjoint(with: ["\\Sent", "\\Trash"])
         }
-        for folder in folders.map(\.name) {
-          let leftovers = try await session.search(folder, for: .text(token), newest: 10)
-          _ = try await session.select(folder)
-          for uid in leftovers.uids {
-            try await session.store(uid, flag: .deleted, set: true)
-            try await session.expunge(uid)
+        func sweep() async {
+          for folder in folders.map(\.name) {
+            do {
+              let leftovers = try await session.search(folder, for: .text(token), newest: 10)
+              try #require(try await session.select(folder) == leftovers.uidValidity)
+              for uid in leftovers.uids {
+                try await session.store(uid, flag: .deleted, set: true)
+                try await session.expunge(uid)
+              }
+              removed += leftovers.uids.count
+              #expect(try await session.search(folder, for: .text(token), newest: 1).total == 0)
+            } catch {
+              failure = failure ?? error
+            }
           }
-          #expect(try await session.search(folder, for: .text(token), newest: 1).total == 0)
         }
-        await session.close()
+        await sweep()
+        for _ in 0..<15 where unread.contains(provider.name) && removed == 0 {
+          try await Task.sleep(for: .seconds(2))
+          await sweep()
+        }
       } catch {
-        await session.close()
-        throw error
+        failure = failure ?? error
       }
+      await session.close()
+      if let failure { throw failure }
     }
 
     var failure: (any Error)?
@@ -195,6 +233,7 @@ extension PrivateInboxTests {
         try await smtpProvider.send(
           sender.smtp, password: sender.password, from: sender.address, to: [recipient.address],
           message: message(from: sender, to: recipient))
+        unread.insert(recipient.name)
       }
       for (index, provider) in providers.enumerated() {
         try await verify(provider, from: providers[1 - index])
