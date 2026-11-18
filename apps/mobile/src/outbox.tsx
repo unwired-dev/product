@@ -4,8 +4,6 @@ import type { ReactNode } from 'react';
 import {
   Button as SwiftUIButton,
   Host,
-  HStack,
-  Spacer,
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
@@ -62,7 +60,12 @@ const styles = StyleSheet.create({
   detail: { ...textStyles.footnote },
   // The iPhone frames leave 8pt above a row's capsules.
   recovery: { flexBasis: '100%', gap: phone ? spacing.s : 4 },
-  actions: { flexDirection: 'row', gap: spacing.s },
+  // Long labels, such as German ones, wrap the iPhone capsules onto another line.
+  actions: {
+    flexDirection: 'row',
+    flexWrap: phone ? 'wrap' : 'nowrap',
+    gap: spacing.s,
+  },
   toast: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -237,19 +240,8 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
 
 export type OutboxActions = ReturnType<typeof useOutboxActions>['actions'];
 
-// The iPhone frames draw a row's controls as quiet capsules in a line under its reason; iPad keeps
-// text actions until its frames draw them otherwise.
 function RowActions({ children }: { readonly children: ReactNode }) {
-  return phone ? (
-    <Host matchContents={{ vertical: true }}>
-      <HStack spacing={spacing.s}>
-        {children}
-        <Spacer />
-      </HStack>
-    </Host>
-  ) : (
-    <View style={styles.actions}>{children}</View>
-  );
+  return <View style={styles.actions}>{children}</View>;
 }
 
 function RowAction({
@@ -275,25 +267,29 @@ function RowAction({
       />
     );
   }
+  // The iPhone frames draw a row's controls as quiet capsules; iPad keeps text actions until its
+  // frames draw them otherwise.
   return (
-    <SwiftUIButton
-      role={destructive ? 'destructive' : 'default'}
-      onPress={onPress}
-      modifiers={[
-        buttonStyle('bordered'),
-        buttonBorderShape('capsule'),
-        controlSize('large'),
-        tint(colors.textPrimary),
-        inactive(disabled),
-      ]}>
-      <SwiftUIText
+    <Host matchContents>
+      <SwiftUIButton
+        role={destructive ? 'destructive' : 'default'}
+        onPress={onPress}
         modifiers={[
-          font({ textStyle: 'subheadline', weight: 'semibold' }),
-          ...(destructive ? [foregroundStyle(colors.statusDestructive)] : []),
+          buttonStyle('bordered'),
+          buttonBorderShape('capsule'),
+          controlSize('large'),
+          tint(colors.textPrimary),
+          inactive(disabled),
         ]}>
-        {label}
-      </SwiftUIText>
-    </SwiftUIButton>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'subheadline', weight: 'semibold' }),
+            ...(destructive ? [foregroundStyle(colors.statusDestructive)] : []),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
   );
 }
 
