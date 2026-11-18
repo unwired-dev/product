@@ -2572,11 +2572,9 @@ function useRecoveryJournal(
   return [close, write] as const;
 }
 
-// The composer recovery records the previous run left for a Product Account, read once a run when
-// its Drafts first open, those already offered, and the latest alert asking about one. Records this
-// run writes later are never offered, also after switching accounts away and back.
+// A Product Account's offer of the composer recovery records the previous run left: those already
+// offered, and the latest alert asking about one.
 interface RecoveryOffer {
-  readonly records: Promise<readonly Recovery[]>;
   readonly offered: Set<string>;
   asking?: Promise<boolean>;
 }
@@ -2635,6 +2633,24 @@ export function useRecoveryOffer(
   const account = accountContext?.account;
   const { t } = useLocalization();
   const [round, setRound] = useState(0);
+  // Whether the last records read was refused, and how often the app became active.
+  const refused = useRef(false);
+  const activations = useRef(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') {
+        return;
+      }
+      activations.current += 1;
+      if (refused.current) {
+        refused.current = false;
+        setRound((count) => count + 1);
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
   // The record restored, under the Draft ids its composer showed, and whether it opened: the route
   // reaches the composer after the render that restores it.
   const [restored, setRestored] = useState<{
@@ -2669,7 +2685,7 @@ export function useRecoveryOffer(
     recoveryOffers.set(store, offers);
     let offer = offers.get(account);
     if (offer === undefined) {
-      offer = { records: store.recovered(), offered: new Set() };
+      offer = { offered: new Set() };
       offers.set(account, offer);
     }
     const own = offer;
@@ -2682,8 +2698,11 @@ export function useRecoveryOffer(
     // The record `draft` as storage holds it now, if it has not changed since it was read.
     const unchanged = async (draft: Draft) => {
       const records = await store.recovered();
-      return records.some(
-        ({ version }) => version.id === draft.id && sameContent(version, draft),
+      return (
+        records?.some(
+          ({ version }) =>
+            version.id === draft.id && sameContent(version, draft),
+        ) === true
       );
     };
     // Whether record `draft` and its Draft as listed now belong to the shown Profile.
@@ -2701,11 +2720,21 @@ export function useRecoveryOffer(
     const ask = async () => {
       // An alert an earlier attempt left open is answered first.
       await own.asking;
-      const records = await own.records;
-      const pending = records.find(
+      const activated = activations.current;
+      const records = await store.recovered();
+      const pending = records?.find(
         ({ version }) => !own.offered.has(version.id) && owned(version),
       );
-      if (!current || pending === undefined) {
+      if (!current) {
+        return;
+      }
+      // A read storage refused, as while locked, is read again once the app is active again.
+      if (records === undefined && activations.current !== activated) {
+        askNext();
+      }
+      refused.current =
+        records === undefined && activations.current === activated;
+      if (pending === undefined) {
         return;
       }
       const draft = pending.version;
@@ -2736,6 +2765,7 @@ export function useRecoveryOffer(
       }
       own.offered.add(draft.id);
       if (kept) {
+        store.take(draft.id);
         if (restore) {
           setRestored({
             record: { version: draft, base },
