@@ -1721,6 +1721,7 @@ describe('composing Drafts', () => {
     const registration = account(connected(['alex@example.invalid']));
     const personal = createSyntheticGmail();
     personal.deliver({ from: 'Ana Kovač <ana@example.invalid>' });
+    personal.deliver({ from: 'Bob Stone <bob@example.invalid>' });
     Object.assign(appleContacts, { granted: true, unreadable: true });
     try {
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -1823,6 +1824,8 @@ describe('composing Drafts', () => {
       // list the typed text filters, where only Ana showed for the bare @.
       await type('');
       await type('@');
+      // The bare @ lists Ana and Bob, so the keyboard's arrows are taken.
+      expect(arrowKeysAround(body).props).toHaveProperty('enabled', true);
       await act(async () => {
         body.props.onChangeText('@an');
         body.props.onSelectionChange({
