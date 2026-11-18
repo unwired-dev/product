@@ -64,7 +64,9 @@ describe('unavailable message body', () => {
     async (isPad, sentence) => {
       expect.hasAssertions();
       const device = onDevice(isPad);
-      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      const announce = jest.mocked(
+        AccessibilityInfo.announceForAccessibilityWithOptions,
+      );
       announce.mockClear();
       const gmail = createSyntheticGmail();
       const id = gmail.deliver({ subject: 'Not downloaded yet' });
@@ -84,7 +86,9 @@ describe('unavailable message body', () => {
         expect(
           screen.getByRole('button', { name: 'Try Again' }),
         ).toBeOnTheScreen();
-        expect(announce.mock.calls).toStrictEqual([[sentence]]);
+        expect(announce.mock.calls).toStrictEqual([
+          [sentence, { queue: true }],
+        ]);
       } finally {
         await app.unmount();
         device.restore();

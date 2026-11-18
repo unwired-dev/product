@@ -73,7 +73,12 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { AnnouncedAlert, ContextMenu, Notice, SFSymbol } from './design.tsx';
+import {
+  ContextMenu,
+  Notice,
+  SFSymbol,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { ipad } from './inbox-styles.ts';
 import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
@@ -1037,7 +1042,7 @@ type UnavailableReason =
   | Extract<ImapBodyState, { kind: 'unavailable' }>['reason'];
 
 // A body that cannot be shown, in the Schedule Banner recipe: the reason's sentence, which
-// VoiceOver hears once, and Try Again unless the message is gone. A failed download says what
+// VoiceOver hears once after current speech, and Try Again unless the message is gone. A failed download says what
 // each device's frame says.
 export function BodyUnavailable({
   reason,
@@ -1056,6 +1061,8 @@ export function BodyUnavailable({
     provider,
     ...(download ? { context: ipad ? 'ipad' : 'iphone' } : {}),
   });
+  // Queued, so a Thread's other failing messages never cut off what VoiceOver is saying.
+  useOutcomeAnnouncement(sentence, true);
   return (
     <View
       style={[
@@ -1076,13 +1083,14 @@ export function BodyUnavailable({
           {t('messageBody.unavailable')}
         </Text>
       </View>
-      <AnnouncedAlert
+      <Text
+        accessibilityRole="alert"
         style={[
           ipad ? styles.padBannerText : styles.bannerText,
           { color: colors.textSecondary },
         ]}>
         {sentence}
-      </AnnouncedAlert>
+      </Text>
       {reason === 'missing' || reason === 'imap-missing' ? null : (
         <Host matchContents>
           <Button
