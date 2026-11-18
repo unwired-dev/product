@@ -79,9 +79,9 @@ import { textStyles, useLargeText, usePalette } from './theme.ts';
 const phone = Platform.OS === 'ios' && !Platform.isPad;
 // iPad's rules are the Mac recipe's point at 1.15×, as its frames draw them.
 const rule = phone ? StyleSheet.hairlineWidth : ipadListScale;
-// The From pop-up shows a 33.6pt capsule on iPhone and a 32.2pt one on iPad within its 44pt
+// The From pop-up shows a 34pt capsule on iPhone and a 32.2pt one on iPad within its 44pt
 // target, as the Compose frames draw it.
-const quietHeight = phone ? 33.6 : 28 * ipadListScale;
+const quietHeight = phone ? 34 : 28 * ipadListScale;
 const quietSlop = (44 - quietHeight) / 2;
 // The Format panel's 40pt style choices reach 44pt through the row's 4pt inset.
 const formatStyleSlop = { top: 2, bottom: 2 };
@@ -244,7 +244,6 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   quietPopUp: { minHeight: quietHeight, marginVertical: quietSlop },
-  phoneQuietPopUp: { borderRadius: 7.2 },
   iconPopUp: {
     width: 44,
     justifyContent: 'center',
@@ -431,7 +430,6 @@ export function PopUp({
         style={[
           styles.popUp,
           quiet && styles.quietPopUp,
-          phone && quiet && styles.phoneQuietPopUp,
           label === undefined ? styles.iconPopUp : null,
           { backgroundColor: quiet ? colors.fillQuiet : 'transparent' },
         ]}>

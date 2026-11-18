@@ -233,10 +233,10 @@ const fieldLabelWidth = 80;
 const padInset = 32 * ipadListScale;
 const padFieldInset = 24 * ipadListScale;
 const padLabelWidth = 64 * ipadListScale;
-// Compact 36pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
-// iPhone's 1.25pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
-const compactRule = 1.25;
-const compactFieldHeight = 36 - compactRule;
+// Compact 44pt and regular 41.4pt field rows reach 44pt targets. Each includes its row's rule:
+// iPhone's 1pt and iPad's 1.15pt, the Mac recipe's point at 1.15×.
+const compactRule = 1;
+const compactFieldHeight = 44 - compactRule;
 const padRule = ipadListScale;
 const padFieldHeight = 36 * ipadListScale - padRule;
 const titledSendHeight = 28 * ipadListScale;
@@ -534,8 +534,8 @@ const styles = StyleSheet.create({
 // composer's 15/22 at that scale; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt
 // label column.
 export const layoutStyles = {
-  // iPhone's fields are 36pt rows of 16.25/20 text beneath 1.25pt rules, 10pt from their labels.
-  // Inputs keep 44pt targets through hit slop, and an entry stays beside recipients while 60pt fit.
+  // iPhone's fields are 44pt rows of Body text beneath 1pt rules, 10pt from their labels, with
+  // Body recipient tokens. An entry stays beside recipients while 60pt fit.
   compact: StyleSheet.create({
     content: { flexGrow: 1 },
     body: { flexGrow: 1 },
@@ -544,14 +544,13 @@ export const layoutStyles = {
     fields: {},
     field: {
       gap: 10,
-      minHeight: 36,
+      minHeight: 44,
       paddingVertical: 0,
       borderTopWidth: compactRule,
     },
     fieldLabel: {
-      fontSize: 16.25,
-      lineHeight: 20,
-      paddingVertical: (compactFieldHeight - 20) / 2,
+      ...textStyles.body,
+      paddingVertical: (compactFieldHeight - textStyles.body.lineHeight) / 2,
     },
     fieldNotice: { paddingLeft: fieldLabelWidth + 10 },
     suggestions: {},
@@ -565,14 +564,15 @@ export const layoutStyles = {
       padding: spacing.s,
     },
     input: {
-      fontSize: 16.25,
-      lineHeight: 20,
+      ...textStyles.body,
       minHeight: compactFieldHeight,
       minWidth: 60,
     },
     token: { minHeight: compactFieldHeight },
-    // Cc/Bcc's 44pt target overhangs the 36pt row rather than growing it.
+    tokenFill: { paddingHorizontal: 10, paddingVertical: 3 },
+    tokenText: textStyles.body,
     trailing: { height: compactFieldHeight, justifyContent: 'center' },
+    assetChip: { gap: 10 },
   }),
   // The New Message card's text starts 23pt down and its fields end 6.9pt above its edge.
   regular: StyleSheet.create({
@@ -627,8 +627,11 @@ export const layoutStyles = {
       padding: 6 * ipadListScale,
     },
     token: { minHeight: padFieldHeight },
+    tokenFill: {},
+    tokenText: {},
     // Cc/Bcc's 44pt target overhangs the 41.4pt row rather than growing it.
     trailing: { height: padFieldHeight, justifyContent: 'center' },
+    assetChip: {},
   }),
 };
 
@@ -1291,6 +1294,7 @@ export function Recipients({
                 <View
                   style={[
                     styles.tokenFill,
+                    sized.tokenFill,
                     {
                       backgroundColor: pressed
                         ? colors.accentSelectionSubtle
@@ -1299,14 +1303,21 @@ export function Recipients({
                     },
                   ]}>
                   <Text
-                    style={[styles.tokenText, { color: colors.textPrimary }]}>
+                    style={[
+                      styles.tokenText,
+                      sized.tokenText,
+                      { color: colors.textPrimary },
+                    ]}>
                     {recipient.name ?? recipient.address}
                   </Text>
-                  <SFSymbol
-                    name="xmark"
-                    size={10}
-                    color={colors.textSecondary}
-                  />
+                  {/* iPhone's tokens are their name alone, as its frames draw them. */}
+                  {size === 'compact' ? null : (
+                    <SFSymbol
+                      name="xmark"
+                      size={10}
+                      color={colors.textSecondary}
+                    />
+                  )}
                 </View>
               )}
             </Pressable>
@@ -1531,7 +1542,12 @@ function AssetRow({
   const convertible =
     onConvert !== undefined && (inline || asset.type.startsWith('image/'));
   const chip = (
-    <View style={[styles.assetChip, { backgroundColor: colors.fillQuiet }]}>
+    <View
+      style={[
+        styles.assetChip,
+        layoutStyles[use(ComposerLayoutContext).size].assetChip,
+        { backgroundColor: colors.fillQuiet },
+      ]}>
       {preview?.kind === 'ready' ? (
         <Image
           accessibilityIgnoresInvertColors
