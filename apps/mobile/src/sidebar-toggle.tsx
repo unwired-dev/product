@@ -59,9 +59,12 @@ export function SidebarToggle() {
 // for the display mode with or without Mailboxes beside the list, and follows each change UIKit
 // makes, such as on rotation.
 // Only a split view showing its columns side by side has the toggle.
-export function useSidebarToggle(sideBySide: boolean) {
+export function useSidebarToggle(sideBySide: boolean, portrait: boolean) {
   const [displayMode, setDisplayMode] = useState<SplitDisplayMode>('automatic');
   const [shown, setShown] = useState(true);
+  // UIKit ignores a display mode requested before it first places the columns, so the Portrait
+  // one waits for its first report.
+  const [placed, setPlaced] = useState(false);
   const value = useMemo(
     () => ({
       shown,
@@ -73,8 +76,14 @@ export function useSidebarToggle(sideBySide: boolean) {
   );
   return {
     value: sideBySide ? value : undefined,
-    displayMode,
+    // The iPad Portrait frames hide Mailboxes and keep the list beside the reader, where UIKit
+    // would show all three columns.
+    displayMode:
+      displayMode === 'automatic' && sideBySide && portrait && placed
+        ? 'oneBesideSecondary'
+        : displayMode,
     follow: (next: string) => {
+      setPlaced(true);
       setShown(next.startsWith('two'));
       // Once the person has chosen a mode, record the one UIKit reports, so the next toggle always
       // asks for a change; until then UIKit keeps choosing for the orientation.

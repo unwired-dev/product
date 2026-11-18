@@ -317,7 +317,12 @@ final class InboxTests: XCTestCase {
     // iPad opens Settings from its sidebar: after the Command Palette's software keyboard showed
     // with the device and the app in different appearances, XCUITest never saw the app idle again.
     func openAppearance() {
-      if phone { openAccount(app) } else { app.buttons["Settings"].firstMatch.tap() }
+      if phone {
+        openAccount(app)
+      } else {
+        showSidebar(app)
+        app.buttons["Settings"].firstMatch.tap()
+      }
       openSettings("Appearance", in: app)
     }
     func closeSettings() {
@@ -1090,11 +1095,19 @@ final class InboxTests: XCTestCase {
         let back = app.buttons["Back to Mailboxes"]
         XCTAssertTrue(back.waitForExistence(timeout: 10))
         back.tap()
+      } else if app.buttons["Show Sidebar"].exists {
+        showSidebar(app)
       } else {
         app.navigationBars.buttons.firstMatch.tap()
       }
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+  }
+
+  // iPad Portrait hides Mailboxes until Show Sidebar brings it back (#2361).
+  private func showSidebar(_ app: XCUIApplication) {
+    let show = app.buttons["Show Sidebar"].firstMatch
+    if show.exists && show.isHittable { show.tap() }
   }
 
   // #1038: Manage Mail Profiles… opens Settings › Mail Profiles, which lists the Primary Profile as
@@ -1760,7 +1773,10 @@ final class InboxTests: XCTestCase {
     top.name = "Thread scrolled to its newest message"
     top.lifetime = .keepAlways
     add(top)
-    guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+    guard UIDevice.current.userInterfaceIdiom == .phone else {
+      portraitJourney(app)
+      return
+    }
     // The cold-opened Thread view has no Inbox beneath it to swipe back to; its Back shows one. The
     // Inbox opens the Thread's newest message in the reader, then the field guide's HTML.
     app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
@@ -1822,6 +1838,42 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(destination.exists)
     edgeSwipe(app, completing: true)
     waitUntil { account.isHittable && !settings.exists }
+  }
+
+  // #2361: the iPad Portrait frames hide Mailboxes and tile the 391pt list beside the 442pt reader;
+  // Show Sidebar brings Mailboxes and its Settings back.
+  private func portraitJourney(_ app: XCUIApplication) {
+    waitUntil { app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height }
+    let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
+      .firstMatch
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    XCTAssertLessThan(row.frame.minX, 20)
+    XCTAssertLessThanOrEqual(row.frame.maxX, 392)
+    XCTAssertGreaterThanOrEqual(app.staticTexts["crew6@example.invalid"].firstMatch.frame.minX, 392)
+    XCTAssertFalse(app.buttons["Settings"].firstMatch.isHittable)
+    // The list opens the Thread in the reader, under its toolbar.
+    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Crew 6.")).firstMatch.tap()
+    let replyAll = app.buttons["Reply All"].firstMatch
+    XCTAssertTrue(replyAll.waitForExistence(timeout: 20))
+    XCTAssertGreaterThanOrEqual(replyAll.frame.minX, 392)
+    attachScreen("Portrait Thread", of: app, to: self)
+    let search = app.searchFields.firstMatch
+    XCTAssertTrue(search.waitForExistence(timeout: 10))
+    search.tap()
+    type("Trail", into: search)
+    press("\n", in: app)
+    XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Top Results"))
+        .firstMatch.waitForExistence(timeout: 10))
+    attachScreen("Portrait Search Results", of: app, to: self)
+    closeSearch(app).tap()
+    app.buttons["Show Sidebar"].firstMatch.tap()
+    let settings = app.buttons["Settings"].firstMatch
+    waitUntil { settings.isHittable }
+    settings.tap()
+    XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 15))
+    attachScreen("Portrait Settings", of: app, to: self)
   }
 
   // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Back to Mail.
@@ -2034,6 +2086,7 @@ final class InboxTests: XCTestCase {
     // iPad's sidebar opens Settings; iPhone's account page is one Back away, in the Mailboxes column.
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let account = app.buttons[phone ? "Account" : "Settings"]
+    if !phone { showSidebar(app) }
     if phone && (!account.waitForExistence(timeout: 5) || !account.isHittable) {
       app.buttons["Back to Mailboxes"].tap()
     }
@@ -2591,6 +2644,7 @@ final class InboxTests: XCTestCase {
     // iPad's sidebar opens Settings and lists All Mail; on iPhone, Account and All Mail are in the
     // Mailboxes column, one Back away.
     func showMailboxes() {
+      if !phone { showSidebar(app) }
       let account = app.buttons["Account"]
       if phone && (!account.waitForExistence(timeout: 5) || !account.isHittable) {
         app.buttons["Back to Mailboxes"].tap()
@@ -2816,6 +2870,7 @@ final class InboxTests: XCTestCase {
       ).firstMatch
       XCTAssertTrue(header.waitForExistence(timeout: 20))
       XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
+      showSidebar(app)
       app.buttons["All Inboxes"].tap()
       XCTAssertTrue(text("IMAP needs sign-in", in: app).waitForExistence(timeout: 20))
       for _ in 0..<5 where !header.isHittable { app.buttons["All Inboxes"].swipeUp() }

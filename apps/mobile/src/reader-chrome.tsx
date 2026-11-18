@@ -153,21 +153,25 @@ const summaryLines = (separate: boolean, lines: readonly string[]) =>
 
 // At accessibility text sizes the sender, address and date stack at the full width and wrap. The
 // initials would then sit alone above the sender, so only initials hanging in the inset stay.
-const headerLayout = (large: boolean, hanging: boolean) =>
+const headerLayout = (
+  large: boolean,
+  hanging: boolean,
+  monogram: boolean | undefined,
+) =>
   large
     ? {
         stack: styles.stacked,
         text: styles.stackedText,
         lines: 0,
         summaryLines: 0,
-        initials: hanging,
+        initials: hanging && monogram !== false,
       }
     : {
         stack: undefined,
         text: undefined,
         lines: 1,
         summaryLines: ipad ? 2 : 1,
-        initials: true,
+        initials: monogram !== false,
       };
 
 // A message's sender, address and time beside neutral initials, and its disclosed recipients.
@@ -177,6 +181,7 @@ export function MessageHeader({
   recipients = noRecipients,
   mailbox,
   hanging = false,
+  monogram,
 }: {
   readonly message: Readonly<{
     id: string;
@@ -191,6 +196,7 @@ export function MessageHeader({
   readonly mailbox?: string | undefined;
   // The initials hang in the reader's leading inset rather than indenting the text.
   readonly hanging?: boolean;
+  readonly monogram?: boolean;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -203,7 +209,7 @@ export function MessageHeader({
     void setStringAsync(message.address);
   };
   const secondary = ipad ? styles.padSecondary : styles.secondary;
-  const layout = headerLayout(useLargeText(), hanging);
+  const layout = headerLayout(useLargeText(), hanging, monogram);
   return (
     <View style={[styles.from, ipad && styles.padFrom, layout.stack]}>
       {layout.initials ? (

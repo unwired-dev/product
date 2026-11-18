@@ -38,6 +38,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -110,6 +111,13 @@ const toolbarLift = 2;
 // The iPad reader follows the Mac reading pane at 1.15×: 46pt side padding, and the subject 82.8pt
 // beneath the safe area, under the toolbar.
 const sideInset = compact ? spacing.l : 40 * ipadListScale;
+// The iPad Portrait frames halve it beside the 442pt reader, leaving no room for hanging initials.
+const portraitInset = { paddingHorizontal: 20 * ipadListScale };
+const usePortrait = () => {
+  const { width, height } = useWindowDimensions();
+  return !compact && height > width;
+};
+const usePortraitInset = () => (usePortrait() ? portraitInset : undefined);
 const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
 // The content's bottom padding clears iPhone's bottom toolbar or a regular window's floating bar,
 // and on iPhone the home indicator it runs beneath.
@@ -426,9 +434,10 @@ function RegularHeader({ subject }: { readonly subject: string }) {
   const colors = usePalette();
   const header = usePaletteHeader();
   const besideList = use(SidebarToggleContext) !== undefined;
+  const inset = usePortraitInset();
   return (
     <View
-      style={styles.header}
+      style={[styles.header, inset]}
       {...header.swipe}>
       <View
         accessible
@@ -823,6 +832,7 @@ function MessageMetadata({
 }) {
   const state = useInbox();
   const inbox = useInboxActions();
+  const portrait = usePortrait();
   const headers = useSyncExternalStore(inbox.subscribe, () =>
     'responseSource' in inbox
       ? inbox.responseSource(message.id)?.headers
@@ -852,6 +862,7 @@ function MessageMetadata({
         <MessageHeader
           message={message}
           hanging={!compact}
+          monogram={!portrait}
           recipients={[
             ...(to === '' ? [] : [t(recipientKeys.to, { recipients: to })]),
             ...(cc === '' ? [] : [t(recipientKeys.cc, { recipients: cc })]),
@@ -1008,6 +1019,7 @@ function MailboxMessage({
   const account = use(AccountContext);
   const windowBar = use(WindowBarContext);
   const insets = useSafeAreaInsets();
+  const inset = usePortraitInset();
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [panel, setPanel] = useState<ReaderPanel>();
   const colors = usePalette();
@@ -1079,6 +1091,7 @@ function MailboxMessage({
           <ReaderScrollView
             contentContainerStyle={[
               singleContent,
+              inset,
               clearsBottom(compact || windowBar !== undefined, insets.bottom),
             ]}>
             {/* iPhone counts a single message as its frames count a thread's. */}
@@ -1165,6 +1178,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const mailbox = useMailbox();
   const windowBar = use(WindowBarContext);
   const insets = useSafeAreaInsets();
+  const inset = usePortraitInset();
   // The opened message stays scrolled into place as the Thread lays out until the person scrolls.
   const pinned = useRef(true);
   // The opened message, once this Thread marked it read.
@@ -1225,6 +1239,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
           <ReaderScrollView
             contentContainerStyle={[
               compact ? singleContent : styles.content,
+              inset,
               clearsBottom(windowBar !== undefined, insets.bottom),
             ]}
             maintainVisibleContentPosition={keepVisibleMessage}
