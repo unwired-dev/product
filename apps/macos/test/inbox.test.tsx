@@ -126,21 +126,6 @@ describe('message list', () => {
           name: 'Travel. Preview mailbox · 1 unread',
         }),
       ).toBeVisible();
-      // No Results names the searched folder, as its empty state does.
-      await fireEvent.changeText(
-        screen.getByLabelText('Search senders and subjects'),
-        'no such trip',
-      );
-      await expect(
-        screen.findByText('No results · Travel'),
-      ).resolves.toBeVisible();
-      expect(
-        screen.getByText(/^No saved mail in Travel matches “no such trip”\./u),
-      ).toBeVisible();
-      await fireEvent.changeText(
-        screen.getByLabelText('Search senders and subjects'),
-        '',
-      );
       await app.rerender(show({ unified: 'SENT' }));
       await screen.findByRole('button', { name: /Flight to Zagreb/u });
       expect(
@@ -158,6 +143,44 @@ describe('message list', () => {
       await cleanup();
       inbox.forget();
       clock.mockRestore();
+    }
+  });
+
+  it('names the searched folder when a search in it finds nothing', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    gmail.setLabel(
+      gmail.deliver({ subject: 'Flight to Zagreb' }),
+      travel,
+      true,
+    );
+    const inbox = createInboxStore(gmail.native);
+    try {
+      await render(
+        <InboxProvider mailboxes={singleMailbox(inbox, 'work-mailbox')}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+            view={{ mailbox: 'work-mailbox', folder: travel }}
+          />
+        </InboxProvider>,
+      );
+      await screen.findByRole('button', { name: /Flight to Zagreb/u });
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'no such trip',
+      );
+      // The subtitle names the folder, as the empty state does, not the whole mailbox.
+      await expect(
+        screen.findByText('No results · Travel'),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByText(/^No saved mail in Travel matches “no such trip”\./u),
+      ).toBeVisible();
+    } finally {
+      await cleanup();
+      inbox.forget();
     }
   });
 
