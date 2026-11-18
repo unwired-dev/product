@@ -190,7 +190,7 @@ the newest 200 and the older ones scrolling has revealed from
   list on iPhone and iPad says **No mail saved on this device matches “…”**. On Mac, when neither saved mail nor
   an answer from the mail servers matches, the list shows **No Results** with a magnifying glass and the line
   **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, VoiceOver hears
-  **No Results** once as it appears, and the subtitle reads **No results**
+  **No Results** once as it appears, and the subtitle reads **No results · [scope]**
   ([#2346](https://github.com/unwired-dev/product/issues/2346)).
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier
