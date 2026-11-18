@@ -483,6 +483,8 @@ export function MailProfilesSettings({
             }
           }>
           <SettingsRow
+            // The iPad frames give this group's every row an icon; iPhone's keep this one without.
+            icon={settingsColumns ? 'plus' : undefined}
             title={t('profiles.add')}
             titleTone="accent"
             disabled={busy}>
