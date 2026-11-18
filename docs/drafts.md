@@ -768,7 +768,13 @@ the save still succeeds and a later save retries that cleanup.
 **Composer recovery records** ([ADR 0077](adr/0077-remove-friction-that-privacy-does-not-require.md),
 decision 2) keep an open composer's unsaved Draft on this device apart from the
 Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
-and `recovered` reads the account's records on demand. A record holds the unsaved
+and `recovered` lists the records the account's previous run left, as the store
+read them as the account's storage opened and listed the Drafts
+([#2334](https://github.com/unwired-dev/product/issues/2334)); a Product Account
+change discards that read. A read that storage refused, as while locked, resolves
+`undefined` instead of an empty list, and the next `recovered` reads again. While
+its Draft is listed, a record the previous run left stays through `forget` until
+`take` marks its offer answered. A record holds the unsaved
 version and the stored version its edits started from, which a composer leaves out
 while its save is pending or failed, as storage may still hold the version before
 it ([#2332](https://github.com/unwired-dev/product/issues/2332)). A record that storage
@@ -791,7 +797,8 @@ refused. A version undone back to the stored one removes its record. Closing the
 composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
 an unchanged one. While another composer has the same Draft open, the record stays
-until that composer closes too. Both composers write the same record, so it holds
+until that composer closes too. A record the previous run left and the person has
+not answered yet stays through a close that keeps its Draft listed. Both composers write the same record, so it holds
 the version journaled last.
 
 On the Mac, once the Drafts open after a relaunch, an Inbox window asks **Recover
@@ -808,12 +815,12 @@ appeared; either way the record goes
 once the composer holds no unsaved version. **Discard** removes the record, unless
 another composer has the Draft open, and leaves the stored Draft as it was. The next
 record waits until the restored composer closes. Records this run writes are never
-offered: `recovered()` leaves out every Draft the store journaled or forgot this run,
-whatever order storage takes those calls in. While storage is locked the alerts wait
-for it to open. A record whose Draft is no longer listed, that a read locked out
-([#2334](https://github.com/unwired-dev/product/issues/2334)), that changed since it
-was read, whose alert closed without an answer, or whose removal failed, stays for the
-next launch. The Mac
+offered: `recovered()` leaves out every Draft the store journaled, forgot or took
+this run, whatever order storage takes those calls in. While storage is locked the
+alerts wait for it to open, and a read that storage refused is read again once the
+app is active again. A record whose Draft is no longer listed, that changed since it
+was read, whose alert closed without an answer, or whose removal failed, stays for
+the next launch. The Mac
 TypeScript client (`useRecoveryOffer` in `apps/macos/src/composer.tsx`) chooses each
 record and rechecks it before acting; AppKit presents the alert as a sheet on the
 Inbox window through `UnwiredAlert`. Offering the records on iPhone and iPad follows
