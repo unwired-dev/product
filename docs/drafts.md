@@ -761,7 +761,10 @@ decision 2) keep an open composer's unsaved Draft on this device apart from the
 Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` reads the account's records on demand. A record that storage
 refuses, as while locked, stays in memory and is written with the next
-record. Writing a record never changes what **Drafts** lists or synchronizes, and
+record. When an editor moves to a conflicting copy that storage holds neither
+as a Draft nor as its own record, `forget` keeps the original Draft's record,
+which may hold the copy's edits, until a later `journal` or `forget` finds
+storage holding either ([#2333](https://github.com/unwired-dev/product/issues/2333)). Writing a record never changes what **Drafts** lists or synchronizes, and
 a save keeps the files and images a record names. Records count toward the
 Outgoing Content Store's 100 MB, so a record refused for space also waits in
 memory, and a nearly full store refuses a save or attachment sooner while records
