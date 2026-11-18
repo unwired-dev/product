@@ -3586,6 +3586,111 @@ describe('composing Drafts', () => {
     expect(checked()).toStrictEqual(['Heading 1']);
   });
 
+  it('folds a narrow iPad format bar into each section overflow menu and keeps every item', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    await render(
+      <ComposerLayoutContext
+        value={{ size: 'regular', avoidKeyboard: true, top: 0 }}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={created}
+        />
+      </ComposerLayoutContext>,
+    );
+    const body = await screen.findByLabelText('Message body');
+    await fireEvent.changeText(body, 'Plan');
+    const layout = async (width: number) => {
+      await fireEvent(screen.getByLabelText('Formatting'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width, height: 44 } },
+      });
+    };
+    const shown = [
+      'Bold',
+      'Italic',
+      'Underline',
+      'Numbered List',
+      'Undo',
+      'Paste Image',
+    ];
+    const buttons = () =>
+      shown.filter((name) => screen.queryByRole('button', { name }) !== null);
+    // The 531pt landscape inline composer shows every section in full.
+    await layout(531);
+    expect(buttons()).toStrictEqual(shown);
+    expect(screen.queryByLabelText('More Formatting')).toBeNull();
+    // The 442pt portrait one ends each crowded section with its own menu.
+    await layout(442);
+    expect(buttons()).toStrictEqual(['Bold', 'Italic']);
+    expect(menuGroups('More Formatting')).toStrictEqual([
+      [
+        ['Underline', 'underline', undefined],
+        ['Strikethrough', 'strikethrough', undefined],
+        ['Inline code', 'chevron.left.forwardslash.chevron.right', undefined],
+      ],
+    ]);
+    expect(menuGroups('More Lists and Links')).toStrictEqual([
+      [
+        ['Numbered List', 'list.number', undefined],
+        ['Edit Link', 'link', true],
+      ],
+      [
+        ['Undo', 'arrow.uturn.backward', false],
+        ['Redo', 'arrow.uturn.forward', true],
+      ],
+    ]);
+    expect(menuGroups('More Files and Templates')).toStrictEqual([
+      [
+        ['Attach Photo', 'photo', false],
+        ['Insert Image', 'photo.on.rectangle', false],
+        ['Paste Image', 'doc.on.clipboard', false],
+      ],
+      [['Templates', 'doc.on.doc', undefined]],
+    ]);
+    // A menu item does what its button does: Underline marks the selection, and Numbered List
+    // and Undo apply to the Draft.
+    const choose = async (menu: string, title: string) => {
+      const props: unknown = screen.getByLabelText(menu).props;
+      ok(isStyleMenu(props));
+      const item = props.sections
+        .flatMap(({ items }) => items)
+        .find((each) => each.title === title);
+      ok(item);
+      await act(async () => {
+        props.onSelect({ nativeEvent: { id: item.id } });
+      });
+    };
+    await fireEvent(body, 'selectionChange', {
+      nativeEvent: { selection: { start: 0, end: 4 } },
+    });
+    await choose('More Formatting', 'Underline');
+    expect(shownSpans()).toStrictEqual([{ text: 'Plan', underlined: true }]);
+    const formatMenu: unknown = screen.getByLabelText('More Formatting').props;
+    ok(isStyleMenu(formatMenu));
+    expect(
+      formatMenu.sections
+        .flatMap(({ items }) => items)
+        .filter((item) => item.checked === true)
+        .map(({ title }) => title),
+    ).toStrictEqual(['Underline']);
+    await choose('More Lists and Links', 'Numbered List');
+    expect(shownLines()[0]?.marker).toBe('1. ');
+    await choose('More Lists and Links', 'Undo');
+    expect(shownLines()[0]?.marker).toBe('');
+    // Add Link opens the Link Editor from the menu.
+    await choose('More Lists and Links', 'Add Link');
+    expect(screen.getByLabelText('Text')).toHaveProp('value', 'Plan');
+  });
+
   it.each([
     ['compact', 'bottom-sheet'],
     ['regular', 'popover'],
@@ -3782,10 +3887,13 @@ describe('composing Drafts', () => {
       await select(5, 14);
       await press('Add Link');
       const destination = screen.getByLabelText('Link');
-      // Layout can precede native presentation. Only appearance requests focus.
+      // Layout can precede native presentation. Only appearance requests focus. Native layout
+      // reaches the field alone, where fireEvent would bubble it to the format bar's width.
       focus.mockClear();
-      await fireEvent(destination, 'layout', {
-        nativeEvent: { layout: { x: 0, y: 0, width: 278, height: 22 } },
+      await act(async () => {
+        destination.props.onLayout?.({
+          nativeEvent: { layout: { x: 0, y: 0, width: 278, height: 22 } },
+        });
       });
       expect(focus).not.toHaveBeenCalled();
       await fireEvent(destination, 'appear');
