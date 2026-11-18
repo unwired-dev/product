@@ -728,28 +728,31 @@ mailboxes of [#2399](https://github.com/unwired-dev/product/issues/2399). Run it
 naming the password-manager fields for `UNWIRED_ICLOUD_ADDRESS`, `UNWIRED_SEZNAM_ADDRESS`
 and their mail-client passwords `UNWIRED_ICLOUD_PASSWORD` and `UNWIRED_SEZNAM_PASSWORD`,
 as the [operator setup](https://github.com/unwired-dev/product/issues/632) describes. The
-script hands them to the test process alone through xcodebuild's `TEST_RUNNER_`
-variables, so no credential is written to the generated scheme, and fails if an address or
-password appears in the run's evidence. The Mac run needs `UNWIRED_STORAGE_PROFILE`, like
+script hands them to the test process through xcodebuild's `TEST_RUNNER_` variables, so no
+credential is written to the generated scheme, and fails if an address, the iCloud Mail
+user name or a password appears in the run's evidence or in the issues its result bundles
+record. The Mac run needs `UNWIRED_STORAGE_PROFILE`, like
 `test.zsh macos`. Each mailbox sends one message to the other through the unchanged
-engine; the test then reads, marks, moves and files it, and removes this run's messages and
-any an interrupted run left.
+engine; the test then reads, marks, moves and files it, and removes this run's messages
+from both mailboxes even when a step fails.
 
-| Step               | iCloud Mail                                                                           | Seznam Email                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| IMAP 993 login     | Name part of the address, app-specific password                                       | Full address, mail-client password                                                                               |
-| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                 | Refused as an authentication failure on IMAP and SMTP                                                            |
-| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                              | 465, SSL/TLS; delivered to iCloud Mail                                                                           |
-| Delivered message  | Found by text search; envelope, source and `\Seen` change                             | Found by text search; envelope, source, `\Seen` change and MOVE to Trash                                         |
-| Folders and roles  | `INBOX` alone, no roles ([#2401](https://github.com/unwired-dev/product/issues/2401)) | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                              |
-| Sent filing        | Not possible: without a Sent folder, Send refuses                                     | Boundary search drops the connection ([#2402](https://github.com/unwired-dev/product/issues/2402)); APPEND works |
-| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                    | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                        |
+| Step               | iCloud Mail                                                                           | Seznam Email                                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IMAP 993 login     | Name part of the address, app-specific password                                       | Full address, mail-client password                                                                                                                                                                                    |
+| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                 | Refused as an authentication failure on IMAP and SMTP                                                                                                                                                                 |
+| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                              | 465, SSL/TLS; delivered to iCloud Mail                                                                                                                                                                                |
+| Delivered message  | Found by text search; envelope, source and `\Seen` change                             | Found by text search; envelope, source, `\Seen` change and MOVE to Trash                                                                                                                                              |
+| Folders and roles  | `INBOX` alone, no roles ([#2401](https://github.com/unwired-dev/product/issues/2401)) | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                                                                                                                                   |
+| Sent filing        | Not possible: without a Sent folder, Send refuses                                     | No copy filed by the server; APPEND files one, which a text search finds once. The boundary search drops the connection in a folder that holds messages ([#2402](https://github.com/unwired-dev/product/issues/2402)) |
+| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                    | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                                                                                                                             |
 
-The test marks #2401 and #2402 as known issues, which fail the run once they are fixed so
-the markers get removed. On 19 November 2026 it passed on an iOS 27.0 iPhone 18 Pro
-Simulator and on the Mac host (macOS 27.2), built with Xcode 27.2 (27B52), from `main` at
-`92f1de1c7` with this change applied. That Mac run's Keychain tests failed with `.locked`,
-the same as `main` on that host at the time. The run is engine evidence only: the app's
+The test marks the INBOX-only listing (#2401) and the boundary search's dropped connection
+(#2402) as known issues, which fail the run once they are fixed so the markers get removed.
+On 19 November 2026 the test passed with exactly those two known issues on an iOS 27.0
+iPhone 18 Pro Simulator, where the whole suite passed, and on the Mac host (macOS 27.2),
+both built with Xcode 27.2 (27B52) from `main` at `eb28e204d` with this change applied. In
+that Mac run, 60 Keychain checks of other tests failed with `.locked`, as they did on `main`
+on the same host at the time. The run is engine evidence only: the app's
 setup and reader journeys, IDLE, recovery and large folders are still to be qualified.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through

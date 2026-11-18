@@ -79,14 +79,9 @@ extension PrivateInboxTests {
       ]
       return Data(lines.joined(separator: "\r\n").utf8)
     }
-    for (sender, recipient) in [(providers[0], providers[1]), (providers[1], providers[0])] {
-      try await smtpProvider.send(
-        sender.smtp, password: sender.password, from: sender.address, to: [recipient.address],
-        message: message(from: sender, to: recipient))
-    }
-
-    for (index, provider) in providers.enumerated() {
-      let sender = providers[1 - index]
+    // Each mailbox's messages are checked, then this run's messages are removed from both mailboxes
+    // whatever happened, and the first failure is reported.
+    func verify(_ provider: Provider, from sender: Provider) async throws {
       let session = try await imapProvider.open(provider.imap, password: provider.password)
       do {
         let folders = try await session.folders()
@@ -99,11 +94,11 @@ extension PrivateInboxTests {
         // Sending needs exactly one Sent folder, and organizing a Trash folder.
         let sent = role("Sent").count == 1 ? role("Sent").first : nil
         let trash = role("Trash").first
+        let inboxOnly = folders.map(\.name) == ["INBOX"]
         if provider.name == "iCloud Mail" {
-          withKnownIssue("The iCloud Mail test mailbox lists only INBOX (#2401)") {
-            #expect(sent != nil && trash != nil)
-          }
-        } else {
+          withKnownIssue("The iCloud Mail test mailbox lists only INBOX (#2401)") { #expect(!inboxOnly) }
+        }
+        if provider.name != "iCloud Mail" || !inboxOnly {
           #expect(sent != nil && trash != nil)
         }
 
@@ -118,66 +113,98 @@ extension PrivateInboxTests {
         _ = try await session.examine("INBOX")
         let envelope = try #require(try await session.envelopes(.uids([uid])).first)
         #expect(envelope.subject == "Unwired certification \(token)")
-        // Compared as a value, so a failure prints no address.
+        // Compared as values, so a failure prints no address.
         let fromSender = envelope.address.lowercased() == sender.address.lowercased()
         #expect(fromSender)
         let raw = try await imapProvider.message(
           provider.imap, password: provider.password, folder: "INBOX",
           uidValidity: matches.uidValidity, uid: uid, limit: RegistrationStore.imapMessageLimit)
-        #expect(String(decoding: raw, as: UTF8.self).contains("Certification body \(token)"))
+        let hasBody = String(decoding: raw, as: UTF8.self).contains("Certification body \(token)")
+        #expect(hasBody)
         #expect(try await session.select("INBOX") == matches.uidValidity)
         try await session.store(uid, flag: .seen, set: true)
         #expect(try await session.flags([uid])[uid]?.contains("\\Seen") == true)
 
-        // Moved to Trash; and filing appends the submitted message unless a copy with its
-        // boundary is already in Sent.
+        // Moved to Trash: MOVE where the server offers it, else COPY and a targeted UID EXPUNGE.
         if let trash {
-          _ = try await session.move(uid, to: trash)
-          #expect(try await session.search("INBOX", for: .text(token), newest: 1).total == 0)
-        }
-        if let sent {
-          let file = {
-            let filed = try await session.search(sent, for: .boundary(boundary(provider)), newest: 1).total
-            record("\(provider.name): \(filed) Sent copy filed by the provider")
-            if filed == 0 {
-              try await session.append(sent, message: message(from: provider, to: sender))
-            }
-            #expect(try await session.search(sent, for: .boundary(boundary(provider)), newest: 2).total == 1)
-          }
-          if provider.name == "Seznam Email" {
-            await withKnownIssue("Seznam Email drops the connection on a Content-Type search (#2402)") {
-              try await file()
-            }
+          if capabilities.contains("MOVE") {
+            _ = try await session.move(uid, to: trash)
           } else {
-            try await file()
+            _ = try await session.copy(uid, to: trash)
+            try await session.store(uid, flag: .deleted, set: true)
+            try await session.expunge(uid)
           }
+          #expect(try await session.search("INBOX", for: .text(token), newest: 1).total == 0)
+          #expect(try await session.search(trash, for: .text(token), newest: 2).total == 1)
         }
-        await session.close()
-      } catch {
-        await session.close()
-        throw error
-      }
 
-      // Removes this run's messages, and any an interrupted run left, in a new session.
-      let cleanup = try await imapProvider.open(provider.imap, password: provider.password)
-      do {
-        let folders = try await cleanup.folders().filter {
-          $0.name == "INBOX" || !Set($0.attributes).isDisjoint(with: ["\\Sent", "\\Trash"])
-        }
-        for folder in folders.map(\.name) {
-          let leftovers = try await cleanup.search(folder, for: .text("Unwired certification"), newest: 50)
-          _ = try await cleanup.select(folder)
-          for uid in leftovers.uids {
-            try await cleanup.store(uid, flag: .deleted, set: true)
-            try await cleanup.expunge(uid)
+        // Filing appends the submitted message unless a copy is already in Sent, which then holds
+        // exactly one copy that the boundary search finds.
+        if let sent {
+          // What the provider filed itself, read without the boundary search.
+          let provided = try await session.search(sent, for: .text(token), newest: 2).total
+          record("\(provider.name): \(provided) Sent copy filed by the provider")
+          if provided == 0 {
+            try await session.append(sent, message: message(from: provider, to: sender))
           }
-          #expect(try await cleanup.search(folder, for: .text(token), newest: 1).total == 0)
+          #expect(try await session.search(sent, for: .text(token), newest: 2).total == 1)
+          let found = { try await session.search(sent, for: .boundary(boundary(provider)), newest: 2).total }
+          if provider.name == "Seznam Email" {
+            // Only in a folder that holds messages, as Sent now does.
+            try await withKnownIssue("Seznam Email drops the connection on a Content-Type search (#2402)") {
+              let count = try await found()
+              #expect(count == 1)
+            } matching: { ($0.error as? ImapFailure) == .offline }
+          } else {
+            #expect(try await found() == 1)
+          }
         }
-        await cleanup.close()
+        await session.close()
       } catch {
-        await cleanup.close()
+        await session.close()
         throw error
       }
     }
+
+    // Removes this run's messages from INBOX, Sent and Trash.
+    func clean(_ provider: Provider) async throws {
+      let session = try await imapProvider.open(provider.imap, password: provider.password)
+      do {
+        let folders = try await session.folders().filter {
+          $0.name == "INBOX" || !Set($0.attributes).isDisjoint(with: ["\\Sent", "\\Trash"])
+        }
+        for folder in folders.map(\.name) {
+          let leftovers = try await session.search(folder, for: .text(token), newest: 10)
+          _ = try await session.select(folder)
+          for uid in leftovers.uids {
+            try await session.store(uid, flag: .deleted, set: true)
+            try await session.expunge(uid)
+          }
+          #expect(try await session.search(folder, for: .text(token), newest: 1).total == 0)
+        }
+        await session.close()
+      } catch {
+        await session.close()
+        throw error
+      }
+    }
+
+    var failure: (any Error)?
+    do {
+      for (sender, recipient) in [(providers[0], providers[1]), (providers[1], providers[0])] {
+        try await smtpProvider.send(
+          sender.smtp, password: sender.password, from: sender.address, to: [recipient.address],
+          message: message(from: sender, to: recipient))
+      }
+      for (index, provider) in providers.enumerated() {
+        try await verify(provider, from: providers[1 - index])
+      }
+    } catch {
+      failure = error
+    }
+    for provider in providers {
+      do { try await clean(provider) } catch { failure = failure ?? error }
+    }
+    if let failure { throw failure }
   }
 }
