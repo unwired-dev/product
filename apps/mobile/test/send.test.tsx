@@ -262,6 +262,39 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('removes the recovery record once Remind Me to Send stores the version shown', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      const listeners = jest.mocked(AppState.addEventListener).mock.calls
+        .length;
+      await render(<App sender={sender} />);
+      await compose('Keys');
+      await act(async () => {
+        for (const [, listener] of jest
+          .mocked(AppState.addEventListener)
+          .mock.calls.slice(listeners)) {
+          listener('active');
+        }
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(sender.storage.recoveryRecords().size).toBe(1);
+      });
+
+      await remindTomorrow();
+      await waitFor(() => {
+        expect(sender.storage.recoveryRecords().size).toBe(0);
+      });
+      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
   it('keeps the reminder of a Draft another editor saved when it sends its own conflicting copy', async () => {
     expect.hasAssertions();
     const sender = device();

@@ -48,7 +48,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-screens/experimental';
 import { WebView } from 'react-native-webview';
 
-import type { Closing } from './composer.tsx';
+import type { Closing, Recovered } from './composer.tsx';
 import type { Open, PageState } from './evaluation-composer-controls.tsx';
 
 import { FormatPanel, useLinkEditor } from './composer-controls.tsx';
@@ -921,6 +921,8 @@ function EvaluationComposer({
 
 type ComposerProps = Readonly<{
   id: string;
+  // The composer recovery record restored, which only the current composer opens.
+  recovered?: Recovered | undefined;
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;
@@ -950,7 +952,7 @@ export function DraftComposer(props: ComposerProps) {
   // Assistance for a Draft follows the consent of the Mail Profile that owns its sender.
   return (
     <ProfileMailAssistanceGate profile={profileOf(connection, mailboxes)}>
-      {editorPage === undefined ? (
+      {editorPage === undefined || props.recovered !== undefined ? (
         <Composer {...props} />
       ) : (
         <EvaluationComposer
