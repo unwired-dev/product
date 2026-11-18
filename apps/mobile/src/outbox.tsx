@@ -1,5 +1,20 @@
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
+import type { ReactNode } from 'react';
 
+import {
+  Button as SwiftUIButton,
+  Host,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
+import {
+  buttonBorderShape,
+  buttonStyle,
+  controlSize,
+  disabled as inactive,
+  font,
+  foregroundStyle,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { outboxCopy } from '@private-email/mail-core/outbox';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
@@ -21,6 +36,8 @@ import { useOutbox, useOutboxEntries } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
+const phone = Platform.OS === 'ios' && !Platform.isPad;
+
 const styles = StyleSheet.create({
   section: {
     ...textStyles.footnote,
@@ -41,8 +58,14 @@ const styles = StyleSheet.create({
   grow: { flex: 1, gap: 4 },
   subject: { ...textStyles.subheadline },
   detail: { ...textStyles.footnote },
-  recovery: { flexBasis: '100%', gap: 4 },
-  actions: { flexDirection: 'row', gap: spacing.s },
+  // The iPhone frames leave 8pt above a row's capsules.
+  recovery: { flexBasis: '100%', gap: phone ? spacing.s : 4 },
+  // Long labels, such as German ones, wrap the iPhone capsules onto another line.
+  actions: {
+    flexDirection: 'row',
+    flexWrap: phone ? 'wrap' : 'nowrap',
+    gap: spacing.s,
+  },
   toast: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -217,6 +240,59 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
 
 export type OutboxActions = ReturnType<typeof useOutboxActions>['actions'];
 
+function RowActions({ children }: { readonly children: ReactNode }) {
+  return <View style={styles.actions}>{children}</View>;
+}
+
+function RowAction({
+  label,
+  onPress,
+  disabled = false,
+  destructive = false,
+}: {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+}) {
+  const colors = usePalette();
+  if (!phone) {
+    return (
+      <Action
+        variant="composer"
+        destructive={destructive}
+        disabled={disabled}
+        label={label}
+        onPress={onPress}
+      />
+    );
+  }
+  // The iPhone frames draw a row's controls as quiet capsules; iPad keeps text actions until its
+  // frames draw them otherwise.
+  return (
+    <Host matchContents>
+      <SwiftUIButton
+        role={destructive ? 'destructive' : 'default'}
+        onPress={onPress}
+        modifiers={[
+          buttonStyle('bordered'),
+          buttonBorderShape('capsule'),
+          controlSize('large'),
+          tint(colors.textPrimary),
+          inactive(disabled),
+        ]}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'subheadline', weight: 'semibold' }),
+            ...(destructive ? [foregroundStyle(colors.statusDestructive)] : []),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
+  );
+}
+
 // The way out of an unknown outcome: check the Sent mailbox again, or, after a warning that the
 // provider may already have sent it, return the message to the Drafts to send again deliberately.
 function UnknownRecovery({
@@ -244,28 +320,25 @@ function UnknownRecovery({
         </Text>
       )}
       {confirming ? (
-        <View style={styles.actions}>
-          <Action
-            variant="composer"
+        <RowActions>
+          <RowAction
             label={t('outbox.unknown.cancel')}
             onPress={() => {
               actions.dismiss();
               setConfirming(false);
             }}
           />
-          <Action
-            variant="composer"
+          <RowAction
             destructive
             label={t('outbox.unknown.editAnyway')}
             onPress={() => {
               actions.returnToDrafts(entry);
             }}
           />
-        </View>
+        </RowActions>
       ) : (
-        <View style={styles.actions}>
-          <Action
-            variant="composer"
+        <RowActions>
+          <RowAction
             disabled={entry.check === 'checking'}
             label={t(
               entry.check === 'checking'
@@ -276,8 +349,7 @@ function UnknownRecovery({
               actions.check(entry);
             }}
           />
-          <Action
-            variant="composer"
+          <RowAction
             label={t('outbox.edit')}
             onPress={() => {
               actions.dismiss();
@@ -285,9 +357,20 @@ function UnknownRecovery({
               AccessibilityInfo.announceForAccessibility(editWarning);
             }}
           />
-        </View>
+        </RowActions>
       )}
     </View>
+  );
+}
+
+// Undo or Edit sits beside the row's words on iPad and on a line of its own under them on iPhone.
+function ReturnAction({ children }: { readonly children: ReactNode }) {
+  return phone ? (
+    <View style={styles.recovery}>
+      <RowActions>{children}</RowActions>
+    </View>
+  ) : (
+    children
   );
 }
 
@@ -338,11 +421,12 @@ export function OutboxRow({
       {entry.state === 'sending' ||
       entry.state === 'filing' ||
       entry.state === 'unknown' ? null : (
-        <Action
-          variant="composer"
-          label={t(`outbox.${returning}`)}
-          onPress={edit}
-        />
+        <ReturnAction>
+          <RowAction
+            label={t(`outbox.${returning}`)}
+            onPress={edit}
+          />
+        </ReturnAction>
       )}
       {entry.state === 'unknown' ? (
         <UnknownRecovery
