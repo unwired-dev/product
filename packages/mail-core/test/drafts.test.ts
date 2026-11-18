@@ -3616,6 +3616,32 @@ describe('keeping composer recovery records', () => {
     await expect(next.recovered()).resolves.toStrictEqual([]);
   });
 
+  it('recovers the records the opening read took although storage locked meanwhile', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving, session } = await savingDraft();
+    storage.release();
+    await saving;
+    const left = { ...draft, subject: 'Left' };
+    await drafts.journal(left);
+    // The opening read takes the records, then waits for `reading`.
+    const reading = Promise.withResolvers<unknown>();
+    const waits = [reading.promise];
+    const native = {
+      ...storage.native,
+      openComposerRecovery: async () => {
+        const opened = await storage.native.openComposerRecovery();
+        await waits.shift();
+        return opened;
+      },
+    };
+    const next = createDrafts(native, session.registration);
+    await next.load();
+    storage.setLocked(true);
+    const recovered = next.recovered();
+    reading.resolve(undefined);
+    await expect(recovered).resolves.toStrictEqual([left]);
+  });
+
   it('tells a locked read of the records from an empty one and reads them again', async () => {
     expect.hasAssertions();
     const { storage, drafts, draft, saving, session } = await savingDraft();

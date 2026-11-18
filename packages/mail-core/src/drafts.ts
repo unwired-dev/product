@@ -1208,6 +1208,8 @@ export function createDrafts(
   // The account's records as read once its storage opened, as the Drafts are first listed; none
   // while storage refuses that read, as while locked, until `recovered` reads again.
   let previousRun: readonly Draft[] | undefined = undefined;
+  // The read the account's storage opening started, which `recovered` waits for before reading again.
+  let reading: Promise<unknown> | undefined = undefined;
   // The previous run's records whose offer the person answered, which `forget` then removes.
   const taken = new Set<string>();
   const callRecord = (id: string) => {
@@ -1401,7 +1403,7 @@ export function createDrafts(
       // journals meanwhile is left out by `recordedThisRun`.
       Effect.andThen(
         Effect.sync(() => {
-          void runLogged(
+          reading ??= runLogged(
             capturing(current, account).pipe(
               Effect.catchTag('DraftStorageFailure', report),
             ),
@@ -2399,6 +2401,10 @@ export function createDrafts(
       if (account === undefined) {
         return [];
       }
+      const pending = reading;
+      if (pending !== undefined) {
+        yield* Effect.tryPromise(() => pending).pipe(Effect.ignore);
+      }
       const records = yield* capturing(current, account);
       return live(current)
         ? records.filter(({ id }) => !recordedThisRun.has(id) && !taken.has(id))
@@ -2447,6 +2453,7 @@ export function createDrafts(
     cleanup = [];
     dirty = false;
     previousRun = undefined;
+    reading = undefined;
     unrecorded.clear();
     recordCalls.clear();
     copied.clear();
