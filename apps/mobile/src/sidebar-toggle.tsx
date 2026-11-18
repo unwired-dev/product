@@ -74,21 +74,26 @@ export function useSidebarToggle(sideBySide: boolean, portrait: boolean) {
     }),
     [shown],
   );
+  // The iPad Portrait frames hide Mailboxes and keep the list beside the reader, where UIKit
+  // would show all three columns.
+  const portraitDefault =
+    displayMode === 'automatic' && sideBySide && portrait && placed;
   return {
     value: sideBySide ? value : undefined,
-    // The iPad Portrait frames hide Mailboxes and keep the list beside the reader, where UIKit
-    // would show all three columns.
-    displayMode:
-      displayMode === 'automatic' && sideBySide && portrait && placed
-        ? 'oneBesideSecondary'
-        : displayMode,
+    displayMode: portraitDefault ? 'oneBesideSecondary' : displayMode,
     follow: (next: string) => {
       setPlaced(true);
       setShown(next.startsWith('two'));
-      // Once the person has chosen a mode, record the one UIKit reports, so the next toggle always
-      // asks for a change; until then UIKit keeps choosing for the orientation.
+      // Once the person has chosen a mode, by the toggle or by a swipe that leaves the Portrait
+      // default, record the one UIKit reports, so the next toggle always asks for a change; until
+      // then UIKit keeps choosing for the orientation.
       if (next === 'oneBesideSecondary' || next === 'twoBesideSecondary') {
-        setDisplayMode((mode) => (mode === 'automatic' ? mode : next));
+        setDisplayMode((mode) =>
+          mode === 'automatic' &&
+          !(portraitDefault && next === 'twoBesideSecondary')
+            ? mode
+            : next,
+        );
       }
     },
   };
