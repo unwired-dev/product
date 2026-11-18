@@ -835,7 +835,7 @@ function PreviewMessageActions({
         }
       />
       <View style={styles.toolbar}>
-        <GlassGroup>
+        <GlassGroup scaled={!compact}>
           <ToolbarButton
             icon={read.name === 'read' ? 'envelope.open' : 'envelope.badge'}
             label={read.label}
