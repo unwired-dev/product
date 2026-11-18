@@ -38,6 +38,7 @@ import {
 } from './evaluation-page.ts';
 import { translateInto } from './translation-menu.tsx';
 import { injectedScripts } from './webview.tsx';
+import { menuGroups } from './writing-tools.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -509,6 +510,44 @@ describe('the Tiptap evaluation composer', () => {
     expect(lastCommand()).toBe(commandScript({ type: 'blur' }));
     // A text tool's review takes the whole window.
     expect(expand).toHaveBeenCalledWith();
+  });
+
+  it('folds a narrow iPad format bar like the composer’s', async () => {
+    expect.hasAssertions();
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <ComposerLayoutContext
+        value={{ size: 'regular', avoidKeyboard: false, top: 0 }}>
+        <App drafts={createDrafts(storage.native, registration)} />
+      </ComposerLayoutContext>,
+    );
+    await press('New Message');
+    await simulatedPage().typed('Plan');
+    await fireEvent(screen.getByLabelText('Formatting'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 442, height: 44 } },
+    });
+    expect(
+      ['Undo', 'Attach File', 'Paste Image'].filter(
+        (name) => screen.queryByRole('button', { name }) !== null,
+      ),
+    ).toStrictEqual(['Attach File']);
+    expect(menuGroups('More Lists and Links')).toStrictEqual([
+      [
+        ['Numbered List', 'list.number', undefined],
+        ['Edit Link', 'link', true],
+      ],
+      [
+        ['Undo', 'arrow.uturn.backward', false],
+        ['Redo', 'arrow.uturn.forward', true],
+      ],
+    ]);
+    expect(menuGroups('More Files')).toStrictEqual([
+      [
+        ['Attach Photo', 'photo', undefined],
+        ['Insert Image', 'photo.on.rectangle', undefined],
+        ['Paste Image', 'doc.on.clipboard', undefined],
+      ],
+    ]);
   });
 
   // iPhone keeps the Link control in the Format panel; iPad keeps it in the format bar.

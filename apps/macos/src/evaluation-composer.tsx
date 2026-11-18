@@ -44,7 +44,7 @@ import {
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import type { Closing, Toolbar } from './composer.tsx';
+import type { Closing, Recovered, Toolbar } from './composer.tsx';
 import type {
   CaptureRequest,
   PageState,
@@ -939,6 +939,8 @@ function EvaluationComposer({
 
 type ComposerProps = Readonly<{
   id: string;
+  // The composer recovery record restored, which only the current composer opens.
+  recovered?: Recovered | undefined;
   onClose: () => void;
   // Follows the editor to its conflicting copy without reopening it.
   onRebind: (id: string) => void;
@@ -956,7 +958,7 @@ export function DraftComposer(props: ComposerProps) {
   return (
     <ProfileMailAssistanceGate
       profile={profileOf(draft?.connection, mailboxes)}>
-      {editorPage === undefined ? (
+      {editorPage === undefined || props.recovered !== undefined ? (
         <Composer {...props} />
       ) : (
         <EvaluationComposer

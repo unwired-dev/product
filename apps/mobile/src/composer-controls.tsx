@@ -85,6 +85,13 @@ const quietHeight = phone ? 33.6 : 28 * ipadListScale;
 const quietSlop = (44 - quietHeight) / 2;
 // The Format panel's 40pt style choices reach 44pt through the row's 4pt inset.
 const formatStyleSlop = { top: 2, bottom: 2 };
+// The frames show every format bar section in full from 522pt, as the 531pt landscape inline
+// composer does; the 442pt portrait one folds them.
+const fullFormatBar = 522;
+const overflowSlop = {
+  left: (44 - scaledToolbar.width) / 2,
+  right: (44 - scaledToolbar.width) / 2,
+};
 
 const styles = StyleSheet.create({
   // iPad draws the Mac Link Editor popover at the iPad list scale.
@@ -169,6 +176,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexGrow: 1,
     gap: spacing.xs * ipadListScale,
+  },
+  // The narrow bar's frame sets its buttons side by side.
+  narrowRail: { gap: 0 },
+  overflow: {
+    width: scaledToolbar.width,
+    minHeight: 44,
+    alignItems: 'center',
   },
   // 18.4pt tall, 4.6pt from the glyph boxes beside it.
   divider: {
@@ -535,6 +549,35 @@ export function ComposerActions({
   );
 }
 
+// A format bar section's `ellipsis` menu, holding the items a narrow bar cannot show.
+export function OverflowMenu({
+  accessibilityLabel,
+  disabled,
+  sections,
+}: {
+  readonly accessibilityLabel: string;
+  readonly disabled: boolean;
+  readonly sections: readonly MenuSection[];
+}) {
+  const colors = usePalette();
+  return (
+    <MenuButton
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+      hitSlop={overflowSlop}
+      sections={sections}
+      style={styles.overflow}>
+      <SFSymbol
+        name="ellipsis"
+        size={scaledToolbar.symbol}
+        color={colors.textPrimary}
+      />
+    </MenuButton>
+  );
+}
+
+// The iPad format bar. Narrower than the frames' full bar, each section that cannot show all its
+// items ends with an overflow menu, and `children` receives the items the lists menu holds.
 export function FormatBar({
   active,
   kind,
@@ -550,14 +593,28 @@ export function FormatBar({
   readonly onBlock: (kind: BlockKind) => void;
   readonly onMark: (mark: Mark) => void;
   readonly style?: StyleProp<ViewStyle>;
-  readonly children: ReactNode;
+  readonly children: (lists: MenuSection['items'] | undefined) => ReactNode;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const [width, setWidth] = useState<number>();
+  const narrow = width !== undefined && width < fullFormatBar;
+  const numbered = {
+    disabled,
+    icon: 'list.number',
+    label: t('drafts.blocks.numbered'),
+    selected: kind === 'numbered',
+    onPress: () => {
+      onBlock('numbered');
+    },
+  };
   return (
     <View
       accessibilityLabel={t('drafts.formatting')}
       accessibilityRole="toolbar"
+      onLayout={({ nativeEvent }) => {
+        setWidth(nativeEvent.layout.width);
+      }}
       style={[styles.formatBar, { borderColor: colors.separator }, style]}>
       {/* The system menu marks the current style with its leading checkmark. */}
       <MenuButton
@@ -600,23 +657,47 @@ export function FormatBar({
         horizontal
         keyboardShouldPersistTaps="always"
         style={[styles.formatRail, styles.formatTarget]}
-        contentContainerStyle={styles.formatRailContent}>
+        contentContainerStyle={[
+          styles.formatRailContent,
+          narrow && styles.narrowRail,
+        ]}>
         <ScaledToolbar value>
           <View
             style={[styles.divider, { backgroundColor: colors.separator }]}
           />
-          {markControls.map(([mark, , name]) => (
-            <ToolbarButton
-              key={mark}
+          {markControls
+            .slice(0, narrow ? 2 : undefined)
+            .map(([mark, , name]) => (
+              <ToolbarButton
+                key={mark}
+                disabled={disabled}
+                icon={markIcons[mark]}
+                label={t(name)}
+                selected={active.includes(mark)}
+                onPress={() => {
+                  onMark(mark);
+                }}
+              />
+            ))}
+          {narrow ? (
+            <OverflowMenu
+              accessibilityLabel={t('drafts.moreFormatting')}
               disabled={disabled}
-              icon={markIcons[mark]}
-              label={t(name)}
-              selected={active.includes(mark)}
-              onPress={() => {
-                onMark(mark);
-              }}
+              sections={[
+                {
+                  items: markControls.slice(2).map(([mark, , name]) => ({
+                    key: mark,
+                    title: t(name),
+                    symbol: markIcons[mark],
+                    checked: active.includes(mark),
+                    run: () => {
+                      onMark(mark);
+                    },
+                  })),
+                },
+              ]}
             />
-          ))}
+          ) : null}
           <View
             style={[styles.divider, { backgroundColor: colors.separator }]}
           />
@@ -629,16 +710,20 @@ export function FormatBar({
               onBlock('bulleted');
             }}
           />
-          <ToolbarButton
-            disabled={disabled}
-            icon="list.number"
-            label={t('drafts.blocks.numbered')}
-            selected={kind === 'numbered'}
-            onPress={() => {
-              onBlock('numbered');
-            }}
-          />
-          {children}
+          {narrow ? null : <ToolbarButton {...numbered} />}
+          {children(
+            narrow
+              ? [
+                  {
+                    key: 'numbered',
+                    title: numbered.label,
+                    symbol: numbered.icon,
+                    checked: numbered.selected,
+                    run: numbered.onPress,
+                  },
+                ]
+              : undefined,
+          )}
         </ScaledToolbar>
       </ScrollView>
     </View>
@@ -910,18 +995,21 @@ export type LinkEditorState = ReturnType<typeof useLinkEditor>;
 
 // The format bar's Link control and the Link Editor it opens for the link at the caret, or to
 // add one to selected unlinked text: a popover below the control on iPad, a sheet on iPhone. It
-// is unavailable otherwise.
+// is unavailable otherwise. A `renderMenu` takes the control's place as one of its items, and the popover
+// opens from that menu.
 export function LinkEditor({
   state,
   link,
   disabled,
   popover,
+  renderMenu,
   onChange,
 }: {
   readonly state: LinkEditorState;
   readonly link: Link | undefined;
   readonly disabled: boolean;
   readonly popover: boolean;
+  readonly renderMenu?: (item: MenuSection['items'][number]) => ReactElement;
   readonly onChange: (link: Link, text: string, href?: string) => void;
 }) {
   const { t } = useLocalization();
@@ -976,29 +1064,42 @@ export function LinkEditor({
   };
   // oxlint-disable-next-line react/refs, react-hooks-js/refs -- Expo onAppear only stores this callback; SwiftUI invokes it after presentation, never during render.
   const appearance = onAppear(focusDestination);
-  const trigger = (
-    <SwiftUIButton
-      label={t(link?.href === '' ? 'drafts.link.add' : 'drafts.link.edit')}
-      modifiers={[
-        labelStyle('iconOnly'),
-        buttonStyle('plain'),
-        font({ size: popover ? scaledToolbar.symbol : 20 }),
-        foregroundStyle(colors.textPrimary),
-        frame({ minWidth: 44, minHeight: 44 }),
-        inactive(disabled || link === undefined),
-      ]}
-      systemImage="link"
-      onPress={() => {
-        if (link !== undefined) {
-          setEditing(link);
-          setText(link.text);
-          setDestination(link.href);
-          setChecked(false);
-          show(true);
-        }
-      }}
-    />
-  );
+  const label = t(link?.href === '' ? 'drafts.link.add' : 'drafts.link.edit');
+  const open = () => {
+    if (link !== undefined) {
+      setEditing(link);
+      setText(link.text);
+      setDestination(link.href);
+      setChecked(false);
+      show(true);
+    }
+  };
+  const trigger =
+    renderMenu === undefined ? (
+      <SwiftUIButton
+        label={label}
+        modifiers={[
+          labelStyle('iconOnly'),
+          buttonStyle('plain'),
+          font({ size: popover ? scaledToolbar.symbol : 20 }),
+          foregroundStyle(colors.textPrimary),
+          frame({ minWidth: 44, minHeight: 44 }),
+          inactive(disabled || link === undefined),
+        ]}
+        systemImage="link"
+        onPress={open}
+      />
+    ) : (
+      <RNHostView matchContents>
+        {renderMenu({
+          key: 'link',
+          title: label,
+          symbol: 'link',
+          disabled: disabled || link === undefined,
+          run: open,
+        })}
+      </RNHostView>
+    );
   const fields = {
     destinationInput,
     text,

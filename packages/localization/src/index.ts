@@ -4,8 +4,9 @@ import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 import { createInstance } from 'i18next';
 
-import catalog from '../catalogs.bundle/en.json' with { type: 'json' };
-import languages from '../catalogs.bundle/languages.json' with { type: 'json' };
+import type catalog from '../catalogs.bundle/en.json';
+
+import { catalogs, languages } from './shipped-catalogs.ts';
 
 export {
   createMessageDateFormat,
@@ -15,7 +16,7 @@ export {
 export type { MessageDay } from './message-date-format.ts';
 export { lastUpdated } from './last-updated.ts';
 
-export { default as languages } from '../catalogs.bundle/languages.json' with { type: 'json' };
+export { languages } from './shipped-catalogs.ts';
 
 export interface LanguageSettings {
   readonly preference: string | null;
@@ -82,7 +83,12 @@ function createTranslations(language: string) {
     lng: language,
     fallbackLng: 'en',
     supportedLngs: languages.map(({ code }) => code),
-    resources: { en: { translation: catalog } },
+    resources: Object.fromEntries(
+      Object.entries(catalogs).map(([code, translation]) => [
+        code,
+        { translation },
+      ]),
+    ),
     initAsync: false,
     interpolation: { escapeValue: false },
   });

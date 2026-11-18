@@ -78,6 +78,11 @@ assert.equal(
   Boolean(scenario),
   'Mock providers must appear only in explicitly selected test bundles.',
 );
+assert.equal(
+  sources.some((source) => source.includes('/localization/src/testing/')),
+  Boolean(scenario),
+  'The German test catalog must appear only in explicitly selected test bundles.',
+);
 // The synthetic trusted device's HPKE seal is the only user of these.
 assert.ok(
   Boolean(scenario) ||
