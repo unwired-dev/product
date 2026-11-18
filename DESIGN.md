@@ -470,7 +470,8 @@ styles) so the file stays editable.
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
   safe area, and the reading pane runs to the screen's bottom edge beneath them,
-  its text fading out behind a 140pt scroll edge fade.
+  its text fading out behind a 140pt scroll edge fade (clear, then 85% and 97%
+  of the surface). A regular-width iPhone keeps the window bar's fade instead.
   On Mac and iPad it holds Archive, Delete, Move, Reply, Reply All, Forward, Pin,
   Snooze and More; on iPhone Archive, Move and Reply. More holds Mark as Unread,
   Mute Thread and Move to Spam, and the multi-select Category control sits in

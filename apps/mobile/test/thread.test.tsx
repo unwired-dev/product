@@ -247,8 +247,12 @@ describe('thread view', () => {
     ).toStrictEqual(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
 
     // The opened message is highlighted.
-    // The final Thread body must scroll clear of the window's floating bar.
+    // The final Thread body must scroll clear of the window's floating bar, which brings its own
+    // scroll edge.
     expect(readerContent()).toMatchObject({ paddingBottom: 84 });
+    expect(
+      screen.queryByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toBeNull();
     expect(screen.getByText('Alex Rivera')).toHaveProp('accessibilityState', {
       selected: true,
     });
@@ -474,10 +478,37 @@ describe('thread view', () => {
     expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     // The iPhone frames count a single message as they count a thread's.
     expect(screen.getByText('1 Message')).toBeVisible();
-    // Its text fades out beneath the toolbar.
+    // Its text fades out beneath the toolbar, through the frames' 85% and 97% stops.
+    const surface = themes.light.surfaceContent;
     expect(
       screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
-    ).toHaveStyle({ position: 'absolute', bottom: 0, height: 140 });
+    ).toHaveStyle({
+      position: 'absolute',
+      bottom: 0,
+      height: 140,
+      experimental_backgroundImage: `linear-gradient(to bottom, ${surface}00, ${surface}D9, ${surface}F7)`,
+    });
+  });
+
+  it('leaves the scroll edge to a regular-width window bar in the single-message reader', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createInboxStore(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <WindowBarContext value={createWindowBar()}>
+          <MessageDetail
+            id={middle}
+            mailbox={alex}
+          />
+        </WindowBarContext>
+      </InboxProvider>,
+    );
+    await act(store.load);
+    await expect(screen.findByText('1 Message')).resolves.toBeVisible();
+    expect(
+      screen.queryByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toBeNull();
   });
 
   it('opens the Command Palette from the thread header beside its system Back', async () => {

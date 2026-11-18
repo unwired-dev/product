@@ -115,6 +115,8 @@ const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
 // iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the toolbar's
 // glass.
 const readerEdgeHeight = 140;
+// Its stops: clear, then 85% and 97% of the surface.
+const readerEdgeAlphas = ['00', 'D9', 'F7'];
 // The content's bottom padding lets its last line scroll clear of iPhone's scroll edge, or of a
 // regular window's floating bar and on iPhone the home indicator it runs beneath.
 const clearsBottom = (bar: boolean, inset: number) => ({
@@ -233,7 +235,10 @@ function ReaderCommandRow() {
 // iPhone's fade beneath the reader's toolbar. A regular-width window's floating bar brings its own.
 function ReaderEdge() {
   return use(WindowBarContext) === undefined ? (
-    <ScrollEdge style={styles.readerEdge} />
+    <ScrollEdge
+      style={styles.readerEdge}
+      alphas={readerEdgeAlphas}
+    />
   ) : null;
 }
 
