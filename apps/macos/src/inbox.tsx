@@ -347,17 +347,6 @@ const savedStatus = (t: Translate, saved: boolean | undefined) => {
 
 // Gmail's own search, asked for explicitly below the results saved on this device, which it never
 // replaces. Each mailbox that Gmail could not search says why.
-// A folder still opening, or one that failed before listing anything, has not answered a search.
-const unlistedOf = ({
-  opening,
-  failure,
-  listed,
-}: Readonly<{
-  opening: boolean;
-  failure: string | undefined;
-  listed: readonly unknown[];
-}>) => opening || (failure !== undefined && listed.length === 0);
-
 // A mail server search that failed, left IMAP folders out or has another page has not answered
 // whether nothing matches.
 const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
@@ -941,14 +930,13 @@ export function Inbox({
     limited,
     downloading,
     listed,
-    opening,
+    unlisted,
     title: folderTitle,
     failure,
     missing,
     folderOf,
     showOlder,
   } = useListedMailbox(shown, inboxListed, { view, onView });
-  const unlisted = unlistedOf({ opening, failure, listed });
   // A message chosen outside the Inbox names its folder, which its actions can take it out of.
   const selectionOf = (mailbox: string, id: string) => {
     const listedIn = folderOf(mailbox, id);

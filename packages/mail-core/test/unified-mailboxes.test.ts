@@ -217,7 +217,7 @@ describe('unified mailboxes across connections', () => {
     expect(selectedFolders(sidebar)).toStrictEqual([]);
   });
 
-  it('is opening until each folder of the role has listed once', async () => {
+  it('is unlisted until each mailbox and folder of the role has listed once', async () => {
     expect.hasAssertions();
     const { gmail, imap, stores } = await connections();
     gmail.setLabel(gmail.deliver({ subject: 'Gmail sent' }), 'SENT', true);
@@ -225,14 +225,34 @@ describe('unified mailboxes across connections', () => {
       subject: 'IMAP sent',
       received: minute(1),
     });
+    // A mailbox still opening has not listed its folders either.
+    expect(unifiedMailbox(snapshot(stores), 'SENT').unlisted).toBe(true);
     for (const { inbox } of stores) {
       await inbox.load();
     }
     // An empty list before the first listing is no answer to a search.
-    expect(unifiedMailbox(snapshot(stores), 'SENT').opening).toBe(true);
+    expect(unifiedMailbox(snapshot(stores), 'SENT').unlisted).toBe(true);
     const sent = await opened(stores, 'SENT');
-    expect(sent.opening).toBe(false);
+    expect(sent.unlisted).toBe(false);
     expect(rows(sent)).toContainEqual(['gmail', 'Gmail sent', 'SENT']);
+  });
+
+  it('stays unlisted while a folder whose first read failed has listed nothing', async () => {
+    expect.hasAssertions();
+    const { gmail, imap, stores } = await connections();
+    imap.deliver('Sent Messages', {
+      subject: 'IMAP sent',
+      received: minute(1),
+    });
+    for (const { inbox } of stores) {
+      await inbox.load();
+    }
+    gmail.fail({ code: 'unavailable' });
+    const sent = await opened(stores, 'SENT');
+    // Another mailbox's rows do not answer for the one that could not be read.
+    expect(rows(sent)).toContainEqual(['imap', 'IMAP sent', 'Sent Messages']);
+    expect(sent.failed.map(({ id }) => id)).toStrictEqual(['gmail']);
+    expect(sent.unlisted).toBe(true);
   });
 
   it('reads past an unreadable All folder and never takes an All folder as Archive', async () => {

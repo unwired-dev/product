@@ -599,27 +599,27 @@ const viewMessages = (
   return {
     messages: view?.messages ?? [],
     failed: view?.status === 'failed',
-    opening:
+    unlisted:
       view === undefined ||
-      (view.status === 'syncing' && view.messages.length === 0),
+      (view.status !== 'current' && view.messages.length === 0),
   };
 };
 
 const imapFolderMessages = (view: ImapFolderView | undefined) => ({
   messages: view?.kind === 'ready' ? view.messages : [],
   failed: imapFolderFailed(view),
-  opening: view?.kind === 'loading',
+  unlisted: view?.kind !== 'ready',
 });
 
 // The messages a mailbox lists in one of its folders or views, whether reading it failed, and
-// whether its first listing is still to arrive.
+// whether it has listed nothing yet because its first listing is still to arrive or failed.
 const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
   const { inbox, state } = mailbox;
   if (name === inboxFolder) {
     return {
       messages: 'messages' in state ? state.messages : [],
       failed: false,
-      opening: false,
+      unlisted: false,
     };
   }
   const gmail = gmailMailbox(mailbox);
@@ -634,7 +634,8 @@ const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
 // A Unified Mailbox of a Profile's ready mailboxes, newest first. Each entry names the folder or
 // view it is listed in, so its actions are those of that folder at its own connection. Mailboxes
 // without the role are `missing`; a folder or view that could not be read makes its mailbox
-// `failed`, and one whose first listing has not arrived makes the Unified Mailbox `opening`.
+// `failed`. A mailbox still opening, or a folder or view that has listed nothing yet because its
+// first listing is still to arrive or failed, leaves the Unified Mailbox `unlisted`.
 export const unifiedMailbox = <
   M extends BrowsableMailbox & Readonly<{ id: string }>,
 >(
@@ -643,8 +644,9 @@ export const unifiedMailbox = <
 ) => {
   const missing: M[] = [];
   const failed: M[] = [];
-  let opening = false;
+  let unlisted = false;
   const entries = mailboxes.flatMap((mailbox) => {
+    unlisted ||= mailbox.state.kind !== 'ready';
     const names = unifiedFolders(mailbox, role);
     if (names === undefined) {
       missing.push(mailbox);
@@ -655,7 +657,7 @@ export const unifiedMailbox = <
       if (listed.failed) {
         failed.push(mailbox);
       }
-      opening ||= listed.opening;
+      unlisted ||= listed.unlisted;
       return listed.messages;
     };
     return names.flatMap((name) =>
@@ -670,6 +672,6 @@ export const unifiedMailbox = <
     entries: newestFirst(mailboxes, entries),
     missing,
     failed: Arr.dedupe(failed),
-    opening,
+    unlisted,
   };
 };
