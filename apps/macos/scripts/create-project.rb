@@ -94,6 +94,17 @@ design = project.main_group.new_group('Design', '../../../native/design')
 target.add_file_references(%w[UnwiredDesign.m UnwiredPopover.m UnwiredSidebar.m].map { |name| design.new_file(name) })
 catalogs = project.main_group.new_file('../../../packages/localization/catalogs.bundle')
 target.resources_build_phase.add_file_reference(catalogs)
+# Mock Mail Session builds also offer the German test catalog their JavaScript carries.
+if scenario
+  german = target.new_shell_script_build_phase('Bundle German test catalog')
+  german.shell_script = <<~SH
+    set -e
+    # Archiving this project from Xcode builds Release without regenerating it.
+    [ "$CONFIGURATION" = Testing ] || exit 0
+    cp "$SRCROOT/../../../packages/localization/src/testing/de.json" "$SRCROOT/../../../packages/localization/src/testing/languages.json" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/catalogs.bundle/"
+  SH
+  german.always_out_of_date = '1'
+end
 project.add_build_configuration('Testing', :release)
 target.add_build_configuration('Testing', :release)
 project.build_configurations.each do |configuration|
