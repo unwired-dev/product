@@ -611,6 +611,14 @@ const imapFolderMessages = (view: ImapFolderView | undefined) => ({
   unlisted: view?.kind !== 'ready',
 });
 
+// A mailbox still opening, or a Gmail or IMAP one that lists nothing because its first
+// synchronization has not completed, has not listed its Inbox.
+export const inboxUnlisted = (state: BrowsableMailbox['state']) =>
+  state.kind !== 'ready' ||
+  (state.messages.length === 0 &&
+    ('sync' in state || 'status' in state) &&
+    state.synchronizedAt === undefined);
+
 // The messages a mailbox lists in one of its folders or views, whether reading it failed, and
 // whether it has listed nothing yet because its first listing is still to arrive or failed.
 const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
@@ -619,7 +627,7 @@ const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
     return {
       messages: 'messages' in state ? state.messages : [],
       failed: false,
-      unlisted: false,
+      unlisted: inboxUnlisted(state),
     };
   }
   const gmail = gmailMailbox(mailbox);

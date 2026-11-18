@@ -195,7 +195,7 @@ the newest 200 and the older ones scrolling has revealed from
   IMAP folders out or has another page replaces No Results with its failure and **Try Again**, its
   note or **More from Mail Servers**, and the subtitle then names only the scope, or adds **Offline**
   when a mail server could not be reached. The Inbox, a folder or a Unified Mailbox shows No
-  Results only once each of its mailboxes has opened and its first listing has arrived, and not while it has listed nothing
+  Results only once each of its mailboxes has opened and its first listing has arrived (for an Inbox, once its first synchronization has completed or its cache lists mail), and not while it has listed nothing
   because that first listing failed.
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier

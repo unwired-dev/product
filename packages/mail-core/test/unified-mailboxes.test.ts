@@ -12,6 +12,7 @@ import {
   viewMessage,
 } from '@private-email/mail-core/inbox-store';
 import {
+  inboxUnlisted,
   mailboxSidebar,
   notIncludedDetail,
   profileMailboxes,
@@ -253,6 +254,21 @@ describe('unified mailboxes across connections', () => {
     expect(rows(sent)).toContainEqual(['imap', 'IMAP sent', 'Sent Messages']);
     expect(sent.failed.map(({ id }) => id)).toStrictEqual(['gmail']);
     expect(sent.unlisted).toBe(true);
+  });
+
+  it('leaves an Inbox unlisted until its first synchronization completes', async () => {
+    expect.hasAssertions();
+    const empty = createInboxStore(createSyntheticGmail().native);
+    expect(inboxUnlisted(empty.getSnapshot())).toBe(true);
+    await empty.load();
+    // An empty Inbox that synchronized lists nothing, which answers a search.
+    expect(inboxUnlisted(empty.getSnapshot())).toBe(false);
+    const unreachable = createSyntheticGmail();
+    unreachable.fail({ code: 'unavailable' });
+    const fresh = createInboxStore(unreachable.native);
+    await fresh.load();
+    // A first synchronization that failed has listed nothing, which answers nothing.
+    expect(inboxUnlisted(fresh.getSnapshot())).toBe(true);
   });
 
   it('reads past an unreadable All folder and never takes an All folder as Archive', async () => {
