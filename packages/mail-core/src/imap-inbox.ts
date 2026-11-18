@@ -26,6 +26,7 @@ import type {
   ImapFolderHistory,
   ImapMessage,
   ImapPending,
+  ImapRelocation,
 } from './imap-model.ts';
 import type {
   HistoryProgress,
@@ -603,6 +604,27 @@ const movedTo = (
       }
     : undefined;
 
+// Puts each receipt after the move that left its message where it starts, keeping their order
+// otherwise. IMAP message IDs never recur, so each message's moves form one chain.
+const followMoves = (receipts: readonly ImapRelocation[]) => {
+  const before = new Map(receipts.map((receipt) => [receipt.to, receipt]));
+  const ordered = new Set<ImapRelocation>();
+  for (const receipt of receipts) {
+    const chain: ImapRelocation[] = [];
+    for (
+      let at: ImapRelocation | undefined = receipt;
+      at !== undefined && !ordered.has(at) && !chain.includes(at);
+      at = before.get(at.from)
+    ) {
+      chain.push(at);
+    }
+    for (const link of Arr.reverse(chain)) {
+      ordered.add(link);
+    }
+  }
+  return [...ordered];
+};
+
 // The ID a move the server mapped to a new UID gave the message, Undo's included.
 const movedId = ({ action }: ImapPending, answer: Answer) =>
   answer.outcome === 'moved' &&
@@ -816,8 +838,11 @@ export function createImapInbox(
     // The Spam and Trash folders the person chose for this connection.
     chosen?: ChosenFolders | undefined;
     // Called once the server moved message `from`, Undo's moves included, with the ID it has now,
-    // or undefined when the server did not say its new UID.
-    relocated?: ((from: string, to: string | undefined) => void) | undefined;
+    // or undefined when the server did not say its new UID; resolves whether it kept that. One it
+    // did not keep is called again, in order, after the Inbox next opens, also after relaunch.
+    relocated?:
+      | ((from: string, to: string | undefined) => Promise<boolean>)
+      | undefined;
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
@@ -879,6 +904,37 @@ export function createImapInbox(
   let document: ImapDocument | undefined = undefined;
   let forgotten = false;
   let lifetime = 0;
+  // Applied moves `relocated` has not kept yet, oldest first. Each commit saves them, and they
+  // outlive closed access, so a move answered while storage is locked still counts.
+  let relocations: readonly ImapRelocation[] = [];
+  let relocating = false;
+  // A request that arrived while `relocated` was still answering, which runs once it has.
+  let requested = false;
+  // Hands each relocation to `relocated` in order, until one it does not keep.
+  const handRelocations = async () => {
+    if (relocated === undefined) {
+      return;
+    }
+    if (relocating) {
+      requested = true;
+      return;
+    }
+    relocating = true;
+    try {
+      do {
+        requested = false;
+        let [head] = relocations;
+        // Forgetting the Inbox empties `relocations`.
+        while (head !== undefined && (await relocated(head.from, head.to))) {
+          const kept = head;
+          relocations = relocations.filter(({ from }) => from !== kept.from);
+          [head] = relocations;
+        }
+      } while (requested);
+    } finally {
+      relocating = false;
+    }
+  };
   const closedFolder = { kind: 'failed' } as const;
   // Folder snapshots read before any view is recorded stay the same object across reads, as
   // React's external stores require; a cached listing keeps its view while its messages do.
@@ -1342,6 +1398,7 @@ export function createImapInbox(
         folderViews.set(name, view);
       }
     }
+    yield* restoreRelocations(stored);
     return cache.availability === undefined;
   });
 
@@ -1357,7 +1414,10 @@ export function createImapInbox(
         diagnostic: 'Inbox closed',
       });
     }
-    const text = yield* encodeDocument(next).pipe(Effect.mapError(malformed));
+    const { relocations: _saved, ...rest } = next;
+    const text = yield* encodeDocument(
+      relocations.length === 0 ? rest : { ...rest, relocations },
+    ).pipe(Effect.mapError(malformed));
     const reply = yield* decodeCommit(
       yield* call(() =>
         native.commitMailbox(scope, scope.revision, text, history),
@@ -1370,6 +1430,33 @@ export function createImapInbox(
     document = next;
     retireSuperseded();
   });
+
+  // Keeps the relocations the opened cache saved, in their order, then this run's others, which it
+  // saves at once so they outlast a relaunch, and hands them on. One already kept repeats
+  // harmlessly: no Pin remains under its `from`.
+  function restoreRelocations(stored: ImapDocument) {
+    return Effect.gen(function* () {
+      // A subscriber may have forgotten the Inbox while it opened.
+      if (forgotten) {
+        return;
+      }
+      const saved = stored.relocations ?? [];
+      const known = new Set(saved.map(({ from }) => from));
+      const unsaved = relocations.filter(({ from }) => !known.has(from));
+      relocations = followMoves([...saved, ...unsaved]);
+      if (unsaved.length > 0) {
+        // Another window's commit reopens the cache to save them again; another failure leaves
+        // them to the next commit.
+        yield* commit(stored).pipe(
+          Effect.catchIf(
+            ({ kind }) => kind !== 'conflict',
+            () => Effect.void,
+          ),
+        );
+      }
+      void handRelocations();
+    });
+  }
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
   // pruning stops keeping their bodies. The Inbox always stays.
@@ -1917,8 +2004,13 @@ export function createImapInbox(
 
   // Tells `relocated` where a move the server applied left its message.
   const reportMoved = (change: ImapPending, answer: Answer) => {
-    if (deliveredTo(change, answer) !== undefined) {
-      relocated?.(change.message.id, movedId(change, answer));
+    if (relocated !== undefined && deliveredTo(change, answer) !== undefined) {
+      const to = movedId(change, answer);
+      relocations = [
+        ...relocations,
+        { from: change.message.id, ...(to === undefined ? {} : { to }) },
+      ];
+      void handRelocations();
     }
   };
 
@@ -1927,7 +2019,12 @@ export function createImapInbox(
     rest: readonly ImapPending[],
     answer: Answer,
   ) {
-    if (forgotten || document === undefined) {
+    if (forgotten) {
+      return undefined;
+    }
+    // The server moved the message even when access closed meanwhile or saving that fails.
+    reportMoved(head, answer);
+    if (document === undefined) {
       return undefined;
     }
     if (answer.outcome === 'copied') {
@@ -1944,8 +2041,6 @@ export function createImapInbox(
       });
       return {};
     }
-    // The server moved the message even when saving that fails.
-    reportMoved(head, answer);
     yield* commit(settle(document, head, answer));
     if (!applied(answer)) {
       restoring.delete(head.id);
@@ -3580,6 +3675,7 @@ export function createImapInbox(
       noticed = undefined;
       originalIds = new Map();
       restoring.clear();
+      relocations = [];
       shared.images.delete(imageOwner);
       shared.waiting.delete(imageOwner);
       state = { kind: 'loading' };

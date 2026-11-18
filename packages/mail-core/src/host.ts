@@ -446,9 +446,7 @@ export function createHost(
       arrived: notifications.arrived,
       screen: blockedSenders.screen,
       // A Pin follows its IMAP message to the ID a move gave it.
-      relocated: (connection, from, to) => {
-        void pins.move(connection, from, to);
-      },
+      relocated: (connection, from, to) => pins.move(connection, from, to),
     },
   );
 
