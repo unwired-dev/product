@@ -2430,12 +2430,12 @@ final class InboxTests: XCTestCase {
       let accepted = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
       waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       waitUntil { self.formatControl("Undo", in: app).isEnabled }
-      app.buttons["Undo"].tap()
+      formatControl("Undo", in: app).tap()
       waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == original }
       waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == originalBold }
       if !leaveUndone {
         waitUntil { self.formatControl("Redo", in: app).isEnabled }
-        app.buttons["Redo"].tap()
+        formatControl("Redo", in: app).tap()
         waitUntil { app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label } == accepted }
         waitUntil { self.formatControl("Numbered List", in: app).isSelected == numbered && self.formatControl("Bold", in: app).isSelected == boldAfterApply }
       }
@@ -2562,7 +2562,7 @@ final class InboxTests: XCTestCase {
     waitUntil { app.webViews.images.count == 1 }
     formatControl("Undo", in: app).tap()
     waitUntil { app.webViews.images.count == 0 }
-    app.buttons["Redo"].tap()
+    formatControl("Redo", in: app).tap()
     waitUntil { app.webViews.images.count == 1 }
     let typed = app.webViews.staticTexts.allElementsBoundByIndex.map { $0.label }
     // Reopened from encrypted storage, the image keeps its place and shows its thumbnail again.
