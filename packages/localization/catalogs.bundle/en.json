@@ -1088,6 +1088,8 @@
     "recipientPlaceholder": "Name or email address",
     "recipient": {
       "invalid": "Enter a valid email address.",
+      "incomplete": "“{{address}}” is not a complete address. Correct it to send.",
+      "required": "Add a recipient to send.",
       "duplicate": "Already added"
     },
     "suggestions": {

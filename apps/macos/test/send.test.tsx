@@ -153,6 +153,21 @@ const press = async (name: string) => {
   });
 };
 
+// Attaches a file whose check during Send finds private storage locked, so Send refuses it.
+const attachUncheckedFile = async (sender: ReturnType<typeof device>) => {
+  sender.storage.addFile('file:///plan.pdf', 'plan');
+  sender.storage.pickNext('files', [
+    { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+  ]);
+  await press('Attach Files…');
+  await screen.findByLabelText('plan.pdf, 4 bytes');
+  jest
+    .spyOn(sender.storage.native, 'readDraftAsset')
+    .mockRejectedValueOnce(
+      Object.assign(new Error('Storage locked'), { code: 'locked' }),
+    );
+};
+
 // The same composite-fiber boundary used by fireEvent, retained before disabled props commit.
 const queuedPress = (label: string, event = 'onPress') => {
   let fiber = screen.getByLabelText(label).unstable_fiber;
@@ -616,6 +631,41 @@ describe('sending a Draft', () => {
     }
   });
 
+  it('keeps Send unavailable while a file is added, saying why without announcing it', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Contracts');
+      sender.storage.holdImports();
+      sender.storage.addFile('file:///plan.pdf', 'plan');
+      sender.storage.pickNext('files', [
+        { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+      ]);
+      await press('Attach Files…');
+      await screen.findByLabelText('plan.pdf, Adding…');
+      const waiting =
+        'Some files are not ready to send. Remove them, or wait until they are added.';
+      expect(screen.getByRole('alert', { name: waiting })).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await act(async () => {
+        sender.storage.releaseImports();
+      });
+      await screen.findByLabelText('plan.pdf, 4 bytes');
+      expect(screen.queryByRole('alert', { name: waiting })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+      expect(announce).not.toHaveBeenCalledWith(waiting);
+    } finally {
+      sender.storage.release();
+      sender.outbox.dispose();
+    }
+  });
+
   it('shows an inline image again once Send verifies it after a locked check', async () => {
     expect.hasAssertions();
     const sender = device();
@@ -859,7 +909,6 @@ describe('sending a Draft', () => {
       await render(<App sender={sender} />);
       await compose('Lunch');
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
-      await press('To: sam@example.invalid');
       await act(async () => {
         for (const [, listener] of jest
           .mocked(AppState.addEventListener)
@@ -871,9 +920,10 @@ describe('sending a Draft', () => {
       await waitFor(() => {
         expect(sender.storage.recoveryRecords().size).toBe(1);
       });
+      await attachUncheckedFile(sender);
       await press('Send');
       await screen.findByRole('alert', {
-        name: 'Add a recipient before sending.',
+        name: 'Some files are not ready to send. Remove them, or wait until they are added.',
       });
       // The refused Send saved the Draft, so its recovery record goes while the composer stays.
       await waitFor(() => {
@@ -902,20 +952,16 @@ describe('sending a Draft', () => {
         await sender.drafts.save();
       });
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
-      await press('To: sam@example.invalid');
+      await attachUncheckedFile(sender);
       await press('Send');
       await screen.findByRole('alert', {
-        name: 'Add a recipient before sending.',
+        name: 'Some files are not ready to send. Remove them, or wait until they are added.',
       });
       expect(screen.getByLabelText('Subject')).toHaveProp('editable', true);
       for (const field of ['To', 'Subject', 'Message body']) {
         expect(screen.getByLabelText(field)).not.toBeDisabled();
       }
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
-      await fireEvent.changeText(
-        screen.getByLabelText('To'),
-        'sam@example.invalid',
-      );
       await fireEvent.changeText(
         screen.getByLabelText('Subject'),
         'After refusal',
@@ -1012,36 +1058,34 @@ describe('sending a Draft', () => {
       await render(<App sender={sender} />);
       await press('New Message');
 
-      await press('Send');
-
+      // Send waits for a recipient, and the To field says so before anything is pressed.
+      const required = 'Add a recipient to send.';
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      expect(screen.getByLabelText(required)).toBeOnTheScreen();
+      await fireEvent.changeText(screen.getByLabelText('To'), 'sam@example');
+      await fireEvent(screen.getByLabelText('To'), 'blur');
       expect(
-        screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
+        screen.getByLabelText(
+          '“sam@example” is not a complete address. Correct it to send.',
+        ),
       ).toBeOnTheScreen();
-      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      expect(screen.queryByLabelText(required)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await fireEvent.changeText(
         screen.getByLabelText('To'),
         'sam@example.invalid',
       );
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
-      expect(
-        screen.queryByRole('alert', {
-          name: 'Add a recipient before sending.',
-        }),
-      ).toBeNull();
+      expect(screen.queryByLabelText(/is not a complete address/u)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
       await press('To: sam@example.invalid');
-      await press('Send');
-      expect(
-        screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
-      ).toBeOnTheScreen();
+      expect(screen.getByLabelText(required)).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
       await press('Undo');
       expect(
         screen.getByRole('button', { name: 'To: sam@example.invalid' }),
       ).toBeOnTheScreen();
-      expect(
-        screen.queryByRole('alert', {
-          name: 'Add a recipient before sending.',
-        }),
-      ).toBeNull();
+      expect(screen.queryByLabelText(required)).toBeNull();
       await press('Compose actions');
       await chooseMenuItem('Discard');
       await press('Discard Draft');
@@ -1170,8 +1214,6 @@ describe('sending a Draft', () => {
         [unconfirmed, { queue: true }],
       ]);
       expect(announce.mock.calls.map(([words]) => words)).toStrictEqual([
-        'Add a recipient before sending.',
-        'Add a recipient before sending.',
         'Discard this Draft? It is deleted from this device.',
         'Discard this Draft? It is deleted from this device.',
         warning,

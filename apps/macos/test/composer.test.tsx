@@ -1140,7 +1140,11 @@ describe('composing Drafts', () => {
     ).toBeOnTheScreen();
     await fireEvent.changeText(to, 'not an address');
     await fireEvent(to, 'blur');
-    expect(screen.getByText('Enter a valid email address.')).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        '“not an address” is not a complete address. Correct it to send.',
+      ),
+    ).toBeOnTheScreen();
     expect(to).toHaveProp('value', 'not an address');
     await fireEvent.changeText(
       screen.getByLabelText('Subject'),
