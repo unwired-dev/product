@@ -3644,6 +3644,10 @@ function Editor({
   );
   // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
   const copiesShown = showsCopies(draft);
+  // An edit in Cc or Bcc keeps both shown for the Draft, even once they are empty.
+  const changeCopies = (next: Draft, word: boolean, field: string) => {
+    change({ ...next, copies: true }, word, field);
+  };
 
   return (
     <View
@@ -4068,7 +4072,7 @@ function Editor({
                 getDraft={getDraft}
                 editable={!paused}
                 field="cc"
-                onChange={change}
+                onChange={changeCopies}
                 onCaretMove={breakTyping}
               />
               <Recipients
@@ -4076,7 +4080,7 @@ function Editor({
                 getDraft={getDraft}
                 editable={!paused}
                 field="bcc"
-                onChange={change}
+                onChange={changeCopies}
                 onCaretMove={breakTyping}
               />
             </>

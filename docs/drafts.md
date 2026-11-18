@@ -155,7 +155,7 @@ transport and known native exit gaps.
   address, and a Draft with no recipient says **Add a recipient to send.** under
   To; Send stays unavailable until then ([#2350](https://github.com/unwired-dev/product/issues/2350)). An address
   already in To, Cc or Bcc is not added again and shows **Already added**. Once Cc
-  or Bcc is shown or holds a recipient, both stay shown for that Draft.
+  or Bcc is shown or holds a recipient or text, both stay shown for that Draft.
   Text still being typed in a recipient field is saved with the Draft, so an
   interruption or relaunch restores it in that field.
 - On the Mac, typing in To, Cc or Bcc opens **Recipient Suggestions** above the
