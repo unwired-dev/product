@@ -674,19 +674,33 @@ function EmptyInbox({
 
 // Neither saved mail nor a mail server's answer matches; VoiceOver hears it once as it appears.
 function NoResults({
+  ready,
+  results,
+  search,
   scope,
   query,
-}: Readonly<{ scope: string; query: string }>) {
+}: Readonly<{
+  ready: boolean;
+  results: readonly unknown[] | undefined;
+  search: ReturnType<typeof useGmailSearch>;
+  scope: string;
+  query: string;
+}>) {
   const { t } = useLocalization();
+  const shown =
+    ready &&
+    results?.length === 0 &&
+    !search.searching &&
+    !search.found?.results.length;
   const title = t('search.noResults');
-  useOutcomeAnnouncement(title, true);
-  return (
+  useOutcomeAnnouncement(shown ? title : undefined, true);
+  return shown ? (
     <EmptyInbox
       icon="magnifyingglass"
       title={title}
       detail={t('search.noResultsDetail', { scope, query })}
     />
-  );
+  ) : null;
 }
 
 // A Mail Profile without mailboxes offers only Manage Mail Profiles…, with nothing to synchronize.
@@ -753,18 +767,24 @@ function headingOf(
   if (unconnected) {
     return { title, subtitle: t('profiles.noMailboxes'), emptyScope };
   }
-  // Syncing and Offline take precedence over a mail server search in progress.
-  const subtitle =
+  if (
     results === undefined ||
     searchOffline(search) ||
     shown.some(({ state }) => checking(state) || offline(state))
-      ? t('inbox.subtitleLabel', { scope: scopeName, status })
-      : search.searching
-        ? t('search.searchingScope', { scope: scopeName })
-        : t('search.subtitleRegular', {
-            count: results.length + (search.found?.results.length ?? 0),
-            scope: scopeName,
-          });
+  ) {
+    return {
+      title,
+      subtitle: t('inbox.subtitleLabel', { scope: scopeName, status }),
+      emptyScope,
+    };
+  }
+  // Syncing and Offline above take precedence over a mail server search in progress.
+  const subtitle = search.searching
+    ? t('search.searchingScope', { scope: scopeName })
+    : t('search.subtitleRegular', {
+        count: results.length + (search.found?.results.length ?? 0),
+        scope: scopeName,
+      });
   return { title, subtitle, emptyScope };
 }
 
@@ -1243,15 +1263,13 @@ export function Inbox({
                   detail={t('inbox.emptyDetail', { scope: emptyScope })}
                 />
               ) : null}
-              {ready &&
-              results?.length === 0 &&
-              !online.searching &&
-              !online.found?.results.length ? (
-                <NoResults
-                  scope={emptyScope}
-                  query={searched}
-                />
-              ) : null}
+              <NoResults
+                ready={ready}
+                results={results}
+                search={online}
+                scope={emptyScope}
+                query={searched}
+              />
               {results === undefined && syncing ? <SkeletonRows /> : null}
               <OnlineResults
                 query={searched}
