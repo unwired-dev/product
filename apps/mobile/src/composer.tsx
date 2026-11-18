@@ -470,6 +470,8 @@ const styles = StyleSheet.create({
     opacity: 0,
     pointerEvents: 'none',
   },
+  // The body grows to fill the editor through the view taking its arrow keys.
+  bodyKeys: { flexGrow: 1 },
   // The body's top padding goes once, before the lines over the query's.
   bodyCopyLine: { paddingTop: 0 },
   // Over a query too low in the editor for them to fit under it.
@@ -970,21 +972,29 @@ function SuggestionMenu({
   const sized = layoutStyles[size];
   const none = sections.recent.length + sections.contacts.length === 0;
   const Rows = scroll === undefined ? View : ScrollView;
-  // Where each row ends in the scrolling menu, by address, which scrolls as far as the
-  // highlighted row needs to show.
+  // Where each row of the scrolling menu ends, by query and address, so it scrolls as far as the
+  // highlighted row needs to show, as the highlight moves or its row lays out.
   const list = useRef<ScrollViewInstance>(null);
   const rowEnds = useRef(new Map<string, number>());
   const maxHeight = scroll?.maxHeight;
+  const rowOf = (address: string) => `${scroll?.query}\n${address}`;
+  const reveal = useCallback(
+    (end: number | undefined) => {
+      if (end !== undefined && maxHeight !== undefined) {
+        list.current?.scrollTo({
+          y: Math.max(end - maxHeight, 0),
+          animated: false,
+        });
+      }
+    },
+    [maxHeight],
+  );
+  const activeRow = active === undefined ? undefined : rowOf(active.address);
   useEffect(() => {
-    const end =
-      active === undefined ? undefined : rowEnds.current.get(active.address);
-    if (end !== undefined && maxHeight !== undefined) {
-      list.current?.scrollTo({
-        y: Math.max(end - maxHeight, 0),
-        animated: false,
-      });
+    if (activeRow !== undefined) {
+      reveal(rowEnds.current.get(activeRow));
     }
-  }, [active, maxHeight]);
+  }, [activeRow, reveal]);
   return (
     <GlassPanel
       open
@@ -1058,12 +1068,17 @@ function SuggestionMenu({
                     }
                     accessibilityRole="button"
                     accessibilityState={{ selected: chosen }}
-                    onLayout={({ nativeEvent: { layout } }) => {
-                      rowEnds.current.set(
-                        recipient.address,
-                        layout.y + layout.height,
-                      );
-                    }}
+                    {...(scroll === undefined
+                      ? {}
+                      : {
+                          onLayout: ({ nativeEvent: { layout } }) => {
+                            const end = layout.y + layout.height;
+                            rowEnds.current.set(rowOf(recipient.address), end);
+                            if (chosen) {
+                              reveal(end);
+                            }
+                          },
+                        })}
                     onPress={() => {
                       onAccept(recipient);
                     }}
@@ -2663,8 +2678,14 @@ function useBodyRecipients(
   // The @ whose suggestions show.
   const [armed, setArmed] = useState<number>();
   const armedNow = useRef(armed);
-  // The highlighted suggestion's place in the list.
-  const [chosen, setChosen] = useState(0);
+  // The suggestion a hardware keyboard highlighted, by address, ahead of rendering as native
+  // events can arrive before it commits; the first one shows highlighted without it.
+  const [chosen, setChosen] = useState<string>();
+  const chosenNow = useRef(chosen);
+  const choose = useCallback((address: string | undefined) => {
+    chosenNow.current = address;
+    setChosen(address);
+  }, []);
   // The statuses VoiceOver last heard for the shown suggestions.
   const heard = useRef<
     Readonly<{ empty?: string | undefined; note?: string | undefined }>
@@ -2673,7 +2694,8 @@ function useBodyRecipients(
     armedNow.current = at;
     heard.current = {};
     setArmed(at);
-    setChosen(0);
+    chosenNow.current = undefined;
+    setChosen(undefined);
   }, []);
   const close = useCallback(() => {
     arm(undefined);
@@ -2704,7 +2726,8 @@ function useBodyRecipients(
   );
   const suggestions =
     sections === undefined ? [] : [...sections.recent, ...sections.contacts];
-  const active = suggestions[Math.min(chosen, suggestions.length - 1)];
+  const active =
+    suggestions.find(({ address }) => address === chosen) ?? suggestions[0];
   // A bare @ with no recent correspondent shows nothing; typed text shows No Matches.
   const shown =
     sections !== undefined &&
@@ -2755,7 +2778,7 @@ function useBodyRecipients(
         arm(typed.start);
       } else if (typed?.start === armedNow.current) {
         // The list changed, so the highlight starts over.
-        setChosen(0);
+        choose(undefined);
       } else if (armedNow.current !== undefined) {
         arm(undefined);
       }
@@ -2763,12 +2786,43 @@ function useBodyRecipients(
     // A hardware keyboard's Up and Down Arrow move the highlight while two or more show.
     moving: suggestions.length > 1,
     move: (key: string) => {
-      const last = suggestions.length - 1;
-      if (key === 'ArrowDown') {
-        setChosen((index) => Math.min(index + 1, last));
-      } else if (key === 'ArrowUp') {
-        setChosen((index) => Math.max(Math.min(index, last) - 1, 0));
+      const index = Math.max(
+        suggestions.findIndex(({ address }) => address === chosenNow.current),
+        0,
+      );
+      const step = { ArrowDown: 1, ArrowUp: -1 }[key] ?? 0;
+      const next =
+        suggestions[
+          Math.min(Math.max(index + step, 0), suggestions.length - 1)
+        ];
+      choose(next?.address);
+    },
+    // The highlighted suggestion for the latest Draft and caret, which Return or Tab chooses:
+    // the keyboard's choice while it still matches, else the first.
+    highlighted: (latest: Draft, at: Selection) => {
+      const current = bodyRecipientQuery(latest.body, at);
+      if (
+        pausedNow.current ||
+        current === undefined ||
+        current.start !== armedNow.current ||
+        !onlyQueryIn(latest.body, current)
+      ) {
+        return undefined;
       }
+      const latestSections = bodySuggestionSections(latest, current, {
+        connections: connections ?? [],
+        held,
+        contacts: contacts.addresses,
+      });
+      const latestSuggestions = [
+        ...latestSections.recent,
+        ...latestSections.contacts,
+      ];
+      return (
+        latestSuggestions.find(
+          ({ address }) => address === chosenNow.current,
+        ) ?? latestSuggestions[0]
+      );
     },
     // The query a choice replaces in the latest body, while its suggestions show and the editor
     // takes edits.
@@ -3343,17 +3397,17 @@ function Editor({
     const key = pressed.current;
     pressed.current = undefined;
     // Typed Return and Tab choose the highlighted Recipient Suggestion instead of their character.
-    const { active } = recipientMenu.shown ?? {};
-    if (
-      active !== undefined &&
-      ((inserted === '\n' && key === 'Enter') ||
-        (inserted === '\t' && key === 'Tab'))
-    ) {
+    const highlighted =
+      (inserted === '\n' && key === 'Enter') ||
+      (inserted === '\t' && key === 'Tab')
+        ? recipientMenu.highlighted(latest, at)
+        : undefined;
+    if (highlighted !== undefined) {
       replaced.current = after ?? {
         start: at.start + 1,
         end: at.start + 1,
       };
-      chooseRecipient(active);
+      chooseRecipient(highlighted);
       return;
     }
     // Forward deletion leaves the caret in place. Backspace moves it, even without a key event.
@@ -4126,6 +4180,7 @@ function Editor({
               </View>
             )}
             <ArrowKeys
+              style={styles.bodyKeys}
               enabled={recipientMenu.moving}
               onArrow={(key) => {
                 recipientMenu.move(key);

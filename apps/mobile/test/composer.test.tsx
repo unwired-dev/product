@@ -1819,9 +1819,16 @@ describe('composing Drafts', () => {
       expect(highlighted()).toStrictEqual([andrea.props.accessibilityLabel]);
       await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowUp' } });
       expect(highlighted()).toStrictEqual(['Ana Kovač, ana@example.invalid']);
-      await fireEvent(keys, 'arrow', { nativeEvent: { key: 'ArrowDown' } });
-      await fireEvent(body, 'keyPress', { nativeEvent: { key: 'Enter' } });
-      await type('@an\n');
+      // Down and Return in one native batch, before React commits the highlight.
+      await act(async () => {
+        keys.props.onArrow({ nativeEvent: { key: 'ArrowDown' } });
+        body.props.onKeyPress({ nativeEvent: { key: 'Enter' } });
+        body.props.onChangeText('@an\n');
+        body.props.onSelectionChange({
+          nativeEvent: { selection: { start: 4, end: 4 } },
+        });
+        await Promise.resolve();
+      });
       expect(lines()).toStrictEqual(['Hi Andrea Novak,', '', '']);
       expect(to()).toBeOnTheScreen();
       expect(body.props.selection).toStrictEqual({ start: 18, end: 18 });

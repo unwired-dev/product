@@ -465,7 +465,11 @@ export function ArrowKeys({
         onArrow(nativeEvent.key);
       }}>
       {/* Fabric would flatten a layout-only child the legacy view takes as its own. */}
-      <View collapsable={false}>{children}</View>
+      <View
+        collapsable={false}
+        style={styles.menuContent}>
+        {children}
+      </View>
     </NativeArrowKeys>
   );
 }
