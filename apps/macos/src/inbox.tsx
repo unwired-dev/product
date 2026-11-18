@@ -347,10 +347,13 @@ const savedStatus = (t: Translate, saved: boolean | undefined) => {
 
 // Gmail's own search, asked for explicitly below the results saved on this device, which it never
 // replaces. Each mailbox that Gmail could not search says why.
-// A mail server search that failed or left IMAP folders out has not answered whether nothing matches.
+// A mail server search that failed, left IMAP folders out or has another page has not answered
+// whether nothing matches.
 const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
   search.found !== undefined &&
-  (search.found.failures.length > 0 || search.found.limited.length > 0);
+  (search.found.failures.length > 0 ||
+    search.found.limited.length > 0 ||
+    search.found.next.size > 0);
 
 function OnlineResults({
   search,
