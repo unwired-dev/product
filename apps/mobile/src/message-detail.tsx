@@ -113,9 +113,10 @@ const toolbarLift = 2;
 const sideInset = compact ? spacing.l : 40 * ipadListScale;
 // The iPad Portrait frames halve it beside the 442pt reader, leaving no room for hanging initials.
 const portraitInset = { paddingHorizontal: 20 * ipadListScale };
+// Only a reader beside the list; a collapsed window's full-width reader keeps the wide inset.
 const usePortrait = () => {
   const { width, height } = useWindowDimensions();
-  return !compact && height > width;
+  return use(SidebarToggleContext) !== undefined && height > width;
 };
 const usePortraitInset = () => (usePortrait() ? portraitInset : undefined);
 const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;

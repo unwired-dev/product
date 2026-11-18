@@ -1856,6 +1856,11 @@ final class InboxTests: XCTestCase {
     let replyAll = app.buttons["Reply All"].firstMatch
     XCTAssertTrue(replyAll.waitForExistence(timeout: 20))
     XCTAssertGreaterThanOrEqual(replyAll.frame.minX, 392)
+    // The subject spans the 442pt reader, 23pt in, beside the 391pt list and its 1pt separator.
+    let subject = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label == %@", "Re: Trail maintenance")).firstMatch
+    XCTAssertEqual(subject.frame.minX, 415, accuracy: 1)
+    XCTAssertEqual(subject.frame.width, 396, accuracy: 1)
     attachScreen("Portrait Thread", of: app, to: self)
     let search = app.searchFields.firstMatch
     XCTAssertTrue(search.waitForExistence(timeout: 10))
@@ -2898,6 +2903,8 @@ final class InboxTests: XCTestCase {
     try audit(app, "Inbox")
     if phone {
       app.buttons["Back to Mailboxes"].tap()
+    } else if app.buttons["Show Sidebar"].exists {
+      showSidebar(app)
     } else {
       app.navigationBars.buttons.firstMatch.tap()
     }
