@@ -483,6 +483,7 @@ function Mailboxes({
             },
           ]}>
           <SettingsRow
+            icon="plus"
             title={t('mailboxes.addConnection')}
             titleTone="accent"
           />

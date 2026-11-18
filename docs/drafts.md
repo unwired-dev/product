@@ -156,9 +156,12 @@ transport and known native exit gaps.
   To row, accept `Name <address>`,
   `"Last, First" <address>` or a bare address. A comma, semicolon, Return or leaving
   the field turns finished entries into removable recipients. Text that is not a
-  valid address stays in the field with **Enter a valid email address.** An address
+  valid address stays in the field with **Enter a valid email address.** On the
+  Mac, once the field is left, it says instead that the text is not a complete
+  address, and a Draft with no recipient says **Add a recipient to send.** under
+  To; Send stays unavailable until then ([#2350](https://github.com/unwired-dev/product/issues/2350)). An address
   already in To, Cc or Bcc is not added again and shows **Already added**. Once Cc
-  or Bcc is shown or holds a recipient, both stay shown for that Draft.
+  or Bcc is shown or holds a recipient or text, both stay shown for that Draft.
   Text still being typed in a recipient field is saved with the Draft, so an
   interruption or relaunch restores it in that field.
 - On the Mac, typing in To, Cc or Bcc opens **Recipient Suggestions** above the
@@ -179,7 +182,7 @@ transport and known native exit gaps.
   iPhone and iPad suggests only the contacts shared with the app. Contacts are read on the device into
   memory and are never saved with the Draft, synchronized or sent anywhere.
   Hardware keyboard Up, Down and Tab on iPad are a later slice.
-- On the Mac, the **Body Recipient Shortcut** adds a person from the body: typing
+- The **Body Recipient Shortcut** adds a person from the body: typing
   @ at a paragraph start or after whitespace in an otherwise empty authored body
   opens Recipient Suggestions under the @. Whitespace, the signature and quoted
   history leave the body empty; text or an Inline Image does not. An @ inside an
@@ -187,16 +190,25 @@ transport and known native exit gaps.
   correspondents of the Draft's Mail Profile; typed text filters them as To does
   and adds Apple Contacts the app can already read, so the body never asks for
   Contacts access. Typed text without a match shows **No Matches**, and when
-  Contacts can't be read a note says only recent mail is shown. Up and Down Arrow
-  move the highlight; Return, Tab or a click chooses. Choosing a person not on
+  Contacts can't be read a note says only recent mail is shown. On the Mac, Up and
+  Down Arrow move the highlight and Return, Tab or a click chooses; on iPhone and
+  iPad, a tap chooses, a hardware keyboard's Up and Down Arrow move the highlight,
+  and a typed Return or Tab chooses the highlighted row instead of breaking the
+  line. Choosing a person not on
   the Draft adds them to To and replaces only the query with “Hi <given name>,”
   (the given name Apple Contacts records, else the display name, else “Hi,”), an
   empty paragraph and the caret, as one edit that one Undo reverts. A space,
-  Escape, a caret move or leaving the body closes the suggestions and keeps the
-  typed text. People already on the Draft, nonempty bodies and iPhone and iPad
-  are later slices. Native code reads Apple Contacts and supplies the frame of
-  the @, which the Mac composer uses to place the menu; `@private-email/mail-core`
-  owns the query, matching, the greeting's name and the combined body and To edit.
+  Escape on the Mac, a caret move or leaving the body closes the suggestions and
+  keeps the typed text. People already on the Draft and nonempty bodies are a
+  later slice. On the Mac, native code
+  reads Apple Contacts and supplies the frame of the @, which the composer uses
+  to place the menu. On iPhone and iPad, Expo Contacts reads them, and a
+  transparent copy of the body up to the query's line holds the menu under it,
+  while a native view around the body takes the arrow keys ahead of its caret;
+  the iPhone menu spans the sheet and leads each row with a monogram. It is drawn
+  by the app rather than as a system menu, which would close as typing continues
+  to filter it. `@private-email/mail-core` owns the query, matching, the
+  greeting's name and the combined body and To edit.
 - The body edits a **Semantic Message Document**: paragraphs, headings one to
   three, bulleted and numbered lists, quotes and code blocks, with bold, italic,
   underline, strikethrough and inline code. The format bar applies marks to
@@ -758,7 +770,10 @@ decision 2) keep an open composer's unsaved Draft on this device apart from the
 Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` reads the account's records on demand. A record that storage
 refuses, as while locked, stays in memory and is written with the next
-record. Writing a record never changes what **Drafts** lists or synchronizes, and
+record. When an editor moves to a conflicting copy that storage holds neither
+as a Draft nor as its own record, `forget` keeps the original Draft's record,
+which may hold the copy's edits, until a later `journal` or `forget` finds
+storage holding either ([#2333](https://github.com/unwired-dev/product/issues/2333)). Writing a record never changes what **Drafts** lists or synchronizes, and
 a save keeps the files and images a record names. Records count toward the
 Outgoing Content Store's 100 MB, so a record refused for space also waits in
 memory, and a nearly full store refuses a save or attachment sooner while records

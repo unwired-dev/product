@@ -44,7 +44,8 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(presented.count, 64)
     // #2070: the step's white Confirm stays disabled until a character is entered.
     XCTAssertFalse(app.buttons["Confirm Recovery Key"].isEnabled)
-    recoveryKey.firstMatch.swipeUp()
+    // The key lies below the mailbox choices and Mail Assistance settings.
+    for _ in 0..<5 where !recoveryKey.isHittable { app.swipeUp() }
     attachScreen("Recovery Key", of: app, to: self)
     app.terminate()
     app.launch()
@@ -125,6 +126,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
     blockSenderJourney(app)
     blockedSendersJourney(app)
+    pinJourney(app)
     // The opened body arrives from Gmail as text; its image is not loaded.
     XCTAssertTrue(
       text("Images in this message are not loaded.", in: app).waitForExistence(timeout: 15))
@@ -424,6 +426,48 @@ final class InboxTests: XCTestCase {
     alert.buttons["Block Sender"].tap()
     XCTAssertTrue(alert.waitForNonExistence(timeout: 10))
     XCTAssertTrue(sender.exists)
+  }
+
+  // #2343: Pin pins the open message's Thread from the toolbar's last group on iPad and from the
+  // Reply sheet on iPhone. The row keeps its marker after a relaunch, and the reopened reader's
+  // Unpin removes it.
+  private func pinJourney(_ app: XCUIApplication) {
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let choose = { (name: String) -> XCUIElement in
+      if phone {
+        app.buttons["Reply"].tap()
+        XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
+      }
+      let item = app.buttons[name].firstMatch
+      XCTAssertTrue(item.waitForExistence(timeout: 10))
+      return item
+    }
+    // The Reply sheet closes before its choice runs.
+    let sheetClosed = {
+      if phone { XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5)) }
+    }
+    let row = "Rowan Hale. Garden plans for spring"
+    choose("Pin").tap()
+    sheetClosed()
+    _ = choose("Unpin")
+    attachScreen("Pinned Thread", of: app, to: self)
+    app.terminate()
+    app.launch()
+    let pinned = app.buttons["\(row). Pinned"]
+    waitWithoutWelcome(for: pinned, in: app)
+    attachScreen("Pinned row after relaunch", of: app, to: self)
+    pinned.tap()
+    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    choose("Unpin").tap()
+    sheetClosed()
+    // iPad lists the row beside the reader; iPhone's Reply sheet offers Pin again.
+    if phone {
+      _ = choose("Pin")
+      app.buttons["Close"].tap()
+      sheetClosed()
+    } else {
+      XCTAssertTrue(app.buttons[row].waitForExistence(timeout: 10))
+    }
   }
 
   // #2166: Settings › Blocked Senders lists the address; Edit switches the list's edit mode, and a

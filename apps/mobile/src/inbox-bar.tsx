@@ -478,10 +478,16 @@ export function useBarIndicatorInsets(toolbar = false) {
   return { bottom: lift + barHeight };
 }
 
+// The surface fades in to full.
+const fadeIn = ['00', ''];
+
 export function ScrollEdge({
   style,
+  alphas = fadeIn,
 }: {
   readonly style: StyleProp<ViewStyle>;
+  // The surface's opacity at each stop, as hex suffixes.
+  readonly alphas?: readonly string[];
 }) {
   const colors = usePalette();
   return (
@@ -492,7 +498,7 @@ export function ScrollEdge({
         styles.scrollEdge,
         style,
         {
-          experimental_backgroundImage: `linear-gradient(to bottom, ${colors.surfaceContent}00, ${colors.surfaceContent})`,
+          experimental_backgroundImage: `linear-gradient(to bottom, ${alphas.map((alpha) => colors.surfaceContent + alpha).join(', ')})`,
         },
       ]}
     />

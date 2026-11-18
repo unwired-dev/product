@@ -3,6 +3,7 @@ import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 
 import { MessageBody } from '../src/message-body.tsx';
 
@@ -28,7 +29,7 @@ describe('unavailable message body', () => {
     try {
       await expect(
         screen.findByRole('alert', {
-          name: 'This message is not saved on this device, and the mail server could not be reached to download it.',
+          name: 'This message is not saved on this Mac, and the mail server could not be reached to download it.',
         }),
       ).resolves.toBeOnTheScreen();
       imap.server.failure = undefined;
@@ -100,8 +101,51 @@ describe('unavailable message body', () => {
     }
   });
 
-  it('names Gmail for a Gmail body that could not be downloaded', async () => {
+  it('shows the download in progress under the header until the body arrives', async () => {
     expect.hasAssertions();
+    const imap = createSyntheticImap({ address: 'alex@example.invalid' });
+    const uid = imap.deliver('INBOX', {
+      subject: 'Report',
+      body: 'Quarterly numbers.',
+    });
+    // The mail server answers the body download only once the test has seen the progress.
+    let answer: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold the external boundary until the test answers.
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const inbox = createImapInbox({
+      ...imap.native,
+      imapMessage: async (...request) => {
+        await answered;
+        return imap.native.imapMessage(...request);
+      },
+    });
+    await inbox.load();
+    const app = await render(
+      <MessageBody
+        inbox={inbox}
+        id={`7.${uid}.INBOX`}
+      />,
+    );
+    try {
+      await expect(
+        screen.findByRole('progressbar', { name: 'Downloading message…' }),
+      ).resolves.toBeOnTheScreen();
+      answer();
+      await expect(
+        screen.findByText('Quarterly numbers.'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.queryByRole('progressbar')).toBeNull();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('names Gmail for a Gmail body that could not be downloaded, and says so once', async () => {
+    expect.hasAssertions();
+    const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+    announce.mockClear();
     const gmail = createSyntheticGmail();
     const id = gmail.deliver({ subject: 'Not downloaded yet' });
     const inbox = createInboxStore(gmail.native);
@@ -116,12 +160,17 @@ describe('unavailable message body', () => {
     try {
       await expect(
         screen.findByRole('alert', {
-          name: 'This message is not saved on this device, and Gmail could not be reached to download it.',
+          name: 'This message is not saved on this Mac, and Gmail could not be reached to download it.',
         }),
       ).resolves.toBeOnTheScreen();
       expect(
         screen.getByRole('button', { name: 'Try Again' }),
       ).toBeOnTheScreen();
+      expect(announce.mock.calls).toStrictEqual([
+        [
+          'This message is not saved on this Mac, and Gmail could not be reached to download it.',
+        ],
+      ]);
     } finally {
       await app.unmount();
     }

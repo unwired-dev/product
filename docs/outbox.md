@@ -111,6 +111,18 @@ it.
   last mailbox closed the Drafts meanwhile; the message is in the Outbox when
   they reopen.
 
+  On Mac ([#2350](https://github.com/unwired-dev/product/issues/2350)), the first
+  four reasons and a file still importing or failed disable **Send**, its Command
+  Palette command and its Send menu item before anything is pressed, and the
+  reason shows until it goes: under To, **Add a recipient to send.**; under the
+  field holding text that is not an address, once the person leaves it, a warning
+  symbol and, for example, **“tomas.dvorak@seznam” is not a complete address.
+  Correct it to send.**; the sender's notice as before; the others above the
+  body, without an announcement. **Remind Me to Send…** stays available. A file
+  that does not verify, the message limit, a change in another window and storage
+  are found only after the press. iPhone and iPad remain a follow-up of
+  [#2092](https://github.com/unwired-dev/product/issues/2092).
+
 - While Send is pending, the composer accepts no edits: its fields, Undo, Redo,
   formatting and Discard wait until the message is admitted or Send is refused.
   Send dismisses any translation or writing-help preview and prevents new requests;

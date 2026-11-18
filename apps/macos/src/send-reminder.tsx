@@ -86,13 +86,15 @@ function useReminderMenu(onRemind: (dueAt: number, timeZone: string) => void) {
 }
 
 // Send: a click sends, and a right click opens the Send menu, whose Remind Me to Send… opens the
-// reminder menu from Send.
+// reminder menu from Send. A Draft that cannot be sent yet can still get a reminder.
 export function SendMenu({
   disabled,
+  sendable,
   onSend,
   onRemind,
 }: {
   readonly disabled: boolean;
+  readonly sendable: boolean;
   readonly onSend: () => void;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
 }) {
@@ -108,7 +110,7 @@ export function SendMenu({
               key: 'send',
               title: t('drafts.send'),
               symbol: '',
-              disabled,
+              disabled: disabled || !sendable,
               run: onSend,
             },
           ],
@@ -129,7 +131,7 @@ export function SendMenu({
         ref={anchor}
         collapsable={false}>
         <Button
-          disabled={disabled}
+          disabled={disabled || !sendable}
           label={t('drafts.send')}
           fill="accent"
           onPress={onSend}

@@ -232,7 +232,6 @@ const styles = StyleSheet.create({
     height: 28 * ipadListScale,
     borderRadius: radius.row * ipadListScale,
   },
-  tileLetter: { ...textStyles.headline },
   providerText: { flex: 1, gap: 1 },
   providerName: { ...textStyles.body },
   providerDetail: { ...textStyles.footnote },
@@ -713,15 +712,15 @@ export function ProviderList({ children }: { readonly children: ReactNode }) {
 }
 
 export function ProviderRow({
-  letter,
+  symbol,
   name,
   detail,
   onPress,
   disabled,
   last = false,
 }: {
-  // The provider's initial on its tile, as the design draws it.
-  readonly letter: string;
+  // The SF Symbol on the provider's tile.
+  readonly symbol: string;
   readonly name: string;
   readonly detail: string;
   readonly onPress: () => void;
@@ -761,14 +760,12 @@ export function ProviderRow({
                 },
               ],
         ]}>
-        <Text
-          style={[
-            styles.tileLetter,
-            ipad && styles.ipadProviderName,
-            { color: colors.textPrimary },
-          ]}>
-          {letter}
-        </Text>
+        <SFSymbol
+          color={colors.textPrimary}
+          name={symbol}
+          semibold
+          size={ipad ? 13 * ipadListScale : 17}
+        />
       </View>
       <View style={styles.providerText}>
         <Text

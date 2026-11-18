@@ -34,9 +34,9 @@ import { registrationStyles as styles } from './registration-styles.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 const providers = [
-  { provider: 'icloud', letter: 'i' },
-  { provider: 'fastmail', letter: 'F' },
-  { provider: 'other', letter: '@' },
+  { provider: 'icloud', symbol: 'icloud' },
+  { provider: 'fastmail', symbol: 'envelope' },
+  { provider: 'other', symbol: 'at' },
 ] as const;
 const securities = ['tls', 'starttls'] as const;
 
@@ -137,11 +137,11 @@ export function ImapSetup({
             detail={t(`onboarding.providers.${choice.provider}.detail`)}
             disabled={busy}
             last={index === providers.length - 1}
-            letter={choice.letter}
             name={t(`onboarding.providers.${choice.provider}.name`)}
             onPress={() => {
               setProvider(choice.provider);
             }}
+            symbol={choice.symbol}
           />
         ))}
       </ProviderList>

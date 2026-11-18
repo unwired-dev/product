@@ -1,10 +1,15 @@
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { Platform } from 'react-native';
 
-import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
+import {
+  createDrafts,
+  draftsOf,
+  ownerOf,
+} from '@private-email/mail-core/drafts';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
+import { createPins } from '@private-email/mail-core/pins';
 import { mailboxesOf } from '@private-email/mail-core/registration';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
@@ -25,6 +30,7 @@ import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
+import { PinsContext } from '../src/pins.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 
 // Set the device boundary before the reader's platform-specific modules load.
@@ -175,6 +181,61 @@ describe('iPad reader', () => {
     await waitFor(() => {
       expect(moves()).toStrictEqual([`move INBOX ${uid} Projects`]);
     });
+  });
+
+  it('pins the Thread from the toolbar’s last group, before More', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    const uid = imap.deliver('INBOX', { subject: 'Project plans' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const snapshot: RegistrationSnapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([]),
+    };
+    const saved = { revision: 0, document: null as string | null };
+    const pins = createPins(
+      {
+        openPins: () => Promise.resolve({ owner: ownerOf(snapshot), ...saved }),
+        commitPins: (owner, revision, document) => {
+          Object.assign(saved, { revision: revision + 1, document });
+          return Promise.resolve({ owner, revision: saved.revision });
+        },
+      },
+      { getSnapshot: () => ({ snapshot, busy: false, failed: false }) },
+    );
+    await render(
+      <PinsContext value={pins}>
+        <InboxProvider mailboxes={singleMailbox(inbox, 'imap-reader')}>
+          <CommandPaletteProvider>
+            <MessageDetail
+              mailbox="imap-reader"
+              id={`7.${uid}.INBOX`}
+            />
+          </CommandPaletteProvider>
+        </InboxProvider>
+      </PinsContext>,
+    );
+    // iPad's toolbar shows Pin, so More does not list it.
+    expect(
+      screen
+        .getByLabelText('More')
+        .props.sections.flatMap(
+          ({ items }: { items: ReadonlyArray<{ title: string }> }) =>
+            items.map(({ title }) => title),
+        ),
+    ).not.toContain('Pin');
+    await act(async () => {
+      await fireEvent.press(await screen.findByRole('button', { name: 'Pin' }));
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Unpin' }),
+    ).resolves.toBeVisible();
+    await expect(pins.pins(['imap-reader'])).resolves.toMatchObject([
+      { connection: 'imap-reader', thread: `7.${uid}.INBOX` },
+    ]);
   });
 
   it('opens another message in the same reader with its panels closed', async () => {
