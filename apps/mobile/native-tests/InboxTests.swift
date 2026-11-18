@@ -2336,6 +2336,25 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(settled.exists)
   }
 
+  // #2363: on iPad the sidebar toggle, the Command Input and the reader toolbar share the top row's
+  // centre line.
+  private func verifyTopRowCentreLine(_ app: XCUIApplication) {
+    let toggle = app.buttons.matching(
+      NSPredicate(format: "label IN %@", ["Hide Sidebar", "Show Sidebar"])
+    ).firstMatch
+    let input = app.buttons["Open Command Palette"].firstMatch
+    // The preview reader's toolbar holds only its read state.
+    let read = app.buttons.matching(
+      NSPredicate(format: "label IN %@", ["Mark as Read", "Mark as Unread"])
+    ).firstMatch
+    for element in [toggle, input, read] {
+      XCTAssertTrue(element.waitForExistence(timeout: 10))
+    }
+    for element in [toggle, input] {
+      XCTAssertEqual(element.frame.midY, read.frame.midY, accuracy: 0.5, element.debugDescription)
+    }
+  }
+
   private func waitUntil(_ condition: @escaping () -> Bool, timeout: TimeInterval = 20) {
     let met = NSPredicate { _, _ in condition() }
     XCTAssertEqual(
@@ -3397,6 +3416,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(sender.waitForExistence(timeout: 10))
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCTAssertGreaterThan(sender.frame.minX, maya.frame.maxX)
+      verifyTopRowCentreLine(app)
     }
     // A summary runs only when asked, through the packaged assistance bridge, whose synthetic
     // model answers in this build.

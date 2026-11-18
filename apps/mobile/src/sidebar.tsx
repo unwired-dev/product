@@ -185,13 +185,14 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
-  // The window controls' row of the panel: its sidebar toggle at the trailing end, and the Profile
-  // Switcher 57.5pt below the panel's top edge.
+  // The window controls' row of the panel: its sidebar toggle at the trailing end, 11.8pt below the
+  // panel's top edge on the top row's centre line, and the Profile Switcher 57.5pt below it.
   panelTop: {
     height: 57.5,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'flex-end',
+    paddingTop: 11.8,
   },
   compactSwitcher: {
     minHeight: 48,
