@@ -1782,6 +1782,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Crew 3, note 2."].waitForExistence(timeout: 20))
     // The iPad Portrait captures need the window's Portrait frame (#2361).
     XCUIDevice.shared.orientation = .portrait
+    waitUntil { app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height }
     let window = app.windows.firstMatch.frame
     // On screen by frame: the header's text sits inside its context-menu host, so it is never
     // reported hittable.
