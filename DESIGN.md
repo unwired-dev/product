@@ -400,8 +400,8 @@ styles) so the file stays editable.
 - **iPad top row:** the sidebar's buttons, the Command Input with Select, and the
   reader toolbar share one centre line, 36pt below the top safe area. The
   full-screen frames, with their 32pt status bar, draw it 68pt from the top.
-- **iPad Portrait:** Mailboxes hides and the 391pt list sits beside a 442pt
-  reader, whose content is inset 23pt with no initials beside the sender and
+- **iPad Portrait:** when the columns sit side by side, Mailboxes hides; at
+  834×1210 the 391pt list sits beside a 442pt reader, whose content is inset 23pt with no initials beside the sender and
   whose Thread lies flat between separators, as on iPhone; **Show Sidebar** beside the Command Input brings Mailboxes back. Settings
   keeps its 248pt sidebar beside the detail.
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,

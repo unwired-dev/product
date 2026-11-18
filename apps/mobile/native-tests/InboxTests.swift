@@ -1780,6 +1780,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(opened.waitForExistence(timeout: 20))
     XCTAssertTrue(app.staticTexts["6 Messages"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["Crew 3, note 2."].waitForExistence(timeout: 20))
+    // The iPad Portrait captures need the window's Portrait frame (#2361).
+    XCUIDevice.shared.orientation = .portrait
     let window = app.windows.firstMatch.frame
     // On screen by frame: the header's text sits inside its context-menu host, so it is never
     // reported hittable.
@@ -1902,8 +1904,9 @@ final class InboxTests: XCTestCase {
     let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
       .firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 10))
+    // Rows span the 391pt list but for their 7pt insets.
     XCTAssertLessThan(row.frame.minX, 20)
-    XCTAssertLessThanOrEqual(row.frame.maxX, 392)
+    XCTAssertEqual(row.frame.maxX, 384, accuracy: 2)
     XCTAssertGreaterThanOrEqual(app.staticTexts["crew6@example.invalid"].firstMatch.frame.minX, 392)
     XCTAssertFalse(app.buttons["Settings"].firstMatch.isHittable)
     // The list opens a message of the Thread in the reader, under its toolbar.
@@ -1933,6 +1936,8 @@ final class InboxTests: XCTestCase {
     waitUntil { settings.isHittable }
     settings.tap()
     XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 15))
+    XCTAssertTrue(app.staticTexts["Account & Devices"].firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Check for a New Device"].waitForExistence(timeout: 10))
     attachScreen("Portrait Settings", of: app, to: self)
   }
 
