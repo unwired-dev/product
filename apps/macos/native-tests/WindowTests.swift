@@ -2559,6 +2559,8 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(send.waitForExistence(timeout: 10))
     XCTAssertEqual(
       send.frame.midY, composer.buttons[XCUIIdentifierCloseWindow].frame.midY, accuracy: 3)
+    // #2094: closed, the Command Input keeps only its symbol and key cap in 75pt.
+    XCTAssertEqual(composer.buttons["Open Command Palette"].frame.width, 75, accuracy: 1)
     let composerClosed = composer.screenshot()
     composer.buttons["Open Command Palette"].click()
     let query = composer.textFields.matching(NSPredicate(format: "label == %@", "Type a command"))
