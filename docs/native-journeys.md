@@ -452,9 +452,8 @@ opens as Add Link with Text from the selection and Link focused and empty, shows
 the invalid-link reason after Return, and leaves the body and selection as they
 were when dismissed. A valid destination applied with Return makes the control
 Edit Link, which offers Remove Link; one Undo removes the link and keeps the
-text, and Redo restores it. After relaunch, the Inbox lists the saved Draft,
-which reopens with both edits and the link's destination; Undo and Redo run in the
-expanded composer, and when the docked reply's iPad format bar is too narrow
+text, and Redo restores it, in iPad's expanded composer. After relaunch, the Inbox lists the saved Draft,
+which reopens with both edits and the link's destination; when the docked reply's iPad format bar is too narrow
 for it, Edit Link comes from **More Lists and Links**
 ([#2357](https://github.com/unwired-dev/product/issues/2357)). Relaunched at
 Accessibility XXXL ([#2230](https://github.com/unwired-dev/product/issues/2230)),
