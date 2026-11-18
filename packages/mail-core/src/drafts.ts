@@ -1203,7 +1203,10 @@ export function createDrafts(
   // The latest journal or forget call per Draft id; storage's semaphore does not keep call order.
   const recordCalls = new Map<string, number>();
   let recordCall = 0;
+  // Every Draft id this run journaled or forgot, across account changes, which `recovered` leaves out.
+  const recordedThisRun = new Set<string>();
   const callRecord = (id: string) => {
+    recordedThisRun.add(id);
     recordCall += 1;
     recordCalls.set(id, recordCall);
     return recordCall;
@@ -2365,7 +2368,7 @@ export function createDrafts(
       return live(current)
         ? opened.records.flatMap(({ id, document }) => {
             const draft = Option.getOrUndefined(recoveredDraft(document));
-            return draft?.id === id && !recordCalls.has(id) ? [draft] : [];
+            return draft?.id === id && !recordedThisRun.has(id) ? [draft] : [];
           })
         : [];
     }).pipe(

@@ -3508,7 +3508,7 @@ describe('keeping composer recovery records', () => {
       await next.load();
       return next.recovered();
     };
-    return { storage, drafts, draft, saving, recovered };
+    return { storage, drafts, draft, saving, recovered, session };
   };
 
   it('stores the edit journaled after a forget while an earlier record waited for a save', async () => {
@@ -3563,24 +3563,46 @@ describe('keeping composer recovery records', () => {
     await expect(recovered()).resolves.toStrictEqual([draft]);
   });
 
-  it('recovers only the records an earlier run left, though this run’s write reaches storage first', async () => {
+  it('recovers only the records an earlier run left, whatever order storage takes this run’s calls', async () => {
     expect.hasAssertions();
-    const { storage, drafts, draft, saving, recovered } = await savingDraft();
+    const { storage, drafts, draft, saving, recovered, session } =
+      await savingDraft();
     storage.release();
     await saving;
     const left = { ...draft, subject: 'Left' };
     await drafts.journal(left);
-    const next = createDrafts(
-      storage.native,
-      account(connected('account-a')).registration,
+    const closed = present(await drafts.create(alex), "the Draft's identifier");
+    await drafts.journal(
+      present(draftOf(drafts.getSnapshot(), closed), 'the Draft'),
     );
+    // The next run's recovery reads wait for `reading`.
+    let reading = Promise.withResolvers<unknown>();
+    reading.resolve(undefined);
+    const native = {
+      ...storage.native,
+      openComposerRecovery: async () => {
+        const opened = await storage.native.openComposerRecovery();
+        await reading.promise;
+        return opened;
+      },
+    };
+    const next = createDrafts(native, session.registration);
     await next.load();
+
+    // This run's record reaches storage before any read, and the account changes away and back.
     const id = present(await next.create(alex), "the Draft's identifier");
     const current = present(draftOf(next.getSnapshot(), id), 'the Draft');
-
     await expect(next.journal(current)).resolves.toBe(true);
-    expect(storage.recoveryRecords().size).toBe(2);
-    await expect(next.recovered()).resolves.toStrictEqual([left]);
+    session.change(connected('account-b'));
+    await vi.waitFor(() => ready(next.getSnapshot()));
+    session.change(connected('account-a'));
+    await vi.waitFor(() => ready(next.getSnapshot()));
+    // A read that took a record before this run removed it resolves afterwards.
+    reading = Promise.withResolvers<unknown>();
+    const read = next.recovered();
+    await expect(next.forget(closed)).resolves.toBe(true);
+    reading.resolve(undefined);
+    await expect(read).resolves.toStrictEqual([left]);
     await expect(recovered()).resolves.toHaveLength(2);
   });
 
