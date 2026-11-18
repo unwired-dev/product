@@ -1259,7 +1259,14 @@ mismatched bodies read as absent and may be downloaded again.
 
 ### Unavailable bodies
 
-A body that cannot be shown says why, beside **Try Again**:
+The subject and sender show at once. On the Mac, while the body opens, the reader
+shows **Downloading message…** with an activity indicator above four still
+placeholder lines; VoiceOver reads it as one progress element
+([#2348](https://github.com/unwired-dev/product/issues/2348)).
+
+A body that cannot be shown says why, beside **Try Again**. On the Mac the
+sentence and **Try Again** sit in a quiet banner, VoiceOver hears the sentence
+once, and the two download sentences say "this Mac" instead of "this device":
 
 - **This message is not saved on this device, and Gmail could not be reached to
   download it.** This appears offline, or after a network, quota or server
