@@ -77,8 +77,9 @@ const placed = (picker: ReactElement) =>
 // remove.
 export type ReaderPanel = 'folders' | 'more';
 
-// The iPad reader toolbar's top edge sits 10pt beneath the safe area, at y42 as the frames draw it.
-export const readerToolbarInset = 10;
+// The iPad reader toolbar's top edge sits 15.3pt beneath the safe area, at y47.3 as the frames draw
+// it, so its centre shares the top row's line 36pt beneath the safe area.
+export const readerToolbarInset = 15.3;
 
 // At most one panel is open. The reader holds which, so a tap outside the panel can close it.
 type PanelState = Readonly<{

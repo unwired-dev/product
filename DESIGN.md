@@ -854,8 +854,8 @@ app follows under the issue named:
   layouts at 834×1210 wait for #2095.
 - **German strings:** no check lays the screens out at German lengths until
   #2096.
-- **iPad top row and Settings groups:** the one centre line, and icons on every
-  row of a group or on none, wait for #2097.
+- **iPad Settings groups:** icons on every row of a group or on none wait for
+  #2097.
 - **iPhone Outbox:** the rows have their recovery controls; drawing them as
   44pt quiet capsules under a two-line reason waits for #2098.
 - **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
