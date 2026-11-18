@@ -37,6 +37,25 @@ const required = <Value>(value: Value | undefined): Value => {
   return value;
 };
 
+// The IMAP Inbox of a host's first Mailbox Connection.
+const imapInbox = (host: ReturnType<typeof createHost>) => {
+  const { inbox } = required(host.gmailMailboxes.getConnections()[0]);
+  if (!('watch' in inbox)) {
+    throw new Error('Expected an IMAP connection');
+  }
+  return inbox;
+};
+
+// The message an IMAP Inbox lists with UID `uid`.
+const listedImap = (inbox: ReturnType<typeof imapInbox>, uid: number) => {
+  const state = inbox.getSnapshot();
+  return required(
+    state.kind === 'ready'
+      ? state.messages.find((message) => message.uid === uid)
+      : undefined,
+  );
+};
+
 // A host over a native module whose vault, Gmail and Drafts are synthetic. Attachment reads wait
 // until native code cancels them by name; the counts are the native reads the host made.
 function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
@@ -1180,8 +1199,8 @@ describe('the host assembly', () => {
     const { host, shared, imapServers } = syntheticHost(undefined, true);
     const imap = createSyntheticImap();
     imap.addFolder('Archive', ['archive']);
-    // The server reports no COPYUID for the next move.
-    let unmapped = false;
+    // What the server reports of a move's COPYUID.
+    let reported = (receipt: unknown) => receipt;
     await host.registration.register('google');
     await host.registration.connectImap({
       address: 'alex@example.invalid',
@@ -1201,30 +1220,19 @@ describe('the host assembly', () => {
     );
     imapServers[mailbox.id] = {
       ...imap.native,
-      imapMove: async (...args) => {
-        const receipt = await imap.native.imapMove(...args);
-        return unmapped ? {} : receipt;
-      },
+      imapMove: async (...args) =>
+        reported(await imap.native.imapMove(...args)),
     };
     const kept = imap.deliver('INBOX', { subject: 'Kept' });
     const dropped = imap.deliver('INBOX', { subject: 'Dropped' });
     await host.gmailMailboxes.load();
-    const { inbox } = required(host.gmailMailboxes.getConnections()[0]);
-    if (!('watch' in inbox)) {
-      throw new Error('Expected an IMAP connection');
-    }
-    const listed = (uid: number) => {
-      const state = inbox.getSnapshot();
-      return required(
-        state.kind === 'ready'
-          ? state.messages.find((message) => message.uid === uid)
-          : undefined,
-      );
-    };
+    const inbox = imapInbox(host);
+    const listed = (uid: number) => listedImap(inbox, uid);
     const pinned = () => host.pins.pins([mailbox.id]);
     await host.pins.pin(mailbox.id, `7.${kept}.INBOX`);
     await host.pins.pin(mailbox.id, `7.${dropped}.INBOX`);
-    const { pinnedAt } = required((await pinned())?.[0]);
+    const stored = await pinned();
+    const { pinnedAt } = required(stored?.[0]);
 
     await inbox.organize(listed(kept), {
       kind: 'archive',
@@ -1245,7 +1253,7 @@ describe('the host assembly', () => {
       ]);
     });
 
-    unmapped = true;
+    reported = () => ({});
     await inbox.organize(listed(dropped), {
       kind: 'archive',
       destination: 'Archive',
