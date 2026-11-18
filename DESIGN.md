@@ -760,7 +760,8 @@ form accessories, keyboards, status bar).
   approved compose Writing tools control uses `sparkles`; other controls never use
   sparkle or "AI" iconography. A provider tile in Add a Mailbox shows an SF
   Symbol (`envelope`, `icloud`, `building.2`, `at`), never a provider logo or a
-  typed letter.
+  typed letter; it is semibold `text/primary`, 13pt in the Mac's 28pt tile,
+  14.95pt in iPad's 32.2pt tile and 17pt in iPhone's 36pt tile.
 - **App Icon:** "Horizon", the Icon Composer document
   `native/app-icon/UnwiredMail.icon` that the iPhone, iPad and Mac hosts share.
   It is an open envelope seen edge to edge: a pocket with a V-shaped lip in
@@ -848,8 +849,6 @@ app follows under the issue named:
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
   and Failed states, wait for #2092.
-- **Add a Mailbox:** the provider tiles' SF Symbols, on Mac, iPad and iPhone,
-  wait for #2093.
 - **iPad Portrait:** the Thread, inline composer, Search Results and Settings
   layouts at 834×1210 wait for #2095.
 - **German strings:** no check lays the screens out at German lengths until
