@@ -441,9 +441,12 @@ IMAP message is pinned as its own Thread ([Pins](gmail-inbox.md#pins)) by its fo
 UID. Once the server applies a move, Undo's included, the Pin follows the message to the
 UID MOVE or COPYUID reported and keeps its date. A server that reports none leaves the
 message without an identity to follow, so its Pin is removed rather than left under the
-old UID ([#2283](https://github.com/unwired-dev/product/issues/2283)). Pin storage that
-refuses the change, as while the device is locked, leaves the Pin under the old UID, and
-the moved message shows unpinned until it is pinned again
+old UID ([#2283](https://github.com/unwired-dev/product/issues/2283)). When Pin storage
+refuses the change, as while the device is locked, the Inbox keeps the move, also one
+answered while the cache itself was locked, and saves it with the connection's encrypted
+cache at its next write. Each later opening of the Inbox repeats those moves in order until
+Pin storage keeps them, also after relaunch; the moved message shows unpinned until then,
+and no Pin stays under the old UID
 ([#2340](https://github.com/unwired-dev/product/issues/2340)).
 The folder listing keeps the server's hierarchy delimiter, so the Move picker nests
 `Parent/Child` folders and shows a container that holds only folders (`\Noselect`) as
