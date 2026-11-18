@@ -2210,6 +2210,11 @@ describe('composer recovery after relaunch', () => {
       return id;
     };
     const restored = await stored('Restored plan');
+    // The Draft was saved again after the version its unsaved edits started from.
+    const saved = draftOf(previous.getSnapshot(), restored);
+    ok(saved !== undefined);
+    await previous.update({ ...saved, subject: 'Changed plan' }, saved);
+    await expect(previous.save()).resolves.toBe(true);
     const discarded = await stored('Discarded plan');
     const edited = await stored('Edited plan');
     const drafts = createDrafts(storage.native, registration);
@@ -2270,11 +2275,6 @@ describe('composer recovery after relaunch', () => {
       await waitFor(() => {
         expect(asked()).toStrictEqual([recover]);
       });
-      // The Draft is saved again while the alert is open, after the version the edits started from.
-      const opened = draftOf(drafts.getSnapshot(), restored);
-      ok(opened !== undefined);
-      await drafts.update({ ...opened, subject: 'Changed plan' }, opened);
-      await expect(drafts.save()).resolves.toBe(true);
       // The router commits the composer's route after the render that restores the record.
       const { replace } = route.router;
       jest.spyOn(route.router, 'replace').mockImplementationOnce((target) => {

@@ -3887,6 +3887,7 @@ function Editor({
     let set: SendReminder | undefined = undefined;
     try {
       if (await storeAndSave()) {
+        journalNow();
         const next = { draft: authored.current.id, dueAt, timeZone };
         if (await sendReminders.remind(draftProfile, next)) {
           set = { ...next, profile: draftProfile };
