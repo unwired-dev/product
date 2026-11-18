@@ -605,6 +605,29 @@ const movedTo = (
     : undefined;
 
 // The ID a move the server mapped to a new UID gave the message, Undo's included.
+// Places this run's receipts among the saved ones from the last: each goes before this run's next,
+// after the saved move that left the message where it starts and before a saved move another window
+// made from where it left the message.
+const followMoves = (
+  saved: readonly ImapRelocation[],
+  unsaved: readonly ImapRelocation[],
+) => {
+  const merged = [...saved];
+  let bound = merged.length;
+  for (const receipt of Arr.reverse(unsaved)) {
+    let next = bound;
+    while (next > 0 && merged[next - 1]?.to !== receipt.from) {
+      next -= 1;
+    }
+    while (next < bound && merged[next]?.from !== receipt.to) {
+      next += 1;
+    }
+    merged.splice(next, 0, receipt);
+    bound = next;
+  }
+  return merged;
+};
+
 const movedId = ({ action }: ImapPending, answer: Answer) =>
   answer.outcome === 'moved' &&
   answer.uid !== undefined &&
@@ -1422,13 +1445,7 @@ export function createImapInbox(
       const saved = stored.relocations ?? [];
       const known = new Set(saved.map(({ from }) => from));
       const unsaved = relocations.filter(({ from }) => !known.has(from));
-      // Each goes before a saved move another window made from where it left the message.
-      const merged = [...saved];
-      for (const receipt of unsaved) {
-        const next = merged.findIndex(({ from }) => from === receipt.to);
-        merged.splice(next === -1 ? merged.length : next, 0, receipt);
-      }
-      relocations = merged;
+      relocations = followMoves(saved, unsaved);
       if (unsaved.length > 0) {
         // Another window's commit reopens the cache to save them again; another failure leaves
         // them to the next commit.
