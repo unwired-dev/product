@@ -3080,8 +3080,11 @@ describe('adding files and images to Drafts', () => {
       ),
     ).toStrictEqual([alex.id, other.id]);
 
-    // The store refuses moving the Draft into another Profile, and keeps a same-Profile choice.
+    // The store refuses moving the Draft into another Profile, as editors can ask first, and keeps
+    // a same-Profile choice.
     const before = draft();
+    expect(drafts.declines(withSender(before, personal), before)).toBe(true);
+    expect(drafts.declines(withSender(before, other), before)).toBe(false);
     await drafts.update(withSender(before, personal), before);
     expect(draft().connection).toBe(alex.id);
     await drafts.update(withSender(before, other), before);

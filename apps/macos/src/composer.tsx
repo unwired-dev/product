@@ -2420,9 +2420,25 @@ export function useRecoveryOffer(
     };
   }, []);
   const latest = useRef({ onRestore, mailboxes });
+  // The mailboxes in this window's Profile.
+  const members = (mailboxes ?? [])
+    .filter(({ id }) => profileOf(id, mailboxes ?? []) === profile)
+    .map(({ id }) => id)
+    .join('\n');
+  const latest = useRef({ onRestore, mailboxes, members });
   useLayoutEffect(() => {
-    latest.current = { onRestore, mailboxes };
+    latest.current = { onRestore, mailboxes, members };
   });
+  // The Profile's mailboxes when this window last found no record to offer. A mailbox moving into
+  // its Profile can make one its own, so it looks again; other mailbox updates leave an open alert
+  // alone.
+  const idle = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (idle.current !== undefined && idle.current !== members) {
+      idle.current = undefined;
+      setRound((count) => count + 1);
+    }
+  }, [members]);
   useEffect(
     () => () => {
       releaseOffer(recoveryOffers.get(store)?.get(account), window.current);
@@ -2495,6 +2511,7 @@ export function useRecoveryOffer(
       refused.current =
         records === undefined && activations.current === activated;
       if (pending === undefined) {
+        idle.current = latest.current.members;
         releaseOffer(own, self);
         return;
       }
@@ -3136,10 +3153,17 @@ function Editor({
       setRefused(undefined);
     }
   }, []);
+  // Whether the store declines the version this editor last tried to store, as one moving into
+  // another Mail Profile.
+  const declined = useRef(false);
   // Stores this editor's version; a Draft that changed elsewhere since it was opened becomes a
-  // conflicting copy.
+  // conflicting copy. A declined version stays unstored, so Save tries it again and Close keeps
+  // its recovery record.
   const storeShown = useCallback(() => {
-    if (authored.current !== stored.current) {
+    const changed = authored.current !== stored.current;
+    declined.current =
+      changed && store.declines(authored.current, stored.current);
+    if (changed && !declined.current) {
       void store.update(authored.current, stored.current, rebind);
       stored.current = authored.current;
       unsaved.current = true;
@@ -3151,7 +3175,7 @@ function Editor({
     if (saved) {
       unsaved.current = false;
     }
-    return saved;
+    return saved && !declined.current;
   }, [store, storeShown]);
   const change = (next: Draft, word = false, field?: string) => {
     if (pausedNow.current) {

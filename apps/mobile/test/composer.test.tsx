@@ -2642,6 +2642,61 @@ describe('composing Drafts', () => {
     expect(draftsOf(drafts.getSnapshot())).toStrictEqual([]);
   });
 
+  it('keeps the composer open and its recovery record when a declined sender leaves the Profile (#2373)', async () => {
+    expect.hasAssertions();
+    const initial = connected([
+      'alex@example.invalid',
+      'other@example.invalid',
+    ]);
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    await fireEvent.changeText(await screen.findByLabelText('Subject'), 'Plan');
+    await choose(
+      'Send from alex@example.invalid',
+      'Send from other@example.invalid',
+    );
+    await waitFor(
+      () => {
+        expect(storage.recoveryRecords().size).toBe(1);
+      },
+      { timeout: 4000 },
+    );
+    // The chosen mailbox moves into another Profile before Save Draft, so the store declines it.
+    await act(async () => {
+      registration.change({
+        ...initial,
+        mailboxes: JSON.stringify([
+          { id: alex, address: 'alex@example.invalid', state: 'connected' },
+          {
+            id: other,
+            address: 'other@example.invalid',
+            state: 'connected',
+            profile: 'work',
+          },
+        ]),
+      });
+    });
+    await saveDraft();
+    await expect(
+      screen.findByText(
+        'This Draft could not be saved, so it stays open. Try again, or discard it.',
+      ),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Plan');
+    expect(draftsOf(drafts.getSnapshot())).toMatchObject([
+      { connection: alex, subject: '' },
+    ]);
+    expect(storage.recoveryRecords().size).toBe(1);
+  });
+
   it('undoes recipient corrections without erasing earlier typing', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

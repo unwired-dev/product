@@ -3280,6 +3280,9 @@ function Editor({
   const stored = useRef(initial);
   // Another Draft's failed save does not make this editor's unchanged version unsaved.
   const unsaved = useRef(false);
+  // Whether the store declines the version this editor last tried to store, as one moving into
+  // another Mail Profile.
+  const declined = useRef(false);
   useLayoutEffect(() => {
     if (savedOf(state)) {
       unsaved.current = false;
@@ -3894,8 +3897,20 @@ function Editor({
     }
     return closed;
   };
-  // Stores this editor's version, then saves it; a Draft that changed elsewhere since it was
-  // opened becomes a conflicting copy.
+  // Stores this editor's version; a Draft that changed elsewhere since it was opened becomes a
+  // conflicting copy. A declined version stays unstored, so Save Draft tries it again and Close
+  // keeps its recovery record.
+  const storeShown = () => {
+    const changed = authored.current !== stored.current;
+    declined.current =
+      changed && store.declines(authored.current, stored.current);
+    if (changed && !declined.current) {
+      void store.update(authored.current, stored.current, rebind);
+      stored.current = authored.current;
+      unsaved.current = true;
+    }
+  };
+  // Stores this editor's version, then saves it.
   const storeAndSave = async () => {
     // Edits accepted while storage saves are stored too before the editor closes.
     do {
@@ -3903,12 +3918,8 @@ function Editor({
         setClosing('recipients');
         return false;
       }
-      if (authored.current !== stored.current) {
-        void store.update(authored.current, stored.current, rebind);
-        stored.current = authored.current;
-        unsaved.current = true;
-      }
-      if (!(await store.save())) {
+      storeShown();
+      if (!(await store.save()) || declined.current) {
         return false;
       }
       unsaved.current = false;
@@ -4084,11 +4095,7 @@ function Editor({
       setDropped(undefined);
       // As for Discard, later edits wait: the version shown at Send is the one sent.
       discarded.current = true;
-      if (previous !== stored.current) {
-        unsaved.current = true;
-      }
-      void store.update(previous, stored.current, rebind);
-      stored.current = authored.current;
+      storeShown();
       const cleanup = reminderCleanup();
       const baseline = () => {
         const id = cleanup.target();

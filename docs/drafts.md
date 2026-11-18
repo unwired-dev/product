@@ -801,14 +801,22 @@ composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
 an unchanged one. While another composer has the same Draft open, the record stays
 until that composer closes too. A record the previous run left and the person has
-not answered yet stays through a close that keeps its Draft listed. Both composers write the same record, so it holds
-the version journaled last.
+not answered yet stays through a close that keeps its Draft listed. Both composers
+write the same record, so it holds the version journaled last. A version the
+store declines, as one whose sender moved into another Mail Profile while the
+composer was open, is not stored: the composer asks `declines` before `update`, so
+Save and Save Draft keep it open with **This Draft could not be saved, so it stays
+open.** and the record stays
+([#2373](https://github.com/unwired-dev/product/issues/2373)).
 
 On the Mac, once the Drafts open after a relaunch, an Inbox window asks **Recover
 unsaved message?** for each record the previous run left whose Draft and recovered
 sender belong to the window's Mail Profile, one alert at a time across windows,
 saying only **Your unsaved changes were kept on this device.**
-([#2329](https://github.com/unwired-dev/product/issues/2329)). **Restore**, the
+([#2329](https://github.com/unwired-dev/product/issues/2329)). A window with
+nothing to offer looks again when a mailbox moves into its Profile, which can make
+a record its own; other mailbox updates leave an open alert as it is
+([#2373](https://github.com/unwired-dev/product/issues/2373)). **Restore**, the
 default that Return and Escape choose, opens the composer on the recovered version,
 so **Close** asks to save it and **Save** stores it, or keeps it as a conflicting
 copy when the Draft changed since the version the edits started from, as when
