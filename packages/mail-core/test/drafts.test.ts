@@ -3573,17 +3573,44 @@ describe('keeping composer recovery records', () => {
     const next = createDrafts(storage.native, session.registration);
     await next.load();
 
-    // This run's record reaches storage, and the account changes away, which removes the stored
-    // records, and back.
+    // This run's record reaches storage and is not offered.
     const id = present(await next.create(alex), "the Draft's identifier");
     const current = present(draftOf(next.getSnapshot(), id), 'the Draft');
     await expect(next.journal(current)).resolves.toBe(true);
+    await expect(next.recovered()).resolves.toStrictEqual([left]);
+
+    // Another account's storage removes the records, so returning offers none it erased.
     session.change(connected('account-b'));
     await vi.waitFor(() => ready(next.getSnapshot()));
     expect(storage.recoveryRecords().size).toBe(0);
     session.change(connected('account-a'));
     await vi.waitFor(() => ready(next.getSnapshot()));
-    await expect(next.recovered()).resolves.toStrictEqual([left]);
+    await expect(next.recovered()).resolves.toStrictEqual([]);
+  });
+
+  it('opens no Drafts of an account that changed while its records were read', async () => {
+    expect.hasAssertions();
+    const { storage, saving, session } = await savingDraft();
+    storage.release();
+    await saving;
+    const reading = Promise.withResolvers<unknown>();
+    const native = {
+      ...storage.native,
+      openComposerRecovery: async () => {
+        const opened = await storage.native.openComposerRecovery();
+        await reading.promise;
+        return opened;
+      },
+    };
+    const next = createDrafts(native, session.registration);
+    const loading = next.load();
+    await vi.waitFor(() => {
+      expect(next.getSnapshot().kind).toBe('loading');
+    });
+    session.change({ kind: 'signed-out' });
+    reading.resolve(undefined);
+    await loading;
+    expect(next.getSnapshot().kind).toBe('closed');
   });
 
   it('tells a locked read of the records from an empty one and reads them again', async () => {
@@ -3633,6 +3660,21 @@ describe('keeping composer recovery records', () => {
     // An answered offer leaves the record out, and closing the Draft then removes it.
     next.take(draft.id);
     await expect(next.recovered()).resolves.toStrictEqual([]);
+    await expect(next.forget(draft.id)).resolves.toBe(true);
+    await expect(recovered()).resolves.toStrictEqual([]);
+  });
+
+  it('removes a record the previous run left once its Draft is deleted', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saving, recovered, session } =
+      await savingDraft();
+    storage.release();
+    await saving;
+    await drafts.journal({ ...draft, subject: 'Left' });
+    const next = createDrafts(storage.native, session.registration);
+    await next.load();
+
+    await expect(next.discard(draft.id)).resolves.toBe(true);
     await expect(next.forget(draft.id)).resolves.toBe(true);
     await expect(recovered()).resolves.toStrictEqual([]);
   });

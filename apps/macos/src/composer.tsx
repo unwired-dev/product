@@ -2338,14 +2338,10 @@ function useRecoveryJournal(
   return [close, write] as const;
 }
 
-// The composer recovery records the previous run left for a Product Account, read once a run when
-// its Drafts first open, those already offered, and the window offering them. Records this run
-// writes later are never offered, also after switching accounts away and back. One
-// window at a time offers, and keeps the offer while its restored composer is open; releasing it
-// wakes the windows waiting for it. A read storage refused, as while locked, is read again when a
-// window next offers.
+// A Product Account's offer of the composer recovery records the previous run left: those already
+// offered, and the window offering them. One window at a time offers, and keeps the offer while its
+// restored composer is open; releasing it wakes the windows waiting for it.
 interface RecoveryOffer {
-  readonly records: Promise<readonly Draft[] | undefined>;
   readonly offered: Set<string>;
   readonly waiting: Set<() => void>;
   window?: object;
@@ -2391,6 +2387,18 @@ export function useRecoveryOffer(
   const anchor = useRef<View>(null);
   const window = useRef({});
   const [round, setRound] = useState(0);
+  const refused = useRef(false);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && refused.current) {
+        refused.current = false;
+        setRound((count) => count + 1);
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, []);
   const latest = useRef({ onRestore, mailboxes });
   useLayoutEffect(() => {
     latest.current = { onRestore, mailboxes };
@@ -2410,21 +2418,8 @@ export function useRecoveryOffer(
     recoveryOffers.set(store, offers);
     let offer = offers.get(account);
     if (offer === undefined) {
-      const created: RecoveryOffer = {
-        records: store.recovered(),
-        offered: new Set(),
-        waiting: new Set(),
-      };
-      void (async () => {
-        if (
-          (await created.records) === undefined &&
-          offers.get(account) === created
-        ) {
-          offers.delete(account);
-        }
-      })();
-      offers.set(account, created);
-      offer = created;
+      offer = { offered: new Set(), waiting: new Set() };
+      offers.set(account, offer);
     }
     const own = offer;
     const self = window.current;
@@ -2464,13 +2459,15 @@ export function useRecoveryOffer(
     // An editor holding the Draft keeps its record; this one holds nothing.
     const discarding = () => undefined;
     const ask = async () => {
-      const records = (await own.records) ?? [];
-      const draft = records.find(
+      const records = await store.recovered();
+      const draft = records?.find(
         (each) => !own.offered.has(each.id) && owned(each),
       );
       if (!current) {
         return;
       }
+      // A read storage refused, as while locked, is read again once the app is active again.
+      refused.current = records === undefined;
       if (draft === undefined) {
         releaseOffer(own, self);
         return;

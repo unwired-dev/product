@@ -1205,9 +1205,9 @@ export function createDrafts(
   let recordCall = 0;
   // Every Draft id this run journaled or forgot, across account changes, which `recovered` leaves out.
   const recordedThisRun = new Set<string>();
-  // Each account's records as read when its storage first opened this run, before it journaled any;
-  // an account whose read storage refused, as while locked, has none until `recovered` reads again.
-  const previousRun = new Map<string, readonly Draft[]>();
+  // The account's records as read when its storage opened, before this run journaled any; none
+  // while storage refuses that read, as while locked, until `recovered` reads again.
+  let previousRun: readonly Draft[] | undefined = undefined;
   // The previous run's records whose offer the person answered, which `forget` then removes.
   const taken = new Set<string>();
   const callRecord = (id: string) => {
@@ -1339,9 +1339,8 @@ export function createDrafts(
     current: number,
     account: string,
   ) {
-    const captured = previousRun.get(account);
-    if (captured !== undefined) {
-      return captured;
+    if (previousRun !== undefined) {
+      return previousRun;
     }
     const opened = yield* native(
       storage.openComposerRecovery,
@@ -1355,7 +1354,7 @@ export function createDrafts(
       return draft?.id === id ? [draft] : [];
     });
     if (live(current)) {
-      previousRun.set(account, records);
+      previousRun = records;
     }
     return records;
   });
@@ -1394,6 +1393,9 @@ export function createDrafts(
       yield* capturing(current, account).pipe(
         Effect.catchTag('DraftStorageFailure', report),
       );
+      if (!live(current)) {
+        return;
+      }
       publish({ kind: 'ready', drafts, save: 'saved' });
     }).pipe(
       // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
@@ -2439,6 +2441,7 @@ export function createDrafts(
     sent = [];
     cleanup = [];
     dirty = false;
+    previousRun = undefined;
     unrecorded.clear();
     recordCalls.clear();
     copied.clear();
@@ -2708,12 +2711,16 @@ export function createDrafts(
     },
     // Removes Draft `id`'s recovery record, also while the device is locked; resolves whether it did
     // or a later `journal` took the record over. A closing `editor` leaves the record to another
-    // editor still open on that Draft, and a record the previous run left stays until `take`.
+    // editor still open on that Draft, and a record the previous run left stays until `take` while
+    // its Draft is listed.
     forget: (id: string, editor?: (id: string) => void) => {
       if (
         (editor !== undefined &&
           [...(editors.get(id) ?? [])].some((each) => each !== editor)) ||
-        (!recordedThisRun.has(id) && !taken.has(id))
+        (!recordedThisRun.has(id) &&
+          !taken.has(id) &&
+          state.kind === 'ready' &&
+          state.drafts.some((draft) => draft.id === id))
       ) {
         return Promise.resolve(true);
       }

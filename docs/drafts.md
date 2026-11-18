@@ -769,11 +769,12 @@ the save still succeeds and a later save retries that cleanup.
 decision 2) keep an open composer's unsaved Draft on this device apart from the
 Drafts: `journal` writes one, `forget` removes it, also while storage is locked,
 and `recovered` lists the records the account's previous run left, as the store
-read them when the account's storage first opened this run, before it journaled
-any ([#2334](https://github.com/unwired-dev/product/issues/2334)). A read that
-storage refused, as while locked, resolves `undefined` instead of an empty list,
-and the next `recovered` reads again. A record the previous run left stays
-through `forget` until `take` marks its offer answered. A record that storage
+read them when the account's storage opened, before this run journaled any
+([#2334](https://github.com/unwired-dev/product/issues/2334)); a Product Account
+change discards that read. A read that storage refused, as while locked, resolves
+`undefined` instead of an empty list, and the next `recovered` reads again. While
+its Draft is listed, a record the previous run left stays through `forget` until
+`take` marks its offer answered. A record that storage
 refuses, as while locked, stays in memory and is written with the next
 record. When an editor moves to a conflicting copy that storage holds neither
 as a Draft nor as its own record, `forget` keeps the original Draft's record,
@@ -794,7 +795,7 @@ composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
 an unchanged one. While another composer has the same Draft open, the record stays
 until that composer closes too. A record the previous run left and the person has
-not answered yet stays through any close. Both composers write the same record, so it holds
+not answered yet stays through a close that keeps its Draft listed. Both composers write the same record, so it holds
 the version journaled last.
 
 On the Mac, once the Drafts open after a relaunch, an Inbox window asks **Recover
@@ -810,8 +811,8 @@ another composer has the Draft open, and leaves the stored Draft as it was. The 
 record waits until the restored composer closes. Records this run writes are never
 offered: `recovered()` leaves out every Draft the store journaled, forgot or took
 this run, whatever order storage takes those calls in. While storage is locked the
-alerts wait for it to open, and a read that storage refused is read again when a
-window next offers. A record whose Draft is no longer listed, that changed since it
+alerts wait for it to open, and a read that storage refused is read again once the
+app is active again. A record whose Draft is no longer listed, that changed since it
 was read, whose alert closed without an answer, or whose removal failed, stays for
 the next launch. The Mac
 TypeScript client (`useRecoveryOffer` in `apps/macos/src/composer.tsx`) chooses each

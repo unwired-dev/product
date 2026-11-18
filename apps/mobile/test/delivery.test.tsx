@@ -121,7 +121,8 @@ const journey = async (
     });
   const previous = AppState.currentState;
   AppState.currentState = initial;
-  jest.useFakeTimers();
+  // Effect schedules fibers with setImmediate, which stays real.
+  jest.useFakeTimers({ doNotFake: ['setImmediate', 'clearImmediate'] });
   try {
     const host = jest.requireActual<ReturnType<typeof createHost>>(
       '../src/registration.ts',
@@ -232,7 +233,8 @@ describe('application-owned Outbox execution', () => {
           // The old process stopped before receiving the reply.
         });
       };
-      jest.useFakeTimers();
+      // Effect schedules fibers with setImmediate, which stays real.
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'clearImmediate'] });
       try {
         await drafts.load();
         const id = present(
