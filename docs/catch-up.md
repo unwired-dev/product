@@ -67,7 +67,10 @@ still opens the single-message reader; Catch Up bubbles will open the Thread vie
   `threadId` (the listed Inbox and any open search results), newest at the top.
   A message that is not cached shows as unavailable.
 - It scrolls to the opened message and highlights it
-  (`accessibilityState.selected`). Until the person drags the reader, every new
+  (`accessibilityState.selected`); it takes the `accent/selection-subtle` tint and
+  a 4pt bar only while the Command Palette targets it as the Selected Message.
+  On iPhone its text fades out at the bottom edge, as the reader's does. Until
+  the person drags the reader, every new
   layout of that message scrolls to it again, so bodies loading above it keep it in
   place.
 - Each message starts with its quoted history collapsed behind **Show Quoted

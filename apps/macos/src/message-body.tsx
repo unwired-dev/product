@@ -49,7 +49,14 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { askInSheet, ContextMenu, Notice, SFSymbol } from './design.tsx';
+import {
+  AnnouncedAlert,
+  askInSheet,
+  Button,
+  ContextMenu,
+  Notice,
+  SFSymbol,
+} from './design.tsx';
 import { InvitationCard } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
@@ -982,23 +989,45 @@ export function MessageBody({
 
   if (body === undefined || body.kind === 'loading') {
     return (
-      <ActivityIndicator
-        accessibilityLabel={t('messageBody.opening')}
-        style={styles.body}
-      />
+      <View style={styles.downloading}>
+        <View
+          accessible
+          accessibilityLabel={t('messageBody.downloading')}
+          accessibilityRole="progressbar"
+          style={styles.status}>
+          <ActivityIndicator />
+          <Text style={[styles.secondary, { color: colors.textSecondary }]}>
+            {t('messageBody.downloading')}
+          </Text>
+        </View>
+        {/* Static lines where the body will appear, so Reduce Motion has nothing to stop. */}
+        {(['100%', '92%', '97%', '63%'] as const).map((width) => (
+          <View
+            key={width}
+            style={[
+              styles.placeholder,
+              { width, backgroundColor: colors.fillQuiet },
+            ]}
+          />
+        ))}
+      </View>
     );
   }
 
   if (body.kind === 'unavailable') {
+    // A download that could not happen says "this Mac", as the frame does.
+    const reason =
+      body.reason === 'download' || body.reason === 'imap-download'
+        ? t(`messageBody.${body.reason}`, { provider, context: 'mac' })
+        : t(`messageBody.${body.reason}`, { provider });
     return (
-      <View style={styles.body}>
-        <Text
-          accessibilityRole="alert"
-          style={[styles.paragraph, { color: colors.textSecondary }]}>
-          {t(`messageBody.${body.reason}`, { provider })}
-        </Text>
+      <View style={[styles.banner, { backgroundColor: colors.fillQuiet }]}>
+        <AnnouncedAlert
+          style={[styles.secondary, { color: colors.textPrimary }]}>
+          {reason}
+        </AnnouncedAlert>
         {body.reason === 'missing' || body.reason === 'imap-missing' ? null : (
-          <Action
+          <Button
             label={t('common.retry')}
             onPress={() => {
               void inbox.readMessage(id);

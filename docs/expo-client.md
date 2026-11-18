@@ -331,7 +331,10 @@ The runner requires Ruby with CocoaPods' `xcodeproj` gem (`RUBY` may select that
 Ruby executable) and the iOS 27 runtime. It creates and cleans up its own
 iPhone 18 Pro and iPad Pro 11-inch M5 simulators, denies the app Contacts access
 on them so typing a recipient raises no system prompt, and keeps logs and xcresults
-under `artifacts/expo-bootstrap/`. Simulator device type identifiers after the
+under `artifacts/expo-bootstrap/`. Before each journey it waits, for about five
+minutes at most, until the new simulator's own processes are quiet: after boot a fresh
+device renders its wallpaper gallery for minutes, and on CI's three-core runners
+that stalled XCUITest's launch and terminate (#2336). It prints how long the wait took and whether the device went quiet. Simulator device type identifiers after the
 app path limit the run to those devices; without them both devices run in turn. A testmanagerd socket/CoreSimulator disconnect
 or zero-test success triggers one retry on a fresh owned device; assertion
 failures fail immediately. The root `pnpm test:native-runner` command exercises
@@ -375,14 +378,14 @@ No signing credentials, provider accounts or running Metro server are required.
 
 Assertion failures fail immediately, zero selected tests never pass, and only
 recognized infrastructure failures or zero-test success receive one fresh-device
-retry. The build job has a 35-minute timeout and each journey job a 25-minute
-timeout; the interaction step has a separate 18-minute limit for harness
-compilation, one simulator startup and its journey, including the bounded
-infrastructure retry. The storage job has a 50-minute timeout; its native
+retry. The build job has a 35-minute timeout and each journey job a 33-minute
+timeout; the interaction step has a separate 28-minute limit for harness
+compilation, one simulator startup, its settle wait and its journey, including
+the bounded infrastructure retry. The storage job has a 50-minute timeout; its native
 integration step has a 40-minute limit, including the bounded infrastructure
 retry and cleanup. Superseded pull-request runs are cancelled.
 Logs and XCTest result bundles, including screenshots, run ownership, simulator
-IDs and exit results, are uploaded with seven-day retention, including on failure,
+IDs, exit results and, for the journeys, host load, are uploaded with seven-day retention, including on failure,
 as `expo-native-e2e-<device>-<run id>-<attempt>`,
 `expo-native-build-<run id>-<attempt>` and `expo-native-checks-<run id>-<attempt>`.
 Re-running a failed journey job reuses the app from the original build while that

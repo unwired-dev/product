@@ -345,6 +345,8 @@ export function RemoteContentSettings({
         />
       ))}
       <SettingsRow
+        // The iPad frames give this group's every row an icon; iPhone's keep this one without.
+        icon={settingsColumns ? 'eye' : undefined}
         title={t('settings.trackingPixels')}
         subtitle={t('settings.trackingPixelsDetail')}>
         <Text style={[styles.label, { color: colors.textSecondary }]}>

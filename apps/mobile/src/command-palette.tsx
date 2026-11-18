@@ -79,7 +79,14 @@ type Anchor = Readonly<{ x: number; y: number; width: number }>;
 
 export function useCommandPalette() {
   const { opened, open, close } = use(PaletteContext);
-  return { open, close, isOpen: opened !== undefined };
+  return {
+    open,
+    close,
+    isOpen: opened !== undefined,
+    // Whether the open palette's commands act on the message `commandTarget` names.
+    targets: (id: string) =>
+      opened?.some((command) => command.target?.id === id) === true,
+  };
 }
 
 // Offers commands while it is mounted, with the same handlers the owning screen's buttons use.

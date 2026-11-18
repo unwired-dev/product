@@ -1039,6 +1039,7 @@ describe('product registration', () => {
       });
     };
     expect(moreTitles()).toStrictEqual([
+      'Pin',
       'Mark as Unread',
       'Move to…',
       'Delete',
@@ -1055,6 +1056,7 @@ describe('product registration', () => {
       expect(imap.server.changes.at(-1)).toBe(`unflag INBOX ${invoice}`);
     });
     expect(moreTitles()).toStrictEqual([
+      'Pin',
       'Mark as Unread',
       'Move to…',
       'Delete',

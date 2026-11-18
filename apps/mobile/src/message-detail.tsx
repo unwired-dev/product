@@ -54,6 +54,7 @@ import {
   CommandInput,
   CommandInputRow,
   RegisterCommands,
+  useCommandPalette,
   useMessageCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
@@ -64,7 +65,7 @@ import {
   ToolbarButton,
 } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
-import { WindowBarContext } from './inbox-bar.tsx';
+import { ScrollEdge, WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -120,16 +121,25 @@ const usePortrait = () => {
 };
 const usePortraitInset = () => (usePortrait() ? portraitInset : undefined);
 const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
-// The content's bottom padding clears iPhone's bottom toolbar or a regular window's floating bar,
-// and on iPhone the home indicator it runs beneath.
+// iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the toolbar's
+// glass.
+const readerEdgeHeight = 140;
+// Its stops: clear, then 85% and 97% of the surface.
+const readerEdgeAlphas = ['00', 'D9', 'F7'];
+// The content's bottom padding lets its last line scroll clear of iPhone's scroll edge, or of a
+// regular window's floating bar and on iPhone the home indicator it runs beneath.
 const clearsBottom = (bar: boolean, inset: number) => ({
-  paddingBottom: (bar ? 52 + 2 * spacing.l : spacing.s) + (compact ? inset : 0),
+  paddingBottom:
+    compact && !bar
+      ? readerEdgeHeight
+      : (bar ? 52 + 2 * spacing.l : spacing.s) + (compact ? inset : 0),
 });
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  // The regular-width toolbar: glass groups at the pane's trailing edge.
+  // The regular-width toolbar: glass groups at the pane's trailing edge. Groups that wrap in a
+  // narrow pane push the content down.
   topToolbar: {
-    height: topToolbarHeight,
+    minHeight: topToolbarHeight,
     zIndex: 1,
     alignItems: 'flex-end',
     paddingTop: readerToolbarInset,
@@ -207,10 +217,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderRadius: compact ? 0 : radius.card,
   },
-  // A bar beside the opened message, so it stands out without relying on color.
-  openedMessage: { borderLeftWidth: 4 },
+  // A bar beside the opened message, so it stands out without relying on color. It takes its
+  // width from the padding, so the body keeps its width as the palette opens and closes.
+  openedMessage: { borderLeftWidth: 4, paddingLeft: spacing.l - 4 },
   // The iPad Portrait frames draw the Thread flat as iPhone's, on the reader's 23pt inset.
   flatMessage: { paddingHorizontal: 0, borderRadius: 0 },
+  // On iPhone and in iPad Portrait the tint reaches 16pt beyond the text, which stays on the
+  // content's axis.
+  compactOpenedMessage: {
+    marginHorizontal: -spacing.l,
+    paddingRight: spacing.l,
+    borderRadius: radius.card,
+  },
+  readerEdge: { left: 0, right: 0, height: readerEdgeHeight },
 });
 
 const singleContent = [
@@ -224,6 +243,16 @@ const keepVisibleMessage = { minIndexForVisible: 0 };
 // Beside the list, its command input serves the reader too; a reader alone keeps its own.
 function ReaderCommandRow() {
   return use(SidebarToggleContext) === undefined ? <CommandInputRow /> : null;
+}
+
+// iPhone's fade beneath the reader's toolbar. A regular-width window's floating bar brings its own.
+function ReaderEdge() {
+  return use(WindowBarContext) === undefined ? (
+    <ScrollEdge
+      style={styles.readerEdge}
+      alphas={readerEdgeAlphas}
+    />
+  ) : null;
 }
 
 // Nothing selected, or a message that is not in any open mailbox.
@@ -1095,7 +1124,7 @@ function MailboxMessage({
             contentContainerStyle={[
               singleContent,
               inset,
-              clearsBottom(compact || windowBar !== undefined, insets.bottom),
+              clearsBottom(windowBar !== undefined, insets.bottom),
             ]}>
             {/* iPhone counts a single message as its frames count a thread's. */}
             {compact ? <MessageCount count={1} /> : null}
@@ -1117,27 +1146,30 @@ function MailboxMessage({
             onPanel={setPanel}
           />
           {compact ? (
-            <View
-              // The gaps between its groups leave taps to the panel dismissal beneath.
-              pointerEvents="box-none"
-              style={[
-                styles.bottomToolbar,
-                { bottom: insets.bottom + toolbarLift },
-              ]}>
+            <>
+              <ReaderEdge />
               <View
+                // The gaps between its groups leave taps to the panel dismissal beneath.
                 pointerEvents="box-none"
-                style={styles.bottomActions}>
-                {toolbar}
-              </View>
-              {sender === undefined || onCompose === undefined ? null : (
-                <View pointerEvents="box-none">
-                  <ComposeButton
-                    mailbox={sender}
-                    onCompose={onCompose}
-                  />
+                style={[
+                  styles.bottomToolbar,
+                  { bottom: insets.bottom + toolbarLift },
+                ]}>
+                <View
+                  pointerEvents="box-none"
+                  style={styles.bottomActions}>
+                  {toolbar}
                 </View>
-              )}
-            </View>
+                {sender === undefined || onCompose === undefined ? null : (
+                  <View pointerEvents="box-none">
+                    <ComposeButton
+                      mailbox={sender}
+                      onCompose={onCompose}
+                    />
+                  </View>
+                )}
+              </View>
+            </>
           ) : null}
         </LinkConfirmationProvider>
       </ResponseStatusContext>
@@ -1257,6 +1289,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
               pinned={pinned}
             />
           </ReaderScrollView>
+          {compact ? <ReaderEdge /> : null}
         </LinkConfirmationProvider>
       </QuotedHistoryContext>
     </SafeAreaView>
@@ -1384,6 +1417,7 @@ function ThreadMessage({
   const mailbox = useMailbox();
   const colors = usePalette();
   const portrait = usePortrait();
+  const { targets } = useCommandPalette();
   const [bodyHeight, setBodyHeight] = useState(0);
   return (
     <View
@@ -1394,9 +1428,11 @@ function ThreadMessage({
         styles.threadMessage,
         { borderBottomColor: colors.separator },
         portrait && styles.flatMessage,
-        highlighted && !compact && !portrait
+        // Tinted only while the Command Palette targets it as the Selected Message.
+        targets(commandTarget(mailbox?.id, message).id)
           ? [
               styles.openedMessage,
+              compact || portrait ? styles.compactOpenedMessage : null,
               {
                 backgroundColor: colors.accentSelectionSubtle,
                 borderLeftColor: colors.accentInk,

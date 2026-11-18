@@ -2,6 +2,7 @@ import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
+import { palette as themes } from '@private-email/mail-core/theme';
 import {
   act,
   fireEvent,
@@ -10,9 +11,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { Dimensions, ScrollView, StyleSheet } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet } from 'react-native';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import {
+  CommandPaletteProvider,
+  useCommandPalette,
+} from '../src/command-palette.tsx';
 import { createWindowBar, WindowBarContext } from '../src/inbox-bar.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail, ThreadView } from '../src/message-detail.tsx';
@@ -114,9 +118,11 @@ function longThread() {
 }
 
 // A Thread message's section, found by its sender header: the nearest ancestor that reports
-// its layout for scrolling.
+// its layout for scrolling. The open Command Palette hides it from accessibility.
 const messageBy = (sender: string) => {
-  let section = screen.getByText(sender).parent;
+  let section = screen.getByText(sender, {
+    includeHiddenElements: true,
+  }).parent;
   while (section !== null && section.props.onLayout === undefined) {
     section = section.parent;
   }
@@ -172,6 +178,20 @@ const layOut = async (senders: readonly string[]) => {
 };
 
 // The rendered Thread view over the real Gmail store; only native scrolling is observed.
+// Opens the Command Palette, as a reader's header does.
+function PaletteOpener() {
+  const { open } = useCommandPalette();
+  return (
+    <Pressable
+      accessibilityLabel="Open Palette"
+      accessibilityRole="button"
+      onPress={() => {
+        open();
+      }}
+    />
+  );
+}
+
 describe('thread view', () => {
   /* oxlint-disable vitest/max-expects -- One Thread journey checks membership, order, highlight, scrolling and quoted history. */
   it('stacks the thread newest first, keeps the opened message in place until the reader is dragged, and collapses quoted history', async () => {
@@ -227,8 +247,12 @@ describe('thread view', () => {
     ).toStrictEqual(['Sam Lee', 'Alex Rivera', 'Maya Chen']);
 
     // The opened message is highlighted.
-    // The final Thread body must scroll clear of the window's floating bar.
+    // The final Thread body must scroll clear of the window's floating bar, which brings its own
+    // scroll edge.
     expect(readerContent()).toMatchObject({ paddingBottom: 84 });
+    expect(
+      screen.queryByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toBeNull();
     expect(screen.getByText('Alex Rivera')).toHaveProp('accessibilityState', {
       selected: true,
     });
@@ -454,6 +478,37 @@ describe('thread view', () => {
     expect(screen.getByText('Re: Planning')).toHaveProp('selectable', true);
     // The iPhone frames count a single message as they count a thread's.
     expect(screen.getByText('1 Message')).toBeVisible();
+    // Its text fades out beneath the toolbar, through the frames' 85% and 97% stops.
+    const surface = themes.light.surfaceContent;
+    expect(
+      screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toHaveStyle({
+      position: 'absolute',
+      bottom: 0,
+      height: 140,
+      experimental_backgroundImage: `linear-gradient(to bottom, ${surface}00, ${surface}D9, ${surface}F7)`,
+    });
+  });
+
+  it('leaves the scroll edge to a regular-width window bar in the single-message reader', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createInboxStore(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <WindowBarContext value={createWindowBar()}>
+          <MessageDetail
+            id={middle}
+            mailbox={alex}
+          />
+        </WindowBarContext>
+      </InboxProvider>,
+    );
+    await act(store.load);
+    await expect(screen.findByText('1 Message')).resolves.toBeVisible();
+    expect(
+      screen.queryByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toBeNull();
   });
 
   it('opens the Command Palette from the thread header beside its system Back', async () => {
@@ -472,6 +527,12 @@ describe('thread view', () => {
     );
     await act(store.load);
     expect(screen.queryByTestId('system-back')).not.toBeNull();
+    // The Thread's text fades out at the bottom edge, as the reader's does, and its last line
+    // scrolls clear of the fade.
+    expect(
+      screen.getByTestId('scroll-edge', { includeHiddenElements: true }),
+    ).toHaveStyle({ height: 140 });
+    expect(readerContent()).toMatchObject({ paddingBottom: 140 });
     await fireEvent(
       await screen.findByRole('header', { name: 'Re: Planning' }),
       'accessibilityAction',
@@ -488,6 +549,73 @@ describe('thread view', () => {
         name: 'Reply. Not available for this message',
       }),
     ).toBeDisabled();
+  });
+
+  it('tints the opened message only while the Command Palette targets it', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createInboxStore(native);
+    await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await act(store.load);
+    const tint = { backgroundColor: themes.light.accentSelectionSubtle };
+    expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
+    await fireEvent(
+      await screen.findByRole('header', { name: 'Re: Planning' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'openCommandPalette' } },
+    );
+    // Its bar takes its width from the padding, so the body keeps its width.
+    expect(messageBy('Alex Rivera')).toHaveStyle({
+      ...tint,
+      borderLeftWidth: 4,
+      paddingLeft: 12,
+    });
+    expect(messageBy('Sam Lee')).not.toHaveStyle(tint);
+    await fireEvent.press(
+      within(screen.getByTestId('command-palette')).getByRole('button', {
+        name: 'Cancel',
+      }),
+    );
+    expect(messageBy('Alex Rivera')).not.toHaveStyle(tint);
+  });
+
+  it('leaves the opened message untinted when the palette opened before the Thread offered it', async () => {
+    expect.hasAssertions();
+    const { native, middle } = threadMailbox();
+    const store = createInboxStore(native);
+    await act(store.load);
+    const { rerender } = await render(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <PaletteOpener />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    // A reader still loading offers no message, so the palette opens without a target.
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Palette' }));
+    await rerender(
+      <InboxProvider mailboxes={singleMailbox(store, alex)}>
+        <CommandPaletteProvider>
+          <PaletteOpener />
+          <ThreadView
+            id={middle}
+            mailbox={alex}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    expect(messageBy('Alex Rivera')).not.toHaveStyle({
+      backgroundColor: themes.light.accentSelectionSubtle,
+    });
   });
 
   it('shows the message as unavailable when it is not cached', async () => {

@@ -956,7 +956,7 @@ export function SettingsRow({
   minHeight,
   children,
 }: {
-  readonly icon?: string | ReactElement;
+  readonly icon?: string | ReactElement | undefined;
   readonly title: string;
   readonly titleTone?: 'accent' | 'destructive' | undefined;
   readonly titleNumberOfLines?: number;

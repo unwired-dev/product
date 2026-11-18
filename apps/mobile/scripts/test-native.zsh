@@ -63,6 +63,19 @@ for device_type in "${device_types[@]}"; do
     xcrun simctl install "$device_id" "$app_bundle"
     # Contacts stays denied, so typing a recipient never raises its system prompt (#2145).
     xcrun simctl privacy "$device_id" revoke contacts "$UNWIRED_BUNDLE_ID"
+    # A fresh device renders its wallpaper gallery after boot: for minutes dozens of PosterBoard
+    # extensions saturate a CI runner's three cores, and XCUITest's launch, terminate and queries
+    # stall until they fail (#2336). Start the journey once the device's processes are quiet.
+    settle_start=$SECONDS
+    simulator_launchd=$(pgrep -f "launchd_sim .*/Devices/$device_id/" || true)
+    quiet=0
+    while [[ -n "$simulator_launchd" ]] && (( quiet < 3 && SECONDS - settle_start < 300 )); do
+      device_cpu=$(ps -A -o ppid=,%cpu= | awk -v launchd="$simulator_launchd" '$1 == launchd { s += $2 } END { print int(s) }')
+      (( device_cpu < 30 )) && (( ++quiet )) || quiet=0
+      sleep 5
+    done
+    (( quiet >= 3 )) && settled=settled || settled="not settled"
+    print "Simulator $settled after $(( SECONDS - settle_start ))s: $device_type"
     "$repo_root/scripts/record-host-load.sh" "$run_dir/host-load.txt" "before $device_type attempt $attempt"
     test_exit=0
     xcodebuild test-without-building -project InboxProbe.xcodeproj -scheme InboxProbe \

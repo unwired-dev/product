@@ -557,6 +557,7 @@
   },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",
+    "download_mac": "This message is not saved on this Mac, and {{provider}} could not be reached to download it.",
     "authentication": "{{provider}} needs your permission again to download this message.",
     "missing": "This message is no longer in {{provider}}.",
     "locked": "Private storage is locked. Unlock your device and try again.",
@@ -574,10 +575,12 @@
     "proceed": "Proceed",
     "warning": "• {{warning}}",
     "opening": "Opening message",
+    "downloading": "Downloading message…",
     "message": "Message",
     "showQuoted": "Show Quoted Text",
     "hideQuoted": "Hide Quoted Text",
     "imap-download": "This message is not saved on this device, and the mail server could not be reached to download it.",
+    "imap-download_mac": "This message is not saved on this Mac, and the mail server could not be reached to download it.",
     "imap-authentication": "The mail server needs your password again to download this message.",
     "imap-missing": "This message is no longer in this folder on the mail server.",
     "too-large": "This message is too large to open on this device."
@@ -1088,6 +1091,8 @@
     "recipientPlaceholder": "Name or email address",
     "recipient": {
       "invalid": "Enter a valid email address.",
+      "incomplete": "“{{address}}” is not a complete address. Correct it to send.",
+      "required": "Add a recipient to send.",
       "duplicate": "Already added"
     },
     "suggestions": {

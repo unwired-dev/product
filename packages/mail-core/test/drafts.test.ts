@@ -3592,6 +3592,94 @@ describe('keeping composer recovery records', () => {
     expect(storage.recoveryRecords().size).toBe(0);
   });
 
+  // An editor whose edit became a conflicting copy while storage was locked, with the original's
+  // record holding those edits and another editor still open on the original.
+  const reboundCopy = async () => {
+    const { storage, drafts, draft, saving } = await savingDraft();
+    storage.release();
+    await saving;
+    const saved = present(draftOf(drafts.getSnapshot(), draft.id), 'the Draft');
+    let copy = draft.id;
+    const rebinding = (id: string) => {
+      copy = id;
+    };
+    const closing = () => undefined;
+    drafts.hold(draft.id, rebinding);
+    drafts.hold(draft.id, closing);
+    const edited = { ...saved, subject: 'Unsaved edits' };
+    await drafts.journal(edited);
+    await drafts.update({ ...saved, subject: 'Saved elsewhere' }, saved);
+    storage.setLocked(true);
+    await drafts.update(edited, saved, rebinding);
+    expect(copy).not.toBe(draft.id);
+    return {
+      storage,
+      drafts,
+      draft,
+      saved,
+      closing,
+      copied: { ...edited, id: copy },
+    };
+  };
+
+  it('keeps a record until the conflicting copy holding its edits is stored or recorded', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, closing, copied } = await reboundCopy();
+
+    // The copy reaches neither the Drafts nor its own record while locked.
+    await expect(drafts.journal(copied)).resolves.toBe(false);
+    await expect(drafts.forget(draft.id, closing)).resolves.toBe(true);
+    expect(storage.recoveryRecords().has(draft.id)).toBe(true);
+
+    // Once the copy has its own record, the original's goes.
+    storage.setLocked(false);
+    await expect(drafts.journal(copied)).resolves.toBe(true);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([copied.id]);
+  });
+
+  it('leaves a kept record to a later journal of its Draft', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saved, closing, copied } =
+      await reboundCopy();
+    await drafts.forget(draft.id, closing);
+
+    // Another editor's record replaces the kept one, then the copy is stored.
+    storage.setLocked(false);
+    const newer = { ...saved, subject: 'Newer edits' };
+    await drafts.journal(newer);
+    await drafts.update({ ...copied, subject: 'Copy saved' }, copied);
+
+    // Its next record is refused; the stored one stays.
+    storage.setLocked(true);
+    await drafts.journal({ ...newer, subject: 'Newest edits' });
+    expect(storage.recoveryRecords().get(draft.id)?.document).toContain(
+      'Newer edits',
+    );
+  });
+
+  it('keeps no removal for a forget whose later journal reached storage first', async () => {
+    expect.hasAssertions();
+    const { storage, drafts, draft, saved, closing, copied } =
+      await reboundCopy();
+    storage.setLocked(false);
+    storage.hold();
+    const first = drafts.journal({ ...saved, subject: 'First' });
+    const forgetting = drafts.forget(draft.id, closing);
+    storage.release();
+    await first;
+    const newer = { ...saved, subject: 'Newer edits' };
+    await drafts.journal(newer);
+    await forgetting;
+
+    // Once the copy is stored, a refused record leaves the stored one in place.
+    await drafts.update({ ...copied, subject: 'Copy saved' }, copied);
+    storage.setLocked(true);
+    await drafts.journal({ ...newer, subject: 'Newest edits' });
+    expect(storage.recoveryRecords().get(draft.id)?.document).toContain(
+      'Newer edits',
+    );
+  });
+
   it('removes the older record for a forget whose later journal storage refused', async () => {
     expect.hasAssertions();
     const { storage, drafts, draft, saving } = await savingDraft();

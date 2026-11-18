@@ -144,6 +144,8 @@ const toolbarHeight = 52;
 const toolbarInputHeight = 32;
 // Fits the open query's placeholder beside its esc key; the title and From give way first.
 const toolbarInputWidth = 192;
+// Closed, it keeps its symbol and key cap and leaves the title the rest.
+const compactToolbarInputWidth = 75;
 const windowControlsWidth = 88;
 const panelWidth = 460;
 // Below this width the floating input shows only its symbol.
@@ -178,9 +180,12 @@ const styles = StyleSheet.create({
   },
   // In the reader's toolbar row, level with its glass groups.
   floating: { position: 'absolute', top: spacing.m, height: inputHeight },
-  windowTitle: { ...textStyles.bodyEmphasized, width: 120, flexShrink: 1 },
+  windowTitle: { ...textStyles.bodyEmphasized, width: 224, flexShrink: 1 },
+  // Open, the title returns the width the query takes, so the panel beneath it stays in the window.
+  openWindowTitle: { width: 120 },
   field: { width: inputWidth },
   toolbarField: { flex: 1, minWidth: toolbarInputWidth, maxWidth: inputWidth },
+  compactToolbarField: { width: compactToolbarInputWidth },
   trailing: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -196,6 +201,8 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   compactPill: { paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
+  // Without its label, the key cap keeps to the trailing end.
+  toolbarPill: { justifyContent: 'space-between' },
   focusRing: {
     position: 'absolute',
     top: -ringWidth,
@@ -452,8 +459,9 @@ const barStyle = (
     : [styles.floating, { left: floating.left }];
 };
 
-// The bar's input: in a New Message window's toolbar it gives way to the title and From. Floating,
-// it keeps the given width, only its symbol when too narrow, and the query's full width while open.
+// The bar's input: in a New Message window's toolbar it is compact, and open it gives way to the
+// title and From. Floating, it keeps the given width, only its symbol when too narrow, and the
+// query's full width while open.
 const fieldStyle = ({
   toolbar,
   height,
@@ -468,7 +476,10 @@ const fieldStyle = ({
   readonly open: boolean;
 }) => {
   if (floating === undefined) {
-    return toolbar ? styles.toolbarField : styles.field;
+    if (!toolbar) {
+      return styles.field;
+    }
+    return open ? styles.toolbarField : styles.compactToolbarField;
   }
   if (open) {
     return {
@@ -614,7 +625,11 @@ export function CommandBar({
           <Text
             accessible={false}
             numberOfLines={1}
-            style={[styles.windowTitle, { color: colors.textPrimary }]}>
+            style={[
+              styles.windowTitle,
+              motion.shown && styles.openWindowTitle,
+              { color: colors.textPrimary },
+            ]}>
             {title}
           </Text>
         ) : null}
@@ -623,7 +638,8 @@ export function CommandBar({
             toolbar,
             height,
             floating,
-            open: opened !== undefined,
+            // A New Message window's toolbar keeps the open layout until its panel has faded.
+            open: toolbar ? motion.shown : opened !== undefined,
           })}>
           {opened === undefined ? (
             <Pressable
@@ -640,6 +656,7 @@ export function CommandBar({
               style={[
                 styles.pill,
                 compact && styles.compactPill,
+                toolbar && styles.toolbarPill,
                 {
                   height,
                   borderRadius: height / 2,
@@ -654,10 +671,15 @@ export function CommandBar({
               />
               {compact ? null : (
                 <>
-                  <Text
-                    style={[styles.pillText, { color: colors.textSecondary }]}>
-                    {t('commands.open')}
-                  </Text>
+                  {toolbar ? null : (
+                    <Text
+                      style={[
+                        styles.pillText,
+                        { color: colors.textSecondary },
+                      ]}>
+                      {t('commands.open')}
+                    </Text>
+                  )}
                   <Text
                     style={[
                       styles.key,
