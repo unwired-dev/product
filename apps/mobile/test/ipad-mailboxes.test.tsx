@@ -40,6 +40,7 @@ const ignore = () => undefined;
 
 describe('iPad Mailboxes', () => {
   it('hides Mailboxes again after a swipe shows them over the Portrait default', async () => {
+    expect.hasAssertions();
     const { result } = await renderHook(() => useSidebarToggle(true, true));
     // UIKit places the columns; then Portrait asks for the list beside the reader alone.
     await act(() => {
