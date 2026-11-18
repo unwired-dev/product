@@ -2361,39 +2361,6 @@ export interface Recovered {
   readonly base: Draft;
 }
 
-// Product Account `account`'s offer, reading its records on first use in this run.
-const recoveryOfferOf = (
-  store: ReturnType<typeof useDraftStore>,
-  account: string | undefined,
-) => {
-  const offers =
-    recoveryOffers.get(store) ?? new Map<string | undefined, RecoveryOffer>();
-  recoveryOffers.set(store, offers);
-  let offer = offers.get(account);
-  if (offer === undefined) {
-    offer = {
-      records: store.recovered(),
-      offered: new Set(),
-      waiting: new Set(),
-    };
-    offers.set(account, offer);
-  }
-  return offer;
-};
-
-// Reads the previous run's composer recovery records once a composer sees the Drafts open, as in a
-// New Message window opened before any Inbox window, so the records it writes are never offered.
-export function useRecoverySnapshot() {
-  const store = useDraftStore();
-  const ready = useDrafts().kind === 'ready';
-  const account = use(AccountContext)?.account;
-  useEffect(() => {
-    if (ready) {
-      recoveryOfferOf(store, account);
-    }
-  }, [account, ready, store]);
-}
-
 const releaseOffer = (offer: RecoveryOffer | undefined, window: object) => {
   if (offer?.window === window) {
     delete offer.window;
@@ -2437,7 +2404,19 @@ export function useRecoveryOffer(
     if (!ready) {
       return;
     }
-    const own = recoveryOfferOf(store, account);
+    const offers =
+      recoveryOffers.get(store) ?? new Map<string | undefined, RecoveryOffer>();
+    recoveryOffers.set(store, offers);
+    let offer = offers.get(account);
+    if (offer === undefined) {
+      offer = {
+        records: store.recovered(),
+        offered: new Set(),
+        waiting: new Set(),
+      };
+      offers.set(account, offer);
+    }
+    const own = offer;
     const self = window.current;
     const wake = () => {
       setRound((count) => count + 1);
