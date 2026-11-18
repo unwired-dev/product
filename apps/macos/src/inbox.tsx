@@ -387,7 +387,12 @@ function OnlineResults({
           {t('search.onlineEmpty', { query })}
         </Text>
       ) : null}
-      {searching ? <SkeletonRows label={t('search.searching')} /> : null}
+      {searching ? (
+        <SkeletonRows
+          count={5}
+          label={t('search.searching')}
+        />
+      ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
         <View style={styles.noticeAction}>
           <Action

@@ -77,8 +77,12 @@ function useMailboxFolder<E>(
     },
     title: folder === inboxFolder ? undefined : folder,
     listed: browsing?.entries ?? inbox,
-    // A folder whose first listing is still to arrive or failed has not answered a search.
-    unlisted: browsing !== undefined && browsing.view.kind !== 'ready',
+    // A folder whose first listing is still to arrive or failed, or an Inbox of a mailbox still
+    // opening, has not answered a search.
+    unlisted:
+      browsing === undefined
+        ? shown.some(({ state }) => state.kind !== 'ready')
+        : browsing.view.kind !== 'ready',
     failure: imapFolderFailed(browsing?.view)
       ? t('imap.foldersUnavailable')
       : undefined,

@@ -263,7 +263,13 @@ export function DateDivider({
 }
 
 // Rows still arriving from the mail server.
-export function SkeletonRows({ label }: { readonly label?: string }) {
+export function SkeletonRows({
+  label,
+  count = 3,
+}: {
+  readonly label?: string;
+  readonly count?: number;
+}) {
   const colors = usePalette();
   const { t } = useLocalization();
   return (
@@ -271,7 +277,7 @@ export function SkeletonRows({ label }: { readonly label?: string }) {
       accessible
       accessibilityLabel={label ?? t('inbox.loading')}
       accessibilityRole="progressbar">
-      {[0, 1, 2].map((row) => (
+      {Array.from({ length: count }, (_, row) => (
         <View
           key={row}
           style={[styles.skeleton, { borderBottomColor: colors.separator }]}>

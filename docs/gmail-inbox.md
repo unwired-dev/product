@@ -194,8 +194,8 @@ the newest 200 and the older ones scrolling has revealed from
   ([#2346](https://github.com/unwired-dev/product/issues/2346)). A mail server search that fails, leaves
   IMAP folders out or has another page replaces No Results with its failure and **Try Again**, its
   note or **More from Mail Servers**, and the subtitle then names only the scope, or adds **Offline**
-  when a mail server could not be reached. A folder or Unified Mailbox opened during a search shows No
-  Results only once its first listing arrives from each mailbox, and not while it has listed nothing
+  when a mail server could not be reached. The Inbox, a folder or a Unified Mailbox shows No
+  Results only once each of its mailboxes has opened and its first listing has arrived, and not while it has listed nothing
   because that first listing failed.
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier
@@ -244,7 +244,7 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   as they were. Each mailbox returns 20 results per page, newest first across
   mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
   When nothing matches, the section says **Mail servers found no mail matching “…”**.
-  On Mac, while the mail servers are searched, skeleton rows hold their answer's place and the
+  On Mac, while the mail servers are searched, five skeleton rows hold their answer's place and the
   subtitle reads **Searching [scope]…**, unless Syncing or Offline takes precedence.
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
