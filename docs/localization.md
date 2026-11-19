@@ -145,7 +145,7 @@ frames; other keys fall back to English. Mac and iPhone Mock Mail Session builds
 it as **Deutsch** after the shipped languages: Metro substitutes
 `src/testing/catalogs.ts` for `src/shipped-catalogs.ts`, and the native build (on
 iPhone, the Expo localization plugin) copies the catalog and its manifest into
-`catalogs.bundle` only when a scenario is set. Release builds and bundles without
+`catalogs.bundle` only when a scenario is set. Shipped builds and bundles without
 a scenario never carry it; the bundle check enforces this for the JavaScript bundle.
 Every other Mac journey launches with `-interfaceLanguage en`, so a German Mac
 still runs them in English.
