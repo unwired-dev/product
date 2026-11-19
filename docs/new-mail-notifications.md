@@ -27,7 +27,8 @@ matches content, grouping and actions to the design.
   synchronizes end-to-end encrypted to every Trusted Device, bound to the
   connection's current incarnation. A change
   needs Private Sync and fails closed: offline, or when another device changed it
-  first, the stored choice stays and the row says so. Removing and adding a mailbox
+  first or has since removed and added the mailbox again, the stored choice stays and
+  the row says so. Removing and adding a mailbox
   again starts it off. A policy this device cannot open turns notifications off
   locally, including older saved policies without their record identifier. Changes
   wait until the synchronized records can be read; unreadable ciphertext is never
