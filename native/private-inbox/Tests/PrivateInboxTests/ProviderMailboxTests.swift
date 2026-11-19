@@ -101,13 +101,7 @@ extension PrivateInboxTests {
         // Sending needs exactly one Sent folder, and organizing a Trash folder.
         let sent = role("Sent").count == 1 ? role("Sent").first : nil
         let trash = role("Trash").first
-        let inboxOnly = folders.map(\.name) == ["INBOX"]
-        if provider.name == "iCloud Mail" {
-          withKnownIssue("The iCloud Mail test mailbox lists only INBOX (#2401)") { #expect(!inboxOnly) }
-        }
-        if provider.name != "iCloud Mail" || !inboxOnly {
-          #expect(sent != nil && trash != nil)
-        }
+        #expect(sent != nil && trash != nil)
 
         // The other mailbox's message is delivered, found by search, read and marked. Each write
         // first requires the folder's UIDVALIDITY to be the one the search's UIDs belong to.
