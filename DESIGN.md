@@ -866,5 +866,3 @@ app follows under the issue named:
   Results, above the date sections, which waits for #2372.
 - **German strings:** no check lays the screens out at German lengths until
   #2096.
-- **iPhone Settings failure:** the empty state of a Settings page that failed to
-  load waits for #2100.

@@ -1,32 +1,139 @@
 import type { MailProfile } from '@private-email/mail-core/registration';
 
-import { Host, List, Section, Text, VStack } from '@expo/ui/swift-ui';
+import { Button, Host, List, Section, Text, VStack } from '@expo/ui/swift-ui';
 import {
+  buttonBorderShape,
+  buttonStyle,
+  controlSize,
   environment,
   font,
   foregroundStyle,
   listRowBackground,
   listStyle,
   scrollContentBackground,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
+import { radius } from '@private-email/mail-core/theme';
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
-import { createContext, use, useEffect, useMemo, useState } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import {
+  createContext,
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  Platform,
+  ScrollView,
+  Text as Label,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
+import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { blockedSenders } from './registration.ts';
 import { SettingsGroup } from './settings.tsx';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 export const BlockedSendersContext =
   createContext<typeof blockedSenders>(blockedSenders);
 
 const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
 
-const styles = StyleSheet.create({ list: { flex: 1 } });
+const styles = StyleSheet.create({
+  list: { flex: 1 },
+  // The Profile Locked recipe, centred on the screen below the opaque bar: tile, title, message
+  // and one button. It scrolls when the largest text sizes outgrow the page.
+  unavailable: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 32,
+  },
+  tile: {
+    width: 68,
+    height: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.touchCard,
+    borderCurve: 'continuous',
+    marginBottom: 14,
+  },
+  message: { maxWidth: 300, textAlign: 'center', marginBottom: 14 },
+});
+
+// Blocked Senders storage could not read: nothing to show, so the page says so and reads again.
+function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  // The page ends at the window's bottom and starts below the bar; padding its bottom by the
+  // bar's height centres the state on the screen. Its layout height, unlike its window position,
+  // holds while the page slides in.
+  const { height: screen } = useWindowDimensions();
+  const [height, setHeight] = useState(screen);
+  return (
+    <View
+      onLayout={({ nativeEvent: { layout } }) => {
+        setHeight(layout.height);
+      }}
+      style={styles.list}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.unavailable,
+          { paddingBottom: Math.max(0, screen - height) },
+        ]}>
+        <View style={[styles.tile, { backgroundColor: colors.fillQuiet }]}>
+          <SFSymbol
+            name="exclamationmark.triangle.fill"
+            size={36}
+            color={colors.textPrimary}
+          />
+        </View>
+        <Label
+          accessibilityRole="header"
+          style={[
+            textStyles.title3Emphasized,
+            { color: colors.textPrimary, textAlign: 'center' },
+          ]}>
+          {t('blockedSenders.loadFailed')}
+        </Label>
+        <Label
+          style={[
+            textStyles.subheadline,
+            styles.message,
+            { color: colors.textSecondary },
+          ]}>
+          {t('blockedSenders.loadFailedDetail')}
+        </Label>
+        <Host matchContents>
+          <Button
+            modifiers={[
+              buttonStyle('borderedProminent'),
+              buttonBorderShape('capsule'),
+              controlSize('large'),
+              tint(colors.accentFill),
+            ]}
+            onPress={onRetry}>
+            <Text
+              modifiers={[
+                font({ textStyle: 'headline' }),
+                foregroundStyle(colors.accentOnFill),
+              ]}>
+              {t('common.retry')}
+            </Text>
+          </Button>
+        </Host>
+      </ScrollView>
+    </View>
+  );
+}
 
 // A row's second line: its block date and count, or a failed unblock.
 const detail = (tone: string) => [
@@ -69,6 +176,8 @@ export function BlockedSenderSettings({
     [settings.locale],
   );
   const [listed, setListed] = useState<Listed>();
+  // Try Again reads again, as a change does.
+  const retry = useRef<() => void>(undefined);
   // The address whose unblock storage refused, until the next attempt.
   const [failed, setFailed] = useState<string>();
   const unblock = async (profile: string, address: string) => {
@@ -98,6 +207,9 @@ export function BlockedSenderSettings({
       }
     };
     void load();
+    retry.current = () => {
+      void load();
+    };
     const unsubscribe = store.subscribe(() => {
       void load();
     });
@@ -110,7 +222,13 @@ export function BlockedSenderSettings({
     return null;
   }
   if (listed.some(({ senders }) => senders === undefined)) {
-    return <SettingsGroup footer={t('blockedSenders.unavailable')} />;
+    return (
+      <Unavailable
+        onRetry={() => {
+          retry.current?.();
+        }}
+      />
+    );
   }
   const groups = listed.flatMap(({ profile, senders = [] }) =>
     senders.length === 0
