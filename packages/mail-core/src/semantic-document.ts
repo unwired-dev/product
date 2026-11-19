@@ -1287,12 +1287,19 @@ export function setBlockKind(
   };
 }
 
+// The lines Outdent and Indent move: a selection ending at the start of a line, as a selected
+// paragraph with its line break does, stops at the line before.
+const indentedLines = (document: SemanticDocument, selection: Selection) => {
+  const { lines, from, to } = bounds(document, selection);
+  const last =
+    to.line > from.line && to.column <= to.marker ? to.line - 1 : to.line;
+  return { lines, first: from.line, last };
+};
+
 // The selected list items.
 const selectedItems = (document: SemanticDocument, selection: Selection) => {
-  const { lines, from, to } = bounds(document, selection);
-  return lines
-    .slice(from.line, to.line + 1)
-    .filter(({ kind }) => isListKind(kind));
+  const { lines, first, last } = indentedLines(document, selection);
+  return lines.slice(first, last + 1).filter(({ kind }) => isListKind(kind));
 };
 
 // Whether Outdent and Indent can move the selected list items: the selection holds some, and each
@@ -1317,11 +1324,11 @@ export function indentList(
   if (!listIndentAt(document, selection)[direction]) {
     return { document };
   }
-  const { lines, from, to } = bounds(document, selection);
+  const { lines, first, last } = indentedLines(document, selection);
   const by = direction === 'indent' ? 1 : -1;
   const result = documentOf(
     lines.map((line, index) => {
-      if (index < from.line || index > to.line || !isListKind(line.kind)) {
+      if (index < first || index > last || !isListKind(line.kind)) {
         return line;
       }
       const indent = (line.indent ?? 0) + by;

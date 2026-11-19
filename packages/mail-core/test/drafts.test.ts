@@ -248,6 +248,15 @@ describe('editing a Semantic Message Document', () => {
     );
     const selection = present(once.selection, 'a selection');
     expect(selectedText(once.document, selection)).toBe('Start\nSeats');
+    // A selected line with its line break, as a triple tap selects it, leaves the next item alone.
+    const pilot = displayOf(agenda).text.indexOf('Pilot');
+    const line = {
+      start: pilot,
+      end: displayOf(agenda).text.indexOf('\n', pilot) + 1,
+    };
+    expect(
+      indentList(agenda, line, 'indent').document.map(({ indent }) => indent),
+    ).toStrictEqual([undefined, 1, undefined, undefined, undefined]);
     // The third level is the deepest: Indent stops there, and Outdent comes back out.
     const seats = displayOf(once.document).text.indexOf('Seats');
     const twice = indentList(
@@ -266,9 +275,9 @@ describe('editing a Semantic Message Document', () => {
       indentList(twice, { start: deepest, end: deepest }, 'indent').document,
     ).toBe(twice);
     // A selection reaching the deepest item cannot indent any of them.
-    expect(listIndentAt(twice, { start: start + 3, end: deepest }).indent).toBe(
-      false,
-    );
+    expect(
+      listIndentAt(twice, { start: start + 3, end: deepest + 2 }).indent,
+    ).toBe(false);
     expect(
       displayOf(
         indentList(twice, { start: deepest, end: deepest }, 'outdent').document,

@@ -155,7 +155,7 @@ describe('building an outgoing message', () => {
     expect(parsed.html).toBe(
       '<!DOCTYPE html><html><body><ol><li>Pilot<ul><li>Scope<ol><li>Seats</li><li>Rooms</li></ol>' +
         '</li></ul></li><li>Venue<ol><li>Dates</li></ol></li></ol><p>Thanks</p>' +
-        // An item nested deeper than the item before it opens its lists directly inside its parent's.
+        // A list that starts at the third level opens each level's list directly inside the last.
         '<ul><ul><ul><li>Deep</li></ul></ul><li>Out</li></ul></body></html>',
     );
     // Each level counts on its own, across the items nested between its own.
