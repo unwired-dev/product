@@ -9,6 +9,7 @@ import {
   createUnifiedMailboxRetention,
   gmailMailbox,
   gmailViewRow,
+  inboxUnlisted,
   mailboxFolder,
   notIncludedDetail,
   unifiedFolders,
@@ -77,6 +78,12 @@ function useMailboxFolder<E>(
     },
     title: folder === inboxFolder ? undefined : folder,
     listed: browsing?.entries ?? inbox,
+    // A folder whose first listing is still to arrive or failed, or an Inbox not yet listed, has
+    // not answered a search.
+    unlisted:
+      browsing === undefined
+        ? shown.some(({ state }) => inboxUnlisted(state))
+        : browsing.view.kind !== 'ready',
     failure: imapFolderFailed(browsing?.view)
       ? t('imap.foldersUnavailable')
       : undefined,
@@ -119,6 +126,10 @@ function useGmailView(mailbox: InboxMailbox | undefined, folder: string) {
   return {
     title,
     listed,
+    // The label's first page is still to arrive or failed, so its empty list says nothing yet.
+    unlisted:
+      shown === undefined ||
+      (shown.status !== 'current' && shown.messages.length === 0),
     failure,
     limited,
     downloading,
@@ -193,6 +204,7 @@ export function useListedMailbox<E>(
     ...chosen,
     title: unifiedRow(t, role).title,
     listed: unified.entries,
+    unlisted: unified.unlisted,
     failure:
       unified.failed.length === 0 ? undefined : t('imap.foldersUnavailable'),
     // Reaching the end reveals each Gmail mailbox's older downloaded mail with the role.
