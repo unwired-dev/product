@@ -749,24 +749,34 @@ Trash folder of both mailboxes, also when a step failed. The search for messages
 have, polls for 70 seconds shared by both deliveries; cleanup polls for one the test did not
 find for 16 seconds more, shared by both mailboxes, within the test's 120-second allowance.
 
-| Step               | iCloud Mail                                                                           | Seznam Email                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| IMAP 993 login     | Name part of the address, app-specific password                                       | Full address, mail-client password                                                                                                                                                                                                                                                                                                                                                                                                |
-| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                 | Refused as an authentication failure on IMAP and SMTP                                                                                                                                                                                                                                                                                                                                                                             |
-| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                              | 465, SSL/TLS; delivered to iCloud Mail                                                                                                                                                                                                                                                                                                                                                                                            |
-| Delivered message  | Found by text search; envelope, source and `\Seen` cleared and set                    | Found by text search; envelope, source, `\Seen` cleared and set and MOVE to Trash                                                                                                                                                                                                                                                                                                                                                 |
-| Folders and roles  | `INBOX` alone, no roles ([#2401](https://github.com/unwired-dev/product/issues/2401)) | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                                                                                                                                                                                                                                                                                                                                               |
-| Sent filing        | Not possible: without a Sent folder, Send refuses                                     | No copy filed by the server. The boundary lookup finds none in an empty Sent folder, so the copy is appended; the lookup that follows drops the connection in the folder that now holds it ([#2402](https://github.com/unwired-dev/product/issues/2402)), and a text search on a new session finds the one copy. In a Sent folder that already holds messages, the first lookup drops the connection and the product stops filing |
-| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                    | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                                                                                                                                                                                                                                                                                                                                         |
+| Step               | iCloud Mail                                                                               | Seznam Email                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IMAP 993 login     | Name part of the address, app-specific password                                           | Full address, mail-client password                                                                                                                                    |
+| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                     | Refused as an authentication failure on IMAP and SMTP                                                                                                                 |
+| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                                  | 465, SSL/TLS; delivered to iCloud Mail                                                                                                                                |
+| Delivered message  | Found by text search, read, marked and moved to Trash using COPY and targeted UID EXPUNGE | Found by text search; envelope, source, `\Seen` cleared and set and MOVE to Trash                                                                                     |
+| Folders and roles  | Sent and Trash roles on LIST                                                              | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                                                                                   |
+| Sent filing        | The test finds no provider-filed copy, appends one and verifies it by Message-ID and text | No copy filed by the server. The Message-ID lookup finds none, so the copy is appended, and the lookup that follows and a text search each find exactly that one copy |
+| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                        | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                                                                             |
 
-The test marks the INBOX-only listing (#2401) and the boundary lookup's dropped connection
-in a Sent folder that holds messages (#2402) as known issues, which fail the run once they are fixed so the markers get removed.
-On 19 November 2026 the test passed with exactly those two known issues on an iOS 27.0
-iPhone 18 Pro Simulator, where the whole suite passed, and on the Mac host (macOS 27.2),
-both built with Xcode 27.2 (27B52) from `main` at `eb28e204d` with this change applied. In
-that Mac run, 60 Keychain checks of other tests failed with `.locked`, as they did on `main`
-on the same host at the time. The run is engine evidence only: the app's
-setup and reader journeys, IDLE, recovery and large folders are still to be qualified.
+After the owner opened iCloud Mail for the certification account, IMAP LIST returned
+INBOX, Sent Messages, Deleted Messages, Drafts, Junk and Archive. LIST marked Sent
+Messages and Deleted Messages with Sent and Trash roles. Drafts, Junk and Archive
+had no special-use flags. [#2401](https://github.com/unwired-dev/product/issues/2401)
+
+On 19 November 2026 the certification test passed on an iOS 27.0 iPhone 18 Pro
+Simulator and macOS 27.2 (26B123) using Xcode 27.2 (27B52) and this change on top of
+`4faf00f00`. The iOS suite passed 105 tests and skipped the controlled standards
+server test. The Mac suite reported 60 Keychain `.locked` issues across 57 other
+tests, as in the first run. The Mac run skipped the controlled standards server
+test and three loopback TLS tests. The credential scan passed.
+
+The first run that day, built with Xcode 27.2 (27B52) from `main` at `eb28e204d`
+with the certification test applied, passed the certification test on both hosts
+with two known issues. iCloud Mail listed only INBOX, and Seznam Email dropped
+the connection on a MIME-boundary Sent lookup (#2402). On `592c536af` with the
+Message-ID lookup of [#2431](https://github.com/unwired-dev/product/issues/2431)
+applied, the iOS suite passed with only the iCloud Mail exception still active.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

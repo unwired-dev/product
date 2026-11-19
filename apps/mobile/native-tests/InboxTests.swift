@@ -2121,9 +2121,13 @@ final class InboxTests: XCTestCase {
       app.buttons["Remove iPad"].tap()
       let dialog = app.alerts["Remove “iPad”?"]
       XCTAssertTrue(dialog.waitForExistence(timeout: 15))
+      // iPhone says it in two sentences; iPad keeps the full explanation.
+      let erased =
+        UIDevice.current.userInterfaceIdiom == .pad
+        ? "cannot be erased remotely" : "can’t be erased remotely"
       XCTAssertTrue(
         dialog.staticTexts.containing(
-          NSPredicate(format: "label CONTAINS %@", "cannot be erased remotely")
+          NSPredicate(format: "label CONTAINS %@", erased)
         ).firstMatch.exists)
       let shot = XCTAttachment(screenshot: app.screenshot())
       shot.name = "Trusted Device removal alert"
@@ -2528,8 +2532,16 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(maya.exists)
     searching()
     edit(delete(6) + "zzqx", "zzqx")
+    // #2435: both idioms show No Results with the query; iPhone keeps the saved-search line, and
+    // iPad, as the Mac, names the scope and suggests fewer words.
+    XCTAssertTrue(text("No Results", in: app).waitForExistence(timeout: 10))
     XCTAssertTrue(
-      text("No mail saved on this device matches", in: app).waitForExistence(timeout: 10))
+      text(
+        UIDevice.current.userInterfaceIdiom == .phone
+          ? "No mail saved on this device matches “zzqx”"
+          : "matches “zzqx”. Check the spelling or search for fewer words.",
+        in: app
+      ).exists)
     XCTAssertFalse(topResults.exists)
     XCTAssertFalse(oliver.exists)
     searching()

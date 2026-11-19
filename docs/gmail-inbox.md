@@ -186,16 +186,18 @@ the newest 200 and the older ones scrolling has revealed from
   opens without the server, or **Downloads from the mail server when opened**. Messages that recent-body
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
   change, when a result is opened or the reader closes, and whenever this device saves or
-  prunes a body while the results are shown, such as recent-body prefetch finishing. When nothing matches, the
-  list on iPhone and iPad says **No mail saved on this device matches “…”**. On Mac, when neither saved mail nor
-  an answer from the mail servers matches, the list shows **No Results** with a magnifying glass and the line
-  **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, VoiceOver hears
-  **No Results** once as it appears, and the subtitle reads **No results · [scope]**: the folder
+  prunes a body while the results are shown, such as recent-body prefetch finishing. When neither saved mail nor
+  an answer from the mail servers matches, the list shows **No Results** with a magnifying glass, and VoiceOver hears
+  **No Results** once as it appears. On iPhone it stands centred, its magnifying glass on an icon tile, above the
+  line **No mail saved on this device matches “…”** ([#2435](https://github.com/unwired-dev/product/issues/2435)).
+  On iPad and Mac, at the top of the list, the line reads
+  **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, naming the folder, the
+  mailbox, or **All Inboxes** for several. On Mac the subtitle also reads **No results · [scope]**: the folder
   searched in one mailbox, or else the mailbox, or **All Mailboxes** for several, which the mail
   servers search
   ([#2346](https://github.com/unwired-dev/product/issues/2346)). A mail server search that fails, leaves
   IMAP folders out or has another page replaces No Results with its failure and **Try Again**, its
-  note or **More from Mail Servers**, and the subtitle then names only the scope, or adds **Offline**
+  note or **More from Mail Servers**, and on Mac the subtitle then names only the scope, or adds **Offline**
   when a mail server could not be reached. The Inbox, a folder or a Unified Mailbox shows No
   Results only once each of its mailboxes has opened and its first listing has arrived (for an Inbox, once its first synchronization has completed or its cache lists mail), and not while it has listed nothing
   because that first listing failed.
@@ -245,10 +247,15 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
 - **Results.** They appear under **From mail servers**, after the saved results, which stay
   as they were. Each mailbox returns 20 results per page, newest first across
   mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
-  When nothing matches, the section says **Mail servers found no mail matching “…”**.
-  On Mac, while the mail servers are searched, five skeleton rows hold their answer's place and the
-  subtitle reads **Searching [mailbox]…**, or **Searching All Mailboxes…** for several mailboxes, unless
-  Syncing or Offline takes precedence.
+  When a complete search finds no matches, the list shows **Mail servers found no mail matching
+  “…”**. On iPhone and iPad the heading appears only above mail server rows, a mailbox it could
+  not search or a note about IMAP folders it left out.
+  While the mail servers are searched, iPhone and iPad show an activity indicator above
+  **Searching [scope]…**: iPhone names the shown scope, such as **Searching All Inboxes…**, and iPad
+  the mailbox searched, or **All Mailboxes** for several
+  ([#2435](https://github.com/unwired-dev/product/issues/2435)). On Mac five skeleton rows hold their
+  answer's place and the subtitle reads **Searching [mailbox]…**, or **Searching All Mailboxes…** for
+  several mailboxes, unless Syncing or Offline takes precedence.
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
