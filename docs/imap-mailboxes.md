@@ -730,15 +730,17 @@ and their mail-client passwords `UNWIRED_ICLOUD_PASSWORD` and `UNWIRED_SEZNAM_PA
 as the [operator setup](https://github.com/unwired-dev/product/issues/632) describes. The
 script hands them to `test.zsh`, which passes them only to xcodebuild as `TEST_RUNNER_`
 variables, so they reach the test process without being written to the generated scheme.
-It keeps each result bundle only as the test results it records, shows the runs' output
-only once a scan finds no address, iCloud Mail user name or password in it or in the
-evidence, and otherwise removes that evidence and fails, as it does when the scan cannot
-read a file or the certification test did not pass on a host. The Mac run needs
-`UNWIRED_STORAGE_PROFILE`, like `test.zsh macos`. Each mailbox sends one message to the
-other through the unchanged engine; the test then reads, marks, moves and files it, and
-afterwards tries to remove this run's messages from every INBOX, Sent and Trash folder of
-both mailboxes, also when a step failed, waiting up to 30 seconds for a message the server
-accepted that the test never waited for.
+Each host's run writes to an `artifacts/private-inbox/integration.*` directory the script
+creates, and each result bundle is kept only as the test results it records. The runs'
+output is shown once a scan finds no address, iCloud Mail user name or password in it or in
+those directories, which are then kept, also when a test failed or the certification test
+did not pass on a host, either of which fails the script. When the scan finds a credential,
+cannot read a file or is interrupted, the script removes this run's evidence and fails. The
+Mac run needs `UNWIRED_STORAGE_PROFILE`, like `test.zsh macos`. Each mailbox sends one
+message to the other through the unchanged engine; the test then reads, marks, moves and
+files it, and afterwards tries to remove this run's messages from every INBOX, Sent and
+Trash folder of both mailboxes, also when a step failed, waiting up to 30 seconds for a
+message the server accepted that has not reached its INBOX.
 
 | Step               | iCloud Mail                                                                           | Seznam Email                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

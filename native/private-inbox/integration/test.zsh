@@ -8,7 +8,8 @@ forwarded=(${(k)parameters[(I)TEST_RUNNER_*]})
 for name in $forwarded; do typeset +x $name; done
 (( $(df -k "$root" | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
 mkdir -p "$root/artifacts/private-inbox"
-export UNWIRED_STORAGE_PROBE=$(mktemp -d "$root/artifacts/private-inbox/integration.XXXXXX")
+# A caller may name the empty evidence directory it created for this run.
+export UNWIRED_STORAGE_PROBE=${UNWIRED_STORAGE_PROBE:-$(mktemp -d "$root/artifacts/private-inbox/integration.XXXXXX")}
 owned_device=''
 imap_server=''
 smtp_server=''
