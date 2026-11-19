@@ -3250,6 +3250,19 @@ describe('command palette', () => {
     ).toBeVisible();
   });
 
+  it('makes the one-time hint text one accessibility element, and Dismiss removes the hint', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    await renderConnected(gmail.native);
+    await expect(
+      screen.findByLabelText(
+        'Swipe down on the header for commands, Reply, archive, move or go anywhere without leaving this screen.',
+      ),
+    ).resolves.toHaveProp('accessible', true);
+    await fireEvent.press(screen.getByRole('button', { name: 'Dismiss hint' }));
+    expect(screen.queryByRole('button', { name: 'Dismiss hint' })).toBeNull();
+  });
+
   it('keeps the search field palette action when private storage locks', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
