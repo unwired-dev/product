@@ -479,7 +479,7 @@ separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issu
 [#2442](https://github.com/unwired-dev/product/issues/2442)) opens **Labels** in an AppKit
 popover below the toolbar's last group, with the naming rules of iPhone and iPad below: the
 Gmail account, a label name field, **Create “Acme” inside “Clients”** or **Create “Acme”** for a
-name no label has, the account's labels under **Matching labels**, then **Cancel** and **Apply**.
+name no label has, the account's labels (under **Matching labels** once a name is typed), then **Cancel** and **Apply**.
 That row, **Apply** or Return creates the label in Gmail and applies it to the message the menu
 opened for, as choosing a label does; choosing a listed label applies it. Before then, **Cancel**,
 Escape or a click outside closes it without a change, and a blank name applies nothing. A name another label has in a different case
@@ -488,7 +488,7 @@ which opens **Labels** again with the name. Creation needs Gmail to answer, and 
 unavailable meanwhile; closing **Labels** another way still creates and applies the label, and
 **New Label…** reopens it on that name until Gmail answers. When Gmail refuses the name or cannot be reached, a sheet says the label
 could not be created, nothing is applied, and **OK** opens **Labels** again with the name to edit.
-**Labels** and its sheets close with their reader or when it shows another message, and changing
+**Labels** and its sheets close with their reader or when it shows another message, a refusal arriving after that asks nothing, and changing
 appearance while entering a name preserves that input.
 The new label joins **Labels** and the Move menus as soon as Gmail creates it, and is saved
 with the message's pending label change without waiting for synchronization. iPad's fixed toolbar holds **Archive**, **Labels**

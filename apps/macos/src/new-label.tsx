@@ -148,8 +148,14 @@ export function NewLabel({
   }
   // The sheet asked last; it closes with the reader.
   const asked = useRef<ReturnType<typeof askInSheet>>(undefined);
+  // The opening Labels shows, until the reader closes it.
+  const live = useRef<number>(undefined);
+  useLayoutEffect(() => {
+    live.current = opened;
+  }, [opened]);
   useLayoutEffect(
     () => () => {
+      live.current = undefined;
       asked.current?.retire();
     },
     [],
@@ -157,6 +163,10 @@ export function NewLabel({
   // Labels closes for a sheet, as the frames show, and the sheet's index answer is null once
   // another sheet or the reader's closing retired it.
   const ask = async (question: Parameters<typeof askInSheet>[1]) => {
+    // Gmail can answer after the reader closed Labels, which then asks nothing.
+    if (live.current === undefined) {
+      return null;
+    }
     setShown(false);
     asked.current?.retire();
     const asking = askInSheet(anchor.current, question);
@@ -233,7 +243,9 @@ export function NewLabel({
       title={t('gmailActions.labels')}
       shown={shown}
       onClose={() => {
-        setShown(false);
+        if (live.current === opened) {
+          setShown(false);
+        }
       }}>
       <View
         testID="new-label"

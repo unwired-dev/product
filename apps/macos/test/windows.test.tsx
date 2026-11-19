@@ -2876,6 +2876,13 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const held = new Promise<{ status: number; body: string }>((resolve) => {
       refuse = resolve;
     });
+    let refuseLate: typeof refuse = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- A Gmail answer the test releases.
+    const heldLate = new Promise<{ status: number; body: string }>(
+      (resolve) => {
+        refuseLate = resolve;
+      },
+    );
     const { registration } = await connectedRegistration();
     const list = createMailboxes(
       syntheticConnections({ [alex]: { native: gmail.native } }),
@@ -2917,7 +2924,9 @@ describe('mac windows over a connected Gmail mailbox', () => {
         return popover;
       };
       const newLabel = async () => {
-        await fireEvent.press(more);
+        await fireEvent.press(
+          await window.findByRole('button', { name: 'More' }),
+        );
         await chooseSubmenuItem('Labels', 'New Label…');
         await expect(labelsPopover()).resolves.toHaveProp('shown', true);
         return within(window.getByTestId('new-label'));
@@ -3012,7 +3021,11 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await waitFor(() => {
         expect(gmail.labelsOf(id)).toContain(receipts);
       });
+      // Choosing New Label… again before AppKit reports the last popover closed keeps Labels open.
+      const closing = await labelsPopover();
       labels = await newLabel();
+      await fireEvent(closing, 'close');
+      await expect(labelsPopover()).resolves.toHaveProp('shown', true);
       await fireEvent.press(labels.getByRole('button', { name: 'Clients' }));
       await expect(labelsPopover()).resolves.toHaveProp('shown', false);
       await waitFor(() => {
@@ -3067,6 +3080,27 @@ describe('mac windows over a connected Gmail mailbox', () => {
         await list.load();
       });
       expect(gmail.labelsOf(id)).toStrictEqual(applied);
+      // A refusal arriving after the reader closed Labels asks nothing.
+      creating.mockImplementationOnce(async () => heldLate);
+      labels = await newLabel();
+      await fireEvent.changeText(labels.getByLabelText('Label name'), 'Work');
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+      // Saved mail stays in the reader, without organizing actions.
+      const open = gmail.native.openMailbox.bind(gmail.native);
+      jest
+        .spyOn(gmail.native, 'openMailbox')
+        .mockImplementation(async (...request) => ({
+          ...(await open(...request)),
+          availability: 'retry',
+        }));
+      await act(async () => {
+        await list.load();
+      });
+      expect(window.queryByTestId('new-label')).toBeNull();
+      await act(async () => {
+        refuseLate({ status: 409, body: '{}' });
+      });
+      expect(sheetsShown()).toStrictEqual([]);
     } finally {
       await app.unmount();
       paletteSpy.mockRestore();
