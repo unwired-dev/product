@@ -3523,8 +3523,11 @@ final class InboxTests: XCTestCase {
       app.buttons["Diese Nachricht zusammenfassen"].tap()
       XCTAssertTrue(
         app.staticTexts["Synthetic summary of local mail."].waitForExistence(timeout: 15))
-      // The heading names All Inboxes, so its subtitle carries the status alone, as drawn.
-      let status = app.staticTexts["1 ungelesen · Gerade aktualisiert"].firstMatch
+      // The heading names All Inboxes, so its subtitle carries the status alone, as drawn; the
+      // update's age depends on when the mailboxes last synchronized.
+      let status = app.staticTexts.matching(
+        NSPredicate(format: "label MATCHES %@", "1 ungelesen · [^·]*aktualisiert")
+      ).firstMatch
       XCTAssertTrue(status.waitForExistence(timeout: 15))
       // The sidebar row repeats the heading's text; the heading is the one above the subtitle.
       let heading = try XCTUnwrap(
