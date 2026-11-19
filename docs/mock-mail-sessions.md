@@ -137,7 +137,9 @@ JavaScript differs from production: its bundles substitute the packaged editor p
 In `registration-thread`, the synthetic Gmail mailbox also lists one Thread of six
 plain-text messages from Crew 1 to Crew 6, each body taller than a screen, and a
 field guide whose HTML body is taller than a screen. The journey signs in like
-Google registration, then cold-opens the Thread view at Crew 3 through its
+Google registration, recovers a force-quit New Message
+([composer recovery journey](native-journeys.md#iphone-and-ipad-composer-recovery-journey)),
+then cold-opens the Thread view at Crew 3 through its
 `unwired-mail://thread/<id>?mailbox=<connection>` deep link. It checks that the
 opened message starts in the upper half of the screen, then drags into its text
 while Crew 4's body reply is held. Releasing that reply must retain the visible
