@@ -3523,13 +3523,22 @@ final class InboxTests: XCTestCase {
       app.buttons["Diese Nachricht zusammenfassen"].tap()
       XCTAssertTrue(
         app.staticTexts["Synthetic summary of local mail."].waitForExistence(timeout: 15))
-      let heading = app.staticTexts["Alle Posteingänge"].firstMatch
-      let status = app.staticTexts.matching(
-        NSPredicate(format: "label BEGINSWITH %@", "Alle Posteingänge · ")
-      ).firstMatch
+      // The heading names All Inboxes, so its subtitle carries the status alone, as drawn.
+      let status = app.staticTexts["1 ungelesen · Gerade aktualisiert"].firstMatch
+      XCTAssertTrue(status.waitForExistence(timeout: 15))
+      // The sidebar row repeats the heading's text; the heading is the one above the subtitle.
+      let heading = try XCTUnwrap(
+        app.staticTexts.matching(identifier: "Alle Posteingänge").allElementsBoundByIndex.first {
+          abs($0.frame.minX - status.frame.minX) < 2 && $0.frame.maxY <= status.frame.minY + 1
+        })
+      func row(_ subject: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+      }
       assertLaidOut([
-        app.buttons["Seitenleiste ausblenden"], app.buttons["Einstellungen"],
+        app.buttons["Seitenleiste ausblenden"], app.buttons["Alle Posteingänge"],
+        app.buttons["Einstellungen"],
         app.buttons["Befehlspalette öffnen"], heading, status,
+        row("Quarterly planning"), row("Garden plans for spring"),
         app.buttons["Archivieren"], app.buttons["Antworten"], app.buttons["Mehr"],
         app.staticTexts["jordan@example.invalid"].firstMatch,
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1. Oktober 2025")).firstMatch,

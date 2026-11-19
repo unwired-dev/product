@@ -461,11 +461,13 @@ const subtitleOf = (
   unconnected: Readonly<{ name: string }> | undefined,
   {
     signIn,
+    title,
     ...label
   }: Readonly<{
     scope: string;
     status: string;
     signIn: MailProvider | undefined;
+    title: string;
   }>,
 ) => {
   if (signIn !== undefined) {
@@ -475,7 +477,10 @@ const subtitleOf = (
     });
   }
   if (unconnected === undefined) {
-    return t('inbox.subtitleLabel', label);
+    // The heading already names a scope it shares, as iPad's All Inboxes does.
+    return label.scope === title
+      ? label.status
+      : t('inbox.subtitleLabel', label);
   }
   return ipad
     ? t('profiles.noMailboxes')
@@ -1090,6 +1095,7 @@ export function Inbox({
                   scope: scopeName,
                   status,
                   signIn,
+                  title,
                 })}
               />
             </SearchHeading>

@@ -178,8 +178,8 @@ UNWIRED_JOURNEY=testGermanStrings UNWIRED_APPEARANCE=light \
 
 On an iPad the same journey turns on Mail Assistance while it adds Gmail, relaunches in
 German in landscape and checks the Inbox with a Thread and its summary open: the sidebar,
-the Command Input, the heading and its subtitle, the reader toolbar and header, and the
-summary marker. Pass the iPad device type instead:
+the Command Input, the heading and its subtitle, the rows, the reader toolbar and header,
+and the summary marker. Pass the iPad device type instead:
 
 ```sh
 UNWIRED_JOURNEY=testGermanStrings UNWIRED_APPEARANCE=light \
