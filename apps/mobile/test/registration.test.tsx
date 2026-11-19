@@ -4172,6 +4172,49 @@ describe('product registration', () => {
     await view.unmount();
   });
 
+  it.each([
+    [false, 'revocation.confirmPhone', 'revocation.confirm'],
+    [true, 'revocation.confirm', 'revocation.confirmPhone'],
+  ] as const)(
+    'explains a device removal in two sentences on iPhone and in full on iPad (isPad=%s)',
+    async (isPad, shown, hidden) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        const { synthetic, setup } = await signedIn('registration-revocation');
+        await confirmRecoveryKey(setup);
+        const store = createRegistration(synthetic.relaunch());
+        const view = await render(
+          <RegistrationGate
+            store={started(store)}
+            preview={false}>
+            {null}
+          </RegistrationGate>,
+        );
+        const { name } = syntheticTrustedDevice;
+        await act(async () => {
+          await fireEvent.press(
+            await screen.findByRole('button', {
+              name: english('revocation.remove', { name }),
+            }),
+          );
+        });
+        const dialog = within(
+          screen.getByTestId('device-removal-confirmation'),
+        );
+        expect(dialog.getByText(english(shown, { name }))).toBeVisible();
+        expect(dialog.queryByText(english(hidden, { name }))).toBeNull();
+        await view.unmount();
+      } finally {
+        platform.restore();
+      }
+    },
+  );
+
   it('removes another trusted device only after its replacement Recovery Key is confirmed', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario(
@@ -4231,10 +4274,8 @@ describe('product registration', () => {
         }),
       ).toBeVisible();
       expect(
-        dialog.getByText(english('revocation.confirm', { name })),
-      ).toHaveTextContent(
-        /only then is iPad removed.*cannot be erased remotely/u,
-      );
+        dialog.getByText(english('revocation.confirmPhone', { name })),
+      ).toBeVisible();
       expect(
         dialog.getByRole('button', { name: english('revocation.cancel') }),
       ).toBeVisible();
@@ -4286,9 +4327,7 @@ describe('product registration', () => {
     // Cancellation changes nothing: the device stays listed and no key is offered.
     expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
     expect(screen.getByText(added)).toBeVisible();
-    expect(
-      screen.queryByText(english('revocation.confirm', { name })),
-    ).toBeNull();
+    expect(screen.queryByTestId('device-removal-confirmation')).toBeNull();
     await prepare();
     const replacement = shown(store, 'revocationRecoveryKey');
     // Convex refuses the activation, so the proposal stays.

@@ -2121,9 +2121,13 @@ final class InboxTests: XCTestCase {
       app.buttons["Remove iPad"].tap()
       let dialog = app.alerts["Remove “iPad”?"]
       XCTAssertTrue(dialog.waitForExistence(timeout: 15))
+      // iPhone says it in two sentences; iPad keeps the full explanation.
+      let erased =
+        UIDevice.current.userInterfaceIdiom == .pad
+        ? "cannot be erased remotely" : "can’t be erased remotely"
       XCTAssertTrue(
         dialog.staticTexts.containing(
-          NSPredicate(format: "label CONTAINS %@", "cannot be erased remotely")
+          NSPredicate(format: "label CONTAINS %@", erased)
         ).firstMatch.exists)
       let shot = XCTAttachment(screenshot: app.screenshot())
       shot.name = "Trusted Device removal alert"
