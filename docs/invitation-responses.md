@@ -153,9 +153,33 @@ card lists **Invited** as **You** and **{address} · Receive only**, and says **
 mailbox can’t send** with **{address} has no outgoing server, so Unwired can’t
 respond from it. It won’t use another address.** It offers no response;
 **Mailbox Settings…** opens Settings at the mailboxes, where entering the password
-again sets up sending. An IMAP mailbox that can send still shows no card: its
-response goes through the Outbox, which a later slice of #1279 adds. Nothing is
-sent.
+again sets up sending. An IMAP mailbox that can send still shows no card. Nothing
+is sent.
+
+[#2439](https://github.com/unwired-dev/product/issues/2439) adds the shared
+(`mail-core`) path that the card for a sending IMAP mailbox will use; the Mac,
+iPhone and iPad card and Outbox row follow in later slices of #1279, so nothing
+shows it yet.
+
+- A choice builds the same `METHOD:REPLY` reply as for Gmail, with a Message-ID,
+  and admits it to the [Outbox](outbox.md) from the invited mailbox's own
+  connection. It is never a Draft. It waits out the Undo Send Window
+  (`waiting`); **Undo** removes it and restores the earlier state. After the
+  window it waits until it can be handed off (`queued`), then is claimed and
+  submitted to SMTP once, and its copy is filed in Sent, as for any IMAP message.
+- When the mail server accepts it, the choice and time are recorded in the
+  mailbox's encrypted cache with the same fields as a Gmail response, so the
+  response survives relaunch and a later or older revision reads it as for
+  Gmail. The response leaves the Outbox only once that record is saved.
+- A refusal reads as **Not sent**, and the next choice replaces it in the
+  Outbox. A handoff without a confirmed answer reads as **Delivery unknown**:
+  it is never submitted again on its own and further choices are ignored;
+  **Check Again** looks for it in Sent by its Message-ID.
+- A response under way ignores further choices, the confirmed choice is not sent
+  twice, and an older revision cannot respond. A mailbox without an outgoing
+  server or a Sent folder refuses the choice; no other address sends it.
+- Each Outbox message carries its invitation's revision, choice, received message
+  and title, which the Outbox row needs.
 
 ## Limitations
 
@@ -188,7 +212,12 @@ sent.
   revision that moved the meeting after an earlier answer, and the message an
   older revision's **Show Latest** opens.
 - `packages/mail-core/test/imap-invitations.test.ts` reads an IMAP invitation's
-  calendar part from a synthetic IMAP server.
+  calendar part from a synthetic IMAP server, and
+  `packages/mail-core/test/imap-invitation-responses.test.ts` drives IMAP
+  responses through the Outbox and a synthetic SMTP server: the Undo Send Window,
+  Undo, the Sent copy and the record after relaunch, a refusal replaced by the
+  next choice, an unconfirmed handoff confirmed from Sent, and mailboxes that
+  cannot send.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
   render each reader with a synthetic Gmail mailbox, and an IMAP cancellation and an
   invitation for a receive-only and a sending IMAP mailbox with a synthetic IMAP
