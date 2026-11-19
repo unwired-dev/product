@@ -2206,6 +2206,112 @@ describe('connected Gmail Inbox', () => {
     },
   );
 
+  it('creates a nested Gmail label from Labels, applies an existing name, offers one differing in case and explains a refusal', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.createLabel('Clients');
+    const northwind = gmail.createLabel('Clients/Northwind');
+    const receipts = gmail.createLabel('Receipts');
+    const invoice = gmail.deliver({
+      from: 'Acme Studio <billing@example.invalid>',
+      subject: 'Invoice 2026-114 for October',
+    });
+    await renderConnected(gmail.native);
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: /Invoice 2026-114 for October/u,
+      }),
+    );
+    await screen.findByRole('button', { name: 'Folders' });
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    const openLabels = async () => {
+      await chooseFromMenu(screen.getByLabelText('More'), 'Labels');
+      await fireEvent.press(screen.getByRole('button', { name: 'New Label…' }));
+      return within(screen.getByTestId('new-label'));
+    };
+
+    // A slash nests the new label; it is created in Gmail, then applied.
+    let labels = await openLabels();
+    expect(labels.getByRole('header', { name: 'Labels' })).toBeVisible();
+    expect(labels.getByText('Gmail · alex@example.invalid')).toBeVisible();
+    expect(labels.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    await fireEvent.changeText(
+      labels.getByLabelText('Label name'),
+      'Clients/Acme',
+    );
+    expect(
+      labels.getByRole('button', {
+        name: 'Create “Acme” inside “Clients”, Created in Gmail, then applied',
+      }),
+    ).toBeVisible();
+    expect(
+      labels.getByRole('header', { name: 'Matching labels' }),
+    ).toBeVisible();
+    expect(
+      labels.getByRole('button', { name: 'Clients/Northwind' }),
+    ).toBeVisible();
+    expect(labels.queryByRole('button', { name: 'Receipts' })).toBeNull();
+    await act(async () => {
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+    });
+    expect(screen.queryByTestId('new-label')).toBeNull();
+    expect(screen.getByText('Labels: Clients/Acme')).toBeVisible();
+    // The fake numbers labels as Gmail's `Label_` identifiers, after the three above.
+    expect(gmail.labelsOf(invoice)).toContain('Label_4');
+
+    // A name another label already has applies that label without creating one.
+    labels = await openLabels();
+    await fireEvent.changeText(
+      labels.getByLabelText('Label name'),
+      'Clients/Northwind',
+    );
+    expect(labels.queryByRole('button', { name: /^Create/u })).toBeNull();
+    await act(async () => {
+      await fireEvent(labels.getByLabelText('Label name'), 'submitEditing');
+    });
+    expect(gmail.labelsOf(invoice)).toContain(northwind);
+
+    // The same name in a different case offers the existing label; nothing is applied until chosen.
+    labels = await openLabels();
+    await fireEvent.changeText(labels.getByLabelText('Label name'), 'receipts');
+    expect(labels.queryByRole('button', { name: /^Create/u })).toBeNull();
+    await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+    expect(alert).toHaveBeenLastCalledWith(
+      '“receipts” wasn’t created',
+      'Gmail already has a label with this name in a different case. Nothing was applied.',
+      [
+        expect.objectContaining({ text: 'Use “Receipts”', isPreferred: true }),
+        expect.objectContaining({ text: 'Edit Name', style: 'cancel' }),
+      ],
+    );
+    expect(gmail.labelsOf(invoice)).not.toContain(receipts);
+    await act(async () => {
+      alert.mock.lastCall?.[2]?.[0]?.onPress?.();
+    });
+    expect(screen.queryByTestId('new-label')).toBeNull();
+    expect(gmail.labelsOf(invoice)).toContain(receipts);
+
+    // A name Gmail refuses applies nothing and is explained, leaving the name to edit.
+    gmail.failCreateLabel({ status: 403 });
+    labels = await openLabels();
+    await fireEvent.changeText(labels.getByLabelText('Label name'), 'Travel');
+    await act(async () => {
+      await fireEvent.press(
+        labels.getByRole('button', {
+          name: 'Create “Travel”, Created in Gmail, then applied',
+        }),
+      );
+    });
+    expect(alert).toHaveBeenLastCalledWith(
+      '“Travel” could not be created in Gmail',
+      'Gmail may already have a label with this name, or it could not be reached. Try another name, or try again later.',
+    );
+    expect(labels.getByLabelText('Label name')).toHaveProp('value', 'Travel');
+    expect(gmail.labelsOf(invoice)).not.toContain('Label_5');
+    await fireEvent.press(labels.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByTestId('new-label')).toBeNull();
+  });
+
   it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

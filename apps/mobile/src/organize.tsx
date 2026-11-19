@@ -60,6 +60,7 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { MovePanel, MoveSheet } from './move-sheet.tsx';
+import { NewLabel } from './new-label.tsx';
 import { ActionButton } from './organize-action-button.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
@@ -74,8 +75,8 @@ const placed = (picker: ReactElement) =>
 
 // The toolbar panel a reader shows: the folders or labels to move to, or More's remaining actions.
 // Beside the iPhone Reply sheet, which offers those actions, it shows only the labels to add or
-// remove.
-export type ReaderPanel = 'folders' | 'more';
+// remove. New Label… among the labels opens Labels, to create one.
+export type ReaderPanel = 'folders' | 'more' | 'newLabel';
 
 // The iPad reader toolbar's top edge sits 15.3pt beneath the safe area, at y47.3 as the frames draw
 // it, so its centre shares the top row's line 36pt beneath the safe area.
@@ -680,10 +681,13 @@ function Toolbar({
   folders,
   more: organizing,
   pin,
+  labeling,
   onPanel,
   children,
 }: {
   readonly onPanel: PanelState['onPanel'];
+  // The iPhone Labels sheet New Label… opened, which the reader's panel state also holds.
+  readonly labeling?: boolean;
   readonly archive: (() => void) | undefined;
   readonly folders:
     | Readonly<
@@ -717,7 +721,7 @@ function Toolbar({
   const more = withPin(organizing, pin);
   // The reader's open panel lasts only while this toolbar shows it. Closing it, Move or organizing
   // becoming unavailable, or the toolbar leaving clears it, so no dismissal stays behind.
-  const shown = more.open || folders?.open === true;
+  const shown = more.open || folders?.open === true || labeling === true;
   useEffect(() => {
     if (!shown) {
       return undefined;
@@ -1041,6 +1045,23 @@ const shownMessage = <Listed,>(
   listed ??
   ('found' in state ? state.found?.find((item) => item.id === id) : undefined);
 
+// The Labels or Folders toggle. New Label… opens Labels, to create a Gmail label and apply it: an
+// iPhone sheet above the toolbar, or on iPad the labels' own panel. While it shows, the toggle
+// reads Hide Labels and closes it.
+const labelsToggle = (panel: ReaderPanel | undefined, picker: boolean) => {
+  const labeling = panel === 'newLabel';
+  const shown = panel === 'folders' || labeling;
+  const hide = picker ? 'gmailActions.hideFolders' : 'gmailActions.hideLabels';
+  const show = picker ? 'gmailActions.folders' : 'gmailActions.labels';
+  return {
+    labeling,
+    sheet: compact && labeling,
+    open: panel === 'folders' || (!compact && labeling),
+    next: shown ? undefined : 'folders',
+    label: (picker ? panel === 'folders' : shown) ? hide : show,
+  } as const;
+};
+
 // The reader's Gmail and Microsoft actions. A message that leaves the view it was chosen in, the
 // Inbox or another Gmail view, closes the reader.
 function GmailMessageActions({
@@ -1111,6 +1132,21 @@ function GmailMessageActions({
   };
   // iPhone moves through the shared picker, as Microsoft's folders always do.
   const picker = folders || compact;
+  const labels = labelsToggle(panel, picker);
+  const newLabel = (
+    <NewLabel
+      open={labels.labeling}
+      labels={state.labels}
+      onApply={(label) => {
+        act(gmailAction.label(label));
+        setPanel(undefined);
+      }}
+      onCreate={(name) => store.createLabel(message, name)}
+      onClose={() => {
+        setPanel(undefined);
+      }}
+    />
+  );
   // Labels to add or remove, each with Move to unless the picker moves instead.
   const labelControls = (moves: boolean) => (
     <>
@@ -1155,6 +1191,14 @@ function GmailMessageActions({
           ) : null}
         </View>
       ))}
+      {folders ? null : (
+        <ActionButton
+          label={t('gmailActions.newLabel')}
+          onPress={() => {
+            setPanel('newLabel');
+          }}
+        />
+      )}
     </>
   );
   return (
@@ -1181,8 +1225,10 @@ function GmailMessageActions({
           })
         }
       />
+      {compact ? newLabel : null}
       <Toolbar
         onPanel={setPanel}
+        labeling={labels.sheet}
         pin={pinFor(message)}
         archive={
           archive === undefined
@@ -1192,20 +1238,10 @@ function GmailMessageActions({
               }
         }
         folders={{
-          label: picker
-            ? t(
-                panel === 'folders'
-                  ? 'gmailActions.hideFolders'
-                  : 'gmailActions.folders',
-              )
-            : t(
-                panel === 'folders'
-                  ? 'gmailActions.hideLabels'
-                  : 'gmailActions.labels',
-              ),
-          open: panel === 'folders',
+          label: t(labels.label),
+          open: labels.open,
           toggle: () => {
-            toggle('folders');
+            setPanel(labels.next);
           },
           show: {
             label: t(picker ? 'gmailActions.folders' : 'gmailActions.labels'),
@@ -1266,7 +1302,9 @@ function GmailMessageActions({
                 />,
               )
             : {
-                panel: (
+                panel: labels.labeling ? (
+                  newLabel
+                ) : (
                   <ScrollView style={styles.panels}>
                     <View style={styles.panel}>{labelControls(true)}</View>
                   </ScrollView>
