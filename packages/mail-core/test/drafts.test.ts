@@ -3073,11 +3073,21 @@ describe('adding files and images to Drafts', () => {
     expect(assetsOf(draft())[0]).toMatchObject({ state: 'cancelled' });
     expect(storage.assets()).toStrictEqual([]);
 
-    // Unreadable source bytes fail the import.
+    // Unreadable source bytes fail the import, which reads as failed before its bytes are
+    // discarded, never as neither importing nor failed.
+    const seen: Asset[] = [];
+    const discard = vi
+      .spyOn(storage.native, 'discardDraftAsset')
+      .mockImplementationOnce(() => {
+        seen.push(...assetsOf(draft()).slice(1, 2));
+        return Promise.resolve({});
+      });
     await drafts.importAsset(failing, {
       kind: 'file',
       uri: 'file:///missing.txt',
     });
+    discard.mockRestore();
+    expect(seen.map(({ state }) => state)).toStrictEqual(['failed']);
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'failed' });
     // Bytes written before native code rejected the import are discarded, so they never hold
     // the Outgoing Content Store's space until relaunch.
