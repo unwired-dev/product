@@ -2011,6 +2011,24 @@ const leftOutOf = (draft: Draft, running: ReadonlySet<string>) =>
     ),
   );
 
+// Why a file was not added, as the alert names it.
+const leftOutReason = (asset: Asset) => {
+  if (asset.state === 'importing') {
+    return 'interrupted';
+  }
+  if (asset.state === 'cancelled') {
+    return 'cancelled';
+  }
+  return asset.state === 'failed' && 'reason' in asset
+    ? 'tooLarge'
+    : 'notAdded';
+};
+// Each file and its state, to tell whether the Draft's files changed.
+const filesOf = (draft: Draft) =>
+  distinct(assetsOf(draft))
+    .map(({ id, state }) => `${id}:${state}`)
+    .join(',');
+
 // Asks whether to send without the files that were not added, naming each and why; resolves
 // whether the person chose Send Without Them.
 const askLeftOut = (
@@ -2019,22 +2037,18 @@ const askLeftOut = (
   others: number,
 ) => {
   const reasons = leftOut.map((asset) =>
-    t(
-      asset.state === 'failed' && 'reason' in asset
-        ? 'drafts.leftOut.tooLarge'
-        : 'drafts.leftOut.notAdded',
-      { name: asset.name },
-    ),
+    t(`drafts.leftOut.${leftOutReason(asset)}`, { name: asset.name }),
   );
   const last = reasons.pop() ?? '';
   const files =
     reasons.length === 0
       ? last
       : t('drafts.leftOut.list', { items: reasons.join(', '), last });
-  const detail =
+  const detail = `${files}. ${
     others === 0
-      ? `${files}.`
-      : `${files}. ${t('drafts.leftOut.others', { count: others })}`;
+      ? t('drafts.leftOut.none')
+      : t('drafts.leftOut.others', { count: others })
+  }`;
   // oxlint-disable-next-line promise/avoid-new -- The alert answers through its button callbacks.
   return new Promise<boolean>((resolve) => {
     SystemAlert.alert(
@@ -3666,6 +3680,8 @@ function Editor({
 }) {
   const store = useDraftStore();
   const running = useSyncExternalStore(store.subscribe, store.getImports);
+  // Whether Send's question about files that were not added is open.
+  const askingLeftOut = useRef(false);
   const state = useDrafts();
   const colors = usePalette();
   const { t } = useLocalization();
@@ -4548,16 +4564,25 @@ function Editor({
       setSending(false);
       return false;
     });
-  // Send and Send Now first ask to leave out the files that were not added, then remove them as
-  // one edit and send.
+  // Send and Send Now first ask, once at a time, to leave out the files that were not added, then
+  // remove them as one edit and send; files that changed meanwhile leave the Draft open to ask
+  // again.
   const sendAsking = async (delay?: number) => {
+    if (askingLeftOut.current) {
+      return;
+    }
     const latest = authored.current;
     const leftOut = leftOutOf(latest, running);
     if (leftOut.length > 0) {
+      const files = filesOf(latest);
       const others = distinct(assetsOf(latest)).length - leftOut.length;
+      askingLeftOut.current = true;
+      const agreed = await askLeftOut(t, leftOut, others);
+      askingLeftOut.current = false;
       if (
-        !(await askLeftOut(t, leftOut, others)) ||
-        !lifetime.current.mounted
+        !agreed ||
+        !lifetime.current.mounted ||
+        filesOf(authored.current) !== files
       ) {
         return;
       }
