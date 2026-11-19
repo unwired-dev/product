@@ -719,8 +719,51 @@ This is not provider certification and does not run on the Mac host, whose trust
 synthetic certificate authority never changes. Pinned certificates are
 [#2005](https://github.com/unwired-dev/product/issues/2005).
 
-Real iCloud Mail and Seznam Email read, organizing, search, IDLE, SMTP submission and Sent
-filing qualification remains required before release
+### Certification mailboxes
+
+`native/private-inbox/integration/providers.zsh [ios|macos]` runs the iOS suite, the
+Mac suite or both against the dedicated iCloud Mail and Seznam Email certification
+mailboxes of [#2399](https://github.com/unwired-dev/product/issues/2399). Run it under
+`op run --env-file <file outside the repository> -- mise exec -- zsh …`, with that file
+naming the password-manager fields for `UNWIRED_ICLOUD_ADDRESS`, `UNWIRED_SEZNAM_ADDRESS`
+and their mail-client passwords `UNWIRED_ICLOUD_PASSWORD` and `UNWIRED_SEZNAM_PASSWORD`,
+as the [operator setup](https://github.com/unwired-dev/product/issues/632) describes. The
+script hands them to `test.zsh`, which passes them only to xcodebuild as `TEST_RUNNER_`
+variables, so they reach the test process without being written to the generated scheme.
+Each host's run writes to an `artifacts/private-inbox/integration.*` directory the script
+creates, and each result bundle is kept only as the test results it records. The runs'
+output is shown once a scan finds no address, iCloud Mail user name or password in it or in
+those directories, which are then kept, also when a test failed or the certification test
+did not pass on a host, either of which fails the script. When the scan finds a credential,
+cannot read a file or is interrupted, the script removes this run's evidence and fails. The
+Mac run needs `UNWIRED_STORAGE_PROFILE`, like `test.zsh macos`. Each mailbox sends one
+message to the other through the unchanged engine; the test then reads, marks, moves and
+files it, and afterwards tries to remove this run's messages from every INBOX, Sent and
+Trash folder of both mailboxes, also when a step failed. The search for messages the server accepted, or may
+have, polls for 70 seconds shared by both deliveries; cleanup polls for one the test did not
+find for 16 seconds more, shared by both mailboxes, within the test's 120-second allowance.
+
+| Step               | iCloud Mail                                                                           | Seznam Email                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IMAP 993 login     | Name part of the address, app-specific password                                       | Full address, mail-client password                                                                                                                                                                                                                                                                                                                                                                                                |
+| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                 | Refused as an authentication failure on IMAP and SMTP                                                                                                                                                                                                                                                                                                                                                                             |
+| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                              | 465, SSL/TLS; delivered to iCloud Mail                                                                                                                                                                                                                                                                                                                                                                                            |
+| Delivered message  | Found by text search; envelope, source and `\Seen` cleared and set                    | Found by text search; envelope, source, `\Seen` cleared and set and MOVE to Trash                                                                                                                                                                                                                                                                                                                                                 |
+| Folders and roles  | `INBOX` alone, no roles ([#2401](https://github.com/unwired-dev/product/issues/2401)) | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                                                                                                                                                                                                                                                                                                                                               |
+| Sent filing        | Not possible: without a Sent folder, Send refuses                                     | No copy filed by the server. The boundary lookup finds none in an empty Sent folder, so the copy is appended; the lookup that follows drops the connection in the folder that now holds it ([#2402](https://github.com/unwired-dev/product/issues/2402)), and a text search on a new session finds the one copy. In a Sent folder that already holds messages, the first lookup drops the connection and the product stops filing |
+| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                    | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                                                                                                                                                                                                                                                                                                                                         |
+
+The test marks the INBOX-only listing (#2401) and the boundary lookup's dropped connection
+in a Sent folder that holds messages (#2402) as known issues, which fail the run once they are fixed so the markers get removed.
+On 19 November 2026 the test passed with exactly those two known issues on an iOS 27.0
+iPhone 18 Pro Simulator, where the whole suite passed, and on the Mac host (macOS 27.2),
+both built with Xcode 27.2 (27B52) from `main` at `eb28e204d` with this change applied. In
+that Mac run, 60 Keychain checks of other tests failed with `.locked`, as they did on `main`
+on the same host at the time. The run is engine evidence only: the app's
+setup and reader journeys, IDLE, recovery and large folders are still to be qualified.
+
+Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
+the app on both hosts, remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
 hosts, and backfilling large real IMAP folders. Registration Mock Mail Sessions connect any
