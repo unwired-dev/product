@@ -39,8 +39,11 @@ extension PrivateInboxTests {
     let imapProvider = SwiftMailImap()
     let smtpProvider = SwiftMailSmtp()
     let token = UUID().uuidString
-    // Mailboxes the server accepted a message for that the test has not yet waited for.
+    // Mailboxes the server accepted or may have accepted a message for that the test has not yet
+    // finished waiting for. Delivery to both shares one deadline, so cleanup fits the test's
+    // 120-second allowance.
     var unread = Set<String>()
+    var delivery = ContinuousClock.now
 
     // Logins with the mail-client password, retrying iCloud Mail once with the full address as the
     // product does; a wrong password is refused as an authentication failure.
@@ -107,7 +110,7 @@ extension PrivateInboxTests {
         // The other mailbox's message is delivered, found by search, read and marked. Each write
         // first requires the folder's UIDVALIDITY to be the one the search's UIDs belong to.
         var matches = try await session.search("INBOX", for: .text(token), newest: 10)
-        for _ in 0..<45 where matches.total == 0 {
+        while matches.total == 0, ContinuousClock.now < delivery {
           try await Task.sleep(for: .seconds(2))
           matches = try await session.search("INBOX", for: .text(token), newest: 10)
         }
@@ -126,8 +129,10 @@ extension PrivateInboxTests {
         let hasBody = String(decoding: raw, as: UTF8.self).contains("Certification body \(token)")
         #expect(hasBody)
         try #require(try await session.select("INBOX") == matches.uidValidity)
-        try await session.store(uid, flag: .seen, set: true)
-        #expect(try await session.flags([uid])[uid]?.contains("\\Seen") == true)
+        for seen in [false, true] {
+          try await session.store(uid, flag: .seen, set: seen)
+          #expect(try await session.flags([uid])[uid]?.contains("\\Seen") == seen)
+        }
 
         // Moved to Trash: MOVE where the server offers it, else COPY and a targeted UID EXPUNGE.
         if let trash {
@@ -216,7 +221,7 @@ extension PrivateInboxTests {
           }
         }
         await sweep()
-        for _ in 0..<15 where unread.contains(provider.name) && delivered == 0 {
+        for _ in 0..<8 where unread.contains(provider.name) && delivered == 0 {
           try await Task.sleep(for: .seconds(2))
           await sweep()
         }
@@ -230,11 +235,17 @@ extension PrivateInboxTests {
     var failure: (any Error)?
     do {
       for (sender, recipient) in [(providers[0], providers[1]), (providers[1], providers[0])] {
-        try await smtpProvider.send(
-          sender.smtp, password: sender.password, from: sender.address, to: [recipient.address],
-          message: message(from: sender, to: recipient))
+        do {
+          try await smtpProvider.send(
+            sender.smtp, password: sender.password, from: sender.address, to: [recipient.address],
+            message: message(from: sender, to: recipient))
+        } catch PrivateInboxError.deliveryUnknown {
+          unread.insert(recipient.name)
+          throw PrivateInboxError.deliveryUnknown
+        }
         unread.insert(recipient.name)
       }
+      delivery = .now + .seconds(70)
       for (index, provider) in providers.enumerated() {
         try await verify(provider, from: providers[1 - index])
       }
