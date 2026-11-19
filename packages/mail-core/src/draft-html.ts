@@ -18,6 +18,8 @@ import {
   emptyDocument,
   FontSchema,
   imageCharacter,
+  isListKind,
+  listNumbersOf,
   MarkSchema,
   TableDocumentSchema,
 } from './semantic-document.ts';
@@ -41,6 +43,8 @@ type Format = Readonly<{
 type Context = Readonly<{
   kind: BlockKind;
   list?: 'bulleted' | 'numbered';
+  // How many lists deeper than the outermost one this one nests.
+  indent?: 1 | 2;
   align?: Block['align'];
   // Set by an explicit `left`, which differs from the initial `start` only for header cells.
   left?: boolean;
@@ -114,6 +118,27 @@ const topLevel = (next: (context: Context) => Context) => (context: Context) =>
   context.kind === 'paragraph' && context.list === undefined
     ? next(context)
     : undefined;
+// A list starts at the top level, or nests in a list or its item up to the document's levels.
+const list = (
+  context: Context,
+  kind: 'bulleted' | 'numbered',
+): Context | undefined => {
+  if (context.list === undefined) {
+    return topLevel((outer) => ({ ...outer, list: kind }))(context);
+  }
+  if (
+    context.indent === 2 ||
+    (context.kind !== 'paragraph' && context.kind !== context.list)
+  ) {
+    return undefined;
+  }
+  return {
+    ...context,
+    kind: 'paragraph',
+    list: kind,
+    indent: context.indent === 1 ? 2 : 1,
+  };
+};
 // A heading's own size is relative to the size it inherits.
 const heading = (context: Context, kind: BlockKind) =>
   formatted({ ...context, kind }, { size: undefined });
@@ -131,8 +156,8 @@ const structureTags: ReadonlyMap<
       formatted({ ...context, kind: 'code' }, { font: undefined }),
     ),
   ],
-  ['ul', topLevel((context) => ({ ...context, list: 'bulleted' }))],
-  ['ol', topLevel((context) => ({ ...context, list: 'numbered' }))],
+  ['ul', (context) => list(context, 'bulleted')],
+  ['ol', (context) => list(context, 'numbered')],
   [
     'li',
     (context) =>
@@ -889,16 +914,29 @@ const sameFormat = (one: Format, other: Format) =>
 
 const isDocument = Schema.is(TableDocumentSchema);
 
+// An item holds one line, before the lists nested in it, and an ordered list counts from one.
 const listChanged = (
-  tag: string,
-  before: number,
-  blocks: ReadonlyArray<Readonly<{ kind: string }>>,
-) =>
-  tag === 'li'
-    ? blocks.length - before > 1
-    : tag === 'ol' &&
-      blocks[before]?.kind === 'numbered' &&
-      blocks[before - 1]?.kind === 'numbered';
+  step: Readonly<{ tag: string; before: number; context: Context }>,
+  blocks: ReadonlyArray<Block | Readonly<{ kind: 'table' }>>,
+) => {
+  const lines = blocks.map((block) =>
+    block.kind === 'table' ? emptyDocument[0] : block,
+  );
+  if (step.tag === 'li') {
+    const level = step.context.indent ?? 0;
+    return (
+      lines
+        .slice(step.before)
+        .filter(({ kind, indent = 0 }) => !isListKind(kind) || indent <= level)
+        .length > 1
+    );
+  }
+  return (
+    step.tag === 'ol' &&
+    lines[step.before]?.kind === 'numbered' &&
+    listNumbersOf(lines)[step.before] !== 1
+  );
+};
 
 const hiddenElement = (element: DefaultTreeAdapterTypes.Element) => {
   const hidden = element.attrs.find(({ name }) => name === 'hidden');
@@ -935,7 +973,7 @@ export function documentFromHtml(html: string): DraftHtml {
   let line: Context | undefined = undefined;
 
   const endLine = (context: Context) => {
-    const { kind, align } = line ?? context;
+    const { kind, align, indent } = line ?? context;
     const last = runs.at(-1);
     if (kind !== 'code' && last !== undefined) {
       // A collapsed space at the end of a line is not shown; at most one remains.
@@ -947,7 +985,12 @@ export function documentFromHtml(html: string): DraftHtml {
           .filter(({ text }) => text !== '')
           .map(({ text, format }) => spanOf(text, format))
       : [];
-    target.push({ kind, spans, ...(align === undefined ? {} : { align }) });
+    target.push({
+      kind,
+      spans,
+      ...(align === undefined ? {} : { align }),
+      ...(indent === undefined || !isListKind(kind) ? {} : { indent }),
+    });
     runs = [];
     line = undefined;
   };
@@ -1074,7 +1117,7 @@ export function documentFromHtml(html: string): DraftHtml {
     if (line !== undefined || empty) {
       endLine(step.context);
     }
-    if (listChanged(step.tag, step.before, target)) {
+    if (listChanged(step, target)) {
       unsupported.add(step.tag);
     }
     endTablePart(step.tag);

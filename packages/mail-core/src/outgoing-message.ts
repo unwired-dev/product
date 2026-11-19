@@ -275,12 +275,16 @@ const spanAttribute = (name: string, span: number | undefined) =>
 // fallow-ignore-next-line complexity -- One pass opens and closes each run of blocks in reading order.
 export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
   let html = '';
-  // The open lists, outermost first; each holds an item still open.
-  const lists: string[] = [];
+  // The open lists, outermost first, and whether each holds an item still open: a list nested
+  // deeper than the item before it opens directly inside its parent list.
+  const lists: Array<{ tag: string; item: boolean }> = [];
   const closeLists = (level: number) => {
-    while (lists.length > level) {
-      html += `</li></${lists.pop()}>`;
-    }
+    html += lists
+      .splice(level)
+      .reduceRight(
+        (closing, { tag, item }) => `${closing}${item ? '</li>' : ''}</${tag}>`,
+        '',
+      );
   };
   for (const [index, block] of document.entries()) {
     if (block.kind === 'table') {
@@ -298,15 +302,16 @@ export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
         .join('')}</tbody></table>`;
     } else if (isListKind(block.kind)) {
       const level = block.indent ?? 0;
-      const list = containers[block.kind] ?? 'ul';
-      closeLists(lists[level] === list ? level + 1 : level);
-      if (lists.length === level + 1) {
+      const tag = containers[block.kind] ?? 'ul';
+      closeLists(lists[level]?.tag === tag ? level + 1 : level);
+      if (lists[level]?.item === true) {
         html += '</li>';
       }
       while (lists.length <= level) {
-        html += `<${list}>`;
-        lists.push(list);
+        html += `<${tag}>`;
+        lists.push({ tag, item: false });
       }
+      lists[level] = { tag, item: true };
       html += htmlBlock(block);
     } else {
       closeLists(0);

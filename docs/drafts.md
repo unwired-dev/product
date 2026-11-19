@@ -357,8 +357,10 @@ width, a transparent color, an omitted line style in a shorthand or an unvetted
 function is reported rather than turning an indentation into a quote.
 Browser-dependent active/visited
 link attributes are ignored. Nonbreaking and other noncollapsing spaces stay.
-Anything else, such as an image, headings four to six, a nested list
-or quote, a color name, a relative size, a block background (including an inherited one), a popover, list
+Nested lists read back up to the document's three levels, whether a nested
+list sits inside the item before it or, as Gmail writes it, directly inside its
+parent list. Anything else, such as an image, headings four to six, a list
+nested deeper, a nested quote, text in an item after its nested list, a color name, a relative size, a block background (including an inherited one), a popover, list
 markers with colors or fonts (including bold and italic), custom or reversed
 list numbering, adjacent ordered lists that restart numbering without a
 separating document block, a multiline list item, right-to-left text or a CSS-wide keyword

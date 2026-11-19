@@ -632,7 +632,7 @@ describe('a Semantic Message Document from Draft HTML', () => {
     ).toStrictEqual({ unsupported: ['caption', 'img', 'h4', 'hr'] });
     expect(
       documentFromHtml(
-        '<ul><li>One<ul><li>Nested</li></ul></li></ul><blockquote><h1>Title</h1></blockquote>' +
+        '<ul><li>1<ul><li>2<ul><li>3<ul><li>4</li></ul></li></ul></li></ul></li></ul><blockquote><h1>Title</h1></blockquote>' +
           '<ol start="3"><li>Three</li></ol><p dir="rtl">x</p>',
       ),
     ).toStrictEqual({ unsupported: ['ul', 'h1', 'start', 'dir'] });
@@ -786,6 +786,43 @@ describe('a Semantic Message Document from Draft HTML', () => {
         { kind: 'paragraph', spans: [{ text: 'text', background: '#123456' }] },
       ],
     });
+  });
+
+  it('reads nested lists, as outgoing mail and Gmail write them, three levels deep', () => {
+    expect.hasAssertions();
+
+    const document: Block[] = [
+      { kind: 'numbered', spans: [{ text: 'Pilot' }] },
+      { kind: 'bulleted', spans: [{ text: 'Start' }], indent: 1 },
+      { kind: 'numbered', spans: [{ text: 'Seats' }], indent: 2 },
+      { kind: 'numbered', spans: [{ text: 'Venue' }] },
+      { kind: 'paragraph', spans: [{ text: 'Then' }] },
+      { kind: 'bulleted', spans: [{ text: 'Deep first' }], indent: 2 },
+      { kind: 'bulleted', spans: [{ text: 'Out' }] },
+    ];
+
+    expect(documentFromHtml(htmlOf(document))).toStrictEqual({ document });
+    expect(
+      documentFromHtml(
+        '<ul><li>One</li><ul><li>Two</li></ul><li>Three</li></ul>',
+      ),
+    ).toStrictEqual({
+      document: [
+        { kind: 'bulleted', spans: [{ text: 'One' }] },
+        { kind: 'bulleted', spans: [{ text: 'Two' }], indent: 1 },
+        { kind: 'bulleted', spans: [{ text: 'Three' }] },
+      ],
+    });
+    // An item's text after its nested list, or a nested ordered list that keeps counting, would
+    // read back differently.
+    expect(
+      documentFromHtml('<ul><li>One<ul><li>Two</li></ul>after</li></ul>'),
+    ).toStrictEqual({ unsupported: ['li'] });
+    expect(
+      documentFromHtml(
+        '<ol><li>One<ol><li>Two</li></ol><ol><li>Two again</li></ol></li></ol>',
+      ),
+    ).toStrictEqual({ unsupported: ['ol'] });
   });
 
   it('refuses adjacent ordered-list restarts that the document would renumber', () => {

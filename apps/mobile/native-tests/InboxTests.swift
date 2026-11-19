@@ -3938,16 +3938,17 @@ final class InboxTests: XCTestCase {
           for: [XCTNSPredicateExpectation(predicate: changed, object: nil)], timeout: 5)
       }
     }
-    // Each level shows its marker one em and one en space further in.
+    // Each level shows its marker one em and one en space further in. Under host load the app can
+    // take 20 seconds to idle after a key press.
     let level = "\u{2003}\u{2002}"
     let nested = "• Pilot\n\(level)• Start\n\(level)\(level)• Seats"
-    waitUntil { body.value as? String == nested }
+    waitUntil({ body.value as? String == nested }, timeout: 60)
     // At the third level Tab does nothing, and Shift-Tab moves the item out one level.
     press("\t", in: app)
     app.typeKey("\t", modifierFlags: .shift)
-    waitUntil { body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }
+    waitUntil({ body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }, timeout: 60)
     press("\t", in: app)
-    waitUntil { body.value as? String == nested }
+    waitUntil({ body.value as? String == nested }, timeout: 60)
     // At the third level Indent is off and Outdent is on.
     let indent = formatControl("Indent", in: app)
     XCTAssertTrue(indent.waitForExistence(timeout: 10))
@@ -3956,9 +3957,9 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(outdent.isEnabled)
     attachScreen("Nested list", of: app, to: self)
     outdent.tap()
-    waitUntil { body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }
+    waitUntil({ body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }, timeout: 60)
     formatControl("Undo", in: app).tap()
-    waitUntil { body.value as? String == nested }
+    waitUntil({ body.value as? String == nested }, timeout: 60)
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {
