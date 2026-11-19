@@ -553,18 +553,30 @@ function statusOf(
     : t('inbox.statusUpdated', { status, updated });
 }
 
-// Section data lets the native list virtualize online pages together with saved rows.
+type OnlineSections<T> = Readonly<{
+  found?:
+    | Readonly<{
+        results: readonly T[];
+        failures: readonly unknown[];
+        limited: readonly unknown[];
+      }>
+    | undefined;
+}>;
+
+// Section data lets the native list virtualize online pages together with saved rows. The section
+// and its heading hold mail server rows and the connections it could not search; Searching and No
+// Results stand alone beneath the saved results.
 const searchSections = <T,>(
   saved: ReadonlyArray<Readonly<{ key: string; data: readonly T[] }>>,
-  online: Readonly<{
-    searching: boolean;
-    found?: Readonly<{ results: readonly T[] }> | undefined;
-  }>,
+  { found }: OnlineSections<T>,
 ) => [
   ...saved,
-  ...(online.found === undefined && !online.searching
-    ? []
-    : [{ key: 'gmail', data: online.found?.results ?? [] }]),
+  ...(found !== undefined &&
+  (found.results.length > 0 ||
+    found.failures.length > 0 ||
+    found.limited.length > 0)
+    ? [{ key: 'gmail', data: found.results }]
+    : []),
 ];
 
 // Outbox and Drafts come before received mail; a search lists matching messages alone.
@@ -580,10 +592,7 @@ function inboxSections<M>({
   canCompose: boolean;
   drafts: readonly Draft[];
   messages: ReadonlyArray<Readonly<{ key: string; data: readonly M[] }>>;
-  online: Readonly<{
-    searching: boolean;
-    found?: Readonly<{ results: readonly M[] }> | undefined;
-  }>;
+  online: OnlineSections<M>;
   searching: boolean;
 }>) {
   const outboxRows =

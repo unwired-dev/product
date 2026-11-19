@@ -1502,6 +1502,46 @@ describe('connected Gmail Inbox', () => {
     expect(screen.getByRole('header', { name: 'No Results' })).toBeVisible();
   });
 
+  it('shows Searching and an empty mail server answer without the From mail servers heading', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saved Inbox message' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Saved Inbox message/u });
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Lisbon ferry');
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail's answer while Searching shows.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.gmailRequest = async (...args) => {
+      await held;
+      return request(...args);
+    };
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Search Mail Servers for “Lisbon ferry”',
+      }),
+    );
+    // Searching, then No Results, stand directly beneath the search, as the iPad frames place them.
+    expect(screen.getByText('Searching alex@example.invalid…')).toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
+    await act(async () => {
+      release();
+    });
+    await expect(
+      screen.findByRole('header', { name: 'No Results' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
+  });
+
   it('never shows a delayed online answer for a query the person has since replaced', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

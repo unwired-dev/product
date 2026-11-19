@@ -247,7 +247,8 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
 - **Results.** They appear under **From mail servers**, after the saved results, which stay
   as they were. Each mailbox returns 20 results per page, newest first across
   mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
-  When nothing matches, the section says **Mail servers found no mail matching “…”**.
+  When nothing matches, the section says **Mail servers found no mail matching “…”**; on iPhone
+  and iPad the heading appears only above mail server rows or a mailbox it could not search.
   While the mail servers are searched, iPhone and iPad show an activity indicator above
   **Searching [scope]…**: iPhone names the shown scope, such as **Searching All Inboxes…**, and iPad
   the mailbox searched, or **All Mailboxes** for several
