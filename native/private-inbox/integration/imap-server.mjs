@@ -293,7 +293,7 @@ const answerChange = (socket, session, { tag, command }) => {
     // A Sent copy is found by its Message-ID: Seznam Email drops the connection on a Content-Type
     // search.
     assert.equal(session.selected, 'Sent');
-    const id = /HEADER "?Message-ID"? "?(?<id>[^"\s]+)"?$/iu.exec(command)
+    const id = /HEADER "?Message-ID"? "?<(?<id>[^>"\s]+)>"?$/iu.exec(command)
       ?.groups?.id;
     assert.ok(id, `Unexpected Sent search: ${command}`);
     operations.add(appended.has(id) ? 'sent-found' : 'sent-search');

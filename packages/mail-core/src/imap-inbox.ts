@@ -3295,7 +3295,7 @@ export function createImapInbox(
   // once the copy is there, or why it still waits.
   const fileSent = (
     message: OutgoingSend,
-    messageId: string,
+    id: string,
   ): Promise<DeliveryProblem | undefined> => {
     const scope = opened;
     if (scope === undefined || forgotten || document === undefined) {
@@ -3309,7 +3309,8 @@ export function createImapInbox(
       withSession(scope, (session) =>
         Effect.gen(function* () {
           if (
-            (yield* sentCopies(scope, { ...session, folder, messageId })) > 0
+            (yield* sentCopies(scope, { ...session, folder, messageId: id })) >
+            0
           ) {
             return;
           }
@@ -3340,21 +3341,22 @@ export function createImapInbox(
       ),
     );
   };
-  // Looks for a message whose submission had no answer in the Sent folder by its Message-ID.
-  // Resolves sent for exactly one copy, unknown otherwise, or undefined when the open connection
-  // was not looked at, as when it closed or changed meanwhile.
-  const findSent = (messageId: string) => {
+  // Looks for a message whose submission had no answer in the Sent folder by its Message-ID, not
+  // its MIME boundary, which the Gmail and Microsoft inboxes take too. Resolves sent for exactly one
+  // copy, unknown otherwise, or undefined when the open connection was not looked at, as when it
+  // closed or changed meanwhile.
+  const findSent = (_boundary: string, id?: string) => {
     const scope = opened;
     if (scope === undefined || forgotten || document === undefined) {
       return Promise.resolve(undefined);
     }
     const folder = imapRoleFolder(document.folders, 'sent');
-    if (folder === undefined) {
+    if (folder === undefined || id === undefined) {
       return Promise.resolve<SendOutcome>({ kind: 'unknown' });
     }
     return runLogged(
       withSession(scope, (session) =>
-        sentCopies(scope, { ...session, folder, messageId }),
+        sentCopies(scope, { ...session, folder, messageId: id }),
       ).pipe(
         Effect.tapError((failure) =>
           current(scope) && changesAccess(failure.kind)

@@ -369,11 +369,19 @@ describe('sending through SMTP and filing Sent copies', () => {
         submissions: sending.servers.work.smtp.accepted.length,
         changes: sending.servers.work.server.changes,
       }).toStrictEqual({ submissions: 1, changes: [] });
-      // The server filed its own copy; one copy confirms it.
+      const { raw } = present(
+        sending.servers.work.smtp.accepted[0],
+        'submission',
+      );
+      const named = present(/^Message-ID: (<[^>]+>)\r$/mu.exec(raw)?.[1], 'id');
+      // A reply that names the message in In-Reply-To is not its copy.
       sending.servers.work.deliver('Sent', {
-        subject: 'Lunch',
-        raw: present(sending.servers.work.smtp.accepted[0], 'submission').raw,
+        subject: 'Re: Lunch',
+        raw: `Subject: Re: Lunch\r\nIn-Reply-To: ${named}\r\nReferences: ${named}\r\n\r\nYes\r\n`,
       });
+      await expect(sending.outbox.check(id)).resolves.toBe(false);
+      // The server filed its own copy; one copy confirms it.
+      sending.servers.work.deliver('Sent', { subject: 'Lunch', raw });
       await expect(sending.outbox.check(id)).resolves.toBe(true);
       expect(sending.servers.work.smtp.accepted).toHaveLength(1);
     } finally {

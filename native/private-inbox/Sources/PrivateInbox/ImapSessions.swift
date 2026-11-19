@@ -233,7 +233,8 @@ enum ImapStoredFlag: String, Sendable {
       let search: SearchCriteria =
         switch criterion {
         case .text(let text): .text(text)
-        case .messageId(let messageId): .header("Message-ID", messageId)
+        // Bracketed, since iCloud Mail matches only the whole value, and a longer ID cannot hold it.
+        case .messageId(let messageId): .header("Message-ID", "<\(messageId)>")
         }
       return try await run { server in
         let selection: Mailbox.Selection
