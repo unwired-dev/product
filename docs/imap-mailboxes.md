@@ -715,7 +715,9 @@ authenticated on 465 and 587, and no credentials reached 143, the plaintext SMTP
 untrusted server.
 On 18 November 2026 the run passed all 105 tests of the suite on an iOS 27.0 iPhone 18 Pro
 Simulator, built with Xcode 27.2 (27B52) against Docker Engine 29.9.3, from `main` at
-`9f706166f` with this change applied.
+`9f706166f` with this change applied. On 19 November 2026 it passed all 105 tests again
+with the Message-ID lookup of [#2402](https://github.com/unwired-dev/product/issues/2402),
+from `main` at `eb28e204d` with that change applied.
 
 This is not provider certification and does not run on the Mac host, whose trust the
 synthetic certificate authority never changes. Pinned certificates are
