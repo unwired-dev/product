@@ -16,11 +16,48 @@ index 049fd2242..e2a9c449d 100644
  }
  
  - (UIStatusBarAnimation)preferredStatusBarUpdateAnimation
+diff --git a/ios/gamma/split/RNSSplitAppearanceApplicator.mm b/ios/gamma/split/RNSSplitAppearanceApplicator.mm
+index e33c804f7..f0488773a 100644
+--- a/ios/gamma/split/RNSSplitAppearanceApplicator.mm
++++ b/ios/gamma/split/RNSSplitAppearanceApplicator.mm
+@@ -167,7 +167,7 @@ - (void)updateSplitViewConfigurationFor:(RNSSplitHostComponentView *)splitHost
+ - (void)updateSplitViewDisplayModeFor:(RNSSplitHostComponentView *)splitHost
+                        withController:(RNSSplitHostController *)splitHostController
+ {
+-  splitHostController.preferredDisplayMode = splitHost.preferredDisplayMode;
++  [splitHostController applyPreferredDisplayMode:splitHost.preferredDisplayMode];
+ }
+ 
+ - (void)validateColumnConstraintsWithMinWidth:(CGFloat)minWidth maxWidth:(CGFloat)maxWidth
+diff --git a/ios/gamma/split/RNSSplitHostController.h b/ios/gamma/split/RNSSplitHostController.h
+index 6162b5378..831d93938 100644
+--- a/ios/gamma/split/RNSSplitHostController.h
++++ b/ios/gamma/split/RNSSplitHostController.h
+@@ -37,6 +37,9 @@ NS_ASSUME_NONNULL_BEGIN
+ 
+ - (void)setNeedsSecondaryScreenNavBarUpdate;
+ 
++// Unwired Mail: asks for the display mode now, or once the window's size transition ends.
++- (void)applyPreferredDisplayMode:(UISplitViewControllerDisplayMode)displayMode;
++
+ - (void)setNeedsDisplayModeUpdate;
+ 
+ - (void)setNeedsOrientationUpdate;
 diff --git a/ios/gamma/split/RNSSplitHostController.mm b/ios/gamma/split/RNSSplitHostController.mm
-index c7d2db759..24684c9fb 100644
+index c7d2db759..14253b8f4 100644
 --- a/ios/gamma/split/RNSSplitHostController.mm
 +++ b/ios/gamma/split/RNSSplitHostController.mm
-@@ -159,7 +159,11 @@ - (void)refreshSecondaryNavBar
+@@ -41,6 +41,9 @@ @implementation RNSSplitHostController {
+    * avoiding crashes when certain columns are collapsed or hidden.
+    */
+   NSMutableSet<NSNumber *> *_visibleColumns;
++
++  // Unwired Mail: how many of the window's size transitions, such as rotations, are running.
++  NSInteger _sizeTransitions;
+ }
+ 
+ - (instancetype)initWithSplitHostComponentView:(RNSSplitHostComponentView *)splitHostComponentView
+@@ -159,7 +162,38 @@ - (void)refreshSecondaryNavBar
  
    /** The assumption is that it should come in a single batch and it won't cause any delays in rendering the content. */
    [navigationController setNavigationBarHidden:YES animated:NO];
@@ -30,6 +67,33 @@ index c7d2db759..24684c9fb 100644
 +      ? ((RNSSplitNavigationController *)navigationController).columnsShowBars
 +      : YES;
 +  [navigationController setNavigationBarHidden:!showsBar animated:NO];
++}
++
++// Unwired Mail: a display mode asked for while the window rotates hides or shows a column without
++// moving the others, as when Portrait hides Mailboxes and leaves the list beside an empty space; so
++// the latest one asked for waits for the rotation to end.
++- (void)applyPreferredDisplayMode:(UISplitViewControllerDisplayMode)displayMode
++{
++  if (_sizeTransitions == 0) {
++    self.preferredDisplayMode = displayMode;
++  }
++}
++
++- (void)viewWillTransitionToSize:(CGSize)size
++       withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
++{
++  [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
++  _sizeTransitions += 1;
++  __weak auto weakSelf = self;
++  [coordinator animateAlongsideTransition:nil
++                               completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
++                                 auto strongSelf = weakSelf;
++                                 if (strongSelf == nil) {
++                                   return;
++                                 }
++                                 strongSelf->_sizeTransitions -= 1;
++                                 [strongSelf applyPreferredDisplayMode:strongSelf->_splitHostComponentView.preferredDisplayMode];
++                               }];
  }
  
  #pragma mark - Helpers
