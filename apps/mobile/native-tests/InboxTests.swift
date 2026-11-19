@@ -3093,7 +3093,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(header.waitForExistence(timeout: 20))
     XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
     if phone {
-      let repair = app.buttons["Enter the Password…"]
+      let repair = app.buttons["Enter the Password for \(expired)…"]
       XCTAssertTrue(repair.waitForExistence(timeout: 20))
       for _ in 0..<5 where !expiredInbox.isHittable { app.swipeUp() }
       XCTAssertTrue(repair.isHittable)

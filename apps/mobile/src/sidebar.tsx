@@ -594,9 +594,11 @@ export function Mailboxes({
     await reload();
   };
   // iPhone's Authorization Needed banner above a connection's folders: Sign In… asks its provider
-  // again, and IMAP enters its password again in Settings' Email Accounts.
+  // again, and IMAP enters its password again in Settings' Email Accounts. VoiceOver hears the
+  // action with the connection's address, since several connections can need it.
   const signInNotice = (
     provider: string,
+    address: string,
     imap: boolean,
     onSignIn: () => Promise<void>,
   ) =>
@@ -609,6 +611,11 @@ export function Mailboxes({
         }
         action={
           imap ? t('mailboxes.enterPasswordAction') : t('mailboxes.signIn')
+        }
+        accessibilityLabel={
+          imap
+            ? t('mailboxes.enterPasswordFor', { address })
+            : t('mailboxes.signInFor', { address })
         }
         onPress={() => {
           if (imap) {
@@ -767,6 +774,7 @@ export function Mailboxes({
                     {problem === 'authentication'
                       ? signInNotice(
                           provider,
+                          name,
                           mailbox.provider === 'imap',
                           async () => {
                             await account?.authorizeMailbox(mailbox.id);
@@ -794,7 +802,9 @@ export function Mailboxes({
                     label={`${provider} · ${connection.address}`}
                     trouble={trouble}
                   />
-                  {signInNotice(provider, imap, () => authorize(connection.id))}
+                  {signInNotice(provider, connection.address, imap, () =>
+                    authorize(connection.id),
+                  )}
                   <View
                     style={
                       compact && [

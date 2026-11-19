@@ -843,15 +843,18 @@ export function Notice({
 
 // The iPhone frames' Authorization Needed banner: its message in emphasized Subheadline beside the
 // warning symbol, and the action that fixes it, such as Sign In…, in a content-coloured pill
-// beneath. `style` places it.
+// beneath. `accessibilityLabel` names the action's mailbox where several banners can show; `style`
+// places it.
 export function SignInNotice({
   message,
   action,
+  accessibilityLabel,
   onPress,
   style,
 }: {
   readonly message: string;
   readonly action: string;
+  readonly accessibilityLabel?: string;
   readonly onPress: () => void;
   readonly style?: StyleProp<ViewStyle>;
 }) {
@@ -875,6 +878,7 @@ export function SignInNotice({
         </Text>
       </View>
       <Pressable
+        accessibilityLabel={accessibilityLabel}
         accessibilityRole="button"
         onPress={onPress}
         style={({ pressed }) => [

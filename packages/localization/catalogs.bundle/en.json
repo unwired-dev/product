@@ -318,6 +318,8 @@
     "signIn": "Sign In…",
     "passwordNotice": "The mail server needs your password again to keep syncing.",
     "enterPasswordAction": "Enter the Password…",
+    "signInFor": "Sign In to {{address}}…",
+    "enterPasswordFor": "Enter the Password for {{address}}…",
     "confirm_imap": "Removing {{address}} deletes its password and the mail saved for it from this device, and removes it from your other devices when they next connect. Your mail stays on the mail server.",
     "favorites": "Favorites",
     "collapsed": "Collapsed",

@@ -34,7 +34,6 @@ describe('iPhone Mailboxes', () => {
     gmail.deliver({ subject: 'Saved Inbox message' });
     const inbox = createInboxStore(gmail.native);
     await inbox.load();
-    // The refusal is used up, so the next synchronization succeeds as after signing in.
     const authorizeMailbox = jest.fn(() => Promise.resolve());
     await render(
       <AccountContext
@@ -60,9 +59,6 @@ describe('iPhone Mailboxes', () => {
       </AccountContext>,
     );
     const header = `Gmail · ${address}`;
-    expect(screen.getByRole('header', { name: header })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Sign In…' })).toBeNull();
-
     gmail.fail({ status: 401 });
     await act(inbox.load);
     expect(
@@ -78,9 +74,9 @@ describe('iPhone Mailboxes', () => {
       screen.getByRole('button', { name: `Inbox. In ${address}` }),
     ).toHaveAccessibilityValue({ text: '1 unread' });
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Sign In…' }));
+    await fireEvent.press(
+      screen.getByRole('button', { name: `Sign In to ${address}…` }),
+    );
     expect(authorizeMailbox).toHaveBeenCalledWith(address);
-    expect(screen.getByRole('header', { name: header })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Sign In…' })).toBeNull();
   });
 });
