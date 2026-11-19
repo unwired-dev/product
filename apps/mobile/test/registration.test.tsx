@@ -4169,9 +4169,12 @@ describe('product registration', () => {
     await view.unmount();
   });
 
-  it.each([false, true])(
+  it.each([
+    [false, 'revocation.confirmPhone', 'revocation.confirm'],
+    [true, 'revocation.confirm', 'revocation.confirmPhone'],
+  ] as const)(
     'explains a device removal in two sentences on iPhone and in full on iPad (isPad=%s)',
-    async (isPad) => {
+    async (isPad, shown, hidden) => {
       expect.hasAssertions();
       const platform = jest.replaceProperty(
         jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
@@ -4200,9 +4203,6 @@ describe('product registration', () => {
         const dialog = within(
           screen.getByTestId('device-removal-confirmation'),
         );
-        const [shown, hidden] = isPad
-          ? (['revocation.confirm', 'revocation.confirmPhone'] as const)
-          : (['revocation.confirmPhone', 'revocation.confirm'] as const);
         expect(dialog.getByText(english(shown, { name }))).toBeVisible();
         expect(dialog.queryByText(english(hidden, { name }))).toBeNull();
         await view.unmount();
@@ -4324,9 +4324,7 @@ describe('product registration', () => {
     // Cancellation changes nothing: the device stays listed and no key is offered.
     expect(screen.queryByTestId('revocation-recovery-key')).toBeNull();
     expect(screen.getByText(added)).toBeVisible();
-    expect(
-      screen.queryByText(english('revocation.confirm', { name })),
-    ).toBeNull();
+    expect(screen.queryByTestId('device-removal-confirmation')).toBeNull();
     await prepare();
     const replacement = shown(store, 'revocationRecoveryKey');
     // Convex refuses the activation, so the proposal stays.
