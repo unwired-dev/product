@@ -3465,9 +3465,23 @@ final class InboxTests: XCTestCase {
     app.buttons["Microsoft 365 and Outlook"].tap()
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     openSettings("Email Accounts", in: app)
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    // iPad groups the add actions in one row's menu; iPhone lists them as buttons.
+    if pad {
+      XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
+      app.buttons["Add Account…"].tap()
+    }
     XCTAssertTrue(app.buttons["Add Another Gmail Mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add Another Gmail Mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    // iPad draws the reader with its on-device summary, which needs Mail Assistance.
+    if pad {
+      openSettings("Privacy & Data", in: app)
+      let assistance = app.switches["Mail Assistance"]
+      XCTAssertTrue(assistance.waitForExistence(timeout: 15))
+      assistance.tap()
+      XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
+    }
     openSettings("Account & Devices", in: app)
     enter(
       String(app.staticTexts["recovery-key"].label.suffix(4)),
@@ -3498,6 +3512,37 @@ final class InboxTests: XCTestCase {
       app.launchArguments = ["-interfaceLanguage", "de"]
       app.launch()
       XCTAssertTrue(jordan.waitForExistence(timeout: 60))
+    }
+
+    // iPad (#2424): the Inbox with a Thread and its summary open, in landscape as drawn.
+    if pad {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      launchInGerman()
+      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+      jordan.tap()
+      app.buttons["Diese Nachricht zusammenfassen"].tap()
+      XCTAssertTrue(
+        app.staticTexts["Synthetic summary of local mail."].waitForExistence(timeout: 15))
+      let heading = app.staticTexts["Alle Posteingänge"].firstMatch
+      let status = app.staticTexts.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "Alle Posteingänge · ")
+      ).firstMatch
+      assertLaidOut([
+        app.buttons["Seitenleiste ausblenden"], app.buttons["Einstellungen"],
+        app.buttons["Befehlspalette öffnen"], heading, status,
+        app.buttons["Archivieren"], app.buttons["Antworten"], app.buttons["Mehr"],
+        app.staticTexts["jordan@example.invalid"].firstMatch,
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1. Oktober 2025")).firstMatch,
+        app.otherElements["Zusammenfassung · Auf dem Gerät"],
+        app.buttons["Zusammenfassung ausblenden"], app.buttons["Diese Nachricht übersetzen"],
+      ])
+      XCTAssertLessThan(status.frame.height, heading.frame.height)
+      // In landscape, an app screenshot draws the portrait buffer; the screen's is upright.
+      let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      shot.name = "Thread (\(environment["UNWIRED_APPEARANCE", default: ""]))"
+      shot.lifetime = .keepAlways
+      add(shot)
+      return
     }
 
     // Inbox: the subtitle keeps one line beside the Back button; the hint fits its card.
