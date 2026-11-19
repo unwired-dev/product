@@ -120,7 +120,18 @@ it.
   Correct it to send.**; the sender's notice as before; the others above the
   body, without an announcement. **Remind Me to Send…** stays available. A file
   that does not verify, the message limit, a change in another window and storage
-  are found only after the press. iPhone and iPad remain a follow-up of
+  are found only after the press.
+
+  On iPhone and iPad ([#2396](https://github.com/unwired-dev/product/issues/2396)),
+  the same reasons disable **Send**, and VoiceOver reads the reason
+  with it: **Add a recipient to send.** under To, which a docked iPad reply puts
+  on one line above its From and Send instead; the incomplete address under its
+  field once the person leaves it, announced once; a sending mailbox that needs
+  sign-in again as the Authorization Needed banner under From, for example
+  **Microsoft 365 needs you to sign in again before this address can send.**,
+  whose **Sign In…** starts the mailbox's authorization; the other sender
+  problems, the Sent folder and files not ready among the composer's notices. The
+  Attachment Chip's Importing and Failed states wait for the rest of
   [#2092](https://github.com/unwired-dev/product/issues/2092).
 
 - While Send is pending, the composer accepts no edits: its fields, Undo, Redo,

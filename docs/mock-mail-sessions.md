@@ -137,7 +137,9 @@ JavaScript differs from production: its bundles substitute the packaged editor p
 In `registration-thread`, the synthetic Gmail mailbox also lists one Thread of six
 plain-text messages from Crew 1 to Crew 6, each body taller than a screen, and a
 field guide whose HTML body is taller than a screen. The journey signs in like
-Google registration, then cold-opens the Thread view at Crew 3 through its
+Google registration, recovers a force-quit New Message
+([composer recovery journey](native-journeys.md#iphone-and-ipad-composer-recovery-journey)),
+then cold-opens the Thread view at Crew 3 through its
 `unwired-mail://thread/<id>?mailbox=<connection>` deep link. It checks that the
 opened message starts in the upper half of the screen, then drags into its text
 while Crew 4's body reply is held. Releasing that reply must retain the visible
@@ -154,8 +156,9 @@ another to Mailboxes. Open Inbox from Account & Devices then shows the Inbox wit
 the Thread's row, and Account reopens Settings on its list of destinations. On
 iPad, which the journey holds in Portrait, Mailboxes stays hidden beside the 391pt
 list; the flat Thread scrolls to Crew 5, the list opens Crew 6 under the reader's
-toolbar, a search for "Trail" shows Top Results, and Show Sidebar leads to
-Settings, each captured for the iPad Portrait frames (#2361). CI does not run this scenario; it is local native
+toolbar, Reply All docks a 442×720pt reply beneath it (#2411), a search for
+"Trail" shows Top Results, and Show Sidebar leads to Settings, each captured for
+the iPad Portrait frames (#2361). CI does not run this scenario; it is local native
 evidence.
 In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
 also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and

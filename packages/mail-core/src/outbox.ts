@@ -624,7 +624,7 @@ export function createOutbox({
       return;
     }
     const mailbox = connectionOf(entry.draft.connection);
-    const boundary = boundaryOf(entry.message.segments);
+    const messageId = messageIdOf(entry.message.segments);
     const sending = sendingStateOf(
       entry.draft,
       mailboxesOf(registration.getSnapshot().snapshot),
@@ -634,8 +634,8 @@ export function createOutbox({
       problem = undefined;
     } else if (sending === 'password') {
       problem = 'authorization';
-    } else if (mailbox?.provider === 'imap' && boundary !== undefined) {
-      problem = await mailbox.inbox.fileSent(entry.message, boundary);
+    } else if (mailbox?.provider === 'imap' && messageId !== undefined) {
+      problem = await mailbox.inbox.fileSent(entry.message, messageId);
     }
     await drafts.deliver(
       entry.id,
@@ -662,13 +662,10 @@ export function createOutbox({
       return;
     }
     queuedChecks.add(id);
-    const outcome =
-      mailbox.provider === 'imap'
-        ? await mailbox.inbox.findSent(boundary)
-        : await mailbox.inbox.findSent(
-            boundary,
-            messageIdOf(entry.message.segments),
-          );
+    const outcome = await mailbox.inbox.findSent(
+      boundary,
+      messageIdOf(entry.message.segments),
+    );
     if (outcome === undefined) {
       // The mailbox closed or changed meanwhile; it is checked again once it is ready.
       queuedChecks.delete(id);
