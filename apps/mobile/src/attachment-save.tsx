@@ -1,5 +1,12 @@
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  use,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
 
 import type { SaveOutcome } from './message-body.tsx';
@@ -27,24 +34,29 @@ const styles = StyleSheet.create({
 // How long a saved copy's toast stays.
 const savedToastDuration = 6000;
 
-// The reader's latest Save to Files outcome and the way to report one. A saved copy's toast leaves
-// on its own; a failure stays until the next outcome or another message. Both are announced, and
-// neither shows while the reader cannot show the message, such as when storage locks.
+// The reader's latest Save to Files outcome and the way to start a save that reports one. A saved
+// copy's toast leaves on its own; a failure stays until the next outcome. Both are announced. Each
+// belongs to one uninterrupted visit to a readable message: another message, a lock or closing
+// the reader drops it, and a save started in an earlier visit reports nothing.
 export function useSaveOutcome(message: string, readable: boolean) {
   const { t } = useLocalization();
+  const visit = useMemo(
+    () => (readable ? { message } : undefined),
+    [message, readable],
+  );
   const [shown, setShown] =
     useState<
-      Readonly<{ outcome: SaveOutcome; message: string; open: boolean }>
+      Readonly<{ outcome: SaveOutcome; visit: object; open: boolean }>
     >();
-  const current = readable && shown?.message === message ? shown : undefined;
-  // The message the reader shows, until it closes: a result for another is dropped unannounced.
-  const showing = useRef<string>(undefined);
+  const current =
+    visit !== undefined && shown?.visit === visit ? shown : undefined;
+  const showing = useRef<object>(undefined);
   useLayoutEffect(() => {
-    showing.current = readable ? message : undefined;
+    showing.current = visit;
     return () => {
       showing.current = undefined;
     };
-  }, [message, readable]);
+  }, [visit]);
   useEffect(() => {
     if (current?.outcome.kind !== 'saved' || !current.open) {
       return;
@@ -56,18 +68,21 @@ export function useSaveOutcome(message: string, readable: boolean) {
       clearTimeout(timer);
     };
   }, [current]);
-  const report = (outcome: SaveOutcome) => {
-    if (showing.current !== message) {
-      return;
-    }
-    setShown({ outcome, message, open: true });
-    AccessibilityInfo.announceForAccessibility(
-      outcome.kind === 'saved'
-        ? t('attachment.savedNamed', outcome.copy)
-        : t('attachment.saveFailed', { name: outcome.name }),
-    );
+  const start = () => {
+    const started = visit;
+    return (outcome: SaveOutcome) => {
+      if (started === undefined || showing.current !== started) {
+        return;
+      }
+      setShown({ outcome, visit: started, open: true });
+      AccessibilityInfo.announceForAccessibility(
+        outcome.kind === 'saved'
+          ? t('attachment.savedNamed', outcome.copy)
+          : t('attachment.saveFailed', { name: outcome.name }),
+      );
+    };
   };
-  return { shown: current, report };
+  return { shown: current, start };
 }
 
 type Shown = ReturnType<typeof useSaveOutcome>['shown'];

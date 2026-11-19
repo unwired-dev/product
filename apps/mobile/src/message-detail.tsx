@@ -1108,7 +1108,7 @@ function MailboxMessage({
       edges={readerEdges}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <ResponseStatusContext value={setResponseStatus}>
-        <SaveOutcomeContext value={saving.report}>
+        <SaveOutcomeContext value={saving.start}>
           <LinkConfirmationProvider
             inbox={actions}
             ids={[message.id]}>
@@ -1267,7 +1267,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
       edges={readerEdges}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <QuotedHistoryContext value="collapsible">
-        <SaveOutcomeContext value={saving.report}>
+        <SaveOutcomeContext value={saving.start}>
           <AnnouncedFailuresContext value={announcedFailures}>
             <LinkConfirmationProvider
               inbox={inbox}

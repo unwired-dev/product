@@ -4,7 +4,7 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
-import { Linking } from 'react-native';
+import { AccessibilityInfo, Linking } from 'react-native';
 
 import {
   SaveFailedNotice,
@@ -427,13 +427,16 @@ describe('received attachments in the reader', () => {
 function SavingReader({
   inbox,
   id,
+  readable = true,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly id: string;
+  // False while storage is locked.
+  readonly readable?: boolean;
 }) {
-  const saving = useSaveOutcome(id, true);
+  const saving = useSaveOutcome(id, readable);
   return (
-    <SaveOutcomeContext value={saving.report}>
+    <SaveOutcomeContext value={saving.start}>
       <SaveFailedNotice shown={saving.shown} />
       <GmailMessageBody
         inbox={inbox}
@@ -469,7 +472,7 @@ const openSaving = async () => {
     const item = items.find(({ title }) => title === 'Save to Files…');
     await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
   };
-  return { gmail, app, menu, items, save };
+  return { gmail, inbox, id, app, menu, items, save };
 };
 
 describe('saving a received attachment to Files', () => {
@@ -517,6 +520,46 @@ describe('saving a received attachment to Files', () => {
       });
     } finally {
       await app.unmount();
+    }
+  });
+
+  it('reports nothing for a save that finishes after storage locked and unlocked again', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, id, app, save } = await openSaving();
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    const picker = Promise.withResolvers<unknown>();
+    jest
+      .spyOn(gmail.native, 'presentAttachment')
+      .mockReturnValueOnce(picker.promise);
+    try {
+      await save();
+      await app.rerender(
+        <SavingReader
+          inbox={inbox}
+          id={id}
+          readable={false}
+        />,
+      );
+      await app.rerender(
+        <SavingReader
+          inbox={inbox}
+          id={id}
+        />,
+      );
+      await act(async () => {
+        picker.resolve({
+          name: 'notes 2.txt',
+          folder: 'Downloads',
+          show: 'shareddocuments:///Downloads/notes%202.txt',
+        });
+      });
+      expect({
+        saved: screen.queryByText('Saved to Downloads'),
+        announced: announce.mock.calls,
+      }).toStrictEqual({ saved: null, announced: [] });
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
     }
   });
 

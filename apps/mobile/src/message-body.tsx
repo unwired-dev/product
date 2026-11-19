@@ -114,9 +114,10 @@ export type SaveOutcome =
   | Readonly<{ kind: 'saved'; copy: SavedCopy }>
   | Readonly<{ kind: 'failed'; name: string; retry: () => void }>;
 
-// Reports an outcome to the reader showing the message; none outside a reader.
+// Starts a save in the reader showing the message, returning how to report its outcome; none
+// outside a reader.
 export const SaveOutcomeContext = createContext<
-  ((outcome: SaveOutcome) => void) | undefined
+  (() => (outcome: SaveOutcome) => void) | undefined
 >(undefined);
 
 export const LinkConfirmationContext = createContext<
@@ -826,8 +827,8 @@ function AttachmentRow({
       }
     };
     // Saves a copy where the person chooses, and tells the reader what happened unless they
-    // cancelled; the reader drops a result for a message it no longer shows.
-    const saveCopy = async (shown: NonNullable<typeof report>) => {
+    // cancelled; the reader drops a result once it stopped showing the message.
+    const saveCopy = async (shown: (outcome: SaveOutcome) => void) => {
       const saved = await inbox.saveAttachmentCopy(id, locator);
       if (saved === 'cancelled') {
         return;
@@ -846,7 +847,7 @@ function AttachmentRow({
     };
     const save = () => {
       if (current() && report !== undefined) {
-        void saveCopy(report);
+        void saveCopy(report());
       }
     };
     menu = [
