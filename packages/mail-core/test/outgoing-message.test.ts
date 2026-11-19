@@ -144,6 +144,8 @@ describe('building an outgoing message', () => {
               { kind: 'numbered', spans: [{ text: 'Venue' }] },
               { kind: 'numbered', spans: [{ text: 'Dates' }], indent: 1 },
               { kind: 'paragraph', spans: [{ text: 'Thanks' }] },
+              { kind: 'bulleted', spans: [{ text: 'Deep' }], indent: 2 },
+              { kind: 'bulleted', spans: [{ text: 'Out' }] },
             ],
           }),
         ),
@@ -152,11 +154,13 @@ describe('building an outgoing message', () => {
 
     expect(parsed.html).toBe(
       '<!DOCTYPE html><html><body><ol><li>Pilot<ul><li>Scope<ol><li>Seats</li><li>Rooms</li></ol>' +
-        '</li></ul></li><li>Venue<ol><li>Dates</li></ol></li></ol><p>Thanks</p></body></html>',
+        '</li></ul></li><li>Venue<ol><li>Dates</li></ol></li></ol><p>Thanks</p>' +
+        // An item nested deeper than the item before it opens its lists directly inside its parent's.
+        '<ul><ul><ul><li>Deep</li></ul></ul><li>Out</li></ul></body></html>',
     );
     // Each level counts on its own, across the items nested between its own.
     expect(parsed.text).toBe(
-      '1. Pilot\n  - Scope\n    1. Seats\n    2. Rooms\n2. Venue\n  1. Dates\nThanks',
+      '1. Pilot\n  - Scope\n    1. Seats\n    2. Rooms\n2. Venue\n  1. Dates\nThanks\n    - Deep\n- Out',
     );
   });
 
