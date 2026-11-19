@@ -149,6 +149,114 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(text("not a complete address", in: window).exists)
   }
 
+  // #2406: a force quit mid-typing keeps the New Message's unsaved edits, which Restore recovers
+  // after the relaunch; Discard removes them, so the next launch offers nothing.
+  func testComposerRecoveryAfterForceQuit() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let appURL = URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"]))
+    let app = XCUIApplication(url: appURL)
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("recovery-note.txt")
+    try Data("Attached before the force quit".utf8).write(to: file)
+    addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+    // Pasting the file attaches it; give the person their pasteboard back.
+    let pasteboard = NSPasteboard.general
+    let saved = (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+      }
+      return copy
+    }
+    pasteboard.clearContents()
+    pasteboard.writeObjects([file as NSURL])
+    let written = pasteboard.changeCount
+    addTeardownBlock {
+      guard pasteboard.changeCount == written else { return }
+      pasteboard.clearContents()
+      pasteboard.writeObjects(saved)
+    }
+
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    typeRecipient(window.textFields["To"], "jordan@example.invalid")
+    let subject = window.textFields["Subject"]
+    subject.click()
+    subject.typeText("Recovered after a force quit")
+    // The body is the window's only text view.
+    let body = window.textViews.firstMatch
+    body.click()
+    body.typeText("Typed just before the app ended")
+    body.typeKey("v", modifierFlags: .command)
+    let attachment = window.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "recovery-note.txt")).firstMatch
+    XCTAssertTrue(attachment.waitForExistence(timeout: 15))
+    // The composer journals 2 s after the last edit; nothing on screen shows the write.
+    Thread.sleep(forTimeInterval: 5)
+
+    // Restore opens the composer on the recovered edits.
+    let offer = window.sheets.firstMatch
+    forceQuitAndRelaunch(app, at: appURL)
+    XCTAssertTrue(offer.buttons["Restore"].waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    let capture = XCTAttachment(screenshot: window.screenshot())
+    capture.name = "Recover unsaved message"
+    capture.lifetime = .keepAlways
+    add(capture)
+    offer.buttons["Restore"].click()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(subject.waitForExistence(timeout: 30))
+    XCTAssertEqual(subject.value as? String, "Recovered after a force quit")
+    XCTAssertEqual(
+      window.buttons.matching(
+        NSPredicate(format: "label == %@", "To: jordan@example.invalid")
+      ).count, 1)
+    XCTAssertEqual(body.value as? String, "Typed just before the app ended")
+    XCTAssertTrue(attachment.exists)
+    let restored = XCTAttachment(screenshot: window.screenshot())
+    restored.name = "Restored composer"
+    restored.lifetime = .keepAlways
+    add(restored)
+
+    // The restored composer leaves the record until a Save, Send or Discard; Discard removes it.
+    forceQuitAndRelaunch(app, at: appURL)
+    XCTAssertTrue(offer.buttons["Discard"].waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    offer.buttons["Discard"].click()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(subject.exists)
+    forceQuitAndRelaunch(app, at: appURL)
+    XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 45))
+    XCTAssertFalse(offer.waitForExistence(timeout: 10))
+  }
+
+  // Ends the app as a crash would, with SIGKILL, so no Close, Quit or save runs, then relaunches.
+  private func forceQuitAndRelaunch(_ app: XCUIApplication, at url: URL) {
+    let running = NSWorkspace.shared.runningApplications.filter {
+      $0.bundleURL?.resolvingSymlinksInPath() == url.resolvingSymlinksInPath()
+    }
+    XCTAssertEqual(running.count, 1)
+    XCTAssertTrue(running.allSatisfy { $0.forceTerminate() })
+    waitUntil { app.state == .notRunning }
+    app.launch()
+  }
+
+  // The offer names no message details; NSAlert's texts match by value.
+  private func assertRecoveryOffer(_ offer: XCUIElement) {
+    for value in ["Recover unsaved message?", "Your unsaved changes were kept on this device."] {
+      XCTAssertTrue(
+        offer.staticTexts.matching(NSPredicate(format: "value == %@", value)).firstMatch.exists)
+    }
+    let titles = Set(offer.buttons.allElementsBoundByIndex.map(\.title).filter { !$0.isEmpty })
+    XCTAssertEqual(titles, ["Restore", "Discard"])
+  }
+
   // Moving the entry into the reader must keep the open query and command rows in the window.
   func testCommandPaletteWindowBounds() throws {
     continueAfterFailure = false

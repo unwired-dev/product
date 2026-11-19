@@ -834,7 +834,9 @@ was read, whose alert closed without an answer, or whose removal failed, stays f
 the next launch. The Mac
 TypeScript client (`useRecoveryOffer` in `apps/macos/src/composer.tsx`) chooses each
 record and rechecks it before acting; AppKit presents the alert as a sheet on the
-Inbox window through `UnwiredAlert`.
+Inbox window through `UnwiredAlert`. The
+[Mac composer recovery journey](native-journeys.md#mac-composer-recovery-journey)
+force-quits a New Message and checks Restore and Discard after the relaunch.
 
 iPhone and iPad offer the same records the same way in a system alert, with
 **Restore** as its preferred action and **Discard** as its destructive one,
