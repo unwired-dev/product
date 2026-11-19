@@ -1615,7 +1615,7 @@ extension UnwiredRegistration {
   }
 
   // `request` names the open `session`, the `folder` to search, the text `query` or the Sent
-  // copy's MIME `boundary`, and how many of the `newest` matches to return.
+  // copy's `messageId`, and how many of the `newest` matches to return.
   @objc(imapSearch:request:resolver:rejecter:)
   func imapSearch(
     _ scope: [String: Any], request: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
@@ -1624,9 +1624,9 @@ extension UnwiredRegistration {
     ungatedMailbox("imapSearch", resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
       let criterion: ImapSearchCriterion
-      switch (request["query"], request["boundary"]) {
+      switch (request["query"], request["messageId"]) {
       case (let query as String, nil): criterion = .text(query)
-      case (nil, let boundary as String): criterion = .boundary(boundary)
+      case (nil, let messageId as String): criterion = .messageId(messageId)
       default: throw RegistrationError.unavailable
       }
       guard let folder = request["folder"] as? String,

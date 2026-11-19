@@ -32,7 +32,7 @@ IDLE waits (#1181) and Sent filing (#1182) run in TypeScript over short-lived na
 session handles. Native
 `SwiftMailImapSession` exposes capabilities, complete LIST results with attributes,
 read-only EXAMINE, envelope reads by UID set, UID range or newest sequence numbers,
-flag reads by UID set, folder text or MIME-boundary header search, APPEND and
+flag reads by UID set, folder text or Message-ID header search, APPEND and
 bounded IDLE event kinds. TypeScript
 assigns roles, normalizes ASCII INBOX names, derives MOVE, UIDPLUS and IDLE support,
 owns the checkpoint and arrival arithmetic, and classifies IDLE events. Search
@@ -246,16 +246,17 @@ SwiftMail's submission-phase retry disposition distinguishes definite refusal
 from possible acceptance; unsafe-to-retry errors remain delivery unknown.
 
 SMTP acceptance advances the durable Outbox to `filing` before APPEND. Only
-filing retries thereafter. TypeScript searches the selected folder's Content-Type
-for the frozen MIME boundary and requests APPEND in the same session only when no
+filing retries thereafter. TypeScript searches the selected folder's Message-ID
+headers for the frozen message's Message-ID and requests APPEND in the same session only when no
 copy is found. Native APPEND checks current Trusted Device revocation proof and
 connection generation, assembles the original Outbox segments with verified asset
 bytes, and appends with Seen. A lost APPEND reply retries the lookup without SMTP
 resubmission.
-Unknown SMTP outcomes use the same boundary lookup, confirming only exactly one
+Unknown SMTP outcomes use the same Message-ID lookup, confirming only exactly one
 copy and never inferring non-delivery from absence. The native search uses IMAP HEADER
-substring matching; live preservation and server-created Sent copies still need
-provider qualification. Access-changing lookup/filing failures close or refresh
+substring matching. It avoids Content-Type, because Seznam Email's server drops the
+connection on that search ([#2402](https://github.com/unwired-dev/product/issues/2402)).
+Live preservation and server-created Sent copies still need provider qualification. Access-changing lookup/filing failures close or refresh
 the owning shared mailbox presentation, with late replies fenced by its lifetime.
 
 ## Evidence and release limits

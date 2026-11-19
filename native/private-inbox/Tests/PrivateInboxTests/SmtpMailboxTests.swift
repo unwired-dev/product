@@ -72,7 +72,8 @@ extension PrivateInboxTests {
     let generation = store.mailboxGeneration(id).uuidString
     let head =
       "From: alex@example.invalid\r\nTo: Sam <sam@example.invalid>\r\nBcc: Jo\r\n <jo@example.invalid>\r\n"
-      + "Subject: Lunch\r\nContent-Type: multipart/mixed; boundary=\"=_sentcopy1\"\r\n\r\n"
+      + "Subject: Lunch\r\nMessage-ID: <m1.sentcopy1@example.invalid>\r\n"
+      + "Content-Type: multipart/mixed; boundary=\"=_sentcopy1\"\r\n\r\n"
     let body = "--=_sentcopy1\r\n--=_sentcopy1--\r\n"
     let recipients = ["sam@example.invalid", "jo@example.invalid"]
     let reply = try await store.imapSend(
@@ -110,7 +111,7 @@ extension PrivateInboxTests {
     smtp.failure = nil
     #expect(smtp.submissions().count == 1)
 
-    // A session appends the Sent copy TypeScript composed, and a boundary search finds it.
+    // A session appends the Sent copy TypeScript composed, and a Message-ID search finds it.
     let session = try #require(
       try await store.imapOpen(
         connection: id, address: "alex@example.invalid", generation: generation)["session"]
@@ -119,7 +120,7 @@ extension PrivateInboxTests {
     func copies() async throws -> Double? {
       try await store.imapSearch(
         connection: id, address: "alex@example.invalid", generation: generation, session: session,
-        folder: "Sent", for: .boundary("=_sentcopy1"), newest: 1)["total"] as? Double
+        folder: "Sent", for: .messageId("m1.sentcopy1@example.invalid"), newest: 1)["total"] as? Double
     }
     #expect(try await copies() == 0)
     _ = try await store.imapAppend(
@@ -230,13 +231,15 @@ extension PrivateInboxTests {
       from: Data(#"{"host":"localhost","port":\#(imapPort),"username":"synthetic"}"#.utf8))
     let copy = Data(
       ("From: alex@example.invalid\r\nBcc: jo@example.invalid\r\n"
+        + "Message-ID: <m1.sentcopy1@example.invalid>\r\n"
         + "Content-Type: multipart/mixed; boundary=\"=_sentcopy1\"\r\n\r\n--=_sentcopy1--\r\n").utf8)
-    // A session's boundary search finds no copy, the append stores one, and the search finds it.
+    // A session's Message-ID search finds no copy, the append stores one, and the search finds it.
+    let sent = ImapSearchCriterion.messageId("m1.sentcopy1@example.invalid")
     let session = try await SwiftMailImap().open(imap, password: "synthetic-password")
     do {
-      #expect(try await session.search("Sent", for: .boundary("=_sentcopy1"), newest: 1).total == 0)
+      #expect(try await session.search("Sent", for: sent, newest: 1).total == 0)
       try await session.append("Sent", message: copy)
-      #expect(try await session.search("Sent", for: .boundary("=_sentcopy1"), newest: 1).total == 1)
+      #expect(try await session.search("Sent", for: sent, newest: 1).total == 1)
       await session.close()
     } catch {
       await session.close()
