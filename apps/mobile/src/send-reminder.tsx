@@ -312,16 +312,21 @@ function ReminderPicker({
   );
 }
 
-// Send's menu, which a long press opens: Remind Me to Send… opens the reminder choices from Send.
-// A tap still sends.
+// Send's menu, which a long press opens: Send Now sends without the Undo Send Window, and Remind Me
+// to Send… opens the reminder choices from Send. A tap still sends.
 export function SendMenu({
   popover,
   disabled,
+  sendNow,
+  onSendNow,
   onRemind,
   children,
 }: {
   readonly popover: boolean;
   readonly disabled: boolean;
+  // Whether Send Now can send, or the file it waits for, or false while Send can't send.
+  readonly sendNow: boolean | Readonly<{ waiting: string }>;
+  readonly onSendNow: () => void;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
   // The Send button.
   readonly children: ReactElement;
@@ -340,6 +345,21 @@ export function SendMenu({
         <ContextMenu
           previewRadius={popover ? radius.control : 22}
           sections={[
+            {
+              items: [
+                {
+                  key: 'sendNow',
+                  title: t('drafts.sendNow.title'),
+                  subtitle:
+                    typeof sendNow === 'object'
+                      ? t('drafts.sendNow.waiting', { name: sendNow.waiting })
+                      : t('drafts.sendNow.detail'),
+                  symbol: '',
+                  disabled: sendNow !== true,
+                  run: onSendNow,
+                },
+              ],
+            },
             {
               items: [
                 {

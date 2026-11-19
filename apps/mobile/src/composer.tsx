@@ -4371,8 +4371,8 @@ function Editor({
   }, [answerLeave, asking]);
   const paletteHeader = usePaletteHeader();
   // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
-  // keeps it open.
-  const send = () =>
+  // keeps it open. Send Now (`now`) leaves out the Undo Send Window.
+  const send = (now = false) =>
     finish(async () => {
       if (!finishEntries()) {
         setClosing(undefined);
@@ -4398,7 +4398,7 @@ function Editor({
       };
       let refusal: SendRefusal | undefined = 'storage';
       try {
-        refusal = await outbox.send(baseline);
+        refusal = await outbox.send(baseline, undefined, now);
         // A refused Send still stored the version shown, unless the store declined it, so its
         // record goes once that is saved.
         if (refusal !== undefined && (await store.save()) && kept) {
@@ -4443,11 +4443,24 @@ function Editor({
     />
   );
   const senderPlace = placeSender({ sender, draft, presentation, large });
-  // Send: a tap sends, and a long press opens its menu of Remind Me to Send….
+  // A file still being added, which Send Now names while it waits.
+  const importing = unsendableAssets(draft).find(
+    ({ state }) => state === 'importing',
+  );
+  let sendNow: boolean | Readonly<{ waiting: string }> =
+    closing !== 'saving' && blocked.blocked === undefined;
+  if (blocked.blocked === 'assets' && importing !== undefined) {
+    sendNow = { waiting: importing.name };
+  }
+  // Send: a tap sends, and a long press opens its menu of Send Now and Remind Me to Send….
   const sendControl = (titled: boolean) => (
     <SendMenu
       popover={regular}
       disabled={closing === 'saving'}
+      sendNow={sendNow}
+      onSendNow={() => {
+        void send(true);
+      }}
       onRemind={(dueAt, timeZone) => {
         void remind(dueAt, timeZone);
       }}>

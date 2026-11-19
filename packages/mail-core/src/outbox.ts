@@ -1101,11 +1101,13 @@ export function createOutbox({
     },
     // Why Send would refuse the Draft before reading its files, so the composer can say so first.
     refusal: refusalOf,
-    // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends.
-    // Resolves why it was refused, or undefined once admitted. `report` follows the file check.
+    // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends, or at
+    // once for Send Now. Resolves why it was refused, or undefined once admitted. `report` follows
+    // the file check.
     send: async (
       expected: () => Draft,
       report?: (check: SendCheck) => void,
+      now = false,
     ): Promise<SendRefusal | undefined> => {
       const draft = expected();
       const epoch = epochOf(draft);
@@ -1125,7 +1127,7 @@ export function createOutbox({
       if (message === undefined) {
         return 'too-large';
       }
-      const sendAt = Date.now() + undoSendWindow;
+      const sendAt = Date.now() + (now ? 0 : undoSendWindow);
       // The identifier follows an editor rebound to its conflict copy; the content stays the
       // version the message was built from, so a later change is refused rather than admitted.
       const pinned = () => {
