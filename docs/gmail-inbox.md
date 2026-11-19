@@ -519,7 +519,21 @@ search field, the account, then its folders as above. A tap outside or Escape cl
 moving anything, the system keeps it clear of the keyboard, and choosing a folder closes it and
 moves the message. On
 iPhone, **Labels** in More's menu opens the same label checkboxes under a **Labels**
-heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad; with Reduce Motion
+heading. On iPhone and iPad, **New Label…** after the label checkboxes
+([#2441](https://github.com/unwired-dev/product/issues/2441)) opens **Labels**: a native sheet
+on iPhone, and on iPad the panel the checkboxes were in. It names the Gmail account, starts in a
+label name field and lists the account's labels, under **Matching labels** once a name is typed.
+A name no label has offers **Create “Acme” inside “Clients”** (a slash
+nests the label, as in Gmail) or **Create “Acme”**; that row, **Apply** or Return creates the
+label in Gmail and applies it, and closes **Labels** once Gmail answers. A name a label already
+has applies that label without creating one, as choosing a listed label does. A name another
+label has in a different case creates nothing: an alert offers **Use “clients/acme”**, which
+applies the existing label, or **Edit Name**. When Gmail refuses the name or cannot be reached,
+an alert says the label could not be created, nothing is applied and the name stays to edit.
+**Cancel** changes nothing and is unavailable while Gmail creates the label; closing **Labels**
+another way meanwhile still creates and applies it, and still explains a refusal. Labels already on
+the Thread stay. Menu panels ease in from their
+toolbar and fade out on iPhone and iPad; with Reduce Motion
 they only fade. The Reply sheet and the Move picker are system presentations and move as iOS presents
 them. The action buttons and label checkboxes are keyboard-focusable
 and show the system keyboard focus indicator. After a removal, **Undo** appears in the Inbox. For every provider, a

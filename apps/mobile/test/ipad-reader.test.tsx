@@ -183,6 +183,47 @@ describe('iPad reader', () => {
     });
   });
 
+  it('creates a Gmail label from Labels in the panel the labels were shown in', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 0 });
+    gmail.createLabel('Clients');
+    const message = gmail.deliver({ subject: 'Invoice 2026-114 for October' });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    await render(
+      <InboxProvider mailboxes={singleMailbox(inbox, alex)}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            mailbox={alex}
+            id={message}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>,
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Labels' }),
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'New Label…' }));
+    const labels = within(screen.getByTestId('new-label'));
+    // Labels takes the labels' place beneath the toolbar, whose Move hides it.
+    expect(
+      within(screen.getByTestId('reader-panels')).getByTestId('new-label'),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Hide Labels', expanded: true }),
+    ).toBeVisible();
+    await fireEvent.changeText(
+      labels.getByLabelText('Label name'),
+      'Clients/Acme',
+    );
+    await act(async () => {
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+    });
+    expect(screen.queryByTestId('new-label')).toBeNull();
+    expect(gmail.labelsOf(message)).toContain('Label_2');
+    expect(screen.getByText('Labels: Clients/Acme')).toBeVisible();
+  });
+
   it('pins the Thread from the toolbar’s last group, before More', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
