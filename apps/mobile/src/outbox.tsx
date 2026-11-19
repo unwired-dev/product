@@ -1,4 +1,3 @@
-import type { Translate } from '@private-email/localization';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { ReactNode } from 'react';
 
@@ -83,19 +82,9 @@ const styles = StyleSheet.create({
   toastActionLabel: { ...typography.macos.bodyEmphasized },
   responseHeading: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   responseTitle: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  // Long labels wrap the capsules onto another line on iPad too.
+  responseActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
 });
-
-// What a row names: a message's subject and recipients, or the meeting an Invitation Response
-// answers and the choice it carries.
-const summaryOf = (t: Translate, { draft, invitation }: OutboxSnapshotEntry) =>
-  invitation === undefined
-    ? draftSummary(t, draft)
-    : {
-        subject: invitation.summary ?? t('invitation.untitled'),
-        recipients: t('outbox.invitation.response', {
-          choice: t(`invitation.${invitationChoiceKeys[invitation.choice]}`),
-        }),
-      };
 
 // Where each send last stood when announced, and its last Check Again answer, keyed by the send;
 // no subject or recipients. VoiceOver hears each change once, however many windows show the row;
@@ -412,19 +401,28 @@ const responseSymbols = {
 // on iPhone and iPad. It has no Edit, since it was never a Draft.
 function ResponseRow({
   entry,
+  invitation,
   actions,
   onOpenInvitation,
 }: {
   readonly entry: OutboxSnapshotEntry;
+  readonly invitation: NonNullable<OutboxSnapshotEntry['invitation']>;
   readonly actions: OutboxActions;
   readonly onOpenInvitation: (() => void) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useMessageListDateFormats();
-  const { subject, recipients } = summaryOf(t, entry);
+  const subject = invitation.summary ?? t('invitation.untitled');
+  const recipients = t('outbox.invitation.response', {
+    choice: t(`invitation.${invitationChoiceKeys[invitation.choice]}`),
+  });
   const { status, unconfirmed } = outboxCopy(t, entry, 'imap');
-  const label = t('outbox.rowLabel', { subject, recipients, status });
+  const label = t('outbox.rowLabel', {
+    subject,
+    recipients,
+    status: unconfirmed ?? status,
+  });
   useAnnouncement(sendOf(entry), status, label);
   useAnnouncement(`${sendOf(entry)}:check`, unconfirmed);
   const [symbol, tone] = responseSymbols[entry.state];
@@ -468,7 +466,7 @@ function ResponseRow({
         </Text>
       </View>
       <View style={styles.recovery}>
-        <RowActions>
+        <View style={styles.responseActions}>
           {entry.state === 'waiting' ? (
             <RowAction
               capsule
@@ -499,7 +497,7 @@ function ResponseRow({
               onPress={onOpenInvitation}
             />
           )}
-        </RowActions>
+        </View>
       </View>
     </View>
   );
@@ -522,6 +520,7 @@ export function OutboxRow({
     return (
       <ResponseRow
         entry={entry}
+        invitation={entry.invitation}
         actions={actions}
         onOpenInvitation={onOpenInvitation}
       />

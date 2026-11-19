@@ -937,18 +937,27 @@ export function Inbox({
         (typeof placed)[number]
       >
     >(null);
-  // A search hides the Outbox, and the list may be scrolled away from it at the top.
-  const showOutbox = useEffectEvent(() => {
+  // View in Outbox ends a search, which hides the Outbox, then scrolls to it once it is listed.
+  const scrolledFor = useRef(outboxShown);
+  const closeSearch = useEffectEvent(() => {
     searchState.close();
+  });
+  const scrollToOutbox = useEffectEvent(() => {
     if (placed.length > 0) {
       list.current?.scrollToLocation({ sectionIndex: 0, itemIndex: 0 });
     }
   });
   useEffect(() => {
-    if (outboxShown !== undefined) {
-      showOutbox();
+    if (outboxShown === undefined || scrolledFor.current === outboxShown) {
+      return;
     }
-  }, [outboxShown]);
+    if (searching) {
+      closeSearch();
+      return;
+    }
+    scrolledFor.current = outboxShown;
+    scrollToOutbox();
+  }, [outboxShown, searching]);
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),

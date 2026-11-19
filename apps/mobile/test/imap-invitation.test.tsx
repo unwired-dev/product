@@ -18,7 +18,14 @@ import {
 } from '@private-email/mail-core/testing/drafts';
 import { syntheticConnections } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
+import { SectionList } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -433,9 +440,30 @@ describe('imap invitation responses on iPhone and iPad', () => {
       expect(
         screen.getByRole('button', { name: 'Close Search' }),
       ).toBeOnTheScreen();
+      const scroll = jest
+        .spyOn(SectionList.prototype, 'scrollToLocation')
+        .mockReturnValue(undefined);
       await app.rerender(list({}));
       expect(screen.getByText('Release readiness')).toBeOnTheScreen();
       expect(screen.queryByRole('button', { name: 'Close Search' })).toBeNull();
+      // It scrolls only once the search has ended and the Outbox is listed again.
+      expect(scroll.mock.calls).toStrictEqual([
+        [{ sectionIndex: 0, itemIndex: 0 }],
+      ]);
+      scroll.mockRestore();
+
+      // Check Again finds the response in Sent and keeps it, without sending it again.
+      const [sent] = mail.imap.smtp.accepted;
+      mail.imap.deliver('Sent', {
+        subject: 'Accepted: Release readiness',
+        raw: present(sent, 'the submitted response').raw,
+      });
+      await press('Check Again');
+      await waitFor(() => {
+        expect(mail.outbox.getSnapshot()).toStrictEqual([]);
+      });
+      expect(screen.queryByText('Release readiness')).toBeNull();
+      expect(mail.imap.smtp.accepted).toHaveLength(1);
     } finally {
       await app.unmount();
       mail.outbox.dispose();
