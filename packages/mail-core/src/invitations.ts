@@ -1452,13 +1452,15 @@ function createImapInvitationResponses(
       serially(() => admit(invitation, choice, t)),
     // Takes a response back during the Undo Send Window, restoring the earlier state; a choice
     // still being admitted is taken back once it is.
-    undo: (invitation: Invitation) =>
-      serially(async () => {
-        const entry = entryOf(invitation);
-        if (entry?.state === 'waiting') {
-          await outbox.undo(entry.id, 'waiting');
-        }
-      }),
+    undo: async (invitation: Invitation) => {
+      if (entryOf(invitation)?.state !== 'waiting') {
+        await serially(() => Promise.resolve());
+      }
+      const entry = entryOf(invitation);
+      if (entry?.state === 'waiting') {
+        await outbox.undo(entry.id, 'waiting');
+      }
+    },
     // Looks in Sent for a response whose delivery is unknown; it stays unknown unless found.
     check: async (invitation: Invitation) => {
       const entry = entryOf(invitation);
