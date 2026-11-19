@@ -1236,13 +1236,16 @@ type ResponseOutbox = Pick<
   'getSnapshot' | 'subscribe' | 'respond' | 'undo' | 'check'
 >;
 
-// Where the Outbox message carrying a response stands. One the mail server accepted reads as sent
-// once its mailbox records it.
+// Where the Outbox message carrying a response stands. One the mail server accepted is still under
+// way while it files its Sent copy and records it, so no further choice is offered until it leaves.
 // fallow-ignore-next-line complexity -- Each Outbox state maps to one response state.
-const entryState = (
-  { state, check, problem, message, invitation }: OutboxSnapshotEntry,
-  record: InvitationResponse | undefined,
-): ResponseState => {
+const entryState = ({
+  state,
+  check,
+  problem,
+  message,
+  invitation,
+}: OutboxSnapshotEntry): ResponseState => {
   const choice = invitation?.choice ?? 'accepted';
   switch (state) {
     case 'waiting':
@@ -1251,9 +1254,7 @@ const entryState = (
       return { kind: state, choice };
     }
     case 'filing': {
-      return record?.kind === 'sent' && record.choice === choice
-        ? { kind: 'sent', choice, at: record.at }
-        : { kind: 'sending', choice };
+      return { kind: 'sending', choice };
     }
     case 'failed': {
       if (problem === 'mailbox') {
@@ -1341,11 +1342,8 @@ function createImapInvitationResponses(
         (entry) => entry.invitation?.sequence === invitation.sequence,
       ),
     );
-  // One state per Outbox message and record, so readers see the same snapshot until it changes.
-  const shown = new WeakMap<
-    OutboxSnapshotEntry,
-    Readonly<{ record: InvitationResponse | undefined; state: ResponseState }>
-  >();
+  // One state per Outbox message, so readers see the same snapshot until it changes.
+  const shown = new WeakMap<OutboxSnapshotEntry, ResponseState>();
   // Whether a response to a newer revision outdates this one, whatever it answered before.
   const outdated = (invitation: Invitation) =>
     recordsOf(invitation).some(
@@ -1362,16 +1360,16 @@ function createImapInvitationResponses(
     }
     const pending = states.get(keyOf(invitation));
     const entry = entryOf(invitation);
-    const record = recordOf(invitation);
     if (pending?.kind === 'waiting' || entry === undefined) {
+      const record = recordOf(invitation);
       return pending ?? (record === undefined ? unanswered : restored(record));
     }
     const memo = shown.get(entry);
-    if (memo !== undefined && memo.record === record) {
-      return memo.state;
+    if (memo !== undefined) {
+      return memo;
     }
-    const state = entryState(entry, record);
-    shown.set(entry, { record, state });
+    const state = entryState(entry);
+    shown.set(entry, state);
     return state;
   };
   // Builds the response and admits it to the Outbox, resolving why it was refused.
