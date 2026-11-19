@@ -352,8 +352,10 @@ extension PrivateInboxTests {
       ("", .text("Synthetic"), 50), ("INBOX", .text(""), 50),
       ("INBOX", .text("a\r\nA1 LOGOUT"), 50),
       ("INBOX", .text(String(repeating: "a", count: 201)), 50), ("INBOX", .text("Synthetic"), 0),
-      ("INBOX", .text("Synthetic"), 201), ("Sent", .boundary("=_sent copy"), 1),
-      ("Sent", .boundary("=_short"), 1),
+      ("INBOX", .text("Synthetic"), 201), ("Sent", .messageId("m1 copy@example.invalid"), 1),
+      ("Sent", .messageId("m1.example.invalid"), 1), ("Sent", .messageId("<m1@example.invalid>"), 1),
+      ("Sent", .messageId("m1@example.invalid\r\nA1 LOGOUT"), 1),
+      ("Sent", .messageId(String(repeating: "a", count: 285) + "@example.invalid"), 1),
     ] {
       await #expect(throws: RegistrationError.unavailable) {
         _ = try await store.imapSearch(

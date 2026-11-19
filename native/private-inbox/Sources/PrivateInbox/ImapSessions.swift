@@ -505,7 +505,7 @@ extension RegistrationStore {
     case .text(let text):
       !text.isEmpty && text.count <= 200 && text.rangeOfCharacter(from: .controlCharacters) == nil
     case .messageId(let messageId):
-      messageId.count <= 200
+      messageId.count <= 300
         && messageId.range(of: #"^[^\s\p{Cc}<>"\\@]+@[^\s\p{Cc}<>"\\@]+$"#, options: .regularExpression)
           != nil
     }
