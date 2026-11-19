@@ -828,6 +828,30 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   stopped ([#2390](https://github.com/unwired-dev/product/issues/2390)). **Undo** itself
   and Delivery unknown were not exercised. Mac, iPad, attachments, organizing, search,
   IDLE, relaunch and recovery stay on #632.
+- **2026-11-19, iPhone organize and search
+  ([#2458](https://github.com/unwired-dev/product/issues/2458)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `2b6b0a2081d0b149db16bbede517c29cff5898db`. Both certification
+  mailboxes were connected through the app as in the first record, and each Inbox
+  received one test message from the other mailbox. Result: pass. Each step below was
+  checked on the server over IMAP as well as in the app. In each mailbox, the row menu's
+  **Mark as unread** cleared the message's `\Seen` flag and **Mark as Read** set it.
+  **Move to** a folder without a role (iCloud Mail's unmarked `Archive`, Seznam Email's
+  `newsletters`) moved the message there and **Undo** moved it back to the Inbox. iCloud
+  Mail offers UIDPLUS without MOVE, so the app moved its messages with `UID COPY` and
+  `UID EXPUNGE`. Seznam Email offers MOVE, so the app used `UID MOVE`. **Delete** moved the message to the Trash-role folder
+  (`Deleted Messages`, `trash`), and **Move to Inbox** in the Trash view brought it back.
+  Seznam Email declares `\Archive` and `\Junk`: the row menu's **Archive** moved the
+  message to `archive`, the Command Palette's **Move to Spam** moved it to `spam`, and
+  each **Undo** brought it back. iCloud Mail declares neither role, and no Spam folder
+  was chosen. Its row menu and reader offered no Archive or Move to Spam, and the Command
+  Palette showed Archive as not available and listed no Move to Spam. **Search Mail
+  Servers** listed the Inbox copies saved on the device. Under **From mail servers** it
+  also listed a message from each mailbox that had been appended over IMAP to a folder
+  without a role and was never saved on the device. Afterwards no run message remained
+  in any folder of either mailbox. Limitations: Mac, iPad, attachments, the star, IDLE,
+  offline queueing, uncertain-move recovery, relaunch and large-folder backfill stay on
+  #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
