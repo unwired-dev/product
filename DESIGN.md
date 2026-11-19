@@ -490,7 +490,8 @@ styles) so the file stays editable.
   On the Mac it opens as a bottom-anchored overlay docked across the reading
   pane's full width, as the inline composer frame shows, at 70% of the available
   height, clamped from 420 to 720pt. On regular-width iPad a reply or forward
-  docks across the reading column's lower two thirds, and a new message opens as
+  docks across the reading column's lower two thirds, at most 720pt tall as the
+  Portrait Compose Inline frame draws it, and a new message opens as
   a card centred on the window, at most 874pt wide. Expand covers the app window on iPad and moves the Draft into
   its own New Message window on the Mac
   ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).
@@ -860,8 +861,6 @@ app follows under the issue named:
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
   and Failed states, wait for #2092.
-- **iPad Portrait:** the inline composer's size and format bar at 834×1210
-  wait for #2095.
 - **Thread view toolbar:** the Thread Long frames draw the reader toolbar over
   the Thread; the Thread view offers its actions once #846 tells message actions
   from Thread actions.
@@ -871,6 +870,6 @@ app follows under the issue named:
   #2096.
 - **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
   failing Mailbox Connection wait for #2099.
-- **iPhone alert, hint and Settings failure:** the two-sentence Trusted Device
-  removal message, the Command Palette swipe hint as the list's first item and
-  the empty state of a Settings page that failed to load wait for #2100.
+- **iPhone alert and Settings failure:** the two-sentence Trusted Device
+  removal message and the empty state of a Settings page that failed to load
+  wait for #2100.

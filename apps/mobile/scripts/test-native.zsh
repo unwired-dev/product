@@ -40,6 +40,8 @@ app_bundle="$run_dir/Mock.app"
 # Journeys run in Dark, where an Inbox surface that stops short of an edge shows; Light hides it.
 # UNWIRED_APPEARANCE=light repeats them in Light.
 export UNWIRED_APPEARANCE=${UNWIRED_APPEARANCE:-dark}
+# UNWIRED_JOURNEY=testGermanStrings runs that journey instead of the scenario's.
+journey=${UNWIRED_JOURNEY:-testSelectAndReplaceMessage}
 
 cp "$mobile_root/native-tests/InboxTests.swift" "$run_dir/"
 builtin cd -q "$run_dir"
@@ -81,6 +83,7 @@ for device_type in "${device_types[@]}"; do
     xcodebuild test-without-building -project InboxProbe.xcodeproj -scheme InboxProbe \
       -destination "platform=iOS Simulator,id=$device_id" \
       -derivedDataPath "$run_dir/DerivedData" -resultBundlePath "$run_dir/$device_id.xcresult" \
+      -only-testing:"InboxProbe/InboxTests/$journey" \
       -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
       > "$run_dir/$device_id.log" 2>&1 || test_exit=$?
     "$repo_root/scripts/record-host-load.sh" "$run_dir/host-load.txt" "after $device_type attempt $attempt"

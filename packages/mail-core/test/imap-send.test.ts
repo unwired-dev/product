@@ -381,6 +381,36 @@ describe('sending through SMTP and filing Sent copies', () => {
     }
   });
 
+  it('does not confirm an unknown message from a reply that names its Message-ID', async () => {
+    expect.hasAssertions();
+    const sending = await imapSender();
+    try {
+      const id = await sending.addressed();
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      sending.servers.work.smtp.lost = true;
+      await sending.outbox.process();
+      const { raw } = present(
+        sending.servers.work.smtp.accepted[0],
+        'submission',
+      );
+      const named = present(
+        /^Message-ID: (?<id><[^>]+>)\r$/mu.exec(raw)?.groups?.id,
+        'id',
+      );
+      // A reply names the message in In-Reply-To and quotes its header in the body.
+      sending.servers.work.deliver('Sent', {
+        subject: 'Re: Lunch',
+        raw: `Subject: Re: Lunch\r\nIn-Reply-To: ${named}\r\nReferences: ${named}\r\n\r\nMessage-ID: ${named}\r\n`,
+      });
+      await expect(sending.outbox.check(id)).resolves.toBe(false);
+      sending.servers.work.deliver('Sent', { subject: 'Lunch', raw });
+      await expect(sending.outbox.check(id)).resolves.toBe(true);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
   it('reads a stop after SMTP accepted but before its answer was saved as unknown', async () => {
     expect.hasAssertions();
     const sending = await imapSender();

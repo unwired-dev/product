@@ -55,11 +55,7 @@ const substitutes = {
       '../apps/mobile/src/categorization-spike-page.tsx',
     ),
   }),
-};
-
-// Mac Mock Mail Session builds also offer the German test catalog, which their native build bundles.
-const macSubstitutes = {
-  ...substitutes,
+  // Every Mock Mail Session build also offers the German test catalog, which its native build bundles.
   ...(scenario && {
     './shipped-catalogs.ts': path.resolve(
       __dirname,
@@ -71,9 +67,7 @@ const macSubstitutes = {
 module.exports = {
   scenario,
   resolveSeed(context, moduleName, platform) {
-    const filePath = (platform === 'macos' ? macSubstitutes : substitutes)[
-      moduleName
-    ];
+    const filePath = substitutes[moduleName];
     return filePath
       ? { type: 'sourceFile', filePath }
       : context.resolveRequest(context, moduleName, platform);

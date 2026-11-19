@@ -112,7 +112,7 @@ If the known acceptance cannot be saved, the existing live outcome retention
 retries recording it without another submission. A relaunch without that answer
 keeps the original durable handoff unknown.
 
-Filing searches before APPEND using the frozen MIME boundary, so a lost reply or
+IMAP filing searches before APPEND using the frozen message's Message-ID, so a lost reply or
 relaunch finds an already-filed copy. Unknown reconciliation confirms exactly one
 copy in the unique Sent folder; absence or ambiguity never authorizes resubmission.
 Removing the connection settles an accepted entry without filing its remaining

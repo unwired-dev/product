@@ -53,7 +53,8 @@
     "reply": "Antworten",
     "replyAll": "Allen antworten",
     "forward": "Weiterleiten",
-    "closeResponses": "Schließen"
+    "closeResponses": "Schließen",
+    "summaryTo": "an {{recipients}}"
   },
   "native": {
     "hide": "Unwired Mail ausblenden",
@@ -139,7 +140,10 @@
       "close": "Schließen",
       "back": "Zurück",
       "move": "Bewegen"
-    }
+    },
+    "hint": "Zum Öffnen der Befehle in der Kopfzeile nach unten wischen",
+    "hintDetail": "Antworten, archivieren, bewegen oder überallhin wechseln, ohne diesen Bildschirm zu verlassen.",
+    "dismissHint": "Hinweis ausblenden"
   },
   "drafts": {
     "heading": "Entwürfe",
@@ -206,6 +210,9 @@
     },
     "templates": {
       "menu": "Vorlagen"
+    },
+    "recipient": {
+      "required": "Fügen Sie einen Empfänger hinzu, um zu senden."
     }
   },
   "notifications": {
@@ -298,5 +305,9 @@
     "unpin": "Loslösen",
     "moveTo": "Bewegen nach …",
     "spam": "In Spam bewegen"
+  },
+  "messageBody": {
+    "showQuoted": "Zitierten Text anzeigen",
+    "hideQuoted": "Zitierten Text ausblenden"
   }
 }

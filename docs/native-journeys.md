@@ -420,6 +420,38 @@ Reminder". The journey fails later on iPhone
 ([#2146](https://github.com/unwired-dev/product/issues/2146)) and iPad
 ([#2148](https://github.com/unwired-dev/product/issues/2148)).
 
+## iPhone and iPad composer recovery journey
+
+The Expo native journey for a `registration-thread` Release build checks that a
+force quit keeps a New Message's unsaved edits
+([#2408](https://github.com/unwired-dev/product/issues/2408), ADR 0077 decision 2).
+Build it with `UNWIRED_MOCK_SCENARIO=registration-thread` as in the
+[mobile entry point](mock-mail-sessions.md#mobile-entry-point), then run it once
+per device:
+
+```sh
+mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+```
+
+Run it again with `com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB`.
+On iPhone the scenario fails after these steps, at a Thread check
+([#2409](https://github.com/unwired-dev/product/issues/2409)).
+
+After connecting the synthetic Gmail mailbox, the journey opens a New Message and
+adds a recipient, a subject, body text and a photo from the library as an
+Attachment. It waits past the two-second journal delay without saving, ends the
+app with XCUITest's terminate, which runs no Close or save, and relaunches it.
+The relaunch must ask **Recover unsaved message?** with only **Your unsaved
+changes were kept on this device.**, Restore and Discard. **Restore** must open the
+composer with that recipient, subject, body and Attachment. A second force quit
+and relaunch asks again, **Discard** closes the alert without opening a composer,
+and a third relaunch asks nothing. The alert and the restored composer are kept as
+attachments. The journey then continues with the Thread steps under
+[Mock Mail Sessions](mock-mail-sessions.md). CI does not run this scenario; it is
+local native evidence.
+
 ## iPhone and iPad keyboard and accessibility journey
 
 The Expo native journey for a `registration-performance` Release build drives
