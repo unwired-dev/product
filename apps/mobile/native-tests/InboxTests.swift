@@ -2002,6 +2002,9 @@ final class InboxTests: XCTestCase {
     for _ in 0..<30 where !onScreen(earlier) { app.swipeUp(velocity: .slow) }
     XCTAssertTrue(onScreen(earlier))
     attachScreen("Portrait Thread", of: app, to: self)
+    // #2414: rotating keeps the Thread open at the message it was scrolled to, its body mounted.
+    readAcrossRotation(app.staticTexts["Crew 5, note 1."].firstMatch, in: app)
+    XCTAssertTrue(app.staticTexts["6 Messages"].exists)
     let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
       .firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 10))
@@ -2011,7 +2014,9 @@ final class InboxTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(app.staticTexts["crew6@example.invalid"].firstMatch.frame.minX, 392)
     XCTAssertFalse(app.buttons["Settings"].firstMatch.isHittable)
     // The list opens a message of the Thread in the reader, under its toolbar.
-    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Crew 6.")).firstMatch.tap()
+    let selected = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Crew 6."))
+      .firstMatch
+    selected.tap()
     let replyAll = app.buttons["Reply All"].firstMatch
     XCTAssertTrue(replyAll.waitForExistence(timeout: 20))
     XCTAssertGreaterThanOrEqual(replyAll.frame.minX, 392)
@@ -2021,6 +2026,10 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(subject.frame.minX, 415, accuracy: 1)
     XCTAssertEqual(subject.frame.width, 396, accuracy: 1)
     attachScreen("Portrait Reader", of: app, to: self)
+    // #2414: rotating keeps the list's selection and the reader's place, and an open reply keeps
+    // its text and focus: typing after each rotation continues it.
+    XCTAssertTrue(selected.isSelected)
+    readAcrossRotation(app.staticTexts["Crew 6, note 20."].firstMatch, in: app, keeping: selected)
     // #2411: the reply docks 442×720 across the reader's lower part, as Compose Inline draws it.
     waitUntil { replyAll.isEnabled && replyAll.isHittable }
     replyAll.tap()
@@ -2032,6 +2041,35 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(composer.frame.height, 720, accuracy: 1)
     XCTAssertEqual(composer.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
     attachScreen("Portrait Docked Reply", of: app, to: self)
+    let body = composer.textViews
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Message body")).firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    body.tap()
+    // Few keys, each confirmed and pressed again only if it dropped: once the reply holds text,
+    // XCUITest on iPad often waits a minute per key for the app to idle, and a key can drop.
+    var typed = ""
+    func append(_ key: String) {
+      XCTAssertEqual(body.value as? String, typed)
+      let next = typed + key
+      let shown = NSPredicate { _, _ in body.value as? String == next }
+      for _ in 0..<2 where body.value as? String == typed {
+        press(key, in: app)
+        _ = XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: shown, object: nil)], timeout: 5)
+      }
+      XCTAssertEqual(body.value as? String, next)
+      typed = next
+    }
+    // Digits: the body capitalizes its first letter, and a synthesized Shift can stay down.
+    append("1")
+    for (orientation, key) in [(UIDeviceOrientation.landscapeLeft, "2"), (.portrait, "3")] {
+      rotate(app, to: orientation)
+      append(key)
+    }
+    // Back in Portrait, Mailboxes hides again and the list returns to the window's edge.
+    waitUntil { selected.frame.minX < 20 && abs(selected.frame.maxX - 384) <= 2 }
+    XCTAssertTrue(selected.isSelected)
+    attachScreen("Portrait Reply after rotation", of: app, to: self)
     composer.buttons["Discard"].tap()
     let discard = composer.buttons["Discard Draft"]
     XCTAssertTrue(discard.waitForExistence(timeout: 10))
@@ -2056,6 +2094,51 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Account & Devices"].firstMatch.waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["Check for a New Device"].waitForExistence(timeout: 10))
     attachScreen("Portrait Settings", of: app, to: self)
+  }
+
+  private func rotate(_ app: XCUIApplication, to orientation: UIDeviceOrientation) {
+    XCUIDevice.shared.orientation = orientation
+    let window = app.windows.firstMatch
+    waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
+    // Landscape shows Mailboxes beside the list; Portrait hides them again. After a rotation
+    // isHittable misreports the sidebar's Settings, so its frame decides.
+    let settings = app.buttons.matching(NSPredicate(format: "label == %@", "Settings"))
+    waitUntil {
+      settings.allElementsBoundByIndex.contains {
+        window.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY))
+      } == orientation.isLandscape
+    }
+  }
+
+  // Brings `text` into the reader's upper half, then rotates to Landscape and back to Portrait;
+  // the text stays on screen, and `selection` selected, after each rotation, and back in
+  // Portrait the text returns to its place.
+  private func readAcrossRotation(
+    _ text: XCUIElement, in app: XCUIApplication, keeping selection: XCUIElement? = nil
+  ) {
+    let window = app.windows.firstMatch
+    // The innermost scroll view holding the text: its visible frame, below any header.
+    let scrolls = app.scrollViews.containing(NSPredicate(format: "label == %@", text.label))
+    let shown = {
+      let viewport = scrolls.element(boundBy: max(scrolls.count - 1, 0))
+      return text.exists
+        && viewport.frame.contains(CGPoint(x: text.frame.midX, y: text.frame.midY))
+    }
+    for _ in 0..<30 where !shown() || text.frame.midY > window.frame.midY {
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.7))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -300)))
+    }
+    XCTAssertTrue(shown())
+    let place = text.frame.midY
+    XCTAssertLessThan(place, window.frame.midY)
+    for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+      rotate(app, to: orientation)
+      waitUntil(shown)
+      if let selection { XCTAssertTrue(selection.isSelected) }
+      if !orientation.isLandscape { XCTAssertEqual(text.frame.midY, place, accuracy: 80) }
+      let name = orientation.isLandscape ? "Landscape" : "Portrait"
+      attachScreen("\(text.label) rotated to \(name)", of: app, to: self)
+    }
   }
 
   // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Back to Mail.
