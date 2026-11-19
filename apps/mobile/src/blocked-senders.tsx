@@ -1,4 +1,5 @@
 import type { MailProfile } from '@private-email/mail-core/registration';
+import type { ViewInstance } from 'react-native';
 
 import { Button, Host, List, Section, Text, VStack } from '@expo/ui/swift-ui';
 import {
@@ -18,7 +19,14 @@ import { defaultProfile } from '@private-email/mail-core/registration';
 import { radius } from '@private-email/mail-core/theme';
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
-import { createContext, use, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Platform, Text as Label, StyleSheet, View } from 'react-native';
 
 import { SFSymbol } from './design.tsx';
@@ -34,7 +42,8 @@ const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
 
 const styles = StyleSheet.create({
   list: { flex: 1 },
-  // The Profile Locked recipe, centred in the page: tile, title, message and one button.
+  // The Profile Locked recipe, centred on the screen below the opaque bar: tile, title, message
+  // and one button.
   unavailable: {
     flex: 1,
     alignItems: 'center',
@@ -58,8 +67,18 @@ const styles = StyleSheet.create({
 function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const page = useRef<ViewInstance>(null);
+  // The page starts below the bar; padding its bottom by as much centres the state on the screen.
+  const [above, setAbove] = useState(0);
   return (
-    <View style={styles.unavailable}>
+    <View
+      ref={page}
+      onLayout={() => {
+        page.current?.measureInWindow((_x, y) => {
+          setAbove(y);
+        });
+      }}
+      style={[styles.unavailable, { paddingBottom: above }]}>
       <View style={[styles.tile, { backgroundColor: colors.fillQuiet }]}>
         <SFSymbol
           name="exclamationmark.triangle.fill"
@@ -146,8 +165,8 @@ export function BlockedSenderSettings({
     [settings.locale],
   );
   const [listed, setListed] = useState<Listed>();
-  // Try Again counts up, which reads again.
-  const [attempt, setAttempt] = useState(0);
+  // Try Again reads again, as a change does.
+  const retry = useRef<() => void>(undefined);
   // The address whose unblock storage refused, until the next attempt.
   const [failed, setFailed] = useState<string>();
   const unblock = async (profile: string, address: string) => {
@@ -177,6 +196,9 @@ export function BlockedSenderSettings({
       }
     };
     void load();
+    retry.current = () => {
+      void load();
+    };
     const unsubscribe = store.subscribe(() => {
       void load();
     });
@@ -184,7 +206,7 @@ export function BlockedSenderSettings({
       current = -1;
       unsubscribe();
     };
-  }, [store, scopes, attempt]);
+  }, [store, scopes]);
   if (listed === undefined) {
     return null;
   }
@@ -192,7 +214,7 @@ export function BlockedSenderSettings({
     return (
       <Unavailable
         onRetry={() => {
-          setAttempt((count) => count + 1);
+          retry.current?.();
         }}
       />
     );
