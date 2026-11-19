@@ -870,6 +870,6 @@ app follows under the issue named:
   #2096.
 - **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
   failing Mailbox Connection wait for #2099.
-- **iPhone alert, hint and Settings failure:** the two-sentence Trusted Device
-  removal message, the Command Palette swipe hint as the list's first item and
-  the empty state of a Settings page that failed to load wait for #2100.
+- **iPhone alert and Settings failure:** the two-sentence Trusted Device
+  removal message and the empty state of a Settings page that failed to load
+  wait for #2100.
