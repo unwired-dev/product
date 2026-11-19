@@ -9,6 +9,12 @@ Architecture notes for [docs/outbox.md](../outbox.md).
   **Delivery Owner**. Admission removes the Draft and stores its exact content in
   the same write. The Outbox never synchronizes. Its files stay stored until the
   message is sent or returns to the Drafts.
+- An IMAP [Invitation Response](../invitation-responses.md#imap) is admitted
+  without a Draft (#2439). Its entry carries the invitation it answers, takes a
+  fresh identifier for its claim and leaves the Outbox on Undo instead of
+  returning to the Drafts. Once the mail server accepts it, the Outbox records the
+  response in the mailbox's cache, and the entry leaves only after that record is
+  saved.
 - Before the provider sees the message, storage records it as handed over. A request
   whose answer may have been lost, an unreadable reply or an app stopped
   meanwhile reads as unknown, never as permission to send again.

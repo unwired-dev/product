@@ -35,6 +35,7 @@ import type {
   OutgoingSend,
   SendOutcome,
 } from './inbox-store.ts';
+import type { InvitationResponse } from './invitation-record.ts';
 import type {
   BodyDocument,
   GmailPart,
@@ -108,6 +109,7 @@ import {
   sendRejection,
 } from './inbox-store.ts';
 import { inlineImageLimits } from './inline-images.ts';
+import { withResponse } from './invitation-record.ts';
 import { SyncFailure } from './mailbox-read.ts';
 import {
   bodyParts,
@@ -362,6 +364,8 @@ export type ImapInboxState =
       readonly undo: boolean;
       // Historical Metadata Backfill of every folder; absent until it starts.
       readonly history?: HistoryProgress;
+      // The Invitation Responses this mailbox sent, newest first.
+      readonly responses?: readonly InvitationResponse[];
       // Marks an IMAP Inbox among other providers'.
       readonly imap: true;
     };
@@ -1334,6 +1338,9 @@ export function createImapInbox(
       ...motionFacts(),
       undo: undoable(),
       ...renderedHistory(document),
+      ...(document.responses === undefined
+        ? {}
+        : { responses: document.responses }),
       imap: true,
     };
     notify();
@@ -2217,6 +2224,33 @@ export function createImapInbox(
       ),
     );
   };
+
+  // Saves `response` in place of any record of the same invitation revision, or removes that
+  // record without one. Resolves whether the mailbox's cache holds it.
+  const recordResponse = (
+    revision: Readonly<
+      Pick<InvitationResponse, 'uid' | 'sequence' | 'recurrence'>
+    >,
+    response: InvitationResponse | undefined,
+  ) =>
+    runLogged(
+      semaphore.withPermit(
+        Effect.gen(function* () {
+          if (document === undefined || forgotten) {
+            return false;
+          }
+          const { responses: _replaced, ...rest } = document;
+          const responses = withResponse(
+            document.responses,
+            revision,
+            response,
+          );
+          yield* commit(responses.length === 0 ? rest : { ...rest, responses });
+          render();
+          return true;
+        }).pipe(Effect.orElseSucceed(() => false)),
+      ),
+    );
 
   // Discard acknowledges an unknown move outcome without replaying it; later changes may resume.
   const discardPending = (id: string) =>
@@ -3542,6 +3576,7 @@ export function createImapInbox(
     send: submit,
     fileSent,
     findSent,
+    recordResponse,
     watch,
     // A cached message from any folder, for the reader.
     message: messageOf,

@@ -81,6 +81,7 @@ import { graphProgress } from './graph-history.ts';
 import { createGraphReader } from './graph-reader.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { decodedSize, inlineImageLimits } from './inline-images.ts';
+import { withResponse } from './invitation-record.ts';
 import {
   cachedViews,
   cacheLimit,
@@ -3136,15 +3137,7 @@ export function createInboxStore(
       ) {
         return false;
       }
-      const responses = [
-        ...(response === undefined ? [] : [response]),
-        ...(document.responses ?? []).filter(
-          ({ uid, sequence, recurrence }) =>
-            uid !== revision.uid ||
-            sequence !== revision.sequence ||
-            recurrence !== revision.recurrence,
-        ),
-      ];
+      const responses = withResponse(document.responses, revision, response);
       const next = {
         ...Struct.omit(document, ['responses']),
         ...(responses.length === 0 ? {} : { responses }),

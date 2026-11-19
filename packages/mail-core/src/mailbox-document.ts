@@ -6,6 +6,7 @@ import * as Struct from 'effect/Struct';
 import type { GmailMessage } from './mailbox-message.ts';
 
 import { GmailActionSchema, GmailLabelSchema } from './gmail-actions.ts';
+import { InvitationResponseSchema } from './invitation-record.ts';
 import {
   GmailMessageSchema,
   GraphId,
@@ -18,6 +19,7 @@ import {
 } from './microsoft-graph.ts';
 
 export type { GmailMessage } from './mailbox-message.ts';
+export type { InvitationResponse } from './invitation-record.ts';
 
 // The newest messages each view keeps in this document; Gmail's older mail is kept in history
 // segments, which commits only write when they change.
@@ -196,38 +198,6 @@ const GraphCheckpointSchema = Schema.Union([
     refillUntil: Schema.optionalKey(Schema.String),
   }),
 ]);
-
-// An Invitation Response this device sent, or may have sent, for one revision of an invitation,
-// with the time it answered so a later revision can say what changed; older records lack it.
-// `recurrence` names one meeting of a series by its RECURRENCE-ID instant.
-// `boundary` finds an unconfirmed send in Sent.
-const InvitationTime = Schema.Struct({
-  at: Schema.Finite,
-  allDay: Schema.Boolean,
-});
-const InvitationRevision = {
-  uid: Schema.String,
-  sequence: Schema.Int,
-  recurrence: Schema.optionalKey(Schema.Finite),
-  choice: Schema.Literals(['accepted', 'tentative', 'declined']),
-  start: Schema.optionalKey(InvitationTime),
-  end: Schema.optionalKey(InvitationTime),
-  // The Gmail message that carried the revision; records saved before it was kept have none.
-  message: Schema.optionalKey(Schema.String),
-};
-const InvitationResponseSchema = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal('sent'),
-    ...InvitationRevision,
-    at: Schema.Finite,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal('unknown'),
-    ...InvitationRevision,
-    boundary: Schema.String,
-  }),
-]);
-export type InvitationResponse = typeof InvitationResponseSchema.Type;
 
 // The checkpoint is committed with the messages it produced, so a restart repeats no step twice.
 const MailboxDocumentSchema = Schema.Struct({
