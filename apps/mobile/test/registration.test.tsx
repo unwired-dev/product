@@ -4169,6 +4169,49 @@ describe('product registration', () => {
     await view.unmount();
   });
 
+  it.each([false, true])(
+    'explains a device removal in two sentences on iPhone and in full on iPad (isPad=%s)',
+    async (isPad) => {
+      expect.hasAssertions();
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        isPad,
+      );
+      try {
+        const { synthetic, setup } = await signedIn('registration-revocation');
+        await confirmRecoveryKey(setup);
+        const store = createRegistration(synthetic.relaunch());
+        const view = await render(
+          <RegistrationGate
+            store={started(store)}
+            preview={false}>
+            {null}
+          </RegistrationGate>,
+        );
+        const { name } = syntheticTrustedDevice;
+        await act(async () => {
+          await fireEvent.press(
+            await screen.findByRole('button', {
+              name: english('revocation.remove', { name }),
+            }),
+          );
+        });
+        const dialog = within(
+          screen.getByTestId('device-removal-confirmation'),
+        );
+        const [shown, hidden] = isPad
+          ? (['revocation.confirm', 'revocation.confirmPhone'] as const)
+          : (['revocation.confirmPhone', 'revocation.confirm'] as const);
+        expect(dialog.getByText(english(shown, { name }))).toBeVisible();
+        expect(dialog.queryByText(english(hidden, { name }))).toBeNull();
+        await view.unmount();
+      } finally {
+        platform.restore();
+      }
+    },
+  );
+
   it('removes another trusted device only after its replacement Recovery Key is confirmed', async () => {
     expect.hasAssertions();
     const synthetic = await createRegistrationScenario(
@@ -4228,10 +4271,8 @@ describe('product registration', () => {
         }),
       ).toBeVisible();
       expect(
-        dialog.getByText(english('revocation.confirm', { name })),
-      ).toHaveTextContent(
-        /only then is iPad removed.*cannot be erased remotely/u,
-      );
+        dialog.getByText(english('revocation.confirmPhone', { name })),
+      ).toBeVisible();
       expect(
         dialog.getByRole('button', { name: english('revocation.cancel') }),
       ).toBeVisible();
