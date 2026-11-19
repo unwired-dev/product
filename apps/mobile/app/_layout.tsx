@@ -56,6 +56,7 @@ import {
   WindowBarHost,
 } from '../src/inbox-bar.tsx';
 import { Inbox } from '../src/inbox.tsx';
+import { ShowOutboxContext } from '../src/invitation.tsx';
 import {
   InboxProvider,
   useDrafts,
@@ -399,6 +400,8 @@ function MailShell() {
   const [inboxVisible, setInboxVisible] = useState(false);
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
+  // Set each time View in Outbox shows the Outbox, which sits at the top of the message list.
+  const [outboxShown, setOutboxShown] = useState<object>();
 
   // A collapsed split view keeps showing a column until told otherwise, so leaving the reader
   // returns to the message list.
@@ -490,113 +493,123 @@ function MailShell() {
         }}
         style={styles.fill}>
         <WindowBarContext value={regular ? windowBar : undefined}>
-          <ReaderPaneWidthContext value={setReaderWidth}>
-            <SidebarToggleContext value={sidebarToggle.value}>
-              <Split.Host
-                ref={splitView}
-                testID="mail-split"
-                // The iPad frames: a floating sidebar inset 8pt, beside a 391pt list (the Mac columns
-                // at 1.15×). The system's 1pt column separators place the list at x287 and the
-                // reader at x679, as the frames do.
-                // UIKit would keep the reader 448pt wide in portrait, narrowing the list to 385pt.
-                columnMetrics={{
-                  preferredPrimaryColumnWidthOrFraction: 286,
-                  preferredSupplementaryColumnWidthOrFraction: 391,
-                  minimumSecondaryColumnWidth: 442,
-                }}
-                displayModeButtonVisibility="never"
-                onDisplayModeWillChange={({ nativeEvent }) => {
-                  sidebarToggle.follow(nativeEvent.nextDisplayMode);
-                }}
-                onCollapse={() => {
-                  setCollapsed(true);
-                }}
-                onExpand={() => {
-                  setCollapsed(false);
-                }}
-                style={styles.fill}
-                // Both sidebars beside the reader in landscape; portrait hides Mailboxes until Show
-                // Sidebar brings it back beside the list.
-                preferredDisplayMode={sidebarToggle.displayMode}
-                preferredSplitBehavior="tile"
-                // The sidebar draws its own floating glass panel over the window's surface.
-                primaryBackgroundStyle="none"
-                topColumnForCollapsing={
-                  reading ? 'secondary' : 'supplementary'
-                }>
-                <Split.Column
-                  testID="mailboxes-column"
-                  onDidAppear={followBack}>
-                  <SafeAreaProvider>
-                    <Mailboxes
-                      view={view}
-                      onProfile={(profile) => {
-                        void switchProfile(profile);
-                      }}
-                      onView={(next) => {
-                        setView(next);
-                        // On iPhone a Mailbox opens its list; beside it, the list is already shown.
-                        splitView.current?.show('supplementary');
-                      }}
-                      onCompose={compose}
-                      bar={bar}
-                    />
-                  </SafeAreaProvider>
-                </Split.Column>
-                <Split.Column
-                  testID="inbox-column"
-                  onWillDisappear={() => {
-                    setInboxVisible(false);
+          <ShowOutboxContext
+            value={() => {
+              setOutboxShown({});
+              // iPhone's single column returns to the list; beside it, the list is already shown.
+              if (collapsed) {
+                closeReader();
+              }
+            }}>
+            <ReaderPaneWidthContext value={setReaderWidth}>
+              <SidebarToggleContext value={sidebarToggle.value}>
+                <Split.Host
+                  ref={splitView}
+                  testID="mail-split"
+                  // The iPad frames: a floating sidebar inset 8pt, beside a 391pt list (the Mac columns
+                  // at 1.15×). The system's 1pt column separators place the list at x287 and the
+                  // reader at x679, as the frames do.
+                  // UIKit would keep the reader 448pt wide in portrait, narrowing the list to 385pt.
+                  columnMetrics={{
+                    preferredPrimaryColumnWidthOrFraction: 286,
+                    preferredSupplementaryColumnWidthOrFraction: 391,
+                    minimumSecondaryColumnWidth: 442,
                   }}
-                  onDidAppear={() => {
-                    setInboxVisible(true);
-                    followBack();
-                  }}>
-                  <SafeAreaProvider>
-                    <Inbox
-                      visible={inboxVisible}
-                      composing={draft}
-                      onClose={closeReader}
-                      bar={bar}
-                      onCompose={compose}
-                      onSelect={selectMessage}
-                      onSelectBehindComposer={
-                        regular && draft !== undefined
-                          ? (selection) => {
-                              // A message chosen in the Inbox clears the previous one's view.
-                              const next = {
-                                ...selection,
-                                folder: selection.folder,
-                              };
-                              reader.current = { ...reader.current, ...next };
-                              router.setParams(next);
-                            }
-                          : undefined
-                      }
-                      onView={setView}
-                      selected={
-                        id === undefined || mailbox === undefined
-                          ? undefined
-                          : {
-                              mailbox,
-                              id,
-                              ...(folder === undefined ? {} : { folder }),
-                            }
-                      }
-                      view={view}
+                  displayModeButtonVisibility="never"
+                  onDisplayModeWillChange={({ nativeEvent }) => {
+                    sidebarToggle.follow(nativeEvent.nextDisplayMode);
+                  }}
+                  onCollapse={() => {
+                    setCollapsed(true);
+                  }}
+                  onExpand={() => {
+                    setCollapsed(false);
+                  }}
+                  style={styles.fill}
+                  // Both sidebars beside the reader in landscape; portrait hides Mailboxes until Show
+                  // Sidebar brings it back beside the list.
+                  preferredDisplayMode={sidebarToggle.displayMode}
+                  preferredSplitBehavior="tile"
+                  // The sidebar draws its own floating glass panel over the window's surface.
+                  primaryBackgroundStyle="none"
+                  topColumnForCollapsing={
+                    reading ? 'secondary' : 'supplementary'
+                  }>
+                  <Split.Column
+                    testID="mailboxes-column"
+                    onDidAppear={followBack}>
+                    <SafeAreaProvider>
+                      <Mailboxes
+                        view={view}
+                        onProfile={(profile) => {
+                          void switchProfile(profile);
+                        }}
+                        onView={(next) => {
+                          setView(next);
+                          // On iPhone a Mailbox opens its list; beside it, the list is already shown.
+                          splitView.current?.show('supplementary');
+                        }}
+                        onCompose={compose}
+                        bar={bar}
+                      />
+                    </SafeAreaProvider>
+                  </Split.Column>
+                  <Split.Column
+                    testID="inbox-column"
+                    onWillDisappear={() => {
+                      setInboxVisible(false);
+                    }}
+                    onDidAppear={() => {
+                      setInboxVisible(true);
+                      followBack();
+                    }}>
+                    <SafeAreaProvider>
+                      <Inbox
+                        visible={inboxVisible}
+                        composing={draft}
+                        onClose={closeReader}
+                        bar={bar}
+                        onCompose={compose}
+                        onSelect={selectMessage}
+                        onSelectBehindComposer={
+                          regular && draft !== undefined
+                            ? (selection) => {
+                                // A message chosen in the Inbox clears the previous one's view.
+                                const next = {
+                                  ...selection,
+                                  folder: selection.folder,
+                                };
+                                reader.current = { ...reader.current, ...next };
+                                router.setParams(next);
+                              }
+                            : undefined
+                        }
+                        onView={setView}
+                        selected={
+                          id === undefined || mailbox === undefined
+                            ? undefined
+                            : {
+                                mailbox,
+                                id,
+                                ...(folder === undefined ? {} : { folder }),
+                              }
+                        }
+                        view={view}
+                        outboxShown={outboxShown}
+                      />
+                    </SafeAreaProvider>
+                  </Split.Column>
+                  <Split.Column>
+                    <ReadingColumn
+                      spike={spike}
+                      reader={id}
+                      compact={collapsed}
                     />
-                  </SafeAreaProvider>
-                </Split.Column>
-                <Split.Column>
-                  <ReadingColumn
-                    spike={spike}
-                    reader={id}
-                    compact={collapsed}
-                  />
-                </Split.Column>
-              </Split.Host>
-            </SidebarToggleContext>
-          </ReaderPaneWidthContext>
+                  </Split.Column>
+                </Split.Host>
+              </SidebarToggleContext>
+            </ReaderPaneWidthContext>
+          </ShowOutboxContext>
           {regular ? (
             <WindowBarHost
               windowBar={windowBar}
