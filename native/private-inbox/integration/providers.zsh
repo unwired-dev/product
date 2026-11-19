@@ -33,7 +33,7 @@ for index in {1..$#}; do
   platform=${@[index]}
   (
     for key in {1..4}; do export TEST_RUNNER_UNWIRED_$keys[key]=$secrets[key]; done
-    UNWIRED_STORAGE_PROBE=$runs[index] zsh "$here/test.zsh" "$platform"
+    zsh "$here/test.zsh" "$platform" "$runs[index]"
   ) >> "$output" 2>&1 || result=$?
   # A dropped variable would skip the certification test while the suite passes.
   logs=($runs[index]/test-*.log(N))

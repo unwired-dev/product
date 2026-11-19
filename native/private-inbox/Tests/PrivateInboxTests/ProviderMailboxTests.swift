@@ -41,9 +41,10 @@ extension PrivateInboxTests {
     let token = UUID().uuidString
     // Mailboxes the server accepted or may have accepted a message for that the test has not yet
     // finished waiting for. Delivery to both shares one deadline, so cleanup fits the test's
-    // 120-second allowance.
+    // 120-second allowance with one 16-second cleanup window for every mailbox still waiting.
     var unread = Set<String>()
     var delivery = ContinuousClock.now
+    var cleanup = ContinuousClock.now
 
     // Logins with the mail-client password, retrying iCloud Mail once with the full address as the
     // product does; a wrong password is refused as an authentication failure.
@@ -114,8 +115,8 @@ extension PrivateInboxTests {
           try await Task.sleep(for: .seconds(2))
           matches = try await session.search("INBOX", for: .text(token), newest: 10)
         }
-        unread.remove(provider.name)
         try #require(matches.total == 1)
+        unread.remove(provider.name)
         let uid = try #require(matches.uids.first)
         try #require(try await session.examine("INBOX").uidValidity == matches.uidValidity)
         let envelope = try #require(try await session.envelopes(.uids([uid])).first)
@@ -221,7 +222,7 @@ extension PrivateInboxTests {
           }
         }
         await sweep()
-        for _ in 0..<8 where unread.contains(provider.name) && delivered == 0 {
+        while unread.contains(provider.name), delivered == 0, ContinuousClock.now < cleanup {
           try await Task.sleep(for: .seconds(2))
           await sweep()
         }
@@ -252,6 +253,7 @@ extension PrivateInboxTests {
     } catch {
       failure = error
     }
+    cleanup = .now + .seconds(16)
     for provider in providers {
       do { try await clean(provider) } catch { failure = failure ?? error }
     }

@@ -8,8 +8,14 @@ forwarded=(${(k)parameters[(I)TEST_RUNNER_*]})
 for name in $forwarded; do typeset +x $name; done
 (( $(df -k "$root" | awk 'NR == 2 {print $4}') >= 6 * 1024 * 1024 ))
 mkdir -p "$root/artifacts/private-inbox"
-# A caller may name the empty evidence directory it created for this run.
-export UNWIRED_STORAGE_PROBE=${UNWIRED_STORAGE_PROBE:-$(mktemp -d "$root/artifacts/private-inbox/integration.XXXXXX")}
+# A caller may pass the empty integration evidence directory it created for this run.
+if (( $# > 1 )); then
+  [[ -d "$2" && "${2:A}" == "$root/artifacts/private-inbox/integration."* && -z "$(ls -A "$2")" ]] ||
+    { print -u2 'Expected an empty integration evidence directory'; exit 2; }
+  export UNWIRED_STORAGE_PROBE=${2:A}
+else
+  export UNWIRED_STORAGE_PROBE=$(mktemp -d "$root/artifacts/private-inbox/integration.XXXXXX")
+fi
 owned_device=''
 imap_server=''
 smtp_server=''
