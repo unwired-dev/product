@@ -27,7 +27,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Platform, Text as Label, StyleSheet, View } from 'react-native';
+import {
+  Platform,
+  ScrollView,
+  Text as Label,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
@@ -43,9 +49,9 @@ const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
 const styles = StyleSheet.create({
   list: { flex: 1 },
   // The Profile Locked recipe, centred on the screen below the opaque bar: tile, title, message
-  // and one button.
+  // and one button. It scrolls when the largest text sizes outgrow the page.
   unavailable: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
@@ -78,48 +84,51 @@ function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
           setAbove(y);
         });
       }}
-      style={[styles.unavailable, { paddingBottom: above }]}>
-      <View style={[styles.tile, { backgroundColor: colors.fillQuiet }]}>
-        <SFSymbol
-          name="exclamationmark.triangle.fill"
-          size={36}
-          color={colors.textPrimary}
-        />
-      </View>
-      <Label
-        accessibilityRole="header"
-        style={[
-          textStyles.title3Emphasized,
-          { color: colors.textPrimary, textAlign: 'center' },
-        ]}>
-        {t('blockedSenders.loadFailed')}
-      </Label>
-      <Label
-        style={[
-          textStyles.subheadline,
-          styles.message,
-          { color: colors.textSecondary },
-        ]}>
-        {t('blockedSenders.loadFailedDetail')}
-      </Label>
-      <Host matchContents>
-        <Button
-          modifiers={[
-            buttonStyle('borderedProminent'),
-            buttonBorderShape('capsule'),
-            controlSize('large'),
-            tint(colors.accentFill),
-          ]}
-          onPress={onRetry}>
-          <Text
+      style={styles.list}>
+      <ScrollView
+        contentContainerStyle={[styles.unavailable, { paddingBottom: above }]}>
+        <View style={[styles.tile, { backgroundColor: colors.fillQuiet }]}>
+          <SFSymbol
+            name="exclamationmark.triangle.fill"
+            size={36}
+            color={colors.textPrimary}
+          />
+        </View>
+        <Label
+          accessibilityRole="header"
+          style={[
+            textStyles.title3Emphasized,
+            { color: colors.textPrimary, textAlign: 'center' },
+          ]}>
+          {t('blockedSenders.loadFailed')}
+        </Label>
+        <Label
+          style={[
+            textStyles.subheadline,
+            styles.message,
+            { color: colors.textSecondary },
+          ]}>
+          {t('blockedSenders.loadFailedDetail')}
+        </Label>
+        <Host matchContents>
+          <Button
             modifiers={[
-              font({ textStyle: 'headline' }),
-              foregroundStyle(colors.accentOnFill),
-            ]}>
-            {t('common.retry')}
-          </Text>
-        </Button>
-      </Host>
+              buttonStyle('borderedProminent'),
+              buttonBorderShape('capsule'),
+              controlSize('large'),
+              tint(colors.accentFill),
+            ]}
+            onPress={onRetry}>
+            <Text
+              modifiers={[
+                font({ textStyle: 'headline' }),
+                foregroundStyle(colors.accentOnFill),
+              ]}>
+              {t('common.retry')}
+            </Text>
+          </Button>
+        </Host>
+      </ScrollView>
     </View>
   );
 }
