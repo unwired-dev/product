@@ -158,7 +158,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xs * ipadListScale,
   },
   sectionTitle: { ...sectionText, flexShrink: 1 },
-  compactSectionTitle: textStyles.headline,
+  // iPhone's title fills the header, so the warning keeps to its trailing end.
+  compactSectionTitle: { ...textStyles.headline, flex: 1 },
   row: {
     minHeight: 28 * ipadListScale,
     flexDirection: 'row',
