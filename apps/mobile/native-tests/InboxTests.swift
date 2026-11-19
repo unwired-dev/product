@@ -1781,12 +1781,22 @@ final class InboxTests: XCTestCase {
     let recipient = app.descendants(matching: .any)["To: jordan@example.invalid"]
     XCTAssertTrue(recipient.waitForExistence(timeout: 10))
     // XCUITest cannot type into the multiline body; hardware key presses reach it. iPad can wait
-    // two minutes for the app to settle after each, so the body stays one short word.
+    // two minutes for the app to settle after each, so the body stays one short word. A key the
+    // field drops while it re-renders is pressed once more (#1510).
     let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
       .firstMatch
     focus(body) { !self.hasFocus(subject) }
-    press("Kept", in: app)
-    waitUntil { body.value as? String == "Kept" }
+    var typed = ""
+    for key in "Kept" {
+      typed += String(key)
+      let entered = NSPredicate(format: "value == %@", typed)
+      for _ in 0..<2 where body.value as? String != typed {
+        press(String(key), in: app)
+        _ = XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: body)], timeout: 5)
+      }
+    }
+    XCTAssertEqual(body.value as? String, "Kept")
     // iPad's format bar keeps Attach Photo or folds it into More Files and Templates.
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     menuControl("Attach Photo", from: phone ? "Add files" : "More Files and Templates", in: app)
@@ -1802,10 +1812,14 @@ final class InboxTests: XCTestCase {
       .firstMatch
     XCTAssertTrue(remove.waitForExistence(timeout: 30))
     let name = String(remove.label.dropFirst("Remove ".count))
-    let attachment = app.descendants(matching: .any)
+    let added = app.descendants(matching: .any)
       .matching(NSPredicate(format: "label BEGINSWITH %@", "\(name), ")).firstMatch
-    XCTAssertTrue(attachment.waitForExistence(timeout: 10))
-    waitUntil({ !attachment.label.hasSuffix("…") }, timeout: 30)
+    XCTAssertTrue(added.waitForExistence(timeout: 10))
+    waitUntil({ !added.label.hasSuffix("…") }, timeout: 30)
+    // A stored photo's row names only its size; a failed, damaged or missing one says so.
+    let row = added.label
+    XCTAssertFalse(row.contains("Not added") || row.contains(" · "), row)
+    let attachment = app.descendants(matching: .any)[row]
     // The composer journals 2 s after the last edit; nothing on screen shows the write.
     _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Recovery journal")], timeout: 5)
 
@@ -1833,6 +1847,8 @@ final class InboxTests: XCTestCase {
     offer.buttons["Discard"].tap()
     XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
     XCTAssertFalse(subject.exists)
+    // The alert closes before storage removes the record.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Record removal")], timeout: 3)
     app.terminate()
     app.launch()
     XCTAssertTrue(app.buttons["New Message"].waitForExistence(timeout: 45))

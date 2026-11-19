@@ -423,12 +423,18 @@ The Expo native journey for a `registration-thread` Release build checks that a
 force quit keeps a New Message's unsaved edits
 ([#2408](https://github.com/unwired-dev/product/issues/2408), ADR 0077 decision 2).
 Build it with `UNWIRED_MOCK_SCENARIO=registration-thread` as in the
-[mobile entry point](mock-mail-sessions.md#mobile-entry-point), then run it:
+[mobile entry point](mock-mail-sessions.md#mobile-entry-point), then run it once
+per device:
 
 ```sh
 mise exec -- pnpm --filter @private-email/mobile test:native \
-  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app"
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
 ```
+
+Run it again with `com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB`.
+On iPhone the scenario fails after these steps, at a Thread check
+([#2409](https://github.com/unwired-dev/product/issues/2409)).
 
 After connecting the synthetic Gmail mailbox, the journey opens a New Message and
 adds a recipient, a subject, body text and a photo from the library as an
