@@ -3250,15 +3250,15 @@ describe('command palette', () => {
     ).toBeVisible();
   });
 
-  it('reads the one-time hint as one element, then Dismiss, which removes it', async () => {
+  it('makes the one-time hint text one accessibility element, and Dismiss removes the hint', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     await renderConnected(gmail.native);
-    expect(
-      await screen.findByLabelText(
+    await expect(
+      screen.findByLabelText(
         'Swipe down on the header for commands, Reply, archive, move or go anywhere without leaving this screen.',
       ),
-    ).toBeVisible();
+    ).resolves.toHaveProp('accessible', true);
     await fireEvent.press(screen.getByRole('button', { name: 'Dismiss hint' }));
     expect(screen.queryByRole('button', { name: 'Dismiss hint' })).toBeNull();
   });
