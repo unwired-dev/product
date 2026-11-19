@@ -270,8 +270,8 @@ the UTC day they arrived; a row shows the time today, Yesterday for the prior
 day, the weekday within the last week and the date before that. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
 Offline while the server is being checked or cannot be reached; under iPad's All Inboxes
-heading, which already names them, it leaves the mailboxes out. Otherwise, on iPad and
-Mac while the Inbox is listed, it also says how long ago the shown mailboxes were last brought up to date, such as **Updated just
+heading, which already names them, it leaves the mailboxes out. When neither applies, on iPad and
+Mac while the Inbox is listed, including under All Inboxes, it also says how long ago the shown mailboxes were last brought up to date, such as **Updated just
 now** or **Updated 5 minutes ago**, counted from the start of each mailbox's latest
 completed synchronization and taking the oldest of them. Each mailbox saves that time
 with its cache after every successful synchronization, even when no mail changed,
