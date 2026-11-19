@@ -74,8 +74,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   only that mailbox; **All Inboxes** returns. Each window chooses on its own. A
   removed mailbox's view falls back to **All Inboxes**. A chosen mailbox whose
   provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
-  its heading's subtitle shows the same status as its sidebar row (as the warning beside the
-  mailbox's sidebar header, whose Inbox row keeps its action), and
+  its heading's subtitle shows the same status as the warning beside the mailbox's sidebar
+  header, its Inbox row keeps its unread count and action, and
   **New Message** stays unavailable until access is allowed again.
 - **Labels and other views.** Under its Inbox, each Gmail mailbox's sidebar section
   lists the mailbox's own labels by name, then **All Mail**, **Spam** and **Trash**
