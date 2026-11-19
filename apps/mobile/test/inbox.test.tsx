@@ -2216,7 +2216,15 @@ describe('connected Gmail Inbox', () => {
       from: 'Acme Studio <billing@example.invalid>',
       subject: 'Invoice 2026-114 for October',
     });
-    await renderConnected(gmail.native);
+    // Gmail answers once released, to show Labels while it creates.
+    const answers = Promise.withResolvers<undefined>();
+    await renderConnected({
+      ...gmail.native,
+      gmailCreateLabel: async (name, owner) => {
+        await answers.promise;
+        return gmail.native.gmailCreateLabel(name, owner);
+      },
+    });
     await fireEvent.press(
       await screen.findByRole('button', {
         name: /Invoice 2026-114 for October/u,
@@ -2250,9 +2258,12 @@ describe('connected Gmail Inbox', () => {
     expect(
       labels.getByRole('button', { name: 'Clients/Northwind' }),
     ).toBeVisible();
-    expect(labels.queryByRole('button', { name: 'Receipts' })).toBeNull();
+    expect(labels.getByRole('button', { name: 'Receipts' })).toBeVisible();
+    await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+    // While Gmail creates the label, which is then applied, Labels cannot be cancelled.
+    expect(labels.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     await act(async () => {
-      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+      answers.resolve(undefined);
     });
     expect(screen.queryByTestId('new-label')).toBeNull();
     expect(screen.getByText('Labels: Clients/Acme')).toBeVisible();
@@ -2293,6 +2304,7 @@ describe('connected Gmail Inbox', () => {
 
     // A name Gmail refuses applies nothing and is explained, leaving the name to edit.
     gmail.failCreateLabel({ status: 403 });
+    const before = gmail.labelsOf(invoice);
     labels = await openLabels();
     await fireEvent.changeText(labels.getByLabelText('Label name'), 'Travel');
     await act(async () => {
@@ -2307,7 +2319,7 @@ describe('connected Gmail Inbox', () => {
       'Gmail may already have a label with this name, or it could not be reached. Try another name, or try again later.',
     );
     expect(labels.getByLabelText('Label name')).toHaveProp('value', 'Travel');
-    expect(gmail.labelsOf(invoice)).not.toContain('Label_5');
+    expect(gmail.labelsOf(invoice)).toStrictEqual(before);
     await fireEvent.press(labels.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByTestId('new-label')).toBeNull();
   });
