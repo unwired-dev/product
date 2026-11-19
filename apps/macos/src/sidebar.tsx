@@ -29,16 +29,19 @@ import { MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-list.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
+import { useProfileOutbox } from './outbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette, useProfilePalette } from './theme.ts';
 
-// What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, or a
-// Unified Mailbox of every mailbox. The Inbox folder is the default of a mailbox.
+// What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, a
+// Unified Mailbox of every mailbox, or the Profile's Outbox. The Inbox folder is the default of a
+// mailbox.
 export type MailboxView = Readonly<{
   mailbox?: string | undefined;
   folder?: string | undefined;
   unified?: UnifiedRole | undefined;
+  outbox?: boolean | undefined;
 }>;
 
 const styles = StyleSheet.create({
@@ -391,8 +394,9 @@ function FolderRows({
   });
 }
 
-// The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
-// its folders, and Settings last.
+// The Mailboxes of the window's Profile: every Inbox together, the Unified Mailboxes with the
+// Outbox after Sent while it holds a message, then each Mailbox Connection with its folders, and
+// Settings last.
 export function Mailboxes({
   view,
   onView,
@@ -410,6 +414,7 @@ export function Mailboxes({
   const account = use(AccountContext);
   const profile = useProfile();
   const reload = useReloadMailboxes();
+  const outbox = useProfileOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
   const sidebar = mailboxSidebar({
@@ -459,7 +464,7 @@ export function Mailboxes({
                 icon="tray.2"
                 label={t('inbox.allInboxes')}
                 count={sidebar.unread}
-                selected={sidebar.allSelected}
+                selected={sidebar.allSelected && view.outbox !== true}
                 onPress={() => {
                   onView({});
                 }}
@@ -467,19 +472,30 @@ export function Mailboxes({
               {unifiedRoles.map((role) => {
                 const { title, icon } = unifiedRow(t, role);
                 return (
-                  <Item
-                    key={role}
-                    icon={icon}
-                    label={title}
-                    accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                      row: title,
-                      mailbox: t('mailboxes.allMailboxes'),
-                    })}
-                    selected={view.unified === role}
-                    onPress={() => {
-                      onView({ unified: role });
-                    }}
-                  />
+                  <Fragment key={role}>
+                    <Item
+                      icon={icon}
+                      label={title}
+                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                        row: title,
+                        mailbox: t('mailboxes.allMailboxes'),
+                      })}
+                      selected={view.unified === role}
+                      onPress={() => {
+                        onView({ unified: role });
+                      }}
+                    />
+                    {role === 'SENT' && outbox.length > 0 ? (
+                      <Item
+                        icon="tray.and.arrow.up"
+                        label={t('outbox.heading')}
+                        selected={view.outbox === true}
+                        onPress={() => {
+                          onView({ outbox: true });
+                        }}
+                      />
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </>

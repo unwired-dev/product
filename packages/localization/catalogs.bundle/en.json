@@ -1317,6 +1317,11 @@
   },
   "outbox": {
     "heading": "Outbox",
+    "waiting_one": "{{count}} waiting",
+    "waiting_other": "{{count}} waiting",
+    "attention_one": "{{count}} needs attention",
+    "attention_other": "{{count}} need attention",
+    "summary": "{{waiting}} · {{attention}}",
     "rowLabel": "{{subject}}. {{recipients}}. {{status}}",
     "undo": "Undo",
     "edit": "Edit",
