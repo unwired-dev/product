@@ -227,6 +227,8 @@ export function NewLabel({
   const quiet = { backgroundColor: colors.fillQuiet };
   return (
     <Popover
+      // Each opening is its own popover, so the last one's close, arriving late, cannot close it.
+      key={opened}
       below
       title={t('gmailActions.labels')}
       shown={shown}

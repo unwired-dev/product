@@ -2932,7 +2932,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       // A slash nests the label in the one named before it.
       await fireEvent.changeText(
         labels.getByLabelText('Label name'),
-        'Travel/Lisbon',
+        '  Travel/Lisbon  ',
       );
       expect(
         labels.getByRole('button', {
@@ -2953,7 +2953,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       labels = within(window.getByTestId('new-label'));
       expect(labels.getByLabelText('Label name')).toHaveDisplayValue(
-        'Travel/Lisbon',
+        '  Travel/Lisbon  ',
       );
       await fireEvent.press(
         labels.getByRole('button', {
