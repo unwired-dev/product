@@ -3682,6 +3682,45 @@ final class InboxTests: XCTestCase {
     attachScreen("Settings", of: app, to: self)
   }
 
+  // #2441: New Label… after a Gmail reader's labels opens Labels, the iPhone sheet or the iPad
+  // labels' panel, captured empty and with a nested name for comparison with the I1 and P1 frames.
+  func testNewLabel() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 30))
+    rowan.tap()
+    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    // iPhone opens the labels from the Reply sheet; iPad from the toolbar's Labels.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 10))
+    }
+    app.buttons["Labels"].tap()
+    let newLabel = app.buttons["New Label…"]
+    XCTAssertTrue(newLabel.waitForExistence(timeout: 10))
+    newLabel.tap()
+    let name = app.textFields["Label name"]
+    XCTAssertTrue(name.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Travel"].firstMatch.waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["Apply"].isEnabled)
+    attachScreen("Labels", of: app, to: self)
+    type("Travel/Spain", into: name)
+    XCTAssertTrue(
+      app.buttons["Create “Spain” inside “Travel”, Created in Gmail, then applied"]
+        .waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Apply"].isEnabled)
+    attachScreen("Labels with a nested name", of: app, to: self)
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+  }
+
   private func inboxJourney(_ app: XCUIApplication) throws {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))

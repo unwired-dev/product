@@ -1133,7 +1133,8 @@ function GmailMessageActions({
   // iPhone moves through the shared picker, as Microsoft's folders always do.
   const picker = folders || compact;
   const labels = labelsToggle(panel, picker);
-  const newLabel = (
+  // Microsoft folders have no labels to create.
+  const newLabel = folders ? undefined : (
     <NewLabel
       open={labels.labeling}
       labels={state.labels}

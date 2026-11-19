@@ -529,7 +529,8 @@ has applies that label without creating one, as choosing a listed label does. A 
 label has in a different case creates nothing: an alert offers **Use “clients/acme”**, which
 applies the existing label, or **Edit Name**. When Gmail refuses the name or cannot be reached,
 an alert says the label could not be created, nothing is applied and the name stays to edit.
-**Cancel** changes nothing and is unavailable while Gmail creates the label, and labels already on
+**Cancel** changes nothing and is unavailable while Gmail creates the label; closing **Labels**
+another way meanwhile still creates and applies it, and still explains a refusal. Labels already on
 the Thread stay. Menu panels ease in from their
 toolbar and fade out on iPhone and iPad; with Reduce Motion
 they only fade. The Reply sheet and the Move picker are system presentations and move as iOS presents

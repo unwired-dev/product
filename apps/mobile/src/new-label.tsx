@@ -157,7 +157,7 @@ function LabelForm({
       setCreating(false);
     }
   }
-  // A creation that settles after the form closed explains nothing.
+  // Whether the form still shows when a creation settles.
   const shown = useRef(open);
   useLayoutEffect(() => {
     shown.current = open;
@@ -175,12 +175,15 @@ function LabelForm({
   const create = async () => {
     setCreating(true);
     const created = await onCreate(label.name);
-    if (!shown.current) {
-      return;
+    // Closing Labels while Gmail answers lets the label be created and applied, as on Mac, and a
+    // refusal is still explained.
+    if (shown.current) {
+      setCreating(false);
+      if (created) {
+        onClose();
+      }
     }
-    setCreating(false);
     if (created) {
-      onClose();
       return;
     }
     Alert.alert(
@@ -333,6 +336,7 @@ function LabelForm({
               backgroundColor: pressed
                 ? colors.accentSelectionSubtle
                 : colors.fillQuiet,
+              opacity: creating ? 0.4 : 1,
             },
           ]}>
           <Text style={[styles.buttonLabel, primary]}>

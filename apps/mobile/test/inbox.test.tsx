@@ -2216,12 +2216,18 @@ describe('connected Gmail Inbox', () => {
       from: 'Acme Studio <billing@example.invalid>',
       subject: 'Invoice 2026-114 for October',
     });
-    // Gmail answers once released, to show Labels while it creates.
-    const answers = Promise.withResolvers<undefined>();
+    // Gmail answers each label it creates once released, to show Labels while it creates.
+    const answers = [
+      Promise.withResolvers<undefined>(),
+      Promise.withResolvers<undefined>(),
+      Promise.withResolvers<undefined>(),
+    ];
+    const [created, refused, refusedClosed] = answers;
+    refused?.resolve(undefined);
     await renderConnected({
       ...gmail.native,
       gmailCreateLabel: async (name, owner) => {
-        await answers.promise;
+        await answers.shift()?.promise;
         return gmail.native.gmailCreateLabel(name, owner);
       },
     });
@@ -2263,7 +2269,7 @@ describe('connected Gmail Inbox', () => {
     // While Gmail creates the label, which is then applied, Labels cannot be cancelled.
     expect(labels.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     await act(async () => {
-      answers.resolve(undefined);
+      created?.resolve(undefined);
     });
     expect(screen.queryByTestId('new-label')).toBeNull();
     expect(screen.getByText('Labels: Clients/Acme')).toBeVisible();
@@ -2322,6 +2328,27 @@ describe('connected Gmail Inbox', () => {
     expect(gmail.labelsOf(invoice)).toStrictEqual(before);
     await fireEvent.press(labels.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByTestId('new-label')).toBeNull();
+
+    // Labels swiped away while Gmail answers still explains a refusal.
+    gmail.failCreateLabel({ status: 403 });
+    alert.mockClear();
+    labels = await openLabels();
+    await fireEvent.changeText(labels.getByLabelText('Label name'), 'Travel');
+    await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+    const sheet = screen
+      .getAllByTestId('bottom-sheet')
+      .find((shown) => within(shown).queryByTestId('new-label') !== null);
+    ok(sheet);
+    await fireEvent(sheet, 'accessibilityEscape');
+    expect(screen.queryByTestId('new-label')).toBeNull();
+    await act(async () => {
+      refusedClosed?.resolve(undefined);
+    });
+    expect(alert).toHaveBeenLastCalledWith(
+      '“Travel” could not be created in Gmail',
+      'Gmail may already have a label with this name, or it could not be reached. Try another name, or try again later.',
+    );
+    expect(gmail.labelsOf(invoice)).toStrictEqual(before);
   });
 
   it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {

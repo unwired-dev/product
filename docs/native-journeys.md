@@ -398,6 +398,17 @@ Inbox row does not, and a banner above the folders offers **Enter the Password�
 ([#2099](https://github.com/unwired-dev/product/issues/2099)). Each is captured with the
 appearance.
 
+## iPhone and iPad New Label journey
+
+`testNewLabel` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testNewLabel`. It connects the synthetic Gmail mailbox, opens a message and
+opens **New Label…** from its labels: from the Reply sheet's **Labels** on iPhone, from the
+toolbar's **Labels** on iPad ([#2441](https://github.com/unwired-dev/product/issues/2441)). It
+captures **Labels** empty, with **Apply** unavailable, and again with `Travel/Spain` typed and its
+**Create “Spain” inside “Travel”** row, each named with the appearance for comparison with the
+approved frames, then closes it with **Cancel**. Creating the label is covered by Jest; the
+synthetic Gmail layer does not create labels.
+
 ## iPhone and iPad Apple registration journey
 
 The Expo native journey for a `registration-apple` Release build signs in with
