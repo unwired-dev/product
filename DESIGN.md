@@ -490,7 +490,8 @@ styles) so the file stays editable.
   On the Mac it opens as a bottom-anchored overlay docked across the reading
   pane's full width, as the inline composer frame shows, at 70% of the available
   height, clamped from 420 to 720pt. On regular-width iPad a reply or forward
-  docks across the reading column's lower two thirds, and a new message opens as
+  docks across the reading column's lower two thirds, at most 720pt tall as the
+  Portrait Compose Inline frame draws it, and a new message opens as
   a card centred on the window, at most 874pt wide. Expand covers the app window on iPad and moves the Draft into
   its own New Message window on the Mac
   ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).

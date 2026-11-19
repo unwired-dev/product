@@ -99,6 +99,9 @@ const styles = StyleSheet.create({
 
 // The Compose frame's card at its widest, inset from a narrower window.
 const cardWidth = 874;
+// The Portrait Compose Inline frame's reply: two thirds of a taller window would cover more of
+// the message it answers.
+const dockedHeight = 720;
 
 // Every gate shows the Registration and remote content settings the host restores once here.
 if (!previewInbox) {
@@ -279,7 +282,7 @@ function floatingComposer({
         bottom: keyboard,
         height: Math.min(
           Math.max(0, available - top),
-          Math.max(420, available * 0.66),
+          Math.max(420, Math.min(dockedHeight, available * 0.66)),
         ),
         backgroundColor: colors.surfaceContent,
         borderColor: colors.separator,
