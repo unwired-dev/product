@@ -88,6 +88,9 @@ import {
   imageCharacter,
   imagesOf,
   editableLinkAt,
+  indentList,
+  isListKind,
+  listIndentAt,
   marksAt,
   clip,
   previewOf,
@@ -142,7 +145,10 @@ import {
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
-import type { GeneratePromptState } from './composer-controls.tsx';
+import type {
+  GeneratePromptState,
+  IndentDirection,
+} from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
@@ -3381,6 +3387,8 @@ function useBodyRecipients(
     },
     // A hardware keyboard's Up and Down Arrow move the highlight while two or more show.
     moving: suggestions.length > 1,
+    // Typed Return and Tab choose the highlighted suggestion while any shows.
+    choosing: suggestions.length > 0,
     // Up and Down move from the highlighted suggestion for the latest Draft and caret.
     move: (key: string, latest: Draft, at: Selection) => {
       const listed = candidates(latest, at) ?? [];
@@ -3547,6 +3555,11 @@ function BodyRecipientMenu({
     </View>
   );
 }
+
+// In a list, a hardware keyboard's Tab and Shift-Tab indent and outdent its items, unless Tab
+// chooses a Recipient Suggestion.
+const listTabs = (kind: BlockKind, choosing: boolean) =>
+  !choosing && isListKind(kind);
 
 function Editor({
   initial,
@@ -4147,6 +4160,20 @@ function Editor({
     selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
   };
+  const indent = (direction: IndentDirection) => {
+    if (sendingNow.current) {
+      return;
+    }
+    const at = selectionNow.current;
+    const latest = authored.current;
+    const result = indentList(latest.body, at, direction);
+    if (result.document === latest.body) {
+      return;
+    }
+    change({ ...latest, body: result.document });
+    selectionNow.current = result.selection ?? at;
+    setPlaced(result.selection);
+  };
   const editLink = (link: Link, text: string, href?: string) => {
     if (sendingNow.current) {
       return;
@@ -4437,6 +4464,7 @@ function Editor({
   const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
+  const indents = listIndentAt(draft.body, selection);
   const copiesShown = copiesShownOf(draft);
   // An edit in Cc or Bcc keeps both shown for the Draft, even once they are empty.
   const changeCopies = (next: Draft, word: boolean, field: string) => {
@@ -4574,8 +4602,10 @@ function Editor({
     <FormatBar
       active={active}
       kind={kind}
+      indents={indents}
       disabled={sending}
       onBlock={block}
+      onIndent={indent}
       onMark={format}
       style={parts.formatBar}>
       {(lists) => (
@@ -4860,6 +4890,10 @@ function Editor({
               onArrow={(key) => {
                 recipientMenu.move(key, authored.current, selectionNow.current);
               }}
+              tabs={listTabs(kind, recipientMenu.choosing)}
+              onTab={(shift) => {
+                indent(shift ? 'outdent' : 'indent');
+              }}
               onLayout={({ nativeEvent }) => {
                 setBodyTop(nativeEvent.layout.y);
               }}>
@@ -5093,6 +5127,8 @@ function Editor({
               travel(redo);
             }}
             onBlock={block}
+            indents={indents}
+            onIndent={indent}
             onMark={format}
             onLink={editLink}
             onClose={() => {

@@ -130,6 +130,36 @@ describe('building an outgoing message', () => {
     );
   });
 
+  it('nests indented list items inside the item before them, in HTML and plain text', async () => {
+    expect.hasAssertions();
+    const parsed = await PostalMime.parse(
+      assemble(
+        build(
+          draft({
+            body: [
+              { kind: 'numbered', spans: [{ text: 'Pilot' }] },
+              { kind: 'bulleted', spans: [{ text: 'Scope' }], indent: 1 },
+              { kind: 'numbered', spans: [{ text: 'Seats' }], indent: 2 },
+              { kind: 'numbered', spans: [{ text: 'Rooms' }], indent: 2 },
+              { kind: 'numbered', spans: [{ text: 'Venue' }] },
+              { kind: 'numbered', spans: [{ text: 'Dates' }], indent: 1 },
+              { kind: 'paragraph', spans: [{ text: 'Thanks' }] },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    expect(parsed.html).toBe(
+      '<!DOCTYPE html><html><body><ol><li>Pilot<ul><li>Scope<ol><li>Seats</li><li>Rooms</li></ol>' +
+        '</li></ul></li><li>Venue<ol><li>Dates</li></ol></li></ol><p>Thanks</p></body></html>',
+    );
+    // Each level counts on its own, across the items nested between its own.
+    expect(parsed.text).toBe(
+      '1. Pilot\n  - Scope\n    1. Seats\n    2. Rooms\n2. Venue\n  1. Dates\nThanks',
+    );
+  });
+
   it('sends the signature after the authored body and before the quoted correspondence', async () => {
     expect.hasAssertions();
     const parsed = await PostalMime.parse(

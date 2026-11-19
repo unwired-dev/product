@@ -395,6 +395,12 @@ const blockGroups = {
   lists: blockControls.slice(3, 5),
   text: blockControls.slice(5),
 };
+// Outdent and Indent, after the list buttons.
+export type IndentDirection = 'outdent' | 'indent';
+export const indentControls = [
+  ['outdent', 'decrease.indent', 'drafts.outdent'],
+  ['indent', 'increase.indent', 'drafts.indent'],
+] as const;
 
 // A pop-up button whose system menu opens on tap and lists its items.
 export function PopUp({
@@ -579,16 +585,21 @@ export function OverflowMenu({
 export function FormatBar({
   active,
   kind,
+  indents,
   disabled,
   onBlock,
+  onIndent,
   onMark,
   style,
   children,
 }: {
   readonly active: readonly Mark[];
   readonly kind: BlockKind;
+  // Outdent and Indent, after the list buttons, when the composer offers them.
+  readonly indents?: Readonly<Record<IndentDirection, boolean>>;
   readonly disabled: boolean;
   readonly onBlock: (kind: BlockKind) => void;
+  readonly onIndent?: (direction: IndentDirection) => void;
   readonly onMark: (mark: Mark) => void;
   readonly style?: StyleProp<ViewStyle>;
   readonly children: (lists: MenuSection['items'] | undefined) => ReactNode;
@@ -606,6 +617,18 @@ export function FormatBar({
       onBlock('numbered');
     },
   };
+  const indentItems =
+    onIndent === undefined
+      ? []
+      : indentControls.map(([direction, icon, name]) => ({
+          key: direction,
+          title: t(name),
+          symbol: icon,
+          disabled: disabled || indents?.[direction] !== true,
+          run: () => {
+            onIndent(direction);
+          },
+        }));
   return (
     <View
       accessibilityLabel={t('drafts.formatting')}
@@ -708,7 +731,22 @@ export function FormatBar({
               onBlock('bulleted');
             }}
           />
-          {narrow ? null : <ToolbarButton {...numbered} />}
+          {narrow ? null : (
+            <>
+              <ToolbarButton {...numbered} />
+              {indentItems.map((item) => (
+                <ToolbarButton
+                  key={item.key}
+                  disabled={item.disabled}
+                  icon={item.symbol}
+                  label={item.title}
+                  onPress={() => {
+                    item.run();
+                  }}
+                />
+              ))}
+            </>
+          )}
           {children(
             narrow
               ? [
@@ -719,6 +757,7 @@ export function FormatBar({
                     checked: numbered.selected,
                     run: numbered.onPress,
                   },
+                  ...indentItems,
                 ]
               : undefined,
           )}
@@ -780,6 +819,8 @@ export function FormatPanel({
   onUndo,
   onRedo,
   onBlock,
+  indents,
+  onIndent,
   onMark,
   onLink,
   onClose,
@@ -797,6 +838,9 @@ export function FormatPanel({
   readonly onUndo: () => void;
   readonly onRedo: () => void;
   readonly onBlock: (kind: BlockKind) => void;
+  // Outdent and Indent, beside the list buttons, when the composer offers them.
+  readonly indents?: Readonly<Record<IndentDirection, boolean>>;
+  readonly onIndent?: (direction: IndentDirection) => void;
   readonly onMark: (mark: Mark) => void;
   readonly onLink: (link: Link, text: string, href?: string) => void;
   // Closes the panel and resumes typing; `onHide` only closes it.
@@ -819,6 +863,33 @@ export function FormatPanel({
   }, [linking, onHide, open]);
   const insets = useSafeAreaInsets();
   const rowFill = { backgroundColor: colors.fillQuiet };
+  const blockChoice = ([
+    value,
+    glyph,
+    name,
+  ]: (typeof blockControls)[number]) => (
+    <FormatChoice
+      key={value}
+      disabled={disabled}
+      name={t(name)}
+      selected={kind === value}
+      onPress={() => {
+        onBlock(value);
+      }}>
+      {(color) =>
+        value === 'bulleted' || value === 'numbered' ? (
+          <SFSymbol
+            name={value === 'bulleted' ? 'list.bullet' : 'list.number'}
+            // The frame draws the bulleted list 16×11pt.
+            size={16}
+            color={color}
+          />
+        ) : (
+          <Text style={[styles.formatGlyph, { color }]}>{glyph}</Text>
+        )
+      }
+    </FormatChoice>
+  );
   return (
     <GlassPanel
       open={open}
@@ -926,42 +997,46 @@ export function FormatPanel({
             </View>
           ))}
         </View>
+        {/* Lists follow the marks. Outdent and Indent, when offered, sit beside them and move
+            quotes and code blocks to the next row. */}
         <View style={styles.formatRow}>
-          {/* Lists, quotes and code blocks follow the three headings. */}
-          {Object.entries(blockGroups).map(([key, group]) => (
-            <View
-              key={key}
-              style={[styles.formatGroup, rowFill]}>
-              {group.map(([value, glyph, name]) => (
+          <View style={[styles.formatGroup, rowFill]}>
+            {blockGroups.lists.map(blockChoice)}
+          </View>
+          {onIndent === undefined ? (
+            <View style={[styles.formatGroup, rowFill]}>
+              {blockGroups.text.map(blockChoice)}
+            </View>
+          ) : (
+            <View style={[styles.formatGroup, rowFill]}>
+              {indentControls.map(([direction, icon, name]) => (
                 <FormatChoice
-                  key={value}
-                  disabled={disabled}
+                  key={direction}
+                  disabled={disabled || indents?.[direction] !== true}
                   name={t(name)}
-                  selected={kind === value}
+                  selected={false}
                   onPress={() => {
-                    onBlock(value);
+                    onIndent(direction);
                   }}>
-                  {(color) =>
-                    value === 'bulleted' || value === 'numbered' ? (
-                      <SFSymbol
-                        name={
-                          value === 'bulleted' ? 'list.bullet' : 'list.number'
-                        }
-                        // The frame draws the bulleted list 16×11pt.
-                        size={16}
-                        color={color}
-                      />
-                    ) : (
-                      <Text style={[styles.formatGlyph, { color }]}>
-                        {glyph}
-                      </Text>
-                    )
-                  }
+                  {(color) => (
+                    <SFSymbol
+                      name={icon}
+                      size={16}
+                      color={color}
+                    />
+                  )}
                 </FormatChoice>
               ))}
             </View>
-          ))}
+          )}
         </View>
+        {onIndent === undefined ? null : (
+          <View style={styles.formatRow}>
+            <View style={[styles.formatGroup, rowFill]}>
+              {blockGroups.text.map(blockChoice)}
+            </View>
+          </View>
+        )}
       </View>
     </GlassPanel>
   );

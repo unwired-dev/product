@@ -2,7 +2,12 @@ import type { Draft, Recipient } from './draft-model.ts';
 import type { Asset, Block, Mark, Table } from './semantic-document.ts';
 
 import { assetsOf } from './draft-model.ts';
-import { imagesOf } from './semantic-document.ts';
+import {
+  emptyDocument,
+  imagesOf,
+  isListKind,
+  listNumbersOf,
+} from './semantic-document.ts';
 
 // An outgoing RFC 5322 message as native code sends it: literal ASCII text, and Draft Assets whose
 // verified bytes native code inserts as base64 lines, so an asset's bytes never cross the bridge.
@@ -256,8 +261,8 @@ const htmlBlock = ({ kind, spans, align }: Block) => {
   if (heading !== undefined) {
     return `<${heading}${style}>${inner}</${heading}>`;
   }
-  if (kind === 'bulleted' || kind === 'numbered') {
-    return `<li${style}>${inner}</li>`;
+  if (isListKind(kind)) {
+    return `<li${style}>${inner}`;
   }
   return kind === 'code'
     ? inner
@@ -265,12 +270,21 @@ const htmlBlock = ({ kind, spans, align }: Block) => {
 };
 const spanAttribute = (name: string, span: number | undefined) =>
   span === undefined ? '' : ` ${name}="${span}"`;
-// Consecutive list items, quotes and code lines share one container.
+// Consecutive quotes and code lines share one container, and consecutive list items one list,
+// each nested item inside the item before it.
 // fallow-ignore-next-line complexity -- One pass opens and closes each run of blocks in reading order.
 export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
   let html = '';
+  // The open lists, outermost first; each holds an item still open.
+  const lists: string[] = [];
+  const closeLists = (level: number) => {
+    while (lists.length > level) {
+      html += `</li></${lists.pop()}>`;
+    }
+  };
   for (const [index, block] of document.entries()) {
     if (block.kind === 'table') {
+      closeLists(0);
       html += `<table><tbody>${block.rows
         .map(
           (cells) =>
@@ -282,7 +296,20 @@ export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
               .join('')}</tr>`,
         )
         .join('')}</tbody></table>`;
+    } else if (isListKind(block.kind)) {
+      const level = block.indent ?? 0;
+      const list = containers[block.kind] ?? 'ul';
+      closeLists(lists[level] === list ? level + 1 : level);
+      if (lists.length === level + 1) {
+        html += '</li>';
+      }
+      while (lists.length <= level) {
+        html += `<${list}>`;
+        lists.push(list);
+      }
+      html += htmlBlock(block);
     } else {
+      closeLists(0);
       const container = containers[block.kind];
       const previous = document[index - 1]?.kind;
       const opens = container !== undefined && previous !== block.kind;
@@ -297,22 +324,25 @@ export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
       }
     }
   }
+  closeLists(0);
   return html;
 };
 
 export const plainOf = (document: ReadonlyArray<Block | Table>): string => {
-  let number = 0;
+  const numbers = listNumbersOf(
+    document.map((block) =>
+      block.kind === 'table' ? emptyDocument[0] : block,
+    ),
+  );
   return document
-    .map((block) => {
+    .map((block, index) => {
       // A table writes each row on its own line with a tab between cells, as a browser copies its text.
       if (block.kind === 'table') {
-        number = 0;
         return block.rows
           .map((cells) => cells.map(({ blocks }) => plainOf(blocks)).join('\t'))
           .join(crlf);
       }
-      const { kind, spans } = block;
-      number = kind === 'numbered' ? number + 1 : 0;
+      const { kind, spans, indent = 0 } = block;
       // Linked text is followed by its destination, unless it already reads as it.
       const text = linkRuns(spans)
         .map(({ link, spans: run }) => {
@@ -326,11 +356,12 @@ export const plainOf = (document: ReadonlyArray<Block | Table>): string => {
             : `${shown} <${link}>`;
         })
         .join('');
+      // Two spaces before an item for each level it nests.
       if (kind === 'bulleted') {
-        return `- ${text}`;
+        return `${'  '.repeat(indent)}- ${text}`;
       }
       if (kind === 'numbered') {
-        return `${number}. ${text}`;
+        return `${'  '.repeat(indent)}${numbers[index] ?? 1}. ${text}`;
       }
       return kind === 'quote' ? `> ${text}` : text;
     })

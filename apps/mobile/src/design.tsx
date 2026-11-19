@@ -469,27 +469,38 @@ export function ContextMenu({
 const NativeArrowKeys = requireNativeComponent<
   ViewProps & {
     readonly enabled: boolean;
+    readonly tabs: boolean;
     readonly onArrow: (event: NativeSyntheticEvent<{ key: string }>) => void;
+    readonly onTab: (event: NativeSyntheticEvent<{ shift: boolean }>) => void;
   }
 >('UnwiredArrowKeys');
 
-// A hardware keyboard's Up and Down Arrow, as `ArrowUp` and `ArrowDown`, while `enabled`: taken
-// ahead of a text field among the children, which would otherwise move its caret.
+// A hardware keyboard's Up and Down Arrow, as `ArrowUp` and `ArrowDown`, while `enabled`, and its
+// Tab and Shift-Tab while `tabs`: taken ahead of a text field among the children, which would
+// otherwise move its caret or type a tab.
 export function ArrowKeys({
   enabled,
   onArrow,
+  tabs = false,
+  onTab,
   children,
   ...props
 }: ViewProps & {
   readonly enabled: boolean;
   readonly onArrow: (key: string) => void;
+  readonly tabs?: boolean;
+  readonly onTab?: (shift: boolean) => void;
 }) {
   return (
     <NativeArrowKeys
       {...props}
       enabled={enabled}
+      tabs={tabs && onTab !== undefined}
       onArrow={({ nativeEvent }) => {
         onArrow(nativeEvent.key);
+      }}
+      onTab={({ nativeEvent }) => {
+        onTab?.(nativeEvent.shift);
       }}>
       {/* Fabric would flatten a layout-only child the legacy view takes as its own. */}
       <View

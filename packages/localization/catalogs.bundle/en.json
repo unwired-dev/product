@@ -1246,6 +1246,8 @@
     "formatting": "Formatting",
     "moreFormatting": "More Formatting",
     "moreLists": "More Lists and Links",
+    "outdent": "Outdent",
+    "indent": "Indent",
     "moreFiles": "More Files and Templates",
     "moreFileActions": "More Files",
     "body": "Message body",

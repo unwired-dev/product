@@ -3772,6 +3772,99 @@ describe('composing Drafts', () => {
     expect(screen.getByRole('button', { name: 'Bold' })).toBeSelected();
   });
 
+  // iPhone's Format panel and iPad's format bar pair Outdent and Indent with the list buttons; a
+  // hardware keyboard's Tab and Shift-Tab do the same inside a list.
+  it.each(['compact', 'regular'] as const)(
+    'indents and outdents list items within three levels, each as one Undo step, on %s',
+    async (size) => {
+      expect.hasAssertions();
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      const drafts = createDrafts(storage.native, registration);
+      await drafts.load();
+      const created = await drafts.create({
+        id: alex,
+        address: 'alex@example.invalid',
+      });
+      ok(created);
+      await render(
+        <ComposerLayoutContext value={{ size, avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            registration={registration}
+            initialDraft={created}
+          />
+        </ComposerLayoutContext>,
+      );
+      const body = await screen.findByLabelText('Message body');
+      await fireEvent.changeText(body, 'Plan\nSeats');
+      const select = async (start: number, end = start) => {
+        await fireEvent(body, 'selectionChange', {
+          nativeEvent: { selection: { start, end } },
+        });
+      };
+      const tap = async (name: string) => {
+        await act(async () => {
+          await fireEvent.press(screen.getByRole('button', { name }));
+        });
+      };
+      const level = (name: string) => screen.getByRole('button', { name });
+      await openFormat();
+      // Outside a list neither applies, and Tab types as usual.
+      await select(6);
+      expect(level('Indent')).toBeDisabled();
+      expect(level('Outdent')).toBeDisabled();
+      expect(arrowKeysAround(body).props).toHaveProperty('tabs', false);
+      await select(0, 10);
+      await tap('Bulleted List');
+      expect(shownLines().map(({ marker }) => marker)).toStrictEqual([
+        '• ',
+        '• ',
+      ]);
+      // At the first level only Indent applies.
+      await select(9);
+      expect(level('Outdent')).toBeDisabled();
+      expect(level('Indent')).toBeEnabled();
+      expect(arrowKeysAround(body).props).toHaveProperty('tabs', true);
+      const nesting = '\u2003\u2002';
+      await tap('Indent');
+      expect(shownLines()[1]).toStrictEqual({
+        marker: `${nesting}• `,
+        spans: [{ text: 'Seats' }],
+      });
+      expect(level('Outdent')).toBeEnabled();
+      // Tab indents to the third level, where Indent switches off.
+      await act(async () => {
+        arrowKeysAround(body).props.onTab({ nativeEvent: { shift: false } });
+      });
+      expect(shownLines()[1]?.marker).toBe(`${nesting}${nesting}• `);
+      expect(level('Indent')).toBeDisabled();
+      await act(async () => {
+        arrowKeysAround(body).props.onTab({ nativeEvent: { shift: false } });
+      });
+      expect(shownLines()[1]?.marker).toBe(`${nesting}${nesting}• `);
+      // Each change is one Undo step, and Shift-Tab outdents.
+      await tap('Undo');
+      expect(shownLines()[1]?.marker).toBe(`${nesting}• `);
+      await act(async () => {
+        arrowKeysAround(body).props.onTab({ nativeEvent: { shift: true } });
+      });
+      expect(shownLines()[1]?.marker).toBe('• ');
+      await tap('Undo');
+      await tap('Indent');
+      expect(shownLines()[1]?.marker).toBe(`${nesting}${nesting}• `);
+      // The Draft keeps the levels.
+      await closeFormat();
+      await saveDraft();
+      expect(
+        draftsOf(drafts.getSnapshot()).find(({ id }) => id === created)?.body,
+      ).toStrictEqual([
+        { kind: 'bulleted', spans: [{ text: 'Plan' }] },
+        { kind: 'bulleted', spans: [{ text: 'Seats' }], indent: 2 },
+      ]);
+    },
+  );
+
   // iPhone's submenu carries the heading as its title; iPad's menu starts with it.
   it.each([
     ['compact', []],
@@ -4249,6 +4342,8 @@ describe('composing Drafts', () => {
     expect(menuGroups('More Lists and Links')).toStrictEqual([
       [
         ['Numbered List', 'list.number', undefined],
+        ['Outdent', 'decrease.indent', true],
+        ['Indent', 'increase.indent', true],
         ['Edit Link', 'link', true],
       ],
       [
