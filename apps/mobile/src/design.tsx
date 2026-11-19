@@ -356,6 +356,23 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     borderCurve: 'continuous',
   },
+  // The Authorization Needed banner: 16 by 12pt inside, its message row 10pt above its action.
+  signInNotice: {
+    gap: 10,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  signInMessage: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  signInText: { ...textStyles.subheadline, fontWeight: '600' },
+  signInButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 22,
+  },
 });
 
 // UIKit draws SF Symbols larger than the iPad frames' 18.4pt artwork; this size matches its ink.
@@ -820,6 +837,62 @@ export function Notice({
       {children === undefined ? null : (
         <View style={styles.noticeActions}>{children}</View>
       )}
+    </View>
+  );
+}
+
+// The iPhone frames' Authorization Needed banner: its message in emphasized Subheadline beside the
+// warning symbol, and the action that fixes it, such as Sign In…, in a content-coloured pill
+// beneath. `accessibilityLabel` names the action's mailbox where several banners can show; `style`
+// places it.
+export function SignInNotice({
+  message,
+  action,
+  accessibilityLabel,
+  onPress,
+  style,
+}: {
+  readonly message: string;
+  readonly action: string;
+  readonly accessibilityLabel?: string;
+  readonly onPress: () => void;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
+  const colors = usePalette();
+  return (
+    <View
+      style={[
+        styles.signInNotice,
+        { backgroundColor: colors.fillQuiet },
+        style,
+      ]}>
+      <View style={styles.signInMessage}>
+        <SFSymbol
+          name="person.crop.circle.badge.exclamationmark"
+          color={colors.statusWarning}
+          size={16}
+        />
+        <Text
+          style={[styles.signInText, { flex: 1, color: colors.textPrimary }]}>
+          {message}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.signInButton,
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : colors.surfaceContent,
+          },
+        ]}>
+        <Text style={[styles.signInText, { color: colors.accentInk }]}>
+          {action}
+        </Text>
+      </Pressable>
     </View>
   );
 }

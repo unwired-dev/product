@@ -3232,11 +3232,20 @@ describe('product registration', () => {
       ]);
     });
     await search('nothing like this');
-    await expect(
-      screen.findByText(
-        'No mail saved on this device matches “nothing like this”.',
+    await expect(screen.findByText('No Results')).resolves.toBeVisible();
+    expect(
+      screen.getByText(
+        'No saved mail in All Inboxes matches “nothing like this”. Check the spelling or search for fewer words.',
       ),
-    ).resolves.toBeVisible();
+    ).toBeVisible();
+    expect(screen.getByText('No results · All Mailboxes')).toBeVisible();
+    // VoiceOver hears the outcome once, not again for each query that keeps it.
+    await search('nothing like this either');
+    expect(
+      jest
+        .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+        .mock.calls.filter(([words]) => words === 'No Results'),
+    ).toStrictEqual([['No Results', { queue: true }]]);
     // Searching asks Gmail nothing.
     expect(gmail.alex.requests.length + gmail.other.requests.length).toBe(
       requests,
@@ -3566,6 +3575,8 @@ describe('product registration', () => {
     await expect(
       screen.findByLabelText('Searching mail servers'),
     ).resolves.toBeVisible();
+    // Skeleton rows hold the answer's place while the subtitle names what is searched.
+    expect(screen.getByText('Searching All Mailboxes…')).toBeVisible();
     await search('plans');
     await act(async () => {
       release();

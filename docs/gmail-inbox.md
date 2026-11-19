@@ -74,8 +74,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   only that mailbox; **All Inboxes** returns. Each window chooses on its own. A
   removed mailbox's view falls back to **All Inboxes**. A chosen mailbox whose
   provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
-  its heading's subtitle shows the same status as its sidebar row (on Mac and iPad, as the
-  warning beside the mailbox's sidebar header, whose Inbox row keeps its action), and
+  its heading's subtitle shows the same status as the warning beside the mailbox's sidebar
+  header, its Inbox row keeps its unread count and action, and
   **New Message** stays unavailable until access is allowed again.
 - **Labels and other views.** Under its Inbox, each Gmail mailbox's sidebar section
   lists the mailbox's own labels by name, then **All Mail**, **Spam** and **Trash**
@@ -187,7 +187,18 @@ the newest 200 and the older ones scrolling has revealed from
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
   change, when a result is opened or the reader closes, and whenever this device saves or
   prunes a body while the results are shown, such as recent-body prefetch finishing. When nothing matches, the
-  list says **No mail saved on this device matches “…”**.
+  list on iPhone and iPad says **No mail saved on this device matches “…”**. On Mac, when neither saved mail nor
+  an answer from the mail servers matches, the list shows **No Results** with a magnifying glass and the line
+  **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, VoiceOver hears
+  **No Results** once as it appears, and the subtitle reads **No results · [scope]**: the folder
+  searched in one mailbox, or else the mailbox, or **All Mailboxes** for several, which the mail
+  servers search
+  ([#2346](https://github.com/unwired-dev/product/issues/2346)). A mail server search that fails, leaves
+  IMAP folders out or has another page replaces No Results with its failure and **Try Again**, its
+  note or **More from Mail Servers**, and the subtitle then names only the scope, or adds **Offline**
+  when a mail server could not be reached. The Inbox, a folder or a Unified Mailbox shows No
+  Results only once each of its mailboxes has opened and its first listing has arrived (for an Inbox, once its first synchronization has completed or its cache lists mail), and not while it has listed nothing
+  because that first listing failed.
 - **Responsiveness.** Typing never waits for the list. Each saved-body answer belongs
   to the query, view and mailboxes it was asked for; a slower answer for an earlier
   search is discarded rather than shown.
@@ -235,6 +246,9 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   as they were. Each mailbox returns 20 results per page, newest first across
   mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
   When nothing matches, the section says **Mail servers found no mail matching “…”**.
+  On Mac, while the mail servers are searched, five skeleton rows hold their answer's place and the
+  subtitle reads **Searching [mailbox]…**, or **Searching All Mailboxes…** for several mailboxes, unless
+  Syncing or Offline takes precedence.
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
@@ -280,12 +294,16 @@ out. With nothing unread, iPhone's subtitle says **All read**, and iPad and Mac 
 count in place of the mailboxes and the time, such as **12 unread · Gmail needs sign-in**
 ([#2243](https://github.com/unwired-dev/product/issues/2243)); the mailbox's sidebar header
 shows a warning triangle that VoiceOver reads with the header, and its Inbox row keeps its
-unread count. On iPhone the problem replaces the Inbox row's count. On iPhone and iPad, while
+unread count. iPhone's Mailboxes shows the same triangle beside the connection's header,
+and while the connection needs sign-in again, a banner above its folders says so and offers
+**Sign In…** ([#2099](https://github.com/unwired-dev/product/issues/2099)). On iPhone and iPad, while
 [search](#searching-saved-mail) is open the heading gives way to its scope choice,
 and **Top Results** reports the result count; each mailbox an online search could
 not reach says so under **From mail servers**. On Mac, search changes the title to
 Search and the subtitle to the displayed saved and online result count, with Syncing
-and Offline still taking precedence. Opening a message shows its body, as described in
+and Offline still taking precedence; when nothing matches, and while the mail servers are
+searched, the subtitle follows [Searching saved mail](#searching-saved-mail) and
+[Searching Gmail online](#searching-gmail-online). Opening a message shows its body, as described in
 [Reading messages](#reading-messages). The detail view also shows the message's
 own labels and the [organizing actions](#organizing-mail).
 

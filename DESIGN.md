@@ -855,8 +855,8 @@ app follows under the issue named:
   #2108.
 - **Copy:** one name per action, Spam and Thread wait for #2083. The iPhone
   heading's "All read" waits for #2068.
-- **Search states:** the No Results empty state and the Searching indicator
-  wait for #2090.
+- **Search states:** the Mac shows the No Results empty state and the Searching
+  rows (#2346); iPhone and iPad wait for #2090.
 - **Reader loading:** the reader's states for a message that is loading, failed
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
@@ -868,8 +868,6 @@ app follows under the issue named:
   Results, above the date sections, which waits for #2372.
 - **German strings:** no check lays the screens out at German lengths until
   #2096.
-- **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
-  failing Mailbox Connection wait for #2099.
 - **iPhone alert and Settings failure:** the two-sentence Trusted Device
   removal message and the empty state of a Settings page that failed to load
   wait for #2100.

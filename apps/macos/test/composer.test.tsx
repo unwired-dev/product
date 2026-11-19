@@ -1627,9 +1627,7 @@ describe('composing Drafts', () => {
     };
     await search('no matching mail');
     await expect(
-      screen.findByText(
-        'No mail saved on this device matches “no matching mail”.',
-      ),
+      screen.findByText(/^No saved mail in .+ matches “no matching mail”\./u),
     ).resolves.toBeOnTheScreen();
     expect(
       screen.queryByRole('button', { name: draftName }),

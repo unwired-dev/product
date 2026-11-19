@@ -1260,7 +1260,9 @@ describe('composing Drafts', () => {
           to: [{ address: 'sam@example.invalid' }],
         });
         try {
-          expect(isScrollable(screen.getByText('Sign In…'))).toBe(scrolls);
+          expect(
+            isScrollable(screen.getByRole('button', { name: 'Sign In…' })),
+          ).toBe(scrolls);
         } finally {
           outbox.dispose();
         }
