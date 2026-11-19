@@ -153,13 +153,12 @@ card lists **Invited** as **You** and **{address} · Receive only**, and says **
 mailbox can’t send** with **{address} has no outgoing server, so Unwired can’t
 respond from it. It won’t use another address.** It offers no response;
 **Mailbox Settings…** opens Settings at the mailboxes, where entering the password
-again sets up sending. An IMAP mailbox that can send still shows no card. Nothing
-is sent.
+again sets up sending. Nothing is sent.
 
 [#2439](https://github.com/unwired-dev/product/issues/2439) adds the shared
-(`mail-core`) path that the card for a sending IMAP mailbox will use; the Mac,
-iPhone and iPad card and Outbox row follow in later slices of #1279, so nothing
-shows it yet.
+(`mail-core`) path that the card for a sending IMAP mailbox uses, and
+[#2446](https://github.com/unwired-dev/product/issues/2446) shows it on the Mac;
+the iPhone and iPad card and Outbox row follow in a later slice of #1279.
 
 - A choice builds the same `METHOD:REPLY` reply as for Gmail, with a Message-ID,
   and admits it to the [Outbox](outbox.md) from the invited mailbox's own
@@ -181,6 +180,23 @@ shows it yet.
 - Each Outbox message carries its invitation's revision, choice, received message
   and title, which the Outbox row needs.
 
+On the Mac, the card of a sending IMAP mailbox offers **Accept**, **Maybe** and
+**Decline** and names the mail server: **iCloud’s mail server** or **Fastmail’s
+mail server** for a reviewed provider, **The mail server** for any other.
+
+- While the response waits out the Undo Send Window the card reads **In the
+  Outbox** · _Your {choice} response is queued. Undo is available._, with
+  **Undo** and **View in Outbox**; while it is sending the status shows progress
+  and **View in Outbox** stays. The choices are unavailable meanwhile.
+- **Accepted** (or the other choice) names the mail server's acceptance time and
+  checks the chosen button; another choice changes it. **Not sent** says the mail
+  server refused the response and leaves every choice. **Delivery unknown** offers
+  no choice, only **View in Outbox**.
+- **View in Outbox** shows the window's Outbox, where the response has its own row:
+  the meeting's title, **Invitation response · {choice}**, its status and time,
+  with **Undo** while it waits, **Check Again** when delivery is unknown and
+  **Open Invitation**, which opens the invitation message. It has no **Edit**.
+
 ## Limitations
 
 - Bodies cached before this change open without the card until the cache is
@@ -190,7 +206,9 @@ shows it yet.
   grant still asks for sign-in. A storage lock, removed mailbox or stale mailbox
   generation keeps that body unavailable.
 - The card does not show the organizer's own time zone, and the chosen button
-  does not show a spinner while sending; the status row does.
+  does not show a spinner while sending, nor stand out while an IMAP response
+  waits in the Outbox; the status row does. The Mac card's buttons are AppKit push
+  buttons, which hold no spinner.
 
 ## iPhone and iPad
 
@@ -218,10 +236,13 @@ shows it yet.
   Undo, the Sent copy and the record after relaunch, a refusal replaced by the
   next choice, an unconfirmed handoff confirmed from Sent, and mailboxes that
   cannot send.
+- `apps/macos/test/imap-invitation.test.tsx` drives the Mac card and Outbox row
+  for a sending iCloud Mail mailbox through the synthetic IMAP and SMTP servers:
+  Undo and **View in Outbox** during the window, an accepted, a refused and an
+  unconfirmed response, and each row's actions with **Open Invitation**.
 - `apps/macos/test/invitation.test.tsx` and `apps/mobile/test/invitation.test.tsx`
   render each reader with a synthetic Gmail mailbox, and an IMAP cancellation and an
-  invitation for a receive-only and a sending IMAP mailbox with a synthetic IMAP
-  server; they are component tests, not native evidence.
+  invitation for a receive-only IMAP mailbox with a synthetic IMAP server; they are component tests, not native evidence.
 - The iPhone and iPad `registration-invitation`
   [Mock Mail journey](mock-mail-sessions.md) opens a Gmail invitation and accepts
   it, keeping captures of the card before and after. It also captures an invitation

@@ -14,6 +14,7 @@ import type { InvitationResponse } from './mailbox-document.ts';
 import type { BodyDocument } from './message-body.ts';
 import type { Outbox, OutboxSnapshotEntry } from './outbox.ts';
 
+import { imapPresetOf } from './imap-setup.ts';
 import { listedMessage } from './inbox-store.ts';
 import { boundaryOf, outgoingMessage } from './outgoing-message.ts';
 
@@ -1703,6 +1704,8 @@ type StatusContext = Readonly<{
   scope?: string | undefined;
   // The person's response to an earlier revision at another time, which an unanswered one names.
   earlier?: InvitationChoice | undefined;
+  // An IMAP mailbox's mail server, as a sentence opens with it; its responses go through the Outbox.
+  server?: string | undefined;
 }>;
 
 type Kind = ResponseState['kind'];
@@ -1764,33 +1767,52 @@ const statuses: {
       address,
     }),
   }),
-  sending: (state, { t, address }) => ({
+  sending: (state, { t, address, server }) => ({
     busy: true,
-    title: t('invitation.sending'),
-    detail: t('invitation.sendingDetail', {
-      choice: choiceOf(t, state),
-      address,
-    }),
+    ...(server === undefined
+      ? {
+          title: t('invitation.sending'),
+          detail: t('invitation.sendingDetail', {
+            choice: choiceOf(t, state),
+            address,
+          }),
+        }
+      : {
+          title: t('invitation.inOutbox'),
+          detail: t('invitation.sendingDetail_imap', {
+            choice: choiceOf(t, state),
+            address,
+          }),
+        }),
   }),
-  sent: (state, { t, name, provider, time }) => ({
+  sent: (state, { t, name, provider, time, server }) => ({
     icon: 'checkmark.circle.fill',
     tone: 'accentInk',
     title: t(`invitation.${state.choice}`),
-    detail: t('invitation.sentDetail', {
-      provider,
-      name,
-      time: time.format(state.at),
-    }),
+    detail:
+      server === undefined
+        ? t('invitation.sentDetail', {
+            provider,
+            name,
+            time: time.format(state.at),
+          })
+        : t('invitation.sentDetail_imap', {
+            server,
+            time: time.format(state.at),
+          }),
   }),
-  refused: (state, { t, name, provider }) => ({
+  refused: (state, { t, name, provider, server }) => ({
     icon: 'exclamationmark.triangle.fill',
     tone: 'statusDestructive',
     title: t('invitation.refused'),
-    detail: t('invitation.refusedDetail', {
-      provider,
-      choice: choiceOf(t, state),
-      name,
-    }),
+    detail:
+      server === undefined
+        ? t('invitation.refusedDetail', {
+            provider,
+            choice: choiceOf(t, state),
+            name,
+          })
+        : t('invitation.refusedDetail_imap', { server }),
   }),
   removed: (_, { t, address }) => ({
     icon: 'exclamationmark.triangle.fill',
@@ -1798,18 +1820,24 @@ const statuses: {
     title: t('invitation.refused'),
     detail: t('invitation.removedDetail', { address }),
   }),
-  unknown: (state, { t, provider }) => ({
+  unknown: (state, { t, provider, server }) => ({
     icon: 'exclamationmark.triangle.fill',
     tone: 'statusWarning',
     title: t('invitation.unknown'),
-    detail: t('invitation.unknownDetail', {
-      provider,
-      choice: choiceOf(t, state),
-    }),
+    detail:
+      server === undefined
+        ? t('invitation.unknownDetail', {
+            provider,
+            choice: choiceOf(t, state),
+          })
+        : t('invitation.unknownDetail_imap', { server }),
   }),
-  checking: (state, { t, provider }) => ({
+  checking: (state, { t, provider, server }) => ({
     busy: true,
-    title: t('invitation.checking', { provider }),
+    title:
+      server === undefined
+        ? t('invitation.checking', { provider })
+        : t('invitation.checking_imap'),
     detail: t('invitation.checkingDetail', { choice: choiceOf(t, state) }),
   }),
   offline: (_, { t }) => ({
@@ -1823,6 +1851,26 @@ const statuses: {
     title: t('invitation.authentication', { provider }),
     detail: t('invitation.authenticationDetail', { address }),
   }),
+};
+
+// How an IMAP mailbox's invitation card names its provider and its mail server: a reviewed provider
+// by its own name, any other server plainly.
+export const imapServer = (
+  t: Translate,
+  endpoint: Readonly<{ host: string; port: number }> | undefined,
+) => {
+  const preset = endpoint === undefined ? 'other' : imapPresetOf(endpoint);
+  if (preset === 'other') {
+    return {
+      provider: t('mailProviders.imap'),
+      server: t('invitation.mailServer'),
+    };
+  }
+  const provider = t(`invitation.providers.${preset}`);
+  return {
+    provider,
+    server: t('invitation.providerMailServer', { provider }),
+  };
 };
 
 export const invitationStatus = <K extends Kind>(
@@ -1842,6 +1890,7 @@ export const invitationResponding = (
     provider,
     others,
     earlier,
+    server,
   }: Readonly<{
     invitation: Invitation;
     state: ResponseState;
@@ -1851,6 +1900,8 @@ export const invitationResponding = (
     // How many of the Profile's other addresses the invitation also names.
     others: number;
     earlier: EarlierResponse | undefined;
+    // An IMAP mailbox's mail server, from `imapServer`.
+    server?: string | undefined;
   }>,
 ) => {
   const blocked =
@@ -1872,6 +1923,7 @@ export const invitationResponding = (
         scope: invitationScope(t, formats, invitation.details),
         alsoInvited: others,
         earlier: earlier?.choice,
+        server,
       },
     ),
   };

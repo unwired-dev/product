@@ -1424,10 +1424,21 @@ export function Inbox({
           ListFooterComponentStyle={styles.listFooter}
           renderItem={({ item, section, index }) => {
             if ('outbox' in item) {
+              const { draft, invitation } = item.outbox;
               return (
                 <OutboxRow
                   actions={outboxActions.actions}
                   entry={item.outbox}
+                  onOpenInvitation={
+                    invitation === undefined
+                      ? undefined
+                      : () => {
+                          void select({
+                            mailbox: draft.connection,
+                            id: invitation.message,
+                          });
+                        }
+                  }
                 />
               );
             }

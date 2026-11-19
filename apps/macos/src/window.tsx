@@ -44,7 +44,7 @@ import { FolderChoiceSheet } from './folder-choice.tsx';
 import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
 import { listWidth } from './inbox-styles.ts';
 import { Inbox } from './inbox.tsx';
-import { OpenMessageContext } from './invitation.tsx';
+import { OpenMessageContext, ShowOutboxContext } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import {
   InboxProvider,
@@ -453,13 +453,18 @@ function WindowContents({
                               setSelected({ mailbox: selected.mailbox, id });
                             }
                           }}>
-                          <MessageDetail
-                            id={selected?.id}
-                            mailbox={selected?.mailbox}
-                            folder={selected?.folder}
-                            onClose={close}
-                            onCompose={compose}
-                          />
+                          <ShowOutboxContext
+                            value={() => {
+                              setView({ outbox: true });
+                            }}>
+                            <MessageDetail
+                              id={selected?.id}
+                              mailbox={selected?.mailbox}
+                              folder={selected?.folder}
+                              onClose={close}
+                              onCompose={compose}
+                            />
+                          </ShowOutboxContext>
                         </OpenMessageContext>
                       </ReaderToolbarWidthContext>
                     )}
