@@ -3536,15 +3536,15 @@ final class InboxTests: XCTestCase {
     ])
     attachScreen("Compose", of: app, to: self)
 
-    // Settings: the account subtitle keeps one line.
+    // Settings: the header, the account card (its subtitle has one line) and the destinations.
     launchInGerman()
     app.navigationBars.buttons["BackButton"].tap()
     XCTAssertTrue(app.buttons["Account"].waitForExistence(timeout: 15))
     app.buttons["Account"].tap()
-    let account = text("Account & Geräte · ", in: app)
-    let accounts = app.buttons["E-Mail-Accounts"]
-    assertLaidOut([account, accounts])
-    XCTAssertLessThan(account.frame.height, accounts.frame.height / 2)
+    assertLaidOut([
+      app.buttons["Zurück"], app.staticTexts["Einstellungen"], app.buttons["Account & Geräte"],
+      app.buttons["E-Mail-Accounts"], app.buttons["Datenschutz & Daten"],
+    ])
     attachScreen("Settings", of: app, to: self)
   }
 
