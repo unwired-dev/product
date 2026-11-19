@@ -604,7 +604,7 @@ describe('sending a Draft through the Outbox', () => {
     const sending = await sender(server, gmail, 'phone');
     const id = await addressed(sending);
     await expect(
-      sending.outbox.send(() => sending.draft(id), undefined, true),
+      sending.outbox.send(() => sending.draft(id), undefined, 0),
     ).resolves.toBeUndefined();
     await vi.advanceTimersByTimeAsync(0);
     expect(gmail.sends).toHaveLength(1);

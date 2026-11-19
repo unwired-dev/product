@@ -324,8 +324,11 @@ export function SendMenu({
 }: {
   readonly popover: boolean;
   readonly disabled: boolean;
-  // Whether Send Now can send, or the file it waits for, or false while Send can't send.
-  readonly sendNow: boolean | Readonly<{ waiting: string }>;
+  // Whether Send Now is unavailable, and the file it waits for while one is still being added.
+  readonly sendNow: Readonly<{
+    disabled: boolean;
+    waiting: string | undefined;
+  }>;
   readonly onSendNow: () => void;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
   // The Send button.
@@ -351,11 +354,11 @@ export function SendMenu({
                   key: 'sendNow',
                   title: t('drafts.sendNow.title'),
                   subtitle:
-                    typeof sendNow === 'object'
-                      ? t('drafts.sendNow.waiting', { name: sendNow.waiting })
-                      : t('drafts.sendNow.detail'),
+                    sendNow.waiting === undefined
+                      ? t('drafts.sendNow.detail')
+                      : t('drafts.sendNow.waiting', { name: sendNow.waiting }),
                   symbol: '',
-                  disabled: sendNow !== true,
+                  disabled: sendNow.disabled,
                   run: onSendNow,
                 },
               ],
