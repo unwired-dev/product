@@ -18,6 +18,7 @@ export function createSyntheticAttachments(
   const presentations: Array<{ name: string; action: string }> = [];
   const saveFailures: string[] = [];
   const presentFailures: string[] = [];
+  let cancelSaves = 0;
   let nextFile = 0;
   const native: NativeAttachments = {
     // Native code decodes the data again and refuses bytes that differ from the declared size.
@@ -55,7 +56,23 @@ export function createSyntheticAttachments(
         return rejection(code);
       }
       presentations.push({ name: saved.name, action });
-      return Promise.resolve(null);
+      if (action !== 'save') {
+        return Promise.resolve(null);
+      }
+      if (cancelSaves > 0) {
+        cancelSaves -= 1;
+        return Promise.resolve({});
+      }
+      // Save to Files keeps both copies of a name already in the folder.
+      const name = saved.name.replace(
+        /(?<extension>\.[^.]*)?$/u,
+        ' 2$<extension>',
+      );
+      return Promise.resolve({
+        name,
+        folder: 'Downloads',
+        show: `shareddocuments:///Downloads/${encodeURIComponent(name)}`,
+      });
     },
   };
   return {
@@ -69,6 +86,10 @@ export function createSyntheticAttachments(
     // The system cannot show the next presentation, as without a window or presenter.
     failPresent: (code: string) => {
       presentFailures.push(code);
+    },
+    // The person cancels the next Save to Files picker.
+    cancelSave: () => {
+      cancelSaves += 1;
     },
   };
 }

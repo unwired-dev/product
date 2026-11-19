@@ -868,6 +868,8 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #else
 @property (nonatomic, strong) UIColor *previewColor;
 @property (nonatomic) CGFloat previewRadius;
+// A title over the menu, such as the pressed attachment's file name.
+@property (nonatomic, copy) NSString *menuTitle;
 // Reports `previewing` as the menu shows and ends, so the content can take the lifted card's
 // layout: the preview draws the view live.
 @property (nonatomic, copy) RCTDirectEventBlock onPreview;
@@ -1077,9 +1079,12 @@ static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSS
   __weak UnwiredContextMenuView *weakSelf = self;
   return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
       actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
-        return UnwiredMenu(weakSelf.sections, ^(NSString *identifier) {
+        UIMenu *menu = UnwiredMenu(weakSelf.sections, ^(NSString *identifier) {
           if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
         });
+        return weakSelf.menuTitle.length == 0
+                   ? menu
+                   : [UIMenu menuWithTitle:weakSelf.menuTitle children:menu.children];
       }];
 }
 
@@ -1135,6 +1140,7 @@ RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 #else
 RCT_EXPORT_VIEW_PROPERTY(previewColor, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(menuTitle, NSString)
 RCT_EXPORT_VIEW_PROPERTY(onPreview, RCTDirectEventBlock)
 #endif
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }

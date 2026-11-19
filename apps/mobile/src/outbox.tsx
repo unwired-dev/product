@@ -17,20 +17,18 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 import { draftSummary } from '@private-email/mail-core/drafts';
 import { outboxCopy } from '@private-email/mail-core/outbox';
-import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
-  Animated,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
 import { Action } from './action.tsx';
-import { SFSymbol, useMenuMotion } from './design.tsx';
+import { Toast } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useOutbox, useOutboxEntries } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -66,19 +64,6 @@ const styles = StyleSheet.create({
     flexWrap: phone ? 'wrap' : 'nowrap',
     gap: spacing.s,
   },
-  toast: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.m,
-    paddingHorizontal: spacing.l,
-    paddingVertical: 10,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
-  toastMessage: { ...typography.macos.body, flexShrink: 1 },
-  // The 44pt target extends 4pt above and below the 36pt toast.
-  toastAction: { minHeight: 44, marginVertical: -14, justifyContent: 'center' },
-  toastActionLabel: { ...typography.macos.bodyEmphasized },
 });
 
 // Where each send last stood when announced, and its last Check Again answer, keyed by the send;
@@ -113,8 +98,8 @@ export function forgetRetired(entries: readonly OutboxSnapshotEntry[]) {
   }
 }
 
-// The deep graphite toast saying storage refused to return a message to the Drafts. It stays until
-// Try Again or the next Outbox action, and while the message can still return.
+// The toast saying storage refused to return a message to the Drafts. It stays until Try Again or
+// the next Outbox action, and while the message can still return.
 function RefusedToast({
   open,
   message,
@@ -124,37 +109,15 @@ function RefusedToast({
   readonly message: string;
   readonly onTryAgain: () => void;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
-  const motion = useMenuMotion(open, 'menu');
-  if (!motion.shown) {
-    return null;
-  }
   return (
-    <Animated.View
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'auto' : 'none'}
-      style={[
-        styles.toast,
-        { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
-        motion.style,
-      ]}>
-      <SFSymbol
-        name="exclamationmark.triangle.fill"
-        color={colors.brandOnDeep}
-      />
-      <Text style={[styles.toastMessage, { color: colors.brandOnDeep }]}>
-        {message}
-      </Text>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onTryAgain}
-        style={styles.toastAction}>
-        <Text style={[styles.toastActionLabel, { color: colors.brandOnDeep }]}>
-          {t('outbox.tryAgain')}
-        </Text>
-      </Pressable>
-    </Animated.View>
+    <Toast
+      open={open}
+      symbol="exclamationmark.triangle.fill"
+      message={message}
+      action={t('outbox.tryAgain')}
+      onAction={onTryAgain}
+    />
   );
 }
 

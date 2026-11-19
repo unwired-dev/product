@@ -314,6 +314,21 @@ const styles = StyleSheet.create({
       : textStyles.footnote),
     flex: 1,
   },
+  toast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingHorizontal: spacing.l,
+    paddingVertical: 10,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  toastText: { flexShrink: 1 },
+  toastMessage: { ...typography.macos.body },
+  toastDetail: { ...textStyles.footnote },
+  // The 44pt target extends 4pt above and below the 36pt toast.
+  toastAction: { minHeight: 44, marginVertical: -14, justifyContent: 'center' },
+  toastActionLabel: { ...typography.macos.bodyEmphasized },
   notice: {
     gap: spacing.s,
     paddingHorizontal: spacing.m,
@@ -413,6 +428,7 @@ const NativeContextMenu = requireNativeComponent<
   ViewProps & {
     readonly previewColor: ColorValue;
     readonly previewRadius: number;
+    readonly menuTitle: string | undefined;
     readonly onPreview: (
       event: NativeSyntheticEvent<{ previewing: boolean }>,
     ) => void;
@@ -429,12 +445,15 @@ const NativeContextMenu = requireNativeComponent<
 // The system context menu for its children: long-press on iPhone and iPad, secondary click with
 // a pointer or on the Mac. Empty sections are left out.
 export function ContextMenu({
+  title,
   sections,
   previewRadius = radius.card,
   onPreview,
   children,
   ...props
 }: ViewProps & {
+  // A title over the menu, such as the pressed attachment's file name.
+  readonly title?: string | undefined;
   readonly sections: readonly MenuSection[];
   // The lifted preview's corner radius.
   readonly previewRadius?: number;
@@ -448,6 +467,7 @@ export function ContextMenu({
       {...props}
       previewColor={colors.surfaceContent}
       previewRadius={previewRadius}
+      menuTitle={title}
       onPreview={({ nativeEvent }) => {
         onPreview?.(nativeEvent.previewing);
       }}
@@ -757,6 +777,67 @@ export function Monogram({
         {initials}
       </Text>
     </View>
+  );
+}
+
+// The deep graphite toast (DESIGN.md's known Toasts difference, #2104): a symbol, the message with
+// an optional second line, and one action. It stays mounted while it fades out.
+export function Toast({
+  open,
+  symbol,
+  message,
+  detail,
+  action,
+  accessibilityLabel,
+  onAction,
+}: {
+  readonly open: boolean;
+  readonly symbol: string;
+  readonly message: string;
+  readonly detail?: string | undefined;
+  readonly action: string;
+  // The action's spoken name, when its label alone does not say what it acts on.
+  readonly accessibilityLabel?: string | undefined;
+  readonly onAction: () => void;
+}) {
+  const colors = usePalette();
+  const motion = useMenuMotion(open, 'menu');
+  if (!motion.shown) {
+    return null;
+  }
+  return (
+    <Animated.View
+      accessibilityElementsHidden={!open}
+      pointerEvents={open ? 'auto' : 'none'}
+      style={[
+        styles.toast,
+        { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
+        motion.style,
+      ]}>
+      <SFSymbol
+        name={symbol}
+        color={colors.brandOnDeep}
+      />
+      <View style={styles.toastText}>
+        <Text style={[styles.toastMessage, { color: colors.brandOnDeep }]}>
+          {message}
+        </Text>
+        {detail === undefined ? null : (
+          <Text style={[styles.toastDetail, { color: colors.brandOnDeep }]}>
+            {detail}
+          </Text>
+        )}
+      </View>
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        onPress={onAction}
+        style={styles.toastAction}>
+        <Text style={[styles.toastActionLabel, { color: colors.brandOnDeep }]}>
+          {action}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 

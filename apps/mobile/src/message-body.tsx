@@ -74,6 +74,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
+import { SaveOutcomeContext } from './attachment-save.tsx';
 import { ContextMenu, Notice, SFSymbol } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
 import { InvitationCard } from './invitation.tsx';
@@ -742,6 +743,7 @@ type AttachmentSource = Pick<
   | 'downloadAttachment'
   | 'cancelAttachment'
   | 'presentAttachment'
+  | 'saveAttachmentCopy'
   | 'attachmentFile'
 >;
 // Starts a new message with a Downloaded Attachment, where the reader can open a composer.
@@ -767,6 +769,7 @@ function AttachmentRow({
 }) {
   const colors = usePalette();
   const attach = use(AttachContext);
+  const report = use(SaveOutcomeContext);
   const { t, settings } = useLocalization();
   const sizeFormat = useMemo(
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
@@ -811,6 +814,28 @@ function AttachmentRow({
         void inbox.presentAttachment(id, locator, 'share');
       }
     };
+    // Saves a copy where the person chooses, and tells the reader what happened unless they
+    // cancelled or the reader moved on.
+    const save = async () => {
+      if (!current() || report === undefined) {
+        return;
+      }
+      const saved = await inbox.saveAttachmentCopy(id, locator);
+      if (!current() || saved === 'cancelled') {
+        return;
+      }
+      report(
+        saved === 'failed'
+          ? {
+              kind: 'failed',
+              name,
+              retry: () => {
+                void save();
+              },
+            }
+          : { kind: 'saved', copy: saved },
+      );
+    };
     menu = [
       {
         items: [
@@ -820,6 +845,20 @@ function AttachmentRow({
             symbol: 'eye',
             run: open,
           },
+        ],
+      },
+      {
+        items: [
+          ...(report === undefined
+            ? []
+            : [
+                {
+                  key: 'saveToFiles',
+                  title: t('attachment.saveToFiles'),
+                  symbol: 'folder',
+                  run: save,
+                },
+              ]),
           {
             key: 'share',
             title: t('contextMenu.share'),
@@ -870,7 +909,9 @@ function AttachmentRow({
       );
   }
   return (
-    <ContextMenu sections={menu}>
+    <ContextMenu
+      title={name}
+      sections={menu}>
       <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
         <SFSymbol
           name="doc"

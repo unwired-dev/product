@@ -572,6 +572,39 @@ describe('received attachments', () => {
     expect(gmail.savedFiles.size).toBe(0);
   });
 
+  it('saves a copy through Save to Files and reports what was saved, a cancellation or a failure', async () => {
+    expect.hasAssertions();
+    const { gmail, id, inbox } = await opened();
+    const notes = locatorOf(inbox, id, 'notes.txt');
+    await inbox.downloadAttachment(id, notes);
+
+    await expect(inbox.saveAttachmentCopy(id, notes)).resolves.toStrictEqual({
+      name: 'notes 2.txt',
+      folder: 'Downloads',
+      show: 'shareddocuments:///Downloads/notes%202.txt',
+    });
+    gmail.cancelSave();
+    await expect(inbox.saveAttachmentCopy(id, notes)).resolves.toBe(
+      'cancelled',
+    );
+    // No window can show the picker: the temporary copy stays for the next try.
+    gmail.failPresent('unavailable');
+    await expect(inbox.saveAttachmentCopy(id, notes)).resolves.toBe('failed');
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'downloaded',
+    });
+    // The system cleared the temporary copy: it downloads again.
+    gmail.savedFiles.clear();
+    await expect(inbox.saveAttachmentCopy(id, notes)).resolves.toBe('failed');
+    expect(stateOf(inbox, id, 'notes.txt')).toStrictEqual({
+      kind: 'available',
+    });
+    expect(gmail.presentations).toStrictEqual([
+      { name: 'notes.txt', action: 'save' },
+      { name: 'notes.txt', action: 'save' },
+    ]);
+  });
+
   it('lists attachments for a body cached before their metadata was kept, once Gmail answers', async () => {
     expect.hasAssertions();
     const { gmail, id, inbox, close } = await opened();

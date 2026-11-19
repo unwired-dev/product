@@ -297,6 +297,7 @@ const loadingBody: MessageBodyState = { kind: 'loading' };
 export type {
   AttachmentState,
   ReceivedAttachment,
+  SavedCopy,
 } from './attachment-downloads.ts';
 
 // Offline, quota and server failures can pass on a later try; stale work shows nothing new.
@@ -3988,6 +3989,7 @@ export function createInboxStore(
     downloadAttachment: attachments.downloadAttachment,
     cancelAttachment: attachments.cancelAttachment,
     presentAttachment: attachments.presentAttachment,
+    saveAttachmentCopy: attachments.saveAttachmentCopy,
     attachmentFile: attachments.attachmentFile,
     // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
     // provider, so the message waits.

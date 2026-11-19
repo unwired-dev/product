@@ -51,6 +51,12 @@ import type { InboxStore } from './private-storage.ts';
 
 import { Action } from './action.tsx';
 import {
+  SaveFailedNotice,
+  SaveOutcomeContext,
+  SaveOutcomeToast,
+  useSaveOutcome,
+} from './attachment-save.tsx';
+import {
   CommandInput,
   CommandInputRow,
   RegisterCommands,
@@ -1056,6 +1062,7 @@ function MailboxMessage({
   const inset = usePortraitInset();
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [panel, setPanel] = useState<ReaderPanel>();
+  const saving = useSaveOutcome(id);
   const colors = usePalette();
   const { t } = useLocalization();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
@@ -1101,79 +1108,88 @@ function MailboxMessage({
       edges={readerEdges}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <ResponseStatusContext value={setResponseStatus}>
-        <LinkConfirmationProvider
-          inbox={actions}
-          ids={[message.id]}>
-          <RegisterCommands
-            offer={() =>
-              expectedCommands(t, {
-                target: commandTarget(mailbox?.id, message),
-                disabled: t('commands.unavailable'),
-              })
-            }
-          />
-          {header ? <ReaderHeader subject={message.subject} /> : null}
-          {compact ? null : (
-            <View
-              // Its empty width leaves taps to the panel dismissal beneath.
-              pointerEvents="box-none"
-              style={styles.topToolbar}>
-              {toolbar}
-            </View>
-          )}
-          {header ? null : <RegularHeader subject={message.subject} />}
-          <ReaderScrollView
-            contentContainerStyle={[
-              singleContent,
-              inset,
-              clearsBottom(windowBar !== undefined, insets.bottom),
-            ]}>
-            {/* iPhone counts a single message as its frames count a thread's. */}
-            {compact ? <MessageCount count={1} /> : null}
-            <MessageMetadata message={message} />
-            <MessageActionsNotice id={message.id} />
-            <ResponseStatusNotice
-              status={responseStatus}
-              id={message.id}
+        <SaveOutcomeContext value={saving.report}>
+          <LinkConfirmationProvider
+            inbox={actions}
+            ids={[message.id]}>
+            <RegisterCommands
+              offer={() =>
+                expectedCommands(t, {
+                  target: commandTarget(mailbox?.id, message),
+                  disabled: t('commands.unavailable'),
+                })
+              }
             />
-            <ReaderBody
-              key={message.id}
-              inbox={actions}
-              message={message}
-              connection={mailbox?.id}
-            />
-          </ReaderScrollView>
-          <PanelDismissal
-            panel={panel}
-            onPanel={setPanel}
-          />
-          {compact ? (
-            <>
-              <ReaderEdge />
+            {header ? <ReaderHeader subject={message.subject} /> : null}
+            {compact ? null : (
               <View
-                // The gaps between its groups leave taps to the panel dismissal beneath.
+                // Its empty width leaves taps to the panel dismissal beneath.
                 pointerEvents="box-none"
-                style={[
-                  styles.bottomToolbar,
-                  { bottom: insets.bottom + toolbarLift },
-                ]}>
-                <View
-                  pointerEvents="box-none"
-                  style={styles.bottomActions}>
-                  {toolbar}
-                </View>
-                {sender === undefined || onCompose === undefined ? null : (
-                  <View pointerEvents="box-none">
-                    <ComposeButton
-                      mailbox={sender}
-                      onCompose={onCompose}
-                    />
-                  </View>
-                )}
+                style={styles.topToolbar}>
+                {toolbar}
               </View>
-            </>
-          ) : null}
-        </LinkConfirmationProvider>
+            )}
+            {header ? null : <RegularHeader subject={message.subject} />}
+            <ReaderScrollView
+              contentContainerStyle={[
+                singleContent,
+                inset,
+                clearsBottom(windowBar !== undefined, insets.bottom),
+              ]}>
+              <SaveFailedNotice shown={saving.shown} />
+              {/* iPhone counts a single message as its frames count a thread's. */}
+              {compact ? <MessageCount count={1} /> : null}
+              <MessageMetadata message={message} />
+              <MessageActionsNotice id={message.id} />
+              <ResponseStatusNotice
+                status={responseStatus}
+                id={message.id}
+              />
+              <ReaderBody
+                key={message.id}
+                inbox={actions}
+                message={message}
+                connection={mailbox?.id}
+              />
+            </ReaderScrollView>
+            <PanelDismissal
+              panel={panel}
+              onPanel={setPanel}
+            />
+            {compact ? (
+              <>
+                <ReaderEdge />
+                <View
+                  // The gaps between its groups leave taps to the panel dismissal beneath.
+                  pointerEvents="box-none"
+                  style={[
+                    styles.bottomToolbar,
+                    { bottom: insets.bottom + toolbarLift },
+                  ]}>
+                  <View
+                    pointerEvents="box-none"
+                    style={styles.bottomActions}>
+                    {toolbar}
+                  </View>
+                  {sender === undefined || onCompose === undefined ? null : (
+                    <View pointerEvents="box-none">
+                      <ComposeButton
+                        mailbox={sender}
+                        onCompose={onCompose}
+                      />
+                    </View>
+                  )}
+                </View>
+              </>
+            ) : null}
+            <SaveOutcomeToast
+              shown={saving.shown}
+              bottom={
+                insets.bottom + toolbarLift + scaledToolbarHeight + spacing.m
+              }
+            />
+          </LinkConfirmationProvider>
+        </SaveOutcomeContext>
       </ResponseStatusContext>
     </SafeAreaView>
   );
@@ -1222,6 +1238,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const markedRef: Marked = useRef(undefined);
   // oxlint-disable-next-line react/hook-use-state -- One map for this Thread visit, mutated in place.
   const [announcedFailures] = useState(() => new Map<string, string>());
+  const saving = useSaveOutcome(id);
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
@@ -1250,53 +1267,60 @@ function ThreadMessages({ id }: { readonly id: string }) {
       edges={readerEdges}
       style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <QuotedHistoryContext value="collapsible">
-        <AnnouncedFailuresContext value={announcedFailures}>
-          <LinkConfirmationProvider
-            inbox={inbox}
-            ids={messages.map((message) => message.id)}>
-            {/* Opening reads only the opened message, never the rest of its Thread. */}
-            {'organize' in state && state.organize && canOrganize(opened) ? (
-              <ReadWhenOpened
-                markedRef={markedRef}
-                store={inbox}
-                message={opened}
-                read={inbox.readOpened}
+        <SaveOutcomeContext value={saving.report}>
+          <AnnouncedFailuresContext value={announcedFailures}>
+            <LinkConfirmationProvider
+              inbox={inbox}
+              ids={messages.map((message) => message.id)}>
+              {/* Opening reads only the opened message, never the rest of its Thread. */}
+              {'organize' in state && state.organize && canOrganize(opened) ? (
+                <ReadWhenOpened
+                  markedRef={markedRef}
+                  store={inbox}
+                  message={opened}
+                  read={inbox.readOpened}
+                />
+              ) : null}
+              <RegisterCommands
+                offer={() =>
+                  expectedCommands(t, {
+                    target: commandTarget(mailbox?.id, opened),
+                    disabled: t('commands.unavailable'),
+                  })
+                }
               />
-            ) : null}
-            <RegisterCommands
-              offer={() =>
-                expectedCommands(t, {
-                  target: commandTarget(mailbox?.id, opened),
-                  disabled: t('commands.unavailable'),
-                })
-              }
-            />
-            {compact ? (
-              <ReaderHeader subject={opened.subject} />
-            ) : (
-              <RegularHeader subject={opened.subject} />
-            )}
-            <ReaderScrollView
-              contentContainerStyle={[
-                compact ? singleContent : styles.content,
-                inset,
-                clearsBottom(windowBar !== undefined, insets.bottom),
-              ]}
-              maintainVisibleContentPosition={keepVisibleMessage}
-              onScrollBeginDrag={() => {
-                pinned.current = false;
-              }}>
-              <MessageCount count={messages.length} />
-              <ThreadMessageList
-                inbox={inbox}
-                messages={messages}
-                opened={id}
-                pinned={pinned}
+              {compact ? (
+                <ReaderHeader subject={opened.subject} />
+              ) : (
+                <RegularHeader subject={opened.subject} />
+              )}
+              <ReaderScrollView
+                contentContainerStyle={[
+                  compact ? singleContent : styles.content,
+                  inset,
+                  clearsBottom(windowBar !== undefined, insets.bottom),
+                ]}
+                maintainVisibleContentPosition={keepVisibleMessage}
+                onScrollBeginDrag={() => {
+                  pinned.current = false;
+                }}>
+                <SaveFailedNotice shown={saving.shown} />
+                <MessageCount count={messages.length} />
+                <ThreadMessageList
+                  inbox={inbox}
+                  messages={messages}
+                  opened={id}
+                  pinned={pinned}
+                />
+              </ReaderScrollView>
+              {compact ? <ReaderEdge /> : null}
+              <SaveOutcomeToast
+                shown={saving.shown}
+                bottom={insets.bottom + spacing.m}
               />
-            </ReaderScrollView>
-            {compact ? <ReaderEdge /> : null}
-          </LinkConfirmationProvider>
-        </AnnouncedFailuresContext>
+            </LinkConfirmationProvider>
+          </AnnouncedFailuresContext>
+        </SaveOutcomeContext>
       </QuotedHistoryContext>
     </SafeAreaView>
   );

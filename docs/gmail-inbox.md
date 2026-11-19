@@ -576,7 +576,8 @@ open message's header lists Reply, Reply All and Forward, its read state,
 **Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
 the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
-downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
+downloaded attachment's menu is titled with its file name and offers **Quick Look**, then
+**Save to Files…** (iPhone and iPad) and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.
 
 A change shows at once with **Saving the change on this device…** until local
@@ -1496,6 +1497,20 @@ attachment descriptors.
   Look never launches another app or runs the file. On Mac, changing focus while the file is being prepared does not move its preview or share sheet to another window. If that window closes, presentation is refused. **Share** opens the system share
   sheet (`UIActivityViewController`, or `NSSharingServicePicker` on Mac) with only
   that file. If the file is gone, the row offers **Download** again.
+- **Save to Files.** On iPhone and iPad the attachment's menu also offers **Save to
+  Files…** ([#2469](https://github.com/unwired-dev/product/issues/2469), a slice of
+  [#1681](https://github.com/unwired-dev/product/issues/1681)). It opens the system
+  document picker (`UIDocumentPickerViewController` exporting a copy), so the person
+  chooses the folder and the system settles a name already there. The saved copy is
+  the person's file: it is not a Downloaded Attachment, and clearing Downloaded
+  Attachments leaves it alone. The reader then shows a toast naming the folder and the
+  copy's actual file name, with **Show**, which opens Files at the copy. Cancelling the
+  picker says nothing. When nothing was saved, such as when no window could show the
+  picker, the iPhone reader shows **Couldn’t save “name”** at its top and the iPad
+  reader a toast, each with **Save to Files…** to try again; a file that is gone offers
+  **Download** again. A result is shown only while the same message stays open. The
+  Mac, and **Save to Downloads** to a folder remembered for the Profile, follow in
+  #1681.
 
 Downloaded Attachments are plaintext so the system can preview them. They are
 written under the app's private Application Support directory, in a folder per Mailbox Connection,
