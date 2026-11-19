@@ -2136,8 +2136,16 @@ final class InboxTests: XCTestCase {
       waitUntil(shown)
       if let selection { XCTAssertTrue(selection.isSelected) }
       if !orientation.isLandscape { XCTAssertEqual(text.frame.midY, place, accuracy: 80) }
-      let name = orientation.isLandscape ? "Landscape" : "Portrait"
-      attachScreen("\(text.label) rotated to \(name)", of: app, to: self)
+      if orientation.isLandscape {
+        // In Landscape an app screenshot draws the Portrait buffer; the screen's is upright.
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
+        shot.name = "\(text.label) rotated to Landscape (\(appearance))"
+        shot.lifetime = .keepAlways
+        add(shot)
+      } else {
+        attachScreen("\(text.label) rotated to Portrait", of: app, to: self)
+      }
     }
   }
 
