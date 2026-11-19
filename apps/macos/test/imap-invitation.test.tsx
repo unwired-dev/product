@@ -298,6 +298,43 @@ describe('imap invitation responses on the Mac', () => {
     }
   });
 
+  it('shows the response sending once the window ends, with View in Outbox', async () => {
+    expect.hasAssertions();
+    const mail = await device(['Q4 roadmap review']);
+    const [id = ''] = mail.ids;
+    const app = await render(
+      <mail.Providers>
+        <ShowOutboxContext value={() => undefined}>
+          <MessageBody
+            inbox={mail.inbox}
+            id={id}
+            connection={mara.id}
+          />
+        </ShowOutboxContext>
+      </mail.Providers>,
+    );
+    try {
+      await press('Accept');
+      // The mail server takes the submission and has not answered yet.
+      mail.imap.smtp.stopped = true;
+      clock.now += undoSendWindow;
+      jest.setSystemTime(clock.now);
+      void mail.outbox.process();
+      await expect(
+        screen.findByText(`Sending your Accept response from ${mara.address}.`),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByText('In the Outbox')).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'View in Outbox' }),
+      ).toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      mail.outbox.dispose();
+    }
+  });
+
   it('shows each response in its own Outbox row, with no Edit', async () => {
     expect.hasAssertions();
     const mail = await device(['Q4 roadmap review', 'Release readiness']);
