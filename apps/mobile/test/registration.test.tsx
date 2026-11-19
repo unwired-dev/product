@@ -3642,6 +3642,54 @@ describe('product registration', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('says Blocked Senders couldn’t load when storage refuses, and reads them again on Try Again', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    await store.restoreOnce();
+    const locked = Object.assign(new Error('locked'), { code: 'locked' });
+    const blocked = createBlockedSenders(
+      {
+        openBlockedSenders: jest
+          .fn(() =>
+            Promise.resolve({
+              owner: ownerOf(store.getSnapshot().snapshot),
+              revision: 0,
+              document: null,
+            }),
+          )
+          .mockRejectedValueOnce(locked),
+        commitBlockedSenders: () => Promise.reject(locked),
+      },
+      store,
+    );
+    await render(
+      <BlockedSendersContext value={blocked}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </BlockedSendersContext>,
+    );
+    await openAccount();
+    await openSettings('Blocked Senders');
+    await expect(
+      screen.findByRole('header', { name: 'Couldn’t Load Blocked Senders' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.getByText('Nothing was changed. Try again in a moment.'),
+    ).toBeVisible();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+    });
+    await expect(
+      screen.findByText(
+        'No Blocked Senders. Block one from the sender’s name in a message.',
+      ),
+    ).resolves.toBeVisible();
+  });
+
   it('keeps a mailbox’s New Mail Notifications off when Product Sync cannot save them, and links denied permission to the system', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();

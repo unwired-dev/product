@@ -3599,9 +3599,23 @@ final class InboxTests: XCTestCase {
     app.buttons["Microsoft 365 and Outlook"].tap()
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     openSettings("Email Accounts", in: app)
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    // iPad groups the add actions in one row's menu; iPhone lists them as buttons.
+    if pad {
+      XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
+      app.buttons["Add Account…"].tap()
+    }
     XCTAssertTrue(app.buttons["Add Another Gmail Mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add Another Gmail Mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    // iPad draws the reader with its on-device summary, which needs Mail Assistance.
+    if pad {
+      openSettings("Privacy & Data", in: app)
+      let assistance = app.switches["Mail Assistance"]
+      XCTAssertTrue(assistance.waitForExistence(timeout: 15))
+      assistance.tap()
+      XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
+    }
     openSettings("Account & Devices", in: app)
     enter(
       String(app.staticTexts["recovery-key"].label.suffix(4)),
@@ -3632,6 +3646,49 @@ final class InboxTests: XCTestCase {
       app.launchArguments = ["-interfaceLanguage", "de"]
       app.launch()
       XCTAssertTrue(jordan.waitForExistence(timeout: 60))
+    }
+
+    // iPad (#2424): the Inbox with a Thread and its summary open, in landscape as drawn.
+    if pad {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      launchInGerman()
+      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+      jordan.tap()
+      app.buttons["Diese Nachricht zusammenfassen"].tap()
+      XCTAssertTrue(
+        app.staticTexts["Synthetic summary of local mail."].waitForExistence(timeout: 15))
+      // The heading names All Inboxes, so its subtitle carries the status alone, as drawn; the
+      // update's age depends on when the mailboxes last synchronized.
+      let status = app.staticTexts.matching(
+        NSPredicate(format: "label MATCHES %@", "1 ungelesen · [^·]*aktualisiert")
+      ).firstMatch
+      XCTAssertTrue(status.waitForExistence(timeout: 15))
+      // The sidebar row repeats the heading's text; the heading is the one above the subtitle.
+      let heading = try XCTUnwrap(
+        app.staticTexts.matching(identifier: "Alle Posteingänge").allElementsBoundByIndex.first {
+          abs($0.frame.minX - status.frame.minX) < 2 && $0.frame.maxY <= status.frame.minY + 1
+        })
+      func row(_ subject: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+      }
+      assertLaidOut([
+        app.buttons["Seitenleiste ausblenden"], app.buttons["Alle Posteingänge"],
+        app.buttons["Einstellungen"],
+        app.buttons["Befehlspalette öffnen"], heading, status,
+        row("Quarterly planning"), row("Garden plans for spring"),
+        app.buttons["Archivieren"], app.buttons["Antworten"], app.buttons["Mehr"],
+        app.staticTexts["jordan@example.invalid"].firstMatch,
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1. Oktober 2025")).firstMatch,
+        app.otherElements["Zusammenfassung · Auf dem Gerät"],
+        app.buttons["Zusammenfassung ausblenden"], app.buttons["Diese Nachricht übersetzen"],
+      ])
+      XCTAssertLessThan(status.frame.height, heading.frame.height)
+      // In landscape, an app screenshot draws the portrait buffer; the screen's is upright.
+      let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      shot.name = "Thread (\(environment["UNWIRED_APPEARANCE", default: ""]))"
+      shot.lifetime = .keepAlways
+      add(shot)
+      return
     }
 
     // Inbox: the subtitle keeps one line beside the Back button; the hint fits its card.
@@ -3680,6 +3737,45 @@ final class InboxTests: XCTestCase {
       app.buttons["E-Mail-Accounts"], app.buttons["Datenschutz & Daten"],
     ])
     attachScreen("Settings", of: app, to: self)
+  }
+
+  // #2441: New Label… after a Gmail reader's labels opens Labels, the iPhone sheet or the iPad
+  // labels' panel, captured empty and with a nested name for comparison with the I1 and P1 frames.
+  func testNewLabel() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 30))
+    rowan.tap()
+    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    // iPhone opens the labels from the Reply sheet; iPad from the toolbar's Labels.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 10))
+    }
+    app.buttons["Labels"].tap()
+    let newLabel = app.buttons["New Label…"]
+    XCTAssertTrue(newLabel.waitForExistence(timeout: 10))
+    newLabel.tap()
+    let name = app.textFields["Label name"]
+    XCTAssertTrue(name.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Travel"].firstMatch.waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["Apply"].isEnabled)
+    attachScreen("Labels", of: app, to: self)
+    type("Travel/Spain", into: name)
+    XCTAssertTrue(
+      app.buttons["Create “Spain” inside “Travel”, Created in Gmail, then applied"]
+        .waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Apply"].isEnabled)
+    attachScreen("Labels with a nested name", of: app, to: self)
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(name.waitForNonExistence(timeout: 10))
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {

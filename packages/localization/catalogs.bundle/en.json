@@ -1069,6 +1069,16 @@
     "addLabel": "Add Label",
     "labelNotCreated": "“{{label}}” could not be created in Gmail",
     "labelNotCreatedDetail": "Gmail may already have a label with this name, or it could not be reached. Try another name, or try again later.",
+    "createLabel": "Create “{{label}}”",
+    "createNestedLabel": "Create “{{label}}” inside “{{parent}}”",
+    "createLabelDetail": "Created in Gmail, then applied",
+    "matchingLabels": "Matching labels",
+    "newLabelFooter": "A slash makes a nested label, as in Gmail. Labels already on this Thread stay as they are.",
+    "applyLabel": "Apply",
+    "labelCaseTitle": "“{{label}}” wasn’t created",
+    "labelCaseDetail": "Gmail already has a label with this name in a different case. Nothing was applied.",
+    "useLabel": "Use “{{label}}”",
+    "editLabelName": "Edit Name",
     "folders": "Folders",
     "hideFolders": "Hide Folders",
     "noFolders": "This Microsoft mailbox has no folders of its own yet.",
@@ -1773,7 +1783,9 @@
     "footer_iphone": "This iPhone moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "footer_ipad": "This iPad moves new mail from these addresses to Trash. Unblock to get new mail in the Inbox again; mail already in Trash stays there.",
     "none": "No Blocked Senders. Block one from the sender’s name in a message.",
-    "unavailable": "This device couldn’t read your Blocked Senders. To try again, leave Blocked Senders and open it again."
+    "unavailable": "This device couldn’t read your Blocked Senders. To try again, leave Blocked Senders and open it again.",
+    "loadFailed": "Couldn’t Load Blocked Senders",
+    "loadFailedDetail": "Nothing was changed. Try again in a moment."
   },
   "pins": {
     "pinFailed": "This Thread couldn’t be pinned",
