@@ -36,9 +36,13 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
-import { remindFromSendMenu } from './send-menu.tsx';
+import { remindFromSendMenu, sendMenuItem } from './send-menu.tsx';
 import { choose } from './system-menu.tsx';
-import { chooseWritingTool, writingToolChoice } from './writing-tools.ts';
+import {
+  addFilesChoice,
+  chooseWritingTool,
+  writingToolChoice,
+} from './writing-tools.ts';
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Jest requires a module name, not a dynamic import.
 jest.mock('react-native-screens/experimental', () => ({
@@ -404,6 +408,55 @@ describe('sending a Draft', () => {
       expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
       expect(sender.gmail.sends[0]?.raw).toContain('To: sam@example.invalid');
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+    } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('sends at once with Send Now, which waits for a file still being added', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lunch');
+
+      // While a file is still being added, Send Now names it and can't be chosen.
+      sender.storage.holdImports();
+      sender.storage.addFile('file:///terms.pdf', 'terms');
+      sender.storage.pickNext('files', [
+        {
+          uri: 'file:///terms.pdf',
+          name: 'terms.pdf',
+          type: 'application/pdf',
+        },
+      ]);
+      const attach = addFilesChoice('Attach File');
+      ok(attach !== undefined);
+      await act(async () => {
+        attach();
+      });
+      expect(sendMenuItem('Send Now')).toMatchObject({
+        subtitle: 'Waiting for terms.pdf to finish',
+        disabled: true,
+      });
+      await act(async () => {
+        sender.storage.releaseImports();
+        await sender.drafts.save();
+      });
+      await screen.findByLabelText('terms.pdf, 5 bytes');
+
+      // Once it is added, Send Now hands the message over without the Undo Send Window.
+      const sendNow = sendMenuItem('Send Now');
+      expect(sendNow).toMatchObject({ subtitle: 'No Undo', disabled: false });
+      await sendNow.choose();
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await later(sender, 0);
+      expect(sender.gmail.sends).toHaveLength(1);
+      expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     } finally {
       sender.outbox.dispose();
     }

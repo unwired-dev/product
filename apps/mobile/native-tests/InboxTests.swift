@@ -3778,6 +3778,44 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(name.waitForNonExistence(timeout: 10))
   }
 
+  // #2457: Send's menu offers Send Now, "No Undo", which sends without the Undo Send Window: the
+  // composer closes and no Outbox row waits to send with Undo.
+  func testSendNow() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("maya@example.invalid", into: to)
+    let subject = app.textFields["Subject"]
+    subject.tap()
+    type("Venue for the offsite", into: subject)
+    app.buttons["Send"].press(forDuration: 1.2)
+    let sendNow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send Now"))
+      .firstMatch
+    XCTAssertTrue(sendNow.waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      sendNow.label.contains("No Undo") || app.staticTexts["No Undo"].exists, sendNow.label)
+    attachScreen("Send menu with Send Now", of: app, to: self)
+    sendNow.tap()
+    XCTAssertTrue(app.otherElements["composer-overlay"].waitForNonExistence(timeout: 15))
+    let waiting = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label CONTAINS %@", "Sending soon"))
+    XCTAssertEqual(waiting.count, 0)
+    XCTAssertFalse(app.buttons["Undo"].exists)
+    attachScreen("After Send Now", of: app, to: self)
+  }
+
   private func inboxJourney(_ app: XCUIApplication) throws {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
