@@ -62,6 +62,7 @@ export {
   gmailViewName,
   mailboxFolder,
   inboxChoice,
+  inboxUnlisted,
   mailboxSidebar,
   notIncludedDetail,
   profileMailboxes,

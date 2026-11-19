@@ -922,6 +922,7 @@
   },
   "search": {
     "title": "Search",
+    "subtitleRegular_zero": "No results · {{scope}}",
     "subtitleRegular_one": "{{count}} message · {{scope}}",
     "subtitleRegular_other": "{{count}} messages · {{scope}}",
     "label": "Search senders and subjects",
@@ -931,6 +932,9 @@
     "online": "Search Mail Servers for “{{query}}”",
     "onlineHeading": "From mail servers",
     "searching": "Searching mail servers",
+    "searchingScope": "Searching {{scope}}…",
+    "noResults": "No Results",
+    "noResultsDetail": "No saved mail in {{scope}} matches “{{query}}”. Check the spelling or search for fewer words.",
     "more": "More from Mail Servers",
     "retry": "Try Again",
     "onlineEmpty": "Mail servers found no mail matching “{{query}}”.",
