@@ -39,7 +39,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ActivityIndicator, SectionList, Text, View } from 'react-native';
+import { SectionList, Text, View } from 'react-native';
 
 import type { RowAction } from './inbox-rows.tsx';
 import type { InboxMailbox } from './private-storage.ts';
@@ -53,7 +53,13 @@ import {
   DraftRow,
   useOpenDraft,
 } from './composer.tsx';
-import { Button, Notice, SFSymbol, useNow } from './design.tsx';
+import {
+  Button,
+  Notice,
+  SFSymbol,
+  useNow,
+  useOutcomeAnnouncement,
+} from './design.tsx';
 import { ErrorReportingContext } from './error-reporting.tsx';
 import { FolderChoice } from './folder-choice.tsx';
 import { FloatingBar } from './inbox-bar.tsx';
@@ -341,6 +347,14 @@ const savedStatus = (t: Translate, saved: boolean | undefined) => {
 
 // Gmail's own search, asked for explicitly below the results saved on this device, which it never
 // replaces. Each mailbox that Gmail could not search says why.
+// A mail server search that failed, left IMAP folders out or has another page has not answered
+// whether nothing matches.
+const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
+  search.found !== undefined &&
+  (search.found.failures.length > 0 ||
+    search.found.limited.length > 0 ||
+    search.found.next.size > 0);
+
 function OnlineResults({
   search,
   query,
@@ -368,13 +382,16 @@ function OnlineResults({
   }
   return (
     <View>
-      {found?.results.length === 0 && found.failures.length === 0 ? (
+      {found?.results.length === 0 && !searchIncomplete(search) ? (
         <Text style={[styles.notice, { color: colors.textSecondary }]}>
           {t('search.onlineEmpty', { query })}
         </Text>
       ) : null}
       {searching ? (
-        <ActivityIndicator accessibilityLabel={t('search.searching')} />
+        <SkeletonRows
+          count={5}
+          label={t('search.searching')}
+        />
       ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
         <View style={styles.noticeAction}>
@@ -637,16 +654,22 @@ const unconnectedAccount = (
 ) => (connections.length === 0 && mailboxes.length === 0 ? account : undefined);
 
 function EmptyInbox({
+  icon = 'tray.2',
   title,
   detail,
   children,
-}: Readonly<{ title: string; detail: string; children?: ReactNode }>) {
+}: Readonly<{
+  icon?: string;
+  title: string;
+  detail: string;
+  children?: ReactNode;
+}>) {
   const colors = usePalette();
   return (
     <View style={styles.empty}>
       <View style={styles.emptyIcon}>
         <SFSymbol
-          name="tray.2"
+          name={icon}
           size={36}
           color={colors.textSecondary}
         />
@@ -660,6 +683,39 @@ function EmptyInbox({
       {children}
     </View>
   );
+}
+
+// Neither saved mail nor a mail server's answer matches; VoiceOver hears it once as it appears.
+// An incomplete mail server search shows its failure or skipped folders instead.
+function NoResults({
+  ready,
+  results,
+  search,
+  scope,
+  query,
+}: Readonly<{
+  ready: boolean;
+  results: readonly unknown[] | undefined;
+  search: ReturnType<typeof useGmailSearch>;
+  scope: string;
+  query: string;
+}>) {
+  const { t } = useLocalization();
+  const shown =
+    ready &&
+    results?.length === 0 &&
+    !search.searching &&
+    !search.found?.results.length &&
+    !searchIncomplete(search);
+  const title = t('search.noResults');
+  useOutcomeAnnouncement(shown ? title : undefined, true);
+  return shown ? (
+    <EmptyInbox
+      icon="magnifyingglass"
+      title={title}
+      detail={t('search.noResultsDetail', { scope, query })}
+    />
+  ) : null;
 }
 
 // A Mail Profile without mailboxes offers only Manage Mail Profiles…, with nothing to synchronize.
@@ -694,6 +750,34 @@ function InboxFooter({
   );
 }
 
+// The mail servers search whole mailboxes, so the Searching and No Results subtitles name a single
+// one by its address and several as All Mailboxes, as the frames do, not their Inboxes. Only ready
+// mailboxes that search their server are asked, as the search store does, and More from Mail
+// Servers asks only those with another page.
+function searchedScope(
+  t: Translate,
+  shown: readonly InboxMailbox[],
+  {
+    scopeName,
+    more,
+  }: Readonly<{
+    scopeName: string;
+    more?: Readonly<{ next: ReadonlyMap<string, string> }> | undefined;
+  }>,
+) {
+  const searched = shown.filter(
+    ({ id, state, inbox }) =>
+      state.kind === 'ready' &&
+      'searchGmail' in inbox &&
+      inbox.searchGmail !== undefined &&
+      (more === undefined || more.next.has(id)),
+  );
+  const [only] = searched;
+  return searched.length > 1
+    ? t('search.allMailboxes')
+    : (only?.address ?? scopeName);
+}
+
 function headingOf(
   t: Translate,
   {
@@ -705,15 +789,21 @@ function headingOf(
     results,
     search,
     unconnected,
+    unlisted,
+    unified,
   }: Readonly<{
     scope: string | undefined;
     folder: string | undefined;
+    // A Unified Mailbox, whose No Results names the mailboxes searched rather than its title.
+    unified: boolean;
     scopeName: string;
     status: string;
     shown: readonly InboxMailbox[];
     results: readonly unknown[] | undefined;
     search: ReturnType<typeof useGmailSearch>;
     unconnected: boolean;
+    // The listed folder or view is still opening or could not be read, so it has not answered.
+    unlisted: boolean;
   }>,
 ) {
   const title =
@@ -726,16 +816,54 @@ function headingOf(
   if (unconnected) {
     return { title, subtitle: t('profiles.noMailboxes'), emptyScope };
   }
-  const subtitle =
+  if (
     results === undefined ||
     searchOffline(search) ||
     shown.some(({ state }) => checking(state) || offline(state))
-      ? t('inbox.subtitleLabel', { scope: scopeName, status })
-      : t('search.subtitleRegular', {
-          count: results.length + (search.found?.results.length ?? 0),
-          scope: scopeName,
-        });
-  return { title, subtitle, emptyScope };
+  ) {
+    return {
+      title,
+      subtitle: t('inbox.subtitleLabel', { scope: scopeName, status }),
+      emptyScope,
+    };
+  }
+  // Syncing and Offline above take precedence over a mail server search in progress.
+  const count = results.length + (search.found?.results.length ?? 0);
+  if (search.searching) {
+    return {
+      title,
+      // A search already answered is asked for its next pages.
+      subtitle: t('search.searchingScope', {
+        scope: searchedScope(t, shown, { scopeName, more: search.found }),
+      }),
+      emptyScope,
+    };
+  }
+  // No Results names the folder its empty state names; the mail servers search the whole mailbox.
+  // Without a complete answer, or a ready mailbox to give one, nothing is claimed about matches.
+  if (count === 0) {
+    return {
+      title,
+      subtitle:
+        unlisted ||
+        searchIncomplete(search) ||
+        !shown.some(({ state }) => state.kind === 'ready')
+          ? emptyScope
+          : t('search.subtitleRegular', {
+              count,
+              scope:
+                unified || folder === undefined
+                  ? searchedScope(t, shown, { scopeName })
+                  : folder,
+            }),
+      emptyScope,
+    };
+  }
+  return {
+    title,
+    subtitle: t('search.subtitleRegular', { count, scope: scopeName }),
+    emptyScope,
+  };
 }
 
 function useComposeSearch(
@@ -849,6 +977,7 @@ export function Inbox({
     limited,
     downloading,
     listed,
+    unlisted,
     title: folderTitle,
     failure,
     missing,
@@ -966,6 +1095,8 @@ export function Inbox({
     results,
     search: online,
     unconnected: unconnected !== undefined,
+    unlisted,
+    unified: view.unified !== undefined,
   });
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
@@ -1036,17 +1167,6 @@ export function Inbox({
     }
     return [pin];
   };
-  const empty =
-    results === undefined ? (
-      <EmptyInbox
-        title={t('inbox.empty')}
-        detail={t('inbox.emptyDetail', { scope: emptyScope })}
-      />
-    ) : (
-      <Text style={[styles.notice, { color: colors.textSecondary }]}>
-        {t('search.empty', { query: searched })}
-      </Text>
-    );
   return (
     <View style={styles.panes}>
       <View
@@ -1218,9 +1338,19 @@ export function Inbox({
               unconnected={unconnected}
               profile={profile}>
               {results === undefined &&
-              hasNoMail({ ready, syncing, count: messages.length })
-                ? empty
-                : null}
+              hasNoMail({ ready, syncing, count: messages.length }) ? (
+                <EmptyInbox
+                  title={t('inbox.empty')}
+                  detail={t('inbox.emptyDetail', { scope: emptyScope })}
+                />
+              ) : null}
+              <NoResults
+                ready={ready && !unlisted}
+                results={results}
+                search={online}
+                scope={emptyScope}
+                query={searched}
+              />
               {results === undefined && syncing ? <SkeletonRows /> : null}
               <OnlineResults
                 query={searched}
@@ -1240,11 +1370,6 @@ export function Inbox({
             </InboxFooter>
           }
           ListFooterComponentStyle={styles.listFooter}
-          renderSectionFooter={({ section }) =>
-            section.key === 'saved' && ready && results !== undefined
-              ? empty
-              : null
-          }
           renderItem={({ item, section, index }) => {
             if ('outbox' in item) {
               return (
