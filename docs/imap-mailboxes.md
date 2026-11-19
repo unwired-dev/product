@@ -227,7 +227,8 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   folders; Choose Folders… or Change… (the whole row on iPhone) opens the same sheet
   with the saved folders, on the Mac as a sheet on the Settings window. The choice
   synchronizes through Product Sync for that connection only
-  until it is removed. A chosen folder supplies a role only where the server marks no
+  until it is removed; a device that has not yet learned another device removed and
+  added the connection again cannot save over the new connection's choice. A chosen folder supplies a role only where the server marks no
   folder with it, and a server marking still wins. A server marking several folders
   with a role offers no choice and stays out of All Mail, since choosing one would
   leave the others' mail in it; Move to Inbox still works from each of those folders.

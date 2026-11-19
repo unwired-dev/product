@@ -1076,6 +1076,38 @@ export function createMailProfileProgram<E>(
     );
   });
 
+  // The current incarnation of one of this device's connections and the refreshed Profile state,
+  // which must be readable to authorize a write.
+  const readableIncarnation = Effect.fnUntraced(function* (
+    value: RegistrationRecord,
+    connection: string,
+  ) {
+    const incarnation = yield* incarnationOf(value, connection);
+    const { state, readable } = yield* refreshed(yield* known);
+    if (!readable) {
+      return yield* failWith('unavailable');
+    }
+    return { ...incarnation, state };
+  });
+
+  // Refuses an edit for an incarnation Product Sync no longer holds live: another device
+  // removed the connection or added it again since this device last synchronized, so the edit
+  // would overwrite the current incarnation's record. One that lands between this read and the
+  // write is stored under the old epoch, which the current incarnation reads as no record.
+  const stillLive = Effect.fnUntraced(function* (
+    incarnations: ReadonlyArray<Readonly<{ record: string; epoch: string }>>,
+  ) {
+    const { epochs } = yield* descriptorEpochs;
+    if (incarnations.some(({ record }) => !epochs.has(record))) {
+      return yield* failWith('unavailable');
+    }
+    if (
+      incarnations.some(({ record, epoch }) => epochs.get(record) !== epoch)
+    ) {
+      return yield* failWith('profile-changed');
+    }
+  });
+
   // Moves the current incarnation of one of this device's connections to a published Profile, or
   // back to the Default Profile. Its identity, authorization, cache and Drafts stay in place. A move
   // into another Profile rewrites that Profile's definition in the same transaction, so it and a
@@ -1090,6 +1122,7 @@ export function createMailProfileProgram<E>(
     if (!receives(state, profile)) {
       return yield* failWith('unavailable');
     }
+    yield* stillLive([{ record, epoch }]);
     if (ownerOf(state, record, epoch) === profile) {
       return;
     }
@@ -1131,11 +1164,11 @@ export function createMailProfileProgram<E>(
     connection: string,
     enabled: boolean,
   ) {
-    const { record, epoch } = yield* incarnationOf(value, connection);
-    const { state, readable } = yield* refreshed(yield* known);
-    if (!readable) {
-      return yield* failWith('unavailable');
-    }
+    const { record, epoch, state } = yield* readableIncarnation(
+      value,
+      connection,
+    );
+    yield* stillLive([{ record, epoch }]);
     const current = state.notifications?.find(
       (policy) => policy.record === record,
     );
@@ -1156,20 +1189,6 @@ export function createMailProfileProgram<E>(
     ]);
   });
 
-  // The current incarnation of one of this device's connections and the refreshed Profile state,
-  // which must be readable to authorize a write.
-  const readableIncarnation = Effect.fnUntraced(function* (
-    value: RegistrationRecord,
-    connection: string,
-  ) {
-    const incarnation = yield* incarnationOf(value, connection);
-    const { state, readable } = yield* refreshed(yield* known);
-    if (!readable) {
-      return yield* failWith('unavailable');
-    }
-    return { ...incarnation, state };
-  });
-
   // Chooses the folders the current incarnation of one of this device's IMAP connections uses as
   // Spam and Trash. The choice needs Product Sync: one that does not commit leaves the stored one.
   const chooseFolders = Effect.fnUntraced(function* (
@@ -1184,6 +1203,7 @@ export function createMailProfileProgram<E>(
       value,
       connection,
     );
+    yield* stillLive([{ record, epoch }]);
     const current = state.folders?.find((choice) => choice.record === record);
     if (current?.epoch === epoch && sameChoice(current, folders)) {
       return;
@@ -1200,24 +1220,6 @@ export function createMailProfileProgram<E>(
         expectedUpdatedAt: current?.updatedAt,
       },
     ]);
-  });
-
-  // Refuses a display edit for an incarnation Product Sync no longer holds live: another device
-  // removed the connection or added it again since this device last synchronized, so the edit
-  // would overwrite the current incarnation's record. One that lands between this read and the
-  // write is stored under the old epoch, which the current incarnation reads as no record.
-  const stillLive = Effect.fnUntraced(function* (
-    incarnations: ReadonlyArray<Readonly<{ record: string; epoch: string }>>,
-  ) {
-    const { epochs } = yield* descriptorEpochs;
-    if (incarnations.some(({ record }) => !epochs.has(record))) {
-      return yield* failWith('unavailable');
-    }
-    if (
-      incarnations.some(({ record, epoch }) => epochs.get(record) !== epoch)
-    ) {
-      return yield* failWith('profile-changed');
-    }
   });
 
   // Rewrites each incarnation's display record that changes. The change needs Product Sync: one
