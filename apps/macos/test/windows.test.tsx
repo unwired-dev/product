@@ -52,7 +52,6 @@ import {
   Animated,
   AppState,
   DeviceEventEmitter,
-  processColor,
   ScrollView,
   StyleSheet,
   TurboModuleRegistry,
@@ -74,7 +73,6 @@ import {
 } from '../src/window.tsx';
 import {
   chooseSheetButton,
-  enterSheetText,
   sheetShown,
   sheetsShown,
   unwiredAlert,
@@ -2783,7 +2781,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
-  it('adds, removes and creates Gmail labels from the reader’s More menu and moves from its folder menu', async () => {
+  it('adds and removes Gmail labels from the reader’s More menu and moves from its folder menu', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const travel = gmail.createLabel('Travel');
@@ -2806,14 +2804,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
         <InboxWindow windowId="first" />
       </RegistrationGate>,
     );
-    const paletteSpy = jest
-      .spyOn(
-        jest.requireActual<{ usePalette: typeof usePalette }>(
-          '../src/theme.ts',
-        ),
-        'usePalette',
-      )
-      .mockReturnValue(palette.light);
     try {
       const window = within(await app.findByTestId('inbox-window-first'));
       await fireEvent.press(
@@ -2852,26 +2842,116 @@ describe('mac windows over a connected Gmail mailbox', () => {
         expect(gmail.labelsOf(id)).not.toContain(travel);
       });
       expect(gmail.labelsOf(id)).toContain('INBOX');
-      // New Label… asks for a name, then creates the label in Gmail and applies it.
-      await fireEvent.press(more);
-      await chooseSubmenuItem('Labels', 'New Label…');
-      expect(sheetShown()).toMatchObject({
-        title: 'New Label',
-        detail: 'The label is created in Gmail and added to this message.',
-        buttons: ['Add Label', 'Cancel'],
-        symbol: {
-          name: 'tag',
-          color: {
-            dynamic: {
-              light: processColor(palette.light.accentInk),
-              dark: processColor(palette.dark.accentInk),
-            },
-          },
-        },
-        field: 'Label name',
+      // The folder button's Move menu moves the message out of the Inbox, closing the reader.
+      await fireEvent.press(window.getByRole('button', { name: 'Folders' }));
+      await chooseMenuItem('Travel');
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).not.toContain('INBOX');
       });
-      // Appearance changes must keep the native field and the name already typed into it.
-      enterSheetText('  Lisbon trip ');
+      expect(gmail.labelsOf(id)).toContain(travel);
+      expect(
+        window.getByText('Select a message to start reading.'),
+      ).toBeVisible();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('creates and applies a Gmail label from the reader’s Labels popover', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    const travel = gmail.createLabel('Travel');
+    const receipts = gmail.createLabel('Receipts');
+    const clients = gmail.createLabel('Clients');
+    const id = gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    // Label creation requests, whose Gmail answer the test may hold.
+    const creating = jest.spyOn(gmail.native, 'gmailCreateLabel');
+    const created = () => creating.mock.calls.map(([name]) => name);
+    let refuse: (answer: { status: number; body: string }) => void = () =>
+      undefined;
+    // oxlint-disable-next-line promise/avoid-new -- A Gmail answer the test releases.
+    const held = new Promise<{ status: number; body: string }>((resolve) => {
+      refuse = resolve;
+    });
+    let refuseLate: typeof refuse = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- A Gmail answer the test releases.
+    const heldLate = new Promise<{ status: number; body: string }>(
+      (resolve) => {
+        refuseLate = resolve;
+      },
+    );
+    const { registration } = await connectedRegistration();
+    const list = createMailboxes(
+      syntheticConnections({ [alex]: { native: gmail.native } }),
+      registration,
+    );
+    showMailboxes(list);
+    const app = await render(
+      <RegistrationGate
+        store={started(registration)}
+        preview={false}>
+        <InboxWindow windowId="first" />
+      </RegistrationGate>,
+    );
+    const paletteSpy = jest
+      .spyOn(
+        jest.requireActual<{ usePalette: typeof usePalette }>(
+          '../src/theme.ts',
+        ),
+        'usePalette',
+      )
+      .mockReturnValue(palette.light);
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await window.findByRole('button', { name: oliver }),
+      );
+      const more = await window.findByRole('button', { name: 'More' });
+      // New Label… opens Labels below the toolbar; Apply creates the label in Gmail and applies it.
+      // AppKit shows the popover once its content has a size; Jest lays out nothing.
+      const labelsPopover = async () => {
+        const panel = window.getByTestId('new-label');
+        await fireEvent(panel, 'layout', {
+          nativeEvent: { layout: { width: 360, height: 432 } },
+        });
+        let popover = panel;
+        while (popover.type !== 'UnwiredPopover') {
+          popover = popover.parent!;
+        }
+        return popover;
+      };
+      const newLabel = async () => {
+        await fireEvent.press(
+          await window.findByRole('button', { name: 'More' }),
+        );
+        await chooseSubmenuItem('Labels', 'New Label…');
+        await expect(labelsPopover()).resolves.toHaveProp('shown', true);
+        return within(window.getByTestId('new-label'));
+      };
+      let labels = await newLabel();
+      expect(labels.getByRole('header', { name: 'Labels' })).toBeVisible();
+      expect(labels.getByText('Gmail · alex@example.invalid')).toBeVisible();
+      expect(
+        labels.queryByRole('header', { name: 'Matching labels' }),
+      ).toBeNull();
+      expect(labels.getByRole('button', { name: 'Apply' })).toBeDisabled();
+      // A slash nests the label in the one named before it.
+      await fireEvent.changeText(
+        labels.getByLabelText('Label name'),
+        '  Travel/Lisbon  ',
+      );
+      expect(
+        labels.getByRole('button', {
+          name: 'Create “Lisbon” inside “Travel”, Created in Gmail, then applied',
+        }),
+      ).toBeVisible();
+      expect(
+        labels.getByRole('header', { name: 'Matching labels' }),
+      ).toBeVisible();
+      // Appearance changes keep the name already typed.
       paletteSpy.mockReturnValue(palette.dark);
       await app.rerender(
         <RegistrationGate
@@ -2880,31 +2960,114 @@ describe('mac windows over a connected Gmail mailbox', () => {
           <InboxWindow windowId="first" />
         </RegistrationGate>,
       );
-      await act(async () => {
-        chooseSheetButton('Add Label');
-      });
+      labels = within(window.getByTestId('new-label'));
+      expect(labels.getByLabelText('Label name')).toHaveDisplayValue(
+        '  Travel/Lisbon  ',
+      );
+      await fireEvent.press(
+        labels.getByRole('button', {
+          name: 'Create “Lisbon” inside “Travel”, Created in Gmail, then applied',
+        }),
+      );
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
+      expect(created()).toStrictEqual(['Travel/Lisbon']);
+      await fireEvent(await labelsPopover(), 'close');
       await fireEvent.press(more);
       await waitFor(() => {
         expect(submenuItems('Labels')).toContainEqual(
-          expect.objectContaining({ title: 'Lisbon trip', checked: true }),
+          expect.objectContaining({ title: 'Travel/Lisbon', checked: true }),
         );
       });
+      // Cancel closes Labels without a change.
       await chooseSubmenuItem('Labels', 'New Label…');
-      await act(async () => {
-        chooseSheetButton('Cancel', 'Ignored');
+      labels = within(window.getByTestId('new-label'));
+      await fireEvent.changeText(labels.getByLabelText('Label name'), 'Work');
+      await fireEvent.press(labels.getByRole('button', { name: 'Cancel' }));
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
+      // A name another label has in another case creates nothing: Edit Name returns to it, and
+      // Use applies that label.
+      labels = await newLabel();
+      await fireEvent.changeText(labels.getByLabelText('Label name'), 'travel');
+      expect(labels.queryByRole('button', { name: /^Create/u })).toBeNull();
+      await fireEvent(labels.getByLabelText('Label name'), 'submitEditing');
+      expect(sheetShown()).toStrictEqual({
+        title: '“travel” wasn’t created',
+        detail:
+          'Gmail already has a label with this name in a different case. Nothing was applied.',
+        buttons: ['Use “Travel”', 'Edit Name'],
       });
-      // A name Gmail refuses is explained, and nothing is applied.
-      const labels = gmail.labelsOf(id);
-      gmail.failCreateLabel({ status: 409 });
-      await fireEvent.press(more);
-      await chooseSubmenuItem('Labels', 'New Label…');
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
       await act(async () => {
-        chooseSheetButton('Add Label', 'Work');
+        chooseSheetButton('Edit Name');
+      });
+      await expect(labelsPopover()).resolves.toHaveProp('shown', true);
+      labels = within(window.getByTestId('new-label'));
+      expect(labels.getByLabelText('Label name')).toHaveDisplayValue('travel');
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+      await act(async () => {
+        chooseSheetButton('Use “Travel”');
+      });
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).toContain(travel);
+      });
+      // A label's exact name applies it without creating one, as choosing it in the list does.
+      labels = await newLabel();
+      await fireEvent.changeText(
+        labels.getByLabelText('Label name'),
+        'Receipts',
+      );
+      await fireEvent(labels.getByLabelText('Label name'), 'submitEditing');
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).toContain(receipts);
+      });
+      // Choosing New Label… again before AppKit reports the last popover closed keeps Labels open.
+      const closing = await labelsPopover();
+      labels = await newLabel();
+      await fireEvent(closing, 'close');
+      await expect(labelsPopover()).resolves.toHaveProp('shown', true);
+      await fireEvent.press(labels.getByRole('button', { name: 'Clients' }));
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).toContain(clients);
+      });
+      expect(created()).toStrictEqual(['Travel/Lisbon']);
+      // A name Gmail refuses is explained and nothing is applied. Closing and reopening Labels
+      // while Gmail answers keeps the name, and OK returns to it.
+      const applied = gmail.labelsOf(id);
+      creating.mockImplementationOnce(async () => held);
+      labels = await newLabel();
+      await fireEvent.changeText(labels.getByLabelText('Label name'), 'Work');
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+      expect(labels.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+      // A click outside closes the AppKit popover.
+      await fireEvent(await labelsPopover(), 'close');
+      expect(window.queryByTestId('new-label')).toBeNull();
+      labels = await newLabel();
+      expect(labels.getByLabelText('Label name')).toHaveDisplayValue('Work');
+      expect(labels.getByRole('button', { name: 'Apply' })).toBeDisabled();
+      await act(async () => {
+        refuse({ status: 409, body: '{}' });
       });
       await waitFor(() => {
         expect(sheetShown()).toMatchObject({
           title: '“Work” could not be created in Gmail',
           buttons: ['OK'],
+        });
+      });
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
+      await act(async () => {
+        chooseSheetButton('OK');
+      });
+      await expect(labelsPopover()).resolves.toHaveProp('shown', true);
+      labels = within(window.getByTestId('new-label'));
+      expect(labels.getByLabelText('Label name')).toHaveDisplayValue('Work');
+      expect(gmail.labelsOf(id)).toStrictEqual(applied);
+      gmail.failCreateLabel({ status: 409 });
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+      await waitFor(() => {
+        expect(sheetShown()).toMatchObject({
+          title: '“Work” could not be created in Gmail',
         });
       });
       // Locking the Inbox retires its failure sheet before the reader can reopen.
@@ -2916,17 +3079,28 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await act(async () => {
         await list.load();
       });
-      expect(gmail.labelsOf(id)).toStrictEqual(labels);
-      // The folder button's Move menu moves the message out of the Inbox, closing the reader.
-      await fireEvent.press(window.getByRole('button', { name: 'Folders' }));
-      await chooseMenuItem('Travel');
-      await waitFor(() => {
-        expect(gmail.labelsOf(id)).not.toContain('INBOX');
+      expect(gmail.labelsOf(id)).toStrictEqual(applied);
+      // A refusal arriving after the reader closed Labels asks nothing.
+      creating.mockImplementationOnce(async () => heldLate);
+      labels = await newLabel();
+      await fireEvent.changeText(labels.getByLabelText('Label name'), 'Work');
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+      // Saved mail stays in the reader, without organizing actions.
+      const open = gmail.native.openMailbox.bind(gmail.native);
+      jest
+        .spyOn(gmail.native, 'openMailbox')
+        .mockImplementation(async (...request) => ({
+          ...(await open(...request)),
+          availability: 'retry',
+        }));
+      await act(async () => {
+        await list.load();
       });
-      expect(gmail.labelsOf(id)).toContain(travel);
-      expect(
-        window.getByText('Select a message to start reading.'),
-      ).toBeVisible();
+      expect(window.queryByTestId('new-label')).toBeNull();
+      await act(async () => {
+        refuseLate({ status: 409, body: '{}' });
+      });
+      expect(sheetsShown()).toStrictEqual([]);
     } finally {
       await app.unmount();
       paletteSpy.mockRestore();

@@ -475,13 +475,21 @@ A note that the mailbox has no folders or labels of its own, or that some were l
 as an unavailable item. **Mark as Read** (or **Unread**) and **Move to** are the toolbar's own
 buttons, so **More** appears for Gmail mail only and opens the system menu with **Labels**: a submenu listing each
 label, checked when the message has it. Choosing a label adds or removes it. Below a
-separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253))
-asks for a name in a native alert sheet on the window: **Add Label** creates the label in
-Gmail and applies it to the message the menu opened for, as choosing a label does, and
-**Cancel** or a blank name changes nothing. The name and failure sheets close with
-their reader. Changing appearance while entering a name preserves that input.
-Creation needs Gmail to answer: when Gmail refuses the name, including an existing label's name, or
-cannot be reached, an alert says the label could not be created and nothing is applied.
+separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253),
+[#2442](https://github.com/unwired-dev/product/issues/2442)) opens **Labels** in an AppKit
+popover below the toolbar's last group, with the naming rules of iPhone and iPad below: the
+Gmail account, a label name field, **Create “Acme” inside “Clients”** or **Create “Acme”** for a
+name no label has, the account's labels (under **Matching labels** once a name is typed), then **Cancel** and **Apply**.
+That row, **Apply** or Return creates the label in Gmail and applies it to the message the menu
+opened for, as choosing a label does; choosing a listed label applies it. Before then, **Cancel**,
+Escape or a click outside closes it without a change, and a blank name applies nothing. A name another label has in a different case
+closes **Labels** for a sheet on the window offering **Use “clients/acme”** or **Edit Name**,
+which opens **Labels** again with the name. Creation needs Gmail to answer, and **Cancel** is
+unavailable meanwhile; closing **Labels** another way still creates and applies the label, and
+**New Label…** reopens it on that name until Gmail answers. When Gmail refuses the name or cannot be reached, a sheet says the label
+could not be created, nothing is applied, and **OK** opens **Labels** again with the name to edit.
+**Labels** and its sheets close with their reader or when it shows another message, a refusal arriving after that asks nothing, and changing
+appearance while entering a name preserves that input.
 The new label joins **Labels** and the Move menus as soon as Gmail creates it, and is saved
 with the message's pending label change without waiting for synchronization. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
@@ -1651,8 +1659,8 @@ changes during conflict reopening, preserving labels on Undo, five-attempt
 stopping and resolution, revoked access, and the cache upgrade. Label creation tests
 cover creating and applying a label, refusing duplicate names, a refused or unreachable
 Gmail applying nothing, immediate and durable label publication during held synchronization,
-catalog refresh races, stale-message rejection and access-loss recovery; the Mac journey covers **New Label…**, Cancel and
-the failure alert. Shared
+catalog refresh races, stale-message rejection and access-loss recovery; the Mac component tests cover **Labels**: nested,
+listed, same-case and refused names, Cancel and the failure sheet. Shared
 registration tests cover queued foreground verification, concurrent sign-out and
 deletion after a mailbox removal hand-off.
 

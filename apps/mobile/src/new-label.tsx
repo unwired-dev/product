@@ -22,6 +22,7 @@ import {
   presentationDetents,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
+import { typedLabel } from '@private-email/mail-core/gmail-actions';
 import { spacing } from '@private-email/mail-core/theme';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
@@ -43,22 +44,6 @@ import { useMailbox, useProviderName } from './mailbox.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
-
-// A typed label name, read as Gmail reads it: a slash nests the label in the one named before it,
-// and names that differ only in case are the same label.
-const typedLabel = (labels: readonly GmailLabel[], typed: string) => {
-  const name = typed.trim();
-  const slash = name.lastIndexOf('/');
-  return {
-    name,
-    // An existing label of that name, which Gmail would refuse to create again.
-    existing:
-      labels.find((label) => label.name === name) ??
-      labels.find((label) => label.name.toLowerCase() === name.toLowerCase()),
-    parent: slash > 0 ? name.slice(0, slash) : undefined,
-    leaf: name.slice(slash + 1),
-  };
-};
 
 // The Labels frames: 20pt inside the panel, 10pt between its parts, 17pt grouped rows.
 const styles = StyleSheet.create({
