@@ -1983,11 +1983,8 @@ const sendNowOf = (
   saving: boolean,
 ) => ({
   disabled: saving || blocked !== undefined,
-  waiting:
-    blocked === 'assets'
-      ? unsendableAssets(draft).find((asset) => asset.state === 'importing')
-          ?.name
-      : undefined,
+  waiting: unsendableAssets(draft).find((asset) => asset.state === 'importing')
+    ?.name,
 });
 
 function useBlockedSend({

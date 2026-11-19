@@ -158,6 +158,10 @@ const withState = (
 const awaitingOutcome = (state: OutboxEntry['state'] | undefined) =>
   state === 'sending' || state === 'unknown';
 
+// A message admitted with an Undo Send Window waits it out; Send Now's, of 0, is queued at once.
+const admittedState = (delay: number) =>
+  delay > 0 ? ('waiting' as const) : ('queued' as const);
+
 // One Outbox step from state `from`; any other state refuses it.
 const step =
   <T>(from: OutboxEntry['state'], next: (entry: OutboxEntry) => T) =>
@@ -1146,7 +1150,7 @@ export function createOutbox({
           draft: stored,
           message,
           sendAt,
-          state: 'waiting',
+          state: admittedState(delay),
           epoch,
         }),
       );

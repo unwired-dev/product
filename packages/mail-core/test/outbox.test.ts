@@ -606,6 +606,9 @@ describe('sending a Draft through the Outbox', () => {
     await expect(
       sending.outbox.send(() => sending.draft(id), undefined, 0),
     ).resolves.toBeUndefined();
+    expect(sending.drafts.getOutbox().map(({ state }) => state)).toStrictEqual([
+      'queued',
+    ]);
     await vi.advanceTimersByTimeAsync(0);
     expect(gmail.sends).toHaveLength(1);
     expect(sending.drafts.getOutbox()).toStrictEqual([]);

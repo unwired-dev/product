@@ -913,8 +913,8 @@ the [platform qualification](qualification/expo-react-native-client.md).
 The iPhone and iPad Send menu also offers **Send Now** ("No Undo",
 [#2457](https://github.com/unwired-dev/product/issues/2457)), above Remind Me to
 Send…. It sends as Send does, through the same Outbox checks and refusals, but
-admits the message with no Undo Send Window, so it goes to its provider at once
-and offers no Undo. It asks for no confirmation, and plain Send keeps its window.
+admits the message with no Undo Send Window, so it is ready for delivery at once,
+under the usual Outbox claim and retry rules, and offers no Undo. It asks for no confirmation, and plain Send keeps its window.
 While Send can't send, Send Now is dimmed; while a file is still being added it
 also names that file ("Waiting for terms.pdf to finish"). The Mac gets Send Now
 in a later #1674 slice.
