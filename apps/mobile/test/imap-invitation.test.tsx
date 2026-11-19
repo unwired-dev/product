@@ -440,9 +440,13 @@ describe('imap invitation responses on iPhone and iPad', () => {
       expect(
         screen.getByRole('button', { name: 'Close Search' }),
       ).toBeOnTheScreen();
+      // The section each scroll targets, read from the list as it stood then.
+      const targets: unknown[] = [];
       const scroll = jest
         .spyOn(SectionList.prototype, 'scrollToLocation')
-        .mockReturnValue(undefined);
+        .mockImplementation(function (this: SectionList, { sectionIndex }) {
+          targets.push(this.props.sections[sectionIndex]?.key);
+        });
       await app.rerender(list({}));
       expect(screen.getByText('Release readiness')).toBeOnTheScreen();
       expect(screen.queryByRole('button', { name: 'Close Search' })).toBeNull();
@@ -450,6 +454,7 @@ describe('imap invitation responses on iPhone and iPad', () => {
       expect(scroll.mock.calls).toStrictEqual([
         [{ sectionIndex: 0, itemIndex: 0 }],
       ]);
+      expect(targets).toStrictEqual(['outbox']);
       scroll.mockRestore();
 
       // Check Again finds the response in Sent and keeps it, without sending it again.
