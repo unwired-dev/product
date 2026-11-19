@@ -1,5 +1,4 @@
 import type { MailProfile } from '@private-email/mail-core/registration';
-import type { ViewInstance } from 'react-native';
 
 import { Button, Host, List, Section, Text, VStack } from '@expo/ui/swift-ui';
 import {
@@ -32,6 +31,7 @@ import {
   ScrollView,
   Text as Label,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -73,20 +73,22 @@ const styles = StyleSheet.create({
 function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const page = useRef<ViewInstance>(null);
-  // The page starts below the bar; padding its bottom by as much centres the state on the screen.
-  const [above, setAbove] = useState(0);
+  // The page ends at the window's bottom and starts below the bar; padding its bottom by the
+  // bar's height centres the state on the screen. Its layout height, unlike its window position,
+  // holds while the page slides in.
+  const { height: screen } = useWindowDimensions();
+  const [height, setHeight] = useState(screen);
   return (
     <View
-      ref={page}
-      onLayout={() => {
-        page.current?.measureInWindow((_x, y) => {
-          setAbove(y);
-        });
+      onLayout={({ nativeEvent: { layout } }) => {
+        setHeight(layout.height);
       }}
       style={styles.list}>
       <ScrollView
-        contentContainerStyle={[styles.unavailable, { paddingBottom: above }]}>
+        contentContainerStyle={[
+          styles.unavailable,
+          { paddingBottom: Math.max(0, screen - height) },
+        ]}>
         <View style={[styles.tile, { backgroundColor: colors.fillQuiet }]}>
           <SFSymbol
             name="exclamationmark.triangle.fill"
