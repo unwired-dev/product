@@ -40,8 +40,8 @@ extension PrivateInboxTests {
     let smtpProvider = SwiftMailSmtp()
     let token = UUID().uuidString
     // Mailboxes the server accepted or may have accepted a message for that the test has not yet
-    // finished waiting for. Delivery to both shares one deadline, so cleanup fits the test's
-    // 120-second allowance with one 16-second cleanup window for every mailbox still waiting.
+    // finished waiting for. Polling for delivery shares one 70-second budget and cleanup's polling
+    // one 16-second budget, within the test's 120-second allowance.
     var unread = Set<String>()
     var delivery = ContinuousClock.now
     var cleanup = ContinuousClock.now
