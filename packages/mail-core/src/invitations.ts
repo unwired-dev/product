@@ -1,12 +1,18 @@
 import type { Translate } from '@private-email/localization';
 
+import * as Arr from 'effect/Array';
 import * as DateTime from 'effect/DateTime';
+import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Semaphore from 'effect/Semaphore';
 
 import type { Draft, Recipient } from './draft-model.ts';
+import type { ImapInbox } from './imap-inbox.ts';
 import type { GmailInbox, SendOutcome } from './inbox-store.ts';
+import type { InvitationAnswer } from './invitation-record.ts';
 import type { InvitationResponse } from './mailbox-document.ts';
 import type { BodyDocument } from './message-body.ts';
+import type { Outbox, OutboxSnapshotEntry } from './outbox.ts';
 
 import { listedMessage } from './inbox-store.ts';
 import { boundaryOf, outgoingMessage } from './outgoing-message.ts';
@@ -750,11 +756,20 @@ export function invitationReply(
 // Where a response to one invitation stands on this device. `unknown` and `checking` keep the
 // sent message's boundary, which finds its Sent copy. `older` is a revision older than one this
 // device answered, and `removed` one whose mailbox left Unwired while sending; neither can respond.
+// An IMAP response waits in the Outbox, within the Undo Send Window (`waiting`), then until it
+// can be handed to the mail server (`queued`).
 export type ResponseState =
   | Readonly<{ kind: 'unanswered' }>
   | Readonly<{ kind: 'older' }>
   | Readonly<{
-      kind: 'sending' | 'refused' | 'removed' | 'offline' | 'authentication';
+      kind:
+        | 'waiting'
+        | 'queued'
+        | 'sending'
+        | 'refused'
+        | 'removed'
+        | 'offline'
+        | 'authentication';
       choice: InvitationChoice;
     }>
   | Readonly<{ kind: 'sent'; choice: InvitationChoice; at: number }>
@@ -810,6 +825,8 @@ const answerable = (
   choice: InvitationChoice,
   again: boolean,
 ) =>
+  current.kind !== 'waiting' &&
+  current.kind !== 'queued' &&
   current.kind !== 'sending' &&
   current.kind !== 'older' &&
   current.kind !== 'removed' &&
@@ -871,25 +888,31 @@ const replySubject = (subject: string) =>
   /^\s*re:/iu.test(subject) ? subject : `Re: ${subject}`;
 
 // The response message: a reply to the invitation, from the invited mailbox to the organizer,
-// carrying the calendar reply beside its text in the person's language.
+// carrying the calendar reply beside its text in the person's language. An Outbox message names
+// its connection and a Message-ID that finds its Sent copy; Gmail assigns its own.
 const responseMessage = (
   invitation: Invitation,
   {
     choice,
     t,
     received,
+    connection,
   }: Readonly<{
     choice: InvitationChoice;
     t: Translate;
     received: string | undefined;
+    connection?: string;
   }>,
   at: number,
 ) => {
   const boundary = Math.random().toString(36).slice(2, 14);
   const { messageId } = invitation;
   const draft: Draft = {
-    id: invitation.uid,
-    connection: invitation.address,
+    id:
+      connection === undefined
+        ? invitation.uid
+        : `${at.toString(36)}.${boundary}`,
+    connection: connection ?? invitation.address,
     from: invitation.address,
     to: [invitation.details.organizer],
     cc: [],
@@ -921,35 +944,36 @@ const responseMessage = (
     },
     updatedAt: at,
   };
-  const { segments } = outgoingMessage(draft, {
+  const { segments, size } = outgoingMessage(draft, {
     date: at,
     boundary,
     calendar: invitationReply(invitation, choice, at),
+    ...(connection === undefined
+      ? {}
+      : {
+          messageId: `${at.toString(36)}.${boundary}@${invitation.address.slice(invitation.address.lastIndexOf('@') + 1)}`,
+        }),
   });
-  return { segments, boundary: boundaryOf(segments) ?? `=_${boundary}_a` };
+  return {
+    draft,
+    segments,
+    size,
+    boundary: boundaryOf(segments) ?? `=_${boundary}_a`,
+  };
 };
 
-// Responses to meeting invitations sent from one Gmail Inbox, shared by every window showing it.
-// Each response is sent once, only after the person chooses it: a response being sent or checked
-// ignores further choices, and one whose delivery is unknown is sent again only when the person
-// confirms. A sent response, or one whose delivery is unknown, is recorded in the mailbox's cache
-// before it is sent, so it is restored after relaunch; this run's other states stay in memory.
-function createInvitationResponses(
-  inbox: ResponseInbox,
-  now: () => number = Date.now,
-) {
-  const states = new Map<string, ResponseState>();
-  const listeners = new Set<() => void>();
-  const set = (invitation: Invitation, state: ResponseState) => {
-    states.set(keyOf(invitation), state);
-    for (const listener of listeners) {
-      listener();
-    }
-  };
+// What the opened mailbox's recorded responses say about an invitation.
+const recordReader = (
+  getSnapshot: () => Readonly<{
+    kind: string;
+    address?: string | undefined;
+    responses?: readonly InvitationResponse[] | undefined;
+  }>,
+) => {
   // The opened mailbox's recorded responses to the invitation's meeting, most recent first. One
   // meeting of a series has its own.
   const recordsOf = (invitation: Invitation) => {
-    const state = inbox.getSnapshot();
+    const state = getSnapshot();
     return state.kind === 'ready' &&
       state.address?.toLowerCase() === invitation.address.toLowerCase()
       ? (state.responses ?? []).filter(
@@ -1002,6 +1026,28 @@ function createInvitationResponses(
     recorded.set(record, state);
     return state;
   };
+  return { recordsOf, recordOf, newestOtherOf, earlierOf, restored };
+};
+
+// Responses to meeting invitations sent from one Gmail Inbox, shared by every window showing it.
+// Each response is sent once, only after the person chooses it: a response being sent or checked
+// ignores further choices, and one whose delivery is unknown is sent again only when the person
+// confirms. A sent response, or one whose delivery is unknown, is recorded in the mailbox's cache
+// before it is sent, so it is restored after relaunch; this run's other states stay in memory.
+function createInvitationResponses(
+  inbox: ResponseInbox,
+  now: () => number = Date.now,
+) {
+  const states = new Map<string, ResponseState>();
+  const listeners = new Set<() => void>();
+  const set = (invitation: Invitation, state: ResponseState) => {
+    states.set(keyOf(invitation), state);
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+  const { recordsOf, recordOf, newestOtherOf, earlierOf, restored } =
+    recordReader(() => inbox.getSnapshot());
   const stateOf = (invitation: Invitation) => {
     // A response to a newer revision outdates this one, whatever it answered before.
     if (
@@ -1181,6 +1227,269 @@ export function invitationResponses(
   }
   const created = createInvitationResponses(inbox, now);
   responsesByInbox.set(inbox, created);
+  return created;
+}
+
+type ResponseOutbox = Pick<
+  Outbox,
+  'getSnapshot' | 'subscribe' | 'respond' | 'undo' | 'check'
+>;
+
+// Where the Outbox message carrying a response stands. One the mail server accepted reads as sent
+// once its mailbox records it.
+// fallow-ignore-next-line complexity -- Each Outbox state maps to one response state.
+const entryState = (
+  { state, check, problem, message, invitation }: OutboxSnapshotEntry,
+  record: InvitationResponse | undefined,
+): ResponseState => {
+  const choice = invitation?.choice ?? 'accepted';
+  switch (state) {
+    case 'waiting':
+    case 'queued':
+    case 'sending': {
+      return { kind: state, choice };
+    }
+    case 'filing': {
+      return record?.kind === 'sent' && record.choice === choice
+        ? { kind: 'sent', choice, at: record.at }
+        : { kind: 'sending', choice };
+    }
+    case 'failed': {
+      if (problem === 'mailbox') {
+        return { kind: 'removed', choice };
+      }
+      return problem === 'authorization'
+        ? { kind: 'authentication', choice }
+        : { kind: 'refused', choice };
+    }
+    case 'unknown': {
+      return {
+        kind: check === 'checking' ? 'checking' : 'unknown',
+        choice,
+        boundary: boundaryOf(message.segments) ?? '',
+      };
+    }
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
+  }
+};
+
+// What the Outbox message answering the invitation with `choice` carries for its row and record.
+const answerOf = (
+  {
+    uid,
+    sequence,
+    message,
+    details: { recurrence, start, end, summary },
+  }: Invitation,
+  choice: InvitationChoice,
+): InvitationAnswer => ({
+  uid,
+  sequence,
+  ...(recurrence === undefined ? {} : { recurrence }),
+  choice,
+  start,
+  ...(end === undefined ? {} : { end }),
+  message,
+  ...(summary === undefined ? {} : { summary }),
+});
+
+// Responses to meeting invitations sent from one IMAP Inbox through the Outbox of its connection,
+// shared by every window showing it. A choice waits out the Undo Send Window in the Outbox and is
+// handed to the mail server once; the Outbox message says where it stands until the server accepts
+// it, when the mailbox's cache records it. A response under way or whose delivery is unknown
+// ignores further choices; a refused one is replaced by the next choice.
+function createImapInvitationResponses(
+  inbox: Pick<ImapInbox, 'getSnapshot' | 'subscribe' | 'message'>,
+  outbox: ResponseOutbox,
+  connection: string,
+) {
+  // A choice being admitted, or one the Outbox refused, in this run.
+  const states = new Map<string, ResponseState>();
+  const listeners = new Set<() => void>();
+  const set = (invitation: Invitation, state: ResponseState | undefined) => {
+    if (state === undefined) {
+      states.delete(keyOf(invitation));
+    } else {
+      states.set(keyOf(invitation), state);
+    }
+    for (const listener of listeners) {
+      listener();
+    }
+  };
+  const { recordsOf, recordOf, earlierOf, restored } = recordReader(() =>
+    inbox.getSnapshot(),
+  );
+  // This connection's Outbox messages answering the invitation's meeting, oldest first.
+  const entriesOf = (invitation: Invitation) =>
+    outbox
+      .getSnapshot()
+      .filter(
+        ({ draft, invitation: answer }) =>
+          draft.connection === connection &&
+          draft.from.toLowerCase() === invitation.address.toLowerCase() &&
+          answer?.uid === invitation.uid &&
+          answer.recurrence === invitation.details.recurrence,
+      );
+  const entryOf = (invitation: Invitation) =>
+    Option.getOrUndefined(
+      Arr.findLast(
+        entriesOf(invitation),
+        (entry) => entry.invitation?.sequence === invitation.sequence,
+      ),
+    );
+  // One state per Outbox message and record, so readers see the same snapshot until it changes.
+  const shown = new WeakMap<
+    OutboxSnapshotEntry,
+    Readonly<{ record: InvitationResponse | undefined; state: ResponseState }>
+  >();
+  // Whether a response to a newer revision outdates this one, whatever it answered before.
+  const outdated = (invitation: Invitation) =>
+    recordsOf(invitation).some(
+      ({ sequence }) => sequence > invitation.sequence,
+    ) ||
+    entriesOf(invitation).some(
+      (entry) =>
+        entry.state !== 'failed' &&
+        (entry.invitation?.sequence ?? 0) > invitation.sequence,
+    );
+  const stateOf = (invitation: Invitation): ResponseState => {
+    if (outdated(invitation)) {
+      return older;
+    }
+    const pending = states.get(keyOf(invitation));
+    const entry = entryOf(invitation);
+    const record = recordOf(invitation);
+    if (pending?.kind === 'waiting' || entry === undefined) {
+      return pending ?? (record === undefined ? unanswered : restored(record));
+    }
+    const memo = shown.get(entry);
+    if (memo !== undefined && memo.record === record) {
+      return memo.state;
+    }
+    const state = entryState(entry, record);
+    shown.set(entry, { record, state });
+    return state;
+  };
+  // Builds the response and admits it to the Outbox, resolving why it was refused.
+  const enqueue = (
+    invitation: Invitation,
+    choice: InvitationChoice,
+    t: Translate,
+  ) => {
+    const { draft, segments, size } = responseMessage(
+      invitation,
+      {
+        choice,
+        t,
+        received: inbox.message(invitation.message)?.subject,
+        connection,
+      },
+      Date.now(),
+    );
+    return outbox.respond({
+      draft,
+      message: { segments, size },
+      invitation: answerOf(invitation, choice),
+    });
+  };
+  // Admits `choice` to the Outbox in `t`'s language, unless a response is under way, its
+  // delivery is unknown or it is the confirmed choice. A refused response leaves the Outbox first.
+  const admit = async (
+    invitation: Invitation,
+    choice: InvitationChoice,
+    t: Translate,
+  ) => {
+    const latest = entryOf(invitation);
+    // An accepted response still filing its Sent copy is under way too.
+    if (
+      !answerable(stateOf(invitation), choice, false) ||
+      (latest !== undefined && latest.state !== 'failed')
+    ) {
+      return;
+    }
+    set(invitation, { kind: 'waiting', choice });
+    if (
+      latest !== undefined &&
+      (await outbox.undo(latest.id, 'failed')) === false
+    ) {
+      set(invitation, undefined);
+      return;
+    }
+    // Choosing the confirmed response again only takes the refused one back.
+    const record = recordOf(invitation);
+    if (record?.choice === choice) {
+      set(invitation, undefined);
+      return;
+    }
+    const refusal = await enqueue(invitation, choice, t);
+    set(
+      invitation,
+      refusal === undefined ? undefined : { kind: 'refused', choice },
+    );
+  };
+  // One choice or Undo at a time, so each sees the Outbox messages of the choices before it.
+  const admission = Semaphore.makeUnsafe(1);
+  const serially = (run: () => Promise<void>) =>
+    Effect.runPromise(Effect.promise(run).pipe(admission.withPermit));
+  return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      // Recorded responses arrive with the mailbox's cache, and the rest with the Outbox.
+      const unsubscribeInbox = inbox.subscribe(listener);
+      const unsubscribeOutbox = outbox.subscribe(listener);
+      return () => {
+        listeners.delete(listener);
+        unsubscribeInbox();
+        unsubscribeOutbox();
+      };
+    },
+    state: stateOf,
+    earlier: earlierOf,
+    respond: (invitation: Invitation, choice: InvitationChoice, t: Translate) =>
+      serially(() => admit(invitation, choice, t)),
+    // Takes a response back during the Undo Send Window, restoring the earlier state; a choice
+    // still being admitted is taken back once it is.
+    undo: async (invitation: Invitation) => {
+      if (entryOf(invitation)?.state !== 'waiting') {
+        await serially(() => Promise.resolve());
+      }
+      const entry = entryOf(invitation);
+      if (entry?.state === 'waiting') {
+        await outbox.undo(entry.id, 'waiting');
+      }
+    },
+    // Looks in Sent for a response whose delivery is unknown; it stays unknown unless found.
+    check: async (invitation: Invitation) => {
+      const entry = entryOf(invitation);
+      if (entry?.state === 'unknown') {
+        await outbox.check(entry.id);
+      }
+    },
+  };
+}
+
+export type ImapInvitationResponses = ReturnType<
+  typeof createImapInvitationResponses
+>;
+
+const imapResponsesByInbox = new WeakMap<object, ImapInvitationResponses>();
+
+// The invitation responses of the IMAP `inbox` of `connection`, sent through `outbox` and the same
+// for every reader of it.
+export function imapInvitationResponses(
+  inbox: Pick<ImapInbox, 'getSnapshot' | 'subscribe' | 'message'>,
+  outbox: ResponseOutbox,
+  connection: string,
+): ImapInvitationResponses {
+  const existing = imapResponsesByInbox.get(inbox);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created = createImapInvitationResponses(inbox, outbox, connection);
+  imapResponsesByInbox.set(inbox, created);
   return created;
 }
 
@@ -1441,6 +1750,19 @@ const statuses: {
     icon: 'info.circle',
     title: t('invitation.older'),
     detail: t('invitation.olderDetail'),
+  }),
+  waiting: (state, { t }) => ({
+    icon: 'clock',
+    title: t('invitation.inOutbox'),
+    detail: t('invitation.waitingDetail', { choice: choiceOf(t, state) }),
+  }),
+  queued: (state, { t, address }) => ({
+    icon: 'clock',
+    title: t('invitation.inOutbox'),
+    detail: t('invitation.queuedDetail', {
+      choice: choiceOf(t, state),
+      address,
+    }),
   }),
   sending: (state, { t, address }) => ({
     busy: true,

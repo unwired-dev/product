@@ -228,9 +228,12 @@ mailbox and an `update` message but not the other mailbox or its `update` messag
 other messages are not checked. Search for `update 003` in each finds only its own mailbox's message.
 A Draft saved from Work's window appears there and not in the Primary Profile's.
 A message sent from Work's window waits in its **Outbox** as `Sending soon` during
-the Undo Send Window while the Primary Profile's window shows no Outbox, and
-Work's Outbox empties once delivery takes it
-([#1909](https://github.com/unwired-dev/product/issues/1909)).
+the Undo Send Window: the Inbox column does not list it, Work's sidebar offers
+**Outbox** after Sent and opening it lists the message, while the Primary
+Profile's window shows no Outbox. Once delivery takes it, the row leaves and
+Work's window lists its Inbox again
+([#1909](https://github.com/unwired-dev/product/issues/1909),
+[#2421](https://github.com/unwired-dev/product/issues/2421)).
 Moving the mailbox back restores its messages and the Draft to the Primary Profile
 window. Each window's capture is kept as an attachment. Links are not covered.
 
@@ -390,8 +393,10 @@ clears it, and the list passes an accessibility audit.
 Finally it connects a second IMAP account whose password the synthetic server then
 refuses ([#2243](https://github.com/unwired-dev/product/issues/2243)). On iPad the
 connection's sidebar header names the problem, its Inbox row does not, and the All
-Inboxes subtitle ends in **IMAP needs sign-in**; on iPhone the Inbox row's value names
-it. Each is captured with the appearance.
+Inboxes subtitle ends in **IMAP needs sign-in**; on iPhone the header names it too, the
+Inbox row does not, and a banner above the folders offers **Enter the Password…**
+([#2099](https://github.com/unwired-dev/product/issues/2099)). Each is captured with the
+appearance.
 
 ## iPhone and iPad Apple registration journey
 
@@ -416,6 +421,38 @@ named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
 Reminder". The journey fails later on iPhone
 ([#2146](https://github.com/unwired-dev/product/issues/2146)) and iPad
 ([#2148](https://github.com/unwired-dev/product/issues/2148)).
+
+## iPhone and iPad composer recovery journey
+
+The Expo native journey for a `registration-thread` Release build checks that a
+force quit keeps a New Message's unsaved edits
+([#2408](https://github.com/unwired-dev/product/issues/2408), ADR 0077 decision 2).
+Build it with `UNWIRED_MOCK_SCENARIO=registration-thread` as in the
+[mobile entry point](mock-mail-sessions.md#mobile-entry-point), then run it once
+per device:
+
+```sh
+mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
+```
+
+Run it again with `com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB`.
+On iPhone the scenario fails after these steps, at a Thread check
+([#2409](https://github.com/unwired-dev/product/issues/2409)).
+
+After connecting the synthetic Gmail mailbox, the journey opens a New Message and
+adds a recipient, a subject, body text and a photo from the library as an
+Attachment. It waits past the two-second journal delay without saving, ends the
+app with XCUITest's terminate, which runs no Close or save, and relaunches it.
+The relaunch must ask **Recover unsaved message?** with only **Your unsaved
+changes were kept on this device.**, Restore and Discard. **Restore** must open the
+composer with that recipient, subject, body and Attachment. A second force quit
+and relaunch asks again, **Discard** closes the alert without opening a composer,
+and a third relaunch asks nothing. The alert and the restored composer are kept as
+attachments. The journey then continues with the Thread steps under
+[Mock Mail Sessions](mock-mail-sessions.md). CI does not run this scenario; it is
+local native evidence.
 
 ## iPhone and iPad keyboard and accessibility journey
 

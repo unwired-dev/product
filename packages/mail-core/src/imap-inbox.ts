@@ -35,6 +35,7 @@ import type {
   OutgoingSend,
   SendOutcome,
 } from './inbox-store.ts';
+import type { InvitationResponse } from './invitation-record.ts';
 import type {
   BodyDocument,
   GmailPart,
@@ -108,6 +109,7 @@ import {
   sendRejection,
 } from './inbox-store.ts';
 import { inlineImageLimits } from './inline-images.ts';
+import { withResponse } from './invitation-record.ts';
 import { SyncFailure } from './mailbox-read.ts';
 import {
   bodyParts,
@@ -275,7 +277,7 @@ export interface NativeImapMailbox
     request: Readonly<{ session: string; uid: number }>,
   ) => Promise<unknown>;
   // Examines the `folder` in the open `session` and searches its text for `query`, or its
-  // Content-Type headers for a Sent copy's MIME `boundary`. Resolves `{ uidValidity, uids, total }`:
+  // Message-ID headers for a Sent copy's `messageId`. Resolves `{ uidValidity, uids, total }`:
   // the `newest` matching UIDs, newest first, and how many matched. Rejects with `imap-missing` for
   // a folder the server no longer selects, `imap-changed` for one without UIDVALIDITY and
   // `imap-unsupported` for a query in a charset the server cannot search.
@@ -283,8 +285,8 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     request: Readonly<
       { session: string; folder: string; newest: number } & (
-        | { query: string; boundary?: never }
-        | { boundary: string; query?: never }
+        | { query: string; messageId?: never }
+        | { messageId: string; query?: never }
       )
     >,
   ) => Promise<unknown>;
@@ -362,6 +364,8 @@ export type ImapInboxState =
       readonly undo: boolean;
       // Historical Metadata Backfill of every folder; absent until it starts.
       readonly history?: HistoryProgress;
+      // The Invitation Responses this mailbox sent, newest first.
+      readonly responses?: readonly InvitationResponse[];
       // Marks an IMAP Inbox among other providers'.
       readonly imap: true;
     };
@@ -810,6 +814,10 @@ const bodyDocument = Effect.fnUntraced(function* (
   }
   return { ...body, images: tally.result().images };
 });
+
+// The Invitation Responses a mailbox's cache records, for its ready state.
+const renderedResponses = ({ responses }: ImapDocument) =>
+  responses === undefined ? {} : { responses };
 
 // One IMAP connection's Inbox, its folder list and the folders a reader opened, from the encrypted
 // cache first and then from the server. Messages are addressed by folder, UIDVALIDITY and UID.
@@ -1334,6 +1342,7 @@ export function createImapInbox(
       ...motionFacts(),
       undo: undoable(),
       ...renderedHistory(document),
+      ...renderedResponses(document),
       imap: true,
     };
     notify();
@@ -2217,6 +2226,33 @@ export function createImapInbox(
       ),
     );
   };
+
+  // Saves `response` in place of any record of the same invitation revision, or removes that
+  // record without one. Resolves whether the mailbox's cache holds it.
+  const recordResponse = (
+    revision: Readonly<
+      Pick<InvitationResponse, 'uid' | 'sequence' | 'recurrence'>
+    >,
+    response: InvitationResponse | undefined,
+  ) =>
+    runLogged(
+      semaphore.withPermit(
+        Effect.gen(function* () {
+          if (document === undefined || forgotten) {
+            return false;
+          }
+          const { responses: _replaced, ...rest } = document;
+          const responses = withResponse(
+            document.responses,
+            revision,
+            response,
+          );
+          yield* commit(responses.length === 0 ? rest : { ...rest, responses });
+          render();
+          return true;
+        }).pipe(Effect.orElseSucceed(() => false)),
+      ),
+    );
 
   // Discard acknowledges an unknown move outcome without replaying it; later changes may resume.
   const discardPending = (id: string) =>
@@ -3278,10 +3314,11 @@ export function createImapInbox(
       ),
     );
   };
-  // How many messages in the Sent folder carry the MIME boundary, searched in the open session.
+  // How many messages in the Sent folder carry the Message-ID, searched in the open session. Some
+  // servers, such as Seznam Email's, drop the connection on a Content-Type search.
   const sentCopies = (
     scope: Scope,
-    request: Readonly<{ session: string; folder: string; boundary: string }>,
+    request: Readonly<{ session: string; folder: string; messageId: string }>,
   ) =>
     call(() => native.imapSearch(scope, { ...request, newest: 1 })).pipe(
       Effect.flatMap((reply) =>
@@ -3290,11 +3327,11 @@ export function createImapInbox(
       Effect.map(({ total }) => total),
     );
   // Files an accepted message's copy in the Sent folder the server declares, unless a copy with its
-  // MIME boundary is there already, as after a lost answer to an earlier filing. Resolves undefined
+  // Message-ID is there already, as after a lost answer to an earlier filing. Resolves undefined
   // once the copy is there, or why it still waits.
   const fileSent = (
     message: OutgoingSend,
-    boundary: string,
+    id: string,
   ): Promise<DeliveryProblem | undefined> => {
     const scope = opened;
     if (scope === undefined || forgotten || document === undefined) {
@@ -3308,7 +3345,8 @@ export function createImapInbox(
       withSession(scope, (session) =>
         Effect.gen(function* () {
           if (
-            (yield* sentCopies(scope, { ...session, folder, boundary })) > 0
+            (yield* sentCopies(scope, { ...session, folder, messageId: id })) >
+            0
           ) {
             return;
           }
@@ -3339,21 +3377,22 @@ export function createImapInbox(
       ),
     );
   };
-  // Looks for a message whose submission had no answer in the Sent folder by its MIME boundary.
-  // Resolves sent for exactly one copy, unknown otherwise, or undefined when the open connection
-  // was not looked at, as when it closed or changed meanwhile.
-  const findSent = (boundary: string) => {
+  // Looks for a message whose submission had no answer in the Sent folder by its Message-ID, not
+  // its MIME boundary, which the Gmail and Microsoft inboxes take too. Resolves sent for exactly one
+  // copy, unknown otherwise, or undefined when the open connection was not looked at, as when it
+  // closed or changed meanwhile.
+  const findSent = (_boundary: string, id?: string) => {
     const scope = opened;
     if (scope === undefined || forgotten || document === undefined) {
       return Promise.resolve(undefined);
     }
     const folder = imapRoleFolder(document.folders, 'sent');
-    if (folder === undefined) {
+    if (folder === undefined || id === undefined) {
       return Promise.resolve<SendOutcome>({ kind: 'unknown' });
     }
     return runLogged(
       withSession(scope, (session) =>
-        sentCopies(scope, { ...session, folder, boundary }),
+        sentCopies(scope, { ...session, folder, messageId: id }),
       ).pipe(
         Effect.tapError((failure) =>
           current(scope) && changesAccess(failure.kind)
@@ -3539,6 +3578,7 @@ export function createImapInbox(
     send: submit,
     fileSent,
     findSent,
+    recordResponse,
     watch,
     // A cached message from any folder, for the reader.
     message: messageOf,

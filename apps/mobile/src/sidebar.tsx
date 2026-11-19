@@ -45,6 +45,7 @@ import {
   MenuButton,
   NavigationChrome,
   SFSymbol,
+  SignInNotice,
 } from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
@@ -120,6 +121,17 @@ const styles = StyleSheet.create({
     paddingTop: spacing.l,
     paddingBottom: 10,
   },
+  // The frames' header with a problem: the warning 6pt after the title, which truncates before it.
+  compactSectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.xs,
+    paddingTop: spacing.l,
+    paddingBottom: 10,
+  },
+  // The Authorization Needed banner sits 10pt above the connection's folders.
+  compactNotice: { marginBottom: 10 },
   // Each symbol takes a 24pt slot, so the labels share the frames' x68 axis.
   compactRow: {
     minHeight: 52,
@@ -146,6 +158,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xs * ipadListScale,
   },
   sectionTitle: { ...sectionText, flexShrink: 1 },
+  // iPhone's title fills the header, so the warning keeps to its trailing end.
+  compactSectionTitle: { ...textStyles.headline, flex: 1 },
   row: {
     minHeight: 28 * ipadListScale,
     flexDirection: 'row',
@@ -372,8 +386,9 @@ function Item({
   );
 }
 
-// A section's header. On iPad a Mailbox Connection's problem shows as a warning beside its title,
-// the frames' 13pt glyph at 1.15×, and VoiceOver reads it with the header.
+// A section's header. A Mailbox Connection's problem shows as a warning beside its title, on iPad
+// the frames' 13pt glyph at 1.15× and on iPhone at the title's 17pt, and VoiceOver reads it with
+// the header.
 function SectionHeader({
   label,
   trouble,
@@ -402,16 +417,20 @@ function SectionHeader({
       accessible
       accessibilityRole="header"
       accessibilityLabel={`${label}, ${trouble}`}
-      style={styles.sectionRow}>
+      style={compact ? styles.compactSectionRow : styles.sectionRow}>
       <Text
         numberOfLines={large ? 0 : 1}
-        style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+        style={[
+          styles.sectionTitle,
+          compact && styles.compactSectionTitle,
+          { color: compact ? colors.textPrimary : colors.textSecondary },
+        ]}>
         {label}
       </Text>
       <SFSymbol
         name="exclamationmark.triangle.fill"
         color={colors.statusWarning}
-        size={12.5 * ipadListScale}
+        size={compact ? 17 : 12.5 * ipadListScale}
       />
     </View>
   );
@@ -441,12 +460,10 @@ const noSubscription = () => () => undefined;
 
 // A Mailbox Connection's folder rows: an IMAP connection's folders, or a Gmail mailbox's Inbox,
 // labels, All Mail, Spam and Trash. A folder or view whose last read failed keeps its warning
-// after another mailbox is chosen. The connection's own problem rides on its Inbox row on iPhone and
-// on its header on iPad.
+// after another mailbox is chosen. The connection's own problem rides on its header.
 function FolderRows({
   mailbox,
   folders,
-  trouble,
   onView,
 }: {
   readonly mailbox: InboxMailbox;
@@ -458,7 +475,6 @@ function FolderRows({
       selected: boolean;
     }>
   >;
-  readonly trouble: string | undefined;
   readonly onView: (view: MailboxView) => void;
 }) {
   const colors = usePalette();
@@ -514,7 +530,7 @@ function FolderRows({
                   mailbox: name,
                 })}
                 count={unread}
-                status={isInbox && compact ? trouble : failure}
+                status={failure}
                 selected={selected}
                 onPress={() => {
                   onView({
@@ -577,6 +593,45 @@ export function Mailboxes({
     await account?.authorizeMailbox(connection);
     await reload();
   };
+  // iPhone's Authorization Needed banner above a connection's folders: Sign In… asks its provider
+  // again, and IMAP enters its password again in Settings' Email Accounts. VoiceOver hears the
+  // action with the connection's address, since several connections can need it.
+  const signInNotice = ({
+    provider,
+    address,
+    imap,
+    onSignIn,
+  }: Readonly<{
+    provider: string;
+    address: string;
+    imap: boolean;
+    onSignIn: () => Promise<void>;
+  }>) =>
+    compact ? (
+      <SignInNotice
+        message={
+          imap
+            ? t('mailboxes.passwordNotice')
+            : t('mailboxes.signInNotice', { provider })
+        }
+        action={
+          imap ? t('mailboxes.enterPasswordAction') : t('mailboxes.signIn')
+        }
+        accessibilityLabel={
+          imap
+            ? t('mailboxes.enterPasswordFor', { address })
+            : t('mailboxes.signInFor', { address })
+        }
+        onPress={() => {
+          if (imap) {
+            openSettings('mailboxes');
+          } else {
+            void onSignIn();
+          }
+        }}
+        style={styles.compactNotice}
+      />
+    ) : null;
   return (
     // The safe area keeps its insets as margins, so on iPhone the surface around it fills the
     // screen behind the status bar and home indicator.
@@ -719,12 +774,22 @@ export function Mailboxes({
                   <Fragment key={mailbox.id}>
                     <SectionHeader
                       label={`${provider} · ${name}`}
-                      trouble={compact ? undefined : trouble}
+                      trouble={trouble}
                     />
+                    {problem === 'authentication'
+                      ? signInNotice({
+                          provider,
+                          address: name,
+                          imap: mailbox.provider === 'imap',
+                          onSignIn: async () => {
+                            await account?.authorizeMailbox(mailbox.id);
+                            await mailbox.inbox.load();
+                          },
+                        })
+                      : null}
                     <FolderRows
                       mailbox={mailbox}
                       folders={folders}
-                      trouble={trouble}
                       onView={onView}
                     />
                   </Fragment>
@@ -740,8 +805,14 @@ export function Mailboxes({
                 <Fragment key={connection.id}>
                   <SectionHeader
                     label={`${provider} · ${connection.address}`}
-                    trouble={compact ? undefined : trouble}
+                    trouble={trouble}
                   />
+                  {signInNotice({
+                    provider,
+                    address: connection.address,
+                    imap,
+                    onSignIn: () => authorize(connection.id),
+                  })}
                   <View
                     style={
                       compact && [
@@ -756,7 +827,6 @@ export function Mailboxes({
                         row: t('inbox.title'),
                         mailbox: connection.address,
                       })}
-                      status={compact ? trouble : undefined}
                       selected={selected}
                       onPress={() => {
                         // IMAP needs its password entered again in Settings' Email Accounts.

@@ -369,7 +369,10 @@ A device that holds the account keys lists the account's other Trusted Devices
 and offers to remove each one. A confirmation dialog first explains the consequences: the
 removed device is blocked immediately and the other devices switch to new keys.
 Anything a device that stays offline or is compromised already holds cannot be
-erased remotely. Confirming starts an interactive Product Sign-In with the
+erased remotely. On iPhone the dialog is two sentences: the device loses access to
+the Unwired account and sync, the person saves a new Recovery Key, and mail the device
+already holds cannot be erased remotely. It leaves out the switch to new keys.
+Confirming starts an interactive Product Sign-In with the
 device's own provider, for Google as well as Apple.
 
 The device then prepares the removal without changing anything in the account. It

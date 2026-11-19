@@ -30,9 +30,11 @@ extension PrivateInboxTests {
     let smtpProvider = SwiftMailSmtp()
     let token = UUID().uuidString
     func boundary(_ subject: String) -> String { "=_\(subject)\(token)" }
+    func messageId(_ subject: String) -> String { "\(subject).\(token)@example.test" }
     func message(_ subject: String) -> Data {
       Data(
         ("From: alex@example.test\r\nTo: sam@example.test\r\nSubject: \(subject) \(token)\r\n"
+          + "Message-ID: <\(messageId(subject))>\r\n"
           + "MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"\(boundary(subject))\"\r\n\r\n"
           + "--\(boundary(subject))\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
           + "Standards body \(token)\r\n--\(boundary(subject))--\r\n").utf8)
@@ -92,12 +94,13 @@ extension PrivateInboxTests {
       throw error
     }
 
-    // The submitted message's copy is filed in the sender's Sent folder and found by its boundary.
+    // The submitted message's copy is filed in the sender's Sent folder and found by its Message-ID.
     let sent = try await imapProvider.open(imap(ports[0], "alex"), password: password)
     do {
-      #expect(try await sent.search("Sent", for: .boundary(boundary("Implicit")), newest: 1).total == 0)
+      let copy = ImapSearchCriterion.messageId(messageId("Implicit"))
+      #expect(try await sent.search("Sent", for: copy, newest: 1).total == 0)
       try await sent.append("Sent", message: message("Implicit"))
-      #expect(try await sent.search("Sent", for: .boundary(boundary("Implicit")), newest: 1).total == 1)
+      #expect(try await sent.search("Sent", for: copy, newest: 1).total == 1)
       await sent.close()
     } catch {
       await sent.close()

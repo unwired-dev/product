@@ -353,9 +353,20 @@ describe('preview Inbox', () => {
     });
   });
 
-  it.each([false, true])(
-    'shows search day dividers only on iPad and one empty notice (isPad=%s)',
-    async (isPad) => {
+  // iPhone keeps the saved-search line under No Results; iPad names the scope, as the Mac does.
+  it.each([
+    {
+      isPad: false,
+      empty: 'No mail saved on this device matches “no matching mail”.',
+    },
+    {
+      isPad: true,
+      empty:
+        'No saved mail in Preview mailbox matches “no matching mail”. Check the spelling or search for fewer words.',
+    },
+  ])(
+    'shows search day dividers only on iPad and one empty notice (isPad=$isPad)',
+    async ({ isPad, empty }) => {
       expect.hasAssertions();
       const platform = jest.replaceProperty(
         jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
@@ -389,12 +400,11 @@ describe('preview Inbox', () => {
         ).toBeVisible();
         await fireEvent.changeText(field, 'no matching mail');
         await waitFor(() => {
-          expect(
-            screen.getAllByText(
-              'No mail saved on this device matches “no matching mail”.',
-            ),
-          ).toHaveLength(1);
+          expect(screen.getAllByText(empty)).toHaveLength(1);
         });
+        expect(
+          screen.getAllByRole('header', { name: 'No Results' }),
+        ).toHaveLength(1);
       } finally {
         clock.mockRestore();
         platform.restore();
@@ -1405,9 +1415,7 @@ describe('connected Gmail Inbox', () => {
         const field = screen.getByLabelText('Search senders and subjects');
         await fireEvent(field, 'focus');
         await fireEvent.changeText(field, 'Studio archive');
-        await screen.findAllByText(
-          'No mail saved on this device matches “Studio archive”.',
-        );
+        await screen.findByRole('header', { name: 'No Results' });
         await fireEvent.press(
           screen.getByRole('button', {
             name: 'Search Mail Servers for “Studio archive”',
@@ -1462,6 +1470,78 @@ describe('connected Gmail Inbox', () => {
     ).resolves.toBeVisible();
   });
 
+  it('announces No Results once, and a failed mail server search replaces it until Try Again answers', async () => {
+    expect.hasAssertions();
+    const announced = () =>
+      jest
+        .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+        .mock.calls.filter(([words]) => words === 'No Results');
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saved Inbox message' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Saved Inbox message/u });
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    const before = announced().length;
+    await fireEvent.changeText(field, 'Lisbon ferry');
+    await screen.findByRole('header', { name: 'No Results' });
+    expect(announced()).toHaveLength(before + 1);
+    // Gmail's failure is no answer, so No Results gives way to it.
+    gmail.fail({ status: 404 });
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Search Mail Servers for “Lisbon ferry”',
+      }),
+    );
+    await screen.findByRole('button', { name: 'Try Again' });
+    expect(screen.queryByRole('header', { name: 'No Results' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
+    await expect(
+      screen.findByText('Mail servers found no mail matching “Lisbon ferry”.'),
+    ).resolves.toBeVisible();
+    expect(screen.getByRole('header', { name: 'No Results' })).toBeVisible();
+  });
+
+  it('shows Searching and an empty mail server answer without the From mail servers heading', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saved Inbox message' });
+    await renderConnected(gmail.native);
+    await screen.findByRole('button', { name: /Saved Inbox message/u });
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Lisbon ferry');
+    const request = gmail.native.gmailRequest;
+    let release: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Hold Gmail's answer while Searching shows.
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gmail.native.gmailRequest = async (...args) => {
+      await held;
+      return request(...args);
+    };
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Search Mail Servers for “Lisbon ferry”',
+      }),
+    );
+    // Searching, then No Results, stand directly beneath the search, as the iPad frames place them.
+    expect(screen.getByText('Searching alex@example.invalid…')).toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
+    await act(async () => {
+      release();
+    });
+    await expect(
+      screen.findByRole('header', { name: 'No Results' }),
+    ).resolves.toBeVisible();
+    expect(
+      screen.queryByRole('header', { name: 'From mail servers' }),
+    ).toBeNull();
+  });
+
   it('never shows a delayed online answer for a query the person has since replaced', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
@@ -1494,7 +1574,7 @@ describe('connected Gmail Inbox', () => {
         name: 'Search Mail Servers for “Studio archive”',
       }),
     );
-    expect(screen.getByLabelText('Searching mail servers')).toBeVisible();
+    expect(screen.getByText('Searching alex@example.invalid…')).toBeVisible();
     await fireEvent.changeText(field, 'Studio budget');
     await act(async () => {
       release();
@@ -3248,6 +3328,19 @@ describe('command palette', () => {
     expect(
       openedPalette().getByRole('button', { name: 'Search Mail' }),
     ).toBeVisible();
+  });
+
+  it('makes the one-time hint text one accessibility element, and Dismiss removes the hint', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    await renderConnected(gmail.native);
+    await expect(
+      screen.findByLabelText(
+        'Swipe down on the header for commands, Reply, archive, move or go anywhere without leaving this screen.',
+      ),
+    ).resolves.toHaveProp('accessible', true);
+    await fireEvent.press(screen.getByRole('button', { name: 'Dismiss hint' }));
+    expect(screen.queryByRole('button', { name: 'Dismiss hint' })).toBeNull();
   });
 
   it('keeps the search field palette action when private storage locks', async () => {

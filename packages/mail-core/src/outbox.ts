@@ -7,6 +7,7 @@ import * as Semaphore from 'effect/Semaphore';
 import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { AssetPreview, Drafts } from './drafts.ts';
 import type { SendOutcome } from './inbox-store.ts';
+import type { InvitationAnswer } from './invitation-record.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
 import type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
 import type { MailProvider } from './registration-snapshot.ts';
@@ -149,6 +150,7 @@ const withState = (
   ...(entry.claim === undefined ? {} : { claim: entry.claim }),
   ...(entry.epoch === undefined ? {} : { epoch: entry.epoch }),
   ...(problem === undefined ? {} : { problem }),
+  ...(entry.invitation === undefined ? {} : { invitation: entry.invitation }),
 });
 
 // Handed to Gmail without a recorded answer. Another store opening meanwhile marks the entry
@@ -181,6 +183,7 @@ export function createOutbox({
     | 'getSnapshot'
     | 'getOutbox'
     | 'admit'
+    | 'enqueue'
     | 'deliver'
     | 'restore'
     | 'readAsset'
@@ -335,13 +338,44 @@ export function createOutbox({
       ? 'mailbox'
       : (senderProblem(draft) ?? sentFolderCheck(draft));
 
-  const record = (id: string, outcome: SendOutcome) => {
+  // Records the Invitation Response a message carries as sent in its IMAP mailbox. Resolves
+  // 'offline' when it could not; nothing for any other message
+  // or a mailbox that is gone, including one added again since Send.
+  const answer = async ({
+    draft,
+    invitation,
+    epoch,
+  }: OutboxEntry): Promise<DeliveryProblem | undefined> => {
+    const mailbox = connectionOf(draft.connection);
+    if (
+      invitation === undefined ||
+      mailbox?.provider !== 'imap' ||
+      (epoch !== undefined && epoch !== epochOf(draft))
+    ) {
+      return undefined;
+    }
+    const { summary: _title, ...revision } = invitation;
+    return (await mailbox.inbox.recordResponse(revision, {
+      kind: 'sent',
+      ...revision,
+      at: Date.now(),
+    }))
+      ? undefined
+      : 'offline';
+  };
+
+  const record = async (id: string, outcome: SendOutcome) => {
     if (outcome.kind === 'accepted') {
       return drafts.deliver(id, (entry) =>
         awaitingOutcome(entry.state) ? withState(entry, 'filing') : undefined,
       );
     }
     if (outcome.kind === 'sent') {
+      // The response stays awaiting its outcome until its mailbox holds it.
+      const awaiting = entryOf(id);
+      if (awaiting !== undefined && (await answer(awaiting)) !== undefined) {
+        return false;
+      }
       return drafts.deliver(id, (entry) =>
         awaitingOutcome(entry.state)
           ? {
@@ -624,7 +658,7 @@ export function createOutbox({
       return;
     }
     const mailbox = connectionOf(entry.draft.connection);
-    const boundary = boundaryOf(entry.message.segments);
+    const messageId = messageIdOf(entry.message.segments);
     const sending = sendingStateOf(
       entry.draft,
       mailboxesOf(registration.getSnapshot().snapshot),
@@ -634,8 +668,11 @@ export function createOutbox({
       problem = undefined;
     } else if (sending === 'password') {
       problem = 'authorization';
-    } else if (mailbox?.provider === 'imap' && boundary !== undefined) {
-      problem = await mailbox.inbox.fileSent(entry.message, boundary);
+    } else if (mailbox?.provider === 'imap' && messageId !== undefined) {
+      // An accepted response leaves the Outbox only once its mailbox records it.
+      problem =
+        (await mailbox.inbox.fileSent(entry.message, messageId)) ??
+        (await answer(entry));
     }
     await drafts.deliver(
       entry.id,
@@ -662,13 +699,10 @@ export function createOutbox({
       return;
     }
     queuedChecks.add(id);
-    const outcome =
-      mailbox.provider === 'imap'
-        ? await mailbox.inbox.findSent(boundary)
-        : await mailbox.inbox.findSent(
-            boundary,
-            messageIdOf(entry.message.segments),
-          );
+    const outcome = await mailbox.inbox.findSent(
+      boundary,
+      messageIdOf(entry.message.segments),
+    );
     if (outcome === undefined) {
       // The mailbox closed or changed meanwhile; it is checked again once it is ready.
       queuedChecks.delete(id);
@@ -1124,9 +1158,38 @@ export function createOutbox({
         ? 'changed'
         : 'storage';
     },
+    // Admits an Invitation Response, which is never a Draft, from `draft`'s connection to the
+    // Outbox, to send once the Undo Send Window ends. Resolves why it was refused, or undefined once
+    // admitted.
+    respond: async ({
+      draft,
+      message,
+      invitation,
+    }: Readonly<{
+      draft: Draft;
+      message: OutboxEntry['message'];
+      invitation: InvitationAnswer;
+    }>): Promise<SendRefusal | undefined> => {
+      const refusal = refusalOf(draft);
+      if (refusal !== undefined) {
+        return refusal;
+      }
+      return (await drafts.enqueue({
+        id: draft.id,
+        draft,
+        message,
+        sendAt: Date.now() + undoSendWindow,
+        state: 'waiting',
+        epoch: epochOf(draft),
+        invitation,
+      }))
+        ? undefined
+        : 'storage';
+    },
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
-    // edit one whose delivery is unknown; only while it is `only` when given. Resolves the Draft's
-    // identifier, or false when it can no longer return.
+    // edit one whose delivery is unknown; only while it is `only` when given. An Invitation
+    // Response only leaves the Outbox. Resolves the Draft's identifier, or false when it can no
+    // longer return.
     undo: async (id: string, only?: OutboxEntry['state']) => {
       retryAt.delete(id);
       const restored = await drafts.restore(id, only);

@@ -2,6 +2,7 @@ import * as Schema from 'effect/Schema';
 
 import type { Asset } from './semantic-document.ts';
 
+import { InvitationAnswerSchema } from './invitation-record.ts';
 import {
   AssetSchema,
   imagesOf,
@@ -166,6 +167,9 @@ export const OutboxEntrySchema = Schema.Struct({
   // The sending connection's incarnation at Send; a message admitted before it was kept has none.
   epoch: Schema.optionalKey(Schema.NonEmptyString),
   problem: Schema.optionalKey(DeliveryProblemSchema),
+  // The Invitation Response the message carries. Its Draft never existed in the Drafts, so it never
+  // returns to them, and the response is recorded in its mailbox once the server accepts it.
+  invitation: Schema.optionalKey(InvitationAnswerSchema),
 });
 export type OutboxEntry = typeof OutboxEntrySchema.Type;
 

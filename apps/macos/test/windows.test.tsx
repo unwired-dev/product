@@ -2286,7 +2286,7 @@ describe('mac windows over a connected Gmail mailbox', () => {
       'No saved match',
     );
     expect(
-      first.getByText('No mail saved on this device matches “No saved match”.'),
+      first.getByText(/^No saved mail in .+ matches “No saved match”\./u),
     ).toBeVisible();
     expect(second.getByRole('button', { name: oliver })).toBeVisible();
     await fireEvent.changeText(

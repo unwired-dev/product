@@ -1966,9 +1966,40 @@ export function createDrafts(
       }),
     );
 
+  // Adds a message that was never a Draft, such as an Invitation Response, to the Outbox.
+  const enqueueing = (current: number, entry: OutboxEntry) =>
+    guarded(
+      current,
+      Effect.gen(function* () {
+        const account = yield* flushedAccount(current);
+        if (account === undefined) {
+          return false;
+        }
+        const written = yield* writeOutbox(
+          current,
+          account,
+          Effect.sync(() =>
+            state.kind !== 'ready' ||
+            outbox.some((each) => each.id === entry.id)
+              ? undefined
+              : {
+                  drafts: state.drafts,
+                  delivery: { outbox: [...outbox, entry], sent },
+                },
+          ),
+        );
+        if (written === undefined) {
+          return false;
+        }
+        publish(state);
+        yield* settleSaving(current, account);
+        return live(current);
+      }),
+    );
+
   // Returns an Outbox message not awaiting Gmail's answer to the Drafts, only while it is `only`
   // when given. One whose claim was requested keeps its claim's identifier retired and returns
-  // under a new one.
+  // under a new one. An Invitation Response, which was never a Draft, only leaves the Outbox.
   const restoring = (
     current: number,
     id: string,
@@ -1992,6 +2023,16 @@ export function createDrafts(
               state.kind !== 'ready'
             ) {
               return undefined;
+            }
+            if (entry.invitation !== undefined) {
+              return {
+                drafts: state.drafts,
+                delivery: {
+                  outbox: outbox.filter((each) => each.id !== id),
+                  sent,
+                },
+                draft: undefined,
+              };
             }
             const now = yield* Clock.currentTimeMillis;
             const fresh = `${Math.abs(yield* Random.nextInt).toString(36)}${Math.abs(yield* Random.nextInt).toString(36)}`;
@@ -2022,9 +2063,14 @@ export function createDrafts(
         if (written === undefined || state.kind !== 'ready') {
           return false;
         }
-        publish({ ...state, drafts: [...state.drafts, written.draft] });
+        const { draft } = written;
+        publish(
+          draft === undefined
+            ? state
+            : { ...state, drafts: [...state.drafts, draft] },
+        );
         yield* settleSaving(current, account);
-        return written.draft.id;
+        return draft?.id ?? id;
       }),
     );
 
@@ -2975,6 +3021,12 @@ export function createDrafts(
     ) => runLogged(delivering(generation, id, step)),
     // Returns an Outbox message not awaiting Gmail's answer to the Drafts, only while it is `only`
     // when given. Resolves the Draft's identifier, or false when the message can no longer return.
+    // Adds a message that was never a Draft to the Outbox. Resolves whether storage holds it.
+    enqueue: async (entry: OutboxEntry) => {
+      const enqueued = await runLogged(enqueueing(generation, entry));
+      schedule();
+      return enqueued;
+    },
     restore: async (id: string, only?: OutboxEntry['state']) => {
       const restored = await runLogged(restoring(generation, id, only));
       schedule();

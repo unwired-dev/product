@@ -62,7 +62,7 @@ transport and known native exit gaps.
   70% of the window's height (420 to 720pt). On regular-width iPad a new message opens as a card
   centred on the window (at most 874pt wide, 40pt below the status bar and 32pt above the bottom
   edge) with Close, its title, From, **Expand** and **Send** in its header; a reply or
-  forward docks across the reading column's lower two thirds, titled **Reply**,
+  forward docks across the reading column's lower two thirds (at most 720pt), titled **Reply**,
   **Reply All** or **Forward**, with Expand and Discard in its header and From and
   **Send** beneath its fields. A docked iPad software keyboard raises either above
   it. On iPad, **Expand** takes the composer over the whole window with the same
@@ -485,7 +485,7 @@ of the body editor for comparison with this composer; it does not change it.
 On Mac ([#1609](https://github.com/unwired-dev/product/issues/1609)), the composer
 saves as Mail does:
 
-- **Editing** stores nothing and shows no save status. The Draft is stored only when
+- **Editing** leaves the stored Draft unchanged and shows no save status. The Draft is stored only when
   the person chooses **Save** on **Close** or sends it.
 - **Close** closes an unchanged Draft at once, even while another window's save is
   failing, and removes an empty one without asking. A refused **Send** stores the shown
@@ -509,7 +509,7 @@ saves as Mail does:
   keeps its attachment and image bytes while its Draft is deleted in another window, so
   its **Save** stores a usable copy.
 
-On iPhone and iPad nothing is saved while editing and no save status is shown, as in
+On iPhone and iPad editing leaves the stored Draft unchanged and no save status is shown, as in
 Mail: the Draft is stored only on **Save Draft** or **Send**. **Close** removes an
 empty Draft and closes an unchanged one at once; otherwise **Delete Draft** and
 **Save Draft** grow out of **Close**, and pressing **Close** again keeps editing.
@@ -556,9 +556,11 @@ while a failed discard waited save into that same copy without an extra conflict
 Draft. An unexpected failure while leaving keeps the composer open and allows
 another attempt. Drafts and received mail share the Inbox column's scroll surface.
 If saving failed or private storage became locked, the Inbox also says that Draft
-changes are not saved and offers **Save Drafts**. Keep the app open until saving
-succeeds; unsaved changes survive in memory, not a process termination or account
-removal. On iPhone and iPad only **Save Draft** or **Send** stores edits in the Draft;
+changes are not saved and offers **Save Drafts**. Until saving succeeds, unsaved
+changes survive in memory. A process termination keeps only the version last
+written to the composer recovery record, which a later launch offers; edits still
+awaiting a successful write, as while storage is locked, are lost.
+Account removal removes the record. On iPhone and iPad only **Save Draft** or **Send** stores edits in the Draft;
 reopening after the app ends shows the stored version, and the composer keeps its
 unsaved edits in a composer recovery record, as on the Mac. On iPhone, selecting the current Draft again requests its composer without trying to
 leave it, so unfinished recipient text remains available to correct.
