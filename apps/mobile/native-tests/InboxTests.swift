@@ -2528,8 +2528,11 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(maya.exists)
     searching()
     edit(delete(6) + "zzqx", "zzqx")
-    XCTAssertTrue(
-      text("No mail saved on this device matches", in: app).waitForExistence(timeout: 10))
+    // #2435: both idioms show No Results; only iPhone keeps the saved-search line beneath it.
+    XCTAssertTrue(text("No Results", in: app).waitForExistence(timeout: 10))
+    XCTAssertEqual(
+      text("No mail saved on this device matches", in: app).exists,
+      UIDevice.current.userInterfaceIdiom == .phone)
     XCTAssertFalse(topResults.exists)
     XCTAssertFalse(oliver.exists)
     searching()

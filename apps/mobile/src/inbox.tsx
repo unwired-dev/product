@@ -69,7 +69,7 @@ import {
 import {
   InboxBar,
   InboxToolbar,
-  OnlineResults,
+  SearchFooter,
   SearchHeading,
   useInboxSearch,
 } from './inbox-search.tsx';
@@ -823,6 +823,7 @@ export function Inbox({
     folder,
     title: folderName,
     listed,
+    unlisted,
     failure,
     limited,
     downloading,
@@ -1250,9 +1251,14 @@ export function Inbox({
             }
             ListFooterComponent={
               searching ? (
-                <OnlineResults
-                  query={searched}
-                  search={online}
+                <SearchFooter
+                  search={searchState}
+                  mailboxes={mailboxes}
+                  shown={shown}
+                  ready={ready}
+                  unlisted={unlisted}
+                  scopeName={scopeName}
+                  folderName={folderName}
                 />
               ) : (
                 <InboxFooter
@@ -1269,16 +1275,6 @@ export function Inbox({
               )
             }
             ListFooterComponentStyle={styles.listFooter}
-            renderSectionFooter={({ section }) =>
-              searching &&
-              section.key === 'saved' &&
-              ready &&
-              results?.length === 0 ? (
-                <Text style={[styles.notice, { color: colors.textSecondary }]}>
-                  {t('search.empty', { query: searched })}
-                </Text>
-              ) : null
-            }
             renderItem={({ item, section, index }) => {
               if ('outbox' in item) {
                 return (

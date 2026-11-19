@@ -854,8 +854,6 @@ app follows under the issue named:
   #2108.
 - **Copy:** one name per action, Spam and Thread wait for #2083. The iPhone
   heading's "All read" waits for #2068.
-- **Search states:** the Mac shows the No Results empty state and the Searching
-  rows (#2346); iPhone and iPad wait for #2090.
 - **Reader loading:** the reader's states for a message that is loading, failed
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing

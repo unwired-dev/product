@@ -188,6 +188,31 @@ export const styles = StyleSheet.create({
   emptyText: { ...body, textAlign: 'center' },
   // With the stack's gaps, 16pt more separate the message from its action.
   emptyAction: { marginTop: spacing.l },
+  // Search's No Results and Searching: centred on iPhone; on iPad at the top of the list, 132pt
+  // and 40pt down, as their frames draw them.
+  searchState: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: ipad ? 'flex-start' : 'center',
+    paddingTop: ipad ? 40 : 0,
+    paddingHorizontal: ipad ? 32 : spacing.xl,
+  },
+  noResults: { paddingTop: ipad ? 132 : 0 },
+  // iPhone uses the Profile Locked recipe's 68pt icon tile; iPad the bare glyph.
+  noResultsTile: {
+    width: 68,
+    height: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderRadius: 18,
+    borderCurve: 'continuous',
+  },
+  noResultsGlyph: { marginBottom: 18 },
+  noResultsTitle: { marginBottom: ipad ? 4 : 10 },
+  searchingIndicator: { marginBottom: ipad ? 10 : 24 },
+  // iPhone's lines wrap at the frames' 300pt.
+  searchStateText: ipad ? {} : { maxWidth: 300 },
   notices: { gap: spacing.s, paddingHorizontal: spacing.l },
   footer: { ...textStyles.footnote, padding: spacing.xl },
   // Within the rows' leading inset, the spinner and its text 12pt apart (10pt scaled on iPad).

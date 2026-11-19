@@ -2474,7 +2474,7 @@ describe('product registration', () => {
     await search('archive');
     await press('Search Mail Servers for “archive”');
     await expect(
-      screen.findByLabelText('Searching mail servers'),
+      screen.findByText('Searching All Inboxes…'),
     ).resolves.toBeVisible();
     await search('plans');
     await act(async () => {
