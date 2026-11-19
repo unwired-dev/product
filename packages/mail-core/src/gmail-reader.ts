@@ -435,6 +435,13 @@ export function createGmailReader(
       // An expired or invalid history ID lists the Inbox again; cached messages stay visible.
       // Changes since then are unknown, so Historical Metadata Backfill lists All Mail again too.
       yield* logNote('Gmail history expired: listing the Inbox again');
+      // No deletions arrive for the gap, so held search results Gmail no longer has are dropped.
+      const held = yield* fetchAll(scope, views.held(), true);
+      forget(
+        new Set(
+          held.flatMap(([id, message]) => (message === undefined ? [id] : [])),
+        ),
+      );
       return Option.some(
         yield* startListing(
           scope,

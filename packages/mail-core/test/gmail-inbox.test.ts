@@ -310,6 +310,33 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(listRequests(gmail)).toHaveLength(2);
   });
 
+  it('drops search results Gmail deleted while the history was expired, keeping the rest and their reader', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const kept = gmail.deliver({ subject: 'Invoice kept' });
+    const deleted = gmail.deliver({ subject: 'Invoice deleted' });
+    gmail.archive(kept);
+    gmail.archive(deleted);
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    await inbox.searchGmail('Invoice');
+    const close = inbox.retainMessage(kept);
+    await inbox.readMessage(kept);
+    expect(ready(inbox.getSnapshot()).found?.map(({ id }) => id)).toStrictEqual(
+      expect.arrayContaining([kept, deleted]),
+    );
+
+    gmail.expireHistory();
+    gmail.remove(deleted);
+    await inbox.load();
+
+    expect(ready(inbox.getSnapshot()).found?.map(({ id }) => id)).toStrictEqual(
+      [kept],
+    );
+    expect(inbox.messageBody(kept)).toMatchObject({ kind: 'ready' });
+    close();
+  });
+
   it('keeps cached mail through authentication and retry states, and hides it when storage fails', async () => {
     expect.hasAssertions();
     const logged: unknown[] = [];
