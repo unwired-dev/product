@@ -154,8 +154,9 @@ another to Mailboxes. Open Inbox from Account & Devices then shows the Inbox wit
 the Thread's row, and Account reopens Settings on its list of destinations. On
 iPad, which the journey holds in Portrait, Mailboxes stays hidden beside the 391pt
 list; the flat Thread scrolls to Crew 5, the list opens Crew 6 under the reader's
-toolbar, a search for "Trail" shows Top Results, and Show Sidebar leads to
-Settings, each captured for the iPad Portrait frames (#2361). CI does not run this scenario; it is local native
+toolbar, Reply All docks a 442×720pt reply beneath it (#2411), a search for
+"Trail" shows Top Results, and Show Sidebar leads to Settings, each captured for
+the iPad Portrait frames (#2361). CI does not run this scenario; it is local native
 evidence.
 In `registration-performance`, the synthetic Gmail and Microsoft mailboxes each
 also list 125 older Inbox Threads of one message, Gmail update 001 to 125 and

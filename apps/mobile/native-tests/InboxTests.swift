@@ -1921,6 +1921,22 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(subject.frame.minX, 415, accuracy: 1)
     XCTAssertEqual(subject.frame.width, 396, accuracy: 1)
     attachScreen("Portrait Reader", of: app, to: self)
+    // #2411: the reply docks 442×720 across the reader's lower part, as Compose Inline draws it.
+    waitUntil { replyAll.isEnabled && replyAll.isHittable }
+    replyAll.tap()
+    let composer = app.otherElements["composer-overlay"]
+    XCTAssertTrue(composer.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.keyboards.firstMatch.exists)
+    XCTAssertEqual(composer.frame.minX, 392, accuracy: 1)
+    XCTAssertEqual(composer.frame.width, 442, accuracy: 1)
+    XCTAssertEqual(composer.frame.height, 720, accuracy: 1)
+    XCTAssertEqual(composer.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
+    attachScreen("Portrait Docked Reply", of: app, to: self)
+    composer.buttons["Discard"].tap()
+    let discard = composer.buttons["Discard Draft"]
+    XCTAssertTrue(discard.waitForExistence(timeout: 10))
+    discard.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
     let search = app.searchFields.firstMatch
     XCTAssertTrue(search.waitForExistence(timeout: 10))
     search.tap()

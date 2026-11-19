@@ -62,7 +62,7 @@ transport and known native exit gaps.
   70% of the window's height (420 to 720pt). On regular-width iPad a new message opens as a card
   centred on the window (at most 874pt wide, 40pt below the status bar and 32pt above the bottom
   edge) with Close, its title, From, **Expand** and **Send** in its header; a reply or
-  forward docks across the reading column's lower two thirds, titled **Reply**,
+  forward docks across the reading column's lower two thirds (at most 720pt), titled **Reply**,
   **Reply All** or **Forward**, with Expand and Discard in its header and From and
   **Send** beneath its fields. A docked iPad software keyboard raises either above
   it. On iPad, **Expand** takes the composer over the whole window with the same
