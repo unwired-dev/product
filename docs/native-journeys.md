@@ -373,9 +373,10 @@ Inbox asks **Recover unsaved message?** with only **Your unsaved changes were
 kept on this device.**, **Restore** and **Discard**. Restore opens the composer
 with the same recipient, subject, body and attachment. A second force quit
 offers the record again, Discard removes it, and a third launch offers nothing.
-The offer and the restored composer are kept as attachments. It covers neither
-the iPhone and iPad offer nor the record's removal on sign-out, account removal
-or a Product Account change, which [#1989](https://github.com/unwired-dev/product/issues/1989)
+The offer and the restored composer are kept as attachments. The
+[iPhone and iPad journey](#iphone-and-ipad-composer-recovery-journey) checks the
+same there. Neither covers the record's removal on sign-out, account removal or a
+Product Account change, which [#1989](https://github.com/unwired-dev/product/issues/1989)
 still needs.
 
 ## iPhone and iPad IMAP Spam and Trash folder journey
