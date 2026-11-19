@@ -596,12 +596,17 @@ export function Mailboxes({
   // iPhone's Authorization Needed banner above a connection's folders: Sign In… asks its provider
   // again, and IMAP enters its password again in Settings' Email Accounts. VoiceOver hears the
   // action with the connection's address, since several connections can need it.
-  const signInNotice = (
-    provider: string,
-    address: string,
-    imap: boolean,
-    onSignIn: () => Promise<void>,
-  ) =>
+  const signInNotice = ({
+    provider,
+    address,
+    imap,
+    onSignIn,
+  }: Readonly<{
+    provider: string;
+    address: string;
+    imap: boolean;
+    onSignIn: () => Promise<void>;
+  }>) =>
     compact ? (
       <SignInNotice
         message={
@@ -772,15 +777,15 @@ export function Mailboxes({
                       trouble={trouble}
                     />
                     {problem === 'authentication'
-                      ? signInNotice(
+                      ? signInNotice({
                           provider,
-                          name,
-                          mailbox.provider === 'imap',
-                          async () => {
+                          address: name,
+                          imap: mailbox.provider === 'imap',
+                          onSignIn: async () => {
                             await account?.authorizeMailbox(mailbox.id);
                             await mailbox.inbox.load();
                           },
-                        )
+                        })
                       : null}
                     <FolderRows
                       mailbox={mailbox}
@@ -802,9 +807,12 @@ export function Mailboxes({
                     label={`${provider} · ${connection.address}`}
                     trouble={trouble}
                   />
-                  {signInNotice(provider, connection.address, imap, () =>
-                    authorize(connection.id),
-                  )}
+                  {signInNotice({
+                    provider,
+                    address: connection.address,
+                    imap,
+                    onSignIn: () => authorize(connection.id),
+                  })}
                   <View
                     style={
                       compact && [
