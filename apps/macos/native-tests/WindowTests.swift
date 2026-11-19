@@ -221,6 +221,10 @@ final class WindowTests: XCTestCase {
       ).count, 1)
     XCTAssertEqual(body.value as? String, "Typed just before the app ended")
     XCTAssertTrue(attachment.waitForExistence(timeout: 15))
+    // The row shows the size before its bytes are read again; a damaged or missing file then
+    // adds why, so look again once that check has had time to finish.
+    Thread.sleep(forTimeInterval: 5)
+    XCTAssertTrue(attachment.exists)
     let restored = XCTAttachment(screenshot: window.screenshot())
     restored.name = "Restored composer"
     restored.lifetime = .keepAlways
@@ -236,7 +240,9 @@ final class WindowTests: XCTestCase {
     // The record's removal follows the answer; nothing on screen shows it.
     Thread.sleep(forTimeInterval: 5)
     forceQuitAndRelaunch(app, at: appURL)
-    XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 45))
+    let newMessage = window.buttons["New Message"]
+    XCTAssertTrue(newMessage.waitForExistence(timeout: 45))
+    waitUntil { newMessage.isEnabled }
     // The offer above came once the Drafts opened; give this launch as long.
     XCTAssertFalse(offer.waitForExistence(timeout: 45))
   }
