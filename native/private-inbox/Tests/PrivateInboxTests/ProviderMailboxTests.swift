@@ -73,12 +73,13 @@ extension PrivateInboxTests {
     format.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
     let date = format.string(from: Date())
     func boundary(_ provider: Provider) -> String { "=_\(provider.name.prefix(6))\(token)" }
+    func messageId(_ provider: Provider) -> String { "\(provider.name.prefix(6))\(token)@unwired.dev" }
     func message(from sender: Provider, to recipient: Provider) -> Data {
       let mark = boundary(sender)
       let lines: [String] = [
         "From: \(sender.address)", "To: \(recipient.address)",
         "Subject: Unwired certification \(token)",
-        "Message-ID: <\(sender.name.prefix(6))\(token)@unwired.dev>", "Date: \(date)",
+        "Message-ID: <\(messageId(sender))>", "Date: \(date)",
         "MIME-Version: 1.0", "Content-Type: multipart/mixed; boundary=\"\(mark)\"", "",
         "--\(mark)", "Content-Type: text/plain; charset=utf-8", "",
         "Certification body \(token)", "--\(mark)--", "",
@@ -148,44 +149,20 @@ extension PrivateInboxTests {
           #expect(try await session.search(trash, for: .text(token), newest: 2).total == 1)
         }
 
-        // The product's filing rule: a MIME-boundary lookup in Sent, an append only when it finds no
+        // The product's filing rule: a Message-ID lookup in Sent, an append only when it finds no
         // copy, and then exactly one copy.
         if let sent {
-          var appended = false
-          var dropped = false
-          func lookup() async throws -> Int? {
-            // A sound connection before the lookup, so a dropped one is the lookup's.
-            let messages = try await session.examine(sent).messages
-            let found = { try await session.search(sent, for: .boundary(boundary(provider)), newest: 2).total }
-            guard provider.name == "Seznam Email", messages > 0 else { return try await found() }
-            var count: Int?
-            try await withKnownIssue("Seznam Email drops the connection on a Content-Type search (#2402)") {
-              count = try await found()
-            } matching: { ($0.error as? ImapFailure) == .offline }
-            dropped = count == nil
-            return count
+          func lookup() async throws -> Int {
+            try await session.search(sent, for: .messageId(messageId(provider)), newest: 2).total
           }
-          if let filed = try await lookup() {
-            record("\(provider.name): \(filed) Sent copy filed by the provider")
-            if filed == 0 {
-              try await session.append(sent, message: message(from: provider, to: sender))
-              appended = true
-            }
-            if let copies = try await lookup() { #expect(copies == 1) }
+          let filed = try await lookup()
+          record("\(provider.name): \(filed) Sent copy filed by the provider")
+          if filed == 0 {
+            try await session.append(sent, message: message(from: provider, to: sender))
           }
-          // Sent holds at most this one outgoing copy, which the product files unless its lookup
-          // failed. Read by text on a new session, since a dropped lookup ends the connection.
-          let reader = try await imapProvider.open(provider.imap, password: provider.password)
-          let copies: Int
-          do {
-            copies = try await reader.search(sent, for: .text(token), newest: 2).total
-          } catch {
-            await reader.close()
-            throw error
-          }
-          await reader.close()
-          record("\(provider.name): \(copies) Sent copy by text, appended \(appended), lookup dropped \(dropped)")
-          #expect(dropped && !appended ? copies <= 1 : copies == 1)
+          #expect(try await lookup() == 1)
+          // Sent holds exactly this one outgoing copy, also when searched by text.
+          #expect(try await session.search(sent, for: .text(token), newest: 2).total == 1)
         }
         await session.close()
       } catch {
