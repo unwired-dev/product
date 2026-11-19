@@ -1062,7 +1062,7 @@ function MailboxMessage({
   const inset = usePortraitInset();
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [panel, setPanel] = useState<ReaderPanel>();
-  const saving = useSaveOutcome(id);
+  const saving = useSaveOutcome(id, state.kind === 'ready');
   const colors = usePalette();
   const { t } = useLocalization();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
@@ -1238,7 +1238,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const markedRef: Marked = useRef(undefined);
   // oxlint-disable-next-line react/hook-use-state -- One map for this Thread visit, mutated in place.
   const [announcedFailures] = useState(() => new Map<string, string>());
-  const saving = useSaveOutcome(id);
+  const saving = useSaveOutcome(id, state.kind === 'ready');
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state

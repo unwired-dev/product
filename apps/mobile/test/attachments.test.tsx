@@ -431,7 +431,7 @@ function SavingReader({
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly id: string;
 }) {
-  const saving = useSaveOutcome(id);
+  const saving = useSaveOutcome(id, true);
   return (
     <SaveOutcomeContext value={saving.report}>
       <SaveFailedNotice shown={saving.shown} />

@@ -28,22 +28,23 @@ const styles = StyleSheet.create({
 const savedToastDuration = 6000;
 
 // The reader's latest Save to Files outcome and the way to report one. A saved copy's toast leaves
-// on its own; a failure stays until the next outcome or another message. Both are announced.
-export function useSaveOutcome(message: string) {
+// on its own; a failure stays until the next outcome or another message. Both are announced, and
+// neither shows while the reader cannot show the message, such as when storage locks.
+export function useSaveOutcome(message: string, readable: boolean) {
   const { t } = useLocalization();
   const [shown, setShown] =
     useState<
       Readonly<{ outcome: SaveOutcome; message: string; open: boolean }>
     >();
-  const current = shown?.message === message ? shown : undefined;
+  const current = readable && shown?.message === message ? shown : undefined;
   // The message the reader shows, until it closes: a result for another is dropped unannounced.
   const showing = useRef<string>(undefined);
-  useEffect(() => {
-    showing.current = message;
+  useLayoutEffect(() => {
+    showing.current = readable ? message : undefined;
     return () => {
       showing.current = undefined;
     };
-  }, [message]);
+  }, [message, readable]);
   useEffect(() => {
     if (current?.outcome.kind !== 'saved' || !current.open) {
       return;
@@ -86,6 +87,8 @@ export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {
         icon="exclamationmark.triangle"
         iconColor={colors.statusWarning}
         message={t('attachment.saveFailed', { name })}
+        // A long file name leaves the reader room; VoiceOver reads it in full.
+        messageLines={3}
         detail={t('attachment.saveFailedDetail')}
         messageRole="alert">
         <Action

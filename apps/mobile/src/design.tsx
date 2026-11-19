@@ -847,6 +847,7 @@ export function Notice({
   icon,
   iconColor,
   message,
+  messageLines,
   detail,
   messageRole,
   messageActions,
@@ -856,6 +857,8 @@ export function Notice({
   readonly icon: string;
   readonly iconColor?: ColorValue;
   readonly message: string;
+  // The most lines the message takes before it is truncated.
+  readonly messageLines?: number;
   // A secondary line under the message.
   readonly detail?: string;
   readonly messageRole?: 'alert';
@@ -894,6 +897,7 @@ export function Notice({
           <Text
             accessibilityLiveRegion={announce}
             accessibilityRole={messageRole}
+            numberOfLines={messageLines}
             style={[
               styles.noticeText,
               detail !== undefined && styles.noticeDetailTitle,
