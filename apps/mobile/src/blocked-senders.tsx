@@ -1,32 +1,109 @@
 import type { MailProfile } from '@private-email/mail-core/registration';
 
-import { Host, List, Section, Text, VStack } from '@expo/ui/swift-ui';
+import { Button, Host, List, Section, Text, VStack } from '@expo/ui/swift-ui';
 import {
+  buttonBorderShape,
+  buttonStyle,
+  controlSize,
   environment,
   font,
   foregroundStyle,
   listRowBackground,
   listStyle,
   scrollContentBackground,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { defaultProfile } from '@private-email/mail-core/registration';
+import { radius } from '@private-email/mail-core/theme';
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import { createContext, use, useEffect, useMemo, useState } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, Text as Label, StyleSheet, View } from 'react-native';
 
+import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { blockedSenders } from './registration.ts';
 import { SettingsGroup } from './settings.tsx';
-import { usePalette } from './theme.ts';
+import { textStyles, usePalette } from './theme.ts';
 
 export const BlockedSendersContext =
   createContext<typeof blockedSenders>(blockedSenders);
 
 const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
 
-const styles = StyleSheet.create({ list: { flex: 1 } });
+const styles = StyleSheet.create({
+  list: { flex: 1 },
+  // The Profile Locked recipe, centred in the page: tile, title, message and one button.
+  unavailable: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 32,
+  },
+  tile: {
+    width: 68,
+    height: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.touchCard,
+    borderCurve: 'continuous',
+    marginBottom: 14,
+  },
+  message: { maxWidth: 300, textAlign: 'center', marginBottom: 14 },
+});
+
+// Blocked Senders storage could not read: nothing to show, so the page says so and reads again.
+function Unavailable({ onRetry }: { readonly onRetry: () => void }) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  return (
+    <View style={styles.unavailable}>
+      <View style={[styles.tile, { backgroundColor: colors.fillQuiet }]}>
+        <SFSymbol
+          name="exclamationmark.triangle.fill"
+          size={36}
+          color={colors.textPrimary}
+        />
+      </View>
+      <Label
+        accessibilityRole="header"
+        style={[
+          textStyles.title3Emphasized,
+          { color: colors.textPrimary, textAlign: 'center' },
+        ]}>
+        {t('blockedSenders.loadFailed')}
+      </Label>
+      <Label
+        style={[
+          textStyles.subheadline,
+          styles.message,
+          { color: colors.textSecondary },
+        ]}>
+        {t('blockedSenders.loadFailedDetail')}
+      </Label>
+      <Host matchContents>
+        <Button
+          modifiers={[
+            buttonStyle('borderedProminent'),
+            buttonBorderShape('capsule'),
+            controlSize('large'),
+            tint(colors.accentFill),
+          ]}
+          onPress={onRetry}>
+          <Text
+            modifiers={[
+              font({ textStyle: 'headline' }),
+              foregroundStyle(colors.accentOnFill),
+            ]}>
+            {t('common.retry')}
+          </Text>
+        </Button>
+      </Host>
+    </View>
+  );
+}
 
 // A row's second line: its block date and count, or a failed unblock.
 const detail = (tone: string) => [
@@ -69,6 +146,8 @@ export function BlockedSenderSettings({
     [settings.locale],
   );
   const [listed, setListed] = useState<Listed>();
+  // Try Again counts up, which reads again.
+  const [attempt, setAttempt] = useState(0);
   // The address whose unblock storage refused, until the next attempt.
   const [failed, setFailed] = useState<string>();
   const unblock = async (profile: string, address: string) => {
@@ -105,12 +184,18 @@ export function BlockedSenderSettings({
       current = -1;
       unsubscribe();
     };
-  }, [store, scopes]);
+  }, [store, scopes, attempt]);
   if (listed === undefined) {
     return null;
   }
   if (listed.some(({ senders }) => senders === undefined)) {
-    return <SettingsGroup footer={t('blockedSenders.unavailable')} />;
+    return (
+      <Unavailable
+        onRetry={() => {
+          setAttempt((count) => count + 1);
+        }}
+      />
+    );
   }
   const groups = listed.flatMap(({ profile, senders = [] }) =>
     senders.length === 0
