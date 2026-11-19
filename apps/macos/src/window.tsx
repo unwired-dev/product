@@ -313,6 +313,8 @@ function WindowContents({
   const barOffset = useMemo(() => createBarOffset(), []);
   const [toolbarWidth, setToolbarWidth] = useState(0);
   const [view, setView] = useState<MailboxView>({});
+  // Set each time View in Outbox shows the Outbox, which ends a search that would hide it.
+  const [outboxShown, setOutboxShown] = useState<object>();
   // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
   const [collapsed, setCollapsed] = useState(false);
   const inbox = useMailboxes().find(
@@ -456,6 +458,7 @@ function WindowContents({
                           <ShowOutboxContext
                             value={() => {
                               setView({ outbox: true });
+                              setOutboxShown({});
                             }}>
                             <MessageDetail
                               id={selected?.id}
@@ -514,6 +517,7 @@ function WindowContents({
                 }}
                 onView={setView}
                 view={view}
+                searchEnded={outboxShown}
               />
             </BarOffsetContext>
           </View>

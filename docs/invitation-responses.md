@@ -192,7 +192,8 @@ mail server** for a reviewed provider, **The mail server** for any other.
   checks the chosen button; another choice changes it. **Not sent** says the mail
   server refused the response and leaves every choice. **Delivery unknown** offers
   no choice, only **View in Outbox**.
-- **View in Outbox** shows the window's Outbox, where the response has its own row:
+- **View in Outbox** shows the window's Outbox, ending any search that would hide
+  it; there the response has its own row:
   the meeting's title, **Invitation response · {choice}**, its status and time,
   with **Undo** while it waits, **Check Again** when delivery is unknown and
   **Open Invitation**, which opens the invitation message. It has no **Edit**.

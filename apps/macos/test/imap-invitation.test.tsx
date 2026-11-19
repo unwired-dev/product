@@ -22,7 +22,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { CommandBar, CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { ShowOutboxContext } from '../src/invitation.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
@@ -146,7 +146,8 @@ async function device(summaries: readonly string[]) {
         }}>
         <InboxProvider
           drafts={drafts}
-          mailboxes={mailboxes}
+          // As the app lists them: every connection, IMAP included.
+          mailboxes={{ ...mailboxes, getSnapshot: mailboxes.getConnections }}
           outbox={outbox}>
           {children}
         </InboxProvider>
@@ -303,9 +304,10 @@ describe('imap invitation responses on the Mac', () => {
     const opened: Selection[] = [];
     const [roadmap = '', release = ''] = mail.ids;
     const responses = imapInvitationResponses(mail.inbox, mail.outbox, mara.id);
-    const app = await render(
+    const list = (searchEnded?: object) => (
       <mail.Providers>
         <CommandPaletteProvider windowId="outbox">
+          <CommandBar />
           <Inbox
             composing={undefined}
             onCompose={() => undefined}
@@ -315,10 +317,12 @@ describe('imap invitation responses on the Mac', () => {
             selected={undefined}
             view={{ outbox: true }}
             onView={() => undefined}
+            searchEnded={searchEnded}
           />
         </CommandPaletteProvider>
-      </mail.Providers>,
+      </mail.Providers>
     );
+    const app = await render(list());
     try {
       // One response delivery is unknown, the other waits out its window.
       mail.imap.smtp.lost = true;
@@ -375,6 +379,18 @@ describe('imap invitation responses on the Mac', () => {
       await press('Undo');
       expect(screen.queryByText('Invitation response · Decline')).toBeNull();
       expect(mail.outbox.getSnapshot()).toHaveLength(1);
+
+      // A search hides the Outbox; View in Outbox ends it, so the rows show again.
+      await fireEvent.changeText(
+        await screen.findByLabelText('Search senders and subjects'),
+        'roadmap',
+      );
+      expect(screen.queryByText('Release readiness')).toBeNull();
+      await app.rerender(list({}));
+      expect(screen.getByText('Release readiness')).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('Search senders and subjects').props.value,
+      ).toBe('');
     } finally {
       await app.unmount();
       mail.outbox.dispose();

@@ -137,6 +137,8 @@ interface InboxProps {
   // The mailbox or folder the list shows; every mailbox of the Profile without one.
   readonly view?: MailboxView;
   readonly onView?: (view: MailboxView) => void;
+  // Each new value clears the search, as when View in Outbox shows the Outbox.
+  readonly searchEnded?: object | undefined;
   // A control in the window controls' row above the title, such as the window's sidebar toggle.
   readonly leading?: ReactNode;
   // The pane beside the list; the floating search bar spans both.
@@ -977,6 +979,7 @@ export function Inbox({
   composing,
   view = allInboxes,
   onView = keepView,
+  searchEnded,
   leading,
   reader,
 }: InboxProps) {
@@ -1031,6 +1034,11 @@ export function Inbox({
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
   const [query, setQuery] = useState('');
+  const [ended, setEnded] = useState(searchEnded);
+  if (ended !== searchEnded) {
+    setEnded(searchEnded);
+    setQuery('');
+  }
   // Set while the list is scrolled from its top, so synchronization keeps the reading position.
   const [keepPosition, setKeepPosition] = useState<typeof keepTopRow>();
   // Typing stays responsive while the list catches up with the latest query.
