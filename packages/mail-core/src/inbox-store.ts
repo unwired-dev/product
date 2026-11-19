@@ -1224,6 +1224,7 @@ export function createInboxStore(
         }
       };
     },
+    held: () => [...found.keys()],
   };
   const providerReader: ProviderReader =
     provider === 'microsoft-graph'
