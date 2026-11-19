@@ -778,6 +778,30 @@ the connection on a MIME-boundary Sent lookup (#2402). On `592c536af` with the
 Message-ID lookup of [#2431](https://github.com/unwired-dev/product/issues/2431)
 applied, the iOS suite passed with only the iCloud Mail exception still active.
 
+### Certification runs through the app
+
+Each record holds only non-secret facts: no addresses, passwords or mail content.
+
+- **2026-11-19, iPhone connect and read
+  ([#2444](https://github.com/unwired-dev/product/issues/2444)).** Target: Expo client,
+  Release build without a Mock Mail Session, iPhone 18 Pro Simulator on iOS 27.0, with the
+  development Convex deployment. Build: the app source of
+  `3f2363b2abe4acdd2c48dd12e5b5a9c42d0c48fb`. Toolchain: Xcode 27.2 (27B52). Operator:
+  agent, with credentials read at run time from the approved password manager. Result:
+  pass. Google Product Sign-In created a new Product Account. **iCloud Mail** connected
+  with the app-specific password over `imap.mail.me.com` 993 (TLS) and
+  `smtp.mail.me.com` 587 (STARTTLS), then **Add an IMAP Mailbox** › **Other IMAP
+  Account** filled in `imap.seznam.cz` 993 (TLS) and `smtp.seznam.cz` 465 (SSL/TLS) from
+  the catalog for the Seznam Email address, and connected with its mail-client password.
+  Each Inbox listed real messages and one opened in the reader with remote images
+  held back. The Mailboxes list showed both accounts' folders, including Seznam Email's
+  `drafts`, `archive`, `spam` and `trash`. Limitations: Product Sync pulls failed as
+  unavailable from sign-in on, and Account & Devices showed the Gmail pending-changes
+  notice on this account without a Gmail mailbox
+  ([#2390](https://github.com/unwired-dev/product/issues/2390)). Mac, iPad,
+  organizing, search, attachments, sending, IDLE, Sent filing, relaunch and recovery were
+  not run and stay on #632.
+
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
