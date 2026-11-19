@@ -2,10 +2,25 @@ import type { GmailLabel } from '@private-email/mail-core/gmail-actions';
 import type { ReactNode } from 'react';
 import type { TextInputInstance } from 'react-native';
 
-import { BottomSheet, Group, Host, RNHostView } from '@expo/ui/swift-ui';
 import {
+  BottomSheet,
+  Group,
+  Host,
+  RNHostView,
+  Button as SwiftUIButton,
+  Text as SwiftUIText,
+} from '@expo/ui/swift-ui';
+import {
+  buttonBorderShape,
+  buttonStyle,
+  controlSize,
+  font,
+  foregroundStyle,
+  frame,
+  disabled as inactive,
   presentationBackground,
   presentationDetents,
+  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { spacing } from '@private-email/mail-core/theme';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -79,15 +94,46 @@ const styles = StyleSheet.create({
   },
   footer: { ...textStyles.footnote, paddingHorizontal: 16 },
   buttons: { gap: spacing.s },
-  button: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.l,
-    borderRadius: 24,
-  },
-  buttonLabel: { ...textStyles.headline },
 });
+
+// One of the form's full-width capsule buttons: the system's bordered button, prominent for Apply.
+function FormButton({
+  label,
+  prominent,
+  disabled,
+  onPress,
+}: {
+  readonly label: string;
+  readonly prominent: boolean;
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+}) {
+  const colors = usePalette();
+  return (
+    <Host matchContents={{ vertical: true }}>
+      <SwiftUIButton
+        modifiers={[
+          buttonStyle(prominent ? 'borderedProminent' : 'bordered'),
+          buttonBorderShape('capsule'),
+          controlSize('large'),
+          tint(prominent ? colors.accentFill : colors.fillQuiet),
+          inactive(disabled),
+        ]}
+        onPress={onPress}>
+        <SwiftUIText
+          modifiers={[
+            font({ textStyle: 'headline' }),
+            foregroundStyle(
+              prominent ? colors.accentOnFill : colors.textPrimary,
+            ),
+            frame({ maxWidth: Infinity }),
+          ]}>
+          {label}
+        </SwiftUIText>
+      </SwiftUIButton>
+    </Host>
+  );
+}
 
 // A tappable row of a grouped list.
 function Row({
@@ -325,45 +371,19 @@ function LabelForm({
         </Text>
       </ScrollView>
       <View style={styles.buttons}>
-        <Pressable
-          accessibilityRole="button"
+        <FormButton
+          label={t('common.cancel')}
+          prominent={false}
           // A label being created is applied once Gmail answers, so it cannot be cancelled.
-          accessibilityState={{ disabled: creating }}
           disabled={creating}
-          focusable
           onPress={onClose}
-          style={({ pressed }) => [
-            styles.button,
-            {
-              backgroundColor: pressed
-                ? colors.accentSelectionSubtle
-                : colors.fillQuiet,
-              opacity: creating ? 0.4 : 1,
-            },
-          ]}>
-          <Text style={[styles.buttonLabel, primary]}>
-            {t('common.cancel')}
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: label.name === '' || creating }}
+        />
+        <FormButton
+          label={t('gmailActions.applyLabel')}
+          prominent
           disabled={label.name === '' || creating}
-          focusable
           onPress={apply}
-          style={({ pressed }) => [
-            styles.button,
-            {
-              backgroundColor: pressed
-                ? `${colors.accentFill}CC`
-                : colors.accentFill,
-              opacity: label.name === '' || creating ? 0.4 : 1,
-            },
-          ]}>
-          <Text style={[styles.buttonLabel, { color: colors.accentOnFill }]}>
-            {t('gmailActions.applyLabel')}
-          </Text>
-        </Pressable>
+        />
       </View>
     </>
   );
