@@ -1130,13 +1130,13 @@ function MailboxMessage({
               </View>
             )}
             {header ? null : <RegularHeader subject={message.subject} />}
+            <SaveFailedNotice shown={saving.shown} />
             <ReaderScrollView
               contentContainerStyle={[
                 singleContent,
                 inset,
                 clearsBottom(windowBar !== undefined, insets.bottom),
               ]}>
-              <SaveFailedNotice shown={saving.shown} />
               {/* iPhone counts a single message as its frames count a thread's. */}
               {compact ? <MessageCount count={1} /> : null}
               <MessageMetadata message={message} />
@@ -1294,6 +1294,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
               ) : (
                 <RegularHeader subject={opened.subject} />
               )}
+              <SaveFailedNotice shown={saving.shown} />
               <ReaderScrollView
                 contentContainerStyle={[
                   compact ? singleContent : styles.content,
@@ -1304,7 +1305,6 @@ function ThreadMessages({ id }: { readonly id: string }) {
                 onScrollBeginDrag={() => {
                   pinned.current = false;
                 }}>
-                <SaveFailedNotice shown={saving.shown} />
                 <MessageCount count={messages.length} />
                 <ThreadMessageList
                   inbox={inbox}

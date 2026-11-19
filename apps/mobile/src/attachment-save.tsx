@@ -1,5 +1,5 @@
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useLayoutEffect, useState } from 'react';
+import { use, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
 
 import type { SaveOutcome } from './message-body.tsx';
@@ -8,7 +8,7 @@ import { Action } from './action.tsx';
 import { Notice, Toast } from './design.tsx';
 import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
-import { openLink, useReaderScrollTo } from './message-body.tsx';
+import { openLink } from './message-body.tsx';
 import { usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
@@ -20,6 +20,8 @@ const styles = StyleSheet.create({
     right: spacing.l,
     alignItems: 'center',
   },
+  // Beneath the iPhone reader's subject, above its scrolling content.
+  notice: { paddingHorizontal: spacing.l, paddingTop: spacing.s },
 });
 
 // How long a saved copy's toast stays.
@@ -34,6 +36,14 @@ export function useSaveOutcome(message: string) {
       Readonly<{ outcome: SaveOutcome; message: string; open: boolean }>
     >();
   const current = shown?.message === message ? shown : undefined;
+  // The message the reader shows, until it closes: a result for another is dropped unannounced.
+  const showing = useRef<string>(undefined);
+  useEffect(() => {
+    showing.current = message;
+    return () => {
+      showing.current = undefined;
+    };
+  }, [message]);
   useEffect(() => {
     if (current?.outcome.kind !== 'saved' || !current.open) {
       return;
@@ -46,6 +56,9 @@ export function useSaveOutcome(message: string) {
     };
   }, [current]);
   const report = (outcome: SaveOutcome) => {
+    if (showing.current !== message) {
+      return;
+    }
     setShown({ outcome, message, open: true });
     AccessibilityInfo.announceForAccessibility(
       outcome.kind === 'saved'
@@ -58,34 +71,30 @@ export function useSaveOutcome(message: string) {
 
 type Shown = ReturnType<typeof useSaveOutcome>['shown'];
 
-// The iPhone reader's failure, at the top of its content.
+// The iPhone reader's failure, beneath its subject, where it stays in view while the content
+// scrolls.
 export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const scrollTo = useReaderScrollTo();
-  // The notice sits at the top of the reader, above the attachment that failed.
-  useEffect(() => {
-    if (compact && shown?.outcome.kind === 'failed') {
-      scrollTo?.(0);
-    }
-  }, [shown, scrollTo]);
   if (!compact || shown?.outcome.kind !== 'failed') {
     return null;
   }
   const { name, retry } = shown.outcome;
   return (
-    <Notice
-      icon="exclamationmark.triangle"
-      iconColor={colors.statusWarning}
-      message={t('attachment.saveFailed', { name })}
-      detail={t('attachment.saveFailedDetail')}
-      messageRole="alert">
-      <Action
-        label={t('attachment.saveToFiles')}
-        accessibilityLabel={t('attachment.saveToFilesLabel', { name })}
-        onPress={retry}
-      />
-    </Notice>
+    <View style={styles.notice}>
+      <Notice
+        icon="exclamationmark.triangle"
+        iconColor={colors.statusWarning}
+        message={t('attachment.saveFailed', { name })}
+        detail={t('attachment.saveFailedDetail')}
+        messageRole="alert">
+        <Action
+          label={t('attachment.saveToFiles')}
+          accessibilityLabel={t('attachment.saveToFilesLabel', { name })}
+          onPress={retry}
+        />
+      </Notice>
+    </View>
   );
 }
 
