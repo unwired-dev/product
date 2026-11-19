@@ -12,11 +12,12 @@ struct ImapListedFolder: Sendable, Equatable {
   let delimiter: String?
 }
 
-// What a folder search looks for: a short text anywhere in the message, or a MIME boundary in its
-// Content-Type header, which marks a Sent copy Unwired filed.
+// What a folder search looks for: a short text anywhere in the message, or the Message-ID header of
+// a message Unwired sent, which marks its Sent copy. Some servers, such as Seznam Email's, drop the
+// connection on a Content-Type search.
 enum ImapSearchCriterion: Sendable, Equatable {
   case text(String)
-  case boundary(String)
+  case messageId(String)
 }
 
 // One authenticated session that TypeScript drives through purpose-named primitives. Closing it
@@ -232,7 +233,8 @@ enum ImapStoredFlag: String, Sendable {
       let search: SearchCriteria =
         switch criterion {
         case .text(let text): .text(text)
-        case .boundary(let boundary): .header("Content-Type", boundary)
+        // Bracketed, since iCloud Mail matches only the whole value, and a longer ID cannot hold it.
+        case .messageId(let messageId): .header("Message-ID", "<\(messageId)>")
         }
       return try await run { server in
         let selection: Mailbox.Selection
@@ -480,7 +482,7 @@ extension RegistrationStore {
     receipt.map { ["uidValidity": Double($0.uidValidity), "uid": Double($0.uid)] } ?? [:]
   }
 
-  // The server's search of one folder for a short text or a Sent copy's boundary: its newest
+  // The server's search of one folder for a short text or a Sent copy's Message-ID: its newest
   // matches, at most 200, and how many matched in all.
   func imapSearch(
     connection: String, address: String, generation: String, session: String, folder: String,
@@ -497,14 +499,16 @@ extension RegistrationStore {
     ]
   }
 
-  // A text without control characters, or one of the boundaries TypeScript chooses, which a quoted
-  // IMAP search carries unchanged.
+  // A text without control characters, or a Message-ID TypeScript wrote without its angle brackets,
+  // which a quoted IMAP search carries unchanged.
   private nonisolated static func imapCriterion(_ criterion: ImapSearchCriterion) -> Bool {
     switch criterion {
     case .text(let text):
       !text.isEmpty && text.count <= 200 && text.rangeOfCharacter(from: .controlCharacters) == nil
-    case .boundary(let boundary):
-      boundary.range(of: "^[0-9A-Za-z=_.-]{8,70}$", options: .regularExpression) != nil
+    case .messageId(let messageId):
+      messageId.count <= 300
+        && messageId.range(of: #"^[^\s\p{Cc}<>"\\@]+@[^\s\p{Cc}<>"\\@]+$"#, options: .regularExpression)
+          != nil
     }
   }
 

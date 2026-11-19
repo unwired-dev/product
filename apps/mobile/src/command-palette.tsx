@@ -263,16 +263,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.xl,
   },
+  // The iPhone Inbox frames' Command Hint: the list's first item, on the quiet fill.
   hint: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.m,
     marginHorizontal: spacing.l,
     marginBottom: spacing.l,
-    paddingLeft: 14,
-    paddingRight: 10,
+    paddingLeft: spacing.l,
+    paddingRight: spacing.s,
     paddingVertical: spacing.m,
-    borderRadius: radius.bubble,
+    borderRadius: radius.card,
     borderCurve: 'continuous',
   },
   hintText: { flex: 1, gap: 2 },
@@ -283,15 +284,9 @@ const styles = StyleSheet.create({
   hintTitle: { ...textStyles.subheadline, fontWeight: '600' },
   hintDetail: { ...textStyles.footnote },
   dismiss: {
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dismissCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -965,17 +960,18 @@ export function PaletteHint() {
       style={[
         styles.hint,
         large && styles.hintStacked,
-        {
-          backgroundColor: colors.surfaceContent,
-          boxShadow: colors.menuShadow,
-        },
+        { backgroundColor: colors.fillQuiet },
       ]}>
       <SFSymbol
         name="hand.draw"
         color={colors.accentInk}
         size={22}
       />
-      <View style={[styles.hintText, large && styles.hintTextStacked]}>
+      {/* VoiceOver reads the title and detail as one element, then Dismiss. */}
+      <View
+        accessible
+        accessibilityLabel={`${t('commands.hint')}, ${t('commands.hintDetail')}`}
+        style={[styles.hintText, large && styles.hintTextStacked]}>
         <Text style={[styles.hintTitle, { color: colors.textPrimary }]}>
           {t('commands.hint')}
         </Text>
@@ -989,15 +985,16 @@ export function PaletteHint() {
         onPress={() => {
           void hint.dismiss();
         }}
-        style={[styles.dismiss, large && styles.dismissStacked]}>
-        <View
-          style={[styles.dismissCircle, { backgroundColor: colors.fillQuiet }]}>
-          <SFSymbol
-            name="xmark"
-            color={colors.textSecondary}
-            size={14}
-          />
-        </View>
+        style={[
+          styles.dismiss,
+          large && styles.dismissStacked,
+          { backgroundColor: colors.fillQuiet },
+        ]}>
+        <SFSymbol
+          name="xmark"
+          color={colors.textSecondary}
+          size={14}
+        />
       </Pressable>
     </View>
   );

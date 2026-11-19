@@ -270,8 +270,10 @@ that cannot be read shows **Folders could not be listed**; its cached messages s
 The failed read also marks that folder's sidebar row, including after another mailbox
 is selected and when the folder has no cached messages. A problem of the whole connection,
 such as a password the server no longer accepts, shows as a warning beside the
-connection's sidebar header on Mac and iPad and on its Inbox row on iPhone, as in the
-[Gmail guide](gmail-inbox.md#behavior).
+connection's sidebar header, as in the [Gmail guide](gmail-inbox.md#behavior). On iPhone,
+while the connection needs its password again, a banner above its folders also offers
+**Enter the Password…**, which opens Settings' Email
+Accounts.
 A chosen folder removed from the refreshed selectable listing falls back to Inbox.
 It stays there if that folder name reappears, until the person chooses it again.
 Local search marks a body as available on this device only when the body cache
@@ -537,11 +539,11 @@ waits to send until the connection's folder list has been read.
   or a failed TLS setup waits to send and tries again.
 - Once the message's end may have reached the server without a final answer, its
   outcome is **Delivery unknown** and it is never submitted again automatically.
-  **Check Again** looks for exactly one copy with its MIME boundary in the Sent folder,
+  **Check Again** looks for exactly one copy with its Message-ID in the Sent folder,
   which confirms it; otherwise it stays unknown until the person chooses **Edit Anyway**.
 - A message SMTP accepted is recorded as sent before its copy is filed, and the row says
   **Sent. Saving a copy to Sent…**. Filing appends the message, with its Bcc field,
-  read, to the Sent folder unless a copy with its MIME boundary is already there, so a
+  read, to the Sent folder unless a copy with its Message-ID is already there, so a
   lost answer or a relaunch files it again without a second copy and never submits the
   message again. While filing waits, the row says why: the server cannot be reached,
   storage is locked, the password was refused, or the Sent folder is gone. Edit is not
@@ -571,8 +573,10 @@ folder without UIDVALIDITY), and envelopes or flags of that folder's messages by
 from a UID onward or by the newest sequence numbers. A search examines one folder and
 returns its newest matching UIDs and how many matched in all, refusing a folder the
 server no longer selects, one without UIDVALIDITY and a query in a charset the server
-cannot search; it matches either text or a Sent copy's MIME boundary in the
-Content-Type header. An append stores an outgoing message, read, in a folder: native
+cannot search; it matches either text or a Sent copy's Message-ID header. Seznam
+Email's server drops the connection on a Content-Type header search in a folder
+that holds messages ([#2402](https://github.com/unwired-dev/product/issues/2402)),
+so a Sent copy is not looked up by its MIME boundary. An append stores an outgoing message, read, in a folder: native
 code reads the message from the Outbox and appends it only for a trusted device. UID-set and newest-message requests name at most 200 messages; a UID-range request reads from its starting UID onward.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. IDLE runs the
@@ -593,7 +597,7 @@ store, move, copy and expunge. Each answers with a fixed failure code and refuse
 a folder the server opens read-only. A command that fails after it was sent is
 reported as interrupted, so TypeScript never resends an uncertain move.
 Filing a Sent copy runs the same way: TypeScript searches the Sent folder for the copy's
-boundary and appends the message in the same session only when no copy is there.
+Message-ID and appends the message in the same session only when no copy is there.
 
 The connection of a closed session ends only when its active command answers or
 times out. Aborting it on the wire is
@@ -683,7 +687,7 @@ a refused password, a temporary refusal, a refused recipient without partial del
 a permanent refusal after the message, and interruptions at MAIL FROM, RCPT TO, DATA,
 during content, and after the message's end. Content-phase interruptions remain unknown;
 earlier interruptions remain safe to retry. The IMAP fixture checks
-a session's boundary search of the Sent folder and a single APPEND that the search
+a session's Message-ID search of the Sent folder and a single APPEND that the search
 then finds. Its certificate
 never changes production validation or trust on the host Mac.
 
@@ -703,7 +707,7 @@ and keys afterwards. It needs a running Docker engine. The unchanged engine exer
 | IMAP 993, implicit TLS, password                      | Login, SPECIAL-USE roles, delivered mail read, searched, marked and moved |
 | SMTP 465, implicit TLS, password                      | Submission delivered                                                      |
 | SMTP 587, STARTTLS before AUTH, password              | Submission delivered                                                      |
-| IMAP 993, Sent folder                                 | Sent copy appended and found by its boundary                              |
+| IMAP 993, Sent folder                                 | Sent copy appended and found by its Message-ID                            |
 | IMAP 143, STARTTLS offered, LOGIN allowed without TLS | Refused as insecure; the engine has no IMAP STARTTLS                      |
 | SMTP without STARTTLS, AUTH offered in plaintext      | Refused as insecure                                                       |
 | IMAP 993 and SMTP 465, untrusted self-signed cert     | Refused as insecure                                                       |
@@ -713,14 +717,59 @@ authenticated on 465 and 587, and no credentials reached 143, the plaintext SMTP
 untrusted server.
 On 18 November 2026 the run passed all 105 tests of the suite on an iOS 27.0 iPhone 18 Pro
 Simulator, built with Xcode 27.2 (27B52) against Docker Engine 29.9.3, from `main` at
-`9f706166f` with this change applied.
+`9f706166f` with this change applied. On 19 November 2026 it passed all 105 tests again
+with the Message-ID lookup of [#2402](https://github.com/unwired-dev/product/issues/2402),
+from `main` at `eb28e204d` with that change applied.
 
 This is not provider certification and does not run on the Mac host, whose trust the
 synthetic certificate authority never changes. Pinned certificates are
 [#2005](https://github.com/unwired-dev/product/issues/2005).
 
-Real iCloud Mail and Seznam Email read, organizing, search, IDLE, SMTP submission and Sent
-filing qualification remains required before release
+### Certification mailboxes
+
+`native/private-inbox/integration/providers.zsh [ios|macos]` runs the iOS suite, the
+Mac suite or both against the dedicated iCloud Mail and Seznam Email certification
+mailboxes of [#2399](https://github.com/unwired-dev/product/issues/2399). Run it under
+`op run --env-file <file outside the repository> -- mise exec -- zsh …`, with that file
+naming the password-manager fields for `UNWIRED_ICLOUD_ADDRESS`, `UNWIRED_SEZNAM_ADDRESS`
+and their mail-client passwords `UNWIRED_ICLOUD_PASSWORD` and `UNWIRED_SEZNAM_PASSWORD`,
+as the [operator setup](https://github.com/unwired-dev/product/issues/632) describes. The
+script hands them to `test.zsh`, which passes them only to xcodebuild as `TEST_RUNNER_`
+variables, so they reach the test process without being written to the generated scheme.
+Each host's run writes to an `artifacts/private-inbox/integration.*` directory the script
+creates, and each result bundle is kept only as the test results it records. The runs'
+output is shown once a scan finds no address, iCloud Mail user name or password in it or in
+those directories, which are then kept, also when a test failed or the certification test
+did not pass on a host, either of which fails the script. When the scan finds a credential,
+cannot read a file or is interrupted, the script removes this run's evidence and fails. The
+Mac run needs `UNWIRED_STORAGE_PROFILE`, like `test.zsh macos`. Each mailbox sends one
+message to the other through the unchanged engine; the test then reads, marks, moves and
+files it, and afterwards tries to remove this run's messages from every INBOX, Sent and
+Trash folder of both mailboxes, also when a step failed. The search for messages the server accepted, or may
+have, polls for 70 seconds shared by both deliveries; cleanup polls for one the test did not
+find for 16 seconds more, shared by both mailboxes, within the test's 120-second allowance.
+
+| Step               | iCloud Mail                                                                           | Seznam Email                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IMAP 993 login     | Name part of the address, app-specific password                                       | Full address, mail-client password                                                                                                                                                                                                                                                                                                                                                                                                |
+| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                 | Refused as an authentication failure on IMAP and SMTP                                                                                                                                                                                                                                                                                                                                                                             |
+| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                              | 465, SSL/TLS; delivered to iCloud Mail                                                                                                                                                                                                                                                                                                                                                                                            |
+| Delivered message  | Found by text search; envelope, source and `\Seen` cleared and set                    | Found by text search; envelope, source, `\Seen` cleared and set and MOVE to Trash                                                                                                                                                                                                                                                                                                                                                 |
+| Folders and roles  | `INBOX` alone, no roles ([#2401](https://github.com/unwired-dev/product/issues/2401)) | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                                                                                                                                                                                                                                                                                                                                               |
+| Sent filing        | Not possible: without a Sent folder, Send refuses                                     | No copy filed by the server. The boundary lookup finds none in an empty Sent folder, so the copy is appended; the lookup that follows drops the connection in the folder that now holds it ([#2402](https://github.com/unwired-dev/product/issues/2402)), and a text search on a new session finds the one copy. In a Sent folder that already holds messages, the first lookup drops the connection and the product stops filing |
+| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                    | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                                                                                                                                                                                                                                                                                                                                         |
+
+The test marks the INBOX-only listing (#2401) and the boundary lookup's dropped connection
+in a Sent folder that holds messages (#2402) as known issues, which fail the run once they are fixed so the markers get removed.
+On 19 November 2026 the test passed with exactly those two known issues on an iOS 27.0
+iPhone 18 Pro Simulator, where the whole suite passed, and on the Mac host (macOS 27.2),
+both built with Xcode 27.2 (27B52) from `main` at `eb28e204d` with this change applied. In
+that Mac run, 60 Keychain checks of other tests failed with `.locked`, as they did on `main`
+on the same host at the time. The run is engine evidence only: the app's
+setup and reader journeys, IDLE, recovery and large folders are still to be qualified.
+
+Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
+the app on both hosts, remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
 hosts, and backfilling large real IMAP folders. Registration Mock Mail Sessions connect any

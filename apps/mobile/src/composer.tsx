@@ -172,6 +172,7 @@ import {
   Monogram,
   scaledToolbar,
   SFSymbol,
+  SignInNotice,
   ToolbarButton,
 } from './design.tsx';
 import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
@@ -303,23 +304,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: padFieldInset,
   },
   sendDisabled: { opacity: 0.5 },
-  // The Authorization Needed banner: 16 by 12pt inside, its message row 10pt above Sign In….
-  signInBanner: {
-    gap: 10,
-    paddingHorizontal: spacing.l,
-    paddingVertical: spacing.m,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
-  signInMessage: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  signInText: { ...textStyles.subheadline, fontWeight: '600' },
-  signInButton: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderRadius: 22,
-  },
   // Under From, in line with it: 4pt above and 8pt below on iPhone, as its frame draws it.
   phoneSignIn: {
     marginHorizontal: inset,
@@ -454,6 +438,12 @@ const styles = StyleSheet.create({
   stackedEntries: { flexBasis: '100%' },
   stackedNotice: { paddingLeft: 0 },
   stackedTrailing: { height: 'auto' },
+  // The entry and its drawn placeholder; the minimum width wraps the entry below the recipients.
+  entry: { flex: 1, minWidth: 140 },
+  placeholder: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+  },
   input: {
     ...textStyles.body,
     flex: 1,
@@ -603,11 +593,13 @@ export const layoutStyles = {
       marginTop: spacing.xs,
       padding: spacing.s,
     },
+    entry: { minWidth: 60 },
     input: {
       ...textStyles.body,
       minHeight: compactFieldHeight,
       minWidth: 60,
     },
+    placeholder: textStyles.body,
     token: { minHeight: compactFieldHeight },
     // A short name's token still makes a 44pt wide target.
     tokenFill: {
@@ -646,7 +638,9 @@ export const layoutStyles = {
         (padFieldHeight - typography.ipadList.body.lineHeight) / 2,
     },
     fieldNotice: { paddingLeft: padLabelWidth + spacing.s * ipadListScale },
+    entry: {},
     input: { ...typography.ipadList.body, minHeight: padFieldHeight },
+    placeholder: typography.ipadList.body,
     // The Mac's suggestions at 1.15, beside the label column, narrowing with a docked reply.
     suggestions: {
       left: padLabelWidth + spacing.s * ipadListScale,
@@ -998,7 +992,6 @@ function SignInBanner({
   readonly style?: StyleProp<ViewStyle>;
 }) {
   const account = use(AccountContext);
-  const colors = usePalette();
   const { t } = useLocalization();
   const mailboxes = account?.mailboxes ?? [];
   const message = sendingMessage(t, draft, mailboxes);
@@ -1008,48 +1001,15 @@ function SignInBanner({
   ) {
     return null;
   }
-  // The frame's Banner: its message in emphasized Subheadline, Sign In… in a content-coloured pill
-  // beneath, in line with the symbol.
   return (
-    <View
-      style={[
-        styles.signInBanner,
-        { backgroundColor: colors.fillQuiet },
-        style,
-      ]}>
-      <View style={styles.signInMessage}>
-        <SFSymbol
-          name="person.crop.circle.badge.exclamationmark"
-          color={colors.statusWarning}
-          size={16}
-        />
-        <Text
-          style={[
-            styles.signInText,
-            styles.grow,
-            { color: colors.textPrimary },
-          ]}>
-          {message}
-        </Text>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => {
-          void account?.authorizeMailbox(draft.connection);
-        }}
-        style={({ pressed }) => [
-          styles.signInButton,
-          {
-            backgroundColor: pressed
-              ? colors.accentSelectionSubtle
-              : colors.surfaceContent,
-          },
-        ]}>
-        <Text style={[styles.signInText, { color: colors.accentInk }]}>
-          {t('drafts.sending.signInAction')}
-        </Text>
-      </Pressable>
-    </View>
+    <SignInNotice
+      message={message}
+      action={t('drafts.sending.signInAction')}
+      onPress={() => {
+        void account?.authorizeMailbox(draft.connection);
+      }}
+      style={style}
+    />
   );
 }
 
@@ -1479,53 +1439,69 @@ export function Recipients({
               )}
             </Pressable>
           ))}
-          <TextInput
-            accessibilityLabel={name}
-            accessibilityHint={incomplete ? reason : undefined}
-            editable={editable}
-            accessibilityState={{ disabled: !editable }}
-            autoCapitalize="none"
-            autoComplete="email"
-            autoCorrect={false}
-            submitBehavior="submit"
-            inputMode="email"
-            onBlur={() => {
-              setEntering(false);
-              add(entryOf(getDraft(), field), true);
-            }}
-            onChangeText={(value) => {
-              setEntering(true);
-              const text = entryOf(getDraft(), field);
-              caret.current =
-                selection.current.end + value.length - text.length;
-              const word =
-                value.length === text.length + 1 &&
-                !/\s/u.test(value[selection.current.start] ?? ' ');
-              add(value, false, word);
-            }}
-            onSelectionChange={({ nativeEvent }) => {
-              const next = nativeEvent.selection;
-              if (next.start !== next.end || next.start !== caret.current) {
-                onCaretMove();
-              }
-              caret.current = undefined;
-              selection.current = next;
-            }}
-            onSubmitEditing={() => {
-              if (first === undefined) {
+          <View style={[styles.entry, sized.entry]}>
+            <TextInput
+              accessibilityLabel={name}
+              accessibilityHint={incomplete ? reason : undefined}
+              editable={editable}
+              accessibilityState={{ disabled: !editable }}
+              autoCapitalize="none"
+              autoComplete="email"
+              autoCorrect={false}
+              submitBehavior="submit"
+              inputMode="email"
+              onBlur={() => {
+                setEntering(false);
                 add(entryOf(getDraft(), field), true);
-              } else {
-                accept(first);
-              }
-            }}
-            placeholder={t('drafts.recipientPlaceholder')}
-            placeholderTextColor={colors.textSecondary}
-            returnKeyType="next"
-            hitSlop={fieldSlop[size]}
-            style={[styles.input, sized.input, { color: colors.textPrimary }]}
-            textContentType="emailAddress"
-            value={entryOf(draft, field)}
-          />
+              }}
+              onChangeText={(value) => {
+                setEntering(true);
+                const text = entryOf(getDraft(), field);
+                caret.current =
+                  selection.current.end + value.length - text.length;
+                const word =
+                  value.length === text.length + 1 &&
+                  !/\s/u.test(value[selection.current.start] ?? ' ');
+                add(value, false, word);
+              }}
+              onSelectionChange={({ nativeEvent }) => {
+                const next = nativeEvent.selection;
+                if (next.start !== next.end || next.start !== caret.current) {
+                  onCaretMove();
+                }
+                caret.current = undefined;
+                selection.current = next;
+              }}
+              onSubmitEditing={() => {
+                if (first === undefined) {
+                  add(entryOf(getDraft(), field), true);
+                } else {
+                  accept(first);
+                }
+              }}
+              // VoiceOver reads the native placeholder; the one below draws it.
+              placeholder={t('drafts.recipientPlaceholder')}
+              placeholderTextColor="transparent"
+              returnKeyType="next"
+              hitSlop={fieldSlop[size]}
+              style={[styles.input, sized.input, { color: colors.textPrimary }]}
+              textContentType="emailAddress"
+              value={entryOf(draft, field)}
+            />
+            {/* The native placeholder clips a longer translation; this one ends with an ellipsis. */}
+            {entryOf(draft, field) === '' ? (
+              <View
+                accessibilityElementsHidden
+                pointerEvents="none"
+                style={styles.placeholder}>
+                <Text
+                  numberOfLines={1}
+                  style={[sized.placeholder, { color: colors.textSecondary }]}>
+                  {t('drafts.recipientPlaceholder')}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
         {trailing === undefined ? null : (
           <View style={[sized.trailing, large && styles.stackedTrailing]}>

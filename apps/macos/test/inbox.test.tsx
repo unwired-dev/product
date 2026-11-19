@@ -20,7 +20,11 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
+import {
+  AccessibilityInfo,
+  DeviceEventEmitter,
+  TurboModuleRegistry,
+} from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
 import type { MailboxView } from '../src/sidebar.tsx';
@@ -143,6 +147,100 @@ describe('message list', () => {
       await cleanup();
       inbox.forget();
       clock.mockRestore();
+    }
+  });
+
+  it('names the searched folder when a search in it finds nothing, until a mail server search fails', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    gmail.setLabel(
+      gmail.deliver({ subject: 'Flight to Zagreb' }),
+      travel,
+      true,
+    );
+    const inbox = createInboxStore(gmail.native);
+    try {
+      await render(
+        <InboxProvider mailboxes={singleMailbox(inbox, 'work-mailbox')}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+            view={{ mailbox: 'work-mailbox', folder: travel }}
+          />
+        </InboxProvider>,
+      );
+      await screen.findByRole('button', { name: /Flight to Zagreb/u });
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'no such trip',
+      );
+      // The subtitle names the folder, as the empty state does, not the whole mailbox.
+      await expect(
+        screen.findByText('No results · Travel'),
+      ).resolves.toBeVisible();
+      expect(
+        screen.getByText(/^No saved mail in Travel matches “no such trip”\./u),
+      ).toBeVisible();
+      // A mail server search that fails gives no answer, so No Results makes way for the failure.
+      gmail.fail({ status: 404 });
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Search Mail Servers for “no such trip”',
+        }),
+      );
+      await expect(
+        screen.findByRole('button', { name: 'Try Again' }),
+      ).resolves.toBeVisible();
+      expect(screen.queryByText('No Results')).toBeNull();
+      expect(screen.queryByText('No results · Travel')).toBeNull();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
+  it('waits for a folder chosen during a search to list before saying No Results', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const travel = gmail.createLabel('Travel');
+    gmail.setLabel(
+      gmail.deliver({ subject: 'Flight to Zagreb' }),
+      travel,
+      true,
+    );
+    const inbox = createInboxStore(gmail.native);
+    const mailboxes = singleMailbox(inbox, 'work-mailbox');
+    const show = (view: MailboxView) => (
+      <InboxProvider mailboxes={mailboxes}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={view}
+        />
+      </InboxProvider>
+    );
+    jest
+      .mocked(AccessibilityInfo.announceForAccessibilityWithOptions)
+      .mockClear();
+    try {
+      const app = await render(show({}));
+      await screen.findByRole('button', { name: /Flight to Zagreb/u });
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'zagreb',
+      );
+      await app.rerender(show({ mailbox: 'work-mailbox', folder: travel }));
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+      // The label lists nothing until its first page arrives, which is not an answer.
+      expect(
+        AccessibilityInfo.announceForAccessibilityWithOptions,
+      ).not.toHaveBeenCalledWith('No Results', expect.anything());
+    } finally {
+      await cleanup();
+      inbox.forget();
     }
   });
 
