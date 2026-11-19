@@ -33,7 +33,7 @@ import {
   viewMessage,
 } from '@private-email/mail-core/inbox-store';
 import { gmailViewName } from '@private-email/mail-core/mailboxes';
-import { palette, radius, spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import {
@@ -45,7 +45,6 @@ import {
 } from 'react';
 import {
   AccessibilityInfo,
-  DynamicColorMacOS,
   Pressable,
   StyleSheet,
   Text,
@@ -60,13 +59,7 @@ import {
   useWindowIdentifier,
 } from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
-import {
-  askForText,
-  askInSheet,
-  GlassGroup,
-  Notice,
-  ToolbarButton,
-} from './design.tsx';
+import { askInSheet, GlassGroup, Notice, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -74,6 +67,7 @@ import {
   useMailbox,
   useProviderName,
 } from './mailbox.tsx';
+import { NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -310,6 +304,7 @@ function Toolbar({
   move,
   pin,
   more,
+  labels,
   children,
   ref,
 }: {
@@ -317,6 +312,8 @@ function Toolbar({
   readonly move?: ReactNode;
   readonly pin?: PinAction | undefined;
   readonly more: readonly PopUpItem[];
+  // Gmail's Labels popover, below the group of More, which opens it.
+  readonly labels?: ReactNode;
   readonly children: ReactNode;
   // The view a sheet asked from the toolbar attaches to.
   readonly ref?: Ref<View>;
@@ -373,6 +370,7 @@ function Toolbar({
             variant="toolbar"
           />
         )}
+        {labels}
       </GlassGroup>
     </View>
   );
@@ -618,63 +616,9 @@ function GmailMessageActions({
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
-  const failure = useRef<ReturnType<typeof askInSheet>>(undefined);
-  useEffect(
-    () => () => {
-      failure.current?.retire();
-    },
-    [],
-  );
-  // Keep the question's language so a preference change cannot replace its field.
-  const [naming, setNaming] = useState<
-    Readonly<{
-      message: GmailMessage;
-      t: Translate;
-    }>
-  >();
-  // Asks for a name, then creates the label in Gmail and applies it; a failure is explained. The
-  // sheet closes with the reader.
-  useEffect(() => {
-    if (naming === undefined || !('createLabel' in store)) {
-      return undefined;
-    }
-    const { message, t: translate } = naming;
-    const question = askForText(anchor.current, {
-      title: translate('gmailActions.newLabelTitle'),
-      detail: translate('gmailActions.newLabelDetail'),
-      buttons: [translate('gmailActions.addLabel'), translate('common.cancel')],
-      symbol: {
-        name: 'tag',
-        color: DynamicColorMacOS({
-          light: palette.light.accentInk,
-          dark: palette.dark.accentInk,
-        }),
-      },
-      field: translate('gmailActions.labelName'),
-    });
-    let asking = true;
-    const answer = async () => {
-      const choice = await question.answer;
-      if (!asking) {
-        return;
-      }
-      setNaming(undefined);
-      const name = choice?.index === 0 ? choice.text.trim() : '';
-      if (name !== '' && !(await store.createLabel(message, name))) {
-        failure.current?.retire();
-        failure.current = askInSheet(anchor.current, {
-          title: translate('gmailActions.labelNotCreated', { label: name }),
-          detail: translate('gmailActions.labelNotCreatedDetail'),
-          buttons: [translate('common.ok')],
-        });
-      }
-    };
-    void answer();
-    return () => {
-      asking = false;
-      question.retire();
-    };
-  }, [naming, store]);
+  // The message New Label… last opened Labels for; each choice opens a new one.
+  const [labelling, setLabelling] =
+    useState<Readonly<{ message: GmailMessage; opening: number }>>();
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
   useLayoutEffect(() => {
     if (opened === inboxFolder || !('retainView' in store)) {
@@ -775,6 +719,23 @@ function GmailMessageActions({
             onMove={move}
           />
         }
+        labels={
+          labelling?.message.id !== message.id ||
+          !('createLabel' in store) ? undefined : (
+            <NewLabel
+              key={labelling.opening}
+              anchor={anchor}
+              labels={state.labels}
+              onApply={(label) => {
+                void store.organize(
+                  labelling.message,
+                  gmailAction.label(label),
+                );
+              }}
+              onCreate={(name) => store.createLabel(labelling.message, name)}
+            />
+          )
+        }
         // A Microsoft message is in one folder: it moves, but has no labels to add or remove.
         more={moreMenu(
           t,
@@ -801,10 +762,10 @@ function GmailMessageActions({
                       key: `${target}\nnewLabel`,
                       title: t('gmailActions.newLabel'),
                       run: () => {
-                        setNaming({
+                        setLabelling((last) => ({
                           message,
-                          t,
-                        });
+                          opening: (last?.opening ?? 0) + 1,
+                        }));
                       },
                     },
                   ],
