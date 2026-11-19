@@ -195,7 +195,9 @@ describe('imap invitation responses', () => {
       await mail.deliver();
 
       const [submitted, ...others] = mail.server.smtp.accepted;
-      const sent = await PostalMime.parse(present(submitted, 'a reply').raw);
+      const sent = await PostalMime.parse(present(submitted, 'a reply').raw, {
+        attachmentEncoding: 'utf8',
+      });
       const reply = present(
         sent.attachments.find(({ mimeType }) => mimeType === 'text/calendar'),
         'the calendar reply',
@@ -206,8 +208,7 @@ describe('imap invitation responses', () => {
         from: sent.from?.address,
         subject: sent.subject,
         inReplyTo: sent.inReplyTo,
-        reply:
-          typeof reply === 'string' ? reply : new TextDecoder().decode(reply),
+        reply,
         outbox: mail.outbox.getSnapshot(),
         state: mail.state(),
       }).toMatchObject({

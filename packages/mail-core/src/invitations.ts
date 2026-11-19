@@ -1,5 +1,6 @@
 import type { Translate } from '@private-email/localization';
 
+import * as Arr from 'effect/Array';
 import * as DateTime from 'effect/DateTime';
 import * as Option from 'effect/Option';
 
@@ -892,13 +893,14 @@ const responseMessage = (
     choice,
     t,
     received,
+    connection,
   }: Readonly<{
     choice: InvitationChoice;
     t: Translate;
     received: string | undefined;
+    connection?: string;
   }>,
   at: number,
-  connection?: string,
 ) => {
   const boundary = Math.random().toString(36).slice(2, 14);
   const { messageId } = invitation;
@@ -1260,6 +1262,10 @@ const entryState = (
         boundary: boundaryOf(message.segments) ?? '',
       };
     }
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
   }
 };
 
@@ -1272,7 +1278,6 @@ function createImapInvitationResponses(
   inbox: Pick<ImapInbox, 'getSnapshot' | 'subscribe' | 'message'>,
   outbox: ResponseOutbox,
   connection: string,
-  now: () => number,
 ) {
   // A choice being admitted, or one the Outbox refused, in this run.
   const states = new Map<string, ResponseState>();
@@ -1308,9 +1313,12 @@ function createImapInvitationResponses(
           answer.recurrence === invitation.details.recurrence,
       );
   const entryOf = (invitation: Invitation) =>
-    entriesOf(invitation)
-      .filter((entry) => entry.invitation?.sequence === invitation.sequence)
-      .at(-1);
+    Option.getOrUndefined(
+      Arr.findLast(
+        entriesOf(invitation),
+        (entry) => entry.invitation?.sequence === invitation.sequence,
+      ),
+    );
   // One state per Outbox message and record, so readers see the same snapshot until it changes.
   const shown = new WeakMap<
     OutboxSnapshotEntry,
@@ -1384,9 +1392,13 @@ function createImapInvitationResponses(
       }
       const { draft, segments, size } = responseMessage(
         invitation,
-        { choice, t, received: inbox.message(invitation.message)?.subject },
-        now(),
-        connection,
+        {
+          choice,
+          t,
+          received: inbox.message(invitation.message)?.subject,
+          connection,
+        },
+        Date.now(),
       );
       const {
         uid,
@@ -1442,13 +1454,12 @@ export function imapInvitationResponses(
   inbox: Pick<ImapInbox, 'getSnapshot' | 'subscribe' | 'message'>,
   outbox: ResponseOutbox,
   connection: string,
-  now: () => number = Date.now,
 ): ImapInvitationResponses {
   const existing = imapResponsesByInbox.get(inbox);
   if (existing !== undefined) {
     return existing;
   }
-  const created = createImapInvitationResponses(inbox, outbox, connection, now);
+  const created = createImapInvitationResponses(inbox, outbox, connection);
   imapResponsesByInbox.set(inbox, created);
   return created;
 }
