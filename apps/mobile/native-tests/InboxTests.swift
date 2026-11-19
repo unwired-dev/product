@@ -1820,8 +1820,10 @@ final class InboxTests: XCTestCase {
     let row = added.label
     XCTAssertFalse(row.contains("Not added") || row.contains(" · "), row)
     let attachment = app.descendants(matching: .any)[row]
-    // The composer journals 2 s after the last edit; nothing on screen shows the write.
+    // The composer journals 2 s after the last edit; nothing on screen shows the write. The row
+    // keeps its label once its bytes are checked.
     _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Recovery journal")], timeout: 5)
+    XCTAssertTrue(attachment.exists, added.label)
 
     // Restore opens the composer on the recovered edits.
     let offer = app.alerts["Recover unsaved message?"]
@@ -1837,6 +1839,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(recipient.waitForExistence(timeout: 10))
     XCTAssertEqual(body.value as? String, "Kept")
     XCTAssertTrue(attachment.waitForExistence(timeout: 10))
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Restored asset check")], timeout: 5)
+    XCTAssertTrue(attachment.exists, added.label)
     attachScreen("Restored composer", of: app, to: self)
 
     // The restored composer leaves the record until a Save, Send or Discard; Discard removes it.
