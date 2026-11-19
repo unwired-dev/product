@@ -499,7 +499,9 @@ export function createSyntheticImap({
               subject.toLowerCase().includes(request.query.toLowerCase()) ||
               raw.toLowerCase().includes(request.query.toLowerCase())
           : ({ raw }: ServerMessage) =>
-              raw.includes(`\r\nMessage-ID: <${request.messageId}>\r\n`);
+              `\r\n${raw.split('\r\n\r\n')[0] ?? ''}\r\n`.includes(
+                `\r\nMessage-ID: <${request.messageId}>\r\n`,
+              );
       const matches = Arr.sort(current.messages.filter(matching), newestUid);
       return (
         inSession(session) ??

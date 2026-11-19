@@ -374,10 +374,10 @@ describe('sending through SMTP and filing Sent copies', () => {
         'submission',
       );
       const named = present(/^Message-ID: (<[^>]+>)\r$/mu.exec(raw)?.[1], 'id');
-      // A reply that names the message in In-Reply-To is not its copy.
+      // A reply that names the message in In-Reply-To, or quotes its header, is not its copy.
       sending.servers.work.deliver('Sent', {
         subject: 'Re: Lunch',
-        raw: `Subject: Re: Lunch\r\nIn-Reply-To: ${named}\r\nReferences: ${named}\r\n\r\nYes\r\n`,
+        raw: `Subject: Re: Lunch\r\nIn-Reply-To: ${named}\r\nReferences: ${named}\r\n\r\nMessage-ID: ${named}\r\n`,
       });
       await expect(sending.outbox.check(id)).resolves.toBe(false);
       // The server filed its own copy; one copy confirms it.
