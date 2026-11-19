@@ -324,7 +324,9 @@ describe('imap invitation responses on the Mac', () => {
         screen.findByText(`Sending your Accept response from ${mara.address}.`),
       ).resolves.toBeOnTheScreen();
       expect(screen.getByText('In the Outbox')).toBeOnTheScreen();
-      expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
+      for (const name of ['Accept', 'Maybe', 'Decline']) {
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      }
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
       expect(
         screen.getByRole('button', { name: 'View in Outbox' }),
