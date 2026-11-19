@@ -815,6 +815,10 @@ const bodyDocument = Effect.fnUntraced(function* (
   return { ...body, images: tally.result().images };
 });
 
+// The Invitation Responses a mailbox's cache records, for its ready state.
+const renderedResponses = ({ responses }: ImapDocument) =>
+  responses === undefined ? {} : { responses };
+
 // One IMAP connection's Inbox, its folder list and the folders a reader opened, from the encrypted
 // cache first and then from the server. Messages are addressed by folder, UIDVALIDITY and UID.
 export function createImapInbox(
@@ -1338,9 +1342,7 @@ export function createImapInbox(
       ...motionFacts(),
       undo: undoable(),
       ...renderedHistory(document),
-      ...(document.responses === undefined
-        ? {}
-        : { responses: document.responses }),
+      ...renderedResponses(document),
       imap: true,
     };
     notify();

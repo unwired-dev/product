@@ -338,48 +338,42 @@ export function createOutbox({
       ? 'mailbox'
       : (senderProblem(draft) ?? sentFolderCheck(draft));
 
-  // Records the Invitation Response a message carries as sent in its IMAP mailbox, unless that
-  // mailbox already holds it. Resolves whether it does; true for any other message or a mailbox
-  // that is gone.
-  const answer = async ({ draft, invitation }: OutboxEntry) => {
+  // Records the Invitation Response a message carries as sent in its IMAP mailbox. Resolves
+  // 'offline' when it could not; nothing for any other message
+  // or a mailbox that is gone, including one added again since Send.
+  const answer = async ({
+    draft,
+    invitation,
+    epoch,
+  }: OutboxEntry): Promise<DeliveryProblem | undefined> => {
     const mailbox = connectionOf(draft.connection);
-    if (invitation === undefined || mailbox?.provider !== 'imap') {
-      return true;
+    if (
+      invitation === undefined ||
+      mailbox?.provider !== 'imap' ||
+      (epoch !== undefined && epoch !== epochOf(draft))
+    ) {
+      return undefined;
     }
     const { summary: _title, ...revision } = invitation;
-    const state = mailbox.inbox.getSnapshot();
-    return (
-      (state.kind === 'ready' &&
-        (state.responses ?? []).some(
-          (each) =>
-            each.kind === 'sent' &&
-            each.uid === revision.uid &&
-            each.sequence === revision.sequence &&
-            each.recurrence === revision.recurrence &&
-            each.choice === revision.choice,
-        )) ||
-      mailbox.inbox.recordResponse(revision, {
-        kind: 'sent',
-        ...revision,
-        at: Date.now(),
-      })
-    );
+    return (await mailbox.inbox.recordResponse(revision, {
+      kind: 'sent',
+      ...revision,
+      at: Date.now(),
+    }))
+      ? undefined
+      : 'offline';
   };
 
   const record = async (id: string, outcome: SendOutcome) => {
-    const awaiting = entryOf(id);
     if (outcome.kind === 'accepted') {
-      // Filing records the response again if the mailbox refused it now.
-      if (awaiting !== undefined) {
-        await answer(awaiting);
-      }
       return drafts.deliver(id, (entry) =>
         awaitingOutcome(entry.state) ? withState(entry, 'filing') : undefined,
       );
     }
     if (outcome.kind === 'sent') {
       // The response stays awaiting its outcome until its mailbox holds it.
-      if (awaiting !== undefined && !(await answer(awaiting))) {
+      const awaiting = entryOf(id);
+      if (awaiting !== undefined && (await answer(awaiting)) !== undefined) {
         return false;
       }
       return drafts.deliver(id, (entry) =>
@@ -675,11 +669,10 @@ export function createOutbox({
     } else if (sending === 'password') {
       problem = 'authorization';
     } else if (mailbox?.provider === 'imap' && messageId !== undefined) {
-      problem = await mailbox.inbox.fileSent(entry.message, messageId);
       // An accepted response leaves the Outbox only once its mailbox records it.
-      if (problem === undefined && !(await answer(entry))) {
-        problem = 'offline';
-      }
+      problem =
+        (await mailbox.inbox.fileSent(entry.message, messageId)) ??
+        (await answer(entry));
     }
     await drafts.deliver(
       entry.id,

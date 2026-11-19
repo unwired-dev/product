@@ -251,8 +251,10 @@ describe('imap invitation responses', () => {
     expect.hasAssertions();
     const mail = await invited();
     try {
-      await mail.respond('tentative');
+      // Undo right after the choice, while the Outbox is still admitting it.
+      const responded = mail.respond('tentative');
       await mail.responses.undo(mail.invitation);
+      await responded;
       await mail.deliver();
       expect({
         state: mail.state(),
@@ -292,6 +294,31 @@ describe('imap invitation responses', () => {
       }).toStrictEqual({
         submitted: 1,
         state: { kind: 'sent', choice: 'declined', at: clock.now },
+      });
+    } finally {
+      mail.outbox.dispose();
+    }
+  });
+
+  it('keeps the confirmed response when it is chosen again after a refused change', async () => {
+    expect.hasAssertions();
+    const mail = await invited();
+    try {
+      await mail.respond('accepted');
+      await mail.deliver();
+      mail.server.smtp.failure = 'smtp-rejected';
+      await mail.respond('declined');
+      await mail.deliver();
+      await mail.respond('accepted');
+      await mail.deliver();
+      expect({
+        submitted: mail.server.smtp.accepted.length,
+        outbox: mail.outbox.getSnapshot(),
+        state: mail.state(),
+      }).toStrictEqual({
+        submitted: 1,
+        outbox: [],
+        state: { kind: 'sent', choice: 'accepted', at: expect.any(Number) },
       });
     } finally {
       mail.outbox.dispose();
