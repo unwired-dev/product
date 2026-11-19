@@ -61,7 +61,7 @@ export function createSyntheticAttachments(
       }
       if (cancelSaves > 0) {
         cancelSaves -= 1;
-        return Promise.resolve({});
+        return Promise.resolve({ cancelled: true });
       }
       // Save to Files keeps both copies of a name already in the folder.
       const name = saved.name.replace(

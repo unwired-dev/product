@@ -587,6 +587,13 @@ describe('received attachments', () => {
     await expect(inbox.saveAttachmentCopy(id, notes)).resolves.toBe(
       'cancelled',
     );
+    // A reply that names no Files location saved nothing the reader can show.
+    vi.spyOn(gmail.native, 'presentAttachment').mockResolvedValueOnce({
+      name: 'notes.txt',
+      folder: 'Downloads',
+      show: 'https://example.com/notes.txt',
+    });
+    await expect(inbox.saveAttachmentCopy(id, notes)).resolves.toBe('failed');
     // No window can show the picker: the temporary copy stays for the next try.
     gmail.failPresent('unavailable');
     await expect(inbox.saveAttachmentCopy(id, notes)).resolves.toBe('failed');

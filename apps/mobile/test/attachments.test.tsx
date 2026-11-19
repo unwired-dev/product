@@ -8,14 +8,13 @@ import { Linking } from 'react-native';
 
 import {
   SaveFailedNotice,
-  SaveOutcomeContext,
   SaveOutcomeToast,
   useSaveOutcome,
 } from '../src/attachment-save.tsx';
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
-import { GmailMessageBody } from '../src/message-body.tsx';
+import { GmailMessageBody, SaveOutcomeContext } from '../src/message-body.tsx';
 
 // The application callback behind a rendered control, as delayed native input would invoke it.
 const pressHandler = (

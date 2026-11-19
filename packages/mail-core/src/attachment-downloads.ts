@@ -57,7 +57,7 @@ export interface NativeAttachments {
   ) => Promise<unknown>;
   // Shows the system Attachment Preview, the system share sheet or, on iPhone and iPad, the Save to
   // Files picker for a saved attachment. Saving resolves once the person saved a copy, with its
-  // name, folder and Files link, or cancelled, with an empty object.
+  // name, folder and Files link, or cancelled, with `{ cancelled: true }`.
   readonly presentAttachment: (
     mailbox: Readonly<{ address: string; generation: string }>,
     file: string,
@@ -71,11 +71,11 @@ export type AttachmentAction = 'open' | 'share' | 'save';
 // the link that shows it in Files.
 const savedCopy = Schema.Struct({
   name: Schema.NonEmptyString,
-  folder: Schema.String,
+  folder: Schema.NonEmptyString,
   show: Schema.String.check(Schema.isStartingWith('shareddocuments://')),
 });
 const decodeSaveReply = Schema.decodeUnknownEffect(
-  Schema.Union([savedCopy, Schema.Struct({})]),
+  Schema.Union([savedCopy, Schema.Struct({ cancelled: Schema.Literal(true) })]),
 );
 export type SavedCopy = typeof savedCopy.Type;
 
@@ -400,7 +400,9 @@ export function createAttachmentDownloads<S extends Scope, E>(
             reply === undefined
               ? Effect.succeed('failed' as const)
               : decodeSaveReply(reply).pipe(
-                  Effect.map((copy) => ('name' in copy ? copy : 'cancelled')),
+                  Effect.map((copy) =>
+                    'cancelled' in copy ? ('cancelled' as const) : copy,
+                  ),
                   Effect.tapError((failure) =>
                     Effect.logError(
                       'Saved attachment reply was malformed:',

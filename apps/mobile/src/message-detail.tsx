@@ -52,7 +52,6 @@ import type { InboxStore } from './private-storage.ts';
 import { Action } from './action.tsx';
 import {
   SaveFailedNotice,
-  SaveOutcomeContext,
   SaveOutcomeToast,
   useSaveOutcome,
 } from './attachment-save.tsx';
@@ -92,6 +91,7 @@ import {
   LinkConfirmationProvider,
   QuotedHistoryContext,
   ReaderScrollView,
+  SaveOutcomeContext,
   useReaderScrollTo,
   useReaderViewport,
 } from './message-body.tsx';

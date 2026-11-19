@@ -1,39 +1,17 @@
-import type { SavedCopy } from '@private-email/mail-core/inbox-store';
-
 import { spacing } from '@private-email/mail-core/theme';
-import {
-  createContext,
-  use,
-  useEffect,
-  useLayoutEffect,
-  useState,
-} from 'react';
-import {
-  AccessibilityInfo,
-  Linking,
-  Platform,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { use, useEffect, useLayoutEffect, useState } from 'react';
+import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
+
+import type { SaveOutcome } from './message-body.tsx';
 
 import { Action } from './action.tsx';
 import { Notice, Toast } from './design.tsx';
 import { WindowBarContext } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
+import { openLink, useReaderScrollTo } from './message-body.tsx';
 import { usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
-
-// What Save to Files did for one of the reader's attachments: the copy it saved, or nothing saved,
-// with the action that tries again.
-export type SaveOutcome =
-  | Readonly<{ kind: 'saved'; copy: SavedCopy }>
-  | Readonly<{ kind: 'failed'; name: string; retry: () => void }>;
-
-// Reports an outcome to the reader showing the message; none outside a reader.
-export const SaveOutcomeContext = createContext<
-  ((outcome: SaveOutcome) => void) | undefined
->(undefined);
 
 const styles = StyleSheet.create({
   toast: {
@@ -84,6 +62,13 @@ type Shown = ReturnType<typeof useSaveOutcome>['shown'];
 export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const scrollTo = useReaderScrollTo();
+  // The notice sits at the top of the reader, above the attachment that failed.
+  useEffect(() => {
+    if (compact && shown?.outcome.kind === 'failed') {
+      scrollTo?.(0);
+    }
+  }, [shown, scrollTo]);
   if (!compact || shown?.outcome.kind !== 'failed') {
     return null;
   }
@@ -136,7 +121,7 @@ export function SaveOutcomeToast({
         action={t('attachment.show')}
         accessibilityLabel={t('attachment.showLabel', copy)}
         onAction={() => {
-          void Linking.openURL(copy.show);
+          void openLink(copy.show);
         }}
       />
     );

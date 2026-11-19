@@ -5,6 +5,7 @@ import type {
   GmailInbox,
   MessageBodyState,
   ReceivedAttachment,
+  SavedCopy,
 } from '@private-email/mail-core/inbox-store';
 import type {
   BodyLink,
@@ -74,7 +75,6 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
-import { SaveOutcomeContext } from './attachment-save.tsx';
 import { ContextMenu, Notice, SFSymbol } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
 import { InvitationCard } from './invitation.tsx';
@@ -108,11 +108,22 @@ export const withoutLinkFrom =
   (inbox: object, id: string) => (pending: PendingLink | undefined) =>
     pending?.inbox === inbox && pending.id === id ? undefined : pending;
 
+// What Save to Files did for one of the reader's attachments: the copy it saved, or nothing saved,
+// with the action that tries again.
+export type SaveOutcome =
+  | Readonly<{ kind: 'saved'; copy: SavedCopy }>
+  | Readonly<{ kind: 'failed'; name: string; retry: () => void }>;
+
+// Reports an outcome to the reader showing the message; none outside a reader.
+export const SaveOutcomeContext = createContext<
+  ((outcome: SaveOutcome) => void) | undefined
+>(undefined);
+
 export const LinkConfirmationContext = createContext<
   Dispatch<SetStateAction<PendingLink | undefined>> | undefined
 >(undefined);
 
-async function openLink(href: string) {
+export async function openLink(href: string) {
   try {
     await Linking.openURL(href);
   } catch {
@@ -815,26 +826,28 @@ function AttachmentRow({
       }
     };
     // Saves a copy where the person chooses, and tells the reader what happened unless they
-    // cancelled or the reader moved on.
-    const save = async () => {
-      if (!current() || report === undefined) {
-        return;
-      }
+    // cancelled; the reader drops a result for a message it no longer shows.
+    const saveCopy = async (shown: NonNullable<typeof report>) => {
       const saved = await inbox.saveAttachmentCopy(id, locator);
-      if (!current() || saved === 'cancelled') {
+      if (saved === 'cancelled') {
         return;
       }
-      report(
+      shown(
         saved === 'failed'
           ? {
               kind: 'failed',
               name,
               retry: () => {
-                void save();
+                void saveCopy(shown);
               },
             }
           : { kind: 'saved', copy: saved },
       );
+    };
+    const save = () => {
+      if (current() && report !== undefined) {
+        void saveCopy(report);
+      }
     };
     menu = [
       {

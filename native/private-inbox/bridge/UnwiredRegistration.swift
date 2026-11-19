@@ -2344,8 +2344,8 @@ extension UnwiredRegistration {
   }
 
   // Resolves once the preview or share sheet is shown. Save to Files resolves once the person
-  // saved, with the copy's file name, folder and a link that shows it in Files, or cancelled, with
-  // nothing; the picker waits outside the storage gate.
+  // saved, with the copy's file name, folder and a link that shows it in Files, or cancelled; the
+  // picker waits outside the storage gate.
   @objc(presentAttachment:file:action:resolver:rejecter:)
   func presentAttachment(
     _ scope: [String: Any], file: String, action: String,
@@ -2374,7 +2374,7 @@ extension UnwiredRegistration {
       Self.presentedAttachments[file, default: 0] += 1
       let presented = AttachmentPresenter.present(url, action: action, from: origin) { saved in
         Self.endPresentation(file)
-        if save { resolve(saved.map(Self.savedCopy) ?? [:]) }
+        if save { resolve(saved.map(Self.savedCopy) ?? ["cancelled": true]) }
       }
       guard presented else {
         Self.endPresentation(file)
