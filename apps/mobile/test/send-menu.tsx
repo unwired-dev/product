@@ -9,6 +9,7 @@ interface SendMenu {
       readonly id: string;
       readonly title: string;
       readonly subtitle?: string;
+      readonly disabled?: boolean;
     }>;
   }>;
   readonly onSelect: (event: { nativeEvent: { id: string } }) => void;
@@ -19,8 +20,8 @@ const isSendMenu = (props: unknown): props is SendMenu =>
   Predicate.hasProperty(props, 'sections') &&
   Predicate.hasProperty(props, 'onSelect');
 
-// Chooses Remind Me to Send… from Send's menu, as a long press opens it.
-export const remindFromSendMenu = async () => {
+// The item titled `title` in Send's menu, as a long press opens it, and choosing it.
+export const sendMenuItem = (title: string) => {
   let menu = screen.getByRole('button', { name: 'Send' }).parent;
   while (menu !== null && menu.type !== 'UnwiredContextMenu') {
     menu = menu.parent;
@@ -29,10 +30,22 @@ export const remindFromSendMenu = async () => {
   ok(isSendMenu(props));
   const item = props.sections
     .flatMap(({ items }) => items)
-    .find(({ title }) => title === 'Remind Me to Send…');
-  ok(item?.subtitle === 'Keep it as a draft and remind me');
+    .find((candidate) => candidate.title === title);
+  ok(item !== undefined);
   const { onSelect } = props;
-  await act(async () => {
-    onSelect({ nativeEvent: { id: item.id } });
-  });
+  return {
+    ...item,
+    choose: async () => {
+      await act(async () => {
+        onSelect({ nativeEvent: { id: item.id } });
+      });
+    },
+  };
+};
+
+// Chooses Remind Me to Send… from Send's menu.
+export const remindFromSendMenu = async () => {
+  const item = sendMenuItem('Remind Me to Send…');
+  ok(item.subtitle === 'Keep it as a draft and remind me');
+  await item.choose();
 };

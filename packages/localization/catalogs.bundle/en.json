@@ -1184,6 +1184,11 @@
       "changed": "This Draft changed in another window. Review it, then send it again.",
       "storage": "This message wasn’t sent. It stays open. Choose Send to try again."
     },
+    "sendNow": {
+      "title": "Send Now",
+      "detail": "No Undo",
+      "waiting": "Waiting for {{name}} to finish"
+    },
     "reminder": {
       "remindMeToSend": "Remind Me to Send…",
       "detail": "Keep it as a draft and remind me",

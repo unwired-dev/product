@@ -1976,6 +1976,17 @@ const blockedMessage = (
 // composer says it. To, Cc and Bcc say why Send waits for them, and From's notice why the sender
 // cannot send, and the notices the rest; a docked reply asks for a recipient on one line above
 // Send instead of under To.
+// Send Now as Send's menu offers it: unavailable while Send is, naming a file still being added.
+const sendNowOf = (
+  draft: Draft,
+  blocked: SendRefusal | undefined,
+  saving: boolean,
+) => ({
+  disabled: saving || blocked !== undefined,
+  waiting: unsendableAssets(draft).find((asset) => asset.state === 'importing')
+    ?.name,
+});
+
 function useBlockedSend({
   shown,
   draft,
@@ -4371,8 +4382,8 @@ function Editor({
   }, [answerLeave, asking]);
   const paletteHeader = usePaletteHeader();
   // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
-  // keeps it open.
-  const send = () =>
+  // keeps it open. Send Now gives a `delay` of 0, with no Undo Send Window.
+  const send = (delay?: number) =>
     finish(async () => {
       if (!finishEntries()) {
         setClosing(undefined);
@@ -4398,7 +4409,7 @@ function Editor({
       };
       let refusal: SendRefusal | undefined = 'storage';
       try {
-        refusal = await outbox.send(baseline);
+        refusal = await outbox.send(baseline, undefined, delay);
         // A refused Send still stored the version shown, unless the store declined it, so its
         // record goes once that is saved.
         if (refusal !== undefined && (await store.save()) && kept) {
@@ -4443,11 +4454,15 @@ function Editor({
     />
   );
   const senderPlace = placeSender({ sender, draft, presentation, large });
-  // Send: a tap sends, and a long press opens its menu of Remind Me to Send….
+  // Send: a tap sends, and a long press opens its menu of Send Now and Remind Me to Send….
   const sendControl = (titled: boolean) => (
     <SendMenu
       popover={regular}
       disabled={closing === 'saving'}
+      sendNow={sendNowOf(draft, blocked.blocked, closing === 'saving')}
+      onSendNow={() => {
+        void send(0);
+      }}
       onRemind={(dueAt, timeZone) => {
         void remind(dueAt, timeZone);
       }}>

@@ -409,6 +409,16 @@ captures **Labels** empty, with **Apply** unavailable, and again with `Travel/Sp
 approved frames, then closes it with **Cancel**. Creating the label is covered by Jest; the
 synthetic Gmail layer does not create labels.
 
+## iPhone and iPad Send Now journey
+
+`testSendNow` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testSendNow`.
+It connects the synthetic Gmail mailbox, writes a New Message to `maya@example.invalid`, and a
+long press on Send opens the Send menu, whose **Send Now** must say "No Undo"
+([#2457](https://github.com/unwired-dev/product/issues/2457)). Choosing it closes the composer
+with no Outbox row "Sending soon" and no **Undo**. The captures "Send menu with Send Now" and
+"After Send Now" are named with the appearance. The dimmed state while a file is still being
+added is covered by Jest.
+
 ## iPhone and iPad Apple registration journey
 
 The Expo native journey for a `registration-apple` Release build signs in with
