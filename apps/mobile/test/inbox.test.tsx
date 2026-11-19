@@ -2221,8 +2221,9 @@ describe('connected Gmail Inbox', () => {
       Promise.withResolvers<undefined>(),
       Promise.withResolvers<undefined>(),
       Promise.withResolvers<undefined>(),
+      Promise.withResolvers<undefined>(),
     ];
-    const [created, refused, refusedClosed] = answers;
+    const [created, refused, refusedClosed, createdReopened] = answers;
     refused?.resolve(undefined);
     await renderConnected({
       ...gmail.native,
@@ -2242,6 +2243,13 @@ describe('connected Gmail Inbox', () => {
       await chooseFromMenu(screen.getByLabelText('More'), 'Labels');
       await fireEvent.press(screen.getByRole('button', { name: 'New Label…' }));
       return within(screen.getByTestId('new-label'));
+    };
+    const swipeAway = async () => {
+      const sheet = screen
+        .getAllByTestId('bottom-sheet')
+        .find((shown) => within(shown).queryByTestId('new-label') !== null);
+      ok(sheet);
+      await fireEvent(sheet, 'accessibilityEscape');
     };
 
     // A slash nests the new label; it is created in Gmail, then applied.
@@ -2335,11 +2343,7 @@ describe('connected Gmail Inbox', () => {
     labels = await openLabels();
     await fireEvent.changeText(labels.getByLabelText('Label name'), 'Travel');
     await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
-    const sheet = screen
-      .getAllByTestId('bottom-sheet')
-      .find((shown) => within(shown).queryByTestId('new-label') !== null);
-    ok(sheet);
-    await fireEvent(sheet, 'accessibilityEscape');
+    await swipeAway();
     expect(screen.queryByTestId('new-label')).toBeNull();
     await act(async () => {
       refusedClosed?.resolve(undefined);
@@ -2349,6 +2353,18 @@ describe('connected Gmail Inbox', () => {
       'Gmail may already have a label with this name, or it could not be reached. Try another name, or try again later.',
     );
     expect(gmail.labelsOf(invoice)).toStrictEqual(before);
+
+    // Labels reopened while Gmail answers stays open once the earlier label is created and applied.
+    labels = await openLabels();
+    await fireEvent.changeText(labels.getByLabelText('Label name'), 'Trips');
+    await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+    await swipeAway();
+    labels = await openLabels();
+    await act(async () => {
+      createdReopened?.resolve(undefined);
+    });
+    expect(gmail.labelsOf(invoice)).toContain('Label_5');
+    expect(labels.getByRole('button', { name: 'Cancel' })).toBeEnabled();
   });
 
   it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {

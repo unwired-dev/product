@@ -157,12 +157,13 @@ function LabelForm({
       setCreating(false);
     }
   }
-  // Whether the form still shows when a creation settles.
-  const shown = useRef(open);
+  // A token for each opening of the form, so a creation settling later changes only the opening it
+  // began in.
+  const opening = useRef<object>(undefined);
   useLayoutEffect(() => {
-    shown.current = open;
+    opening.current = open ? {} : undefined;
     return () => {
-      shown.current = false;
+      opening.current = undefined;
     };
   }, [open]);
   // Opening starts with the name, as the frames show its caret.
@@ -174,10 +175,11 @@ function LabelForm({
   const label = typedLabel(labels, typed);
   const create = async () => {
     setCreating(true);
+    const began = opening.current;
     const created = await onCreate(label.name);
     // Closing Labels while Gmail answers lets the label be created and applied, as on Mac, and a
     // refusal is still explained.
-    if (shown.current) {
+    if (opening.current === began) {
       setCreating(false);
       if (created) {
         onClose();
