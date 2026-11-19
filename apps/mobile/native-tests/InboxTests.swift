@@ -3449,6 +3449,105 @@ final class InboxTests: XCTestCase {
     try inboxJourney(app)
   }
 
+  // #2415: with the German test catalog, the iPhone screens in #2096's frames lay out as drawn.
+  func testGermanStrings() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    // Sign-in runs in English. A second mailbox makes the Inbox All Inboxes, as drawn.
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    app.buttons["Continue"].tap()
+    app.buttons["Sign in with Apple"].tap()
+    XCTAssertTrue(app.buttons["Microsoft 365 and Outlook"].waitForExistence(timeout: 15))
+    app.buttons["Microsoft 365 and Outlook"].tap()
+    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
+    openSettings("Email Accounts", in: app)
+    XCTAssertTrue(app.buttons["Add Another Gmail Mailbox"].waitForExistence(timeout: 15))
+    app.buttons["Add Another Gmail Mailbox"].tap()
+    XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    openSettings("Account & Devices", in: app)
+    enter(
+      String(app.staticTexts["recovery-key"].label.suffix(4)),
+      into: app.textFields["Last four characters"], in: app)
+    app.buttons["Confirm Recovery Key"].tap()
+    let jordan = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Quarterly planning"))
+      .firstMatch
+    XCTAssertTrue(jordan.waitForExistence(timeout: 30))
+    // Each element lies inside the window, and no two overlap.
+    func assertLaidOut(_ elements: [XCUIElement], line: UInt = #line) {
+      let window = app.windows.firstMatch.frame
+      // React Native repeats a text inside its container; the first is the one drawn.
+      let frames = elements.map { element in
+        XCTAssertTrue(element.waitForExistence(timeout: 15), "\(element)", line: line)
+        return element.firstMatch.frame
+      }
+      for (index, frame) in frames.enumerated() {
+        XCTAssertTrue(window.insetBy(dx: -1, dy: -1).contains(frame), "\(elements[index])", line: line)
+        for (other, next) in frames.enumerated().dropFirst(index + 1) {
+          XCTAssertFalse(
+            frame.insetBy(dx: 1, dy: 1).intersects(next),
+            "\(elements[index]) overlaps \(elements[other])", line: line)
+        }
+      }
+    }
+    func launchInGerman() {
+      app.terminate()
+      app.launchArguments = ["-interfaceLanguage", "de"]
+      app.launch()
+      XCTAssertTrue(jordan.waitForExistence(timeout: 60))
+    }
+
+    // Inbox: the subtitle keeps one line beside the Back button; the hint fits its card.
+    launchInGerman()
+    let title = app.staticTexts["Posteingang"].firstMatch
+    let subtitle = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Alle Posteingänge · ")
+    ).firstMatch
+    assertLaidOut([
+      app.navigationBars.buttons["BackButton"], title, subtitle,
+      app.staticTexts["Zum Öffnen der Befehle in der Kopfzeile nach unten wischen"],
+      app.buttons["Hinweis ausblenden"],
+    ])
+    XCTAssertLessThan(subtitle.frame.height, title.frame.height)
+    attachScreen("Inbox", of: app, to: self)
+
+    // Thread: the summary and the toolbar hold.
+    jordan.tap()
+    XCTAssertTrue(text("an casey@example.invalid", in: app).waitForExistence(timeout: 15))
+    assertLaidOut([
+      app.buttons["Archivieren"], app.buttons["Ordner"], app.buttons["Antworten"],
+      app.buttons["Neue Nachricht"].firstMatch,
+    ])
+    attachScreen("Thread", of: app, to: self)
+
+    // Compose with the keyboard up: the recipient entry ends before Cc/Bcc and the format pill.
+    app.buttons["Neue Nachricht"].firstMatch.tap()
+    let to = app.textFields["An"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    focus(to) { self.hasFocus(to) }
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    XCTAssertEqual(to.placeholderValue, "Empfänger hinzufügen")
+    assertLaidOut([
+      app.textFields["Betreff"], to, app.buttons["Kopie und Blindkopie anzeigen"],
+      app.buttons["Format"], app.buttons["Dateien hinzufügen"], app.buttons["Senden"],
+    ])
+    attachScreen("Compose", of: app, to: self)
+
+    // Settings: the header, the account card (its subtitle has one line) and the destinations.
+    launchInGerman()
+    app.navigationBars.buttons["BackButton"].tap()
+    XCTAssertTrue(app.buttons["Account"].waitForExistence(timeout: 15))
+    app.buttons["Account"].tap()
+    assertLaidOut([
+      app.buttons["Zurück"], app.staticTexts["Einstellungen"], app.buttons["Account & Geräte"],
+      app.buttons["E-Mail-Accounts"], app.buttons["Datenschutz & Daten"],
+    ])
+    attachScreen("Settings", of: app, to: self)
+  }
+
   private func inboxJourney(_ app: XCUIApplication) throws {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))

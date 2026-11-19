@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { scenario } = require('../../../scripts/mock-mail-build.cjs');
 const {
   IOSConfig,
   withInfoPlist,
@@ -41,14 +42,25 @@ module.exports = function localization(config) {
         }
       }
     }
-    fs.cpSync(
-      path.resolve(
-        result.modRequest.projectRoot,
-        '../../packages/localization/catalogs.bundle',
-      ),
-      path.join(root, 'catalogs.bundle'),
-      { recursive: true },
+    const localizationPackage = path.resolve(
+      result.modRequest.projectRoot,
+      '../../packages/localization',
     );
+    const catalogs = path.join(root, 'catalogs.bundle');
+    // Incremental prebuild of a production build removes what a Mock Mail Session build added.
+    fs.rmSync(catalogs, { recursive: true, force: true });
+    fs.cpSync(path.join(localizationPackage, 'catalogs.bundle'), catalogs, {
+      recursive: true,
+    });
+    // Mock Mail Session builds also offer the German test catalog their JavaScript carries.
+    if (scenario) {
+      for (const name of ['de.json', 'languages.json']) {
+        fs.copyFileSync(
+          path.join(localizationPackage, 'src/testing', name),
+          path.join(catalogs, name),
+        );
+      }
+    }
     if (!project.hasFile('catalogs.bundle')) {
       IOSConfig.XcodeUtils.addResourceFileToGroup({
         filepath: 'catalogs.bundle',
