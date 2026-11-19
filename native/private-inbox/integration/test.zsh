@@ -10,7 +10,7 @@ for name in $forwarded; do typeset +x $name; done
 mkdir -p "$root/artifacts/private-inbox"
 # A caller may pass the empty integration evidence directory it created for this run.
 if (( $# > 1 )); then
-  [[ -d "$2" && "${2:A}" == "$root/artifacts/private-inbox/integration."* && -z "$(ls -A "$2")" ]] ||
+  [[ -d "$2" && -r "$2" && "${2:A}" == "$root/artifacts/private-inbox/integration."* && -z "$(ls -A "$2")" ]] ||
     { print -u2 'Expected an empty integration evidence directory'; exit 2; }
   export UNWIRED_STORAGE_PROBE=${2:A}
 else

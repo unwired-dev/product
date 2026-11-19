@@ -739,9 +739,9 @@ cannot read a file or is interrupted, the script removes this run's evidence and
 Mac run needs `UNWIRED_STORAGE_PROFILE`, like `test.zsh macos`. Each mailbox sends one
 message to the other through the unchanged engine; the test then reads, marks, moves and
 files it, and afterwards tries to remove this run's messages from every INBOX, Sent and
-Trash folder of both mailboxes, also when a step failed. Messages the server accepted, or may have, get
-70 seconds, shared by both deliveries, to be found; one the test did not find gets up to
-16 seconds more, shared by both mailboxes, so the test fits its 120-second allowance.
+Trash folder of both mailboxes, also when a step failed. The search for messages the server accepted, or may
+have, polls for 70 seconds shared by both deliveries; cleanup polls for one the test did not
+find for 16 seconds more, shared by both mailboxes, within the test's 120-second allowance.
 
 | Step               | iCloud Mail                                                                           | Seznam Email                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
