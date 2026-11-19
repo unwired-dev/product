@@ -158,6 +158,10 @@ const withState = (
 const awaitingOutcome = (state: OutboxEntry['state'] | undefined) =>
   state === 'sending' || state === 'unknown';
 
+// A message admitted with an Undo Send Window waits it out; Send Now's, of 0, is queued at once.
+const admittedState = (delay: number) =>
+  delay > 0 ? ('waiting' as const) : ('queued' as const);
+
 // One Outbox step from state `from`; any other state refuses it.
 const step =
   <T>(from: OutboxEntry['state'], next: (entry: OutboxEntry) => T) =>
@@ -1101,11 +1105,13 @@ export function createOutbox({
     },
     // Why Send would refuse the Draft before reading its files, so the composer can say so first.
     refusal: refusalOf,
-    // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends.
-    // Resolves why it was refused, or undefined once admitted. `report` follows the file check.
+    // Admits the Draft `expected` shows to the Outbox, to send once its Undo Send Window of `delay`
+    // milliseconds ends; Send Now's is 0. Resolves why it was refused, or undefined once admitted.
+    // `report` follows the file check.
     send: async (
       expected: () => Draft,
       report?: (check: SendCheck) => void,
+      delay = undoSendWindow,
     ): Promise<SendRefusal | undefined> => {
       const draft = expected();
       const epoch = epochOf(draft);
@@ -1125,7 +1131,7 @@ export function createOutbox({
       if (message === undefined) {
         return 'too-large';
       }
-      const sendAt = Date.now() + undoSendWindow;
+      const sendAt = Date.now() + delay;
       // The identifier follows an editor rebound to its conflict copy; the content stays the
       // version the message was built from, so a later change is refused rather than admitted.
       const pinned = () => {
@@ -1144,7 +1150,7 @@ export function createOutbox({
           draft: stored,
           message,
           sendAt,
-          state: 'waiting',
+          state: admittedState(delay),
           epoch,
         }),
       );
