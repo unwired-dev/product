@@ -162,7 +162,8 @@ final class WindowTests: XCTestCase {
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
     performanceSetup(app, window: window)
-    let file = FileManager.default.temporaryDirectory.appendingPathComponent("recovery-note.txt")
+    // The sandboxed copy may read and write only its run directory, beside Mock.app.
+    let file = appURL.deletingLastPathComponent().appendingPathComponent("recovery-note.txt")
     try Data("Attached before the force quit".utf8).write(to: file)
     addTeardownBlock { try? FileManager.default.removeItem(at: file) }
     // Pasting the file attaches it; give the person their pasteboard back.
@@ -194,8 +195,9 @@ final class WindowTests: XCTestCase {
     body.click()
     body.typeText("Typed just before the app ended")
     body.typeKey("v", modifierFlags: .command)
+    // A stored and checked attachment shows its size; a pending or failed one says why instead.
     let attachment = window.descendants(matching: .any)
-      .matching(NSPredicate(format: "label BEGINSWITH %@", "recovery-note.txt")).firstMatch
+      .matching(NSPredicate(format: "label == %@", "recovery-note.txt, 30 bytes")).firstMatch
     XCTAssertTrue(attachment.waitForExistence(timeout: 15))
     // The composer journals 2 s after the last edit; nothing on screen shows the write.
     Thread.sleep(forTimeInterval: 5)
@@ -218,7 +220,7 @@ final class WindowTests: XCTestCase {
         NSPredicate(format: "label == %@", "To: jordan@example.invalid")
       ).count, 1)
     XCTAssertEqual(body.value as? String, "Typed just before the app ended")
-    XCTAssertTrue(attachment.exists)
+    XCTAssertTrue(attachment.waitForExistence(timeout: 15))
     let restored = XCTAttachment(screenshot: window.screenshot())
     restored.name = "Restored composer"
     restored.lifetime = .keepAlways
@@ -231,9 +233,12 @@ final class WindowTests: XCTestCase {
     offer.buttons["Discard"].click()
     XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
     XCTAssertFalse(subject.exists)
+    // The record's removal follows the answer; nothing on screen shows it.
+    Thread.sleep(forTimeInterval: 5)
     forceQuitAndRelaunch(app, at: appURL)
     XCTAssertTrue(window.buttons["New Message"].waitForExistence(timeout: 45))
-    XCTAssertFalse(offer.waitForExistence(timeout: 10))
+    // The offer above came once the Drafts opened; give this launch as long.
+    XCTAssertFalse(offer.waitForExistence(timeout: 45))
   }
 
   // Ends the app as a crash would, with SIGKILL, so no Close, Quit or save runs, then relaunches.
