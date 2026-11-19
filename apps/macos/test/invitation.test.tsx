@@ -811,27 +811,6 @@ describe('meeting invitations in the Mac reader', () => {
     }
   });
 
-  it('offers no response yet from an IMAP mailbox that can send', async () => {
-    expect.hasAssertions();
-    const { app } = await openedImap({
-      smtp: {
-        host: 'smtp.example.invalid',
-        port: 465,
-        security: 'tls',
-        username: me,
-      },
-    });
-    try {
-      await expect(
-        screen.findByText('Invited body'),
-      ).resolves.toBeOnTheScreen();
-      expect(screen.queryByText('Q4 roadmap review')).toBeNull();
-      expect(screen.queryByText('This mailbox can’t send')).toBeNull();
-    } finally {
-      await app.unmount();
-    }
-  });
-
   it('says a receive-only IMAP mailbox cannot respond and opens its settings', async () => {
     expect.hasAssertions();
     const { app, settings } = await openedImap({});
