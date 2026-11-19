@@ -57,6 +57,7 @@ import {
 import {
   acceptRecipient,
   addBodyRecipient,
+  assetsOf,
   addRecipients,
   bodyRecipientQuery,
   bodyRecipientSuggestions,
@@ -1982,16 +1983,87 @@ const blockedMessage = (
 // composer says it. To, Cc and Bcc say why Send waits for them, and From's notice why the sender
 // cannot send, and the notices the rest; a docked reply asks for a recipient on one line above
 // Send instead of under To.
+// A file still being added, of those `running` now.
+const addingOf = (draft: Draft, running: ReadonlySet<string>) =>
+  unsendableAssets(draft).find(
+    ({ state, id }) => state === 'importing' && running.has(id),
+  );
 // Send Now as Send's menu offers it: unavailable while Send is, naming a file still being added.
 const sendNowOf = (
-  draft: Draft,
   blocked: SendRefusal | undefined,
   saving: boolean,
+  adding: Asset | undefined,
 ) => ({
   disabled: saving || blocked !== undefined,
-  waiting: unsendableAssets(draft).find((asset) => asset.state === 'importing')
-    ?.name,
+  waiting: adding?.name,
 });
+
+// Each file once, though an Inline Image can appear more than once.
+const distinct = (assets: readonly Asset[]) => [
+  ...new Map(assets.map((asset) => [asset.id, asset])).values(),
+];
+// The files Send leaves out once asked: every one that was not added, though not one still being
+// added.
+const leftOutOf = (draft: Draft, running: ReadonlySet<string>) =>
+  distinct(
+    unsendableAssets(draft).filter(
+      ({ state, id }) => state !== 'importing' || !running.has(id),
+    ),
+  );
+
+// Asks whether to send without the files that were not added, naming each and why; resolves
+// whether the person chose Send Without Them.
+const askLeftOut = (
+  t: Translate,
+  leftOut: readonly Asset[],
+  others: number,
+) => {
+  const reasons = leftOut.map((asset) =>
+    t(
+      asset.state === 'failed' && 'reason' in asset
+        ? 'drafts.leftOut.tooLarge'
+        : 'drafts.leftOut.notAdded',
+      { name: asset.name },
+    ),
+  );
+  const last = reasons.pop() ?? '';
+  const files =
+    reasons.length === 0
+      ? last
+      : t('drafts.leftOut.list', { items: reasons.join(', '), last });
+  const detail =
+    others === 0
+      ? `${files}.`
+      : `${files}. ${t('drafts.leftOut.others', { count: others })}`;
+  // oxlint-disable-next-line promise/avoid-new -- The alert answers through its button callbacks.
+  return new Promise<boolean>((resolve) => {
+    SystemAlert.alert(
+      t('drafts.leftOut.title', { count: leftOut.length }),
+      detail,
+      [
+        {
+          text: t('drafts.leftOut.send', { count: leftOut.length }),
+          isPreferred: true,
+          onPress: () => {
+            resolve(true);
+          },
+        },
+        {
+          text: t('drafts.leftOut.keepEditing'),
+          style: 'cancel',
+          onPress: () => {
+            resolve(false);
+          },
+        },
+      ],
+      {
+        onDismiss: () => {
+          resolve(false);
+        },
+      },
+    );
+  });
+};
 
 function useBlockedSend({
   shown,
@@ -2007,10 +2079,18 @@ function useBlockedSend({
   const outbox = useOutbox();
   const mailboxList = useMailboxList();
   const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  const store = useDraftStore();
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
   const finished = finishedEntries(shown);
-  const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
+  const refusal = useSyncExternalStore(mailboxList.subscribe, () =>
     outbox.refusal(finished),
   );
+  // Files that were not added leave Send available, which asks to send without them; one still
+  // being added keeps it unavailable.
+  const blocked =
+    refusal === 'assets' && addingOf(finished, running) === undefined
+      ? undefined
+      : refusal;
   if (blocked === undefined) {
     return { blocked, reason: undefined, notice: undefined, line: undefined };
   }
@@ -3585,6 +3665,7 @@ function Editor({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const store = useDraftStore();
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
   const state = useDrafts();
   const colors = usePalette();
   const { t } = useLocalization();
@@ -3930,24 +4011,34 @@ function Editor({
       inline,
     );
   };
-  const removeAsset = (id: string) => {
+  // Removes files `ids` as one edit.
+  const removeAssets = (ids: readonly string[]) => {
     if (sendingNow.current) {
       return;
     }
-    void store.cancelImport(id);
+    for (const id of ids) {
+      void store.cancelImport(id);
+    }
+    const without = (document: SemanticDocument) =>
+      ids.reduce((remaining, id) => withoutImage(remaining, id), document);
     const latest = authored.current;
     change({
       ...latest,
-      body: withoutImage(latest.body, id),
+      body: without(latest.body),
       ...(latest.quoted === undefined
         ? {}
-        : { quoted: withoutImage(latest.quoted, id) }),
+        : { quoted: without(latest.quoted) }),
       ...(latest.attachments === undefined
         ? {}
         : {
-            attachments: latest.attachments.filter((asset) => asset.id !== id),
+            attachments: latest.attachments.filter(
+              (asset) => !ids.includes(asset.id),
+            ),
           }),
     });
+  };
+  const removeAsset = (id: string) => {
+    removeAssets([id]);
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
@@ -4457,6 +4548,23 @@ function Editor({
       setSending(false);
       return false;
     });
+  // Send and Send Now first ask to leave out the files that were not added, then remove them as
+  // one edit and send.
+  const sendAsking = async (delay?: number) => {
+    const latest = authored.current;
+    const leftOut = leftOutOf(latest, running);
+    if (leftOut.length > 0) {
+      const others = distinct(assetsOf(latest)).length - leftOut.length;
+      if (
+        !(await askLeftOut(t, leftOut, others)) ||
+        !lifetime.current.mounted
+      ) {
+        return;
+      }
+      removeAssets(leftOut.map(({ id }) => id));
+    }
+    await send(delay);
+  };
   // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
   const presentation = presentationOf(regular, draft);
   const docked = presentation === 'docked';
@@ -4487,9 +4595,13 @@ function Editor({
     <SendMenu
       popover={regular}
       disabled={closing === 'saving'}
-      sendNow={sendNowOf(draft, blocked.blocked, closing === 'saving')}
+      sendNow={sendNowOf(
+        blocked.blocked,
+        closing === 'saving',
+        addingOf(draft, running),
+      )}
       onSendNow={() => {
-        void send(0);
+        void sendAsking(0);
       }}
       onRemind={(dueAt, timeZone) => {
         void remind(dueAt, timeZone);
@@ -4499,7 +4611,7 @@ function Editor({
         disabled={closing === 'saving' || blocked.blocked !== undefined}
         hint={blocked.reason}
         onPress={() => {
-          void send();
+          void sendAsking();
         }}
       />
     </SendMenu>

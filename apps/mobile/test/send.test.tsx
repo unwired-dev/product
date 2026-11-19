@@ -28,7 +28,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { Profiler, useState } from 'react';
-import { AccessibilityInfo, AppState } from 'react-native';
+import { AccessibilityInfo, Alert, AppState } from 'react-native';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
@@ -458,6 +458,108 @@ describe('sending a Draft', () => {
       expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('asks to send without files that were not added, then sends the rest', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lease');
+      const attach = async (
+        file:
+          | Readonly<{ uri: string; name: string; type: string }>
+          | Readonly<{ name: string; type: string; oversized: 'true' }>,
+      ) => {
+        sender.storage.pickNext('files', [file]);
+        const choice = addFilesChoice('Attach File');
+        ok(choice !== undefined);
+        await act(async () => {
+          choice();
+        });
+      };
+      sender.storage.addFile('file:///lease.pdf', 'lease');
+      await attach({
+        uri: 'file:///lease.pdf',
+        name: 'lease.pdf',
+        type: 'application/pdf',
+      });
+      await screen.findByLabelText('lease.pdf, 5 bytes');
+      await attach({
+        name: 'tour.mov',
+        type: 'video/quicktime',
+        oversized: 'true',
+      });
+      await screen.findByLabelText(
+        'tour.mov, Not added: too large for Drafts on this device',
+      );
+
+      // A file still being added keeps Send unavailable.
+      sender.storage.holdImports();
+      sender.storage.addFile('file:///keys.pkpass', 'keys');
+      await attach({
+        uri: 'file:///keys.pkpass',
+        name: 'keys.pkpass',
+        type: 'application/vnd.apple.pkpass',
+      });
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await press('Cancel adding keys.pkpass');
+      await act(async () => {
+        sender.storage.releaseImports();
+        await sender.drafts.save();
+      });
+      await screen.findByLabelText('keys.pkpass, Not added: cancelled');
+
+      // Once only files that were not added are left, Send asks first; Keep Editing changes nothing.
+      expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+      await press('Send');
+      expect(alert.mock.calls).toStrictEqual([
+        [
+          'Send without 2 attachments?',
+          'tour.mov is too large and keys.pkpass wasn’t added. The other file will be sent.',
+          [
+            expect.objectContaining({ text: 'Send Without Them' }),
+            expect.objectContaining({ text: 'Keep Editing', style: 'cancel' }),
+          ],
+          expect.anything(),
+        ],
+      ]);
+      const answer = (choice: number) =>
+        act(async () => {
+          alert.mock.lastCall?.[2]?.[choice]?.onPress?.();
+        });
+      await answer(1);
+      expect(
+        screen.getByLabelText(
+          'tour.mov, Not added: too large for Drafts on this device',
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('keys.pkpass, Not added: cancelled'),
+      ).toBeOnTheScreen();
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toStrictEqual([]);
+
+      // Send Now asks the same; Send Without Them removes both and sends the rest at once.
+      await sendMenuItem('Send Now').choose();
+      expect(alert).toHaveBeenCalledTimes(2);
+      await answer(0);
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await later(sender, 0);
+      expect(sender.gmail.sends).toHaveLength(1);
+      const raw = sender.gmail.sends[0]?.raw;
+      expect(raw).toContain('Subject: Lease');
+      expect(raw).toContain('lease.pdf');
+      expect(raw).not.toContain('tour.mov');
+      expect(raw).not.toContain('keys.pkpass');
+    } finally {
+      alert.mockRestore();
       sender.outbox.dispose();
     }
   });
