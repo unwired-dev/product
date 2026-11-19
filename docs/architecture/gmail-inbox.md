@@ -81,8 +81,9 @@ Intermediate pages advance to their last history record; the final page commits
 the mailbox history ID. Gmail documents that history IDs increase in
 [chronological order](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list).
 Expired history relists and asks Gmail again for each held search result, since no
-deletions arrive for the gap: one Gmail no longer has is dropped. Losing an entry
-from a full cache relists to admit an unchanged older message. An unreadable document fails closed without replacement.
+deletions arrive for the gap: one Gmail no longer has is dropped, and one Gmail does
+not answer for stays. Losing an entry from a full cache relists to admit an
+unchanged older message. An unreadable document fails closed without replacement.
 
 Issue #1004 adds the most recently opened Gmail label, All Mail, Spam and Trash
 views to that encrypted document. A 2026-10-15 decision panel unanimously chose
