@@ -180,7 +180,7 @@ import {
   MailAssistanceProfileContext,
   useMailAssistanceLifetime,
 } from './mail-assistance-lifetime.ts';
-import { useAllMailboxes } from './mailbox-state.ts';
+import { useAllMailboxes, useMailboxList } from './mailbox-state.ts';
 import {
   useComposerNavigation,
   useDrafts,
@@ -293,6 +293,43 @@ const styles = StyleSheet.create({
     paddingBottom: 12 * ipadListScale - (44 - titledSendHeight) / 2,
     paddingHorizontal: padFieldInset,
     borderTopWidth: padRule,
+  },
+  // The iPad frame's reason above the docked reply's From and Send: 7pt above and 5pt below at 1×.
+  blockedReason: {
+    ...typography.ipadList.subheadline,
+    textAlign: 'right',
+    paddingTop: 7 * ipadListScale,
+    paddingBottom: 5 * ipadListScale,
+    paddingHorizontal: padFieldInset,
+  },
+  sendDisabled: { opacity: 0.5 },
+  // The Authorization Needed banner: 16 by 12pt inside, its message row 10pt above Sign In….
+  signInBanner: {
+    gap: 10,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  signInMessage: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  signInText: { ...textStyles.subheadline, fontWeight: '600' },
+  signInButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 22,
+  },
+  // Under From, in line with it: 4pt above and 8pt below on iPhone, as its frame draws it.
+  phoneSignIn: {
+    marginHorizontal: inset,
+    marginTop: spacing.xs,
+    marginBottom: spacing.s,
+  },
+  cardSignIn: { marginHorizontal: padFieldInset, marginBottom: spacing.s },
+  dockedSignIn: {
+    marginHorizontal: padFieldInset,
+    marginBottom: 12 * ipadListScale,
   },
   // iPad's Send is the Mac button at 1.15×: 65.6×32.2pt with 6.9pt corners, within its 44pt target.
   sendTitled: {
@@ -911,22 +948,108 @@ export function SendingMailbox({
   );
 }
 
-function SendingNotice({ draft }: { readonly draft: Draft }) {
+// Why the sending mailbox cannot send now, if it cannot.
+const sendingMessage = (
+  t: Translate,
+  draft: Draft,
+  mailboxes: readonly MailboxConnection[],
+) => {
+  const state = sendingStateOf(draft, mailboxes);
+  if (state === 'authorization') {
+    const microsoft =
+      mailboxes.find(({ id }) => id === draft.connection)?.provider ===
+      'microsoft-graph';
+    return t(
+      microsoft ? 'drafts.sending.signIn_microsoft' : 'drafts.sending.signIn',
+    );
+  }
+  return state === 'available' ? undefined : t(`drafts.sending.${state}`);
+};
+
+// Why the sending mailbox cannot send, among the notices; `signIn` includes the Authorization
+// Needed banner, which the editor otherwise shows under From.
+function SendingNotice({
+  draft,
+  signIn,
+}: {
+  readonly draft: Draft;
+  readonly signIn: boolean;
+}) {
   const account = use(AccountContext);
   const { t } = useLocalization();
   const mailboxes = account?.mailboxes ?? [];
-  const state = sendingStateOf(draft, mailboxes);
-  const microsoft =
-    mailboxes.find(({ id }) => id === draft.connection)?.provider ===
-    'microsoft-graph';
-  return state === 'available' ? null : (
-    <Alert
-      message={t(
-        state === 'authorization' && microsoft
-          ? 'drafts.sending.authorization_microsoft'
-          : `drafts.sending.${state}`,
-      )}
-    />
+  const message = sendingMessage(t, draft, mailboxes);
+  if (message === undefined) {
+    return null;
+  }
+  if (sendingStateOf(draft, mailboxes) === 'authorization') {
+    return signIn ? <SignInBanner draft={draft} /> : null;
+  }
+  return <Alert message={message} />;
+}
+
+// A mailbox that needs sign-in again offers Sign In… in the Authorization Needed banner, as the
+// iPhone frame draws it. `style` places it.
+function SignInBanner({
+  draft,
+  style,
+}: {
+  readonly draft: Draft;
+  readonly style?: StyleProp<ViewStyle>;
+}) {
+  const account = use(AccountContext);
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const mailboxes = account?.mailboxes ?? [];
+  const message = sendingMessage(t, draft, mailboxes);
+  if (
+    message === undefined ||
+    sendingStateOf(draft, mailboxes) !== 'authorization'
+  ) {
+    return null;
+  }
+  // The frame's Banner: its message in emphasized Subheadline, Sign In… in a content-coloured pill
+  // beneath, in line with the symbol.
+  return (
+    <View
+      style={[
+        styles.signInBanner,
+        { backgroundColor: colors.fillQuiet },
+        style,
+      ]}>
+      <View style={styles.signInMessage}>
+        <SFSymbol
+          name="person.crop.circle.badge.exclamationmark"
+          color={colors.statusWarning}
+          size={16}
+        />
+        <Text
+          style={[
+            styles.signInText,
+            styles.grow,
+            { color: colors.textPrimary },
+          ]}>
+          {message}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          void account?.authorizeMailbox(draft.connection);
+        }}
+        style={({ pressed }) => [
+          styles.signInButton,
+          {
+            backgroundColor: pressed
+              ? colors.accentSelectionSubtle
+              : colors.surfaceContent,
+          },
+        ]}>
+        <Text style={[styles.signInText, { color: colors.accentInk }]}>
+          {t('drafts.sending.signInAction')}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1186,11 +1309,14 @@ export function Recipients({
   onCaretMove,
   editable,
   trailing,
+  required = false,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
   readonly field: RecipientField;
   readonly editable: boolean;
+  // Whether Send waits for a recipient, which this field then asks for.
+  readonly required?: boolean;
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
   readonly onCaretMove: () => void;
@@ -1234,6 +1360,28 @@ export function Recipients({
     };
   }, [entering, editable, draft, field, account, held, contacts]);
   const [first] = [...suggestions.recent, ...suggestions.contacts];
+  // Text Send would leave in the field, once it is no longer typed in, is not an address it can use.
+  const entry = addRecipients(draft, {
+    field,
+    text: entryOf(draft, field),
+    all: true,
+  }).text;
+  const incomplete = !entering && entry !== '';
+  const requiredReason = required ? t('drafts.recipient.required') : undefined;
+  const reason = incomplete
+    ? t('drafts.recipient.incomplete', { address: entry })
+    : requiredReason;
+  const shownNotice =
+    reason ??
+    (notice === undefined ? undefined : t(`drafts.recipient.${notice}`));
+  // Leaving the field says once why Send waits, as iOS ignores live regions.
+  useEffect(() => {
+    if (incomplete) {
+      AccessibilityInfo.announceForAccessibility(
+        t('drafts.recipient.incomplete', { address: entry }),
+      );
+    }
+  }, [incomplete, entry, t]);
   const accept = (recipient: Recipient) => {
     onChange(acceptRecipient(getDraft(), field, recipient), false, field);
     setNotice(undefined);
@@ -1333,6 +1481,7 @@ export function Recipients({
           ))}
           <TextInput
             accessibilityLabel={name}
+            accessibilityHint={incomplete ? reason : undefined}
             editable={editable}
             accessibilityState={{ disabled: !editable }}
             autoCapitalize="none"
@@ -1384,7 +1533,7 @@ export function Recipients({
           </View>
         )}
       </View>
-      {notice === undefined ? null : (
+      {shownNotice === undefined ? null : (
         <Text
           accessibilityLiveRegion="polite"
           style={[
@@ -1394,7 +1543,7 @@ export function Recipients({
             large && styles.stackedNotice,
             { color: colors.textSecondary },
           ]}>
-          {t(`drafts.recipient.${notice}`)}
+          {shownNotice}
         </Text>
       )}
     </View>
@@ -1783,17 +1932,34 @@ const textToolSymbols: Readonly<Record<TextTool, string>> = {
   neutral: 'face.dashed',
 };
 
-// Why the last Send left the Draft in the composer, if it did. A message sent through an IMAP
-// connection's mail server or Microsoft is not limited by Gmail.
+// The Draft with the entries still being typed in To, Cc and Bcc finished, as Send finishes them;
+// invalid text stays in its field.
+const finishedEntries = (draft: Draft) => {
+  let finished = draft;
+  for (const field of ['to', 'cc', 'bcc'] as const) {
+    finished = addRecipients(finished, {
+      field,
+      text: entryOf(finished, field),
+      all: true,
+    }).draft;
+  }
+  return finished;
+};
+
+// Why Send is unavailable now, or else why the last Send left the Draft in the composer, if it
+// did; only the last Send's outcome is announced. A message sent through an IMAP connection's mail
+// server or Microsoft is not limited by Gmail.
 const tooLarge = {
   gmail: 'drafts.sendRefused.too-large',
   imap: 'drafts.sendRefused.too-large_imap',
   'microsoft-graph': 'drafts.sendRefused.too-large_microsoft',
 } as const satisfies Readonly<Record<MailProvider, string>>;
 function SendRefusalNotice({
+  blocked,
   refused,
   connection,
 }: {
+  readonly blocked: SendRefusal | undefined;
   readonly refused: SendRefusal | undefined;
   readonly connection: string;
 }) {
@@ -1801,17 +1967,89 @@ function SendRefusalNotice({
   const provider = use(AccountContext)?.mailboxes.find(
     ({ id }) => id === connection,
   )?.provider;
-  return refused === undefined ? null : (
+  const shown = blocked ?? refused;
+  return shown === undefined ? null : (
     <Alert
-      outcome
+      outcome={shown === refused}
       message={t(
-        refused === 'too-large'
+        shown === 'too-large'
           ? tooLarge[provider ?? 'gmail']
-          : `drafts.sendRefused.${refused}`,
+          : `drafts.sendRefused.${shown}`,
       )}
     />
   );
 }
+
+// Why Send is unavailable, for VoiceOver on Send; `sender`
+// says why the sending mailbox cannot send, if it says.
+const blockedMessage = (
+  t: Translate,
+  blocked: SendRefusal,
+  sender: string | undefined,
+) => {
+  if (blocked === 'recipients') {
+    return t('drafts.recipient.required');
+  }
+  if (blocked === 'sender') {
+    return sender ?? t('drafts.sendRefused.sender');
+  }
+  return t(`drafts.sendRefused.${blocked}`);
+};
+
+// Why Send is unavailable for the Draft shown, followed as its mailboxes change, and where the
+// composer says it. To, Cc and Bcc say why Send waits for them, and From's notice why the sender
+// cannot send, and the notices the rest; a docked reply asks for a recipient on one line above
+// Send instead of under To.
+function useBlockedSend({
+  shown,
+  draft,
+  docked,
+}: {
+  // The Draft as Send would take it, with its typed entries.
+  readonly shown: Draft;
+  readonly draft: Draft;
+  readonly docked: boolean;
+}) {
+  const { t } = useLocalization();
+  const outbox = useOutbox();
+  const mailboxList = useMailboxList();
+  const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  const finished = finishedEntries(shown);
+  const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
+    outbox.refusal(finished),
+  );
+  if (blocked === undefined) {
+    return { blocked, reason: undefined, notice: undefined, line: undefined };
+  }
+  // Text left in To, Cc or Bcc says why Send waits, as its field does.
+  const incomplete = (['to', 'cc', 'bcc'] as const)
+    .map((field) => entryOf(finished, field))
+    .find((entry) => entry !== '');
+  const reason =
+    incomplete !== undefined &&
+    (blocked === 'recipients' || blocked === 'entries')
+      ? t('drafts.recipient.incomplete', { address: incomplete })
+      : blockedMessage(t, blocked, sendingMessage(t, draft, mailboxes));
+  const ownPlace =
+    blocked === 'recipients' || blocked === 'entries' || blocked === 'sender';
+  return {
+    blocked,
+    reason,
+    notice: ownPlace ? undefined : blocked,
+    line:
+      docked && blocked === 'recipients'
+        ? t('drafts.recipient.required')
+        : undefined,
+  };
+}
+
+// Once Cc or Bcc is shown or holds a recipient or text, both stay shown for the Draft, so they can
+// say why Send waits.
+const copiesShownOf = (draft: Draft) =>
+  draft.copies === true ||
+  draft.cc.length + draft.bcc.length > 0 ||
+  entryOf(draft, 'cc') !== '' ||
+  entryOf(draft, 'bcc') !== '';
 
 // Profile changes, source edits and disabled assistance retire captured input. Re-enabling
 // assistance never restarts a retired request.
@@ -1964,13 +2202,17 @@ export function CloseQuestion({
   );
 }
 
-// The header's Send: the accent fill shows at 80% (CC) while pressed and dims to 40% disabled.
+// The header's Send: the accent fill shows at 80% (CC) while pressed; disabled, the quiet fill holds
+// the arrow or name in the secondary text color at 50%, as the blocked Send frames draw it.
 export function SendButton({
   disabled,
+  hint,
   titled = false,
   onPress,
 }: {
   readonly disabled: boolean;
+  // Why Send is unavailable, read after its name.
+  readonly hint?: string | undefined;
   // iPad names Send in a rounded button; iPhone keeps the arrow circle.
   readonly titled?: boolean;
   readonly onPress: () => void;
@@ -1980,6 +2222,7 @@ export function SendButton({
   return (
     <Pressable
       accessibilityLabel={t('drafts.send')}
+      accessibilityHint={hint}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
@@ -1987,23 +2230,30 @@ export function SendButton({
       onPress={onPress}
       style={({ pressed }) => [
         titled ? styles.sendTitled : styles.circle,
-        {
-          backgroundColor: pressed
-            ? `${colors.accentFill}CC`
-            : colors.accentFill,
-          opacity: disabled ? 0.4 : 1,
-        },
+        disabled
+          ? { backgroundColor: colors.fillQuiet }
+          : {
+              backgroundColor: pressed
+                ? `${colors.accentFill}CC`
+                : colors.accentFill,
+            },
       ]}>
-      {titled ? (
-        <Text style={[styles.sendLabel, { color: colors.accentOnFill }]}>
-          {t('drafts.send')}
-        </Text>
-      ) : (
-        <SFSymbol
-          name="arrow.up"
-          color={colors.accentOnFill}
-        />
-      )}
+      <View style={disabled && styles.sendDisabled}>
+        {titled ? (
+          <Text
+            style={[
+              styles.sendLabel,
+              { color: disabled ? colors.textSecondary : colors.accentOnFill },
+            ]}>
+            {t('drafts.send')}
+          </Text>
+        ) : (
+          <SFSymbol
+            name="arrow.up"
+            color={disabled ? colors.textSecondary : colors.accentOnFill}
+          />
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -2012,13 +2262,19 @@ export function SendButton({
 export function ComposerNotices({
   closing,
   draft,
+  blocked,
   refused,
+  signIn = true,
   onClose,
   onDiscard,
   onKeepEditing,
 }: {
   readonly closing: Closing | undefined;
   readonly draft: Draft;
+  // Why Send is unavailable now, when no field or line beside Send says it.
+  readonly blocked?: SendRefusal | undefined;
+  // Whether the Authorization Needed banner shows here; the editor shows it under From.
+  readonly signIn?: boolean;
   readonly refused: SendRefusal | undefined;
   readonly onClose: () => void;
   readonly onDiscard: () => void;
@@ -2032,8 +2288,10 @@ export function ComposerNotices({
   if (
     size === 'regular' &&
     (closing === undefined || closing === 'saving') &&
+    blocked === undefined &&
     refused === undefined &&
-    sendingStateOf(draft, mailboxes) === 'available'
+    (sendingStateOf(draft, mailboxes) === 'available' ||
+      (!signIn && sendingStateOf(draft, mailboxes) === 'authorization'))
   ) {
     return null;
   }
@@ -2061,10 +2319,14 @@ export function ComposerNotices({
         />
       ) : null}
       <SendRefusalNotice
+        blocked={blocked}
         connection={draft.connection}
         refused={refused}
       />
-      <SendingNotice draft={draft} />
+      <SendingNotice
+        draft={draft}
+        signIn={signIn}
+      />
       {closing === 'discard' ? (
         <Alert
           outcome
@@ -2390,22 +2652,46 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
 };
 
 // From sits in the iPad header and on its own row beneath the iPhone header. At the accessibility
-// text sizes the iPad card's From takes its own row too, so Expand and Send stay in view.
-const placeSender = (
-  sender: ReactNode,
-  presentation: Presentation,
-  large: boolean,
-) =>
-  presentation === 'compact' || (large && presentation === 'card')
+// text sizes the iPad card's From takes its own row too, so Expand and Send stay in view. The
+// Authorization Needed banner stays in view under From; at those sizes it would crowd out the
+// Draft, so it scrolls with it among the notices (`signInNotice`). A docked reply's
+// ReplyFooter places From and the banner.
+const placeSender = ({
+  sender,
+  draft,
+  presentation,
+  large,
+}: {
+  readonly sender: ReactNode;
+  readonly draft: Draft;
+  readonly presentation: Presentation;
+  readonly large: boolean;
+}) => {
+  if (presentation === 'docked') {
+    return { header: sender, row: null, signInNotice: false };
+  }
+  const compact = presentation === 'compact';
+  const signIn = large ? null : (
+    <SignInBanner
+      draft={draft}
+      style={compact ? styles.phoneSignIn : styles.cardSignIn}
+    />
+  );
+  return compact || large
     ? {
+        signInNotice: large,
         header: null,
         row: (
-          <View style={styles.fromRow}>
-            <View style={styles.bar}>{sender}</View>
-          </View>
+          <>
+            <View style={styles.fromRow}>
+              <View style={styles.bar}>{sender}</View>
+            </View>
+            {signIn}
+          </>
         ),
       }
-    : { header: sender, row: null };
+    : { header: sender, row: signIn, signInNotice: false };
+};
 
 // A docked or iPhone response is titled by its kind; otherwise the subject names the Draft. Only a
 // clipped subject is announced as shortened.
@@ -2500,19 +2786,35 @@ function HeaderControls({
 
 // The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame.
 function ReplyFooter({
+  draft,
   sender,
   send,
+  reason,
 }: {
+  readonly draft: Draft;
   readonly sender: ReactNode;
   readonly send: ReactNode;
+  // Why Send waits for a recipient, on one line above it as the iPad frame draws it.
+  readonly reason: string | undefined;
 }) {
   const colors = usePalette();
   return (
-    <View style={[styles.replyFooter, { borderTopColor: colors.separator }]}>
-      {sender}
-      <View style={styles.grow} />
-      {send}
-    </View>
+    <>
+      {reason === undefined ? null : (
+        <Text style={[styles.blockedReason, { color: colors.textSecondary }]}>
+          {reason}
+        </Text>
+      )}
+      <View style={[styles.replyFooter, { borderTopColor: colors.separator }]}>
+        {sender}
+        <View style={styles.grow} />
+        {send}
+      </View>
+      <SignInBanner
+        draft={draft}
+        style={styles.dockedSignIn}
+      />
+    </>
   );
 }
 
@@ -3872,14 +4174,7 @@ function Editor({
   // Entries still being typed become recipients; invalid text keeps the Draft open.
   const finishEntries = () => {
     const latest = authored.current;
-    let finished = latest;
-    for (const field of ['to', 'cc', 'bcc'] as const) {
-      finished = addRecipients(finished, {
-        field,
-        text: entryOf(finished, field),
-        all: true,
-      }).draft;
-    }
+    const finished = finishedEntries(latest);
     if (finished !== latest) {
       commitHistory((current) => keepIdentity(record(current, finished)));
       update(finished);
@@ -4155,9 +4450,12 @@ function Editor({
   const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
-  // Once Cc or Bcc is shown or holds a recipient, both stay shown for the Draft.
-  const copiesShown =
-    draft.copies === true || draft.cc.length + draft.bcc.length > 0;
+  const copiesShown = copiesShownOf(draft);
+  // An edit in Cc or Bcc keeps both shown for the Draft, even once they are empty.
+  const changeCopies = (next: Draft, word: boolean, field: string) => {
+    change({ ...next, copies: true }, word, field);
+  };
+  const blocked = useBlockedSend({ shown: history.present, draft, docked });
 
   const sender = (
     <SendingMailbox
@@ -4168,7 +4466,7 @@ function Editor({
       }}
     />
   );
-  const senderPlace = placeSender(sender, presentation, large);
+  const senderPlace = placeSender({ sender, draft, presentation, large });
   // Send: a tap sends, and a long press opens its menu of Remind Me to Send….
   const sendControl = (titled: boolean) => (
     <SendMenu
@@ -4179,7 +4477,8 @@ function Editor({
       }}>
       <SendButton
         titled={titled}
-        disabled={closing === 'saving'}
+        disabled={closing === 'saving' || blocked.blocked !== undefined}
+        hint={blocked.reason}
         onPress={() => {
           void send();
         }}
@@ -4510,7 +4809,9 @@ function Editor({
             <ComposerNotices
               closing={closing}
               draft={draft}
+              blocked={blocked.notice}
               refused={refused}
+              signIn={senderPlace.signInNotice}
               onClose={() => {
                 void saveDraft();
               }}
@@ -4735,6 +5036,7 @@ function Editor({
                 getDraft={getDraft}
                 editable={!sending}
                 field="to"
+                required={blocked.blocked === 'recipients' && !docked}
                 onChange={change}
                 onCaretMove={breakTyping}
                 trailing={
@@ -4758,7 +5060,7 @@ function Editor({
                     getDraft={getDraft}
                     editable={!sending}
                     field="cc"
-                    onChange={change}
+                    onChange={changeCopies}
                     onCaretMove={breakTyping}
                   />
                   <Recipients
@@ -4766,7 +5068,7 @@ function Editor({
                     getDraft={getDraft}
                     editable={!sending}
                     field="bcc"
-                    onChange={change}
+                    onChange={changeCopies}
                     onCaretMove={breakTyping}
                   />
                 </>
@@ -4777,8 +5079,10 @@ function Editor({
         </View>
         {docked ? (
           <ReplyFooter
+            draft={draft}
             sender={sender}
             send={sendControl(true)}
+            reason={blocked.line}
           />
         ) : null}
         {regular ? null : (

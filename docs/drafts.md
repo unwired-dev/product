@@ -156,10 +156,16 @@ transport and known native exit gaps.
   To row, accept `Name <address>`,
   `"Last, First" <address>` or a bare address. A comma, semicolon, Return or leaving
   the field turns finished entries into removable recipients. Text that is not a
-  valid address stays in the field with **Enter a valid email address.** On the
-  Mac, once the field is left, it says instead that the text is not a complete
-  address, and a Draft with no recipient says **Add a recipient to send.** under
-  To; Send stays unavailable until then ([#2350](https://github.com/unwired-dev/product/issues/2350)). An address
+  valid address stays in the field with **Enter a valid email address.** Once the
+  field is left, it says instead that the text is not a complete address, and a
+  Draft with no recipient says **Add a recipient to send.** under To; Send stays
+  unavailable until then, and VoiceOver reads the reason with Send ([#2350](https://github.com/unwired-dev/product/issues/2350),
+  [#2396](https://github.com/unwired-dev/product/issues/2396)). A docked iPad reply says it on one line above its From and Send
+  instead. On iPhone and iPad, a sending mailbox that needs sign-in again shows
+  the Authorization Needed banner under From with **Sign In…** (at the
+  accessibility text sizes it scrolls with the Draft, except under a docked
+  reply's From and Send), and the other
+  reasons the Outbox finds before Send show among the composer's notices. An address
   already in To, Cc or Bcc is not added again and shows **Already added**. Once Cc
   or Bcc is shown or holds a recipient or text, both stay shown for that Draft.
   Text still being typed in a recipient field is saved with the Draft, so an

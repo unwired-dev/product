@@ -12,6 +12,7 @@ import { createMailAssistanceEnablement } from '@private-email/mail-core/assista
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
 import { createMailTemplates } from '@private-email/mail-core/mail-templates';
 import { createMailboxes } from '@private-email/mail-core/mailboxes';
+import { createOutbox } from '@private-email/mail-core/outbox';
 import {
   defaultProfile,
   mailboxesOf,
@@ -138,6 +139,8 @@ function account(initial: RegistrationSnapshot) {
         listener();
       }
     },
+    // The Outbox resumes the account before it retries; nothing here waits to resume.
+    resume: () => Promise.resolve(),
   };
 }
 
@@ -247,6 +250,8 @@ const discardOutcome =
     return removed;
   };
 
+const authorized = () => Promise.resolve();
+
 // The app's composition: the Inbox column and the detail column, which shows the composer.
 function App({
   registration,
@@ -261,9 +266,14 @@ function App({
   nativeToolbar = false,
   mailTemplates,
   sendReminders,
+  outbox,
+  authorizeMailbox = authorized,
   expandable = false,
 }: {
   readonly mailboxes?: MailboxList;
+  // The Outbox Send admits to; without one, Send waits as for a mailbox this device cannot use.
+  readonly outbox?: ReturnType<typeof createOutbox>;
+  readonly authorizeMailbox?: (connection: string) => Promise<void>;
   readonly registration: ReturnType<typeof account>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly openAccount?: (destination?: string) => void;
@@ -311,7 +321,7 @@ function App({
         value={{
           mailboxes: mailboxesOf(snapshot),
           openAccount,
-          authorizeMailbox: () => Promise.resolve(),
+          authorizeMailbox,
           refreshInbox: (load) => load(),
           account: 'synthetic-product-account',
           profiles: [],
@@ -322,7 +332,8 @@ function App({
           drafts={drafts}
           mailboxes={mailboxes}
           mailTemplates={mailTemplates}
-          sendReminders={sendReminders}>
+          sendReminders={sendReminders}
+          {...(outbox === undefined ? {} : { outbox })}>
           <ProfileScope profile={profile}>
             <Mailboxes
               {...(composeFrom === 'inbox' ? {} : { onCompose: compose })}
@@ -959,6 +970,323 @@ describe('composing Drafts', () => {
     expect(draftsOf(drafts.getSnapshot())[0]?.connection).toBe(other);
   });
 
+  it('asks for sign-in under From on iPhone while the Draft’s mailbox cannot send', async () => {
+    expect.hasAssertions();
+    const graph = (state: 'authorization' | 'connected') =>
+      JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        {
+          id: other,
+          address: 'other@example.invalid',
+          provider: 'microsoft-graph',
+          state,
+          sendingDefault: true,
+        },
+      ]);
+    const initial = {
+      ...connected(['alex@example.invalid', 'other@example.invalid']),
+      mailboxes: graph('authorization'),
+    };
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({
+        [alex]: createSyntheticGmail({ messages: 1 }),
+        [other]: createSyntheticGmail({
+          address: 'other@example.invalid',
+          messages: 1,
+        }),
+      }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
+    const authorizeMailbox = jest.fn(() => Promise.resolve());
+    try {
+      await render(
+        <ComposerLayoutContext
+          value={{ size: 'compact', avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            mailboxes={mailboxes}
+            outbox={outbox}
+            authorizeMailbox={authorizeMailbox}
+            registration={registration}
+          />
+        </ComposerLayoutContext>,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        await screen.findByLabelText('To'),
+        'sam@example.invalid',
+      );
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      const reason =
+        'Microsoft 365 needs you to sign in again before this address can send.';
+      const send = () => screen.getByRole('button', { name: 'Send' });
+      expect(screen.getByText(reason)).toBeOnTheScreen();
+      expect(send()).toBeDisabled();
+      expect(send()).toHaveProp('accessibilityHint', reason);
+      await press('Sign In…');
+      expect(authorizeMailbox).toHaveBeenCalledWith(other);
+      // Signed in again, the banner goes and Send is available.
+      await act(() => {
+        registration.change({ ...initial, mailboxes: graph('connected') });
+      });
+      expect(screen.queryByText(reason)).toBeNull();
+      expect(send()).not.toBeDisabled();
+    } finally {
+      outbox.dispose();
+    }
+  });
+
+  it('says why Send waits on one line above a docked iPad reply’s Send', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const id: string = created;
+    const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(draft);
+    await drafts.update(
+      {
+        ...draft,
+        subject: 'Re: Plans',
+        response: {
+          kind: 'reply',
+          message: 'plans',
+          inReplyTo: '<plans@example.invalid>',
+          references: [],
+        },
+      },
+      draft,
+    );
+    try {
+      await render(
+        <ComposerLayoutContext
+          value={{ size: 'regular', avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            mailboxes={mailboxes}
+            outbox={outbox}
+            registration={registration}
+            initialDraft={id}
+          />
+        </ComposerLayoutContext>,
+      );
+      await screen.findByLabelText('Message body');
+      const required = 'Add a recipient to send.';
+      const send = () => screen.getByRole('button', { name: 'Send' });
+      // The line above Send says it once; To does not repeat it.
+      expect(screen.getAllByText(required)).toHaveLength(1);
+      expect(send()).toBeDisabled();
+      expect(send()).toHaveProp('accessibilityHint', required);
+      // Unfinished text: Send's hint names it, and the line above Send stays short.
+      await fireEvent.changeText(screen.getByLabelText('To'), 'sam@example');
+      expect(send()).toHaveProp(
+        'accessibilityHint',
+        '“sam@example” is not a complete address. Correct it to send.',
+      );
+      expect(screen.getByText(required)).toBeOnTheScreen();
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      expect(screen.queryByText(required)).toBeNull();
+      expect(send()).not.toBeDisabled();
+    } finally {
+      outbox.dispose();
+    }
+  });
+
+  // A stored Draft from Alex's mailbox, now in `state` at `address`, as a reply when `reply`,
+  // opened in the composer.
+  const openStored = async ({
+    reply,
+    state = 'connected',
+    address = 'alex@example.invalid',
+    to = [],
+  }: {
+    readonly reply: boolean;
+    readonly state?: 'authorization' | 'connected';
+    readonly address?: string;
+    readonly to?: Draft['to'];
+  }) => {
+    const initial = connected(['alex@example.invalid']);
+    const registration = account(initial);
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
+    await drafts.load();
+    const created = await drafts.create({
+      id: alex,
+      address: 'alex@example.invalid',
+    });
+    ok(created);
+    const id: string = created;
+    const draft = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(draft);
+    await drafts.update(
+      {
+        ...draft,
+        to,
+        subject: 'Re: Plans',
+        ...(reply && {
+          response: {
+            kind: 'reply',
+            message: 'plans',
+            inReplyTo: '<plans@example.invalid>',
+            references: [],
+          },
+        }),
+      },
+      draft,
+    );
+    // The mailbox needs sign-in only after the Draft is made, which it would refuse.
+    registration.change({
+      ...initial,
+      mailboxes: JSON.stringify([{ id: alex, address, state }]),
+    });
+    const authorizeMailbox = jest.fn(() => Promise.resolve());
+    await render(
+      <ComposerLayoutContext
+        value={{
+          size: reply ? 'regular' : 'compact',
+          avoidKeyboard: true,
+          top: 0,
+        }}>
+        <App
+          drafts={drafts}
+          mailboxes={mailboxes}
+          outbox={outbox}
+          authorizeMailbox={authorizeMailbox}
+          registration={registration}
+          initialDraft={id}
+        />
+      </ComposerLayoutContext>,
+    );
+    await screen.findByLabelText('Message body');
+    return { outbox, authorizeMailbox };
+  };
+
+  it.each([
+    ['on iPhone', false],
+    ['in a docked iPad reply', true],
+  ])(
+    'says why Send waits for an address among the notices %s',
+    async (_, reply) => {
+      expect.hasAssertions();
+      const { outbox } = await openStored({
+        reply,
+        to: [{ address: 'žofie@example.invalid' }],
+      });
+      try {
+        const reason =
+          'An address in this message uses characters this app cannot send yet. Use a plain email address.';
+        const send = screen.getByRole('button', { name: 'Send' });
+        expect(screen.getByText(reason)).toBeOnTheScreen();
+        expect(send).toBeDisabled();
+        expect(send).toHaveProp('accessibilityHint', reason);
+      } finally {
+        outbox.dispose();
+      }
+    },
+  );
+
+  it('asks for sign-in under a docked iPad reply’s From and Send', async () => {
+    expect.hasAssertions();
+    const { outbox, authorizeMailbox } = await openStored({
+      reply: true,
+      state: 'authorization',
+      to: [{ address: 'sam@example.invalid' }],
+    });
+    try {
+      const reason =
+        'Gmail needs you to sign in again before this address can send.';
+      expect(screen.getAllByText(reason)).toHaveLength(1);
+      expect(isScrollable(screen.getByText(reason))).not.toBe(true);
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await press('Sign In…');
+      expect(authorizeMailbox).toHaveBeenCalledWith(alex);
+    } finally {
+      outbox.dispose();
+    }
+  });
+
+  it.each([
+    ['stays under From at the default text size', 1, false],
+    ['scrolls with the Draft at an accessibility text size', 2, true],
+  ])(
+    'asks for sign-in on iPhone in a banner that %s',
+    async (_, fontScale, scrolls) => {
+      expect.hasAssertions();
+      const window = Dimensions.get('window');
+      Dimensions.set({ window: { ...window, fontScale } });
+      try {
+        const { outbox } = await openStored({
+          reply: false,
+          state: 'authorization',
+          to: [{ address: 'sam@example.invalid' }],
+        });
+        try {
+          expect(isScrollable(screen.getByText('Sign In…'))).toBe(scrolls);
+        } finally {
+          outbox.dispose();
+        }
+      } finally {
+        Dimensions.set({ window });
+      }
+    },
+  );
+
+  it('keeps another sender warning among a docked iPad reply’s notices', async () => {
+    expect.hasAssertions();
+    const { outbox } = await openStored({
+      reply: true,
+      address: 'alex.new@example.invalid',
+      to: [{ address: 'sam@example.invalid' }],
+    });
+    try {
+      const reason =
+        'This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox.';
+      expect(isScrollable(screen.getByText(reason))).toBe(true);
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    } finally {
+      outbox.dispose();
+    }
+  });
+
   it('lists only the window Profile’s Drafts', async () => {
     expect.hasAssertions();
     const registration = account({
@@ -1110,7 +1438,11 @@ describe('composing Drafts', () => {
     ).toBeOnTheScreen();
     await fireEvent.changeText(to, 'not an address');
     await fireEvent(to, 'blur');
-    expect(screen.getByText('Enter a valid email address.')).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        '“not an address” is not a complete address. Correct it to send.',
+      ),
+    ).toBeOnTheScreen();
     expect(to).toHaveProp('value', 'not an address');
     await fireEvent.changeText(
       screen.getByLabelText('Subject'),
@@ -2420,32 +2752,59 @@ describe('composing Drafts', () => {
     const registration = account(connected(['alex@example.invalid']));
     const storage = createSyntheticDrafts(() => 'synthetic-product-account');
     const drafts = createDrafts(storage.native, registration);
-    await render(
-      <App
-        drafts={drafts}
-        registration={registration}
-      />,
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
     );
-    await press('New Message');
-    await fireEvent.changeText(
-      await screen.findByLabelText('Subject'),
-      'Unsent plan',
-    );
-    await waitFor(
-      () => {
-        expect(storage.recoveryRecords().size).toBe(1);
-      },
-      { timeout: 4000 },
-    );
-    // Send without a recipient is refused, and the composer stays open on the stored version.
-    await press('Send');
-    await expect(
-      screen.findByRole('alert', { name: 'Add a recipient before sending.' }),
-    ).resolves.toBeOnTheScreen();
-    await waitFor(() => {
-      expect(storage.recoveryRecords().size).toBe(0);
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
     });
-    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsent plan');
+    try {
+      await render(
+        <App
+          drafts={drafts}
+          mailboxes={mailboxes}
+          outbox={outbox}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      await fireEvent.changeText(
+        await screen.findByLabelText('Subject'),
+        'Unsent plan',
+      );
+      await waitFor(
+        () => {
+          expect(storage.recoveryRecords().size).toBe(1);
+        },
+        { timeout: 4000 },
+      );
+      // Storage refuses the Send, and the composer stays open on the stored version.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      jest.spyOn(outbox, 'send').mockResolvedValueOnce('storage');
+      await press('Send');
+      await expect(
+        screen.findByRole('alert', {
+          name: 'This message wasn’t sent. It stays open. Choose Send to try again.',
+        }),
+      ).resolves.toBeOnTheScreen();
+      await waitFor(() => {
+        expect(storage.recoveryRecords().size).toBe(0);
+      });
+      expect(screen.getByLabelText('Subject')).toHaveProp(
+        'value',
+        'Unsent plan',
+      );
+    } finally {
+      outbox.dispose();
+    }
   });
 
   it('removes the recovery record once a retry elsewhere stores the version a refused Save Draft kept open', async () => {
@@ -2965,10 +3324,22 @@ describe('composing Drafts', () => {
     });
     ok(created);
     const id: string = created;
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
     const editor = (name: string) => (
       <View testID={name}>
         <App
           drafts={drafts}
+          mailboxes={mailboxes}
+          outbox={outbox}
           registration={registration}
           initialDraft={id}
         />
@@ -3006,6 +3377,11 @@ describe('composing Drafts', () => {
     storage.setLocked(true);
     await inWindow(second, 'Send');
     storage.setLocked(false);
+    expect(
+      second.getByRole('alert', {
+        name: 'This message wasn’t sent. It stays open. Choose Send to try again.',
+      }),
+    ).toBeOnTheScreen();
     expect(second.getByLabelText('Subject')).toHaveProp(
       'value',
       'Second window',
@@ -3019,6 +3395,7 @@ describe('composing Drafts', () => {
         .map(({ subject }) => subject)
         .toSorted(),
     ).toStrictEqual(['First window', 'Second edit']);
+    outbox.dispose();
   });
 
   it('undoes subject typing a word at a time wherever the caret is', async () => {

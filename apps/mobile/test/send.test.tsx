@@ -654,20 +654,17 @@ describe('sending a Draft', () => {
         await sender.drafts.save();
       });
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
-      await press('To: sam@example.invalid');
+      // Storage refuses the admission.
+      jest.spyOn(sender.outbox, 'send').mockResolvedValueOnce('storage');
       await press('Send');
       await screen.findByRole('alert', {
-        name: 'Add a recipient before sending.',
+        name: 'This message wasn’t sent. It stays open. Choose Send to try again.',
       });
       expect(screen.getByLabelText('Subject')).toHaveProp('editable', true);
       for (const field of ['To', 'Subject', 'Message body']) {
         expect(screen.getByLabelText(field)).not.toBeDisabled();
       }
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
-      await fireEvent.changeText(
-        screen.getByLabelText('To'),
-        'sam@example.invalid',
-      );
       await fireEvent.changeText(
         screen.getByLabelText('Subject'),
         'After refusal',
@@ -762,27 +759,36 @@ describe('sending a Draft', () => {
       await render(<App sender={sender} />);
       await press('New Message');
 
-      await press('Send');
-
-      expect(
-        screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
-      ).toBeOnTheScreen();
-      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      // Send waits for a recipient, and To says so before anything is pressed; VoiceOver reads
+      // the reason with Send.
+      const required = 'Add a recipient to send.';
+      const send = () => screen.getByRole('button', { name: 'Send' });
+      expect(send()).toBeDisabled();
+      expect(send()).toHaveProp('accessibilityHint', required);
+      expect(screen.getByText(required)).toBeOnTheScreen();
+      await fireEvent.changeText(screen.getByLabelText('To'), 'sam@example');
+      await fireEvent(screen.getByLabelText('To'), 'blur');
+      const incomplete =
+        '“sam@example” is not a complete address. Correct it to send.';
+      expect(screen.getByText(incomplete)).toBeOnTheScreen();
+      expect(screen.getByLabelText('To')).toHaveProp(
+        'accessibilityHint',
+        incomplete,
+      );
+      expect(screen.queryByText(required)).toBeNull();
+      expect(send()).toBeDisabled();
+      expect(send()).toHaveProp('accessibilityHint', incomplete);
       await fireEvent.changeText(
         screen.getByLabelText('To'),
         'sam@example.invalid',
       );
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
-      expect(
-        screen.queryByRole('alert', {
-          name: 'Add a recipient before sending.',
-        }),
-      ).toBeNull();
+      expect(screen.queryByText(incomplete)).toBeNull();
+      expect(send()).not.toBeDisabled();
+      expect(send().props.accessibilityHint).toBeUndefined();
       await press('To: sam@example.invalid');
-      await press('Send');
-      expect(
-        screen.getByRole('alert', { name: 'Add a recipient before sending.' }),
-      ).toBeOnTheScreen();
+      expect(screen.getByText(required)).toBeOnTheScreen();
+      expect(send()).toBeDisabled();
       // On iPhone, Undo is in the Format panel.
       await press('Format');
       await press('Undo');
@@ -790,11 +796,8 @@ describe('sending a Draft', () => {
       expect(
         screen.getByRole('button', { name: 'To: sam@example.invalid' }),
       ).toBeOnTheScreen();
-      expect(
-        screen.queryByRole('alert', {
-          name: 'Add a recipient before sending.',
-        }),
-      ).toBeNull();
+      expect(screen.queryByText(required)).toBeNull();
+      expect(send()).not.toBeDisabled();
       await choose('Compose actions', 'Discard');
       await press('Discard Draft');
       // Gmail refuses the first, keeps the second without answering, and answers the third with
@@ -920,8 +923,8 @@ describe('sending a Draft', () => {
         [unconfirmed, { queue: true }],
       ]);
       expect(announce.mock.calls.map(([words]) => words)).toStrictEqual([
-        'Add a recipient before sending.',
-        'Add a recipient before sending.',
+        // Leaving To with an incomplete address says why once.
+        '“sam@example” is not a complete address. Correct it to send.',
         'Discard this Draft? It is deleted from this device.',
         'Discard this Draft? It is deleted from this device.',
         warning,

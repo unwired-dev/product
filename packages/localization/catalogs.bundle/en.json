@@ -1127,7 +1127,10 @@
       "authorization_microsoft": "This mailbox needs Microsoft access again before it can send. Allow access or choose another mailbox.",
       "password": "This mailbox needs its password entered again, with sending set up, before it can send. Enter it in Settings or choose another mailbox.",
       "removed": "This mailbox was removed from this account. Choose another mailbox to send from.",
-      "renamed": "This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox."
+      "renamed": "This mailbox changed its address. Choose it again in From to use its current address, or choose another mailbox.",
+      "signIn": "Gmail needs you to sign in again before this address can send.",
+      "signIn_microsoft": "Microsoft 365 needs you to sign in again before this address can send.",
+      "signInAction": "Sign In…"
     },
     "titleShortened": "{{title}}, subject shortened",
     "close": "Close",
