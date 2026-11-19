@@ -141,10 +141,11 @@ signing/provisioning setup described in the [Mac client guide](macos-client.md#v
 [`src/testing/de.json`](../packages/localization/src/testing/de.json) is a German
 test catalog for layout checks, never a shipped language. It translates the
 strings of the screens in [#2096](https://github.com/unwired-dev/product/issues/2096)'s
-frames; other keys fall back to English. Mac Mock Mail Session builds offer it as
-**Deutsch** after the shipped languages: Metro substitutes
-`src/testing/catalogs.ts` for `src/shipped-catalogs.ts`, and the native build copies
-the catalog and its manifest into `catalogs.bundle`. Release builds and bundles
+frames; other keys fall back to English. Mac and iPhone Mock Mail Session builds offer
+it as **Deutsch** after the shipped languages: Metro substitutes
+`src/testing/catalogs.ts` for `src/shipped-catalogs.ts`, and the native build (on
+iPhone, the Expo localization plugin) copies the catalog and its manifest into
+`catalogs.bundle`. Release builds and bundles
 without a scenario never carry it, which the bundle check enforces. Every other Mac
 journey launches with `-interfaceLanguage en`, so a German Mac still runs them in English.
 
@@ -158,4 +159,18 @@ UNWIRED_MOCK_SCENARIO=registration-performance \
 mise exec -- pnpm --filter @private-email/macos test:native \
   "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
   testGermanStrings # or testGermanStringsDark
+```
+
+The iPhone German strings journey adds a Gmail mailbox to the Microsoft one,
+relaunches with `-interfaceLanguage de` and checks the Inbox, a Thread, a New
+Message with the keyboard up and Settings against the frames. Build the
+`registration-performance` Mock Mail Session as the
+[mobile entry point](mock-mail-sessions.md#mobile-entry-point) describes, then run it in Dark and in
+Light:
+
+```sh
+UNWIRED_JOURNEY=testGermanStrings UNWIRED_APPEARANCE=light \
+  mise exec -- pnpm --filter @private-email/mobile test:native \
+  "$PWD/artifacts/mock-mail/DerivedData/Build/Products/Release-iphonesimulator/UnwiredMail.app" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro
 ```
