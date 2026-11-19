@@ -2862,9 +2862,19 @@ describe('mac windows over a connected Gmail mailbox', () => {
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const travel = gmail.createLabel('Travel');
     const receipts = gmail.createLabel('Receipts');
+    const clients = gmail.createLabel('Clients');
     const id = gmail.deliver({
       from: 'Oliver Park <oliver@example.invalid>',
       subject: 'Saturday, by the river?',
+    });
+    // Label creation requests, whose Gmail answer the test may hold.
+    const creating = jest.spyOn(gmail.native, 'gmailCreateLabel');
+    const created = () => creating.mock.calls.map(([name]) => name);
+    let refuse: (answer: { status: number; body: string }) => void = () =>
+      undefined;
+    // oxlint-disable-next-line promise/avoid-new -- A Gmail answer the test releases.
+    const held = new Promise<{ status: number; body: string }>((resolve) => {
+      refuse = resolve;
     });
     const { registration } = await connectedRegistration();
     const list = createMailboxes(
@@ -2933,10 +2943,6 @@ describe('mac windows over a connected Gmail mailbox', () => {
         labels.getByRole('header', { name: 'Matching labels' }),
       ).toBeVisible();
       // Appearance changes keep the name already typed.
-      await fireEvent.changeText(
-        labels.getByLabelText('Label name'),
-        '  Lisbon trip ',
-      );
       paletteSpy.mockReturnValue(palette.dark);
       await app.rerender(
         <RegistrationGate
@@ -2947,19 +2953,20 @@ describe('mac windows over a connected Gmail mailbox', () => {
       );
       labels = within(window.getByTestId('new-label'));
       expect(labels.getByLabelText('Label name')).toHaveDisplayValue(
-        '  Lisbon trip ',
+        'Travel/Lisbon',
       );
       await fireEvent.press(
         labels.getByRole('button', {
-          name: 'Create “Lisbon trip”, Created in Gmail, then applied',
+          name: 'Create “Lisbon” inside “Travel”, Created in Gmail, then applied',
         }),
       );
       await expect(labelsPopover()).resolves.toHaveProp('shown', false);
+      expect(created()).toStrictEqual(['Travel/Lisbon']);
       await fireEvent(await labelsPopover(), 'close');
       await fireEvent.press(more);
       await waitFor(() => {
         expect(submenuItems('Labels')).toContainEqual(
-          expect.objectContaining({ title: 'Lisbon trip', checked: true }),
+          expect.objectContaining({ title: 'Travel/Lisbon', checked: true }),
         );
       });
       // Cancel closes Labels without a change.
@@ -2994,39 +3001,57 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await waitFor(() => {
         expect(gmail.labelsOf(id)).toContain(travel);
       });
-      // A label in the list applies at once.
-      await fireEvent.press(
-        (await newLabel()).getByRole('button', { name: 'Receipts' }),
+      // A label's exact name applies it without creating one, as choosing it in the list does.
+      labels = await newLabel();
+      await fireEvent.changeText(
+        labels.getByLabelText('Label name'),
+        'Receipts',
       );
+      await fireEvent(labels.getByLabelText('Label name'), 'submitEditing');
       await expect(labelsPopover()).resolves.toHaveProp('shown', false);
       await waitFor(() => {
         expect(gmail.labelsOf(id)).toContain(receipts);
       });
-      // A name Gmail refuses is explained, nothing is applied, and OK returns to the name.
+      labels = await newLabel();
+      await fireEvent.press(labels.getByRole('button', { name: 'Clients' }));
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
+      await waitFor(() => {
+        expect(gmail.labelsOf(id)).toContain(clients);
+      });
+      expect(created()).toStrictEqual(['Travel/Lisbon']);
+      // A name Gmail refuses is explained and nothing is applied. Closing and reopening Labels
+      // while Gmail answers keeps the name, and OK returns to it.
       const applied = gmail.labelsOf(id);
-      gmail.failCreateLabel({ status: 409 }, { status: 409 });
+      creating.mockImplementationOnce(async () => held);
       labels = await newLabel();
       await fireEvent.changeText(labels.getByLabelText('Label name'), 'Work');
       await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
+      expect(labels.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+      // A click outside closes the AppKit popover.
+      await fireEvent(await labelsPopover(), 'close');
+      expect(window.queryByTestId('new-label')).toBeNull();
+      labels = await newLabel();
+      expect(labels.getByLabelText('Label name')).toHaveDisplayValue('Work');
+      expect(labels.getByRole('button', { name: 'Apply' })).toBeDisabled();
+      await act(async () => {
+        refuse({ status: 409, body: '{}' });
+      });
       await waitFor(() => {
         expect(sheetShown()).toMatchObject({
           title: '“Work” could not be created in Gmail',
           buttons: ['OK'],
         });
       });
+      await expect(labelsPopover()).resolves.toHaveProp('shown', false);
       await act(async () => {
         chooseSheetButton('OK');
       });
       await expect(labelsPopover()).resolves.toHaveProp('shown', true);
-      expect(
-        within(window.getByTestId('new-label')).getByLabelText('Label name'),
-      ).toHaveDisplayValue('Work');
+      labels = within(window.getByTestId('new-label'));
+      expect(labels.getByLabelText('Label name')).toHaveDisplayValue('Work');
       expect(gmail.labelsOf(id)).toStrictEqual(applied);
-      await fireEvent.press(
-        within(window.getByTestId('new-label')).getByRole('button', {
-          name: 'Apply',
-        }),
-      );
+      gmail.failCreateLabel({ status: 409 });
+      await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
       await waitFor(() => {
         expect(sheetShown()).toMatchObject({
           title: '“Work” could not be created in Gmail',

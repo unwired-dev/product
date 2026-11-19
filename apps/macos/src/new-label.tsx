@@ -113,15 +113,18 @@ function Row({
 // Labels, as New Label… opens it below the reader's toolbar: a name to type, a row creating it in
 // Gmail, then the account's labels. Apply creates the label and applies it, or applies the label
 // Gmail already has under that name; a name that differs from one only in case asks in a sheet
-// whether to use that label instead. Labels already on the Thread stay. Each choice of New Label…
-// mounts a new one.
+// whether to use that label instead. Labels already on the Thread stay.
 export function NewLabel({
+  opening,
   anchor,
   labels,
   onApply,
   onCreate,
 }: {
   // The view in the reader's window that its sheets attach to.
+  // Counts the choices of New Label…; each opens Labels with an empty name, unless Gmail is still
+  // answering for the last one, whose name a refusal returns to.
+  readonly opening: number;
   readonly anchor: RefObject<View | null>;
   readonly labels: readonly GmailLabel[];
   readonly onApply: (label: string) => void;
@@ -135,6 +138,14 @@ export function NewLabel({
   const [shown, setShown] = useState(true);
   const [typed, setTyped] = useState('');
   const [creating, setCreating] = useState(false);
+  const [opened, setOpened] = useState(opening);
+  if (opening !== opened) {
+    setOpened(opening);
+    setShown(true);
+    if (!creating) {
+      setTyped('');
+    }
+  }
   // The sheet asked last; it closes with the reader.
   const asked = useRef<ReturnType<typeof askInSheet>>(undefined);
   useLayoutEffect(

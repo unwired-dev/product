@@ -59,7 +59,7 @@ import {
   useWindowIdentifier,
 } from './command-palette.tsx';
 import { PopUp } from './composer-controls.tsx';
-import { askInSheet, GlassGroup, Notice, ToolbarButton } from './design.tsx';
+import { GlassGroup, Notice, ToolbarButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
   useInbox,
@@ -616,7 +616,7 @@ function GmailMessageActions({
   const provider = mailbox?.provider ?? 'gmail';
   const anchor = useRef<View>(null);
   const pinFor = usePinFor(anchor);
-  // The message New Label… last opened Labels for; each choice opens a new one.
+  // The message New Label… last opened Labels for, and how often it was chosen.
   const [labelling, setLabelling] =
     useState<Readonly<{ message: GmailMessage; opening: number }>>();
   // The reader holds the view it was opened in, so browsing other views cannot evict its message.
@@ -723,7 +723,7 @@ function GmailMessageActions({
           labelling?.message.id !== message.id ||
           !('createLabel' in store) ? undefined : (
             <NewLabel
-              key={labelling.opening}
+              opening={labelling.opening}
               anchor={anchor}
               labels={state.labels}
               onApply={(label) => {
