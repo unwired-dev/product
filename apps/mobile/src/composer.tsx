@@ -172,6 +172,7 @@ import {
   Monogram,
   scaledToolbar,
   SFSymbol,
+  SignInNotice,
   ToolbarButton,
 } from './design.tsx';
 import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
@@ -303,23 +304,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: padFieldInset,
   },
   sendDisabled: { opacity: 0.5 },
-  // The Authorization Needed banner: 16 by 12pt inside, its message row 10pt above Sign In….
-  signInBanner: {
-    gap: 10,
-    paddingHorizontal: spacing.l,
-    paddingVertical: spacing.m,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
-  signInMessage: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  signInText: { ...textStyles.subheadline, fontWeight: '600' },
-  signInButton: {
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderRadius: 22,
-  },
   // Under From, in line with it: 4pt above and 8pt below on iPhone, as its frame draws it.
   phoneSignIn: {
     marginHorizontal: inset,
@@ -1008,7 +992,6 @@ function SignInBanner({
   readonly style?: StyleProp<ViewStyle>;
 }) {
   const account = use(AccountContext);
-  const colors = usePalette();
   const { t } = useLocalization();
   const mailboxes = account?.mailboxes ?? [];
   const message = sendingMessage(t, draft, mailboxes);
@@ -1018,48 +1001,15 @@ function SignInBanner({
   ) {
     return null;
   }
-  // The frame's Banner: its message in emphasized Subheadline, Sign In… in a content-coloured pill
-  // beneath, in line with the symbol.
   return (
-    <View
-      style={[
-        styles.signInBanner,
-        { backgroundColor: colors.fillQuiet },
-        style,
-      ]}>
-      <View style={styles.signInMessage}>
-        <SFSymbol
-          name="person.crop.circle.badge.exclamationmark"
-          color={colors.statusWarning}
-          size={16}
-        />
-        <Text
-          style={[
-            styles.signInText,
-            styles.grow,
-            { color: colors.textPrimary },
-          ]}>
-          {message}
-        </Text>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => {
-          void account?.authorizeMailbox(draft.connection);
-        }}
-        style={({ pressed }) => [
-          styles.signInButton,
-          {
-            backgroundColor: pressed
-              ? colors.accentSelectionSubtle
-              : colors.surfaceContent,
-          },
-        ]}>
-        <Text style={[styles.signInText, { color: colors.accentInk }]}>
-          {t('drafts.sending.signInAction')}
-        </Text>
-      </Pressable>
-    </View>
+    <SignInNotice
+      message={message}
+      action={t('drafts.sending.signInAction')}
+      onPress={() => {
+        void account?.authorizeMailbox(draft.connection);
+      }}
+      style={style}
+    />
   );
 }
 

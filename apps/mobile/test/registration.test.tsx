@@ -1241,14 +1241,15 @@ describe('product registration', () => {
         screen.getByRole('button', { name: 'Inbox. In other@example.invalid' }),
       );
     });
-    // The unselected mailbox still explains its problem beside its Inbox row.
+    // The unselected mailbox still explains its problem beside its header.
     expect([
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
         .props.accessibilityState?.selected,
-      screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' })
-        .props.accessibilityValue?.text,
+      screen.queryAllByRole('header', {
+        name: `Gmail · alex@example.invalid, ${unreachable}`,
+      }).length,
       screen.queryByText(/Gmail could not be reached/u),
-    ]).toStrictEqual([false, unreachable, null]);
+    ]).toStrictEqual([false, 1, null]);
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
@@ -1896,9 +1897,11 @@ describe('product registration', () => {
     ).toBeVisible();
     const alexRow = () =>
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' });
-    expect(alexRow()).toHaveAccessibilityValue({
-      text: 'Gmail needs your permission again',
-    });
+    expect(
+      screen.getByRole('header', {
+        name: 'Gmail · alex@example.invalid, Gmail needs your permission again',
+      }),
+    ).toBeVisible();
     await press('Inbox. In alex@example.invalid');
     await expect(screen.findByText('Only for Alex')).resolves.toBeVisible();
     expect(alexRow()).toHaveAccessibilityValue({ text: '1 unread' });
