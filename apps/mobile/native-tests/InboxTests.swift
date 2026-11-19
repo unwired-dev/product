@@ -3056,9 +3056,9 @@ final class InboxTests: XCTestCase {
     app.buttons["Delete"].tap()
     waitUntil { identity.value as? String == "None" }
 
-    // #2243: a connection whose password the server refuses shows the problem beside its sidebar
-    // header on iPad, where the list subtitle names it after the count, and on its Inbox row on
-    // iPhone.
+    // #2243, #2099: a connection whose password the server refuses shows the problem beside its
+    // sidebar header, not on its Inbox row. On iPad the list subtitle names it after the count; on
+    // iPhone a banner above its folders offers Enter the Password….
     let expired = "lee@example.invalid"
     openSettings("Email Accounts", in: app)
     if !phone {
@@ -3087,16 +3087,18 @@ final class InboxTests: XCTestCase {
     let problem = "The mail server needs your password again"
     let expiredInbox = app.buttons["Inbox. In \(expired)"]
     XCTAssertTrue(expiredInbox.waitForExistence(timeout: 20))
+    let header = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label BEGINSWITH %@", "IMAP · \(expired), \(problem)")
+    ).firstMatch
+    XCTAssertTrue(header.waitForExistence(timeout: 20))
+    XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
     if phone {
-      waitUntil { (expiredInbox.value as? String)?.hasPrefix(problem) == true }
+      let repair = app.buttons["Enter the Password…"]
+      XCTAssertTrue(repair.waitForExistence(timeout: 20))
       for _ in 0..<5 where !expiredInbox.isHittable { app.swipeUp() }
+      XCTAssertTrue(repair.isHittable)
       capture("Mailboxes connection needs its password")
     } else {
-      let header = app.descendants(matching: .any).matching(
-        NSPredicate(format: "label BEGINSWITH %@", "IMAP · \(expired), \(problem)")
-      ).firstMatch
-      XCTAssertTrue(header.waitForExistence(timeout: 20))
-      XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
       showSidebar(app)
       app.buttons["All Inboxes"].tap()
       XCTAssertTrue(text("IMAP needs sign-in", in: app).waitForExistence(timeout: 20))

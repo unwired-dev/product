@@ -270,8 +270,9 @@ that cannot be read shows **Folders could not be listed**; its cached messages s
 The failed read also marks that folder's sidebar row, including after another mailbox
 is selected and when the folder has no cached messages. A problem of the whole connection,
 such as a password the server no longer accepts, shows as a warning beside the
-connection's sidebar header on Mac and iPad and on its Inbox row on iPhone, as in the
-[Gmail guide](gmail-inbox.md#behavior).
+connection's sidebar header, as in the [Gmail guide](gmail-inbox.md#behavior). On iPhone a
+banner above its folders also offers **Enter the Password…**, which opens Settings' Email
+Accounts.
 A chosen folder removed from the refreshed selectable listing falls back to Inbox.
 It stays there if that folder name reappears, until the person chooses it again.
 Local search marks a body as available on this device only when the body cache
