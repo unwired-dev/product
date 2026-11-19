@@ -3085,17 +3085,18 @@ final class InboxTests: XCTestCase {
     app.buttons[settingsExit].tap()
     showMailboxes()
     let problem = "The mail server needs your password again"
+    // A connection refused before its first folder listing has no folder rows yet (#2422).
     let expiredInbox = app.buttons["Inbox. In \(expired)"]
-    XCTAssertTrue(expiredInbox.waitForExistence(timeout: 20))
     let header = app.descendants(matching: .any).matching(
       NSPredicate(format: "label BEGINSWITH %@", "IMAP · \(expired), \(problem)")
     ).firstMatch
     XCTAssertTrue(header.waitForExistence(timeout: 20))
-    XCTAssertFalse((expiredInbox.value as? String)?.hasPrefix(problem) == true)
+    XCTAssertFalse(
+      expiredInbox.exists && (expiredInbox.value as? String)?.hasPrefix(problem) == true)
     if phone {
       let repair = app.buttons["Enter the Password for \(expired)…"]
       XCTAssertTrue(repair.waitForExistence(timeout: 20))
-      for _ in 0..<5 where !expiredInbox.isHittable { app.swipeUp() }
+      for _ in 0..<5 where !repair.isHittable { app.swipeUp() }
       XCTAssertTrue(repair.isHittable)
       capture("Mailboxes connection needs its password")
     } else {
