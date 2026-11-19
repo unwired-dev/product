@@ -492,13 +492,13 @@ export function createSyntheticImap({
         return inSession(session) ?? rejection('imap-missing');
       }
       examining.set(session, current);
-      // A text matches the subject or the message case-insensitively; a boundary, as it appears.
+      // A text matches the subject or the message case-insensitively; a Message-ID, as it appears.
       const matching =
-        request.boundary === undefined
+        request.messageId === undefined
           ? ({ subject, raw }: ServerMessage) =>
               subject.toLowerCase().includes(request.query.toLowerCase()) ||
               raw.toLowerCase().includes(request.query.toLowerCase())
-          : ({ raw }: ServerMessage) => raw.includes(request.boundary);
+          : ({ raw }: ServerMessage) => raw.includes(request.messageId);
       const matches = Arr.sort(current.messages.filter(matching), newestUid);
       return (
         inSession(session) ??

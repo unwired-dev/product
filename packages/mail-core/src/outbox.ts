@@ -624,7 +624,7 @@ export function createOutbox({
       return;
     }
     const mailbox = connectionOf(entry.draft.connection);
-    const boundary = boundaryOf(entry.message.segments);
+    const messageId = messageIdOf(entry.message.segments);
     const sending = sendingStateOf(
       entry.draft,
       mailboxesOf(registration.getSnapshot().snapshot),
@@ -634,8 +634,8 @@ export function createOutbox({
       problem = undefined;
     } else if (sending === 'password') {
       problem = 'authorization';
-    } else if (mailbox?.provider === 'imap' && boundary !== undefined) {
-      problem = await mailbox.inbox.fileSent(entry.message, boundary);
+    } else if (mailbox?.provider === 'imap' && messageId !== undefined) {
+      problem = await mailbox.inbox.fileSent(entry.message, messageId);
     }
     await drafts.deliver(
       entry.id,
@@ -656,19 +656,21 @@ export function createOutbox({
     if (entry?.state !== 'unknown' || ownerOf(registration) === undefined) {
       return;
     }
-    const boundary = boundaryOf(entry.message.segments);
+    const messageId = messageIdOf(entry.message.segments);
     const mailbox = connectionOf(entry.draft.connection);
-    if (boundary === undefined || mailbox === undefined) {
+    // An IMAP copy is found by its Message-ID, Gmail's by its MIME boundary.
+    const key =
+      mailbox?.provider === 'imap'
+        ? messageId
+        : boundaryOf(entry.message.segments);
+    if (key === undefined || mailbox === undefined) {
       return;
     }
     queuedChecks.add(id);
     const outcome =
       mailbox.provider === 'imap'
-        ? await mailbox.inbox.findSent(boundary)
-        : await mailbox.inbox.findSent(
-            boundary,
-            messageIdOf(entry.message.segments),
-          );
+        ? await mailbox.inbox.findSent(key)
+        : await mailbox.inbox.findSent(key, messageId);
     if (outcome === undefined) {
       // The mailbox closed or changed meanwhile; it is checked again once it is ready.
       queuedChecks.delete(id);

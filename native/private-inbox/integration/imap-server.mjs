@@ -105,7 +105,7 @@ const assertResumed = (command, { large, sparse }) => {
   }
 };
 const operations = new Set();
-// Sent copies appended by MIME boundary; filing the same message again must find, not append.
+// Sent copies appended by Message-ID; filing the same message again must find, not append.
 const appended = new Set();
 const discoverNamespaces = (socket, tag, failed) => {
   if (failed) {
@@ -290,15 +290,15 @@ const answerChange = (socket, session, { tag, command }) => {
       `* 1 FETCH (${metadataFields(command, 4_000_000_000).join(' ')})\r\n${tag} OK Completed\r\n`,
     );
   } else if (/^UID SEARCH .*HEADER/u.test(command)) {
-    // A Sent copy is found by its MIME boundary in Content-Type.
+    // A Sent copy is found by its Message-ID: Seznam Email drops the connection on a Content-Type
+    // search.
     assert.equal(session.selected, 'Sent');
-    const boundary =
-      /HEADER "?Content-Type"? "?(?<boundary>[\w=.-]+)"?$/iu.exec(command)
-        ?.groups?.boundary;
-    assert.ok(boundary, `Unexpected Sent search: ${command}`);
-    operations.add(appended.has(boundary) ? 'sent-found' : 'sent-search');
+    const id = /HEADER "?Message-ID"? "?(?<id>[^"\s]+)"?$/iu.exec(command)
+      ?.groups?.id;
+    assert.ok(id, `Unexpected Sent search: ${command}`);
+    operations.add(appended.has(id) ? 'sent-found' : 'sent-search');
     socket.write(
-      `* SEARCH${appended.has(boundary) ? ' 31' : ''}\r\n${tag} OK Completed\r\n`,
+      `* SEARCH${appended.has(id) ? ' 31' : ''}\r\n${tag} OK Completed\r\n`,
     );
   } else if (/^UID SEARCH .*UID \d+:\d+ ALL$/u.test(command)) {
     // History reads search bounded UID windows; the reply overstates them with a billions-wide range.
@@ -446,14 +446,10 @@ const server = tls.createServer(
       const message = input.slice(0, size);
       input = input.slice(size + 2);
       session.literal = undefined;
-      const boundary = /boundary="(?<boundary>[^"]+)"/u.exec(message)?.groups
-        ?.boundary;
-      assert.ok(boundary, 'An appended Sent copy carries its MIME boundary');
-      assert.ok(
-        !appended.has(boundary),
-        'A Sent copy must never be appended twice',
-      );
-      appended.add(boundary);
+      const id = /^Message-ID: <(?<id>[^>\r]+)>\r$/mu.exec(message)?.groups?.id;
+      assert.ok(id, 'An appended Sent copy carries its Message-ID');
+      assert.ok(!appended.has(id), 'A Sent copy must never be appended twice');
+      appended.add(id);
       operations.add('append');
       socket.write(`${tag} OK [APPENDUID 9 31] Appended\r\n`);
     };

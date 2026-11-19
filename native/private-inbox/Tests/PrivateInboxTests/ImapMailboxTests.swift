@@ -92,16 +92,16 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
   func envelopes(_ read: ImapEnvelopeRead) async throws -> [ImapEnvelope] {
     ControlledImap.messages
   }
-  // Messages appended, in order; a boundary search counts the appended copies that carry it.
+  // Messages appended, in order; a Message-ID search counts the appended copies that carry it.
   private var stored: [Data] = []
   func appended() -> [Data] { lock.withLock { stored } }
   func search(_ folder: String, for criterion: ImapSearchCriterion, newest: Int) async throws
     -> ImapMatches
   {
-    guard case .boundary(let boundary) = criterion else {
+    guard case .messageId(let messageId) = criterion else {
       return ImapMatches(uidValidity: 7, uids: [11], total: 2)
     }
-    let copies = lock.withLock { stored.filter { $0.range(of: Data(boundary.utf8)) != nil } }
+    let copies = lock.withLock { stored.filter { $0.range(of: Data(messageId.utf8)) != nil } }
     return ImapMatches(uidValidity: 7, uids: [], total: copies.count)
   }
   func append(_ folder: String, message: Data) async throws {

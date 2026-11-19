@@ -537,11 +537,11 @@ waits to send until the connection's folder list has been read.
   or a failed TLS setup waits to send and tries again.
 - Once the message's end may have reached the server without a final answer, its
   outcome is **Delivery unknown** and it is never submitted again automatically.
-  **Check Again** looks for exactly one copy with its MIME boundary in the Sent folder,
+  **Check Again** looks for exactly one copy with its Message-ID in the Sent folder,
   which confirms it; otherwise it stays unknown until the person chooses **Edit Anyway**.
 - A message SMTP accepted is recorded as sent before its copy is filed, and the row says
   **Sent. Saving a copy to Sent…**. Filing appends the message, with its Bcc field,
-  read, to the Sent folder unless a copy with its MIME boundary is already there, so a
+  read, to the Sent folder unless a copy with its Message-ID is already there, so a
   lost answer or a relaunch files it again without a second copy and never submits the
   message again. While filing waits, the row says why: the server cannot be reached,
   storage is locked, the password was refused, or the Sent folder is gone. Edit is not
@@ -571,8 +571,10 @@ folder without UIDVALIDITY), and envelopes or flags of that folder's messages by
 from a UID onward or by the newest sequence numbers. A search examines one folder and
 returns its newest matching UIDs and how many matched in all, refusing a folder the
 server no longer selects, one without UIDVALIDITY and a query in a charset the server
-cannot search; it matches either text or a Sent copy's MIME boundary in the
-Content-Type header. An append stores an outgoing message, read, in a folder: native
+cannot search; it matches either text or a Sent copy's Message-ID header. Seznam
+Email's server drops the connection on a Content-Type header search in a folder
+that holds messages ([#2402](https://github.com/unwired-dev/product/issues/2402)),
+so a Sent copy is not looked up by its MIME boundary. An append stores an outgoing message, read, in a folder: native
 code reads the message from the Outbox and appends it only for a trusted device. UID-set and newest-message requests name at most 200 messages; a UID-range request reads from its starting UID onward.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. IDLE runs the
@@ -593,7 +595,7 @@ store, move, copy and expunge. Each answers with a fixed failure code and refuse
 a folder the server opens read-only. A command that fails after it was sent is
 reported as interrupted, so TypeScript never resends an uncertain move.
 Filing a Sent copy runs the same way: TypeScript searches the Sent folder for the copy's
-boundary and appends the message in the same session only when no copy is there.
+Message-ID and appends the message in the same session only when no copy is there.
 
 The connection of a closed session ends only when its active command answers or
 times out. Aborting it on the wire is
@@ -683,7 +685,7 @@ a refused password, a temporary refusal, a refused recipient without partial del
 a permanent refusal after the message, and interruptions at MAIL FROM, RCPT TO, DATA,
 during content, and after the message's end. Content-phase interruptions remain unknown;
 earlier interruptions remain safe to retry. The IMAP fixture checks
-a session's boundary search of the Sent folder and a single APPEND that the search
+a session's Message-ID search of the Sent folder and a single APPEND that the search
 then finds. Its certificate
 never changes production validation or trust on the host Mac.
 
@@ -703,7 +705,7 @@ and keys afterwards. It needs a running Docker engine. The unchanged engine exer
 | IMAP 993, implicit TLS, password                      | Login, SPECIAL-USE roles, delivered mail read, searched, marked and moved |
 | SMTP 465, implicit TLS, password                      | Submission delivered                                                      |
 | SMTP 587, STARTTLS before AUTH, password              | Submission delivered                                                      |
-| IMAP 993, Sent folder                                 | Sent copy appended and found by its boundary                              |
+| IMAP 993, Sent folder                                 | Sent copy appended and found by its Message-ID                            |
 | IMAP 143, STARTTLS offered, LOGIN allowed without TLS | Refused as insecure; the engine has no IMAP STARTTLS                      |
 | SMTP without STARTTLS, AUTH offered in plaintext      | Refused as insecure                                                       |
 | IMAP 993 and SMTP 465, untrusted self-signed cert     | Refused as insecure                                                       |
