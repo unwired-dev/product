@@ -74,8 +74,8 @@ waiting changes and synchronization. Adding a mailbox never adds a Product Sign-
   only that mailbox; **All Inboxes** returns. Each window chooses on its own. A
   removed mailbox's view falls back to **All Inboxes**. A chosen mailbox whose
   provider authorization lapsed stays chosen: its Inbox shows the authorization notice,
-  its heading's subtitle shows the same status as its sidebar row (on Mac and iPad, as the
-  warning beside the mailbox's sidebar header, whose Inbox row keeps its action), and
+  its heading's subtitle shows the same status as the warning beside the mailbox's sidebar
+  header, its Inbox row keeps its unread count and action, and
   **New Message** stays unavailable until access is allowed again.
 - **Labels and other views.** Under its Inbox, each Gmail mailbox's sidebar section
   lists the mailbox's own labels by name, then **All Mail**, **Spam** and **Trash**
@@ -280,7 +280,9 @@ out. With nothing unread, iPhone's subtitle says **All read**, and iPad and Mac 
 count in place of the mailboxes and the time, such as **12 unread · Gmail needs sign-in**
 ([#2243](https://github.com/unwired-dev/product/issues/2243)); the mailbox's sidebar header
 shows a warning triangle that VoiceOver reads with the header, and its Inbox row keeps its
-unread count. On iPhone the problem replaces the Inbox row's count. On iPhone and iPad, while
+unread count. iPhone's Mailboxes shows the same triangle beside the connection's header,
+and while the connection needs sign-in again, a banner above its folders says so and offers
+**Sign In…** ([#2099](https://github.com/unwired-dev/product/issues/2099)). On iPhone and iPad, while
 [search](#searching-saved-mail) is open the heading gives way to its scope choice,
 and **Top Results** reports the result count; each mailbox an online search could
 not reach says so under **From mail servers**. On Mac, search changes the title to

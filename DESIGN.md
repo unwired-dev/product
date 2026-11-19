@@ -867,8 +867,6 @@ app follows under the issue named:
   Results, above the date sections, which waits for #2372.
 - **German strings:** no check lays the screens out at German lengths until
   #2096.
-- **iPhone Mailboxes:** the warning mark and Authorization Needed banner of a
-  failing Mailbox Connection wait for #2099.
 - **iPhone alert and Settings failure:** the two-sentence Trusted Device
   removal message and the empty state of a Settings page that failed to load
   wait for #2100.
