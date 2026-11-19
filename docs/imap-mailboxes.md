@@ -795,9 +795,10 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   the catalog for the Seznam Email address, and connected with its mail-client password.
   Each Inbox listed real messages and one opened in the reader with remote images
   held back. The Mailboxes list showed both accounts' folders, including Seznam Email's
-  `drafts`, `archive`, `spam` and `trash`. Limitations: Product Sync pulls failed as
-  unavailable from sign-in on, and Account & Devices showed the Gmail pending-changes
-  notice on this account without a Gmail mailbox
+  `drafts`, `archive`, `spam` and `trash`. Limitations: Product Sync logged an
+  unavailable failure right after sign-in, the `pullDrafts` pull failed as unavailable
+  once the first IMAP mailbox connected, and Account & Devices showed the Gmail
+  pending-changes notice on this account without a Gmail mailbox
   ([#2390](https://github.com/unwired-dev/product/issues/2390)). Mac, iPad,
   organizing, search, attachments, sending, IDLE, Sent filing, relaunch and recovery were
   not run and stay on #632.
