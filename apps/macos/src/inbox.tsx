@@ -91,10 +91,10 @@ import {
 import { MovingRow, useRowMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize.tsx';
 import {
-  OutboxHeading,
   OutboxRow,
   forgetRetired,
   useOutboxActions,
+  useOutboxView,
 } from './outbox.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -600,17 +600,17 @@ const searchSections = <T,>(
     : [{ key: 'gmail', data: online.found?.results ?? [] }]),
 ];
 
-// Outbox and Drafts come before received mail; a search lists matching messages alone.
+// The Outbox view lists the Outbox alone. Otherwise Drafts come before received mail, and a search
+// lists matching messages alone.
 function inboxSections<M>({
   outbox,
-  canCompose,
   drafts,
   messages,
   online,
   searching,
 }: Readonly<{
-  outbox: readonly OutboxSnapshotEntry[];
-  canCompose: boolean;
+  // The Outbox's messages while the Outbox view shows them.
+  outbox: readonly OutboxSnapshotEntry[] | undefined;
   drafts: readonly Draft[];
   messages: ReadonlyArray<Readonly<{ key: string; data: readonly M[] }>>;
   online: Readonly<{
@@ -619,15 +619,20 @@ function inboxSections<M>({
   }>;
   searching: boolean;
 }>) {
-  const outboxRows =
-    searching || !canCompose
-      ? []
-      : outbox.map((entry): OutboxItem | DraftItem | M => ({ outbox: entry }));
+  if (outbox !== undefined) {
+    return [
+      {
+        key: 'outbox',
+        data: outbox.map((entry): OutboxItem | DraftItem | M => ({
+          outbox: entry,
+        })),
+      },
+    ];
+  }
   const draftRows = searching
     ? []
     : drafts.map((draft): OutboxItem | DraftItem | M => ({ draft }));
   return [
-    ...(outboxRows.length === 0 ? [] : [{ key: 'outbox', data: outboxRows }]),
     ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
     ...searchSections<OutboxItem | DraftItem | M>(messages, online),
   ];
@@ -747,6 +752,68 @@ function InboxFooter({
         />
       </View>
     </EmptyInbox>
+  );
+}
+
+// Below a listed view: what it says when it lists nothing, the online search's results, its older
+// mail and where its mail comes from.
+function ListFooter({
+  unconnected,
+  profile,
+  results,
+  noMail,
+  ready,
+  unlisted,
+  scope,
+  syncing,
+  query,
+  search,
+  folder,
+  gmail,
+}: Readonly<{
+  unconnected: Account | undefined;
+  profile: string;
+  results: readonly unknown[] | undefined;
+  noMail: boolean;
+  ready: boolean;
+  unlisted: boolean;
+  scope: string;
+  syncing: boolean;
+  query: string;
+  search: ReturnType<typeof useGmailSearch>;
+  folder: ComponentProps<typeof FolderFooter>;
+  gmail: boolean;
+}>) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const searching = results !== undefined;
+  return (
+    <InboxFooter
+      unconnected={unconnected}
+      profile={profile}>
+      {!searching && noMail ? (
+        <EmptyInbox
+          title={t('inbox.empty')}
+          detail={t('inbox.emptyDetail', { scope })}
+        />
+      ) : null}
+      <NoResults
+        ready={ready && !unlisted}
+        results={results}
+        search={search}
+        scope={scope}
+        query={query}
+      />
+      {!searching && syncing ? <SkeletonRows /> : null}
+      <OnlineResults
+        query={query}
+        search={search}
+      />
+      {searching ? null : <FolderFooter {...folder} />}
+      <Text style={[styles.footer, { color: colors.textSecondary }]}>
+        {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
+      </Text>
+    </InboxFooter>
   );
 }
 
@@ -1006,14 +1073,17 @@ export function Inbox({
     () => messageDateSections(messages, now),
     [messages, now],
   );
-  const sections = inboxSections({
-    ...profileDrafts({
-      drafts,
-      outbox,
-      account,
-      profile,
-    }),
+  const outboxView = useOutboxView({
+    chosen: view.outbox === true,
+    onEmptied: () => {
+      onView(allInboxes);
+    },
     canCompose: onCompose !== undefined,
+    searching: results !== undefined,
+  });
+  const sections = inboxSections({
+    drafts: profileDrafts({ drafts, outbox, account, profile }).drafts,
+    outbox: outboxView?.entries,
     messages: dated,
     online,
     searching: results !== undefined,
@@ -1026,6 +1096,7 @@ export function Inbox({
       scope,
       folder,
       view.unified,
+      outboxView === undefined,
       searched,
       ...shown.map(({ inbox }) => inbox),
       ...shown.map(({ state }) => state.kind === 'ready'),
@@ -1086,7 +1157,7 @@ export function Inbox({
     now,
     inbox: view.unified === undefined && folder === inboxFolder,
   });
-  const { title, subtitle, emptyScope } = headingOf(t, {
+  const listHeading = headingOf(t, {
     scope,
     folder: folderTitle,
     scopeName,
@@ -1098,6 +1169,8 @@ export function Inbox({
     unlisted,
     unified: view.unified !== undefined,
   });
+  const { emptyScope } = listHeading;
+  const { title, subtitle } = outboxView ?? listHeading;
   // A listed message's actions at its provider; one that takes the open message away closes it.
   const rowActions = (
     mailbox: InboxMailbox,
@@ -1302,13 +1375,10 @@ export function Inbox({
             );
           }}
           contentContainerStyle={styles.list}
-          onEndReached={showOlder}
+          onEndReached={outboxView === undefined ? showOlder : undefined}
           sections={placed}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => {
-            if (section.key === 'outbox') {
-              return <OutboxHeading />;
-            }
             if (section.key === 'drafts') {
               return <DraftHeading />;
             }
@@ -1334,40 +1404,22 @@ export function Inbox({
           keyExtractor={rowKey}
           ListHeaderComponent={onCompose === undefined ? null : <DraftList />}
           ListFooterComponent={
-            <InboxFooter
-              unconnected={unconnected}
-              profile={profile}>
-              {results === undefined &&
-              hasNoMail({ ready, syncing, count: messages.length }) ? (
-                <EmptyInbox
-                  title={t('inbox.empty')}
-                  detail={t('inbox.emptyDetail', { scope: emptyScope })}
-                />
-              ) : null}
-              <NoResults
-                ready={ready && !unlisted}
+            outboxView === undefined ? (
+              <ListFooter
+                unconnected={unconnected}
+                profile={profile}
                 results={results}
-                search={online}
+                noMail={hasNoMail({ ready, syncing, count: messages.length })}
+                ready={ready}
+                unlisted={unlisted}
                 scope={emptyScope}
-                query={searched}
-              />
-              {results === undefined && syncing ? <SkeletonRows /> : null}
-              <OnlineResults
+                syncing={syncing}
                 query={searched}
                 search={online}
+                folder={{ limited, downloading, oldest: listed.at(-1), now }}
+                gmail={gmail}
               />
-              {results === undefined ? (
-                <FolderFooter
-                  limited={limited}
-                  downloading={downloading}
-                  oldest={listed.at(-1)}
-                  now={now}
-                />
-              ) : null}
-              <Text style={[styles.footer, { color: colors.textSecondary }]}>
-                {gmail ? t('inbox.footerConnected') : t('inbox.footer')}
-              </Text>
-            </InboxFooter>
+            ) : null
           }
           ListFooterComponentStyle={styles.listFooter}
           renderItem={({ item, section, index }) => {
