@@ -860,8 +860,6 @@ app follows under the issue named:
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
   and Failed states, wait for #2092.
-- **iPad Portrait:** the inline composer's size and format bar at 834×1210
-  wait for #2095.
 - **Thread view toolbar:** the Thread Long frames draw the reader toolbar over
   the Thread; the Thread view offers its actions once #846 tells message actions
   from Thread actions.
