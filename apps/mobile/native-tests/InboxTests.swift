@@ -1765,11 +1765,111 @@ final class InboxTests: XCTestCase {
     add(capture)
   }
 
+  // #2408: a force quit mid-typing keeps the New Message's unsaved edits, which Restore recovers
+  // after the relaunch; Discard removes them, so the next launch offers nothing.
+  private func composerRecoveryJourney(_ app: XCUIApplication) {
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("jordan@example.invalid", into: to)
+    // Leaving To adds the address as a recipient.
+    let subject = app.textFields["Subject"]
+    subject.tap()
+    type("Recovered after a force quit", into: subject)
+    let recipient = app.descendants(matching: .any)["To: jordan@example.invalid"]
+    XCTAssertTrue(recipient.waitForExistence(timeout: 10))
+    // XCUITest cannot type into the multiline body; hardware key presses reach it. iPad can wait
+    // two minutes for the app to settle after each, so the body stays one short word. A key the
+    // field drops while it re-renders is pressed once more (#1510).
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    focus(body) { !self.hasFocus(subject) }
+    var typed = ""
+    for key in "Kept" {
+      typed += String(key)
+      let entered = NSPredicate(format: "value == %@", typed)
+      for _ in 0..<2 where body.value as? String != typed {
+        press(String(key), in: app)
+        _ = XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: entered, object: body)], timeout: 5)
+      }
+    }
+    XCTAssertEqual(body.value as? String, "Kept")
+    // iPad's format bar keeps Attach Photo or folds it into More Files and Templates.
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    menuControl("Attach Photo", from: phone ? "Add files" : "More Files and Templates", in: app)
+      .tap()
+    let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
+    XCTAssertTrue(photo.waitForExistence(timeout: 30))
+    photo.tap()
+    let addPhoto = app.buttons["Add"]
+    if addPhoto.waitForExistence(timeout: 5) {
+      addPhoto.tap()
+    }
+    let remove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Remove "))
+      .firstMatch
+    XCTAssertTrue(remove.waitForExistence(timeout: 30))
+    let name = String(remove.label.dropFirst("Remove ".count))
+    let added = app.descendants(matching: .any)
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "\(name), ")).firstMatch
+    XCTAssertTrue(added.waitForExistence(timeout: 10))
+    waitUntil({ !added.label.hasSuffix("…") }, timeout: 30)
+    // A stored photo's row names only its size; a failed, damaged or missing one says so.
+    let row = added.label
+    XCTAssertFalse(row.contains("Not added") || row.contains(" · "), row)
+    let attachment = app.descendants(matching: .any)[row]
+    // The composer journals 2 s after the last edit; nothing on screen shows the write. The row
+    // keeps its label once its bytes are checked.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Recovery journal")], timeout: 5)
+    XCTAssertTrue(attachment.exists, added.label)
+
+    // Restore opens the composer on the recovered edits.
+    let offer = app.alerts["Recover unsaved message?"]
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    attachScreen("Recover unsaved message", of: app, to: self)
+    offer.buttons["Restore"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(subject.waitForExistence(timeout: 30))
+    XCTAssertEqual(subject.value as? String, "Recovered after a force quit")
+    XCTAssertTrue(recipient.waitForExistence(timeout: 10))
+    XCTAssertEqual(body.value as? String, "Kept")
+    XCTAssertTrue(attachment.waitForExistence(timeout: 10))
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Restored asset check")], timeout: 5)
+    XCTAssertTrue(attachment.exists, added.label)
+    attachScreen("Restored composer", of: app, to: self)
+
+    // The restored composer leaves the record until a Save, Send or Discard; Discard removes it.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(offer.waitForExistence(timeout: 45))
+    assertRecoveryOffer(offer)
+    offer.buttons["Discard"].tap()
+    XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
+    XCTAssertFalse(subject.exists)
+    // The alert closes before storage removes the record.
+    _ = XCTWaiter.wait(for: [XCTestExpectation(description: "Record removal")], timeout: 3)
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(app.buttons["New Message"].waitForExistence(timeout: 45))
+    XCTAssertFalse(offer.waitForExistence(timeout: 10))
+  }
+
+  // The offer names no message details and offers only Restore and Discard.
+  private func assertRecoveryOffer(_ offer: XCUIElement) {
+    XCTAssertTrue(offer.staticTexts["Your unsaved changes were kept on this device."].exists)
+    XCTAssertEqual(offer.staticTexts.count, 2)
+    XCTAssertEqual(Set(offer.buttons.allElementsBoundByIndex.map(\.label)), ["Restore", "Discard"])
+  }
+
   // A long Thread cold-opened from its deep link at an older message: it scrolls to that message,
   // keeps it in place while the taller newer bodies above it load, and mounts a body only while it
   // is within one screen of the visible range.
   private func threadJourney(_ app: XCUIApplication) {
-    connectAlternateMailbox(app)
     // The connection's opaque ID, as native code derives it from the synthetic Gmail subject.
     let connection = SHA256.hash(
       data: Data("dev.unwired.mailbox-connection\nsynthetic-alternate-mailbox".utf8)
@@ -3448,7 +3548,10 @@ final class InboxTests: XCTestCase {
       case "registration-revoked": revokedJourney(app)
       case "registration-removal": removalJourney(app)
       case "registration-draft-editor": draftEditorJourney(app)
-      case "registration-thread": threadJourney(app)
+      case "registration-thread":
+        connectAlternateMailbox(app)
+        composerRecoveryJourney(app)
+        threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
       case "registration-sync-status": try syncStatusJourney(app)
       case "registration-imap-folders": try imapFoldersJourney(app)
