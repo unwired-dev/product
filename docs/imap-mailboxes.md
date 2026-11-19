@@ -802,6 +802,31 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   ([#2390](https://github.com/unwired-dev/product/issues/2390)). Mac, iPad,
   organizing, search, attachments, sending, IDLE, Sent filing, relaunch and recovery were
   not run and stay on #632.
+- **2026-11-19, iPhone send and reply
+  ([#2450](https://github.com/unwired-dev/product/issues/2450)).** Target, build,
+  toolchain and operator as in the record above, with both certification mailboxes
+  connected through the app the same way. Result: pass. A new message from iCloud Mail
+  went through the Outbox, SMTP `smtp.mail.me.com` 587 (STARTTLS) accepted it, the row
+  left the Outbox and the message appeared in the Seznam Email Inbox in the app. A reply
+  from Seznam Email went out over `smtp.seznam.cz` 465 (SSL/TLS) and appeared in the
+  iCloud Mail Inbox in the app. Over IMAP, its `In-Reply-To` named the original's
+  Message-ID and its `References` included it, and each sending mailbox's Sent folder held
+  exactly one copy, with the same Message-ID as the delivered message. In the app,
+  Seznam Email's `sent` folder listed exactly one copy of the reply. A later message from
+  iCloud Mail showed **Sending soon** with **Undo**, then **Sent. Saving a copy to
+  Sent…**, and iCloud Mail's Sent Messages folder in the app then listed exactly one
+  copy, but only after the list was pulled down
+  ([#2454](https://github.com/unwired-dev/product/issues/2454)). A message from Seznam
+  Email carried a `Date` header 12 seconds before its SMTP submission, consistent with
+  the 10-second Undo Send Window. Afterwards no run message remained in any folder of
+  either mailbox. Limitations: the first message stayed **Waiting to send**
+  because `claimDraftDelivery` failed as unavailable. The development Convex deployment
+  ran functions older than the app, and their validators rejected the
+  `productAccountId` and `mailProfileCapability` arguments. After those functions were
+  pushed, the row was delivered and the Private Sync pull failures of the record above
+  stopped ([#2390](https://github.com/unwired-dev/product/issues/2390)). **Undo** itself
+  and Delivery unknown were not exercised. Mac, iPad, attachments, organizing, search,
+  IDLE, relaunch and recovery stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
