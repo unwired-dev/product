@@ -2274,8 +2274,10 @@ describe('connected Gmail Inbox', () => {
     ).toBeVisible();
     expect(labels.getByRole('button', { name: 'Receipts' })).toBeVisible();
     await fireEvent.press(labels.getByRole('button', { name: 'Apply' }));
-    // While Gmail creates the label, which is then applied, Labels cannot be cancelled.
+    // While Gmail creates the label, which is then applied, Labels cannot be cancelled
+    // and its rows are unavailable.
     expect(labels.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    expect(labels.getByRole('button', { name: 'Receipts' })).toBeDisabled();
     await act(async () => {
       created?.resolve(undefined);
     });

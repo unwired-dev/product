@@ -139,11 +139,13 @@ function FormButton({
 function Row({
   label,
   separated = false,
+  disabled,
   onPress,
   children,
 }: {
   readonly label: string;
   readonly separated?: boolean;
+  readonly disabled: boolean;
   readonly onPress: () => void;
   readonly children: ReactNode;
 }) {
@@ -158,6 +160,8 @@ function Row({
       <Pressable
         accessibilityLabel={label}
         accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
         focusable
         onPress={onPress}
         style={({ pressed }) => [
@@ -326,6 +330,7 @@ function LabelForm({
           <View style={[styles.group, quiet]}>
             <Row
               label={`${createTitle}, ${t('gmailActions.createLabelDetail')}`}
+              disabled={creating}
               onPress={apply}>
               <View style={styles.createRow}>
                 <Text style={[styles.rowTitle, primary]}>{createTitle}</Text>
@@ -351,10 +356,9 @@ function LabelForm({
                   key={match.id}
                   label={match.name}
                   separated={index > 0}
+                  disabled={creating}
                   onPress={() => {
-                    if (!creating) {
-                      onApply(match.id);
-                    }
+                    onApply(match.id);
                   }}>
                   <Text
                     numberOfLines={1}
