@@ -855,6 +855,17 @@ export function createImapInbox(
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   const speculativeLane = Semaphore.makeUnsafe(1);
+  // Synchronizations waiting for the permit; a history step steps aside for them.
+  let queuedSynchronizations = 0;
+  const synchronizing = <A, E, R>(effect: Effect.Effect<A, E, R>) => {
+    queuedSynchronizations += 1;
+    return semaphore.withPermit(
+      Effect.suspend(() => {
+        queuedSynchronizations -= 1;
+        return effect;
+      }),
+    );
+  };
   const listeners = new Set<() => void>();
   // Runs `use` in one authenticated server session and always closes it, also when `use` fails
   // or is interrupted; closing cancels a command still in flight.
@@ -2286,7 +2297,7 @@ export function createImapInbox(
   // already shows; a conflicting commit from another window starts again from the cache once.
   const load = () =>
     runLogged(
-      semaphore.withPermit(
+      synchronizing(
         Effect.suspend(() => {
           // Internal retries must preserve a refusal raised during this load.
           authenticationRejected = false;
@@ -2405,7 +2416,7 @@ export function createImapInbox(
       showFolder(name, 'current');
     });
     return runLogged(
-      semaphore.withPermit(
+      synchronizing(
         read(false).pipe(
           Effect.catchIf(
             (failure) =>
@@ -3149,6 +3160,12 @@ export function createImapInbox(
       backfilling = false;
       return;
     }
+    // A read or synchronization may have queued while either permit was queued.
+    const step = Effect.suspend(() =>
+      shared.idle.isOpen() && queuedSynchronizations === 0
+        ? backfillStep(scope)
+        : Effect.succeed(true),
+    );
     void runLogged(
       Effect.gen(function* () {
         for (;;) {
@@ -3156,14 +3173,7 @@ export function createImapInbox(
           if (
             !(yield* speculativeLane.withPermit(
               semaphore
-                .withPermit(
-                  // A read may have begun while either permit was queued.
-                  Effect.suspend(() =>
-                    shared.idle.isOpen()
-                      ? backfillStep(scope)
-                      : Effect.succeed(true),
-                  ),
-                )
+                .withPermit(step)
                 .pipe(
                   Effect.catch((error) =>
                     backfillFailed(scope)(error).pipe(Effect.as(false)),

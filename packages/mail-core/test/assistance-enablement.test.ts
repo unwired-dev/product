@@ -462,6 +462,10 @@ describe('mail Assistance Enablement', () => {
     expect(
       mailAssistanceEnabled(store.getSnapshot(), account, defaultProfile),
     ).toBe(false);
+    // Off is saving when the account changes.
+    await vi.waitFor(() => {
+      expect(written).toHaveLength(2);
+    });
     const queued = store.setEnabled(account, defaultProfile, true);
     owner = 'another-account';
     const changed = store.load(owner);
@@ -471,8 +475,7 @@ describe('mail Assistance Enablement', () => {
     await changed;
     // A retained control for the earlier account cannot change the replacement account either.
     await store.setEnabled(account, defaultProfile, true);
-    // Saves still queued when the account changed never reach storage.
-    expect(written).toStrictEqual([account]);
+    expect(written).toStrictEqual([account, account]);
   });
 
   it('discards failed-save status and retry ownership when the account changes', async () => {
