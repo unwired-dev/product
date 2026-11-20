@@ -1,6 +1,7 @@
 import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
+import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
-import { allMail } from '@private-email/mail-core/gmail-actions';
+import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { unifiedFolders } from '@private-email/mail-core/mailboxes';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 
@@ -56,6 +57,19 @@ const listedImap = (inbox: ReturnType<typeof imapInbox>, uid: number) => {
   );
 };
 
+// The message a Gmail Inbox lists with `id`.
+const listedGmail = (
+  inbox: Readonly<{ getSnapshot: () => GmailInboxState }>,
+  id: string,
+) => {
+  const state = inbox.getSnapshot();
+  return required(
+    state.kind === 'ready'
+      ? state.messages.find((message) => message.id === id)
+      : undefined,
+  );
+};
+
 // A host over a native module whose vault, Gmail and Drafts are synthetic. Attachment reads wait
 // until native code cancels them by name; the counts are the native reads the host made.
 function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
@@ -86,8 +100,16 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const attachments = Promise.withResolvers<string>();
   const cancelled: string[] = [];
   const counts = { lookups: 0, registration: 0, settings: 0, wakes: 0 };
-  // This device's notification permission and previews, and what it posted.
-  const device = { authorization: 'undetermined', previews: false };
+  // This device's notification permission, previews and badge choice, what it posted, and each
+  // App Icon Badge count it set.
+  const device = {
+    authorization: 'undetermined',
+    previews: false,
+    badge: 'off',
+  };
+  const badges: number[] = [];
+  // How the system answers each App Icon Badge write.
+  const badgeWrites = { answer: (): Promise<unknown> => Promise.resolve(null) };
   const notified: unknown[] = [];
   const titles: unknown[] = [];
   // The notifications a typed reply posted, and those withdrawn.
@@ -212,6 +234,14 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       device.previews = previews;
       return Promise.resolve({ ...device });
     },
+    setNotificationBadge: (badge) => {
+      device.badge = badge;
+      return Promise.resolve({ ...device });
+    },
+    setBadgeCount: (count) => {
+      badges.push(count);
+      return badgeWrites.answer();
+    },
     openNotificationSettings: () => Promise.resolve(null),
     postNotifications: (posted, actions) => {
       notified.push(...posted);
@@ -263,6 +293,9 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     counts,
     notified,
     titles,
+    badges,
+    badgeWrites,
+    device,
     replied,
     withdrawn,
     sweeps,
@@ -428,6 +461,90 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(2);
   });
 
+  it('keeps the App Icon Badge on the unread Inbox count while it is chosen and allowed', async () => {
+    expect.hasAssertions();
+    const { host, gmail, badges, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    // A second follower would set every count twice.
+    host.followBadge();
+    // The counts set after each step, by step.
+    const steps: Array<readonly [string, readonly number[]]> = [];
+    const step = (name: string) => {
+      steps.push([name, badges.splice(0)]);
+    };
+    // Off, the badge clears at launch without waiting for saved registration.
+    await host.notifications.load();
+    step('launch');
+    await host.start();
+    step('signed out');
+    gmail.deliver({ subject: 'Unread', unread: true });
+    const read = gmail.deliver({ subject: 'Read me', unread: true });
+    gmail.deliver({ subject: 'Already read', unread: false });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    step('listed while off');
+    // Chosen without permission, the choice is kept and the badge stays off until allowed.
+    await host.notifications.setBadge('inbox');
+    step('chosen without permission');
+    await host.notifications.request();
+    step('allowed');
+    // Reading, archiving and new mail from a synchronization change the count.
+    const { inbox } = required(host.gmailMailboxes.getSnapshot()[0]);
+    await inbox.organize(listedGmail(inbox, read), gmailAction.read);
+    step('read');
+    const arrived = gmail.deliver({ subject: 'Arrived', unread: true });
+    await host.gmailMailboxes.load();
+    step('arrived');
+    await inbox.organize(listedGmail(inbox, arrived), gmailAction.archive);
+    step('archived');
+    // Denied in the system's settings, the badge clears and returns once allowed again.
+    device.authorization = 'denied';
+    await host.notifications.load();
+    step('denied');
+    device.authorization = 'authorized';
+    await host.notifications.load();
+    step('allowed again');
+    // Off clears it, as does removing the last connection.
+    await host.notifications.setBadge('off');
+    step('off');
+    await host.notifications.setBadge('inbox');
+    step('on');
+    const { id: connection } = required(host.gmailMailboxes.getSnapshot()[0]);
+    await host.registration.removeMailbox(connection);
+    step('removed');
+    // Each count was set once, when it changed; the choice stayed on this device.
+    expect({ steps, badge: device.badge }).toStrictEqual({
+      steps: [
+        ['launch', [0]],
+        ['signed out', []],
+        ['listed while off', []],
+        ['chosen without permission', []],
+        ['allowed', [2]],
+        ['read', [1]],
+        ['arrived', [2]],
+        ['archived', [1]],
+        ['denied', [0]],
+        ['allowed again', [1]],
+        ['off', [0]],
+        ['on', [1]],
+        ['removed', [0]],
+      ],
+      badge: 'inbox',
+    });
+  });
+
+  it('sets the App Icon Badge again after the system refused a write', async () => {
+    expect.hasAssertions();
+    const { host, badges, badgeWrites } = syntheticHost(undefined, true);
+    badgeWrites.answer = () => Promise.reject(new Error('refused'));
+    host.followBadge();
+    await host.notifications.load();
+    badgeWrites.answer = () => Promise.resolve(null);
+    await host.notifications.load();
+    expect(badges).toStrictEqual([0, 0]);
+  });
+
   it('logs why New Mail Notifications were or were not posted, never what or whose', async () => {
     expect.hasAssertions();
     const notes = vi.spyOn(console, 'log').mockReturnValue(undefined);
@@ -530,6 +647,61 @@ describe('the host assembly', () => {
     expect(gmail.labelsOf(kept)).toStrictEqual(
       expect.arrayContaining(['INBOX', 'UNREAD']),
     );
+  });
+
+  it('counts every Inbox on the App Icon Badge after a notification action launched the app', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      native,
+      gmail,
+      shared,
+      imapServers,
+      badges,
+      notificationActions,
+    } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.registration.connectImap({
+      address: 'sam@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'sam',
+      password: shared.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'sam',
+      },
+    });
+    const [gmailMailbox, imapMailbox] = mailboxesOf(
+      host.registration.getSnapshot().snapshot,
+    );
+    const imap = createSyntheticImap({ address: 'sam@example.invalid' });
+    imapServers[required(imapMailbox).id] = imap.native;
+    const archived = gmail.deliver({ subject: 'Archive me', unread: true });
+    imap.deliver('INBOX', { subject: 'Unread elsewhere' });
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    // The process ends; Archive on a notification launches it again.
+    const launched = createHost(() => native);
+    launched.followBadge();
+    launched.followNotificationActions();
+    await launched.notifications.load();
+    badges.splice(0);
+    await notificationActions.send({
+      id: 'archive',
+      account: 'account-synthetic-product-subject',
+      connection: required(gmailMailbox).id,
+      epoch: required(required(gmailMailbox).epoch),
+      message: archived,
+      action: 'archive',
+    });
+    await vi.waitFor(() => {
+      expect(badges.at(-1)).toBe(1);
+    });
   });
 
   it('sends a reply typed into a notification from the receiving connection, with only the typed text', async () => {

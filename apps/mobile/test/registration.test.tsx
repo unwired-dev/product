@@ -3695,7 +3695,7 @@ describe('product registration', () => {
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
     await connectImap(store, { address: 'alex@icloud.example.invalid' });
-    const device = { authorization: 'denied', previews: false };
+    const device = { authorization: 'denied', previews: false, badge: 'off' };
     const native: string[] = [];
     const notifications = createNotifications(
       {
@@ -3705,6 +3705,11 @@ describe('product registration', () => {
           device.previews = previews;
           return Promise.resolve({ ...device });
         },
+        setNotificationBadge: (badge) => {
+          device.badge = badge;
+          return Promise.resolve({ ...device });
+        },
+        setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => {
           native.push('system settings');
           return Promise.resolve(null);
@@ -3724,7 +3729,7 @@ describe('product registration', () => {
     );
     await openAccount();
     await openSettings('Notifications');
-    await expect(screen.findByText('Off')).resolves.toBeVisible();
+    await expect(screen.findByText('Open Settings…')).resolves.toBeVisible();
     await openSettings('Open Settings…');
     const previews = screen.getByRole('switch', {
       name: 'Show Sender and Subject',
@@ -3761,6 +3766,73 @@ describe('product registration', () => {
       previews: true,
       mailbox: false,
       imap: false,
+    });
+  });
+
+  it('keeps the saved App Icon Badge choice, dimmed, while notifications are denied and saves a new one once they are allowed', async () => {
+    expect.hasAssertions();
+    const { synthetic } = await connectedAccount();
+    const store = createRegistration(synthetic.relaunch());
+    // Unread in Inbox was chosen on this device before notifications were turned off.
+    const device = { authorization: 'denied', previews: false, badge: 'inbox' };
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve({ ...device }),
+        requestNotifications: () => Promise.resolve({ ...device }),
+        setNotificationPreviews: () => Promise.resolve({ ...device }),
+        setNotificationBadge: (badge) => {
+          device.badge = badge;
+          return Promise.resolve({ ...device });
+        },
+        setBadgeCount: () => Promise.resolve(null),
+        openNotificationSettings: () => Promise.resolve(null),
+        postNotifications: () => Promise.resolve(null),
+      },
+      () => english,
+    );
+    await render(
+      <NotificationsContext value={notifications}>
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          <ConnectedInbox />
+        </RegistrationGate>
+      </NotificationsContext>,
+    );
+    await openAccount();
+    await openSettings('Notifications');
+    const badge = () => screen.getByLabelText(/^App Icon Badge: /u);
+    await screen.findByText(
+      'Your choices are kept and apply as soon as notifications are allowed.',
+    );
+    const denied = {
+      disabled: badge().props.accessibilityState?.disabled,
+      label: badge().props.accessibilityLabel,
+    };
+    // The person allows notifications in the system's settings and comes back.
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
+    const item = badge()
+      .props.sections.flatMap(
+        ({ items }: { items: ReadonlyArray<{ id: string; title: string }> }) =>
+          items,
+      )
+      .find(({ title }: { title: string }) => title === 'Off');
+    await act(() => {
+      fireEvent(badge(), 'select', { nativeEvent: { id: item.id } });
+    });
+    expect({
+      denied,
+      allowed: badge().props.accessibilityState?.disabled,
+      label: badge().props.accessibilityLabel,
+      saved: device.badge,
+      footer: screen.queryByText('Counts unread mail in Inbox.') !== null,
+    }).toStrictEqual({
+      denied: { disabled: true, label: 'App Icon Badge: Unread in Inbox' },
+      allowed: false,
+      label: 'App Icon Badge: Off',
+      saved: 'off',
+      footer: true,
     });
   });
 

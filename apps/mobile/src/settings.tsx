@@ -34,7 +34,7 @@ import {
 
 import { AccountHeader } from './account-page.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
-import { ipadFrameSymbolSize, SFSymbol } from './design.tsx';
+import { ipadFrameSymbolSize, MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -283,6 +283,17 @@ const styles = StyleSheet.create({
     paddingVertical: 18.2,
     borderRadius: radius.settingsDetail,
   },
+  // On iPhone the pop-up's 44pt target reaches into the row's padding, keeping the row 52pt.
+  popUpTarget: { marginVertical: settingsColumns ? 0 : -spacing.m },
+  popUp: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: settingsColumns ? spacing.xs : spacing.m,
+  },
+  popUpLabel: settingsColumns ? typography.ipadList.body : textStyles.body,
+  popUpOpaque: { opacity: 1 },
+  popUpDisabled: { opacity: 0.4 },
   popUpChevrons: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1056,6 +1067,68 @@ export function PopUpChevrons({
         color={colors.textPrimary}
       />
     </View>
+  );
+}
+
+// A Settings Row's choices in one native pop-up that checks the selected one: its title and
+// chevrons at the row's trailing edge, iPhone's in the circle. A disabled pop-up keeps its choice,
+// dimmed.
+export function PopUpChoice<Choice extends string>({
+  label,
+  selected,
+  choices,
+  title,
+  disabled = false,
+  onChoose,
+}: {
+  // Names the setting for the pop-up's accessibility label.
+  readonly label: string;
+  readonly selected: Choice;
+  readonly choices: readonly Choice[];
+  readonly title: (choice: Choice) => string;
+  readonly disabled?: boolean;
+  readonly onChoose: (choice: Choice) => void;
+}) {
+  const colors = usePalette();
+  // iPad's secondary value dims, like iPhone's, to the row title's gray.
+  const color =
+    settingsColumns && !disabled ? colors.textSecondary : colors.textPrimary;
+  return (
+    <MenuButton
+      accessibilityLabel={`${label}: ${title(selected)}`}
+      disabled={disabled}
+      sections={[
+        {
+          items: choices.map((choice) => ({
+            key: choice,
+            title: title(choice),
+            symbol: '',
+            checked: choice === selected,
+            run: () => {
+              onChoose(choice);
+            },
+          })),
+        },
+      ]}
+      // The content dims, as the row dims its title, once: not the native button too.
+      style={[styles.popUpTarget, disabled && styles.popUpOpaque]}>
+      <View style={[styles.popUp, disabled && styles.popUpDisabled]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.popUpLabel, { color }]}>
+          {title(selected)}
+        </Text>
+        {settingsColumns ? (
+          <SFSymbol
+            name="chevron.up.chevron.down"
+            size={12}
+            color={color}
+          />
+        ) : (
+          <PopUpChevrons />
+        )}
+      </View>
+    </MenuButton>
   );
 }
 

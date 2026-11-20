@@ -844,6 +844,12 @@ export function createMailboxes(
       started = true;
       await Promise.all([...inboxes.values()].map(({ inbox }) => inbox.load()));
     },
+    // Shows each saved listing no synchronization has opened yet, without asking any provider.
+    showSaved: async () => {
+      await Promise.all(
+        [...inboxes.values()].map(({ inbox }) => inbox.showSaved()),
+      );
+    },
     // Waits with IDLE on each IMAP connection's Inbox, including connections added later, until
     // the returned function stops every wait.
     watch: () => {

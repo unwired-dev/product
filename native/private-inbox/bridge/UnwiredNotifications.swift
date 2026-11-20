@@ -236,8 +236,10 @@ final class UnwiredNotifications: NSObject, UNUserNotificationCenterDelegate, Se
 }
 
 extension UnwiredRegistration {
-  // Sender and subject previews are a Device-Local Preference, off until chosen here.
+  // Sender and subject previews and the App Icon Badge are Device-Local Preferences, off until
+  // chosen here.
   private static let notificationPreviewsKey = "dev.unwired.notification-previews"
+  private static let notificationBadgeKey = "dev.unwired.notification-badge"
 
   private static func notificationSettings() async -> [String: Any] {
     let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
@@ -250,6 +252,8 @@ extension UnwiredRegistration {
     return [
       "authorization": authorization,
       "previews": UserDefaults.standard.bool(forKey: notificationPreviewsKey),
+      "badge": UserDefaults.standard.string(forKey: notificationBadgeKey) == "inbox"
+        ? "inbox" : "off",
     ]
   }
 
@@ -266,9 +270,13 @@ extension UnwiredRegistration {
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     Task {
-      _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [
-        .alert, .sound,
-      ])
+      // iPhone and iPad also ask for the App Icon Badge.
+      #if os(iOS)
+        let options: UNAuthorizationOptions = [.alert, .sound, .badge]
+      #else
+        let options: UNAuthorizationOptions = [.alert, .sound]
+      #endif
+      _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: options)
       resolve(await Self.notificationSettings())
     }
   }
@@ -281,6 +289,35 @@ extension UnwiredRegistration {
     perform("setNotificationPreviews", resolve, reject: reject) { _ in
       UserDefaults.standard.set(previews, forKey: Self.notificationPreviewsKey)
       return await Self.notificationSettings()
+    }
+  }
+
+  // What the App Icon Badge counts: "inbox" or "off".
+  @objc(setNotificationBadge:resolver:rejecter:)
+  func setNotificationBadge(
+    _ badge: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    perform("setNotificationBadge", resolve, reject: reject) { _ in
+      UserDefaults.standard.set(
+        badge == "inbox" ? "inbox" : "off", forKey: Self.notificationBadgeKey)
+      return await Self.notificationSettings()
+    }
+  }
+
+  // Shows `count` on the application's icon; 0 removes the badge.
+  @objc(setBadgeCount:resolver:rejecter:)
+  func setBadgeCount(
+    _ count: Double, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    Task {
+      do {
+        try await UNUserNotificationCenter.current().setBadgeCount(max(0, Int(count)))
+        resolve(NSNull())
+      } catch {
+        reject("badge-unavailable", nil, nil)
+      }
     }
   }
 
