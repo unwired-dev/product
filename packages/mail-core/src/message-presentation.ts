@@ -72,26 +72,16 @@ export const decodeRemoteImagePositions = (
     Option.getOrElse(() => []),
   );
 
-const decodeFit = Schema.decodeUnknownOption(
-  Schema.Struct({
-    fitScale: Schema.Finite.check(Schema.isGreaterThan(0)),
-    fitAnchors: Schema.Array(
-      Schema.Struct({ from: Schema.Finite, to: Schema.Finite }),
-    ),
-  }),
+const decodeFitShift = Schema.decodeUnknownOption(
+  Schema.Struct({ fitShift: Schema.Finite }),
 );
 
-// The scale a document marked to fit was shrunk to and, after a refit to a new scale, where the
-// elements in its view moved, from and to points in the view in ascending order; scale 1 and no
-// anchors when the measurement carries none.
-export const decodeMessageFit = (
-  nativeEvent: unknown,
-): Readonly<{
-  fitScale: number;
-  fitAnchors: ReadonlyArray<Readonly<{ from: number; to: number }>>;
-}> =>
-  decodeFit(nativeEvent).pipe(
-    Option.getOrElse(() => ({ fitScale: 1, fitAnchors: [] })),
+// How far a refit to a new scale moved the text at the reader's top within the view; 0 when the
+// measurement carries none.
+export const decodeMessageFitShift = (nativeEvent: unknown): number =>
+  decodeFitShift(nativeEvent).pipe(
+    Option.map(({ fitShift }) => fitShift),
+    Option.getOrElse(() => 0),
   );
 
 // App-owned sanitized nodes cross the native prop as data, never as executable script.

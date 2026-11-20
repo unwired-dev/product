@@ -596,7 +596,7 @@ describe('remote message content in the reader', () => {
       const webview = await screen.findByTestId('message-webview');
       await act(() => {
         fireEvent(webview, 'contentSizeChange', {
-          nativeEvent: { ...measured(0), fitScale: 0.5, fitAnchors: [] },
+          nativeEvent: { ...measured(0), fitShift: 0 },
         });
       });
       // The person reads 1,000 points into the document, which starts 200 points down.
@@ -608,19 +608,14 @@ describe('remote message content in the reader', () => {
           },
         });
       });
-      // A narrower document refits from half size to 80% and rewraps: the paragraph that started
-      // 100 points above the text being read now starts 1,700 points into the document.
+      // A narrower document refits to a larger scale and rewraps: the line being read, midway
+      // through a paragraph, moved 860 points down the document.
       await act(() => {
         fireEvent(webview, 'contentSizeChange', {
           nativeEvent: {
             ...measured(0),
             contentSize: { width: 320, height: 6400 },
-            fitScale: 0.8,
-            fitAnchors: [
-              { from: -50, to: -80 },
-              { from: 900, to: 1700 },
-              { from: 1100, to: 1900 },
-            ],
+            fitShift: 860,
           },
         });
       });

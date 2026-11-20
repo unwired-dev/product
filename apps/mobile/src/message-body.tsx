@@ -48,13 +48,11 @@ import {
 } from '@private-email/mail-core/link-inspection';
 import {
   decodeMessageContentSize,
-  decodeMessageFit,
+  decodeMessageFitShift,
   decodeRemoteImagePositions,
   labelImagePlaceholders,
 } from '@private-email/mail-core/message-body';
 import { ipadListScale, spacing } from '@private-email/mail-core/theme';
-import * as Arr from 'effect/Array';
-import * as Option from 'effect/Option';
 import { setStringAsync } from 'expo-clipboard';
 import {
   createContext,
@@ -527,8 +525,7 @@ function RichDocument({
   >([]);
   // How far the view has scrolled inside its document and its pinch zoom, and the check it reruns.
   const inner = useRef({ offset: 0, scale: 1 });
-  // The scale the document was last fitted to, and the reader offset to restore after a refit.
-  const fitScale = useRef(1);
+  // The reader offset to restore once a refit's new height lays out.
   const anchor = useRef<number>(undefined);
   useLayoutEffect(() => {
     if (anchor.current !== undefined) {
@@ -660,14 +657,10 @@ function RichDocument({
               setHeight(measured.height);
               setContentWidth(measured.width);
             };
-            const { fitScale: scale, fitAnchors } = decodeMessageFit(
-              event.nativeEvent,
-            );
-            const ratio = scale / fitScale.current;
-            fitScale.current = scale;
+            const shift = decodeMessageFitShift(event.nativeEvent);
             const content = viewport?.content();
             if (
-              ratio === 1 ||
+              shift === 0 ||
               height === undefined ||
               viewport === undefined ||
               !content
@@ -675,27 +668,21 @@ function RichDocument({
               apply();
               return;
             }
-            // A refit to a new scale keeps the text being read at the top of the reader in place.
+            // A refit to a new scale keeps the text at the top of the reader in place.
             container.current?.measureLayout(content, (_left, top) => {
               if (layout !== live.current) {
                 return;
               }
               const read = viewport.get().offset - top;
               if (read > 0 && read < Math.min(height, heightCap)) {
-                // Text rewraps in a refit, so the point moves with the element nearest above it.
-                const moved = Option.match(
-                  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect's data-first findLast, not Array.prototype.
-                  Arr.findLast(fitAnchors, (mark) => mark.from <= read),
-                  {
-                    onNone: () => read * ratio,
-                    onSome: (mark) => mark.to + (read - mark.from) * ratio,
-                  },
-                );
                 const next =
                   top +
                   Math.max(
                     0,
-                    Math.min(moved, Math.min(measured.height, heightCap)),
+                    Math.min(
+                      read + shift,
+                      Math.min(measured.height, heightCap),
+                    ),
                   );
                 if (measured.height === height) {
                   viewport.scrollTo(next);
