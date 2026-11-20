@@ -506,11 +506,12 @@ export function createBlockedSenders(
       return {
         owner,
         revision,
-        senders: document?.senders ?? [],
-        receipts: document?.receipts ?? [],
-        unblocked: document?.unblocked ?? [],
-        domains: document?.domains ?? [],
-        unblockedDomains: document?.unblockedDomains ?? [],
+        senders: [],
+        receipts: [],
+        unblocked: [],
+        domains: [],
+        unblockedDomains: [],
+        ...document,
       };
     });
 
