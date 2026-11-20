@@ -767,6 +767,34 @@ describe('mac window selection with the shared mock mailbox', () => {
       });
       expect(closedWindows()).toHaveLength(4);
       expect(focusedWindows().at(-1)).toBe('inbox-window-origin');
+      // A Draft another window removed meanwhile is not handed back.
+      await app.rerender(windows());
+      await start('Removed');
+      await expand();
+      const removed = composerWindows().at(-1);
+      ok(removed !== undefined);
+      await app.rerender(
+        windows(
+          <ComposerWindow
+            windowId="1"
+            draft={removed.draft}
+            profile={removed.profile}
+            origin={removed.origin}
+          />,
+        ),
+      );
+      await expect(window().findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Removed',
+      );
+      await act(async () => {
+        await drafts.discard(removed.draft);
+      });
+      await close('Save Draft');
+      await waitFor(() => {
+        expect(closedWindows()).toHaveLength(6);
+      });
+      expect(app.queryByTestId('composer-overlay')).toBeNull();
       // With no Inbox window showing its Mail Profile, the Draft returns in a new one.
       await app.rerender(windows());
       await start('Alone');
@@ -798,6 +826,7 @@ describe('mac window selection with the shared mock mailbox', () => {
         <AccountContext value={accountActions}>
           <InboxWindow
             windowId="returned"
+            profile={alone.profile}
             draft={alone.draft}
           />
         </AccountContext>,

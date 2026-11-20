@@ -3429,8 +3429,10 @@ function Editor({
   const asked = useRef(false);
   // Whether Close offers to return the Draft to an Inbox window: Quit leaves it in Drafts.
   const offersReturn = useRef(false);
-  // Whether Try Again retries a Save Draft that was returning the Draft to an Inbox window.
+  // Whether Try Again retries a Save Draft that was returning the Draft to an Inbox window, and
+  // whether a return is under way, which allows no second one.
   const retryReturn = useRef(false);
+  const returnUnderway = useRef(false);
   const answerLeave = useCallback((allowed: boolean) => {
     const answer = leaving.current;
     leaving.current = undefined;
@@ -3804,6 +3806,10 @@ function Editor({
   // Save Draft in a New Message window waits for its Inbox window to take the Draft, then saves it
   // and hands it over; a refusal keeps the window open on its question's Cancel.
   const returnDraft = async (prepare: ReturnTo) => {
+    if (returnUnderway.current) {
+      return;
+    }
+    returnUnderway.current = true;
     let take: ((id: string) => void) | undefined = undefined;
     try {
       take = await prepare();
@@ -3811,14 +3817,21 @@ function Editor({
       // The Draft stays here, as on Cancel.
     }
     if (take === undefined) {
+      returnUnderway.current = false;
       setOpen(undefined);
       return;
     }
     const handOver = take;
     retryReturn.current = !(await saveDraft(() => {
-      handOver(authored.current.id);
+      // A Draft another window removed meanwhile has nothing to hand over.
+      const { id } = authored.current;
+      const state = store.getSnapshot();
+      if (state.kind === 'ready' && draftOf(state, id) !== undefined) {
+        handOver(id);
+      }
       onClose();
     }));
+    returnUnderway.current = false;
   };
   // A returning Draft asks this one to save first.
   useLayoutEffect(() => {

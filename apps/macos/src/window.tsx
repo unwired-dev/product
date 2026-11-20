@@ -151,6 +151,23 @@ type WindowProps = Readonly<{
   draft?: string;
 }>;
 
+// A Draft returned to a new Inbox window, with the Mail Profile it belongs to.
+type Launch = Readonly<{ draft: string; profile: string }>;
+
+// The returned Draft opens in its Mail Profile until its composer first leaves it. The window keeps
+// it above its gate, so contents remounted after a lock or a Profile switch do not reopen it.
+const useLaunch = (draft: string | undefined, profile: string | undefined) => {
+  const [launch, setLaunch] = useState<Launch | undefined>(
+    draft === undefined || profile === undefined
+      ? undefined
+      : { draft, profile },
+  );
+  const launched = useCallback(() => {
+    setLaunch(undefined);
+  }, []);
+  return { launch, launched };
+};
+
 // The Inbox windows a New Message window's Draft can return to, by window identifier: the Mail
 // Profile each shows, and how it takes the Draft.
 const returnTargets = new Map<
@@ -181,12 +198,14 @@ type ProfileChoice = Readonly<{
 export function PreviewWindow({ windowId, profile, draft }: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
   const savedChoices = useMemo(() => createWindowProfileChoices(), []);
+  const { launch, launched } = useLaunch(draft, profile);
   return (
     <CommandPaletteProvider windowId={windowId}>
       <ProfileWindow
         windowId={windowId}
         profile={profile}
-        draft={draft}
+        launch={launch}
+        onLaunched={launched}
         choice={choice}
         savedChoices={savedChoices}
         onChoose={setChoice}
@@ -201,14 +220,16 @@ export function PreviewWindow({ windowId, profile, draft }: WindowProps) {
 function ProfileWindow({
   windowId,
   profile: restored,
-  draft,
+  launch,
+  onLaunched,
   choice,
   savedChoices,
   onChoose,
 }: {
   readonly windowId: string;
   readonly profile: string | undefined;
-  readonly draft?: string | undefined;
+  readonly launch?: Launch | undefined;
+  readonly onLaunched?: () => void;
   readonly choice: ProfileChoice | undefined;
   readonly savedChoices: ProfileChoicesStore;
   readonly onChoose: (choice: ProfileChoice) => void;
@@ -216,11 +237,6 @@ function ProfileWindow({
   const account = use(AccountContext);
   const profiles = account?.profiles;
   const owner = account?.account ?? '';
-  // The returned Draft opens once: contents remounted for another Profile start without it.
-  const [launch, setLaunch] = useState(draft);
-  const launched = useCallback(() => {
-    setLaunch(undefined);
-  }, []);
   // Another Product Account's choice never names this one's Profile.
   const current =
     choice?.account === (account?.account ?? '') ? choice.choice : undefined;
@@ -256,8 +272,8 @@ function ProfileWindow({
       <ProfileScope profile={profile}>
         <WindowContents
           windowId={windowId}
-          initialDraft={launch}
-          onInitialDraft={launched}
+          initialDraft={launch?.profile === profile ? launch.draft : undefined}
+          onInitialDraft={onLaunched}
           initialSelection={opened}
           onOpenProfile={choose}
           onProfile={choose}
@@ -320,7 +336,7 @@ function WindowContents({
 }: {
   readonly windowId: string;
   readonly initialDraft: string | undefined;
-  readonly onInitialDraft: () => void;
+  readonly onInitialDraft: (() => void) | undefined;
   readonly initialSelection: Selection | undefined;
   readonly onOpenProfile: (
     target: NonNullable<ReturnType<typeof openedTarget>>,
@@ -333,7 +349,11 @@ function WindowContents({
   );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState(initialDraft);
-  useEffect(onInitialDraft, [onInitialDraft]);
+  useEffect(() => {
+    if (initialDraft !== undefined && composing !== initialDraft) {
+      onInitialDraft?.();
+    }
+  }, [composing, initialDraft, onInitialDraft]);
   // The composer recovery record restored, while its composer is open under Draft `id`, which
   // follows the composer to a conflicting copy.
   const [recovered, setRecovered] = useState<{
@@ -635,6 +655,7 @@ export function InboxWindow({
 }: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
   const savedChoices = useMemo(() => createWindowProfileChoices(), []);
+  const { launch, launched } = useLaunch(draft, profile);
   // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
     <CommandPaletteProvider
@@ -644,7 +665,8 @@ export function InboxWindow({
         <ProfileWindow
           windowId={windowId}
           profile={profile}
-          draft={draft}
+          launch={launch}
+          onLaunched={launched}
           choice={choice}
           savedChoices={savedChoices}
           onChoose={setChoice}
