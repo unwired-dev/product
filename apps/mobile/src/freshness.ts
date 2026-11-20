@@ -10,6 +10,7 @@ import { AppState } from 'react-native';
 
 import { deliverAdmitted } from './delivery.ts';
 import {
+  followBadge,
   followNotificationActions,
   followWakes,
   freshness,
@@ -54,6 +55,8 @@ export const followOpenedDrafts = (open: OpenDraft) => {
 // only its routed mailbox once registration verifies.
 if (!previewInbox) {
   followWakes();
+  // The App Icon Badge follows the Inbox wherever synchronization runs, foreground or background.
+  followBadge();
   // Likewise Archive, Mark as Read and a typed reply chosen on a notification, without opening the
   // app.
   followNotificationActions((draft, _, profile) => {

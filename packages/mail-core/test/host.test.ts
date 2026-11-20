@@ -1,6 +1,7 @@
 import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
+import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
-import { allMail } from '@private-email/mail-core/gmail-actions';
+import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { unifiedFolders } from '@private-email/mail-core/mailboxes';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 
@@ -56,6 +57,19 @@ const listedImap = (inbox: ReturnType<typeof imapInbox>, uid: number) => {
   );
 };
 
+// The message a Gmail Inbox lists with `id`.
+const listedGmail = (
+  inbox: Readonly<{ getSnapshot: () => GmailInboxState }>,
+  id: string,
+) => {
+  const state = inbox.getSnapshot();
+  return required(
+    state.kind === 'ready'
+      ? state.messages.find((message) => message.id === id)
+      : undefined,
+  );
+};
+
 // A host over a native module whose vault, Gmail and Drafts are synthetic. Attachment reads wait
 // until native code cancels them by name; the counts are the native reads the host made.
 function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
@@ -86,8 +100,14 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
   const attachments = Promise.withResolvers<string>();
   const cancelled: string[] = [];
   const counts = { lookups: 0, registration: 0, settings: 0, wakes: 0 };
-  // This device's notification permission and previews, and what it posted.
-  const device = { authorization: 'undetermined', previews: false };
+  // This device's notification permission, previews and badge choice, what it posted, and each
+  // App Icon Badge count it set.
+  const device = {
+    authorization: 'undetermined',
+    previews: false,
+    badge: 'off',
+  };
+  const badges: number[] = [];
   const notified: unknown[] = [];
   const titles: unknown[] = [];
   // The notifications a typed reply posted, and those withdrawn.
@@ -212,6 +232,14 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       device.previews = previews;
       return Promise.resolve({ ...device });
     },
+    setNotificationBadge: (badge) => {
+      device.badge = badge;
+      return Promise.resolve({ ...device });
+    },
+    setBadgeCount: (count) => {
+      badges.push(count);
+      return Promise.resolve(null);
+    },
     openNotificationSettings: () => Promise.resolve(null),
     postNotifications: (posted, actions) => {
       notified.push(...posted);
@@ -263,6 +291,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     counts,
     notified,
     titles,
+    badges,
+    device,
     replied,
     withdrawn,
     sweeps,
@@ -426,6 +456,83 @@ describe('the host assembly', () => {
     gmail.deliver({ subject: 'After notifications' });
     await host.gmailMailboxes.load();
     expect(notified).toHaveLength(2);
+  });
+
+  it('keeps the App Icon Badge on the unread Inbox count while it is chosen and allowed', async () => {
+    expect.hasAssertions();
+    const { host, gmail, badges, device } = syntheticHost(undefined, true);
+    host.followBadge();
+    // A second follower would set every count twice.
+    host.followBadge();
+    // The counts set after each step, by step.
+    const steps: Array<readonly [string, readonly number[]]> = [];
+    const step = (name: string) => {
+      steps.push([name, badges.splice(0)]);
+    };
+    // Until saved registration is read, the badge found at launch stays.
+    await host.notifications.load();
+    step('launch');
+    // Signed out, nothing is unread.
+    await host.start();
+    await vi.waitFor(() => {
+      expect(badges).toHaveLength(1);
+    });
+    step('signed out');
+    gmail.deliver({ subject: 'Unread', unread: true });
+    const read = gmail.deliver({ subject: 'Read me', unread: true });
+    gmail.deliver({ subject: 'Already read', unread: false });
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    step('listed while off');
+    // Chosen without permission, the choice is kept and the badge stays off until allowed.
+    await host.notifications.setBadge('inbox');
+    step('chosen without permission');
+    await host.notifications.request();
+    step('allowed');
+    // Reading, archiving and new mail from a synchronization change the count.
+    const { inbox } = required(host.gmailMailboxes.getSnapshot()[0]);
+    await inbox.organize(listedGmail(inbox, read), gmailAction.read);
+    step('read');
+    const arrived = gmail.deliver({ subject: 'Arrived', unread: true });
+    await host.gmailMailboxes.load();
+    step('arrived');
+    await inbox.organize(listedGmail(inbox, arrived), gmailAction.archive);
+    step('archived');
+    // Denied in the system's settings, the badge clears and returns once allowed again.
+    device.authorization = 'denied';
+    await host.notifications.load();
+    step('denied');
+    device.authorization = 'authorized';
+    await host.notifications.load();
+    step('allowed again');
+    // Off clears it, as does removing the last connection.
+    await host.notifications.setBadge('off');
+    step('off');
+    await host.notifications.setBadge('inbox');
+    step('on');
+    const { id: connection } = required(host.gmailMailboxes.getSnapshot()[0]);
+    await host.registration.removeMailbox(connection);
+    step('removed');
+    // Each count was set once, when it changed; the choice stayed on this device.
+    expect({ steps, badge: device.badge }).toStrictEqual({
+      steps: [
+        ['launch', []],
+        ['signed out', [0]],
+        ['listed while off', []],
+        ['chosen without permission', []],
+        ['allowed', [2]],
+        ['read', [1]],
+        ['arrived', [2]],
+        ['archived', [1]],
+        ['denied', [0]],
+        ['allowed again', [1]],
+        ['off', [0]],
+        ['on', [1]],
+        ['removed', [0]],
+      ],
+      badge: 'inbox',
+    });
   });
 
   it('logs why New Mail Notifications were or were not posted, never what or whose', async () => {

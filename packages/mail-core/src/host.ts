@@ -270,6 +270,8 @@ export function createHost(
       requestNotifications: () => native().requestNotifications(),
       setNotificationPreviews: (previews) =>
         native().setNotificationPreviews(previews),
+      setNotificationBadge: (badge) => native().setNotificationBadge(badge),
+      setBadgeCount: (count) => native().setBadgeCount(count),
       openNotificationSettings: () => native().openNotificationSettings(),
       postNotifications: (posted, actions) =>
         native().postNotifications(posted, actions),
@@ -562,6 +564,7 @@ export function createHost(
   let started: Promise<unknown> | undefined = undefined;
   let following = false;
   let followingActions = false;
+  let followingBadge = false;
   return {
     registration,
     gmailMailboxes,
@@ -592,6 +595,14 @@ export function createHost(
       if (!following) {
         following = true;
         void followWakes(freshness, wakes);
+      }
+    },
+    // Keeps the App Icon Badge on the unread Inbox count for the life of the process; a later call
+    // starts no second follower.
+    followBadge: () => {
+      if (!followingBadge) {
+        followingBadge = true;
+        notifications.followBadge({ registration, mailboxes: gmailMailboxes });
       }
     },
     // Reads the actions chosen on notifications for the life of the process: Archive, Mark as

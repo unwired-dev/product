@@ -15,6 +15,7 @@ import type {
   MailGrantProvider,
   RegistrationSnapshot,
 } from './registration-snapshot.ts';
+import type { Registration } from './registration.ts';
 
 import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { draftOf, draftSaveProblem, isEmptyDraft } from './drafts.ts';
@@ -22,16 +23,20 @@ import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder } from './imap-actions.ts';
 import { listedMessage } from './inbox-store.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
+import { canOpenInbox } from './registration.ts';
 import { typedBody, typedReply } from './responses.ts';
 import { createSubscribable } from './subscribable.ts';
 
-// What the operating system lets this device show, and whether a New Mail Notification may show
-// its sender and subject. Native code keeps both as Device-Local Preferences; previews start off.
+// What the operating system lets this device show, whether a New Mail Notification may show its
+// sender and subject, and what the App Icon Badge counts. Native code keeps the choices as
+// Device-Local Preferences; previews and the badge start off.
 const Settings = Schema.Struct({
   authorization: Schema.Literals(['undetermined', 'denied', 'authorized']),
   previews: Schema.Boolean,
+  badge: Schema.Literals(['off', 'inbox']),
 });
 export type NotificationSettings = typeof Settings.Type;
+export type BadgeChoice = NotificationSettings['badge'];
 const decodeSettings = Schema.decodeUnknownEffect(Settings);
 
 const Mailbox = Schema.Struct({
@@ -121,6 +126,9 @@ export interface NativeNotifications {
   // Asks the operating system for alert permission and resolves the settings afterwards.
   readonly requestNotifications: () => Promise<unknown>;
   readonly setNotificationPreviews: (previews: boolean) => Promise<unknown>;
+  readonly setNotificationBadge: (badge: BadgeChoice) => Promise<unknown>;
+  // Shows `count` on the application's icon; 0 removes the badge.
+  readonly setBadgeCount: (count: number) => Promise<unknown>;
   // Opens this application's notification settings in the system's settings.
   readonly openNotificationSettings: () => Promise<unknown>;
   readonly postNotifications: (
@@ -185,6 +193,43 @@ const logged = (
       Effect.logError(message, rejectionDiagnostic(cause)),
     ),
   );
+
+// What the App Icon Badge counts: Registration, and every connection whose Inbox can open.
+type BadgeSources = Readonly<{
+  registration: Pick<Registration, 'getSnapshot' | 'subscribe'>;
+  mailboxes: Readonly<{
+    getConnections: () => ReadonlyArray<
+      Readonly<{
+        state: Readonly<{
+          kind: string;
+          messages?: ReadonlyArray<Readonly<{ unread: boolean }>>;
+        }>;
+      }>
+    >;
+    subscribe: (listener: () => void) => () => void;
+  }>;
+}>;
+
+// The unread messages this device lists in the Inbox of every open connection, as the sidebar's
+// Inbox rows count them, or undefined while saved registration or an Inbox has not opened yet.
+// Without an Inbox to open, after sign-out or the last removal, nothing is unread.
+const inboxUnread = ({ registration, mailboxes }: BadgeSources) => {
+  const { snapshot, restoring, locked } = registration.getSnapshot();
+  if (restoring === true || locked === true) {
+    return undefined;
+  }
+  if (!canOpenInbox(snapshot)) {
+    return 0;
+  }
+  let unread = 0;
+  for (const { state } of mailboxes.getConnections()) {
+    if (state.kind === 'loading' || state.kind === 'locked') {
+      return undefined;
+    }
+    unread += state.messages?.filter((message) => message.unread).length ?? 0;
+  }
+  return unread;
+};
 
 // Generic content unless this device chose previews. Without a title the system shows the
 // application's name.
@@ -257,6 +302,45 @@ export function createNotifications(
         () => native.setNotificationPreviews(previews),
         'Notification previews could not be saved:',
       ),
+    setBadge: (badge: BadgeChoice) =>
+      update(
+        () => native.setNotificationBadge(badge),
+        'The App Icon Badge choice could not be saved:',
+      ),
+    // Keeps the App Icon Badge on the unread Inbox count while the badge counts it and the system
+    // allows notifications, and removes it otherwise. A count is applied only once every source
+    // has settled, so a launch that has not opened saved registration or an Inbox yet keeps the
+    // badge it found.
+    followBadge: (sources: BadgeSources) => {
+      let shown: number | undefined = undefined;
+      const follow = () => {
+        const current = settings.getSnapshot();
+        const unread = inboxUnread(sources);
+        if (current === undefined || unread === undefined) {
+          return;
+        }
+        const count =
+          current.authorization === 'authorized' && current.badge === 'inbox'
+            ? unread
+            : 0;
+        if (count !== shown) {
+          shown = count;
+          void runLogged(
+            logged(
+              'The App Icon Badge could not be set:',
+              call(() => native.setBadgeCount(count)),
+            ),
+          );
+        }
+      };
+      settings.subscribe(follow);
+      sources.registration.subscribe(follow);
+      sources.mailboxes.subscribe(follow);
+      void update(
+        () => native.notificationSettings(),
+        'Notification settings could not be read:',
+      );
+    },
     openSettings: () =>
       runLogged(
         logged(

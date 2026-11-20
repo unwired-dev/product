@@ -1848,7 +1848,11 @@ describe('product registration', () => {
       [alex]: { native: gmail.native },
       [syntheticMailboxes['casey@example.invalid']]: createSyntheticGraph(),
     });
-    const device = { authorization: 'undetermined', previews: false };
+    const device = {
+      authorization: 'undetermined',
+      previews: false,
+      badge: 'off',
+    };
     const requests: string[] = [];
     const notifications = createNotifications(
       {
@@ -1862,6 +1866,8 @@ describe('product registration', () => {
           device.previews = previews;
           return Promise.resolve({ ...device });
         },
+        setNotificationBadge: () => Promise.resolve({ ...device }),
+        setBadgeCount: () => Promise.resolve(null),
         openNotificationSettings: () => Promise.resolve(null),
         postNotifications: () => Promise.resolve(null),
       },

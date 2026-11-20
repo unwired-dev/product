@@ -25,10 +25,10 @@ import {
 
 import type { SettingsButton } from './settings.tsx';
 
-import { AnnouncedAlert, MenuButton, SFSymbol } from './design.tsx';
+import { AnnouncedAlert, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
-  PopUpChevrons,
+  PopUpChoice,
   settingsColumns,
   SettingsBlock,
   SettingsGroup,
@@ -126,17 +126,6 @@ export function useRemoteImages({
 
 const styles = StyleSheet.create({
   label: { ...textStyles.subheadline },
-  // On iPhone the pop-up's 44pt target reaches into the row's padding, keeping the row 52pt.
-  popUpTarget: { marginVertical: settingsColumns ? 0 : -spacing.m },
-  // The pop-up: the chosen policy and its chevrons at the row's trailing edge; iPhone's sit in the
-  // Settings Row's circle.
-  popUp: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: settingsColumns ? spacing.xs : spacing.m,
-  },
-  popUpLabel: settingsColumns ? typography.ipadList.body : textStyles.body,
   text: { ...textStyles.body },
   // The approved warning row keeps the Mac inset and small type on iPhone and iPad.
   notSaved: {
@@ -155,67 +144,6 @@ const styles = StyleSheet.create({
 });
 
 type Choice = RemoteContentPolicy | 'device';
-
-// The policy choices in one native pop-up that checks the selected one; `device` follows the
-// device's choice for one mailbox.
-export function PolicyChoice({
-  label,
-  selected,
-  choices,
-  onChoose,
-}: {
-  // Names the setting for the pop-up's accessibility label.
-  readonly label: string;
-  readonly selected: Choice;
-  readonly choices: readonly Choice[];
-  readonly onChoose: (choice: Choice) => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const title = (choice: Choice) => t(`remoteContent.policies.${choice}`);
-  return (
-    <MenuButton
-      accessibilityLabel={`${label}: ${title(selected)}`}
-      sections={[
-        {
-          items: choices.map((choice) => ({
-            key: choice,
-            title: title(choice),
-            symbol: '',
-            checked: choice === selected,
-            run: () => {
-              onChoose(choice);
-            },
-          })),
-        },
-      ]}
-      style={styles.popUpTarget}>
-      <View style={styles.popUp}>
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.popUpLabel,
-            {
-              color: settingsColumns
-                ? colors.textSecondary
-                : colors.textPrimary,
-            },
-          ]}>
-          {title(selected)}
-        </Text>
-        {settingsColumns ? (
-          <SFSymbol
-            name="chevron.up.chevron.down"
-            size={12}
-            color={colors.textSecondary}
-          />
-        ) : (
-          <PopUpChevrons />
-        )}
-      </View>
-    </MenuButton>
-  );
-}
 
 // One remote image policy. A choice storage refuses leaves the saved one in place and says so
 // under the row until the next choice.
@@ -263,10 +191,11 @@ function PolicySetting({
       <SettingsRow
         icon={icon}
         title={title}>
-        <PolicyChoice
+        <PopUpChoice
           label={label}
           selected={selected}
           choices={choices}
+          title={(choice) => t(`remoteContent.policies.${choice}`)}
           onChoose={(choice) => {
             const request = Symbol('remote-content-choice');
             change.current = request;

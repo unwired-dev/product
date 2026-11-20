@@ -23,6 +23,7 @@ export {
   start,
   followWakes,
   followNotificationActions,
+  followBadge,
   native,
 } from './host.ts';
 
