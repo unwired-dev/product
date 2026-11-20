@@ -3571,8 +3571,9 @@ export function createInboxStore(
   );
 
   // Opens the cache and synchronizes it; requests during a synchronization share one more.
-  const load = () => {
-    if (waiting !== null) {
+  // `admit`, when given, is asked again once the permit is held; such a load joins no other.
+  const loadWhen = (admit?: () => boolean) => {
+    if (waiting !== null && admit === undefined) {
       return waiting;
     }
     let started = false;
@@ -3581,8 +3582,10 @@ export function createInboxStore(
       foreground.withPermit(
         Effect.suspend(() => {
           started = true;
-          waiting = null;
-          if (requestedFor !== ownership) {
+          if (admit === undefined) {
+            waiting = null;
+          }
+          if (requestedFor !== ownership || admit?.() === false) {
             return Effect.void;
           }
           // Before Gmail's named time, changes made meanwhile are saved and wait for it.
@@ -3607,11 +3610,12 @@ export function createInboxStore(
       ),
     );
     // With a free permit, the synchronization has already started.
-    if (!started) {
+    if (!started && admit === undefined) {
       waiting = run;
     }
     return run;
   };
+  const load = () => loadWhen();
 
   // Synchronizes again after a usage limit's pause, unless the open Inbox changed meanwhile. A
   // timer waits at most about 24.8 days, so a later time of Gmail's waits again until it comes.
@@ -3621,14 +3625,11 @@ export function createInboxStore(
     // Still this Inbox, and no other limit, completed synchronization or refusal replaced this pause.
     const current = () =>
       pausedFor === ownership && !forgotten && pause === paused;
-    // Verification can close or replace this Inbox before it synchronizes. A mailbox that stays
-    // cache-only synchronizes nothing, so its pause ends and it waits for a later verification.
+    // Verification, or a synchronization holding the permit, can close or replace this Inbox or
+    // its pause before this one starts. A mailbox that stays cache-only synchronizes nothing, so
+    // its pause ends and it waits for a later verification.
     const resumeNow = async () => {
-      await verify(async () => {
-        if (current()) {
-          await load();
-        }
-      });
+      await verify(() => loadWhen(current));
       if (!current() || paused === undefined) {
         return;
       }
