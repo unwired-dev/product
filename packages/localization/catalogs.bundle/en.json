@@ -1354,6 +1354,15 @@
       "cancelLabel": "Cancel adding {{name}}",
       "remove": "Remove",
       "removeLabel": "Remove {{name}}",
+      "removeImage": "Remove Image",
+      "size": {
+        "small": "Small",
+        "medium": "Medium",
+        "large": "Large",
+        "original": "Original",
+        "width": "{{width}} px",
+        "label": "Show {{name}} at {{size}} size"
+      },
       "toAttachment": "Attach Instead",
       "toAttachmentLabel": "Attach {{name}} instead of showing it inline",
       "toInline": "Show Inline",

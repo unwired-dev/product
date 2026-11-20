@@ -1254,6 +1254,40 @@ export const withImage = (
     ),
   }));
 
+// The display width of the inline image `id`'s first use; undefined at its original size or when
+// the document does not show it.
+export const imageWidthOf = (document: SemanticDocument, id: string) =>
+  document
+    .flatMap(({ spans }) =>
+      spans.flatMap((span) => ('image' in span ? [span] : [])),
+    )
+    .find((span) => span.image.id === id)?.width;
+
+// Every use of the inline image `id` at `width`, or with none at its original size; the same
+// document when each use already has it.
+export const withImageWidth = (
+  document: SemanticDocument,
+  id: string,
+  width: ImageWidth | undefined,
+) =>
+  document.some(({ spans }) =>
+    spans.some(
+      (span) => 'image' in span && span.image.id === id && span.width !== width,
+    ),
+  )
+    ? editImageBlocks(document, id, (block) => ({
+        ...block,
+        spans: block.spans.map((span) =>
+          'image' in span && span.image.id === id
+            ? spanOf(span.text, span.marks ?? [], {
+                image: span.image,
+                width,
+              })
+            : span,
+        ),
+      }))
+    : document;
+
 // The document without the inline image `id`, keeping the text around it.
 export const withoutImage = (document: SemanticDocument, id: string) =>
   editImageBlocks(document, id, (block) => ({

@@ -438,6 +438,7 @@ interface StyleMenu {
     readonly items: ReadonlyArray<{
       readonly id: string;
       readonly title: string;
+      readonly subtitle?: string;
       readonly checked?: boolean;
     }>;
   }>;
@@ -7121,6 +7122,96 @@ describe('adding files and images to a Draft', () => {
     expect(screen.getByLabelText('Message body')).not.toHaveTextContent('￼');
     await press('Undo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
+  });
+
+  it('shows an inline image at the size chosen from its row’s menu, each choice one Undo step (#2577)', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('paste', [
+      { uri: 'file:///chart.png', name: 'Pasted image.png', type: 'image/png' },
+    ]);
+    await press('Paste Image');
+    await screen.findByLabelText('Inline image Pasted image.png');
+    const row = () => screen.getByLabelText(/^Pasted image\.png, /u);
+    // The row's context menu, which a touch and hold opens.
+    const menu = () => {
+      let node = row().parent;
+      while (node !== null && node.type !== 'UnwiredContextMenu') {
+        node = node.parent;
+      }
+      const props: unknown = node?.props;
+      ok(isStyleMenu(props));
+      return props;
+    };
+    const shown = () =>
+      menu().sections.map(({ items }) =>
+        items.map(({ title, subtitle, checked }) => [
+          title,
+          subtitle,
+          checked === true,
+        ]),
+      );
+    const choose = async (title: string) => {
+      const { sections, onSelect } = menu();
+      const item = sections
+        .flatMap(({ items }) => items)
+        .find((each) => each.title === title);
+      ok(item);
+      await act(async () => {
+        onSelect({ nativeEvent: { id: item.id } });
+      });
+    };
+    const checked = () =>
+      menu()
+        .sections.flatMap(({ items }) => items)
+        .filter((item) => item.checked === true)
+        .map(({ title }) => title);
+    expect(shown()).toStrictEqual([
+      [
+        ['Small', '320 px', false],
+        ['Medium', '640 px', false],
+        ['Large', '1024 px', false],
+        ['Original', undefined, true],
+      ],
+      [['Remove Image', undefined, false]],
+    ]);
+    await choose('Medium');
+    expect(checked()).toStrictEqual(['Medium']);
+    // Choosing the current size again is not an edit, so one Undo returns to Original.
+    await choose('Medium');
+    await press('Undo');
+    expect(checked()).toStrictEqual(['Original']);
+    // VoiceOver offers each size as an action on the row.
+    const { accessibilityActions } = row().props;
+    const large = accessibilityActions.find(
+      ({ label }: { label: string }) =>
+        label === 'Show Pasted image.png at Large size',
+    );
+    ok(large);
+    await act(async () => {
+      await fireEvent(row(), 'accessibilityAction', {
+        nativeEvent: { actionName: large.name },
+      });
+    });
+    expect(checked()).toStrictEqual(['Large']);
+    await saveDraft();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    expect(
+      saved.body.flatMap(({ spans }) =>
+        spans.flatMap((span) => ('image' in span ? [span.width] : [])),
+      ),
+    ).toStrictEqual([1024]);
   });
 
   it('offers attaching a downloaded file only while a sending mailbox is available', async () => {

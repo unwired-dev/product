@@ -28,6 +28,7 @@ import type {
 import type {
   Asset,
   BlockKind,
+  ImageWidth,
   Link,
   Mark,
   Selection,
@@ -89,6 +90,7 @@ import {
   historyOf,
   imageCharacter,
   imagesOf,
+  imageWidthOf,
   editableLinkAt,
   indentList,
   isListKind,
@@ -105,6 +107,7 @@ import {
   toggled,
   toggleMark,
   undo,
+  withImageWidth,
   withoutImage,
 } from '@private-email/mail-core/semantic-document';
 import {
@@ -1641,25 +1644,39 @@ function usePreview(asset: Asset, inline: boolean) {
   return { preview: shown, retry };
 }
 
+// The display sizes an inline image offers, as in the approved #1735 frames; Original has none.
+const imageSizes = [
+  ['small', 320],
+  ['medium', 640],
+  ['large', 1024],
+  ['original', undefined],
+] as const;
+
 function AssetRow({
   asset,
   editable,
   inline,
   running,
+  width,
   onRemove,
   onCancel,
   onConvert,
   onPreview,
+  onResize,
 }: {
   readonly asset: Asset;
   readonly inline: boolean;
   readonly running: boolean;
   readonly editable: boolean;
+  // The display width of an inline image in the body; undefined at its original size.
+  readonly width?: ImageWidth | undefined;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
   // An editor that shows Inline Images itself receives each verified thumbnail.
   readonly onPreview?: ((id: string, uri: string | null) => void) | undefined;
+  // Given only for an image in the body, which offers its display sizes.
+  readonly onResize?: ((width: ImageWidth | undefined) => void) | undefined;
 }) {
   const colors = usePalette();
   const { t, settings } = useLocalization();
@@ -1683,6 +1700,47 @@ function AssetRow({
   // An editor that converts offers it, with Remove, from the chip's context menu.
   const convertible =
     onConvert !== undefined && (inline || asset.type.startsWith('image/'));
+  const sizes =
+    onResize === undefined
+      ? []
+      : imageSizes.map(([size, sizeWidth]) => ({
+          key: `size:${size}:${asset.id}`,
+          title: t(`drafts.assets.size.${size}`),
+          symbol: '',
+          ...(sizeWidth === undefined
+            ? {}
+            : {
+                subtitle: t('drafts.assets.size.width', { width: sizeWidth }),
+              }),
+          checked: width === sizeWidth,
+          accessibilityLabel: t('drafts.assets.size.label', {
+            name: asset.name,
+            size: t(`drafts.assets.size.${size}`),
+          }),
+          run: () => {
+            onResize(sizeWidth);
+          },
+        }));
+  const actions = [
+    ...(convertible
+      ? [
+          {
+            name: 'convert',
+            label: t(`drafts.assets.${toAttachment}Label`, {
+              name: asset.name,
+            }),
+            run: () => {
+              onConvert?.(asset.id);
+            },
+          },
+        ]
+      : []),
+    ...sizes.map(({ key, accessibilityLabel, run }) => ({
+      name: key,
+      label: accessibilityLabel,
+      run,
+    })),
+  ];
   const chip = (
     <View
       style={[
@@ -1711,18 +1769,16 @@ function AssetRow({
           name: asset.name,
           status,
         })}
-        {...(convertible && editable
+        {...(actions.length > 0 && editable
           ? {
-              accessibilityActions: [
-                {
-                  name: 'convert',
-                  label: t(`drafts.assets.${toAttachment}Label`, {
-                    name: asset.name,
-                  }),
-                },
-              ],
-              onAccessibilityAction: () => {
-                onConvert?.(asset.id);
+              accessibilityActions: actions.map(({ name, label }) => ({
+                name,
+                label,
+              })),
+              onAccessibilityAction: ({ nativeEvent }) => {
+                actions
+                  .find(({ name }) => name === nativeEvent.actionName)
+                  ?.run();
               },
             }
           : {})}
@@ -1772,28 +1828,44 @@ function AssetRow({
       />
     </View>
   );
-  return convertible && editable ? (
+  return (convertible || sizes.length > 0) && editable ? (
     <ContextMenu
       sections={[
+        { items: sizes },
         {
           items: [
-            {
-              key: `convert:${asset.id}`,
-              title: t(`drafts.assets.${toAttachment}`),
-              symbol: inline ? 'paperclip' : 'photo',
-              run: () => {
-                onConvert?.(asset.id);
-              },
-            },
-            {
-              key: `remove:${asset.id}`,
-              title: t('drafts.assets.remove'),
-              symbol: 'trash',
-              destructive: true,
-              run: () => {
-                onRemove(asset.id);
-              },
-            },
+            ...(convertible
+              ? [
+                  {
+                    key: `convert:${asset.id}`,
+                    title: t(`drafts.assets.${toAttachment}`),
+                    symbol: inline ? 'paperclip' : 'photo',
+                    run: () => {
+                      onConvert?.(asset.id);
+                    },
+                  },
+                ]
+              : []),
+            // The size menu's Remove Image, as the frames show it, has no symbol.
+            sizes.length > 0
+              ? {
+                  key: `remove:${asset.id}`,
+                  title: t('drafts.assets.removeImage'),
+                  symbol: '',
+                  destructive: true,
+                  run: () => {
+                    onRemove(asset.id);
+                  },
+                }
+              : {
+                  key: `remove:${asset.id}`,
+                  title: t('drafts.assets.remove'),
+                  symbol: 'trash',
+                  destructive: true,
+                  run: () => {
+                    onRemove(asset.id);
+                  },
+                },
           ],
         },
       ]}>
@@ -1813,6 +1885,7 @@ export function DraftAssets({
   onCancel,
   onConvert,
   onPreview,
+  onResize,
 }: {
   readonly draft: Draft;
   readonly editable: boolean;
@@ -1821,6 +1894,8 @@ export function DraftAssets({
   readonly onConvert?: ((id: string) => void) | undefined;
   // An editor that shows Inline Images itself receives each verified thumbnail.
   readonly onPreview?: ((id: string, uri: string | null) => void) | undefined;
+  // Shows every use of a body image at a display width, or with none at its original size.
+  readonly onResize: (id: string, width: ImageWidth | undefined) => void;
 }) {
   const store = useDraftStore();
   const { t } = useLocalization();
@@ -1838,6 +1913,7 @@ export function DraftAssets({
   if (attachments.length + images.length === 0) {
     return null;
   }
+  const inBody = new Set(imagesOf(draft.body).map(({ id }) => id));
   const rows = (assets: readonly Asset[], inline: boolean) =>
     assets.map((asset) => (
       <AssetRow
@@ -1849,6 +1925,14 @@ export function DraftAssets({
         onConvert={onConvert}
         onPreview={onPreview}
         onRemove={onRemove}
+        {...(inline && inBody.has(asset.id)
+          ? {
+              width: imageWidthOf(draft.body, asset.id),
+              onResize: (width: ImageWidth | undefined) => {
+                onResize(asset.id, width);
+              },
+            }
+          : {})}
         running={running.has(asset.id)}
       />
     ));
@@ -4002,6 +4086,14 @@ function Editor({
   const removeAsset = (id: string) => {
     removeAssets([id]);
   };
+  // Every use of a body image shows at `width`, as one edit; its current size changes nothing.
+  const resizeAsset = (id: string, width: ImageWidth | undefined) => {
+    const latest = authored.current;
+    const body = withImageWidth(latest.body, id, width);
+    if (body !== latest.body) {
+      change({ ...latest, body });
+    }
+  };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
     if (sendingNow.current) {
@@ -5081,6 +5173,7 @@ function Editor({
                 }
               }}
               onRemove={removeAsset}
+              onResize={resizeAsset}
             />
             <View style={[styles.fields, sized.fields]}>
               <View

@@ -617,8 +617,19 @@ changes: the Draft keeps and sends the original file. A client that predates
 the width drops it when it rewrites a synced Draft, as it does alignment and
 colors, and the image shows at its original size. The editor page's `resize`
 command sets or clears the width of every use of one image as one undoable edit.
-The menus that choose a size come in later [#1735](https://github.com/unwired-dev/product/issues/1735)
-slices.
+
+On iPhone and iPad, touching and holding an inline image's row opens its menu:
+**Small**, **Medium** and **Large** with their widths, **Original**, a checkmark at
+the image's current size, and **Remove Image**. VoiceOver offers the sizes as
+actions on the row. The body is plain text and draws no image, so the menu opens
+from the row that shows the picture, where the approved
+[iOS](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T/?node-id=1243-2) and
+[iPadOS](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T/?node-id=1243-1553)
+frames lift the image from the body. A size applies to every use of the image in
+the body as one edit that one **Undo** reverts; choosing the current size changes
+nothing. An image only in quoted correspondence offers no sizes. The original
+dimensions, the size caption and the Mac menu and corner handles come in later
+[#1735](https://github.com/unwired-dev/product/issues/1735) slices.
 
 An added file is **importing** until its bytes are stored. While it imports, its
 row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
