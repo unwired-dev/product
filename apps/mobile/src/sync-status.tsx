@@ -383,16 +383,21 @@ const useWaited = (progressing: boolean) => {
   return waited;
 };
 
+// The system toolbar shows the paused capsule, also while it fades out.
+const inToolbar = (toolbar: Details | undefined, said: Shown) =>
+  toolbar !== undefined && said.kind === 'paused';
+
 type Details = readonly [shown: boolean, show: (shown: boolean) => void];
 
-// Whether the capsule's details show: the toolbar's while it shows the paused capsule.
+// Whether the capsule's details show: the toolbar's with the system toolbar, so they stay open
+// as a pause turns into a failure.
 const useDetails = (toolbar: Details | undefined) => {
   const [shown, setShown] = useState(false);
   return toolbar ?? ([shown, setShown] as const);
 };
 
 // iPhone's system toolbar shows the paused capsule's two lines in Filter's place and opens the
-// capsule's details, which `details` hands to the capsule.
+// capsule's details, whose state `details` hands to the capsule.
 export const useToolbarPause = (
   shown: readonly InboxMailbox[],
   toolbar: boolean,
@@ -401,11 +406,15 @@ export const useToolbarPause = (
   const { time } = useMessageListDateFormats();
   const [open, setOpen] = useState(false);
   const status = syncStatusOf(shown);
-  if (!toolbar || status?.kind !== 'paused') {
+  if (!toolbar) {
     return { details: undefined, paused: undefined };
   }
+  const details = [open, setOpen] as const;
+  if (status?.kind !== 'paused') {
+    return { details, paused: undefined };
+  }
   return {
-    details: [open, setOpen] as const,
+    details,
     paused: {
       ...describe(t, status, (iso) => time.format(Date.parse(iso))),
       onOpen: () => {
@@ -525,7 +534,7 @@ export function SyncStatusCapsule({
       isPresented={details}
       onIsPresentedChange={setDetails}
       // The system toolbar shows the paused capsule.
-      trigger={toolbar === undefined ? capsule : <View />}>
+      trigger={inToolbar(toolbar, said) ? <View /> : capsule}>
       {content}
     </Presenter>
   );

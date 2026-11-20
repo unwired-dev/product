@@ -911,6 +911,7 @@ RCT_EXPORT_VIEW_PROPERTY(onSearchClose, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onPalette, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onFilterToggle, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onFilterOpen, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onPausedOpen, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 - (UIView *)view { return [UnwiredSearchToolbarView new]; }
 @end

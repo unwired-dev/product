@@ -1892,8 +1892,26 @@ describe('connected Gmail Inbox', () => {
         'Gmail · alex@example.invalid',
       ),
     ).toBeVisible();
+
+    // Synchronized again, the details close with the pause, and Filter returns without the capsule.
+    const store = connected.store();
+    store.forget();
+    await act(store.load);
+    await waitFor(() => {
+      expect(screen.queryByTestId('sync-status-details')).toBeNull();
+    });
+    expect(toolbar.props).toMatchObject({ pausedCaption: undefined });
+    expect(screen.queryByRole('button', { name: /^Gmail paused/u })).toBeNull();
+
+    // The next pause waits for a tap before opening them.
+    gmail.fail({ status: 429 });
+    await act(store.load);
+    await waitFor(() => {
+      expect(toolbar.props).toMatchObject({ pausedCaption: 'Gmail paused' });
+    });
+    expect(screen.queryByTestId('sync-status-details')).toBeNull();
     // Closing the Inbox ends the pause and its wait.
-    connected.store().forget();
+    store.forget();
   });
 
   it('opens the sync status details in a popover on the capsule in a regular-width window', async () => {
