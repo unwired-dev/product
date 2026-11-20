@@ -48,11 +48,13 @@ import {
 } from '@private-email/mail-core/link-inspection';
 import {
   decodeMessageContentSize,
-  decodeMessageFitScale,
+  decodeMessageFit,
   decodeRemoteImagePositions,
   labelImagePlaceholders,
 } from '@private-email/mail-core/message-body';
 import { ipadListScale, spacing } from '@private-email/mail-core/theme';
+import * as Arr from 'effect/Array';
+import * as Option from 'effect/Option';
 import { setStringAsync } from 'expo-clipboard';
 import {
   createContext,
@@ -658,7 +660,9 @@ function RichDocument({
               setHeight(measured.height);
               setContentWidth(measured.width);
             };
-            const scale = decodeMessageFitScale(event.nativeEvent);
+            const { fitScale: scale, fitAnchors } = decodeMessageFit(
+              event.nativeEvent,
+            );
             const ratio = scale / fitScale.current;
             fitScale.current = scale;
             const content = viewport?.content();
@@ -678,9 +682,21 @@ function RichDocument({
               }
               const read = viewport.get().offset - top;
               if (read > 0 && read < Math.min(height, heightCap)) {
+                // Text rewraps in a refit, so the point moves with the element nearest above it.
+                const moved = Option.match(
+                  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect's data-first findLast, not Array.prototype.
+                  Arr.findLast(fitAnchors, (mark) => mark.from <= read),
+                  {
+                    onNone: () => read * ratio,
+                    onSome: (mark) => mark.to + (read - mark.from) * ratio,
+                  },
+                );
                 const next =
                   top +
-                  Math.min(read * ratio, Math.min(measured.height, heightCap));
+                  Math.max(
+                    0,
+                    Math.min(moved, Math.min(measured.height, heightCap)),
+                  );
                 if (measured.height === height) {
                   viewport.scrollTo(next);
                 } else {

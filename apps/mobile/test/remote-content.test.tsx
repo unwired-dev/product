@@ -596,7 +596,7 @@ describe('remote message content in the reader', () => {
       const webview = await screen.findByTestId('message-webview');
       await act(() => {
         fireEvent(webview, 'contentSizeChange', {
-          nativeEvent: { ...measured(0), fitScale: 0.5 },
+          nativeEvent: { ...measured(0), fitScale: 0.5, fitAnchors: [] },
         });
       });
       // The person reads 1,000 points into the document, which starts 200 points down.
@@ -608,18 +608,24 @@ describe('remote message content in the reader', () => {
           },
         });
       });
-      // A narrower document refits from half size to 80%, so the same text is 1,600 points in.
+      // A narrower document refits from half size to 80% and rewraps: the paragraph that started
+      // 100 points above the text being read now starts 1,700 points into the document.
       await act(() => {
         fireEvent(webview, 'contentSizeChange', {
           nativeEvent: {
             ...measured(0),
             contentSize: { width: 320, height: 6400 },
             fitScale: 0.8,
+            fitAnchors: [
+              { from: -50, to: -80 },
+              { from: 900, to: 1700 },
+              { from: 1100, to: 1900 },
+            ],
           },
         });
       });
       expect(scrollTo.mock.calls).toStrictEqual([
-        [{ y: 1800, animated: false }],
+        [{ y: 2060, animated: false }],
       ]);
     } finally {
       await app.unmount();

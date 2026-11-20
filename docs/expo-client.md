@@ -444,10 +444,12 @@ client world, at load and after every remote image update, first lays the messag
 out normally. Only content that overflows, on either side, widens the body to its
 widest content (`width:fit-content`, `min-width:100%`); text that wraps within
 the view keeps its size. The body's `transform: scale()` is then set to the view's
-width over the unscaled width, or removed, in the same navigation. It keeps the
-content at the top of WebKit's own scroll, reports the shrunk body's bottom as the
-height, since the root never measures shorter than the view, and reports the scale,
-so the reader moves its offset with a refit and the text being read stays in place. The reader's WebView uses WebKit's mobile content
+width over the unscaled width, or removed, in the same navigation. A refit to a new
+scale rewraps the text, so the measurement records where each element was before it
+and keeps the element at the top of WebKit's own scroll in place; it reports the
+shrunk body's bottom as the height, since the root never measures shorter than the
+view, with the scale and where the elements in the view moved, so the reader keeps
+the text being read in place too. The reader's WebView uses WebKit's mobile content
 mode, so iPad, too, leaves a wide document to this fit instead of zooming it out
 with an unscaled height. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
 from the reader, and the Mac, follow in their own slices.
