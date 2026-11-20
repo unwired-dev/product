@@ -3634,33 +3634,45 @@ export function createInboxStore(
   }
 
   // Shows the saved listing without asking the provider, as a synchronization starts, for an Inbox
-  // nothing has opened yet; the next `load` synchronizes it. A running operation is skipped, not
-  // awaited: a synchronization shows the saved listing itself before it asks the provider.
-  const showSaved = () =>
+  // nothing has opened yet; the next `load` synchronizes it. `read` opens the cache when several
+  // connections share one open. A running operation is not awaited: a synchronization shows the
+  // saved listing itself before it asks the provider, and after any other, such as Retry of a
+  // blocked change, the listing shows once it ends.
+  const savedFrom = (opening: () => Promise<unknown>) =>
+    Effect.suspend(() =>
+      forgotten || state.kind !== 'loading'
+        ? Effect.void
+        : Effect.gen(function* () {
+            const cache = yield* storage(opening);
+            if (!forgotten) {
+              opened = {
+                address: cache.address,
+                generation: cache.generation,
+              };
+            }
+            const document = Option.getOrUndefined(yield* documentOf(cache));
+            yield* ready(
+              cache,
+              document,
+              cache.availability === 'retry' ? 'retry' : 'syncing',
+            );
+          }).pipe(Effect.catchTag('SyncFailure', recover)),
+    );
+  const showSaved = (read: () => Promise<unknown> = native.openMailbox) =>
     runLogged(
-      semaphore.withPermitsIfAvailable(1)(
-        Effect.suspend(() =>
-          forgotten || state.kind !== 'loading'
-            ? Effect.void
-            : Effect.gen(function* () {
-                const cache = yield* storage(native.openMailbox);
-                if (!forgotten) {
-                  opened = {
-                    address: cache.address,
-                    generation: cache.generation,
-                  };
-                }
-                const document = Option.getOrUndefined(
-                  yield* documentOf(cache),
-                );
-                yield* ready(
-                  cache,
-                  document,
-                  cache.availability === 'retry' ? 'retry' : 'syncing',
-                );
-              }).pipe(Effect.catchTag('SyncFailure', recover)),
+      semaphore
+        .withPermitsIfAvailable(1)(savedFrom(read))
+        .pipe(
+          Effect.flatMap((ran) =>
+            Option.isSome(ran)
+              ? Effect.void
+              : Effect.sync(() => {
+                  void runLogged(
+                    semaphore.withPermit(savedFrom(native.openMailbox)),
+                  );
+                }),
+          ),
         ),
-      ),
     );
 
   // Only the shown mailbox's blocked change, as the person saw it, can be retried or discarded.

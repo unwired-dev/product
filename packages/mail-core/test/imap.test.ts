@@ -1084,6 +1084,101 @@ describe('connecting IMAP mailboxes', () => {
     ).toContain('Not yet read');
   });
 
+  it('shows the saved Inbox once a folder read that held the store ends, and opens only free stores together', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive');
+    imap.deliver('INBOX', { subject: 'Saved' });
+    imap.deliver('Archive', { subject: 'Archived' });
+    const held = Promise.withResolvers<undefined>();
+    let opening: Promise<unknown> = Promise.resolve();
+    const other = createSyntheticImap();
+    other.deliver('INBOX', { subject: 'Other' });
+    const base = syntheticConnections(
+      {},
+      {
+        'imap-connection': {
+          ...imap.native,
+          imapOpen: async (...open) => {
+            await opening;
+            return imap.native.imapOpen(...open);
+          },
+        },
+        'imap-other': other.native,
+      },
+    );
+    const batches: string[][] = [];
+    const single: string[] = [];
+    const native: typeof base = {
+      ...base,
+      openMailbox: async (connection) => {
+        single.push(connection);
+        return base.openMailbox(connection);
+      },
+      openSavedMailboxes: async (ids) => {
+        batches.push([...ids]);
+        return base.openSavedMailboxes(ids);
+      },
+    };
+    const registration = {
+      getSnapshot: () => ({
+        busy: false,
+        failed: false,
+        snapshot: {
+          kind: 'connected' as const,
+          productAccountId: 'account',
+          signInProvider: 'apple' as const,
+          mailboxes: JSON.stringify([
+            {
+              id: 'imap-connection',
+              address: 'alex@example.invalid',
+              provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'alex',
+              },
+              state: 'connected',
+            },
+            {
+              id: 'imap-other',
+              address: 'sam@example.invalid',
+              provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'sam',
+              },
+              state: 'connected',
+            },
+          ]),
+        },
+      }),
+      subscribe: () => () => undefined,
+    };
+    await createMailboxes(native, registration).load();
+    // The process launches again, and Archive is read before anything opens the Inbox.
+    const mailboxes = createMailboxes(native, registration);
+    opening = held.promise;
+    const archive = imapInbox(mailboxes).openFolder('Archive');
+    single.length = 0;
+    await mailboxes.showSaved();
+    expect(imapInbox(mailboxes).getSnapshot().kind).toBe('loading');
+    held.resolve(undefined);
+    await archive;
+    await vi.waitFor(() => {
+      expect(
+        ready(imapInbox(mailboxes).getSnapshot()).messages.map(
+          ({ subject }) => subject,
+        ),
+      ).toStrictEqual(['Saved']);
+    });
+    expect({ batches, single }).toStrictEqual({
+      batches: [['imap-other']],
+      single: ['imap-connection'],
+    });
+  });
+
   it('reopens the cache and reads a folder again after another store committed it', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
