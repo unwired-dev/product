@@ -2970,6 +2970,52 @@ describe('adding files and images to Drafts', () => {
     ).toBe(false);
   });
 
+  it('keeps an inline image display width through formatting, typing, line breaks and storage', () => {
+    expect.hasAssertions();
+    const image = {
+      id: 'image0001',
+      name: 'room.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const sized: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Before ' },
+          { text: imageCharacter, image, width: 320 },
+          { text: 'after' },
+        ],
+      },
+    ];
+    const bold = toggleMark(sized, { start: 0, end: 13 }, 'bold');
+    const typedAround = applyText(
+      bold,
+      `Before and\n${imageCharacter}after`,
+    ).document;
+    const codec = Schema.fromJsonString(SemanticDocumentSchema);
+    expect({
+      bold: bold[0].spans[1],
+      typed: typedAround.map(({ spans }) => spans.map(({ text }) => text)),
+      image: typedAround[1]?.spans[0],
+      stored: Schema.decodeSync(codec)(Schema.encodeSync(codec)(typedAround)),
+    }).toStrictEqual({
+      bold: { text: imageCharacter, image, width: 320, marks: ['bold'] },
+      typed: [['Before and'], [imageCharacter, 'after']],
+      image: { text: imageCharacter, image, width: 320, marks: ['bold'] },
+      stored: typedAround,
+    });
+    // Only the Small, Medium and Large widths are stored.
+    expect(
+      Schema.is(SemanticDocumentSchema)([
+        {
+          kind: 'paragraph',
+          spans: [{ text: imageCharacter, image, width: 500 }],
+        },
+      ]),
+    ).toBe(false);
+  });
+
   it('stores verified bytes under the Draft through relaunch, Undo and deletion', async () => {
     expect.hasAssertions();
     const { session, storage, drafts, id, draft } = await opened();
