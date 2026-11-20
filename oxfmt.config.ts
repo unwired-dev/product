@@ -5,6 +5,8 @@ export default extendOxfmtConfig({
     // Preserve the pinned upstream Expo and animation skill bundles.
     '.agents/skills/expo-*/**',
     '**/convex/_generated/**',
+    // Mail fixtures keep the markup senders send, such as a comment-wrapped style sheet.
+    'packages/mail-core/test/responsive-mail/**',
     // run.py and report.py generate the System Category benchmark results.
     'tools/system-category-benchmark/results/**',
     // custom.py generates the Custom Category results, tables and golden outputs.
