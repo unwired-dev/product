@@ -720,25 +720,28 @@ describe('pausing at a Gmail usage limit', () => {
   /* oxlint-disable vitest/max-expects -- Each journey follows one pause from limit to resumption. */
   const limitBody = (reason: string, message = 'Rate limit exceeded') =>
     JSON.stringify({ error: { errors: [{ reason }], message } });
+  // A synchronized Inbox with one saved message, on a clock the test advances.
   const synchronized = async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-11-20T13:00:00.000Z'));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'Saved before the limit' });
     const inbox = createInboxStore(gmail.native);
     await inbox.load();
-    return { gmail, inbox, cached: ready(inbox.getSnapshot()).messages };
+    const cached = ready(inbox.getSnapshot()).messages;
+    const [message] = cached;
+    if (message === undefined) {
+      throw new Error('Expected a saved message');
+    }
+    return { gmail, inbox, cached, message };
   };
-
-  beforeEach(() => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(new Date('2026-11-20T13:00:00.000Z'));
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
 
   it('waits until the time Gmail named, keeping saved mail and changes, then synchronizes again', async () => {
     expect.hasAssertions();
-    const { gmail, inbox, cached } = await synchronized();
+    const { gmail, inbox, cached, message } = await synchronized();
     gmail.fail({
       status: 403,
       body: limitBody(
@@ -757,10 +760,6 @@ describe('pausing at a Gmail usage limit', () => {
     // meanwhile is saved on this device and waits.
     const reached = gmail.requests.length;
     await inbox.load();
-    const [message] = cached;
-    if (message === undefined) {
-      throw new Error('Expected a saved message');
-    }
     await inbox.organize(message, gmailAction.archive);
     expect(gmail.requests).toHaveLength(reached);
     expect(gmail.modifies).toHaveLength(0);

@@ -124,13 +124,14 @@ export const rateLimited = Schema.decodeUnknownOption(
 );
 // The time a usage limit's message asks to wait until, as Gmail words it: "Retry after <instant>".
 const retryAfter = (body: string) =>
-  Schema.decodeUnknownOption(
+  Schema.decodeOption(
     Schema.fromJsonString(
       Schema.Struct({ error: Schema.Struct({ message: Schema.String }) }),
     ),
   )(body).pipe(
     Option.flatMapNullishOr(
-      ({ error }) => /Retry after (\S+)/u.exec(error.message)?.[1],
+      ({ error }) =>
+        /Retry after (?<until>\S+)/u.exec(error.message)?.groups?.until,
     ),
     Option.map(Date.parse),
     Option.filter(Number.isFinite),

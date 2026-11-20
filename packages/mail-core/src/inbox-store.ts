@@ -1265,8 +1265,9 @@ export function createInboxStore(
   let limits = { day: '', times: 0, streak: 0 };
   // When a limited synchronization runs again, and whether Gmail named that time. Until a named
   // time passes, nothing synchronizes this mailbox.
-  let pause: Readonly<{ until: number; named: boolean }> | undefined;
-  let resume: ReturnType<typeof setTimeout> | undefined;
+  let pause: Readonly<{ until: number; named: boolean }> | undefined =
+    undefined;
+  let resume: ReturnType<typeof setTimeout> | undefined = undefined;
   const endPause = () => {
     clearTimeout(resume);
     resume = undefined;
@@ -3040,14 +3041,7 @@ export function createInboxStore(
               now + Math.min(minute * 2 ** (limits.streak - 1), 30 * minute),
             named: false,
           };
-    const pausedFor = ownership;
-    clearTimeout(resume);
-    resume = setTimeout(() => {
-      resume = undefined;
-      if (pausedFor === ownership && !forgotten) {
-        void load();
-      }
-    }, pause.until - now);
+    resumeAfter(pause.until - now);
   };
   const recover = ({
     kind,
@@ -3067,12 +3061,10 @@ export function createInboxStore(
             forgetOpenInbox();
             removed?.();
           } else if (kind === 'authentication' || kind === 'retry') {
-            endPause();
-            if (
-              kind === 'retry' &&
-              limit !== undefined &&
-              provider === 'gmail'
-            ) {
+            // Only a 'retry' carries a limit.
+            if (limit === undefined) {
+              endPause();
+            } else {
               pauseFor(limit);
             }
             settle(
@@ -3575,6 +3567,18 @@ export function createInboxStore(
     }
     return run;
   };
+
+  // Synchronizes again after a usage limit's pause, unless the open Inbox changed meanwhile.
+  function resumeAfter(delay: number) {
+    const pausedFor = ownership;
+    clearTimeout(resume);
+    resume = setTimeout(() => {
+      resume = undefined;
+      if (pausedFor === ownership && !forgotten) {
+        void load();
+      }
+    }, delay);
+  }
 
   // Only the shown mailbox's blocked change, as the person saw it, can be retried or discarded.
   const resolvable = (
