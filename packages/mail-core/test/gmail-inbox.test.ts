@@ -739,6 +739,27 @@ describe('pausing at a Gmail usage limit', () => {
     return { gmail, inbox, cached, message };
   };
 
+  it('waits for a time Gmail named beyond the longest timer', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await synchronized();
+    gmail.fail({
+      status: 429,
+      body: limitBody(
+        'rateLimitExceeded',
+        'Rate limit exceeded. Retry after 2027-01-20T13:00:00.000Z',
+      ),
+    });
+    await inbox.load();
+    const reached = gmail.requests.length;
+    // Past the longest timer Gmail is still not asked; at its time the mailbox synchronizes.
+    await vi.advanceTimersByTimeAsync(2 ** 31);
+    expect(gmail.requests).toHaveLength(reached);
+    await vi.advanceTimersByTimeAsync(61 * 24 * 3_600_000 - 2 ** 31);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+  });
+
   it('waits until the time Gmail named, keeping saved mail and changes, then synchronizes again', async () => {
     expect.hasAssertions();
     const { gmail, inbox, cached, message } = await synchronized();

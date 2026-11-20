@@ -117,10 +117,10 @@ final class InboxTests: XCTestCase {
 
   // #2488: a timed Gmail usage limit keeps mail visible and disables early retry in Sync Status.
   private func pausedSyncStatusJourney(_ app: XCUIApplication) throws {
-    // The mock's retry is at 12:20 UTC the day after it starts.
-    var utc = Calendar(identifier: .gregorian)
-    utc.timeZone = .gmt
+    // The mock's fixed retry time.
+    let retryAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2099-01-02T12:20:00Z"))
     let zone = TimeZone.current
+    XCTAssertNotEqual(zone.secondsFromGMT(for: retryAt), 0, "Use a non-UTC simulator time zone")
     let formatter = DateFormatter()
     formatter.locale = .current
     formatter.timeZone = zone
@@ -129,14 +129,7 @@ final class InboxTests: XCTestCase {
     func normalized(_ label: String) -> String {
       label.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
-    func expectedRetry(from now: Date) throws -> String {
-      let tomorrow = try XCTUnwrap(utc.date(byAdding: .day, value: 1, to: utc.startOfDay(for: now)))
-      let retryAt = tomorrow.addingTimeInterval(12 * 3600 + 20 * 60)
-      XCTAssertNotEqual(zone.secondsFromGMT(for: retryAt), 0, "Use a non-UTC simulator time zone")
-      return normalized(formatter.string(from: retryAt))
-    }
-    // The mock starts while Gmail connects, so its day is the one before or after connecting.
-    let before = try expectedRetry(from: Date())
+    let retryTime = normalized(formatter.string(from: retryAt))
 
     connectGmail(app)
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
@@ -152,9 +145,6 @@ final class InboxTests: XCTestCase {
     ).firstMatch
     XCTAssertTrue(paused.waitForExistence(timeout: 30))
     let capsuleLabel = paused.label
-    let after = try expectedRetry(from: Date())
-    let retryTime =
-      [before, after].first { normalized(capsuleLabel) == "Gmail paused, until \($0)" } ?? before
     print("Expected retry time \(retryTime) in \(zone.identifier). Capsule shows \(capsuleLabel).")
     XCTAssertEqual(normalized(capsuleLabel), "Gmail paused, until \(retryTime)")
     XCTAssertTrue(paused.isHittable)

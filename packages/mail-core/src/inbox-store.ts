@@ -210,6 +210,8 @@ type BodyTier = 'opened' | 'prefetched' | 'excluded';
 // Online search results per page and mailbox.
 const searchPageSize = 20;
 const minute = 60_000;
+// setTimeout's longest delay.
+const longestTimer = 2 ** 31 - 1;
 
 // The latest organizing outcome, until the next one; unsaved batches also report their size.
 export type OrganizeNotice = Readonly<
@@ -3584,16 +3586,26 @@ export function createInboxStore(
     return run;
   };
 
-  // Synchronizes again after a usage limit's pause, unless the open Inbox changed meanwhile.
+  // Synchronizes again after a usage limit's pause, unless the open Inbox changed meanwhile. A
+  // timer waits at most about 24.8 days, so a later time of Gmail's waits again until it comes.
   function resumeAfter(delay: number) {
     const pausedFor = ownership;
     clearTimeout(resume);
-    resume = setTimeout(() => {
-      resume = undefined;
-      if (pausedFor === ownership && !forgotten) {
+    resume = setTimeout(
+      () => {
+        resume = undefined;
+        if (pausedFor !== ownership || forgotten) {
+          return;
+        }
+        const left = (pause?.until ?? 0) - Date.now();
+        if (left > 0) {
+          resumeAfter(left);
+          return;
+        }
         void load();
-      }
-    }, delay);
+      },
+      Math.min(delay, longestTimer),
+    );
   }
 
   // Only the shown mailbox's blocked change, as the person saw it, can be retried or discarded.

@@ -1,6 +1,5 @@
 import * as Arr from 'effect/Array';
 import * as Context from 'effect/Context';
-import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';
 import * as Base64 from 'effect/encoding/Base64';
 import * as Layer from 'effect/Layer';
@@ -513,16 +512,10 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
       // two minutes and fails it once, then lists the rest.
       const slowHistory =
         scenario === 'registration-sync-status' ? { failed: false } : undefined;
-      // The native journey computes the display of 12:20 UTC the next day.
+      // One fixed future time, which the native journey formats too.
       const retryAfter =
         scenario === 'registration-sync-status-paused'
-          ? DateTime.formatIso(
-              DateTime.add(DateTime.startOf(yield* DateTime.now, 'day'), {
-                days: 1,
-                hours: 12,
-                minutes: 20,
-              }),
-            )
+          ? '2099-01-02T12:20:00.000Z'
           : undefined;
       // Both scenarios list All Mail's history in pages.
       const pagedHistory =
