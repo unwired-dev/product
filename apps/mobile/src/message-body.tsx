@@ -94,7 +94,8 @@ import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
 
-// A taller document scrolls inside its view instead of the reader.
+// A taller document scrolls inside its view instead of the reader. The patched WebView's
+// measurement repeats this cap.
 const heightCap = 20_000;
 
 // A link awaiting confirmation, with the check that its body is still the one on screen and the

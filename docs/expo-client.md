@@ -449,7 +449,8 @@ removed, in the same navigation. The height reported is the shrunk body's bottom
 since the root never measures shorter than the view. A refit to a new scale rewraps
 the text, so the measurement first finds the character at the top of the reader's
 visible area, the first text across that row outside an image placeholder: a document taller than its view keeps that character in place in
-WebKit's own scroll, and otherwise the measurement reports how far it moved, and the
+WebKit's own scroll, one that grows past the reader's 20,000-point height cap scrolls
+WebKit by the excess, and otherwise the measurement reports how far it moved, and the
 reader moves its offset by as much. The reader's WebView uses WebKit's mobile content
 mode, so iPad, too, leaves a wide document to this fit instead of zooming it out
 with an unscaled height. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
