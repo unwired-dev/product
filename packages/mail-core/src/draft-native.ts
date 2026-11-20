@@ -4,15 +4,15 @@ import * as Schema from 'effect/Schema';
 
 import { decodeDiagnostic, rejectionDiagnostic } from './diagnostics.ts';
 
-export class DraftStorageFailure extends Schema.TaggedError<DraftStorageFailure>()(
-  'DraftStorageFailure',
-  {
-    kind: Schema.Literals(['locked', 'conflict', 'failed']),
-    cause: Schema.Defect(),
-    // Logged instead of the cause; see rejectionDiagnostic.
-    diagnostic: Schema.String,
-  },
-) {}
+export class DraftStorageFailure extends Schema.TaggedError<
+  DraftStorageFailure,
+  { readonly brand: unique symbol }
+>()('DraftStorageFailure', {
+  kind: Schema.Literals(['locked', 'conflict', 'failed']),
+  cause: Schema.Defect(),
+  // Logged instead of the cause; see rejectionDiagnostic.
+  diagnostic: Schema.String,
+}) {}
 
 const storageCode = Schema.decodeUnknownOption(
   Schema.Struct({ code: Schema.Literals(['locked', 'conflict']) }),

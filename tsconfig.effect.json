@@ -4,7 +4,8 @@
       {
         "name": "@effect/language-service",
         "diagnostics": false,
-        "namespaceImportPackages": ["effect", "@effect/tsgo"]
+        "namespaceImportPackages": ["effect", "@effect/tsgo"],
+        "allowedUnstableApis": ["@effect/vitest#it"]
       }
     ]
   }

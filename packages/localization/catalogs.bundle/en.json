@@ -1146,6 +1146,13 @@
       "restore": "Restore",
       "discard": "Discard"
     },
+    "return": {
+      "title": "Save this Draft?",
+      "detail": "“{{title}}” goes back to your Inbox window either way.",
+      "busyTitle": "The Inbox window already has a Draft open",
+      "busyDetail": "“{{title}}” is open there. Save it to Drafts to bring this Draft back.",
+      "saveOther": "Save Other Draft and Return"
+    },
     "loading": "Loading Draft",
     "badge": "DRAFT",
     "rowLabel": "Draft. {{subject}}. {{recipients}}. From {{from}}",
@@ -1356,6 +1363,15 @@
       "cancelLabel": "Cancel adding {{name}}",
       "remove": "Remove",
       "removeLabel": "Remove {{name}}",
+      "removeImage": "Remove Image",
+      "size": {
+        "small": "Small",
+        "medium": "Medium",
+        "large": "Large",
+        "original": "Original",
+        "width": "{{width}} px",
+        "label": "Show {{name}} at {{size}} size"
+      },
       "toAttachment": "Attach Instead",
       "toAttachmentLabel": "Attach {{name}} instead of showing it inline",
       "toInline": "Show Inline",

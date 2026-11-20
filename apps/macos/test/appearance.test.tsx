@@ -38,7 +38,7 @@ describe('settings › Appearance', () => {
       chosen: ['Dark'],
       kept: ['Dark'],
       system: ['System'],
-      applied: [['dark'], [null]],
+      applied: [['dark'], ['unspecified']],
     });
   });
 });

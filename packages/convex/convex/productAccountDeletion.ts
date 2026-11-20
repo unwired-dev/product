@@ -79,44 +79,47 @@ const decodeAppleErrorResponse = Schema.decodeUnknownOption(
 const appleRequestTimeoutMs = 20_000;
 
 // Apple could not be reached or answered 429 or 5xx; the deletion attempt is kept for retry.
-class AppleUnavailable extends Schema.TaggedError<AppleUnavailable>()(
-  'AppleUnavailable',
-  {},
-) {}
+class AppleUnavailable extends Schema.TaggedError<
+  AppleUnavailable,
+  { readonly brand: unique symbol }
+>()('AppleUnavailable', {}) {}
 
 // Apple refused the authorization, or its answer failed validation; the attempt ends.
-class AppleRejected extends Schema.TaggedError<AppleRejected>()(
-  'AppleRejected',
-  {
-    message: Schema.Literals([
-      'Apple authorization exchange failed',
-      'Apple authorization revocation failed',
-      'Recent authentication must match the Product Account',
-    ]),
-  },
-) {}
+class AppleRejected extends Schema.TaggedError<
+  AppleRejected,
+  { readonly brand: unique symbol }
+>()('AppleRejected', {
+  message: Schema.Literals([
+    'Apple authorization exchange failed',
+    'Apple authorization revocation failed',
+    'Recent authentication must match the Product Account',
+  ]),
+}) {}
 
 // Configuration, signing or Apple's answer could not be processed; handlers rethrow the cause.
-class AppleFailed extends Schema.TaggedError<AppleFailed>()('AppleFailed', {
+class AppleFailed extends Schema.TaggedError<
+  AppleFailed,
+  { readonly brand: unique symbol }
+>()('AppleFailed', {
   cause: Schema.Defect(),
 }) {}
 
-class DeletionRejected extends Schema.TaggedError<DeletionRejected>()(
-  'DeletionRejected',
-  {
-    message: Schema.Literals([
-      'Authentication required',
-      'Product Account deletion is already in progress',
-      'Recent Sign in with Apple authorization is required',
-    ]),
-  },
-) {}
+class DeletionRejected extends Schema.TaggedError<
+  DeletionRejected,
+  { readonly brand: unique symbol }
+>()('DeletionRejected', {
+  message: Schema.Literals([
+    'Authentication required',
+    'Product Account deletion is already in progress',
+    'Recent Sign in with Apple authorization is required',
+  ]),
+}) {}
 
 // Apple revoked the token, but recording that failed; the attempt is released for retry.
-class RevocationUnrecorded extends Schema.TaggedError<RevocationUnrecorded>()(
-  'RevocationUnrecorded',
-  { cause: Schema.Defect() },
-) {}
+class RevocationUnrecorded extends Schema.TaggedError<
+  RevocationUnrecorded,
+  { readonly brand: unique symbol }
+>()('RevocationUnrecorded', { cause: Schema.Defect() }) {}
 
 type DeletionFailure =
   | AppleFailed

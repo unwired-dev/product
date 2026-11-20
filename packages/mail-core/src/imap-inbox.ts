@@ -105,6 +105,7 @@ import {
 import {
   createBodyLoads,
   downloadFailure,
+  foregroundPermit,
   reportArrivals,
   sendRejection,
 } from './inbox-store.ts';
@@ -439,7 +440,10 @@ export type ImapBodyState =
         | 'failed';
     };
 
-class ImapFailure extends Schema.TaggedError<ImapFailure>()('ImapFailure', {
+class ImapFailure extends Schema.TaggedError<
+  ImapFailure,
+  { readonly brand: unique symbol }
+>()('ImapFailure', {
   kind: Schema.Literals([
     'authentication',
     'retry',
@@ -854,6 +858,7 @@ export function createImapInbox(
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  const foreground = foregroundPermit(semaphore);
   const speculativeLane = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
   // Runs `use` in one authenticated server session and always closes it, also when `use` fails
@@ -1138,7 +1143,7 @@ export function createImapInbox(
       const copies =
         count * occurrences.filter((id) => id === image.contentId).length;
       const size =
-        Math.floor((image.data.replace(/=+$/u, '').length * 3) / 4) * copies;
+        Math.floor((image.data.replace(/[=]+$/u, '').length * 3) / 4) * copies;
       const area = image.width * image.height * copies;
       if (
         bytes + size > inlineImageLimits.aggregateBytes ||
@@ -1367,8 +1372,9 @@ export function createImapInbox(
     notify();
   };
 
-  const open = Effect.gen(function* () {
-    const cache = yield* decodeCache(yield* call(native.openMailbox)).pipe(
+  // Opens the cache through `read`: the connection's own open, or one several connections share.
+  const openWith = Effect.fnUntraced(function* (read: () => Promise<unknown>) {
+    const cache = yield* decodeCache(yield* call(read)).pipe(
       Effect.mapError(malformed),
     );
     if (forgotten) {
@@ -1410,6 +1416,7 @@ export function createImapInbox(
     yield* restoreRelocations(stored);
     return cache.availability === undefined;
   });
+  const open = openWith(() => native.openMailbox());
 
   const commit = Effect.fnUntraced(function* (
     next: ImapDocument,
@@ -2123,7 +2130,7 @@ export function createImapInbox(
   // leave the changes saved for the next opportunity.
   const drainNow = () =>
     runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         drain.pipe(
           Effect.catchIf(
             ({ kind }) => kind === 'conflict' || kind === 'invalidated',
@@ -2208,7 +2215,7 @@ export function createImapInbox(
       return drainNow();
     }
     return runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.gen(function* () {
           if (document !== undefined && unsent(target.id)) {
             yield* commit({
@@ -2236,7 +2243,7 @@ export function createImapInbox(
     response: InvitationResponse | undefined,
   ) =>
     runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.gen(function* () {
           if (document === undefined || forgotten) {
             return false;
@@ -2257,7 +2264,7 @@ export function createImapInbox(
   // Discard acknowledges an unknown move outcome without replaying it; later changes may resume.
   const discardPending = (id: string) =>
     runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.gen(function* () {
           yield* open;
           const head = blockedChange();
@@ -2286,7 +2293,7 @@ export function createImapInbox(
   // already shows; a conflicting commit from another window starts again from the cache once.
   const load = () =>
     runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.suspend(() => {
           // Internal retries must preserve a refusal raised during this load.
           authenticationRejected = false;
@@ -2345,23 +2352,36 @@ export function createImapInbox(
     );
 
   // Shows the saved listing without asking the server, as a load starts, for an Inbox nothing has
-  // opened yet; the next `load` reads it. A running operation is skipped, not awaited: a load shows
-  // the saved listing itself before it asks the server.
-  const showSaved = () =>
+  // opened yet; the next `load` reads it. `read` opens the cache when several connections share one
+  // open. A running operation is not awaited: a load shows the saved listing itself before it asks
+  // the server, and after any other, such as a folder read, the listing shows once it ends.
+  const savedFrom = (opening: () => Promise<unknown>) =>
+    Effect.suspend(() =>
+      forgotten || state.kind !== 'loading'
+        ? Effect.void
+        : Effect.gen(function* () {
+            selectionReference = yield* DateTime.now;
+            render((yield* openWith(opening)) ? 'syncing' : 'retry');
+          }).pipe(
+            // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+            Effect.catch(loadFailed),
+          ),
+    );
+  const showSaved = (read: () => Promise<unknown> = native.openMailbox) =>
     runLogged(
-      semaphore.withPermitsIfAvailable(1)(
-        Effect.suspend(() =>
-          forgotten || state.kind !== 'loading'
-            ? Effect.void
-            : Effect.gen(function* () {
-                selectionReference = yield* DateTime.now;
-                render((yield* open) ? 'syncing' : 'retry');
-              }).pipe(
-                // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
-                Effect.catch(loadFailed),
-              ),
+      semaphore
+        .withPermitsIfAvailable(1)(savedFrom(read))
+        .pipe(
+          Effect.flatMap((ran) =>
+            Option.isSome(ran)
+              ? Effect.void
+              : Effect.sync(() => {
+                  void runLogged(
+                    semaphore.withPermit(savedFrom(native.openMailbox)),
+                  );
+                }),
+          ),
         ),
-      ),
     );
 
   const folderFailed = (name: string) => (failure: Failure) => {
@@ -2405,7 +2425,7 @@ export function createImapInbox(
       showFolder(name, 'current');
     });
     return runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         read(false).pipe(
           Effect.catchIf(
             (failure) =>
@@ -3149,6 +3169,12 @@ export function createImapInbox(
       backfilling = false;
       return;
     }
+    // A read or another request may have queued while either permit was queued.
+    const step = Effect.suspend(() =>
+      shared.idle.isOpen() && !foreground.pending()
+        ? backfillStep(scope)
+        : Effect.succeed(true),
+    );
     void runLogged(
       Effect.gen(function* () {
         for (;;) {
@@ -3156,14 +3182,7 @@ export function createImapInbox(
           if (
             !(yield* speculativeLane.withPermit(
               semaphore
-                .withPermit(
-                  // A read may have begun while either permit was queued.
-                  Effect.suspend(() =>
-                    shared.idle.isOpen()
-                      ? backfillStep(scope)
-                      : Effect.succeed(true),
-                  ),
-                )
+                .withPermit(step)
                 .pipe(
                   Effect.catch((error) =>
                     backfillFailed(scope)(error).pipe(Effect.as(false)),

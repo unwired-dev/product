@@ -17,8 +17,17 @@ export const settingsHost = () =>
 interface WindowHost extends TurboModule {
   // AppKit saves the window's Mail Profile with its restorable state.
   readonly setWindowProfile: (window: string, profile: string) => void;
-  // Opens a New Message window editing the Draft, in the Mail Profile's scope.
-  readonly openComposer: (draft: string, profile: string) => void;
+  // Opens a New Message window editing the Draft, in the Mail Profile's scope; its Save Draft
+  // returns the Draft to the `origin` Inbox window.
+  readonly openComposer: (
+    draft: string,
+    profile: string,
+    origin: string | null,
+  ) => void;
+  // Opens an Inbox window of the Mail Profile with the Draft in its composer.
+  readonly openInbox: (profile: string, draft: string) => void;
+  // Brings the window forward.
+  readonly focusWindow: (window: string) => void;
   // Closes the window once its composer allows it; a refusal cancels a pending Quit.
   readonly finishClose: (window: string, allowed: boolean) => void;
   // Opens an IMAP connection's Spam and Trash choice as a sheet on the window, in the Mail

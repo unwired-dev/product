@@ -11,8 +11,8 @@ to new UI and migrations. The custom views described below record the current
 implementation, not requirements to retain them; AppKit ownership and the Mac
 dependency boundary remain in force.
 
-The `macos` catalog pins React Native macOS 0.81.9, React Native 0.81.6 and React
-19.1.4 in the root workspace and lockfile. This follows the amended
+The `macos` catalog pins React Native macOS 0.83.0, React Native 0.83.10 and React
+19.2.0 in the root workspace and lockfile. This follows the amended
 [ADR 0064](../adr/0064-isolate-mobile-and-macos-native-dependencies.md), which
 supersedes the issue's original separate-lockfile requirement. Mac views and
 native adapters live in `apps/macos`; `mail-core` imports no UI framework.
@@ -80,7 +80,7 @@ The [Mac performance journey](../native-journeys.md#mac-performance-journey)
 observes the focused composer body's first draw after a text-storage edit. The
 probe wraps the first edited text view class's `drawRect:` once, calls the saved
 implementation first, and records completion only for the pending edited view.
-React Native macOS 0.81.9's `RCTUITextView` owns that method; AppKit provides no
+React Native macOS 0.83.0's `RCTUITextView` owns that method; AppKit provides no
 after-draw notification. The journey uses that one text-view class and one window
 on one display. It does not qualify another class or movement between displays.
 

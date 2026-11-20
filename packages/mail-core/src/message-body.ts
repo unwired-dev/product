@@ -737,10 +737,10 @@ const decodeText = (
   return new TextDecoder().decode(bytes);
 };
 
-class InvalidBodyEncoding extends Schema.TaggedError<InvalidBodyEncoding>()(
-  'InvalidBodyEncoding',
-  {},
-) {}
+class InvalidBodyEncoding extends Schema.TaggedError<
+  InvalidBodyEncoding,
+  { readonly brand: unique symbol }
+>()('InvalidBodyEncoding', {}) {}
 
 export const partText = Effect.fnUntraced(function* (
   part: GmailPart,

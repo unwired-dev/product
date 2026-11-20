@@ -56,10 +56,14 @@ const messages: Partial<Record<Code, string>> = {
   locked: 'Unlock your device to open your saved account.',
 };
 
-export class RegistrationRejected extends Schema.TaggedError<RegistrationRejected>()(
-  'RegistrationRejected',
-  { code: CodeSchema, message: Schema.String, cause: Schema.Defect() },
-) {}
+export class RegistrationRejected extends Schema.TaggedError<
+  RegistrationRejected,
+  { readonly brand: unique symbol }
+>()('RegistrationRejected', {
+  code: CodeSchema,
+  message: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 export const rejected = (code: Code, cause?: unknown) =>
   new RegistrationRejected({

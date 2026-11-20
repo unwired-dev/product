@@ -29,19 +29,19 @@ export interface NativeInboxStorage {
 }
 
 // Protected device data is unavailable while the device is locked; it is an expected state.
-class StorageLocked extends Schema.TaggedError<StorageLocked>()(
-  'StorageLocked',
-  {},
-) {}
+class StorageLocked extends Schema.TaggedError<
+  StorageLocked,
+  { readonly brand: unique symbol }
+>()('StorageLocked', {}) {}
 
-class StorageFailure extends Schema.TaggedError<StorageFailure>()(
-  'StorageFailure',
-  {
-    cause: Schema.Defect(),
-    // Logged instead of the cause; see rejectionDiagnostic.
-    diagnostic: Schema.String,
-  },
-) {}
+class StorageFailure extends Schema.TaggedError<
+  StorageFailure,
+  { readonly brand: unique symbol }
+>()('StorageFailure', {
+  cause: Schema.Defect(),
+  // Logged instead of the cause; see rejectionDiagnostic.
+  diagnostic: Schema.String,
+}) {}
 
 export type InboxState =
   | { readonly kind: 'loading' | 'locked' | 'failed' }

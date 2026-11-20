@@ -502,7 +502,7 @@ Xcode selects the imported identity or that Apple accepts the CSR.
 1. Record the team's development certificate IDs and public SHA-1 fingerprints
    in Apple Developer. Dispatch both hosts, then dispatch both again after the
    first run finishes. Both hosts in both runs must log the same `Prepared
-TestFlight identity` fingerprint, and the second run must create no additional
+   TestFlight identity` fingerprint, and the second run must create no additional
    development certificate.
 2. Download each host's status artifact. Its `status.txt` must contain
    `Signed: <host>; prepared identity <fingerprint>` with the fingerprint that

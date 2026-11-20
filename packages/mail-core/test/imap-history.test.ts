@@ -116,6 +116,55 @@ describe('imap historical metadata backfill', () => {
     );
   });
 
+  it('lets a synchronization queued behind the next history read go first', async () => {
+    expect.hasAssertions();
+    const imap = createImap();
+    fill(imap, 'INBOX', 1100);
+    const order: string[] = [];
+    const list = imap.native.imapListFolders;
+    let hold: Promise<unknown> | undefined = undefined;
+    vi.spyOn(imap.native, 'imapListFolders').mockImplementation(
+      async (...request) => {
+        order.push('synchronization');
+        const held = hold;
+        hold = undefined;
+        await held;
+        return list(...request);
+      },
+    );
+    const inbox = createImapInbox(imap.native);
+    const gate = Promise.withResolvers<unknown>();
+    let second: Promise<void> | undefined = undefined;
+    beforeHistoryReads(imap, {
+      1: () => {
+        hold = gate.promise;
+        second = inbox.load();
+      },
+      2: () => {
+        order.push('history');
+      },
+    });
+    await inbox.load();
+    // Ending the first history read hands the permit to the second synchronization and queues the
+    // next step behind it, before that synchronization lists folders.
+    await vi.waitFor(() => {
+      expect(order).toStrictEqual(['synchronization', 'synchronization']);
+    });
+
+    const third = inbox.load();
+    gate.resolve(undefined);
+    await Promise.all([second, third]);
+
+    await vi.waitFor(() => {
+      expect(order).toStrictEqual([
+        'synchronization',
+        'synchronization',
+        'synchronization',
+        'history',
+      ]);
+    });
+  });
+
   it('pauses at a failed read and resumes from its saved cursor after a relaunch', async () => {
     expect.hasAssertions();
     const imap = createImap();

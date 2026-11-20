@@ -165,10 +165,10 @@ export interface NativeNotifications {
 }
 
 // A native call that failed; its cause is logged only as a diagnostic.
-class NotificationNativeFailure extends Schema.TaggedError<NotificationNativeFailure>()(
-  'NotificationNativeFailure',
-  { cause: Schema.Defect() },
-) {}
+class NotificationNativeFailure extends Schema.TaggedError<
+  NotificationNativeFailure,
+  { readonly brand: unique symbol }
+>()('NotificationNativeFailure', { cause: Schema.Defect() }) {}
 
 const call = (request: () => Promise<unknown>) =>
   Effect.tryPromise({

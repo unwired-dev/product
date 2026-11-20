@@ -753,9 +753,8 @@ These are native configuration requirements, not assumptions about a wrapper's
 plain-text fallback. On-device MIME decoding and presentation sanitization belong
 in shared TypeScript; native code supplies the platform WebKit boundary.
 
-Both hosts render with `react-native-webview` under repository patches: 14.0.1 on
-iPhone and iPad (`patches/react-native-webview@14.0.1.patch`) and 13.16.1 on the
-Mac (`patches/react-native-webview@13.16.1.patch`). The patch disables page JavaScript
+Both hosts render with `react-native-webview` 14.0.1 under one repository patch
+(`patches/react-native-webview@14.0.1.patch`). The patch disables page JavaScript
 through `allowsContentJavaScript` and reports the laid-out document size. It
 measures with an app-owned script in WebKit's isolated client content world after
 load; page JavaScript stays disabled. This is the owner-approved measurement
@@ -767,7 +766,10 @@ skips keyboard events for untagged views or the wrapper's Mac view stops
 subclassing `RCTView`. The reader passes `javaScriptEnabled={false}`, `incognito`,
 `allowsLinkPreview={false}`, no base URL, and `originWhitelist={['*']}`. With that
 origin list, every navigation reaches the reader, which cancels it; otherwise the
-wrapper would open unlisted origins itself. The sanitizer parses HTML as a
+wrapper would open unlisted origins itself. It also turns data detectors off. The
+Mac passes them as an array, `dataDetectorTypes={['none']}`: the wrapper's Mac
+view passes the prop through unchanged, and React Native macOS 0.83 crashes the app
+on a string where the native view expects an array. The sanitizer parses HTML as a
 document with `parse5`.
 
 ### Sanitization contract
@@ -1394,9 +1396,23 @@ The application, not a window or screen, owns Gmail synchronization
   uncommitted step, and the next activation catches up on mail it never reached.
 
 **Push wake hints** carry only an opaque route. The handler reads that route and
-synchronizes only its mailbox after registration verifies. Every other open
+synchronizes only its mailbox after registration verifies. That verification
+keeps the Product Account and Trusted Device checks but verifies only the routed
+connection with its provider: no other connection's grant is refreshed and no
+IMAP server is logged into. A connection this process already verified keeps that
+access; one it has not, as after a wake that launched the app, opens its saved
+Inbox from the cache until the next activation or background refresh verifies
+every connection. Gmail watch renewal, which refreshes every verified
+connection's grant, also waits for that verification, and a Product Sign-In that
+no longer confirms ends every connection's access as a full verification does.
+Every other open
 connection then shows its saved Inbox listing without reading mail from its provider, so counts
-across every Inbox, such as the App Icon Badge's, stay whole. It never decodes,
+across every Inbox, such as the App Icon Badge's, stay whole. Those saved listings open
+together behind one Trusted Device revocation check, so more connections don't add backend
+queries to the wake. A wake does not wait for a connection that is busy, and leaves it out of that check: a
+synchronization shows the saved listing itself, and after any other operation, such as an IMAP
+folder read or Retry of a blocked Gmail change, the connection opens its saved listing behind its
+own check once that operation ends. It never decodes,
 keeps or logs Gmail's history ID or address, because the mailbox's checkpoint
 says where to resume. A malformed hint, a route this device does not know, or a
 route removed while verification runs, or whose mailbox was removed or needs Gmail again, reads nothing.
@@ -1754,6 +1770,11 @@ lifecycles:
   duplicates;
 - a wake hint synchronizing only its routed mailbox, with its history ID neither
   committed nor logged;
+- a wake that launched the app verifying only its routed connection with its
+  provider, keeping a running app's other verified connections without renewing
+  their watches, ending every connection's access when the Product Sign-In no
+  longer confirms, and signing a revoked device out without contacting any
+  provider;
 - malformed, unknown-route and removed-mailbox hints reading nothing, including
   a route removed while verification is pending.
 - a newly revealed unrelated connection remaining unloaded during valid or

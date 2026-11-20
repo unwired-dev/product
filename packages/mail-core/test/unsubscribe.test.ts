@@ -207,9 +207,9 @@ describe('unsubscribe offers', () => {
     const listOf = (headers: NonNullable<BodyDocument['headers']>) =>
       offerOf({ listUnsubscribe, ...headers })?.list;
 
-    expect(listOf({ listId: '"Club \\"Weekly\\"" <club.example>' })).toBe(
-      'Club "Weekly"',
-    );
+    expect(
+      listOf({ listId: String.raw`"Club \"Weekly\"" <club.example>` }),
+    ).toBe('Club "Weekly"');
     expect(
       listOf({
         listId: '<club.example>',

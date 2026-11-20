@@ -236,6 +236,8 @@ describe("enforcing a Profile's Blocked Senders on new mail", () => {
       imap.deliver('INBOX', { subject: `Note ${index}`, received: Date.now() });
     }
     const envelopes = vi.spyOn(imap.native, 'imapEnvelopes');
+    // Historical Metadata Backfill may already have read older history.
+    imap.server.reads.length = 0;
     const history = imap.native.imapHistory;
     // Another client expunges the known message between the two history pages.
     vi.spyOn(imap.native, 'imapHistory').mockImplementationOnce(

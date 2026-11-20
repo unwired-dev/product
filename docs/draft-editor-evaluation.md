@@ -213,6 +213,10 @@ again, and **Remove**.
   Inline Image into an Attachment, removing each place it appears, or **Show Inline**,
   which places an image Attachment at the page's selection, beside **Remove**. Each is one edit that one **Undo** reverts and **Redo** restores.
   The current composer does not offer conversion yet.
+- **Sizes.** On iPhone and iPad, an Inline Image's row menu and VoiceOver actions
+  also offer the current composer's [display sizes](drafts.md#files-and-images),
+  each running the page's `resize` command, and its **Remove** reads
+  **Remove Image**. The page still shows every image at its thumbnail size.
 - **Imports.** While native code imports a file, its row shows **Adding…**. Editing
   continues, and an import that completes meanwhile neither loses the edit nor
   creates a conflicting copy. A cancelled, failed or interrupted import stays listed
@@ -262,21 +266,21 @@ not distributed.
 
 | Package                                                                                             | Version | License | Use                    |
 | --------------------------------------------------------------------------------------------------- | ------- | ------- | ---------------------- |
-| `@tiptap/core`                                                                                      | 3.31.4  | MIT     | Editor                 |
-| `@tiptap/pm`                                                                                        | 3.31.4  | MIT     | ProseMirror re-exports |
-| `@tiptap/extension-document`, `@tiptap/extension-paragraph`, `@tiptap/extension-text`               | 3.31.4  | MIT     | Document schema        |
-| `@tiptap/extension-heading`, `-list`, `-blockquote`                                                 | 3.31.4  | MIT     | Block kinds            |
-| `@tiptap/extension-bold`, `-italic`, `-underline`, `-strike`, `-code`                               | 3.31.4  | MIT     | Marks                  |
-| `@tiptap/extensions`                                                                                | 3.31.4  | MIT     | Undo and Redo          |
+| `@tiptap/core`                                                                                      | 3.34.0  | MIT     | Editor                 |
+| `@tiptap/pm`                                                                                        | 3.34.0  | MIT     | ProseMirror re-exports |
+| `@tiptap/extension-document`, `@tiptap/extension-paragraph`, `@tiptap/extension-text`               | 3.34.0  | MIT     | Document schema        |
+| `@tiptap/extension-heading`, `-list`, `-blockquote`                                                 | 3.34.0  | MIT     | Block kinds            |
+| `@tiptap/extension-bold`, `-italic`, `-underline`, `-strike`, `-code`                               | 3.34.0  | MIT     | Marks                  |
+| `@tiptap/extensions`                                                                                | 3.34.0  | MIT     | Undo and Redo          |
 | `prosemirror-model`, `-state`, `-view`, `-transform`, `-history`, `-keymap`, `-commands` and others | 1.x–2.x | MIT     | Through `@tiptap/pm`   |
 | `esbuild`                                                                                           | 0.28.2  | MIT     | Builds the page        |
-| `happy-dom`                                                                                         | 20.14.5 | MIT     | Page tests in Vitest   |
+| `happy-dom`                                                                                         | 21.0.4  | MIT     | Page tests in Vitest   |
 
 The packaged page is about 351 KB, including Tiptap, ProseMirror and the bridge
 (309 KB with plain paragraphs only).
 
 **TenTap was not used.** The evaluated host adapter is the existing patched
-`react-native-webview` 13.16.1 on both hosts.
+`react-native-webview` 14.0.1 on both hosts.
 
 **Native adapter work.** None beyond allowing the new scenario in the synthetic
 registration provider. The existing WebView, its patch, the Draft store and the

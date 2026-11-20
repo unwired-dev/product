@@ -20,6 +20,7 @@ import {
 import {
   imageCharacter,
   imagesOf,
+  imageWidthOf,
 } from '@private-email/mail-core/semantic-document';
 import {
   createSendReminders,
@@ -438,6 +439,7 @@ interface StyleMenu {
     readonly items: ReadonlyArray<{
       readonly id: string;
       readonly title: string;
+      readonly subtitle?: string;
       readonly checked?: boolean;
     }>;
   }>;
@@ -452,6 +454,43 @@ const textStyleMenu = () => {
   const props: unknown = screen.getByLabelText('Text style').props;
   ok(isStyleMenu(props));
   return props;
+};
+
+// The native context menu around a rendered control.
+const contextMenuAround = (element: Parameters<typeof fireEvent.press>[0]) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredContextMenu') {
+    node = node.parent;
+  }
+  ok(node, 'Expected a context menu');
+  return node;
+};
+
+// An asset row's context menu, which a touch and hold opens.
+const assetMenuOf = (row: Parameters<typeof fireEvent.press>[0]) => {
+  const props: unknown = contextMenuAround(row).props;
+  ok(isStyleMenu(props));
+  return props;
+};
+
+const checkedInAssetMenu = (row: Parameters<typeof fireEvent.press>[0]) =>
+  assetMenuOf(row)
+    .sections.flatMap(({ items }) => items)
+    .filter((item) => item.checked === true)
+    .map(({ title }) => title);
+
+const chooseFromAssetMenu = async (
+  row: Parameters<typeof fireEvent.press>[0],
+  title: string,
+) => {
+  const { sections, onSelect } = assetMenuOf(row);
+  const item = sections
+    .flatMap(({ items }) => items)
+    .find((each) => each.title === title);
+  ok(item);
+  await act(async () => {
+    onSelect({ nativeEvent: { id: item.id } });
+  });
 };
 
 // The native view taking a hardware keyboard's arrow keys around a rendered field.
@@ -7121,6 +7160,122 @@ describe('adding files and images to a Draft', () => {
     expect(screen.getByLabelText('Message body')).not.toHaveTextContent('￼');
     await press('Undo');
     expect(screen.getByLabelText('Message body')).toHaveTextContent('￼');
+  });
+
+  it('shows an inline image at the size chosen from its row’s menu, each choice one Undo step (#2577)', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await render(
+      <App
+        drafts={drafts}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('paste', [
+      { uri: 'file:///chart.png', name: 'Pasted image.png', type: 'image/png' },
+    ]);
+    await press('Paste Image');
+    await screen.findByLabelText('Inline image Pasted image.png');
+    const row = () => screen.getByLabelText(/^Pasted image\.png, /u);
+    const shown = () =>
+      assetMenuOf(row()).sections.map(({ items }) =>
+        items.map(({ title, subtitle, checked }) => [
+          title,
+          subtitle,
+          checked === true,
+        ]),
+      );
+    const choose = async (title: string) => chooseFromAssetMenu(row(), title);
+    const checked = () => checkedInAssetMenu(row());
+    expect(shown()).toStrictEqual([
+      [
+        ['Small', '320 px', false],
+        ['Medium', '640 px', false],
+        ['Large', '1024 px', false],
+        ['Original', undefined, true],
+      ],
+      [['Remove Image', undefined, false]],
+    ]);
+    await choose('Medium');
+    expect(checked()).toStrictEqual(['Medium']);
+    // Choosing the current size again is not an edit, so one Undo returns to Original.
+    await choose('Medium');
+    await press('Undo');
+    expect(checked()).toStrictEqual(['Original']);
+    // VoiceOver offers each size as an action on the row.
+    const { accessibilityActions } = row().props;
+    const large = accessibilityActions.find(
+      ({ label }: { label: string }) =>
+        label === 'Show Pasted image.png at Large size',
+    );
+    ok(large);
+    await act(async () => {
+      await fireEvent(row(), 'accessibilityAction', {
+        nativeEvent: { actionName: large.name },
+      });
+    });
+    expect(checked()).toStrictEqual(['Large']);
+    await saveDraft();
+    const [saved] = draftsOf(drafts.getSnapshot());
+    ok(saved, 'Expected the saved Draft');
+    const [image] = imagesOf(saved.body);
+    ok(image, 'Expected an inline image');
+    expect(imageWidthOf(saved.body, image.id)).toBe(1024);
+  });
+
+  it('checks no size while an image’s uses differ, resizes them together and offers no size for a quoted image (#2577)', async () => {
+    expect.hasAssertions();
+    const image = (id: string, name: string) =>
+      ({
+        text: imageCharacter,
+        image: { id, name, type: 'image/png', state: 'cancelled' },
+      }) as const;
+    const photo = image('photo0001', 'photo.png');
+    const { drafts, id } = await composeWithTemplates('compact', (draft) => ({
+      ...draft,
+      body: [
+        {
+          kind: 'paragraph',
+          spans: [{ ...photo, width: 320 }, { text: ' and ' }, photo],
+        },
+      ],
+      quoted: [
+        { kind: 'paragraph', spans: [image('quoted0001', 'quoted.png')] },
+      ],
+    }));
+    const row = () => screen.getByLabelText(/^photo\.png, /u);
+    expect(checkedInAssetMenu(row())).toStrictEqual([]);
+    await chooseFromAssetMenu(row(), 'Large');
+    expect(checkedInAssetMenu(row())).toStrictEqual(['Large']);
+    // An image only in the quoted correspondence offers no size.
+    const quoted = screen.getByLabelText(/^quoted\.png, /u);
+    expect(() => contextMenuAround(quoted)).toThrow('Expected a context menu');
+    const sizeAction = expect.objectContaining({
+      label: expect.stringMatching(/^Show quoted\.png at /u),
+    });
+    expect(quoted).not.toHaveProp(
+      'accessibilityActions',
+      expect.arrayContaining([sizeAction]),
+    );
+    // One Undo restores both uses, leaving nothing to undo or save.
+    await openFormat();
+    await press('Undo');
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    await press('Close Format');
+    expect(checkedInAssetMenu(row())).toStrictEqual([]);
+    await press('Close');
+    expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
+    const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(saved, 'Expected the saved Draft');
+    expect(saved.body[0]?.spans).toStrictEqual([
+      { ...photo, width: 320 },
+      { text: ' and ' },
+      photo,
+    ]);
   });
 
   it('offers attaching a downloaded file only while a sending mailbox is available', async () => {

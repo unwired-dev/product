@@ -8,7 +8,7 @@
 // The Inbox window's Mailboxes sidebar: an AppKit split-view sidebar item showing this view's
 // React children, so AppKit collapses and expands it with its own animation. While mounted, the view
 // adds the item to its window's split view, beside the Inbox; the view itself takes no space.
-// React Native macOS 0.81.9 has no split view; remove this view when it offers one.
+// React Native macOS 0.83.0 has no split view; remove this view when it offers one.
 @interface UnwiredSidebarView : RCTView
 @property (nonatomic) CGFloat thickness;
 @property (nonatomic, copy) RCTDirectEventBlock onCollapse;

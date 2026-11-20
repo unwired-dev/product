@@ -46,6 +46,7 @@ import {
   historyOf,
   imageCharacter,
   imagesOf,
+  imageWidthOf,
   insertImage,
   editableLinkAt,
   linkAt,
@@ -64,6 +65,7 @@ import {
   toggled,
   toggleMark,
   undo,
+  withImageWidth,
   withoutImage,
 } from '../src/semantic-document.ts';
 import { createSyntheticDrafts } from '../src/testing/drafts.ts';
@@ -618,7 +620,7 @@ describe('editing a Semantic Message Document', () => {
     for (const paint of [
       { font: 'Arial,sans-serif' },
       { font: 'Arial;color:red' },
-      { font: '"Helvetica\\"Neue"' },
+      { font: String.raw`"Helvetica\"Neue"` },
       { font: '"Helvetica\nNeue"' },
       { font: '' },
       { size: 0 },
@@ -3014,6 +3016,49 @@ describe('adding files and images to Drafts', () => {
         },
       ]),
     ).toBe(false);
+  });
+
+  it('sets the display width of every use of an inline image, and reads it only when they share one', () => {
+    expect.hasAssertions();
+    const image = {
+      id: 'image0001',
+      name: 'room.png',
+      type: 'image/png',
+      state: 'cancelled',
+    } as const;
+    const mixed: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: imageCharacter, image, width: 320 },
+          { text: ' and ' },
+          { text: imageCharacter, image, marks: ['bold'] },
+        ],
+      },
+    ];
+    const medium = withImageWidth(mixed, image.id, 640);
+    expect({
+      mixed: imageWidthOf(mixed, image.id),
+      medium: imageWidthOf(medium, image.id),
+      original: imageWidthOf(
+        withImageWidth(medium, image.id, undefined),
+        image.id,
+      ),
+      absent: imageWidthOf(mixed, 'image0002'),
+      unchanged: withImageWidth(medium, image.id, 640) === medium,
+      spans: medium[0]?.spans,
+    }).toStrictEqual({
+      mixed: null,
+      medium: 640,
+      original: undefined,
+      absent: null,
+      unchanged: true,
+      spans: [
+        { text: imageCharacter, image, width: 640 },
+        { text: ' and ' },
+        { text: imageCharacter, image, width: 640, marks: ['bold'] },
+      ],
+    });
   });
 
   it('stores verified bytes under the Draft through relaunch, Undo and deletion', async () => {

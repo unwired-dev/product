@@ -1681,8 +1681,14 @@ describe('gmail push relay', () => {
         apnsToken: 'second-apns-token',
         trustedDeviceId: device.trustedDeviceId,
       });
-      const refreshedVerifiedAt = originalVerifiedAt + 1;
-      await t.run(async (ctx) => {
+      // Each mutation's clock runs at or after its snapshot, so the cleanup can start after the
+      // test clock. The refreshed proof follows the start the device recorded, as a new proof does.
+      const refreshedVerifiedAt = await t.run(async (ctx) => {
+        const trusted = await ctx.db.get(
+          'trustedDevices',
+          device.trustedDeviceId,
+        );
+        const refreshedAt = trusted!.gmailPushProofsInvalidatedAt! + 1;
         const connections = await ctx.db
           .query('mailProviderConnections')
           .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
@@ -1696,11 +1702,12 @@ describe('gmail push relay', () => {
           connections.slice(-1).map((connection) =>
             ctx.db.patch('mailProviderConnections', connection._id, {
               pushVerificationHistoryId: '101',
-              pushVerificationOwnershipVerifiedAt: refreshedVerifiedAt,
-              pushVerificationRequestedAt: refreshedVerifiedAt,
+              pushVerificationOwnershipVerifiedAt: refreshedAt,
+              pushVerificationRequestedAt: refreshedAt,
             }),
           ),
         );
+        return refreshedAt;
       });
 
       await t.finishAllScheduledFunctions(vi.runAllTimers);

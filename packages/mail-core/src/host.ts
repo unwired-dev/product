@@ -375,6 +375,8 @@ export function createHost(
       graphDiscard: (messageId, mailbox) =>
         native().graphDiscard(messageId, mailbox),
       openMailbox: (connection) => native().openMailbox(connection),
+      openSavedMailboxes: (connections) =>
+        native().openSavedMailboxes(connections),
       imapOpen: (mailbox) => native().imapOpen(mailbox),
       imapCapabilities: (mailbox, session) =>
         native().imapCapabilities(mailbox, session),

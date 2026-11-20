@@ -14,7 +14,9 @@ import {
   use,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
@@ -25,7 +27,7 @@ import {
   View,
 } from 'react-native';
 
-import type { Recovered } from './composer.tsx';
+import type { OpenDraft, Recovered, ReturnTo } from './composer.tsx';
 import type { Selection } from './inbox.tsx';
 import type { MailboxView } from './sidebar.tsx';
 
@@ -38,7 +40,7 @@ import {
   useCommandRegistry,
 } from './command-palette.tsx';
 import { useRecoveryOffer } from './composer.tsx';
-import { GlassGroup, SFSymbol } from './design.tsx';
+import { askInSheet, GlassGroup, SFSymbol } from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { FolderChoiceSheet } from './folder-choice.tsx';
 import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
@@ -118,7 +120,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   sidebarBacking: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 18,
     borderCurve: 'continuous',
   },
@@ -145,7 +147,46 @@ type WindowProps = Readonly<{
   profile?: string;
   // Opened by File › New Message, so it starts a Draft once it can.
   newMessage?: boolean;
+  // Opened for a New Message window's Draft, which its composer opens.
+  draft?: string;
 }>;
+
+// A Draft returned to a new Inbox window, with the Mail Profile it belongs to.
+type Launch = Readonly<{ draft: string; profile: string }>;
+
+// The returned Draft opens once, when its Mail Profile's contents first mount. The window keeps
+// it above its gate, so contents remounted after a lock or a Profile switch do not reopen it.
+const useLaunch = (draft: string | undefined, profile: string | undefined) => {
+  const [launch, setLaunch] = useState<Launch | undefined>(
+    draft === undefined || profile === undefined
+      ? undefined
+      : { draft, profile },
+  );
+  const launched = useCallback(() => {
+    setLaunch(undefined);
+  }, []);
+  return { launch, launched };
+};
+
+// The Inbox windows a New Message window's Draft can return to, by window identifier: the Mail
+// Profile each shows, and how it takes the Draft.
+const returnTargets = new Map<
+  string,
+  Readonly<{ profile: string; receive: ReturnTo }>
+>();
+
+// The Draft returns to the Inbox window it was expanded from while that window shows its Mail
+// Profile, otherwise to another Inbox window of the Profile.
+const returnTarget = (profile: string, origin: string) => {
+  const own = returnTargets.get(origin);
+  if (own?.profile === profile) {
+    return { window: origin, receive: own.receive };
+  }
+  const other = [...returnTargets].find(
+    ([, target]) => target.profile === profile,
+  );
+  return other && { window: other[0], receive: other[1].receive };
+};
 
 // A switcher's Profile or a notification's targeted message, owned by the window above its gate
 // and kept only for the Product Account it was made in.
@@ -154,14 +195,17 @@ type ProfileChoice = Readonly<{
   choice: string | NonNullable<ReturnType<typeof openedTarget>>;
 }>;
 
-export function PreviewWindow({ windowId, profile }: WindowProps) {
+export function PreviewWindow({ windowId, profile, draft }: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
   const savedChoices = useMemo(() => createWindowProfileChoices(), []);
+  const { launch, launched } = useLaunch(draft, profile);
   return (
     <CommandPaletteProvider windowId={windowId}>
       <ProfileWindow
         windowId={windowId}
         profile={profile}
+        launch={launch}
+        onLaunched={launched}
         choice={choice}
         savedChoices={savedChoices}
         onChoose={setChoice}
@@ -176,12 +220,16 @@ export function PreviewWindow({ windowId, profile }: WindowProps) {
 function ProfileWindow({
   windowId,
   profile: restored,
+  launch,
+  onLaunched,
   choice,
   savedChoices,
   onChoose,
 }: {
   readonly windowId: string;
   readonly profile: string | undefined;
+  readonly launch?: Launch | undefined;
+  readonly onLaunched?: () => void;
   readonly choice: ProfileChoice | undefined;
   readonly savedChoices: ProfileChoicesStore;
   readonly onChoose: (choice: ProfileChoice) => void;
@@ -224,6 +272,8 @@ function ProfileWindow({
       <ProfileScope profile={profile}>
         <WindowContents
           windowId={windowId}
+          initialDraft={launch?.profile === profile ? launch.draft : undefined}
+          onInitialDraft={onLaunched}
           initialSelection={opened}
           onOpenProfile={choose}
           onProfile={choose}
@@ -278,11 +328,15 @@ function SidebarToggle({
 
 function WindowContents({
   windowId,
+  initialDraft,
+  onInitialDraft,
   initialSelection,
   onOpenProfile,
   onProfile,
 }: {
   readonly windowId: string;
+  readonly initialDraft: string | undefined;
+  readonly onInitialDraft: (() => void) | undefined;
   readonly initialSelection: Selection | undefined;
   readonly onOpenProfile: (
     target: NonNullable<ReturnType<typeof openedTarget>>,
@@ -294,7 +348,12 @@ function WindowContents({
     initialSelection,
   );
   // The window's one composer overlays the reader while it is open.
-  const [composing, setComposing] = useState<string>();
+  const [composing, setComposing] = useState(initialDraft);
+  useEffect(() => {
+    if (initialDraft !== undefined) {
+      onInitialDraft?.();
+    }
+  }, [initialDraft, onInitialDraft]);
   // The composer recovery record restored, while its composer is open under Draft `id`, which
   // follows the composer to a conflicting copy.
   const [recovered, setRecovered] = useState<{
@@ -324,6 +383,50 @@ function WindowContents({
   const profile = useProfile();
   const leave = useLeaveComposer();
   const registry = useCommandRegistry();
+  const { t } = useLocalization();
+  // A New Message window's Draft returns to this window's composer. A Draft already open there is
+  // saved first, once the person agrees; a composer opened meanwhile keeps the Draft in Drafts.
+  const composingNow = useRef(composing);
+  const openDraft = useRef<OpenDraft>(undefined);
+  const receive = useRef<ReturnTo>(undefined);
+  useLayoutEffect(() => {
+    composingNow.current = composing;
+    receive.current = async () => {
+      const { current } = openDraft;
+      if (composingNow.current !== undefined) {
+        if (current === undefined) {
+          return undefined;
+        }
+        const question = askInSheet(recoveryAnchor.current, {
+          title: t('drafts.return.busyTitle'),
+          detail: t('drafts.return.busyDetail', { title: current.title() }),
+          buttons: [t('drafts.return.saveOther'), t('common.cancel')],
+          symbol: { name: 'square.and.pencil', color: colors.textSecondary },
+        });
+        if ((await question.answer) !== 0 || !(await current.save())) {
+          return undefined;
+        }
+      }
+      return (id: string) => {
+        if (composingNow.current === undefined) {
+          setComposing(id);
+        }
+      };
+    };
+  });
+  useEffect(() => {
+    const window = `inbox-window-${windowId}`;
+    const target = {
+      profile,
+      receive: async () => receive.current?.(),
+    };
+    returnTargets.set(window, target);
+    return () => {
+      if (returnTargets.get(window) === target) {
+        returnTargets.delete(window);
+      }
+    };
+  }, [windowId, profile]);
   // A tapped New Mail Notification selects its message in this window's Inbox when the window
   // shows its Mail Profile; native code brings the window forward. Its Reply then starts a reply
   // as soon as the message's reader offers one.
@@ -491,8 +594,15 @@ function WindowContents({
                           }}
                           // Expand moves the saved Draft into its own New Message window.
                           onExpand={(id) => {
-                            windowHost()?.openComposer(id, profile);
+                            windowHost()?.openComposer(
+                              id,
+                              profile,
+                              `inbox-window-${windowId}`,
+                            );
                             setComposing(undefined);
+                          }}
+                          onOpenDraft={(open) => {
+                            openDraft.current = open;
                           }}
                           onRebind={(id) => {
                             setRecovered(
@@ -537,9 +647,15 @@ function WindowContents({
   );
 }
 
-export function InboxWindow({ windowId, profile, newMessage }: WindowProps) {
+export function InboxWindow({
+  windowId,
+  profile,
+  newMessage,
+  draft,
+}: WindowProps) {
   const [choice, setChoice] = useState<ProfileChoice>();
   const savedChoices = useMemo(() => createWindowProfileChoices(), []);
+  const { launch, launched } = useLaunch(draft, profile);
   // The window's Command Palette stays above the gate, so the account page keeps it.
   return (
     <CommandPaletteProvider
@@ -549,6 +665,8 @@ export function InboxWindow({ windowId, profile, newMessage }: WindowProps) {
         <ProfileWindow
           windowId={windowId}
           profile={profile}
+          launch={launch}
+          onLaunched={launched}
           choice={choice}
           savedChoices={savedChoices}
           onChoose={setChoice}
@@ -559,20 +677,39 @@ export function InboxWindow({ windowId, profile, newMessage }: WindowProps) {
 }
 
 // A New Message window: the Draft Expand moved out of an Inbox window's composer, alone in its own
-// window. Closing it runs the composer's own Close guards, as in the Inbox window.
+// window. Closing it runs the composer's own Close guards, as in the Inbox window, and brings its
+// Inbox window forward; Save Draft returns the Draft to that window's composer, or to a new Inbox
+// window of its Mail Profile when none shows it.
 export function ComposerWindow({
   windowId,
   draft,
   profile,
+  origin,
 }: {
   readonly windowId: string;
   readonly draft: string;
   readonly profile: string;
+  // The Inbox window it was expanded from; a notification's Draft has none, and closes in place.
+  readonly origin?: string | undefined;
 }) {
   const identifier = `composer-window-${windowId}`;
   const [id, setId] = useState(draft);
   const colors = usePalette();
   const { t } = useLocalization();
+  const returnTo = async (from: string) => {
+    const target = returnTarget(profile, from);
+    if (target === undefined) {
+      return (saved: string) => {
+        windowHost()?.openInbox(profile, saved);
+      };
+    }
+    windowHost()?.focusWindow(target.window);
+    const take = await target.receive();
+    if (take === undefined) {
+      windowHost()?.focusWindow(identifier);
+    }
+    return take;
+  };
   return (
     <CommandPaletteProvider
       windowId={windowId}
@@ -584,9 +721,19 @@ export function ComposerWindow({
             <DraftComposer
               id={id}
               onClose={() => {
+                const target =
+                  origin === undefined
+                    ? undefined
+                    : returnTarget(profile, origin);
+                if (target !== undefined) {
+                  windowHost()?.focusWindow(target.window);
+                }
                 windowHost()?.finishClose(identifier, true);
               }}
               onRebind={setId}
+              returnTo={
+                origin === undefined ? undefined : async () => returnTo(origin)
+              }
               renderToolbar={(from, actions) => (
                 <CommandBar
                   title={t('drafts.newMessage')}

@@ -285,7 +285,8 @@ confirms it is saved; listing a message alone does not make its body available o
 Once the Inbox is current, each connection downloads the metadata of every selectable
 folder in the background, Inbox first and then the folders in listed order, as the
 [Gmail backfill](gmail-inbox.md#historical-metadata-backfill) does for All Mail. It
-reads no message bodies and yields to synchronization and message opens.
+reads no message bodies and yields to synchronization, message opens and the
+changes a person makes.
 Recent-body prefetch and history share one speculative lane per connection. A
 failure pauses both kinds of work until the next Inbox synchronization.
 
@@ -994,6 +995,33 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   ([#2469](https://github.com/unwired-dev/product/issues/2469)), inline images,
   attachments over the 25 MiB download limit, IDLE and relaunch on iPad, recovery and
   large-folder backfill stay on #632.
+- **2026-11-20, iPad IDLE freshness and relaunch
+  ([#2569](https://github.com/unwired-dev/product/issues/2569)).** Target, toolchain and
+  operator as in the iPad connect, read, send and reply record, on a new iPad Pro 11-inch
+  (M5) Simulator on iOS 27.0. Build: the app source of
+  `21ef44a3e4aee37dfd5fc5d9ed98758af6071e4a`. Google Product Sign-In found the
+  certification Product Account, this device was unlocked with its Recovery Key, and both
+  certification mailboxes were connected through the app as in that record. Test messages
+  were submitted between the two mailboxes over SMTP from outside the app, and each arrival
+  time was read on the server as the message's IMAP `INTERNALDATE`. Result: pass. With the
+  app active on All Inboxes, three messages submitted to iCloud Mail, which offers IDLE,
+  appeared in the list without pulling it down, 5 to 6 seconds after they arrived on
+  `imap.mail.me.com` 993 (TLS). A message submitted to Seznam Email, which does not offer
+  IDLE, appeared 3 minutes 17 seconds after it arrived on `imap.seznam.cz` 993 (TLS), with
+  no interaction, as the five-minute poll allows. Another was still not listed 37 seconds
+  after its arrival and appeared 9 seconds after a pull-down began. The app was then
+  terminated, and a message was submitted to each mailbox while it was not running. After
+  launch, both connections opened without asking for a password, the Inbox listed the
+  earlier run messages, and both new messages appeared 13 seconds after launch. A message
+  submitted to iCloud Mail after the relaunch appeared 4 seconds after it arrived,
+  consistent with a resumed IDLE wait, and Email Accounts then showed each mailbox as
+  **Updated just now**. Afterwards no run message remained in any folder of either mailbox.
+  Limitations: the delays include up to a few seconds between the operator's checks of the
+  screen. While setting up, the first tap on **Connect** in the iCloud Mail form, with the
+  Password field focused, did nothing, and the second tap connected
+  ([#2571](https://github.com/unwired-dev/product/issues/2571)). Mac,
+  background refresh and push wakes, IDLE interruption, password and connection recovery,
+  offline queueing and large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

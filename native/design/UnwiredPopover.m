@@ -9,7 +9,7 @@
 // edge, or below its bottom edge when `below`.
 // AppKit presents and animates it, closes it when the person clicks elsewhere or presses Escape,
 // and the view then reports `onClose`. VoiceOver names the popover by `title`.
-// React Native macOS 0.81.9 has no popover; remove this view when it offers one.
+// React Native macOS 0.83.0 has no popover; remove this view when it offers one.
 @interface UnwiredPopoverView : RCTView <NSPopoverDelegate>
 @property (nonatomic) BOOL shown;
 @property (nonatomic) BOOL below;

@@ -69,10 +69,10 @@ const decodeDeletionStatus = Schema.decodeUnknownOption(
   }),
 );
 
-class ReportingUnavailable extends Schema.TaggedError<ReportingUnavailable>()(
-  'ReportingUnavailable',
-  { cause: Schema.Defect() },
-) {}
+class ReportingUnavailable extends Schema.TaggedError<
+  ReportingUnavailable,
+  { readonly brand: unique symbol }
+>()('ReportingUnavailable', { cause: Schema.Defect() }) {}
 
 const configuration = Effect.gen(function* () {
   const key = yield* Config.String('POSTHOG_PROJECT_KEY');

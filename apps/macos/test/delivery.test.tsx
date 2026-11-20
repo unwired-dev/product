@@ -81,6 +81,8 @@ describe('application-owned Outbox execution', () => {
             address: 'alex@example.invalid',
           }),
         );
+        // The Draft sync that creating it queued runs on the fake clock, ahead of the edit.
+        await jest.advanceTimersByTimeAsync(0);
         const draft = present(draftOf(host.drafts.getSnapshot(), id));
         const addressed = {
           ...draft,

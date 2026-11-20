@@ -1,6 +1,7 @@
 #import "AppDelegate.h"
 #import "UnwiredLanguagePreferences.h"
 #import <React/RCTBundleURLProvider.h>
+#import <React/RCTDevMenu.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
 #import <os/log.h>
 #if UNWIRED_NATIVE_TESTING
@@ -56,7 +57,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 @property(nonatomic, weak) NSTextView *editedText;
 #endif
 - (NSWindow *)openWindowWithProfile:(NSString *)profile;
-- (NSWindow *)openWindowWithProfile:(NSString *)profile newMessage:(BOOL)newMessage;
+- (NSWindow *)openWindowWithProfile:(NSString *)profile newMessage:(BOOL)newMessage draft:(NSString *)draft;
 @end
 
 @implementation AppDelegate
@@ -117,7 +118,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
     if (self.inboxWindows.count == 0) [self newWindow:nil];
     [NSApp activateIgnoringOtherApps:YES];
   } else if (self.inboxWindows.count == 0) {
-    [self.reactFactory.rootViewFactory initializeReactHostWithLaunchOptions:nil];
+    [self.reactFactory.rootViewFactory initializeReactHostWithLaunchOptions:nil
+                                                       devMenuConfiguration:[RCTDevMenuConfiguration defaultConfiguration]];
   }
 }
 
@@ -186,12 +188,20 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 
 - (NSWindow *)openWindowWithProfile:(NSString *)profile
 {
-  return [self openWindowWithProfile:profile newMessage:NO];
+  return [self openWindowWithProfile:profile newMessage:NO draft:nil];
+}
+
+// A Draft closed in a New Message window whose Mail Profile no Inbox window shows returns in a
+// new Inbox window's composer.
+- (void)openWindowWithProfile:(NSString *)profile draft:(NSString *)draft
+{
+  [self openWindowWithProfile:profile newMessage:NO draft:draft];
 }
 
 // A new window names no Mail Profile, so it opens the Startup Profile. With `newMessage`, its
-// JavaScript starts a Draft once its New Message is first available.
-- (NSWindow *)openWindowWithProfile:(NSString *)profile newMessage:(BOOL)newMessage
+// JavaScript starts a Draft once its New Message is first available; with `draft`, its composer
+// opens that Draft.
+- (NSWindow *)openWindowWithProfile:(NSString *)profile newMessage:(BOOL)newMessage draft:(NSString *)draft
 {
   self.nextWindowNumber += 1;
   NSString *windowID = [NSString stringWithFormat:@"%lu", (unsigned long)self.nextWindowNumber];
@@ -216,6 +226,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   NSMutableDictionary *properties = [@{@"windowId": windowID} mutableCopy];
   if (profile != nil) properties[@"profile"] = profile;
   if (newMessage) properties[@"newMessage"] = @YES;
+  if (draft != nil) properties[@"draft"] = draft;
   NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredMail"
       initialProperties:properties];
   NSViewController *content = [NSViewController new];
@@ -238,8 +249,9 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 }
 
 // Expand in an Inbox window's composer moves its Draft into a New Message window of its own, which
-// AppKit does not restore; closing it asks the composer as an Inbox window does.
-- (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile
+// AppKit does not restore; closing it asks the composer, whose Save Draft returns the Draft to the
+// `origin` Inbox window.
+- (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile origin:(NSString *)origin
 {
   self.nextComposerNumber += 1;
   NSString *windowID = [NSString stringWithFormat:@"%lu", (unsigned long)self.nextComposerNumber];
@@ -263,7 +275,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   window.delegate = self;
   window.autorecalculatesKeyViewLoop = YES;
   NSView *rootView = [self.reactFactory.rootViewFactory viewWithModuleName:@"UnwiredComposer"
-      initialProperties:@{@"windowId": windowID, @"draft": draft, @"profile": profile}];
+      initialProperties:origin == nil ? @{@"windowId": windowID, @"draft": draft, @"profile": profile}
+          : @{@"windowId": windowID, @"draft": draft, @"profile": profile, @"origin": origin}];
   rootView.frame = window.contentView.bounds;
   NSViewController *content = [NSViewController new];
   content.view = rootView;
@@ -278,7 +291,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 
 // Choose Folders… in an Inbox window's notice, or in Settings › Email Accounts, opens an IMAP
 // connection's Spam and Trash choice as a sheet on that window, in a React root of its own. React
-// Native macOS 0.81.9's Modal is iOS-only; remove these sheet methods when React Native macOS
+// Native macOS 0.83.0's Modal is iOS-only; remove these sheet methods when React Native macOS
 // presents a Modal as a sheet.
 - (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile
 {
@@ -399,7 +412,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   if (window.sheetParent != nil) return;
   if (![window.identifier hasPrefix:@"inbox-window-"]) {
     if (self.inboxWindows.count == 0) {
-      [self openWindowWithProfile:nil newMessage:YES];
+      [self openWindowWithProfile:nil newMessage:YES draft:nil];
       return;
     }
     [self focusInbox:sender];
@@ -461,7 +474,9 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 - (BOOL)windowShouldClose:(NSWindow *)window
 {
   if (!UnwiredCloseGuarded(window.identifier)) return YES;
-  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredWindowShouldClose" object:window.identifier];
+  // Quit closes guarded windows one by one; their composers keep their Drafts where they are.
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredWindowShouldClose" object:window.identifier
+      userInfo:@{@"quitting": @([self.quittingWindow isEqualToString:window.identifier])}];
   return NO;
 }
 

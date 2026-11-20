@@ -46,10 +46,10 @@ export const remoteContentPolicy = (
     : (settings.overrides[connection] ?? settings.policy);
 
 // A native settings or cache call that failed; its cause is logged only as a diagnostic.
-class RemoteContentNativeFailure extends Schema.TaggedError<RemoteContentNativeFailure>()(
-  'RemoteContentNativeFailure',
-  { cause: Schema.Defect() },
-) {}
+class RemoteContentNativeFailure extends Schema.TaggedError<
+  RemoteContentNativeFailure,
+  { readonly brand: unique symbol }
+>()('RemoteContentNativeFailure', { cause: Schema.Defect() }) {}
 
 const call = (request: () => Promise<unknown>) =>
   Effect.tryPromise({

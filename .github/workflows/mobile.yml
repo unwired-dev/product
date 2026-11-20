@@ -46,8 +46,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: pnpm
@@ -78,8 +78,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: pnpm
@@ -111,7 +111,7 @@ jobs:
           plutil -lint apps/macos/macos/UnwiredMail.xcodeproj/project.pbxproj
       - name: Upload native test evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: expo-native-checks-${{ github.run_id }}-${{ github.run_attempt }}
           # Named paths skip DerivedData, which a timed-out run can leave mid-deletion.
@@ -139,8 +139,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: pnpm
@@ -157,7 +157,7 @@ jobs:
           grep -Eq 'Test run with [1-9][0-9]* tests .* passed' artifacts/error-reporting/swift-tests.log
       - name: Upload native reporting test evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: error-reporting-native-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/error-reporting/*.log
@@ -182,8 +182,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: pnpm
@@ -218,7 +218,7 @@ jobs:
             -C artifacts/expo-bootstrap/DerivedData/Build/Products/Release-iphonesimulator \
             UnwiredMail.app
       - name: Upload packaged app
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # No attempt suffix: re-run journey jobs reuse the app from the original build.
           name: expo-native-app-${{ github.run_id }}
@@ -228,7 +228,7 @@ jobs:
           retention-days: 7
       - name: Upload native build evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: expo-native-build-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -270,7 +270,7 @@ jobs:
           echo "GEM_PATH=$RUNNER_TEMP/native-gems:$(ruby -e 'puts Gem.path.join(":")')" >> "$GITHUB_ENV"
           echo "RUBY=$(command -v ruby)" >> "$GITHUB_ENV"
       - name: Download packaged app
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: expo-native-app-${{ github.run_id }}
           path: artifacts/expo-bootstrap
@@ -283,7 +283,7 @@ jobs:
         run: zsh apps/mobile/scripts/test-native.zsh "$RUNNER_TEMP/UnwiredMail.app" "${{ matrix.device.type }}"
       - name: Upload native test evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: expo-native-e2e-${{ matrix.device.name }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

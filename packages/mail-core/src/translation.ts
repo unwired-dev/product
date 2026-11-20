@@ -140,18 +140,18 @@ export type TranslationState =
       readonly omitted: boolean;
     };
 
-class TranslationFailure extends Schema.TaggedError<TranslationFailure>()(
-  'TranslationFailure',
-  {
-    outcome: Schema.Union([
-      Unavailable,
-      Schema.Literals(['cancelled', 'failed']),
-    ]),
-    cause: Schema.Defect(),
-    // Logged instead of the cause; see rejectionDiagnostic.
-    diagnostic: Schema.String,
-  },
-) {}
+class TranslationFailure extends Schema.TaggedError<
+  TranslationFailure,
+  { readonly brand: unique symbol }
+>()('TranslationFailure', {
+  outcome: Schema.Union([
+    Unavailable,
+    Schema.Literals(['cancelled', 'failed']),
+  ]),
+  cause: Schema.Defect(),
+  // Logged instead of the cause; see rejectionDiagnostic.
+  diagnostic: Schema.String,
+}) {}
 
 const rejection = rejectionFields(decodeOutcome);
 

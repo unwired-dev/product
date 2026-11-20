@@ -15,7 +15,7 @@ export const inlineImageLimits = {
 
 // The byte count standard base64 decodes to.
 export const decodedSize = (data: string) =>
-  (data.length * 3) / 4 - (/=+$/u.exec(data)?.[0].length ?? 0);
+  (data.length * 3) / 4 - (/[=]+$/u.exec(data)?.[0].length ?? 0);
 
 export interface ImageFacts {
   readonly mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
