@@ -18,6 +18,7 @@ import {
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { GmailMessageBody, ReaderScrollView } from '../src/message-body.tsx';
+import { setMessageZoom } from '../src/reading.ts';
 import {
   RemoteContentContext,
   RemoteContentSettings,
@@ -76,8 +77,9 @@ const settingsWith = (stored: string | null) =>
     clearRemoteContent: () => Promise.resolve(null),
   });
 
+// A document tall enough to hold its measured image.
 const measured = (top: number) => ({
-  contentSize: { width: 320, height: 400 },
+  contentSize: { width: 320, height: 4000 },
   remoteImages: [{ index: 0, top, bottom: top + 100 }],
 });
 
@@ -116,7 +118,7 @@ async function openReader(
   await act(() => {
     fireEvent(scroll, 'layout', { nativeEvent: { layout: { height: 600 } } });
   });
-  return { gmail, app, scroll };
+  return { gmail, inbox, app, scroll };
 }
 
 const finishMeasurement = (queued: Array<(...values: number[]) => void>) => {
@@ -458,6 +460,126 @@ describe('remote message content in the reader', () => {
       expect(gmail.remoteFetches).toStrictEqual([source]);
     } finally {
       await app.unmount();
+    }
+  });
+
+  it('loads an image deep in a document taller than its view once it scrolls near', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const always = settingsWith('{"policy":"always","overrides":{}}');
+    await always.load();
+    const { gmail, app, scroll } = await openReader(always);
+    const scrollReader = (y: number) =>
+      act(() => {
+        fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y },
+            layoutMeasurement: { height: 600 },
+          },
+        });
+      });
+    try {
+      const webview = await screen.findByTestId('message-webview');
+      // A large Message Zoom places the image past the view's 20,000-point height.
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: {
+            contentSize: { width: 320, height: 40_000 },
+            remoteImages: [{ index: 0, top: 20_000, bottom: 20_100 }],
+          },
+        });
+      });
+      // Starting at the view's bottom edge, it stays hidden beside the reader's visible range.
+      await scrollReader(19_600);
+      expect(gmail.remoteFetches).toStrictEqual([]);
+      await scrollReader(0);
+      await act(() => {
+        fireEvent(webview, 'scroll', {
+          nativeEvent: { contentOffset: { y: 20_000 } },
+        });
+      });
+      expect(gmail.remoteFetches).toStrictEqual([source]);
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('places images where a pinch zoom shows them', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const always = settingsWith('{"policy":"always","overrides":{}}');
+    await always.load();
+    const { gmail, app } = await openReader(always);
+    try {
+      const webview = await screen.findByTestId('message-webview');
+      // Only a document taller than its view scrolls, and so reports pinch zoom.
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: {
+            contentSize: { width: 320, height: 40_000 },
+            remoteImages: [{ index: 0, top: 1500, bottom: 1600 }],
+          },
+        });
+      });
+      expect(screen.getByTestId('message-webview').props.scrollEnabled).toBe(
+        true,
+      );
+      expect(gmail.remoteFetches).toStrictEqual([]);
+      // At twice the scale, the image's 3,000 points less the 2,600 scrolled show it in view.
+      await act(() => {
+        fireEvent(webview, 'scroll', {
+          nativeEvent: { contentOffset: { y: 2600 }, zoomScale: 2 },
+        });
+      });
+      expect(gmail.remoteFetches).toStrictEqual([source]);
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('withdraws queued images when Message Zoom replaces the document', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const always = settingsWith('{"policy":"always","overrides":{}}');
+    await always.load();
+    const sources = Array.from(
+      { length: 7 },
+      (_, index) => `https://images.example/photo-${index}.png`,
+    );
+    const { gmail, inbox, app } = await openReader(
+      always,
+      sources.map((url) => `<img src="${url}" alt="Photo">`).join(''),
+    );
+    const loads = jest.spyOn(inbox, 'loadRemoteImages');
+    try {
+      gmail.pauseRemote();
+      const webview = await screen.findByTestId('message-webview');
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: {
+            contentSize: { width: 320, height: 4000 },
+            remoteImages: sources.map((_, index) => ({
+              index,
+              top: 0,
+              bottom: 100,
+            })),
+          },
+        });
+      });
+      // Six fetches run per message; the seventh waits its turn.
+      expect(gmail.remoteFetches).toHaveLength(6);
+      await act(() => {
+        setMessageZoom(150);
+      });
+      await act(async () => {
+        gmail.resumeRemote();
+        // Each request settles once its sources, the queued one included, have ended.
+        await Promise.all(loads.mock.results.map(({ value }) => value));
+      });
+      expect(gmail.remoteFetches).toStrictEqual(sources.slice(0, 6));
+    } finally {
+      await app.unmount();
+      setMessageZoom(100);
     }
   });
 });
