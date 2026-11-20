@@ -83,7 +83,12 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
-import { useMessageZoom, zoomedDocument } from './reading.ts';
+import {
+  fittedDocument,
+  useFitWideMessages,
+  useMessageZoom,
+  zoomedDocument,
+} from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
@@ -478,16 +483,18 @@ export function ReaderScrollView({
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
 // images within one viewport of the visible range are reported as they come near. The document
-// takes the reader's Message Zoom.
+// takes the reader's Message Zoom and, with `fit`, shrinks a wider document to the view's width.
 function RichDocument({
   rich,
   zoom,
+  fit,
   onChoose,
   onFailure,
   onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
   readonly zoom: number;
+  readonly fit: boolean;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
@@ -496,16 +503,22 @@ function RichDocument({
   const { t } = useLocalization();
   // The laid-out width; a later different width lays the document out and measures it again.
   const [width, setWidth] = useState<number>();
-  // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
-  const [source] = useState(() => ({
-    html: zoomedDocument(
+  // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original document.
+  const [base] = useState(() =>
+    zoomedDocument(
       labelImagePlaceholders(
         rich.initialDocument,
         t('messageBody.imageNotLoaded'),
       ),
       zoom,
     ),
-  }));
+  );
+  // The page scale that fits the document's laid-out width; each scale gets its own view.
+  const [pageScale, setPageScale] = useState(1);
+  const source = useMemo(
+    () => ({ html: fittedDocument(base, pageScale) }),
+    [base, pageScale],
+  );
   const container = useRef<ViewInstance>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
@@ -583,8 +596,22 @@ function RichDocument({
       unsubscribe();
     };
   }, [viewport, height, positions, rich, onNear]);
-  // Wider content, such as unwrappable text, scrolls sideways inside the view.
+  // Wider content, such as unwrappable text, scrolls sideways inside the view unless it fits.
   const wide = width !== undefined && contentWidth > width;
+  const shown = height !== undefined && !(fit && wide);
+  // A replacement view at `next` page scale reports its images afresh; the old ones are withdrawn.
+  const replace = (next: number) => {
+    live.current += 1;
+    inner.current = { offset: 0, scale: 1 };
+    onNear([]);
+    setPageScale(next);
+    setHeight(undefined);
+    setContentWidth(0);
+    setLayout(live.current);
+  };
+  // The page scale at which content `measured` wide fits `view`; the layout stays the same.
+  const fitting = (measured: number, view: number) =>
+    Math.floor((pageScale * view * 10_000) / measured) / 10_000;
   const choose = ({ url, navigationType }: ShouldStartLoadRequest) => {
     if (url === 'about:blank') {
       return navigationType === 'other';
@@ -603,18 +630,16 @@ function RichDocument({
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
-          // The replacement view reports its images afresh; the old ones are withdrawn.
-          live.current += 1;
-          inner.current = { offset: 0, scale: 1 };
-          onNear([]);
-          setHeight(undefined);
-          setLayout(live.current);
+          // A new width lays the document out again at full scale.
+          replace(1);
+        } else if (fit && height !== undefined && contentWidth > next) {
+          replace(fitting(contentWidth, next));
         }
         setWidth(next);
       }}>
-      {height === undefined ? (
+      {shown ? null : (
         <ActivityIndicator accessibilityLabel={t('messageBody.opening')} />
-      ) : null}
+      )}
       {
         <WebView
           key={layout}
@@ -631,6 +656,11 @@ function RichDocument({
           onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
             if (measured !== undefined && layout === live.current) {
+              // The same layout at a smaller page scale fits a wider document.
+              if (fit && width !== undefined && measured.width > width) {
+                replace(fitting(measured.width, width));
+                return;
+              }
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured.height);
               setContentWidth(measured.width);
@@ -661,7 +691,7 @@ function RichDocument({
               backgroundColor: colors.surfaceContent,
               height: Math.min(height ?? 1, heightCap),
             },
-            height === undefined ? styles.hidden : undefined,
+            shown ? undefined : styles.hidden,
           ]}
         />
       }
@@ -689,6 +719,7 @@ export function Presentation({
   const { t } = useLocalization();
   const { rich, readable } = presentation;
   const zoom = useMessageZoom();
+  const fit = useFitWideMessages();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
     document: rich?.initialDocument,
@@ -738,9 +769,10 @@ export function Presentation({
       ) : (
         <>
           <RichDocument
-            key={`${richKey}:${zoom}`}
+            key={`${richKey}:${zoom}:${fit}`}
             rich={rich}
             zoom={zoom / 100}
+            fit={fit}
             onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {

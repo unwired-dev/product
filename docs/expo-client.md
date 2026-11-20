@@ -432,9 +432,16 @@ Follows iOS: app text, and plain-text messages, keep following Dynamic Type.
 The reader adds the zoom to the sanitized document as the app's own CSS `zoom`, so
 the stored message and Drafts never change; WebKit's minimum font size still floors
 the smallest text below 100%. The zoom is a Device-Local Preference in this
-device's user defaults (`UnwiredMessageZoom`). Fit Wide Messages to the Screen
-([#2485](https://github.com/unwired-dev/product/issues/2485)), zooming one message
-from the reader, and the Mac follow in their own slices.
+device's user defaults (`UnwiredMessageZoom`). **Fit Wide Messages to the Screen**
+([#2485](https://github.com/unwired-dev/product/issues/2485)), on by default as in
+the frames and iOS Mail, shrinks a formatted message wider than the reader to its
+width at every Message Zoom; off, it scrolls sideways. CSS `zoom` cannot fit:
+WebKit's minimum font size and optical sizing keep the text wider. The reader
+instead keeps the layout it measured and adds an app-owned `transform: scale()`
+at the reader's width over the measured width, with `html{height:0}` so the
+document measures at its shrunk height, in a replacement view that stays hidden
+until measured. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
+from the reader, and the Mac, follow in their own slices.
 
 ## Interface language
 

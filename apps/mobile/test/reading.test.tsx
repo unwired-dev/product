@@ -96,4 +96,62 @@ describe('settings › Reading', () => {
       kept: 150,
     });
   });
+
+  it('fits a message wider than the reader to its width until the switch is turned off', async () => {
+    expect.hasAssertions();
+    await openReader();
+    // The reader lays the message out at its width, and WebKit measures it wider.
+    const measure = async (width: number) => {
+      const webview = await screen.findByTestId('message-webview');
+      await fireEvent(webview, 'layout', {
+        nativeEvent: { layout: { width: 320 } },
+      });
+      await fireEvent(webview, 'contentSizeChange', {
+        nativeEvent: { contentSize: { width, height: 900 } },
+      });
+    };
+    const shown = async () => {
+      const webview = await screen.findByTestId('message-webview');
+      const html: string = webview.props.source.html;
+      return {
+        fit: /<style>html\{height:0\}body\{transform:scale\([\d.]+\);transform-origin:0 0\}<\/style>/u.exec(
+          html,
+        )?.[0],
+        scrolls: webview.props.scrollEnabled,
+        opening: screen.queryByLabelText('Opening message') !== null,
+      };
+    };
+    const fitSwitch = screen.getByLabelText('Fit Wide Messages to the Screen');
+    const initial = fitSwitch.props.value;
+    await measure(686);
+    // The same layout at a page scale that fits replaces the view and stays hidden until measured.
+    const refitted = await shown();
+    await measure(320);
+    const fitted = await shown();
+    await fireEvent(fitSwitch, 'valueChange', false);
+    await measure(686);
+
+    expect({
+      initial,
+      refitted,
+      fitted,
+      off: await shown(),
+      kept: Settings.get('UnwiredFitWideMessages'),
+    }).toStrictEqual({
+      initial: true,
+      refitted: {
+        fit: '<style>html{height:0}body{transform:scale(0.4664);transform-origin:0 0}</style>',
+        scrolls: false,
+        opening: true,
+      },
+      fitted: {
+        fit: '<style>html{height:0}body{transform:scale(0.4664);transform-origin:0 0}</style>',
+        scrolls: false,
+        opening: false,
+      },
+      // Turned off, a wide message scrolls sideways as before.
+      off: { fit: undefined, scrolls: true, opening: false },
+      kept: false,
+    });
+  });
 });

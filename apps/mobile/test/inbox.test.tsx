@@ -72,6 +72,7 @@ import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { PinsContext } from '../src/pins.tsx';
+import { setFitWideMessages } from '../src/reading.ts';
 import { RegistrationGate } from '../src/registration-gate.tsx';
 import { SidebarToggleContext } from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
@@ -3086,6 +3087,8 @@ describe('connected Gmail Inbox', () => {
   it('reads message bodies from Gmail or this device and opens links only after confirmation', async () => {
     expect.hasAssertions();
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    // With Fit Wide Messages off, as Settings › Reading allows, wide content scrolls sideways.
+    setFitWideMessages(false);
     const gmail = createSyntheticGmail();
     gmail.deliver({
       from: 'Maya Chen <maya@example.invalid>',
@@ -3283,6 +3286,7 @@ describe('connected Gmail Inbox', () => {
     });
     expect(screen.queryByText('Open this link in your browser?')).toBeNull();
     expect(screen.queryByText('https://example.invalid/plan')).toBeNull();
+    setFitWideMessages(true);
   });
 
   it('explains a deceptive link and offers copying it instead of opening it', async () => {
