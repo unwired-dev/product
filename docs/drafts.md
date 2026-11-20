@@ -838,7 +838,7 @@ to the foreground, and never takes a record written after it
 ([#2381](https://github.com/unwired-dev/product/issues/2381)). Closing the
 composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
-an unchanged one; on the Mac, Quit waits for that removal. A composer that goes
+an unchanged one; on the Mac, Quit after **Save** or **Don’t Save** waits for that removal attempt. A composer that goes
 without closing, as when its window is torn down, cancels its pending write and
 leaves other windows' writes alone. While another composer has the same Draft open, the record stays
 until that composer closes too. A record the previous run left and the person has
