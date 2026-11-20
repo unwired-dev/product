@@ -1,4 +1,5 @@
 import * as Effect from 'effect/Effect';
+import * as Schema from 'effect/Schema';
 
 import type { NativeWakes } from '../src/freshness.ts';
 import type { GmailInboxState } from '../src/inbox-store.ts';
@@ -8,8 +9,7 @@ import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 import { createFreshness, followWakes, pushCovers } from '../src/freshness.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createRegistrationFlow } from '../src/registration-flow.ts';
-import { mailboxesOf } from '../src/registration-snapshot.ts';
-import { createRegistration } from '../src/registration.ts';
+import { createRegistration, mailboxesOf } from '../src/registration.ts';
 import {
   createSyntheticGmail,
   syntheticConnections,
@@ -30,6 +30,12 @@ const subjects = (mailboxes: Mailboxes, id: string) => {
 };
 
 // Each connection's state in the registration snapshot.
+const NativeAccess = Schema.Struct({
+  mailboxes: Schema.Array(
+    Schema.Struct({ id: Schema.String, access: Schema.String }),
+  ),
+});
+
 const states = (registration: ReturnType<typeof createRegistration>) => {
   const { snapshot } = registration.getSnapshot();
   return Object.fromEntries(
@@ -114,6 +120,22 @@ async function twoMailboxes(messages = 0, connectOther = true) {
     revoke: () => {
       synthetic.backend.revoked = true;
     },
+    // Google stops confirming this device's Product Sign-In.
+    refuseSignIn: () => {
+      synthetic.google.refreshFailure = 'unavailable';
+    },
+    // The access native code keeps for each connection.
+    access: async () => {
+      const { mailboxes } = Schema.decodeUnknownSync(NativeAccess)(
+        await vault.registration(),
+      );
+      return Object.fromEntries(
+        mailboxes.map(({ id, access }) => [id, access]),
+      );
+    },
+    // How often native code renewed the Gmail watches, which refreshes each verified grant.
+    renewals: () =>
+      synthetic.backend.push.filter((step) => step === 'route').length,
     beforeVerification: (hook: () => Promise<void>) => {
       beforeRead = hook;
     },
@@ -358,20 +380,44 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     });
   });
 
-  it('keeps the other mailboxes’ verified access through a wake while the app runs', async () => {
+  it('keeps the other mailboxes’ verified access through a wake while the app runs, without renewing their watches', async () => {
     expect.hasAssertions();
-    const { registration, verifications, launch } = await twoMailboxes();
+    const { registration, verifications, renewals, launch } =
+      await twoMailboxes();
     const { mailboxes, freshness } = launch();
     await loaded(mailboxes);
     verifications.length = 0;
+    const renewed = renewals();
     await expect(
       freshness.wake({ provider: 'gmail', routeId: 'route-alex' }, (id) =>
         new Map([['route-alex', alex]]).get(id),
       ),
     ).resolves.toBe('synchronized');
-    expect({ verifications, states: states(registration) }).toStrictEqual({
+    expect({
+      verifications,
+      renewals: renewals() - renewed,
+      states: states(registration),
+    }).toStrictEqual({
       verifications: [alex],
+      renewals: 0,
       states: { [alex]: 'connected', [other]: 'connected' },
+    });
+  });
+
+  it('forgets every mailbox’s access when a wake while the app runs finds the Product Sign-In no longer confirms', async () => {
+    expect.hasAssertions();
+    const { verifications, refuseSignIn, access, launch } =
+      await twoMailboxes();
+    const { mailboxes, freshness } = launch();
+    await loaded(mailboxes);
+    verifications.length = 0;
+    refuseSignIn();
+    await freshness.wake({ provider: 'gmail', routeId: 'route-alex' }, (id) =>
+      new Map([['route-alex', alex]]).get(id),
+    );
+    expect({ verifications, access: await access() }).toStrictEqual({
+      verifications: [],
+      access: { [alex]: 'unverified', [other]: 'unverified' },
     });
   });
 

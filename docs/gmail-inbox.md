@@ -1395,7 +1395,10 @@ connection with its provider: no other connection's grant is refreshed and no
 IMAP server is logged into. A connection this process already verified keeps that
 access; one it has not, as after a wake that launched the app, opens its saved
 Inbox from the cache until the next activation or background refresh verifies
-every connection. Every other open
+every connection. Gmail watch renewal, which refreshes every verified
+connection's grant, also waits for that verification, and a Product Sign-In that
+no longer confirms ends every connection's access as a full verification does.
+Every other open
 connection then shows its saved Inbox listing without reading mail from its provider, so counts
 across every Inbox, such as the App Icon Badge's, stay whole. It never decodes,
 keeps or logs Gmail's history ID or address, because the mailbox's checkpoint
@@ -1756,8 +1759,10 @@ lifecycles:
 - a wake hint synchronizing only its routed mailbox, with its history ID neither
   committed nor logged;
 - a wake that launched the app verifying only its routed connection with its
-  provider, keeping a running app's other verified connections, and signing a
-  revoked device out without contacting any provider;
+  provider, keeping a running app's other verified connections without renewing
+  their watches, ending every connection's access when the Product Sign-In no
+  longer confirms, and signing a revoked device out without contacting any
+  provider;
 - malformed, unknown-route and removed-mailbox hints reading nothing, including
   a route removed while verification is pending.
 - a newly revealed unrelated connection remaining unloaded during valid or

@@ -383,25 +383,34 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
 
   const { checkedMailbox, verify } = createMailboxVerification(vault);
 
+  // A push wake's routed connection alone verifies with its provider: the others keep this
+  // process's access, and one it has not verified opens its saved Inbox from the cache until a
+  // later verification.
+  const verifyRouted = (
+    mailbox: RegistrationRecord['mailboxes'][number],
+    routed: string,
+  ) => {
+    if (mailbox.id === routed) {
+      return verify(mailbox);
+    }
+    return !mailbox.authorizationNeeded && mailbox.access === 'unverified'
+      ? step(() => vault.markMailbox(mailbox.id, 'cached'))
+      : Effect.void;
+  };
+
   // Reports each retained connection as connected only after its provider access verifies again,
   // including one its provider refused before. One connection's failure never changes another's
-  // state. With `routed`, a push wake's connection alone verifies with its provider: the others
-  // keep this process's access, and one it has not verified opens its saved Inbox from the cache
-  // until a later verification.
+  // state. With `routed`, only that connection verifies, and watch renewal, which refreshes every
+  // verified connection's grant, waits for the next full verification.
   const mailboxStatus = Effect.fnUntraced(function* (routed?: string) {
     const value = yield* saved;
     if (value.product?.pending === true || value.mailboxes.length === 0) {
       return yield* pendingStatus(value);
     }
     for (const mailbox of value.mailboxes) {
-      if (routed === undefined || mailbox.id === routed) {
-        yield* verify(mailbox);
-      } else if (
-        !mailbox.authorizationNeeded &&
-        mailbox.access === 'unverified'
-      ) {
-        yield* step(() => vault.markMailbox(mailbox.id, 'cached'));
-      }
+      yield* routed === undefined
+        ? verify(mailbox)
+        : verifyRouted(mailbox, routed);
     }
     const verified = (yield* saved).mailboxes.some(
       (mailbox) =>
@@ -409,7 +418,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     );
     if (verified) {
       yield* synchronize;
-      yield* pushStep(vault.routeMailboxes);
+      yield* routed === undefined
+        ? pushStep(vault.routeMailboxes)
+        : Effect.void;
     }
     return yield* current;
   });
@@ -455,6 +466,10 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     }
     const unconfirmed = yield* reconfirm(value).pipe(
       Effect.as(undefined),
+      // A push wake keeps the others' access only while the Product Sign-In confirms.
+      Effect.tapError(() =>
+        routed === undefined ? Effect.void : step(vault.forgetMailboxAccess),
+      ),
       Effect.catchIf(
         (error) => !endsAccess.has(error.code),
         (error) =>
