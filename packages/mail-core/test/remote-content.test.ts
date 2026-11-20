@@ -800,6 +800,44 @@ describe('remote message content', () => {
     }
   });
 
+  it('keeps started and queued requests within the attempt limit as more sources come near', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const urls = Array.from(
+      { length: 40 },
+      (_, index) => `https://images.example/near/${index}.png`,
+    );
+    for (const url of urls) {
+      gmail.serveRemote(url, { data: png(2, 2) });
+    }
+    const id = gmail.deliver({
+      content: {
+        html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
+      },
+    });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const reader = await open(inbox, id);
+    try {
+      gmail.pauseRemote();
+      const authorization = { network: true, reader: reader.reader };
+      const first = inbox.loadRemoteImages(
+        id,
+        urls.slice(0, 20),
+        authorization,
+      );
+      await waitForFetches(gmail.remoteInFlight, 6);
+      const more = inbox.loadRemoteImages(id, urls, authorization);
+      gmail.resumeRemote();
+      await Promise.all([first, more]);
+      await inbox.loadRemoteImages(id, urls, authorization);
+      expect(gmail.remoteFetches).toStrictEqual(urls.slice(0, 20));
+    } finally {
+      reader.release();
+      gmail.resumeRemote();
+    }
+  });
+
   it('bounds attempted sources and shares retained pixels and cache protection across connections', async () => {
     expect.hasAssertions();
     const shared = createBodyLoads();

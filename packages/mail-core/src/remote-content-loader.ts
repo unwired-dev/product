@@ -638,6 +638,8 @@ export function createRemoteContentLoader(
             const attemptStart = remote.sequence;
             remote.sequence += wanted.length;
             remote.reserved += network.length;
+            // A reservation becomes an attempt when its fetch starts; the rest return on settling.
+            const unstarted = new Set(network);
             yield* Effect.forEach(
               wanted,
               (url) =>
@@ -656,6 +658,9 @@ export function createRemoteContentLoader(
                           current: () => current(url),
                           fetching: () => {
                             remote.attempts += 1;
+                            if (unstarted.delete(url)) {
+                              remote.reserved -= 1;
+                            }
                           },
                           retain: (image) => reserve({ id, url }, image),
                         },
@@ -677,7 +682,7 @@ export function createRemoteContentLoader(
             ).pipe(
               Effect.flatMap((results) =>
                 Effect.sync(() => {
-                  remote.reserved -= network.length;
+                  remote.reserved -= unstarted.size;
                   return settle(id, results, () => loads.get(id) === remote);
                 }),
               ),
