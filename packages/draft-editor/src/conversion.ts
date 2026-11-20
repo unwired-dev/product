@@ -160,6 +160,13 @@ const imageWidths: ReadonlySet<unknown> = new Set<ImageWidth>([320, 640, 1024]);
 export const isImageWidth = (value: unknown): value is ImageWidth =>
   imageWidths.has(value);
 
+// An Inline Image node's display width, when it has one.
+// oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
+const widthOf = (node: JSONContent) => {
+  const width: unknown = node.attrs?.width;
+  return isImageWidth(width) ? { width } : {};
+};
+
 // Text spans with their marks in document order and their link; adjacent text spans with the same
 // marks and link merge, and each Inline Image is a span of its own.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
@@ -175,13 +182,7 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
     const span: Span = { text, ...marks, ...linkOf(node) };
     const last = spans.at(-1);
     if (image !== undefined) {
-      const width: unknown = node.attrs?.width;
-      spans.push({
-        text: imageCharacter,
-        image,
-        ...(isImageWidth(width) ? { width } : {}),
-        ...marks,
-      });
+      spans.push({ text: imageCharacter, image, ...widthOf(node), ...marks });
     } else if (continues(last, span)) {
       spans[spans.length - 1] = { ...last, text: last.text + text };
     } else if (text !== '') {
