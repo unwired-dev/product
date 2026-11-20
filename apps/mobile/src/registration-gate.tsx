@@ -64,6 +64,7 @@ import {
 } from './mail-assistance.tsx';
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { Restoring, TrustCard } from './onboarding.tsx';
+import { ReadingSettings } from './reading-settings.tsx';
 import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import {
@@ -541,6 +542,7 @@ function SettingsPage({
             <SettingsGroup footer={copy.description} />
           </>
         ) : null}
+        <ReadingSettings destination={destination} />
         {destination === 'appearance' ? (
           <>
             <AppearanceSettings />

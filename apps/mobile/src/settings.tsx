@@ -46,6 +46,7 @@ export type SettingsDestination =
   | 'signatures'
   | 'notifications'
   | 'blockedSenders'
+  | 'reading'
   | 'appearance'
   | 'language'
   | 'privacy'
@@ -60,6 +61,7 @@ const sections = [
       { id: 'profiles', icon: 'person.crop.rectangle.stack' },
     ],
   },
+  { title: 'mail', items: [{ id: 'reading', icon: 'text.book.closed' }] },
   { title: 'composing', items: [{ id: 'signatures', icon: 'signature' }] },
   {
     title: 'automation',
