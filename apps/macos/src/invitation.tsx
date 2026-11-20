@@ -429,13 +429,11 @@ function Responding({
     // reloaded mailbox no longer needs signing in.
     const signedIn = await authorizeMailbox(mailbox)
       .then(() => inbox.load())
-      .then(
-        () => {
-          const state = inbox.getSnapshot();
-          return state.kind === 'ready' && state.sync !== 'authentication';
-        },
-        () => false,
-      );
+      .then(() => {
+        const state = inbox.getSnapshot();
+        return state.kind === 'ready' && state.sync !== 'authentication';
+      })
+      .catch(() => false);
     if (signedIn && current()) {
       responses.signedIn(invitation);
     }

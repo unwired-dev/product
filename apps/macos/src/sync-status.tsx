@@ -376,7 +376,7 @@ function CapsuleStatus({
   );
 }
 
-// A 3pt bar in the accent color. React Native macOS 0.81.9 has no determinate progress view, and
+// A 3pt bar in the accent color. React Native macOS 0.83.0 has no determinate progress view, and
 // NSProgressIndicator draws in the system accent rather than the documented `accentFill`.
 function ProgressBar({
   percent,

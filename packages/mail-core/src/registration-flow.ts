@@ -1004,11 +1004,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       program(
         session.pipe(
           Effect.andThen(productSyncFlow.createProfile(name, style)),
-          Effect.flatMap((profileCreated) =>
-            synchronize.pipe(
-              Effect.andThen(current),
-              Effect.map((snapshot) => ({ ...snapshot, profileCreated })),
-            ),
+          Effect.zipWith(
+            synchronize.pipe(Effect.andThen(current)),
+            (profileCreated, snapshot) => ({ ...snapshot, profileCreated }),
           ),
         ),
       ),

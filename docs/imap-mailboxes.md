@@ -285,7 +285,8 @@ confirms it is saved; listing a message alone does not make its body available o
 Once the Inbox is current, each connection downloads the metadata of every selectable
 folder in the background, Inbox first and then the folders in listed order, as the
 [Gmail backfill](gmail-inbox.md#historical-metadata-backfill) does for All Mail. It
-reads no message bodies and yields to synchronization and message opens.
+reads no message bodies and yields to synchronization, message opens and the
+changes a person makes.
 Recent-body prefetch and history share one speculative lane per connection. A
 failure pauses both kinds of work until the next Inbox synchronization.
 

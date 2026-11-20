@@ -191,7 +191,7 @@ static NSImage *UnwiredSymbolImage(NSString *name, CGFloat size, NSFontWeight we
 
 // The push button inside a plain view, so that React Native's wrapper stays out of accessibility and
 // VoiceOver reaches only the button. A tint is the bezel colour of a primary or brand button, whose
-// title is semibold. React Native macOS 0.81.9's Button is a TouchableOpacity; remove this view when
+// title is semibold. React Native macOS 0.83.0's Button is a TouchableOpacity; remove this view when
 // React Native macOS offers an NSButton.
 @interface UnwiredPushButtonView : NSView
 @property (nonatomic, copy) NSString *text;
@@ -1257,7 +1257,7 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 // symbol in either mode, with its items in sections set apart by separators. The button sits inside
 // a plain view, so that React Native's wrapper stays out of accessibility and VoiceOver reaches
 // only the button.
-// React Native macOS 0.81.9 has no pop-up button; remove this view when it offers one.
+// React Native macOS 0.83.0 has no pop-up button; remove this view when it offers one.
 @interface UnwiredPopUpButtonView : NSView
 @property (nonatomic, copy) NSArray<NSDictionary *> *sections;
 @property (nonatomic, copy) NSString *text;
@@ -1340,7 +1340,7 @@ RCT_EXPORT_METHOD(show:(nonnull NSNumber *)anchor
 // A split button that AppKit draws, focuses and tracks: its first segment shows `text` and `symbol`
 // and sends onPress; its second shows the menu indicator after an optional `menuText` and drops
 // the items below itself. AppKit's NSComboButton draws the same control but cannot name a choice
-// on its arrow side. React Native macOS 0.81.9 has no split button; remove this view when it
+// on its arrow side. React Native macOS 0.83.0 has no split button; remove this view when it
 // offers one.
 @interface UnwiredSplitButtonView : NSView
 @property (nonatomic, copy) NSArray<NSDictionary *> *sections;

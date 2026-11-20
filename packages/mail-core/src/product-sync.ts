@@ -66,10 +66,10 @@ const AtomicWrite = Schema.Struct({
 type PrivateSyncState = typeof PrivateSyncStateSchema.Type;
 
 // A removal moved the account to a newer key epoch; the write is sealed again after adopting it.
-class KeyRotationRequired extends Schema.TaggedError<KeyRotationRequired>()(
-  'KeyRotationRequired',
-  {},
-) {}
+class KeyRotationRequired extends Schema.TaggedError<
+  KeyRotationRequired,
+  { readonly brand: unique symbol }
+>()('KeyRotationRequired', {}) {}
 
 type Vault = NonNullable<ProductSyncState['vault']>;
 type Removal = Vault['removals'][number];

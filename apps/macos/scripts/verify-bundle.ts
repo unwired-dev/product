@@ -9,9 +9,9 @@ const packageVersion = Schema.fromJsonString(
   Schema.Struct({ version: Schema.String }),
 );
 for (const [file, version] of [
-  [require.resolve('react/package.json'), '19.1.4'],
-  [require.resolve('react-native/package.json'), '0.81.6'],
-  [require.resolve('react-native-macos/package.json'), '0.81.9'],
+  [require.resolve('react/package.json'), '19.2.0'],
+  [require.resolve('react-native/package.json'), '0.83.10'],
+  [require.resolve('react-native-macos/package.json'), '0.83.0'],
 ]) {
   assert.ok(file);
   const decoded = Schema.decodeSync(packageVersion)(
@@ -30,9 +30,9 @@ const { sources, sourcesContent } = Schema.decodeSync(sourceMap)(
   await readFile(new URL('../dist/main.jsbundle.map', import.meta.url), 'utf8'),
 );
 for (const pattern of [
-  /react@19\.1\.4[/_]/u,
-  /react-native-macos@0\.81\.9[/_]/u,
-  /effect@4\.0\.0[/_]/u,
+  /react@19\.2\.0[/_]/u,
+  /react-native-macos@0\.83\.0[/_]/u,
+  /effect@4\.1\.5[/_]/u,
   /fast-text-encoding@1\.0\.6[/_]/u,
 ]) {
   assert.ok(
@@ -55,16 +55,16 @@ for (const name of ['index', 'theme']) {
 }
 for (const source of sources) {
   assert.ok(
-    !/[/\\]react-native@|[/\\]react@19\.2\.|react-dom[/\\]|expo[/\\]|expo-|apps[/\\]mobile|packages[/\\]convex/u.test(
+    !/[/\\]react-native@|[/\\]react@19\.3\.|react-dom[/\\]|expo[/\\]|expo-|apps[/\\]mobile|packages[/\\]convex/u.test(
       source,
     ),
     `Foreign graph: ${source}`,
   );
   if (source.includes('/node_modules/react/')) {
-    assert.match(source, /react@19\.1\.4[/_]/u);
+    assert.match(source, /react@19\.2\.0[/_]/u);
   }
   if (source.includes('/node_modules/react-native-macos/')) {
-    assert.match(source, /react-native-macos@0\.81\.9[/_]/u);
+    assert.match(source, /react-native-macos@0\.83\.0[/_]/u);
   }
 }
 // Selected scenarios carry their synthetic providers. Registration JavaScript otherwise stays

@@ -10,7 +10,10 @@ import { env } from './_generated/server.js';
 
 // A Promise-returning call outside Effect, such as a Convex function, rejected.
 // Handlers rethrow the original error, so Convex sees the same failure.
-export class CallFailed extends Schema.TaggedError<CallFailed>()('CallFailed', {
+export class CallFailed extends Schema.TaggedError<
+  CallFailed,
+  { readonly brand: unique symbol }
+>()('CallFailed', {
   cause: Schema.Defect(),
 }) {}
 

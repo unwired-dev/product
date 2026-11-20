@@ -133,10 +133,10 @@ const recentReports = <Report extends { readonly createdAt: number }>(
     (report) =>
       report.createdAt <= now + 60_000 && now - report.createdAt <= maxAge,
   );
-class ReportingFailure extends Schema.TaggedError<ReportingFailure>()(
-  'ReportingFailure',
-  { cause: Schema.Defect() },
-) {}
+class ReportingFailure extends Schema.TaggedError<
+  ReportingFailure,
+  { readonly brand: unique symbol }
+>()('ReportingFailure', { cause: Schema.Defect() }) {}
 const call = (request: () => Promise<unknown>) =>
   Effect.tryPromise({
     try: request,

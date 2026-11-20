@@ -93,10 +93,10 @@ const decodeSavedAttachment = Schema.decodeUnknownEffect(
 );
 
 // The provider sent bytes that do not decode to the attachment's declared size.
-export class AttachmentDamaged extends Schema.TaggedError<AttachmentDamaged>()(
-  'AttachmentDamaged',
-  {},
-) {}
+export class AttachmentDamaged extends Schema.TaggedError<
+  AttachmentDamaged,
+  { readonly brand: unique symbol }
+>()('AttachmentDamaged', {}) {}
 
 export const sameAttachment = (left: Descriptor, right: Descriptor) =>
   left.locator === right.locator &&

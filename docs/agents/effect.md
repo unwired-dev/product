@@ -32,7 +32,9 @@ complements the host checks and never replaces them.
 
 ## Errors
 
-Define failures with `Schema.TaggedError`. A failure that wraps a foreign error
+Define failures with `Schema.TaggedError<Self, { readonly brand: unique symbol }>()`.
+The brand keeps each failure class nominal, so a structurally identical value
+cannot stand in for it. A failure that wraps a foreign error
 carries it as `cause: Schema.Defect()`, so recovery can inspect the original
 error. Recover with `Effect.catchTag` or `Effect.catchTags`. Expected states, such
 as locked storage or a cancelled sign-in, are their own tagged errors and recover

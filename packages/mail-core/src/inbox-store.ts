@@ -1121,6 +1121,29 @@ export function createBodyLoads() {
 }
 type BodyLoads = ReturnType<typeof createBodyLoads>;
 
+// A connection's synchronization permit, as every request but a Historical Metadata Backfill step
+// takes it. Effect grants a waiting permit in request order, so a step queued first would run
+// ahead of a request made while it waited. Holding the permit, the step finds the request pending
+// and releases the permit to it instead.
+export const foregroundPermit = (semaphore: Semaphore.Semaphore) => {
+  let requests = 0;
+  return {
+    withPermit: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => {
+          requests += 1;
+        }),
+        () => semaphore.withPermit(effect),
+        () =>
+          Effect.sync(() => {
+            requests -= 1;
+          }),
+      ),
+    // Whether a request waits for the permit or holds it.
+    pending: () => requests > 0,
+  };
+};
+
 const requireAttachments = (payload: ProviderPayload) =>
   payload.attachmentsPending === true
     ? Effect.fail(
@@ -1245,6 +1268,7 @@ export function createInboxStore(
     offeredViews(provider, providerReader.unavailableActions());
 
   const semaphore = Semaphore.makeUnsafe(1);
+  const foreground = foregroundPermit(semaphore);
   const persistence = Semaphore.makeUnsafe(1);
   // The two metadata writers (sync and intake) may commit concurrently; body admission takes
   // both permits so it cannot interleave with either writer's commit, pruning and publication.
@@ -2912,21 +2936,19 @@ export function createInboxStore(
     backfilling = true;
     const reading = owner;
     const reconciled = new Set<string>();
+    // A read or another request may have queued while either permit was queued. Release both and
+    // let it go first.
+    const step = Effect.suspend(() =>
+      shared.idle.isOpen() && !foreground.pending()
+        ? backfillStep(reading, reconciled)
+        : Effect.succeed(true),
+    );
     void runLogged(
       Effect.gen(function* () {
         for (;;) {
           yield* shared.idle.await;
           if (
-            !(yield* speculativeLane.withPermit(
-              semaphore.withPermit(
-                // A read may have begun while either permit was queued. Release both before waiting.
-                Effect.suspend(() =>
-                  shared.idle.isOpen()
-                    ? backfillStep(reading, reconciled)
-                    : Effect.succeed(true),
-                ),
-              ),
-            ))
+            !(yield* speculativeLane.withPermit(semaphore.withPermit(step)))
           ) {
             return;
           }
@@ -3552,7 +3574,7 @@ export function createInboxStore(
     let started = false;
     const requestedFor = ownership;
     const run = runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.suspend(() => {
           started = true;
           waiting = null;
@@ -3684,7 +3706,7 @@ export function createInboxStore(
   ) => {
     const requestedFor = ownership;
     return runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.gen(function* () {
           if (forgotten || requestedFor !== ownership) {
             return false;
@@ -4239,7 +4261,7 @@ export function createInboxStore(
         return Promise.resolve(undefined);
       }
       return runLogged(
-        semaphore.withPermit(lookUp(scope, id)).pipe(
+        foreground.withPermit(lookUp(scope, id)).pipe(
           Effect.map((message) => {
             if (owner !== reading || state.kind !== 'ready') {
               return undefined;
