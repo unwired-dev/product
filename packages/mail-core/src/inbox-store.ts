@@ -3626,10 +3626,10 @@ export function createInboxStore(
     const current = () =>
       pausedFor === ownership && !forgotten && pause === paused;
     // Verification, or a synchronization holding the permit, can close or replace this Inbox or
-    // its pause before this one starts. A mailbox that stays cache-only synchronizes nothing, so
-    // its pause ends and it waits for a later verification.
+    // its pause before this one starts. A mailbox that stays cache-only, or whose verification
+    // fails, synchronizes nothing, so its pause ends and it waits for a later verification.
     const resumeNow = async () => {
-      await verify(() => loadWhen(current));
+      await verify(() => loadWhen(current)).catch(() => undefined);
       if (!current() || paused === undefined) {
         return;
       }
