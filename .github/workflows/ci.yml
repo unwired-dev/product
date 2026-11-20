@@ -47,7 +47,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Setup Ruby for native autolinking fixtures
-        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        uses: ruby/setup-ruby@f9c4492e86def3e644ab32a0ef185eda5b0c20d0 # v1
         with:
           ruby-version: '3.3.12'
 
@@ -105,10 +105,10 @@ jobs:
           persist-credentials: false
 
       - name: Analyze
-        uses: fallow-rs/fallow@71369f80d099e25726ad04382f15aef14a251abc # v3.31.0
+        uses: fallow-rs/fallow@2d55db7a9f0e3501c8be43f64400c47be365e668 # v3.44.0
         with:
           command: audit
-          version: 3.31.0
+          version: 3.44.0
           format: sarif
           gate: new-only
           changed-since: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}

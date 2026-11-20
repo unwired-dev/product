@@ -231,7 +231,7 @@ if (command === 'xcodebuild') {
   fs.writeFileSync(path.join(resources, 'main.jsbundle'), 'production bundle');
   fs.writeFileSync(path.join(resources, 'PrivacyInfo.xcprivacy'), scenario === 'inventory-failure' ? 'unreadable' : '<?xml version="1.0"?><plist version="1.0"><dict><key>NSPrivacyTracking</key><false/></dict></plist>');
   // Expo lists sources from the Metro server root, the checkout.
-  const sources = ['/vendor/react@19.3.0/node_modules/react/index.js', 'react-native@0.88.1/node_modules/react-native/index.js', 'effect@4.0.0/index.js', 'react-native-screens/src/components/gamma/split/SplitHost.tsx', '/mail-core/src/index.ts', '/mail-core/src/theme.ts'];
+  const sources = ['/vendor/react@19.3.0/node_modules/react/index.js', 'react-native@0.88.1/node_modules/react-native/index.js', 'effect@4.0.6/index.js', 'react-native-screens/src/components/gamma/split/SplitHost.tsx', '/mail-core/src/index.ts', '/mail-core/src/theme.ts'];
   if (scenario === 'mock-bundle') sources.push('/mail-core/src/testing/mock.ts');
   const sourcesContent = sources.map(source => source.endsWith('/mail-core/src/index.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/index.ts'), 'utf8') : source.endsWith('/mail-core/src/theme.ts') ? fs.readFileSync(path.join(checkout, 'packages/mail-core/src/theme.ts'), 'utf8') : null);
   const map = args.find(arg => arg.startsWith('SOURCEMAP_FILE='))?.slice('SOURCEMAP_FILE='.length);

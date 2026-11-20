@@ -4,8 +4,8 @@ packages:
   - 'apps/macos'
 
 overrides:
-  baseline-browser-mapping: 2.11.27
-  electron-to-chromium: 1.5.444
+  baseline-browser-mapping: 2.11.38
+  electron-to-chromium: 1.5.491
 
 catalog:
   '@csstools/css-parser-algorithms': 4.0.3
