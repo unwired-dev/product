@@ -399,6 +399,7 @@ during search, the capsule rises with it and stays 12pt above it.
   **until 14:20** below when Gmail named the time it asked to wait until
   ([#2488](https://github.com/unwired-dev/product/issues/2488)). Several such
   mailboxes read **2 accounts paused by Gmail**. VoiceOver hears it when it appears.
+  A paused mailbox is not Offline: the list header keeps its unread count.
 - **Idle.** The capsule fades out. A refused grant or password also keeps its own
   authorization notice above the list, and the sidebar keeps each connection's problem.
 
@@ -1577,9 +1578,11 @@ limit ([#2488](https://github.com/unwired-dev/product/issues/2488)); it never as
 for authorization again. Saved mail stays readable, and changes made meanwhile are
 saved and wait. When Gmail's message names a time (`Retry after <instant>`),
 nothing synchronizes the mailbox before it, neither activation, refresh nor
-**Try Again**, and synchronization runs again at that time. Without a time, or with
+**Try Again**, and synchronization runs again at that time; activation still
+verifies the saved grant, as it does for every connection. Without a time, or with
 one already past, synchronization tries again after one minute, doubling with
-each limit in a row up to half an hour, and earlier when the person asks. The
+each limit in a row up to half an hour, and earlier when the person asks for
+it; organizing changes still wait for that synchronization. The
 Inbox counts the day's limits for the status text. A completed synchronization ends
 the wait sequence; a refused grant, closing the Inbox or removing the mailbox ends
 the pause.

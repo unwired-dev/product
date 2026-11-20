@@ -1788,6 +1788,8 @@ describe('connected Gmail Inbox', () => {
       name: /^Gmail paused, until \d{1,2}:\d{2}/u,
     });
     expect(screen.queryByText('1 account needs attention')).toBeNull();
+    // Paused is not offline: the heading keeps its unread count.
+    expect(screen.queryByText('Offline')).toBeNull();
     expect(
       screen.getByRole('button', { name: /Saturday, by the river\?/u }),
     ).toBeVisible();

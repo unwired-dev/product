@@ -109,7 +109,7 @@ export const rateLimited = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
       error: Schema.Struct({
-        errors: Schema.Array(
+        errors: Schema.NonEmptyArray(
           Schema.Struct({
             reason: Schema.Literals([
               'dailyLimitExceeded',
@@ -131,7 +131,9 @@ const retryAfter = (body: string) =>
   )(body).pipe(
     Option.flatMapNullishOr(
       ({ error }) =>
-        /Retry after (?<until>\S+)/u.exec(error.message)?.groups?.until,
+        /Retry after (?<until>\d{4}-\d{2}-\d{2}T\S+?(?:Z|[+-]\d{2}:\d{2}))/u.exec(
+          error.message,
+        )?.groups?.until,
     ),
     Option.map(Date.parse),
     Option.filter(Number.isFinite),

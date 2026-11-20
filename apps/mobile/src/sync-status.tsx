@@ -213,9 +213,15 @@ export const checking = (state: InboxMailbox['state']) =>
     (('sync' in state && state.sync === 'syncing') ||
       ('status' in state && state.status === 'syncing')));
 
-// A mailbox whose server could not be reached shows the mail saved on this device.
+// Gmail's usage limit paused this mailbox's synchronization.
+const limitOf = (state: InboxMailbox['state']) =>
+  state.kind === 'ready' && 'limit' in state ? state.limit : undefined;
+
+// A mailbox whose server could not be reached shows the mail saved on this device. One waiting
+// out Gmail's usage limit is paused, not offline.
 export const offline = (state: InboxMailbox['state']) =>
   state.kind === 'ready' &&
+  limitOf(state) === undefined &&
   (('sync' in state && state.sync === 'retry') ||
     ('status' in state && state.status === 'retry'));
 
@@ -238,17 +244,16 @@ const shapes = {
   progress: styles.progress,
 } as const;
 
-// Gmail's usage limit paused this mailbox's synchronization.
-const limitOf = (state: InboxMailbox['state']) =>
-  state.kind === 'ready' && 'limit' in state ? state.limit : undefined;
-
 // The device the paused footer names.
 const device = Platform.OS === 'ios' && Platform.isPad ? 'ipad' : 'iphone';
 
 // A mailbox that needs attention: authorization was refused, its server could not be reached,
 // or a failed read paused its backfill until the next synchronization.
 export const failed = (state: InboxMailbox['state']) =>
-  offline(state) || backfill(state)?.paused === true || refused(state);
+  offline(state) ||
+  limitOf(state) !== undefined ||
+  backfill(state)?.paused === true ||
+  refused(state);
 
 type SyncStatus =
   | Readonly<{ kind: 'attention'; count: number }>
