@@ -3508,14 +3508,6 @@ export function createInboxStore(
     failedViews.clear();
     let document = Option.getOrUndefined(yield* documentOf(cache));
     if (cache.availability === 'retry') {
-      // A usage limit's pause whose time passed ends: the cache-only mailbox waits for
-      // registration to verify it again, never for a time already gone.
-      if (
-        pause !== undefined &&
-        DateTime.toEpochMillis(started) >= pause.until
-      ) {
-        endPause();
-      }
       return yield* ready(cache, document, 'retry');
     }
     yield* ready(cache, document, 'syncing');
@@ -3625,7 +3617,23 @@ export function createInboxStore(
   // timer waits at most about 24.8 days, so a later time of Gmail's waits again until it comes.
   function resumeAfter(delay: number) {
     const pausedFor = ownership;
-    const current = () => pausedFor === ownership && !forgotten;
+    const paused = pause;
+    // Still this Inbox, and no other limit, completed synchronization or refusal replaced this pause.
+    const current = () =>
+      pausedFor === ownership && !forgotten && pause === paused;
+    // Verification can close or replace this Inbox before it synchronizes. A mailbox that stays
+    // cache-only synchronizes nothing, so its pause ends and it waits for a later verification.
+    const resumeNow = async () => {
+      await verify(async () => {
+        if (current()) {
+          await load();
+        }
+      });
+      if (current()) {
+        endPause();
+        publish(render());
+      }
+    };
     clearTimeout(resume);
     resume = setTimeout(
       () => {
@@ -3640,12 +3648,7 @@ export function createInboxStore(
           resumeAfter(left);
           return;
         }
-        // Verification can close or replace this Inbox before it synchronizes.
-        void verify(async () => {
-          if (current()) {
-            await load();
-          }
-        });
+        void resumeNow();
       },
       Math.min(delay, longestTimer),
     );
