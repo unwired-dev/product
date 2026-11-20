@@ -479,10 +479,10 @@ export function SyncStatusCapsule({
   // The details close with the capsule, at once, then forget they were open once it has rendered:
   // the toolbar's state belongs to the Inbox.
   useEffect(() => {
-    if (!open) {
+    if (!open && details) {
       setDetails(false);
     }
-  }, [open, setDetails]);
+  }, [open, details, setDetails]);
   const [height, setHeight] = useState(0);
   const motion = useMenuMotion(open, 'menu');
   useOutcomeAnnouncement(current?.spoken, true);
