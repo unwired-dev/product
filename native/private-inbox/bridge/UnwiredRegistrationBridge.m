@@ -93,6 +93,7 @@ RCT_EXTERN_METHOD(imapSearch:(NSDictionary *)mailbox request:(NSDictionary *)req
 RCT_EXTERN_METHOD(imapAppend:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(imapIdle:(NSDictionary *)mailbox request:(NSDictionary *)request resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openMailbox:(NSString *)connection resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openSavedMailboxes:(NSArray *)connections resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(commitMailbox:(NSDictionary *)mailbox expectedRevision:(double)expectedRevision document:(NSString *)document history:(NSDictionary *)history resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openMailboxSegment:(NSDictionary *)mailbox name:(NSString *)name resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(openMessageBody:(NSDictionary *)mailbox id:(NSString *)id resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)

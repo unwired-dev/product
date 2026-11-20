@@ -108,7 +108,7 @@ focus returns to search and Settings stays closed. It then runs Account from the
 palette, which opens Settings. In Privacy & Data it clicks the device's remote-content
 pop-up, dismisses its AppKit menu with Escape, then chooses Never from it and checks that
 the pop-up shows the choice. In Language it checks that the interface-language pop-up shows
-System Default. In Profiles it adds a **Travel** Profile, checks its Color and
+English, which the journey's `-interfaceLanguage en` launch argument chooses. In Profiles it adds a **Travel** Profile, checks its Color and
 Icon pop-ups show Graphite and First Letter, and chooses Blue and Airplane from their AppKit
 menus. It then asks to remove the Mail Profile:
 the AppKit sheet on Settings offers Cancel and Remove and closes with Escape and with
@@ -154,7 +154,9 @@ and Keep Original closes it with the reply unchanged. Both states are audited an
 kept as `Writing tools W1` and `Writing tools W2` attachments. Option-Command-N opens a second Inbox with no
 selection; Command-backtick, Command-0 and Command-W then move between and close
 windows while the first window keeps its Draft. Expand then moves that saved
-Draft into a New Message window, removes the overlay and omits Expand there.
+Draft into a New Message window, removes the overlay and omits Expand there;
+closing that window with Save Draft brings the Draft back into the Inbox
+window's overlay.
 In that window, Send sits level with the window controls, and clicking the
 Command Palette input there opens the palette.
 When the palette first opens in the Inbox, and again in that window, the

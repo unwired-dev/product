@@ -2,6 +2,8 @@ import type { NativeImapMailbox } from '../imap-inbox.ts';
 import type { NativeGmailMailbox } from '../inbox-store.ts';
 import type { NativeGmailMailboxes } from '../mailboxes.ts';
 
+import { rejectionCode } from '../diagnostics.ts';
+
 const missing = () =>
   Promise.reject(
     Object.assign(new Error('Synthetic gmail-unavailable'), {
@@ -83,6 +85,26 @@ export function syntheticConnections(
       of(mailbox.connection)?.graphDiscard(messageId, mailbox) ?? missing(),
     openMailbox: (connection) =>
       (server(connection) ?? of(connection))?.openMailbox() ?? missing(),
+    // Opens each one as `openMailbox` does.
+    openSavedMailboxes: async (connections) =>
+      Object.fromEntries<Readonly<{ cache: unknown } | { code: string }>>(
+        await Promise.all(
+          connections.map(async (connection) => {
+            const mailbox = server(connection) ?? of(connection);
+            try {
+              return [
+                connection,
+                { cache: await (mailbox?.openMailbox() ?? missing()) },
+              ] as const;
+            } catch (error) {
+              return [
+                connection,
+                { code: rejectionCode(error) ?? 'unavailable' },
+              ] as const;
+            }
+          }),
+        ),
+      ),
     // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
     commitMailbox: (mailbox, revision, document, history) =>
       (server(mailbox.connection) ?? of(mailbox.connection))?.commitMailbox(

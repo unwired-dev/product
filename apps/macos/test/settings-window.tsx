@@ -17,8 +17,12 @@ let requestSerial = 0;
 let holdOpen = false;
 let pendingOpen: (() => void) | undefined = undefined;
 // The New Message windows Expand asked AppKit to open, and the windows JavaScript closed.
-const composers: Array<{ draft: string; profile: string }> = [];
+const composers: Array<{ draft: string; profile: string; origin?: string }> =
+  [];
 const closed: string[] = [];
+// The windows JavaScript brought forward, and the Inbox windows it opened for a returning Draft.
+const forward: string[] = [];
+const inboxes: Array<{ profile: string; draft: string }> = [];
 // The Inbox windows whose sidebar JavaScript asked AppKit to show or hide.
 const sidebarToggles: string[] = [];
 // The Choose Folders… sheet AppKit shows on an Inbox window or the Settings window.
@@ -64,8 +68,16 @@ const host = {
     }
   },
   setWindowProfile: () => undefined,
-  openComposer: (draft: string, profile: string) => {
-    composers.push({ draft, profile });
+  openComposer: (draft: string, profile: string, origin: string | null) => {
+    composers.push(
+      origin === null ? { draft, profile } : { draft, profile, origin },
+    );
+  },
+  openInbox: (profile: string, draft: string) => {
+    inboxes.push({ profile, draft });
+  },
+  focusWindow: (window: string) => {
+    forward.push(window);
   },
   toggleSidebar: (window: string) => {
     sidebarToggles.push(window);
@@ -104,6 +116,8 @@ afterEach(() => {
   pendingOpen = undefined;
   composers.length = 0;
   closed.length = 0;
+  forward.length = 0;
+  inboxes.length = 0;
   sidebarToggles.length = 0;
   sheet = undefined;
 });
@@ -182,8 +196,14 @@ export const settingsOpen = () =>
 export const composerWindows = (): ReadonlyArray<{
   readonly draft: string;
   readonly profile: string;
+  readonly origin?: string;
 }> => composers;
 export const closedWindows = (): readonly string[] => closed;
+export const focusedWindows = (): readonly string[] => forward;
+export const openedInboxes = (): ReadonlyArray<{
+  readonly profile: string;
+  readonly draft: string;
+}> => inboxes;
 
 export const toggledSidebars = (): readonly string[] => sidebarToggles;
 

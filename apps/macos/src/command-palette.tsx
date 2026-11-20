@@ -304,8 +304,8 @@ const styles = StyleSheet.create({
 });
 
 // While mounted, closing this window or quitting first runs `leave`, the composer's own Close,
-// and closes the window only once it allows leaving.
-export function useCloseGuard(leave: () => Promise<boolean>) {
+// told whether Quit is closing the window, and closes the window only once it allows leaving.
+export function useCloseGuard(leave: (quitting: boolean) => Promise<boolean>) {
   const { identifier } = use(PaletteContext);
   const leaveNow = useRef(leave);
   useLayoutEffect(() => {
@@ -319,7 +319,13 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
     let pending = false;
     const subscription = new NativeEventEmitter(menu).addListener(
       'windowShouldClose',
-      ({ window }: { readonly window: string }) => {
+      ({
+        window,
+        quitting,
+      }: {
+        readonly window: string;
+        readonly quitting?: boolean;
+      }) => {
         if (window !== identifier || pending) {
           return;
         }
@@ -328,7 +334,7 @@ export function useCloseGuard(leave: () => Promise<boolean>) {
           // A failed leave keeps the window open and cancels a pending Quit.
           let allowed = false;
           try {
-            allowed = await leaveNow.current();
+            allowed = await leaveNow.current(quitting === true);
           } catch {
             // The window stays open, as when the person cancels.
           }

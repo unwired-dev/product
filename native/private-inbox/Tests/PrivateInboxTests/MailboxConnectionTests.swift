@@ -248,6 +248,61 @@ extension PrivateInboxTests {
     #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("mailboxes/\(id)").path))
   }
 
+  // Saved listings a push wake opens share one revocation query; each connection's failure stays
+  // its own, and a revoked device opens none.
+  @Test @MainActor func savedMailboxesOpenBehindOneRevocationQuery() async throws {
+    let service = "dev.unwired.registration.tests.\(UUID().uuidString)"
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let keys = DeviceKeychain(service: service)
+    defer {
+      try? keys.remove("registration")
+      try? DeviceKeychain(service: service + ".database").remove("encryption-key")
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    google.mailboxAddresses = [
+      "synthetic-product-subject": "same@example.invalid",
+      "synthetic-other-mailbox": "other@example.invalid",
+    ]
+    var revoked = false
+    var revocationQueries = 0
+    let store = google.store(
+      keys: keys, mailCache: PrivateInboxStore(directory: directory, service: service),
+      deviceRevoked: { _ in
+        revocationQueries += 1
+        return revoked
+      })
+    _ = try await store.signIn()
+    _ = try await store.authorizeGmail()
+    let first = MailboxConnection.id(subject: "synthetic-product-subject")
+    let second = MailboxConnection.id(subject: "synthetic-other-mailbox")
+    google.subject = "synthetic-other-mailbox"
+    google.address = "other@example.invalid"
+    _ = try await store.authorizeGmail(chooseAccount: true)
+    _ = try await store.commitMailbox(
+      connection: first, address: "same@example.invalid", expectedRevision: 0,
+      document: "first", generation: store.generation("synthetic-product-subject"))
+    _ = try await store.commitMailbox(
+      connection: second, address: "other@example.invalid", expectedRevision: 0,
+      document: "second", generation: store.generation("synthetic-other-mailbox"))
+
+    revocationQueries = 0
+    let opened = try await store.openSavedMailboxes([first, second, "unknown-connection"])
+    #expect(revocationQueries == 1)
+    #expect(try opened[first]?.get()["document"] as? String == "first")
+    #expect(try opened[second]?.get()["document"] as? String == "second")
+    #expect(throws: RegistrationError.gmailUnavailable) {
+      _ = try opened["unknown-connection"]?.get()
+    }
+
+    revoked = true
+    await #expect(throws: RegistrationError.revoked) {
+      _ = try await store.openSavedMailboxes([first, second])
+    }
+    #expect(revocationQueries == 2)
+    #expect(throws: RegistrationError.gmailUnavailable) { _ = try store.openMailbox(first) }
+  }
 
   // Mailbox descriptor synchronization moved to TypeScript
   // (packages/mail-core/test/product-sync.test.ts). Each retired test names its replacement there:

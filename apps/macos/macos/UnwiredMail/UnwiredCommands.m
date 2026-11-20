@@ -58,7 +58,8 @@ NSString *UnwiredGuardedWindow(void)
 
 // AppDelegate.mm opens each New Message window and folder choice sheet.
 @protocol UnwiredComposerWindows
-- (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile;
+- (void)openComposerForDraft:(NSString *)draft profile:(NSString *)profile origin:(NSString *)origin;
+- (void)openWindowWithProfile:(NSString *)profile draft:(NSString *)draft;
 - (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile;
 - (void)fitSheet:(NSString *)identifier height:(double)height;
 - (void)closeSheet:(NSString *)identifier;
@@ -117,7 +118,8 @@ RCT_EXPORT_MODULE()
 
 - (void)windowShouldClose:(NSNotification *)notification
 {
-  [self sendEventWithName:@"windowShouldClose" body:@{@"window": notification.object ?: @""}];
+  [self sendEventWithName:@"windowShouldClose" body:@{@"window": notification.object ?: @"",
+      @"quitting": notification.userInfo[@"quitting"] ?: @NO}];
 }
 
 - (void)settingsClosed:(NSNotification *)notification
@@ -185,9 +187,23 @@ RCT_EXPORT_METHOD(finishClose:(NSString *)identifier allowed:(BOOL)allowed)
 }
 
 // Expand moves a composer's saved Draft into its own New Message window.
-RCT_EXPORT_METHOD(openComposer:(NSString *)draft profile:(NSString *)profile)
+RCT_EXPORT_METHOD(openComposer:(NSString *)draft profile:(NSString *)profile origin:(NSString *)origin)
 {
-  [(id<UnwiredComposerWindows>)NSApp.delegate openComposerForDraft:draft profile:profile];
+  [(id<UnwiredComposerWindows>)NSApp.delegate openComposerForDraft:draft profile:profile origin:origin];
+}
+
+// A New Message window's Draft returns to a new Inbox window of its Mail Profile.
+RCT_EXPORT_METHOD(openInbox:(NSString *)profile draft:(NSString *)draft)
+{
+  [(id<UnwiredComposerWindows>)NSApp.delegate openWindowWithProfile:profile draft:draft];
+}
+
+// Brings a window forward, as a New Message window's Draft returns to its Inbox window.
+RCT_EXPORT_METHOD(focusWindow:(NSString *)identifier)
+{
+  NSWindow *window = windowNamed(identifier);
+  [window deminiaturize:nil];
+  [window makeKeyAndOrderFront:nil];
 }
 
 // Choose Folders… opens an IMAP connection's Spam and Trash choice as a sheet on the Inbox window.

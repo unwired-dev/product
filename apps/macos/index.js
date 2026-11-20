@@ -29,7 +29,7 @@ if (!previewInbox) {
   // Archive, Mark as Read and a typed reply chosen on a notification act with no window open;
   // Open Draft opens the reply's Draft in its own New Message window.
   followNotificationActions((draft, profile) => {
-    windowHost()?.openComposer(draft, profile);
+    windowHost()?.openComposer(draft, profile, null);
   });
 }
 keepGmailFresh();

@@ -1,6 +1,8 @@
 import { messageDay } from '@private-email/localization';
+import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 
 import type {
@@ -29,7 +31,7 @@ import type {
 } from './registration-snapshot.ts';
 import type { Registration } from './registration.ts';
 
-import { logNote } from './diagnostics.ts';
+import { logNote, rejectionCode } from './diagnostics.ts';
 import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder, searchedFolders } from './imap-actions.ts';
 import { createImapInbox } from './imap-inbox.ts';
@@ -124,6 +126,11 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
   ) => Promise<unknown>;
   readonly openMailbox: (connection: string) => Promise<unknown>;
+  // Each connection's cache, `{ cache }`, or the code its open rejected with, `{ code }`, behind
+  // one revocation query.
+  readonly openSavedMailboxes: (
+    connections: readonly string[],
+  ) => Promise<unknown>;
   // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
   readonly commitMailbox: (
     mailbox: Scope,
@@ -468,6 +475,18 @@ type Opened = Readonly<
     | { provider: 'imap'; inbox: ImapInbox }
   )
 >;
+
+// One connection's cache from a shared native call, or the code its open rejected with.
+const decodeSavedOpens = Schema.decodeUnknownOption(
+  Schema.Record(Schema.String, Schema.Unknown),
+);
+const decodeSavedOpen = Schema.decodeUnknownOption(
+  Schema.Union([
+    Schema.Struct({ cache: Schema.Unknown }),
+    Schema.Struct({ code: Schema.String }),
+  ]),
+  { onExcessProperty: 'error' },
+);
 
 // The messages screening moves to Trash, looked up once per arrival of a burst of any size.
 const movedBy = (screened: Readonly<{ move: readonly string[] }> | undefined) =>
@@ -857,9 +876,61 @@ export function createMailboxes(
       await Promise.all([...inboxes.values()].map(({ inbox }) => inbox.load()));
     },
     // Shows each saved listing no synchronization has opened yet, without asking any provider.
+    // The caches of those whose stores are free open in one native call, behind one revocation
+    // query; a busy store opens its own once its operation ends.
     showSaved: async () => {
+      const waiting = new Set(
+        [...inboxes]
+          .filter(([, { inbox }]) => inbox.getSnapshot().kind === 'loading')
+          .map(([id]) => id),
+      );
+      const asking: string[] = [];
+      const replies = Deferred.makeUnsafe<Result.Result<unknown, string>>();
+      // The call goes out once every waiting store has asked or settled without asking.
+      const settle = (id: string) => {
+        if (waiting.delete(id) && waiting.size === 0 && asking.length > 0) {
+          void Effect.runPromise(
+            Deferred.complete(
+              replies,
+              Effect.result(
+                Effect.tryPromise({
+                  try: () => native.openSavedMailboxes(asking),
+                  catch: (error) => rejectionCode(error) ?? 'unavailable',
+                }),
+              ),
+            ),
+          );
+        }
+      };
+      const open = (id: string) => async () => {
+        if (!waiting.has(id)) {
+          return native.openMailbox(id);
+        }
+        asking.push(id);
+        settle(id);
+        const outcome = await Effect.runPromise(Deferred.await(replies));
+        const reply = Result.isSuccess(outcome)
+          ? Option.getOrUndefined(
+              decodeSavedOpen(
+                Option.getOrUndefined(decodeSavedOpens(outcome.success))?.[id],
+              ),
+            )
+          : { code: outcome.failure };
+        if (reply !== undefined && 'cache' in reply) {
+          return reply.cache;
+        }
+        throw Object.assign(new Error('The saved mailbox did not open.'), {
+          code: reply?.code ?? 'unavailable',
+        });
+      };
       await Promise.all(
-        [...inboxes.values()].map(({ inbox }) => inbox.showSaved()),
+        [...inboxes].map(async ([id, { inbox }]) => {
+          try {
+            await inbox.showSaved(open(id));
+          } finally {
+            settle(id);
+          }
+        }),
       );
     },
     // Waits with IDLE on each IMAP connection's Inbox, including connections added later, until

@@ -213,6 +213,10 @@ again, and **Remove**.
   Inline Image into an Attachment, removing each place it appears, or **Show Inline**,
   which places an image Attachment at the page's selection, beside **Remove**. Each is one edit that one **Undo** reverts and **Redo** restores.
   The current composer does not offer conversion yet.
+- **Sizes.** On iPhone and iPad, an Inline Image's row menu and VoiceOver actions
+  also offer the current composer's [display sizes](drafts.md#files-and-images),
+  each running the page's `resize` command, and its **Remove** reads
+  **Remove Image**. The page still shows every image at its thumbnail size.
 - **Imports.** While native code imports a file, its row shows **Adding…**. Editing
   continues, and an import that completes meanwhile neither loses the edit nor
   creates a conflicting copy. A cancelled, failed or interrupted import stays listed
