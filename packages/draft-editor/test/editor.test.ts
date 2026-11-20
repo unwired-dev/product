@@ -958,6 +958,7 @@ describe('the Tiptap evaluation page', () => {
           { text: 'a' },
           { text: '￼', image: photo, width: 640 },
           { text: 'b' },
+          { text: '￼', image: photo },
         ],
       },
     ]);
@@ -969,6 +970,8 @@ describe('the Tiptap evaluation page', () => {
     const copied = page.editor.getHTML();
     page.command({ type: 'resize', id: photo.id, width: 1024 });
     const resized = spans();
+    // Choosing the current size again is no edit, so one Undo restores both earlier sizes.
+    page.command({ type: 'resize', id: photo.id, width: 1024 });
     page.command({ type: 'undo' });
     const undone = spans();
     page.command({ type: 'resize', id: photo.id, width: null });
@@ -992,21 +995,29 @@ describe('the Tiptap evaluation page', () => {
         { text: 'Xa' },
         { text: '￼', image: photo, width: 640 },
         { text: 'b' },
+        { text: '￼', image: photo },
       ],
       copied: true,
       resized: [
         { text: 'Xa' },
         { text: '￼', image: photo, width: 1024 },
         { text: 'b' },
+        { text: '￼', image: photo, width: 1024 },
       ],
       undone: typed,
-      original: [{ text: 'Xa' }, { text: '￼', image: photo }, { text: 'b' }],
+      original: [
+        { text: 'Xa' },
+        { text: '￼', image: photo },
+        { text: 'b' },
+        { text: '￼', image: photo },
+      ],
       pasted: [
         { text: '￼', image: photo, width: 320 },
         { text: '￼', image: photo },
         { text: 'Xa' },
         { text: '￼', image: photo },
         { text: 'b' },
+        { text: '￼', image: photo },
       ],
     });
   });

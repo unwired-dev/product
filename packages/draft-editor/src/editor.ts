@@ -588,7 +588,11 @@ if (draftEditor !== undefined && element !== null) {
   const resize = ({ id, width }: Extract<Command, { type: 'resize' }>) => {
     const { tr } = editor.state;
     tr.doc.descendants((node, position) => {
-      if (node.type.name === 'inlineImage' && node.attrs.id === id) {
+      if (
+        node.type.name === 'inlineImage' &&
+        node.attrs.id === id &&
+        node.attrs.width !== width
+      ) {
         tr.setNodeAttribute(position, 'width', width);
       }
     });

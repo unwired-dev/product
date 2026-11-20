@@ -613,7 +613,9 @@ width of 320, 640 or 1024 CSS pixels, or **Original** without one. The width is
 stored with the image's place in the body, so formatting, typing, line breaks,
 **Undo**, cut and paste and saving keep it, and outgoing HTML gives the image
 that `width`, its height following the aspect ratio. Only the shown size
-changes: the Draft keeps and sends the original file. The editor page's `resize`
+changes: the Draft keeps and sends the original file. A client that predates
+the width drops it when it rewrites a synced Draft, as it does alignment and
+colors, and the image shows at its original size. The editor page's `resize`
 command sets or clears the width of every use of one image as one undoable edit.
 The menus that choose a size come in later [#1735](https://github.com/unwired-dev/product/issues/1735)
 slices.
