@@ -170,7 +170,8 @@ iPad.
 - When the mail server accepts it, the choice and time are recorded in the
   mailbox's encrypted cache with the same fields as a Gmail response, so the
   response survives relaunch and a later or older revision reads it as for
-  Gmail. The response leaves the Outbox only once that record is saved.
+  Gmail. The response leaves the Outbox only once that record is saved, and
+  reads as sending until then.
 - A refusal reads as **Not sent**, and the next choice replaces it in the
   Outbox. A handoff without a confirmed answer reads as **Delivery unknown**:
   it is never submitted again on its own and further choices are ignored;
@@ -240,7 +241,8 @@ mail server** for a reviewed provider, **The mail server** for any other.
   calendar part from a synthetic IMAP server, and
   `packages/mail-core/test/imap-invitation-responses.test.ts` drives IMAP
   responses through the Outbox and a synthetic SMTP server: the Undo Send Window,
-  Undo, the Sent copy and the record after relaunch, a refusal replaced by the
+  Undo, the Sent copy and the record after relaunch, a choice made while the
+  Sent copy files, a refusal replaced by the
   next choice, an unconfirmed handoff confirmed from Sent, and mailboxes that
   cannot send.
 - `apps/macos/test/imap-invitation.test.tsx` and
