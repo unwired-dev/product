@@ -932,7 +932,8 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   address. Contacts access was then denied from the operator's tools, which ended the
   app. After launch the composer offered to restore the unsaved message, and the
   restored message was completed and sent. After the first tap on the reply's **Send**, no
-  Outbox row appeared for 20 seconds; a second tap sent it. It was not tried again. Mac, iPad organizing, search,
+  Outbox row appeared for 20 seconds; a second tap sent it. It was not tried again
+  ([#2512](https://github.com/unwired-dev/product/issues/2512)). Mac, iPad organizing, search,
   attachments, IDLE and relaunch, recovery and large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
