@@ -100,6 +100,17 @@
     "detail": "System follows macOS. Increase Contrast and Reduce Transparency apply in every choice.",
     "iosDetail": "System follows iOS. Increase Contrast and Reduce Transparency apply in every choice."
   },
+  "reading": {
+    "appText": "App text",
+    "textSize": "Text Size",
+    "followsSystem": "Follows iOS",
+    "received": "Received messages",
+    "zoom_iphone": "Message Zoom",
+    "zoom_ipad": "Message zoom",
+    "percent": "{{value}}%",
+    "footer_iphone": "Zooms formatted mail as you read it on this iPhone. The message and your Drafts don’t change.",
+    "footer_ipad": "Zooms formatted mail as you read it on this iPad. The message and your Drafts don’t change."
+  },
   "listDensity": {
     "title": "List density",
     "comfortable": "Comfortable",
@@ -226,6 +237,7 @@
     "accountPrivateSync": "Account & Devices · Sync on",
     "sections": {
       "accounts": "Accounts",
+      "mail": "Mail",
       "composing": "Composing",
       "automation": "Automation",
       "application": "Application"
@@ -237,6 +249,7 @@
       "signatures": "Signatures",
       "notifications": "Notifications",
       "blockedSenders": "Blocked Senders",
+      "reading": "Reading",
       "appearance": "Appearance",
       "language": "Language",
       "privacy": "Privacy & Data",

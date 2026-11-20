@@ -46,6 +46,7 @@ export type SettingsDestination =
   | 'signatures'
   | 'notifications'
   | 'blockedSenders'
+  | 'reading'
   | 'appearance'
   | 'language'
   | 'privacy'
@@ -60,6 +61,7 @@ const sections = [
       { id: 'profiles', icon: 'person.crop.rectangle.stack' },
     ],
   },
+  { title: 'mail', items: [{ id: 'reading', icon: 'text.book.closed' }] },
   { title: 'composing', items: [{ id: 'signatures', icon: 'signature' }] },
   {
     title: 'automation',
@@ -282,9 +284,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.settingsDetail,
   },
   popUpChevrons: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1031,15 +1030,29 @@ export function SettingsRow({
   );
 }
 
-// The iPhone Settings Row pop-up's up-down chevrons in a 22pt circle, 12pt after its value.
-export function PopUpChevrons() {
+// The iPhone Settings Row pop-up's up-down chevrons in a 22pt circle, 12pt after its value;
+// iPad frames that draw the circle use the Mac's 16pt one at 1.15×.
+export function PopUpChevrons({
+  scaled = false,
+}: {
+  readonly scaled?: boolean;
+}) {
   const colors = usePalette();
+  const size = scaled ? 16 * ipadListScale : 22;
   return (
     <View
-      style={[styles.popUpChevrons, { backgroundColor: colors.fillControl }]}>
+      style={[
+        styles.popUpChevrons,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: colors.fillControl,
+        },
+      ]}>
       <SFSymbol
         name="chevron.up.chevron.down"
-        size={13}
+        size={scaled ? 10 * ipadListScale : 13}
         color={colors.textPrimary}
       />
     </View>

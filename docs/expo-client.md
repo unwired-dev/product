@@ -422,6 +422,20 @@ The default Gmail registration journey checks both pages on iPhone and iPad,
 across a change of the device's appearance and a relaunch
 ([native journeys](native-journeys.md), [#2210](https://github.com/unwired-dev/product/issues/2210)).
 
+## Reading
+
+Settings' **Reading** page ([#2483](https://github.com/unwired-dev/product/issues/2483),
+a slice of [#1728](https://github.com/unwired-dev/product/issues/1728)), in its own
+Mail group, zooms received formatted mail on iPhone and iPad. **Text Size** reads
+Follows iOS: app text, and plain-text messages, keep following Dynamic Type.
+**Message Zoom** offers Safari's page zoom levels from 50% to 300%, 100% by default.
+The reader adds the zoom to the sanitized document as the app's own CSS `zoom`, so
+the stored message and Drafts never change; WebKit's minimum font size still floors
+the smallest text below 100%. The zoom is a Device-Local Preference in this
+device's user defaults (`UnwiredMessageZoom`). Fit Wide Messages to the Screen
+([#2485](https://github.com/unwired-dev/product/issues/2485)), zooming one message
+from the reader, and the Mac follow in their own slices.
+
 ## Interface language
 
 The Sign In page and Settings' **Language** offer a Language menu picker with System Default and a
