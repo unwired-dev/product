@@ -719,6 +719,9 @@ final class InboxTests: XCTestCase {
     app.terminate()
     app.launch()
     // Setup is confirmed, so relaunch opens the unified Inbox from the encrypted Microsoft cache.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 20))
+    }
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
