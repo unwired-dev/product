@@ -15,7 +15,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { spacing, typography } from '@private-email/mail-core/theme';
-import { Fragment, use, useEffect, useMemo, useState } from 'react';
+import { Fragment, use, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -217,6 +217,9 @@ export const checking = (state: InboxMailbox['state']) =>
 const limitOf = (state: InboxMailbox['state']) =>
   state.kind === 'ready' && 'limit' in state ? state.limit : undefined;
 
+export const limited = (state: InboxMailbox['state']) =>
+  limitOf(state) !== undefined;
+
 // A mailbox whose server could not be reached shows the mail saved on this device. One waiting
 // out Gmail's usage limit is paused, not offline.
 export const offline = (state: InboxMailbox['state']) =>
@@ -387,16 +390,14 @@ const useWaited = (progressing: boolean) => {
 const inToolbar = (toolbar: Details | undefined, said: Shown) =>
   toolbar !== undefined && said.kind === 'paused';
 
-// Gmail's time as a clock time in the person's own zone: the list's formats name days in UTC.
+// Gmail's time as a clock time in the device's current zone: the list's formats name days in UTC.
 const useClockTime = () => {
   const { settings } = useLocalization();
-  return useMemo(() => {
-    const clock = new Intl.DateTimeFormat(settings.locale, {
+  return (iso: string) =>
+    new Intl.DateTimeFormat(settings.locale, {
       hour: 'numeric',
       minute: '2-digit',
-    });
-    return (iso: string) => clock.format(Date.parse(iso));
-  }, [settings.locale]);
+    }).format(Date.parse(iso));
 };
 
 type Details = readonly [shown: boolean, show: (shown: boolean) => void];

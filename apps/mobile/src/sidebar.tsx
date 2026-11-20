@@ -54,6 +54,7 @@ import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { SidebarToggle } from './sidebar-toggle.tsx';
+import { limited } from './sync-status.tsx';
 import {
   textStyles,
   useLargeText,
@@ -761,7 +762,11 @@ export function Mailboxes({
             </View>
             {sidebar.entries.map((entry) => {
               if ('section' in entry) {
-                const { mailbox, folders, problem } = entry.section;
+                const { mailbox, folders } = entry.section;
+                // Waiting out Gmail's usage limit is a pause the Sync Status Capsule reports.
+                const problem = limited(mailbox.state)
+                  ? undefined
+                  : entry.section.problem;
                 const name = mailbox.address ?? mailbox.id;
                 const provider = t(
                   `mailProviders.${mailbox.provider ?? 'gmail'}`,

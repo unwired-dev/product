@@ -60,10 +60,6 @@ const problemOf = (
   if (state.kind === 'locked' || state.kind === 'failed') {
     return state.kind;
   }
-  // Waiting out Gmail's usage limit is a pause the Sync Status Capsule reports, not a failure.
-  if (state.kind === 'ready' && 'limit' in state && state.limit) {
-    return undefined;
-  }
   const sync = state.kind === 'ready' ? syncOf(state) : undefined;
   return sync === 'retry' || sync === 'authentication' ? sync : undefined;
 };

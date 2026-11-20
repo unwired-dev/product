@@ -517,6 +517,9 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
         scenario === 'registration-sync-status-paused'
           ? DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 2 }))
           : undefined;
+      // Both scenarios list All Mail's history in pages.
+      const pagedHistory =
+        slowHistory !== undefined || retryAfter !== undefined;
       const historyPage = Effect.fnUntraced(function* (
         listed: ReadonlyArray<{
           readonly id: string;
@@ -571,13 +574,13 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           reply(200, {
             emailAddress: 'other@example.invalid',
             historyId: '100',
-            ...(slowHistory === undefined && retryAfter === undefined
-              ? {}
-              : {
+            ...(pagedHistory
+              ? {
                   messagesTotal: [...labels.values()].filter((ids) =>
                     inView(allMail, ids),
                   ).length,
-                }),
+                }
+              : {}),
           }),
         // Synthetic Gmail accepts every message and keeps nothing of it, apart from the failures
         // of responses to the supplier walkthrough.
@@ -615,7 +618,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
                 '5 seconds',
               );
             }
-            return (slowHistory !== undefined || retryAfter !== undefined) &&
+            return pagedHistory &&
               item('labelIds') === undefined &&
               item('maxResults') === String(historyPageSize)
               ? historyPage(listed, item('pageToken'))
