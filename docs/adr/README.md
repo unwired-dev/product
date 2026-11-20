@@ -104,3 +104,4 @@ ADRs take the next number after the highest in this index.
 | 0075   | [Prefer separately authorized PCC mail assistance](0075-prefer-private-cloud-compute-for-separately-authorized-mail-assistance.md)             |
 | 0076   | [Deliver Scheduled Sends from any trusted device or the provider](0076-deliver-scheduled-sends-from-any-trusted-device-or-the-provider.md)     |
 | 0077   | [Remove friction that privacy does not require](0077-remove-friction-that-privacy-does-not-require.md)                                         |
+| 0078   | [Block explicit sender domains beside exact Blocked Senders](0078-block-explicit-sender-domains-beside-exact-blocked-senders.md)               |

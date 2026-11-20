@@ -408,6 +408,8 @@ export function createWindowBar() {
   }> | null = null;
   // How far a docked keyboard raises the bar.
   let lift = 0;
+  // A toast from the reader, such as a saved attachment's, shown with the bar's own notice.
+  let readerNotice: ReactNode = null;
   const listeners = new Set<() => void>();
   const changed = () => {
     for (const listener of listeners) {
@@ -431,8 +433,13 @@ export function createWindowBar() {
         listeners.delete(listener);
       };
     },
+    showReaderNotice: (next: ReactNode) => {
+      readerNotice = next;
+      changed();
+    },
     bar: () => bar,
     lift: () => lift,
+    readerNotice: () => readerNotice,
   };
 }
 
@@ -520,6 +527,10 @@ export function WindowBarHost({
   readonly keyboardLift: number;
 }) {
   const bar = useSyncExternalStore(windowBar.subscribe, windowBar.bar);
+  const readerNotice = useSyncExternalStore(
+    windowBar.subscribe,
+    windowBar.readerNotice,
+  );
   useLayoutEffect(() => {
     windowBar.raise(keyboardLift);
   }, [windowBar, keyboardLift]);
@@ -557,6 +568,7 @@ export function WindowBarHost({
           },
         ]}>
         {bar.notice}
+        {readerNotice}
       </View>
     </>
   );

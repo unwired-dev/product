@@ -419,6 +419,14 @@ with no Outbox row "Sending soon" and no **Undo**. The captures "Send menu with 
 "After Send Now" are named with the appearance. The dimmed state while a file is still being
 added is covered by Jest.
 
+`testListIndent` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testListIndent`.
+It connects the synthetic Gmail mailbox and, in a New Message body, types a bulleted list whose
+items Tab nests three levels deep ([#2465](https://github.com/unwired-dev/product/issues/2465)).
+At the third level Tab does nothing and Shift-Tab moves the item out one level. **Indent**,
+iPhone's in the Format panel and iPad's on the format bar, is off there and **Outdent** on;
+Outdent moves the item out and one **Undo** nests it again. The capture "Nested list" is named with
+the appearance.
+
 ## iPhone and iPad Apple registration journey
 
 The Expo native journey for a `registration-apple` Release build signs in with

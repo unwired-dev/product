@@ -162,7 +162,7 @@ export interface NativeGmailMailboxes {
   readonly presentAttachment: (
     mailbox: Scope,
     file: string,
-    action: 'open' | 'share',
+    action: Parameters<NativeGmailMailbox['presentAttachment']>[2],
   ) => Promise<unknown>;
   readonly openRemoteContent: (
     mailbox: Scope,

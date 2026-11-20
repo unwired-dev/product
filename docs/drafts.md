@@ -135,7 +135,7 @@ transport and known native exit gaps.
   A bar narrower than 522pt, such as the 442pt Portrait reader's, shows Bold, Italic,
   Bulleted List, Writing tools when available, and Attach File, and ends each crowded section with an
   overflow menu: **More Formatting** (Underline, Strikethrough, Inline code), **More
-  Lists and Links** (Numbered List, Add Link or Edit Link, whose Link Editor popover
+  Lists and Links** (Numbered List, Outdent, Indent, Add Link or Edit Link, whose Link Editor popover
   opens from the menu, then Undo and Redo) and **More Files and Templates** (Attach
   Photo, Insert Image, Paste Image and the Templates menu).
   In the Mac overlay, **From** and **Send** share the bottom row; in its New
@@ -225,7 +225,15 @@ transport and known native exit gaps.
   three backticks, at the start of a paragraph applies that block kind and removes
   the marker; one **Undo** restores the literal marker. Return continues a list,
   quote or code block, and deleting into a list marker turns the item into a
-  paragraph. List markers are shown, never stored. On Mac, Command-B, Command-I and
+  paragraph. List markers are shown, never stored. Lists nest three levels deep:
+  on iPhone and iPad, **Outdent** and **Indent** follow the list buttons in the
+  Format panel and the format bar, and a hardware keyboard's Tab and Shift-Tab
+  do the same inside a list. They move every selected list item one level and
+  leave other blocks alone; each is one Undo step, and each switches off when a
+  selected item is already at the first or the third level. A nested item shows
+  its marker one indent further in, numbered items count per level, and sent
+  mail nests the item's list inside the item before it. Return continues an item
+  at its level; an item that becomes a paragraph stops nesting. On Mac, Command-B, Command-I and
   Command-U format the selection. In body paragraphs, the selection and the text
   typed after them show the marks in the next frame; lists, lines that start like a
   list marker, headings, quotes, code and the format bar show them when the composer
@@ -599,6 +607,18 @@ An inline image is part of the formatted body, so typing around it, deleting it,
 **Undo** and **Redo** keep its place and reference. The composer lists
 **Attachments** and **Inline images** under the body with their name, size and a
 **Remove** action; an inline image shows its picture.
+
+An inline image may have a display size: **Small**, **Medium** or **Large**, a
+width of 320, 640 or 1024 CSS pixels, or **Original** without one. The width is
+stored with the image's place in the body, so formatting, typing, line breaks,
+**Undo**, cut and paste and saving keep it, and outgoing HTML gives the image
+that `width`, its height following the aspect ratio. Only the shown size
+changes: the Draft keeps and sends the original file. A client that predates
+the width drops it when it rewrites a synced Draft, as it does alignment and
+colors, and the image shows at its original size. The editor page's `resize`
+command sets or clears the width of every use of one image as one undoable edit.
+The menus that choose a size come in later [#1735](https://github.com/unwired-dev/product/issues/1735)
+slices.
 
 An added file is **importing** until its bytes are stored. While it imports, its
 row says **Adding…** and offers **Cancel**. A file whose import was cancelled,

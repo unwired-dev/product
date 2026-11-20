@@ -644,7 +644,15 @@
     "downloadAction": "Download",
     "attachToNew": "Attach to New Message",
     "attachToNewLabel": "Attach {{name}} to a new message",
-    "attachFailed": "The new message with this attachment didn’t open. Choose Attach to New Message again."
+    "attachFailed": "The new message with this attachment didn’t open. Choose Attach to New Message again.",
+    "saveToFiles": "Save to Files…",
+    "saveToFilesLabel": "Save {{name}} to Files",
+    "saved": "Saved to {{folder}}",
+    "savedNamed": "Saved “{{name}}” to {{folder}}",
+    "show": "Show",
+    "showLabel": "Show {{name}} in Files",
+    "saveFailed": "Couldn’t save “{{name}}”",
+    "saveFailedDetail": "The file was not saved."
   },
   "invitation": {
     "heading": "Invitation",
@@ -1259,6 +1267,8 @@
     "formatting": "Formatting",
     "moreFormatting": "More Formatting",
     "moreLists": "More Lists and Links",
+    "outdent": "Outdent",
+    "indent": "Indent",
     "moreFiles": "More Files and Templates",
     "moreFileActions": "More Files",
     "body": "Message body",

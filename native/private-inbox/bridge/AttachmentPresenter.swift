@@ -1,9 +1,10 @@
 import Foundation
 
-// The system Attachment Preview and share sheet for one Downloaded Attachment. Quick Look shows a
-// file without launching another app or running it; sharing hands only this file to the chosen
-// service. `ended` runs once when the system no longer needs the file, so its owner can defer
-// deleting it until then.
+// The system Attachment Preview, share sheet and, on iPhone and iPad, Save to Files picker for one
+// Downloaded Attachment. Quick Look shows a file without launching another app or running it;
+// sharing hands only this file to the chosen service; saving writes a copy where the person
+// chooses. `ended` runs once when the system no longer needs the file, so its owner can defer
+// deleting it until then, with the saved copy's location after a save.
 
 // The window whose reader asked for the presentation, captured when the request arrives so a
 // later focus change cannot move the preview or share sheet into another window.
@@ -24,6 +25,8 @@ import Foundation
   import UIKit
 
   @MainActor enum AttachmentPresenter {
+    enum Action: String { case open, share, save }
+
     static func origin() -> PresentationOrigin {
       let scene = UIApplication.shared.connectedScenes
         .compactMap { $0 as? UIWindowScene }
@@ -32,18 +35,19 @@ import Foundation
     }
 
     static func present(
-      _ url: URL, share: Bool, from origin: PresentationOrigin,
-      ended: @escaping @MainActor () -> Void
+      _ url: URL, action: Action, from origin: PresentationOrigin,
+      ended: @escaping @MainActor (URL?) -> Void
     ) -> Bool {
       guard let window = origin.window, !window.isHidden,
         window.windowScene?.activationState == .foregroundActive,
         let presenter = topController(in: window), !presenter.isBeingPresented,
         !presenter.isBeingDismissed, presenter.viewIfLoaded?.window === window
       else { return false }
-      if share {
+      switch action {
+      case .share:
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         sheet.completionWithItemsHandler = { _, _, _, _ in
-          MainActor.assumeIsolated { ended() }
+          MainActor.assumeIsolated { ended(nil) }
         }
         // iPad shows the sheet as a popover from the reader.
         if let popover = sheet.popoverPresentationController {
@@ -53,9 +57,16 @@ import Foundation
           popover.permittedArrowDirections = []
         }
         presenter.present(sheet, animated: true)
-      } else {
+      case .save:
+        // The system picker saves a copy where the person chooses, handling a name already there.
+        let picker = AttachmentSavePicker(forExporting: [url], asCopy: true)
+        let next = SaveDestination(ended: ended)
+        picker.destination = next
+        picker.delegate = next
+        presenter.present(picker, animated: true)
+      case .open:
         let preview = AttachmentPreviewController()
-        let next = PreviewSource(url: url, ended: ended)
+        let next = PreviewSource(url: url) { ended(nil) }
         preview.source = next
         preview.dataSource = next
         preview.delegate = next
@@ -74,6 +85,24 @@ import Foundation
   // Each presented controller retains its own weak data source/delegate, including stacked previews.
   @MainActor final class AttachmentPreviewController: QLPreviewController {
     var source: PreviewSource?
+  }
+
+  @MainActor final class AttachmentSavePicker: UIDocumentPickerViewController {
+    var destination: SaveDestination?
+  }
+
+  // Ends with the saved copy's location, or nil when the person cancelled.
+  @MainActor final class SaveDestination: NSObject, UIDocumentPickerDelegate {
+    private var ended: (@MainActor (URL?) -> Void)?
+    init(ended: @escaping @MainActor (URL?) -> Void) { self.ended = ended }
+    private func end(_ saved: URL?) {
+      let ended = self.ended
+      self.ended = nil
+      ended?(saved)
+    }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL])
+    { end(urls.first) }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { end(nil) }
   }
 
   @MainActor final class PreviewSource: NSObject, QLPreviewControllerDataSource,
@@ -101,6 +130,8 @@ import Foundation
   import Quartz
 
   @MainActor enum AttachmentPresenter {
+    enum Action: String { case open, share, save }
+
     // `nextResponder` does not retain, so each window's controller is owned here until the window
     // closes, when the window's original responder chain is restored.
     private static var controllers: [ObjectIdentifier: PreviewController] = [:]
@@ -138,17 +169,19 @@ import Foundation
       PresentationOrigin(NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
+    // The Mac has no Save to Files picker yet; it saves through its own slice of #1681.
     static func present(
-      _ url: URL, share: Bool, from origin: PresentationOrigin,
-      ended: @escaping @MainActor () -> Void
+      _ url: URL, action: Action, from origin: PresentationOrigin,
+      ended: @escaping @MainActor (URL?) -> Void
     ) -> Bool {
-      guard let window = origin.window, window.isVisible, let view = window.contentView
+      guard action != .save, let window = origin.window, window.isVisible,
+        let view = window.contentView
       else { return false }
-      if share {
+      if action == .share {
         let picker = NSSharingServicePicker(items: [url])
         let lease = ShareLease { lease in
           shares.remove(lease)
-          ended()
+          ended(nil)
         }
         shares.insert(lease)
         picker.delegate = lease
@@ -168,7 +201,7 @@ import Foundation
         preview.show(nil, ended: nil)
         return false
       }
-      preview.show(url, ended: ended)
+      preview.show(url) { ended(nil) }
       panel.reloadData()
       panel.makeKeyAndOrderFront(nil)
       return true

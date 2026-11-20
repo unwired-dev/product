@@ -5,6 +5,7 @@ import type {
   GmailInbox,
   MessageBodyState,
   ReceivedAttachment,
+  SavedCopy,
 } from '@private-email/mail-core/inbox-store';
 import type {
   BodyLink,
@@ -109,11 +110,23 @@ export const withoutLinkFrom =
   (inbox: object, id: string) => (pending: PendingLink | undefined) =>
     pending?.inbox === inbox && pending.id === id ? undefined : pending;
 
+// What Save to Files did for one of the reader's attachments: the copy it saved, or nothing saved,
+// with the action that tries again.
+export type SaveOutcome =
+  | Readonly<{ kind: 'saved'; copy: SavedCopy }>
+  | Readonly<{ kind: 'failed'; name: string; retry: () => void }>;
+
+// Starts a save in the reader showing the message, returning how to report its outcome; none
+// outside a reader.
+export const SaveOutcomeContext = createContext<
+  (() => (outcome: SaveOutcome) => void) | undefined
+>(undefined);
+
 export const LinkConfirmationContext = createContext<
   Dispatch<SetStateAction<PendingLink | undefined>> | undefined
 >(undefined);
 
-async function openLink(href: string) {
+export async function openLink(href: string) {
   try {
     await Linking.openURL(href);
   } catch {
@@ -789,6 +802,7 @@ type AttachmentSource = Pick<
   | 'downloadAttachment'
   | 'cancelAttachment'
   | 'presentAttachment'
+  | 'saveAttachmentCopy'
   | 'attachmentFile'
 >;
 // Starts a new message with a Downloaded Attachment, where the reader can open a composer.
@@ -814,6 +828,7 @@ function AttachmentRow({
 }) {
   const colors = usePalette();
   const attach = use(AttachContext);
+  const report = use(SaveOutcomeContext);
   const { t, settings } = useLocalization();
   const sizeFormat = useMemo(
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
@@ -858,6 +873,30 @@ function AttachmentRow({
         void inbox.presentAttachment(id, locator, 'share');
       }
     };
+    // Saves a copy where the person chooses, and tells the reader what happened unless they
+    // cancelled; the reader drops a result once it stopped showing the message.
+    const saveCopy = async (shown: (outcome: SaveOutcome) => void) => {
+      const saved = await inbox.saveAttachmentCopy(id, locator);
+      if (saved === 'cancelled') {
+        return;
+      }
+      shown(
+        saved === 'failed'
+          ? {
+              kind: 'failed',
+              name,
+              retry: () => {
+                void saveCopy(shown);
+              },
+            }
+          : { kind: 'saved', copy: saved },
+      );
+    };
+    const save = () => {
+      if (current() && report !== undefined) {
+        void saveCopy(report());
+      }
+    };
     menu = [
       {
         items: [
@@ -867,6 +906,20 @@ function AttachmentRow({
             symbol: 'eye',
             run: open,
           },
+        ],
+      },
+      {
+        items: [
+          ...(report === undefined
+            ? []
+            : [
+                {
+                  key: 'saveToFiles',
+                  title: t('attachment.saveToFiles'),
+                  symbol: 'folder',
+                  run: save,
+                },
+              ]),
           {
             key: 'share',
             title: t('contextMenu.share'),
@@ -917,7 +970,9 @@ function AttachmentRow({
       );
   }
   return (
-    <ContextMenu sections={menu}>
+    <ContextMenu
+      title={name}
+      sections={menu}>
       <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
         <SFSymbol
           name="doc"

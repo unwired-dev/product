@@ -130,6 +130,40 @@ describe('building an outgoing message', () => {
     );
   });
 
+  it('nests indented list items inside the item before them, in HTML and plain text', async () => {
+    expect.hasAssertions();
+    const parsed = await PostalMime.parse(
+      assemble(
+        build(
+          draft({
+            body: [
+              { kind: 'numbered', spans: [{ text: 'Pilot' }] },
+              { kind: 'bulleted', spans: [{ text: 'Scope' }], indent: 1 },
+              { kind: 'numbered', spans: [{ text: 'Seats' }], indent: 2 },
+              { kind: 'numbered', spans: [{ text: 'Rooms' }], indent: 2 },
+              { kind: 'numbered', spans: [{ text: 'Venue' }] },
+              { kind: 'numbered', spans: [{ text: 'Dates' }], indent: 1 },
+              { kind: 'paragraph', spans: [{ text: 'Thanks' }] },
+              { kind: 'bulleted', spans: [{ text: 'Deep' }], indent: 2 },
+              { kind: 'bulleted', spans: [{ text: 'Out' }] },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    expect(parsed.html).toBe(
+      '<!DOCTYPE html><html><body><ol><li>Pilot<ul><li>Scope<ol><li>Seats</li><li>Rooms</li></ol>' +
+        '</li></ul></li><li>Venue<ol><li>Dates</li></ol></li></ol><p>Thanks</p>' +
+        // A list that starts at the third level opens each level's list directly inside the last.
+        '<ul><ul><ul><li>Deep</li></ul></ul><li>Out</li></ul></body></html>',
+    );
+    // Each level counts on its own, across the items nested between its own.
+    expect(parsed.text).toBe(
+      '1. Pilot\n  - Scope\n    1. Seats\n    2. Rooms\n2. Venue\n  1. Dates\nThanks\n    - Deep\n- Out',
+    );
+  });
+
   it('sends the signature after the authored body and before the quoted correspondence', async () => {
     expect.hasAssertions();
     const parsed = await PostalMime.parse(
@@ -351,5 +385,48 @@ describe('building an outgoing message', () => {
     expect(parsed.subject).toBe(subject);
     expect(parsed.to).toStrictEqual([recipient]);
     expect(parsed.attachments[0]?.filename).toBe(filename);
+  });
+
+  it('shows a sized inline image at its display width and sends its original bytes', async () => {
+    expect.hasAssertions();
+    const image = {
+      id: 'a1b2c3d4e5',
+      name: 'room.png',
+      type: 'image/png',
+      state: 'complete',
+      size: 200,
+      digest: '0'.repeat(64),
+    } as const;
+    const parsed = await PostalMime.parse(
+      assemble(
+        build(
+          draft({
+            body: [
+              {
+                kind: 'paragraph',
+                spans: [
+                  { text: 'Room ' },
+                  { text: '\uFFFC', image, width: 640 },
+                  { text: '\uFFFC', image },
+                ],
+              },
+            ],
+          }),
+        ),
+      ),
+      { attachmentEncoding: 'utf8' },
+    );
+    // Only the shown width changes: its height follows the aspect ratio, and an image without a
+    // width keeps its original size.
+    expect(parsed.html).toContain(
+      '<p>Room <img src="cid:a1b2c3d4e5@unwired.invalid" alt="room.png" width="640"><img src="cid:a1b2c3d4e5@unwired.invalid" alt="room.png"></p>',
+    );
+    expect(parsed.text).toBe('Room [room.png][room.png]');
+    expect(
+      parsed.attachments.map(({ disposition, content }) => ({
+        disposition,
+        content,
+      })),
+    ).toStrictEqual([{ disposition: 'inline', content: 'x'.repeat(200) }]);
   });
 });

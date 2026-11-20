@@ -552,7 +552,9 @@ that owns it; another account reads none, and every account purge removes the
 document. The same document holds this device's receipts for the arrivals it moved
 to Trash ([#2120](https://github.com/unwired-dev/product/issues/2120)) and the
 addresses each Profile unblocked, which Private Sync merges
-([#2184](https://github.com/unwired-dev/product/issues/2184)); see
+([#2184](https://github.com/unwired-dev/product/issues/2184)), and each Profile's
+Blocked Domains and unblocked domains
+([#2477](https://github.com/unwired-dev/product/issues/2477)); see
 [Mute and blocked senders](architecture/product/organization.md#mute-and-blocked-senders).
 
 The account's **Inbox preferences**

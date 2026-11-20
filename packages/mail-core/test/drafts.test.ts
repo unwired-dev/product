@@ -56,6 +56,9 @@ import {
   redo,
   SemanticDocumentSchema,
   replaceSelection,
+  indentList,
+  listIndentAt,
+  selectedText,
   setBlockKind,
   setLink,
   toggled,
@@ -204,6 +207,116 @@ describe('editing a Semantic Message Document', () => {
       'paragraph',
       'heading1',
     ]);
+  });
+
+  it('indents and outdents the selected list items within three levels as one edit each', () => {
+    expect.hasAssertions();
+    const agenda: SemanticDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Agenda' }] },
+      { kind: 'numbered', spans: [{ text: 'Pilot', marks: ['bold'] }] },
+      { kind: 'numbered', spans: [{ text: 'Start' }] },
+      { kind: 'numbered', spans: [{ text: 'Seats' }] },
+      { kind: 'numbered', spans: [{ text: 'Venue' }] },
+    ];
+    const em = '\u2003\u2002';
+    // Outside a list neither applies; at the first level only Indent does.
+    expect(listIndentAt(agenda, { start: 2, end: 2 })).toStrictEqual({
+      outdent: false,
+      indent: false,
+    });
+    expect(indentList(agenda, { start: 2, end: 2 }, 'indent').document).toBe(
+      agenda,
+    );
+    expect(listIndentAt(agenda, { start: 12, end: 12 })).toStrictEqual({
+      outdent: false,
+      indent: true,
+    });
+    // Indent moves the selected items only, keeping their text, marks and the selected text.
+    const start = displayOf(agenda).text.indexOf('Start');
+    const once = indentList(agenda, { start, end: start + 14 }, 'indent');
+    expect(once.document.map(({ indent }) => indent)).toStrictEqual([
+      undefined,
+      undefined,
+      1,
+      1,
+      undefined,
+    ]);
+    expect(once.document[1]).toBe(agenda[1]);
+    // Each level counts from one, and the first level continues after its nested items.
+    expect(displayOf(once.document).text).toBe(
+      `Agenda\n1. Pilot\n${em}1. Start\n${em}2. Seats\n2. Venue`,
+    );
+    const selection = present(once.selection, 'a selection');
+    expect(selectedText(once.document, selection)).toBe('Start\nSeats');
+    // A selected line with its line break, as a triple tap selects it, leaves the next item alone.
+    const pilot = displayOf(agenda).text.indexOf('Pilot');
+    const line = {
+      start: pilot,
+      end: displayOf(agenda).text.indexOf('\n', pilot) + 1,
+    };
+    expect(
+      indentList(agenda, line, 'indent').document.map(({ indent }) => indent),
+    ).toStrictEqual([undefined, 1, undefined, undefined, undefined]);
+    // The third level is the deepest: Indent stops there, and Outdent comes back out.
+    const seats = displayOf(once.document).text.indexOf('Seats');
+    const twice = indentList(
+      once.document,
+      { start: seats, end: seats },
+      'indent',
+    ).document;
+    expect(displayOf(twice).text).toBe(
+      `Agenda\n1. Pilot\n${em}1. Start\n${em}${em}1. Seats\n2. Venue`,
+    );
+    const deepest = displayOf(twice).text.indexOf('Seats');
+    expect(listIndentAt(twice, { start: deepest, end: deepest })).toStrictEqual(
+      { outdent: true, indent: false },
+    );
+    expect(
+      indentList(twice, { start: deepest, end: deepest }, 'indent').document,
+    ).toBe(twice);
+    // A selection reaching the deepest item cannot indent any of them.
+    expect(
+      listIndentAt(twice, { start: start + 3, end: deepest + 2 }).indent,
+    ).toBe(false);
+    expect(
+      displayOf(
+        indentList(twice, { start: deepest, end: deepest }, 'outdent').document,
+      ).text,
+    ).toBe(displayOf(once.document).text);
+    // Return continues an item at its level; turning it into a paragraph, by deleting into its
+    // marker or with its list button, ends the nesting.
+    const { text } = displayOf(twice);
+    const end = text.indexOf('\n2. Venue');
+    const continued = applyText(
+      twice,
+      `${text.slice(0, end)}\n${text.slice(end)}`,
+      { selection: { start: end, end } },
+    ).document;
+    expect(continued[4]).toStrictEqual({
+      kind: 'numbered',
+      spans: [],
+      indent: 2,
+    });
+    expect(
+      setBlockKind(twice, { start: deepest, end: deepest }, 'numbered')
+        .document[3],
+    ).toStrictEqual({ kind: 'paragraph', spans: [{ text: 'Seats' }] });
+    expect(
+      setBlockKind(twice, { start: deepest, end: deepest }, 'bulleted')
+        .document[3],
+    ).toStrictEqual({
+      kind: 'bulleted',
+      spans: [{ text: 'Seats' }],
+      indent: 2,
+    });
+    const removed = applyText(
+      twice,
+      text.replace(`${em}${em}1. Seats`, `${em}${em}1.Seats`),
+    ).document;
+    expect(removed[3]).toStrictEqual({
+      kind: 'paragraph',
+      spans: [{ text: 'Seats' }],
+    });
   });
 
   it('reports the marks typed text inherits at every caret, including block starts and list markers', () => {
@@ -2854,6 +2967,52 @@ describe('adding files and images to Drafts', () => {
         body: insertImage(emptyDocument, { start: 0, end: 0 }, image).document,
         updatedAt: 0,
       }),
+    ).toBe(false);
+  });
+
+  it('keeps an inline image display width through formatting, typing, line breaks and storage', () => {
+    expect.hasAssertions();
+    const image = {
+      id: 'image0001',
+      name: 'room.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const sized: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Before ' },
+          { text: imageCharacter, image, width: 320 },
+          { text: 'after' },
+        ],
+      },
+    ];
+    const bold = toggleMark(sized, { start: 0, end: 13 }, 'bold');
+    const typedAround = applyText(
+      bold,
+      `Before and\n${imageCharacter}after`,
+    ).document;
+    const codec = Schema.fromJsonString(SemanticDocumentSchema);
+    expect({
+      bold: bold[0].spans[1],
+      typed: typedAround.map(({ spans }) => spans.map(({ text }) => text)),
+      image: typedAround[1]?.spans[0],
+      stored: Schema.decodeSync(codec)(Schema.encodeSync(codec)(typedAround)),
+    }).toStrictEqual({
+      bold: { text: imageCharacter, image, width: 320, marks: ['bold'] },
+      typed: [['Before and'], [imageCharacter, 'after']],
+      image: { text: imageCharacter, image, width: 320, marks: ['bold'] },
+      stored: typedAround,
+    });
+    // Only the Small, Medium and Large widths are stored.
+    expect(
+      Schema.is(SemanticDocumentSchema)([
+        {
+          kind: 'paragraph',
+          spans: [{ text: imageCharacter, image, width: 500 }],
+        },
+      ]),
     ).toBe(false);
   });
 

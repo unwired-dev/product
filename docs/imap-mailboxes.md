@@ -852,6 +852,33 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   in any folder of either mailbox. Limitations: Mac, iPad, attachments, the star, IDLE,
   offline queueing, uncertain-move recovery, relaunch and large-folder backfill stay on
   #632.
+- **2026-11-20, iPhone attachments
+  ([#2471](https://github.com/unwired-dev/product/issues/2471)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `594c5a152f12ffd59a8ff56ff3a95b5e0313a91c`. Both certification
+  mailboxes were connected through the app as in the first record. Attachment: one PNG
+  image (`image/png`, 146,436 bytes, listed as 143 KB), added with the composer's
+  **Attach Photo**. Result: pass. From each mailbox, a new message with the attachment
+  went through the Outbox, iCloud Mail over `smtp.mail.me.com` 587 (STARTTLS) and Seznam
+  Email over `smtp.seznam.cz` 465 (SSL/TLS), and arrived in the other mailbox. Over IMAP,
+  `imap.mail.me.com` 993 and `imap.seznam.cz` 993 (TLS), the delivered message and the
+  sender's Sent copy each carried one attachment part with the same file name, content
+  type, decoded size and SHA-256 prefix (first 16 hex digits). In each receiving
+  mailbox, the reader listed the attachment with its name and size, **Download** saved a
+  file with the same size and prefix and **Open** showed it in Quick Look. **Reply** ›
+  **Forward** then carried the attachment back to the other mailbox, and the delivered
+  forward and its Sent copy had the same decoded size and prefix. Afterwards no run
+  message remained in any folder of either mailbox.
+  Limitations: once, Forward after **Download**, **Open** and closing the preview showed
+  the attachment as **Not added: the file could not be read or saved**, and repeating the
+  steps carried it. In the same reader the first **Open** showed no preview and the row
+  returned to **Download** ([#2480](https://github.com/unwired-dev/product/issues/2480)).
+  The first forward from iCloud Mail was sent, but its server copies were removed before
+  they were checked, so the verified forward in that direction came from a second test
+  message from Seznam Email. The machine was under heavy load: typed text dropped
+  characters and Quick Look took many seconds to appear. Mac, iPad, Share and Save to
+  Files ([#2469](https://github.com/unwired-dev/product/issues/2469)), inline images,
+  attachments over the 25 MiB download limit, IDLE, relaunch and recovery stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
