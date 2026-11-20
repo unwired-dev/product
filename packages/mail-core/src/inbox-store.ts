@@ -3629,8 +3629,17 @@ export function createInboxStore(
           await load();
         }
       });
-      if (current()) {
-        endPause();
+      if (!current() || paused === undefined) {
+        return;
+      }
+      // A clock moved back during verification makes Gmail's time wait again.
+      if (held()) {
+        resumeAfter(paused.until - Date.now());
+        return;
+      }
+      endPause();
+      // Locked or failed storage keeps its own state; only a ready Inbox shows the pause.
+      if (state.kind === 'ready') {
         publish(render());
       }
     };
