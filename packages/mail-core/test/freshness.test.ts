@@ -1,3 +1,7 @@
+import {
+  createRegistration,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 
@@ -9,7 +13,6 @@ import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 import { createFreshness, followWakes, pushCovers } from '../src/freshness.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createRegistrationFlow } from '../src/registration-flow.ts';
-import { createRegistration, mailboxesOf } from '../src/registration.ts';
 import {
   createSyntheticGmail,
   syntheticConnections,
