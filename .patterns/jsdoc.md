@@ -26,16 +26,16 @@ Prefer this structure:
  * matters to callers.
  *
  * @example
- *   ```ts
- *   const payload = healthPayload(123);
+ * ```ts
+ * const payload = healthPayload(123);
  *
- *   expect(payload).toStrictEqual({
- *     service: 'private-email-api',
- *     status: 'ok',
- *     bootstrapVersion: 1,
- *     serverTime: 123,
- *   });
- *   ```;
+ * expect(payload).toStrictEqual({
+ *   service: 'private-email-api',
+ *   status: 'ok',
+ *   bootstrapVersion: 1,
+ *   serverTime: 123,
+ * });
+ * ```
  */
 export const healthPayload = (serverTime: number) => ({
   service: 'private-email-api',
