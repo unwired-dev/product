@@ -140,7 +140,10 @@ from `19f618c032c9f07967281ed5c462dc3259e8e7e1`, are re-pinned to those revision
 byte-identical texts. Every Hermes licence file and extracted vendor source has the
 same Git blob as in the reviewed `e0fc67142ec0` tree, and no vendored directory was
 added. `@react-native-macos/virtualized-lists` 0.83.0 ships its own licence, so its
-supplement is removed. From the inputs of a Mac `Testing` build, the generator now
+supplement is removed. The Mac builds Boost, DoubleConversion, fast_float, fmt, glog,
+RCT-Folly and SocketRocket from their own podspecs, as it did on 0.81.9, so the
+`ReactNativeDependencies` 0.81.9 records and their root licence are removed; iOS keeps
+its 0.88.1 records. From the inputs of a Mac `Testing` build, the generator now
 reports 148 components with none unresolved. Before the re-pin, six were unresolved.
 This is local generation evidence, not a signed archive.
 
