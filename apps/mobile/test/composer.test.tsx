@@ -7262,9 +7262,11 @@ describe('adding files and images to a Draft', () => {
       expect.arrayContaining([sizeAction]),
     );
     // One Undo restores both uses, leaving nothing to undo or save.
+    await openFormat();
     await press('Undo');
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    await press('Close Format');
     expect(checkedInAssetMenu(row())).toStrictEqual([]);
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     await press('Close');
     expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
     const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
