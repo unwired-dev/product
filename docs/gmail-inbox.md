@@ -1508,7 +1508,11 @@ attachment descriptors.
   picker says nothing. When nothing was saved, such as when no window could show the
   picker, the iPhone reader shows **Couldn’t save “name”** at its top and the iPad
   reader a toast, each with **Save to Files…** to try again; a file that is gone offers
-  **Download** again. A result is shown only while the same message stays open. The
+  **Download** again. The system picker writes the copy; the reader shows and announces
+  its result only during the same uninterrupted visit to the readable message that
+  started the save. Leaving the message, the message disappearing, closing the reader
+  or a storage lock ends that visit and drops the result, but never undoes a copy
+  already saved. The
   Mac, and **Save to Downloads** to a folder remembered for the Profile, follow in
   #1681.
 

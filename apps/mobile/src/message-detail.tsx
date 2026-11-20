@@ -1062,7 +1062,6 @@ function MailboxMessage({
   const inset = usePortraitInset();
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>();
   const [panel, setPanel] = useState<ReaderPanel>();
-  const saving = useSaveOutcome(id, state.kind === 'ready');
   const colors = usePalette();
   const { t } = useLocalization();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
@@ -1070,6 +1069,10 @@ function MailboxMessage({
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
+  const saving = useSaveOutcome(
+    id,
+    state.kind === 'ready' && message !== undefined,
+  );
   // A new message sends from the reader's mailbox when it can, otherwise as the Inbox's New
   // Message does in its Mail Profile.
   const mailboxes = account?.mailboxes ?? [];
@@ -1238,7 +1241,7 @@ function ThreadMessages({ id }: { readonly id: string }) {
   const markedRef: Marked = useRef(undefined);
   // oxlint-disable-next-line react/hook-use-state -- One map for this Thread visit, mutated in place.
   const [announcedFailures] = useState(() => new Map<string, string>());
-  const saving = useSaveOutcome(id, state.kind === 'ready');
+  const saving = useSaveOutcome(id, shownMessage(state, id) !== undefined);
   const messages = useMemo(
     () =>
       state.kind === 'ready' && 'labels' in state
