@@ -3496,6 +3496,35 @@ export function createInboxStore(
     return run;
   };
 
+  // Shows the saved listing without asking the provider, as a synchronization starts, for an Inbox
+  // nothing has opened yet; the next `load` synchronizes it.
+  const showSaved = () =>
+    runLogged(
+      semaphore.withPermit(
+        Effect.suspend(() =>
+          forgotten || state.kind !== 'loading'
+            ? Effect.void
+            : Effect.gen(function* () {
+                const cache = yield* storage(native.openMailbox);
+                if (!forgotten) {
+                  opened = {
+                    address: cache.address,
+                    generation: cache.generation,
+                  };
+                }
+                const document = Option.getOrUndefined(
+                  yield* documentOf(cache),
+                );
+                yield* ready(
+                  cache,
+                  document,
+                  cache.availability === 'retry' ? 'retry' : 'syncing',
+                );
+              }).pipe(Effect.catchTag('SyncFailure', recover)),
+        ),
+      ),
+    );
+
   // Only the shown mailbox's blocked change, as the person saw it, can be retried or discarded.
   const resolvable = (
     cache: Cache,
@@ -3838,6 +3867,7 @@ export function createInboxStore(
     // changes requested there and not yet saved.
     forget: forgetOpenInbox,
     load,
+    showSaved,
     resolvePending,
     // A window protects its chosen view before opening it, then releases this exact lease on exit.
     retainView: (label: string) => {

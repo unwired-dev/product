@@ -1023,6 +1023,61 @@ describe('connecting IMAP mailboxes', () => {
     },
   );
 
+  it('shows the saved Inbox without opening a server session, until the next load reads it', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Saved' });
+    let sessions = 0;
+    const native = syntheticConnections(
+      {},
+      {
+        'imap-connection': {
+          ...imap.native,
+          imapOpen: (...open) => {
+            sessions += 1;
+            return imap.native.imapOpen(...open);
+          },
+        },
+      },
+    );
+    const registration = {
+      getSnapshot: () => ({
+        busy: false,
+        failed: false,
+        snapshot: {
+          kind: 'connected' as const,
+          productAccountId: 'account',
+          signInProvider: 'apple' as const,
+          mailboxes: JSON.stringify([
+            {
+              id: 'imap-connection',
+              address: 'alex@example.invalid',
+              provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'alex',
+              },
+              state: 'connected',
+            },
+          ]),
+        },
+      }),
+      subscribe: () => () => undefined,
+    };
+    await createMailboxes(native, registration).load();
+    imap.deliver('INBOX', { subject: 'Not yet read' });
+    const opened = sessions;
+    // The process launches again; nothing has synchronized this Inbox yet.
+    const mailboxes = createMailboxes(native, registration);
+    await mailboxes.showSaved();
+    const saved = ready(imapInbox(mailboxes).getSnapshot());
+    expect({
+      subjects: saved.messages.map(({ subject }) => subject),
+      sessions: sessions - opened,
+    }).toStrictEqual({ subjects: ['Saved'], sessions: 0 });
+  });
+
   it('reopens the cache and reads a folder again after another store committed it', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

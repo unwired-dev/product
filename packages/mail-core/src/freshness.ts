@@ -51,6 +51,7 @@ type Synchronized = Readonly<{
     Readonly<{ id: string; inbox: Readonly<{ load: () => Promise<void> }> }>
   >;
   load: () => Promise<void>;
+  showSaved: () => Promise<void>;
 }>;
 
 // Keeps every open mailbox fresh for the life of the application, whether or not a window or
@@ -107,8 +108,8 @@ export function createFreshness(
         controller.abort();
       };
     },
-    // Synchronizes only the mailbox a wake hint's route names, once registration verifies. A route
-    // this device does not know, or whose mailbox was removed or lost its grant, wakes nothing.
+    // Synchronizes only the mailbox a wake hint's route names, once registration verifies, and
+    // opens the others' saved listings without asking their providers. A route this device does not know, or whose mailbox was removed or lost its grant, wakes nothing.
     wake: async (
       hint: unknown,
       route: (
@@ -133,6 +134,9 @@ export function createFreshness(
         if (mailbox !== undefined && (await route(routeId)) === connection) {
           woke = true;
           await mailbox.inbox.load();
+          // The other connections show their saved listings, so counts across every Inbox, such
+          // as the App Icon Badge's, stay whole.
+          await mailboxes.showSaved();
         }
       }, 'explicit');
       return woke ? 'synchronized' : 'ignored';
