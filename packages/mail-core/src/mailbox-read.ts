@@ -129,11 +129,12 @@ const retryAfter = (body: string) =>
       Schema.Struct({ error: Schema.Struct({ message: Schema.String }) }),
     ),
   )(body).pipe(
+    // Positional capture: Hermes leaves `groups` unset on some named-group results.
     Option.flatMapNullishOr(
       ({ error }) =>
         /Retry after (?<until>\d{4}-\d{2}-\d{2}T\S+?(?:Z|[+-]\d{2}:\d{2}))/u.exec(
           error.message,
-        )?.groups?.until,
+        )?.[1],
     ),
     Option.map(Date.parse),
     Option.filter(Number.isFinite),

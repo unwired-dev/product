@@ -538,6 +538,36 @@ describe('gmail history backfill', () => {
     );
   });
 
+  it("grows the wait between Gmail's usage limits that meet the backfill", async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const gmail = createGmail();
+    mailbox(gmail, 650, 0);
+    gmail.failPage('300', { status: 429 });
+    const inbox = createInbox(gmail.native);
+    await inbox.load();
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).limit).toStrictEqual({ times: 1 });
+    });
+
+    // A minute later the Inbox synchronizes, but the backfill meets the limit again.
+    gmail.failPage('300', { status: 429 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).limit).toStrictEqual({ times: 2 });
+    });
+
+    // So the next wait is two minutes, after which the backfill finishes.
+    const reached = gmail.requests.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(gmail.requests).toHaveLength(reached);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await backfilled(inbox);
+  });
+
   it('recovers from a failed history read when scrolling again', async () => {
     expect.hasAssertions();
     const gmail = createGmail();
