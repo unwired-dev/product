@@ -1,4 +1,5 @@
 import { ok } from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { Draft } from '@private-email/mail-core/drafts';
@@ -3624,6 +3625,55 @@ describe('composing Drafts', () => {
     await waitFor(() => {
       expect(storage.recoveryRecords().size).toBe(0);
     });
+  });
+
+  it('cancels a composer’s pending recovery write when it goes, leaving another window’s', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    await drafts.load();
+    const mailbox = { id: alex, address: 'alex@example.invalid' };
+    const kept = await drafts.create(mailbox);
+    const gone = await drafts.create(mailbox);
+    ok(kept);
+    ok(gone);
+    await drafts.save();
+    const editor = (name: string, id: string) => (
+      <View
+        key={name}
+        testID={name}>
+        <App
+          drafts={drafts}
+          registration={registration}
+          initialDraft={id}
+        />
+      </View>
+    );
+    const app = await render(
+      <>
+        {editor('kept', kept)}
+        {editor('gone', gone)}
+      </>,
+    );
+    await fireEvent.changeText(
+      within(screen.getByTestId('kept')).getByLabelText('Subject'),
+      'Kept plan',
+    );
+    await fireEvent.changeText(
+      within(screen.getByTestId('gone')).getByLabelText('Subject'),
+      'Gone plan',
+    );
+    // The second composer goes before its write is due; the first still journals its edits.
+    await app.rerender(<>{editor('kept', kept)}</>);
+    await waitFor(
+      () => {
+        expect([...storage.recoveryRecords().keys()]).toStrictEqual([kept]);
+      },
+      { timeout: 4000 },
+    );
+    await delay(2500);
+    expect([...storage.recoveryRecords().keys()]).toStrictEqual([kept]);
   });
 
   it('answers Quit only once Don’t Save has removed the recovery record', async () => {

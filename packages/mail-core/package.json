@@ -50,6 +50,7 @@
     "./pins": "./src/pins.ts",
     "./testing/drafts": "./src/testing/drafts.ts",
     "./composer-navigation": "./src/composer-navigation.ts",
+    "./recovery-journal": "./src/recovery-journal.ts",
     "./responses": "./src/responses.ts",
     "./outbox": "./src/outbox.ts",
     "./outgoing-message": "./src/outgoing-message.ts",

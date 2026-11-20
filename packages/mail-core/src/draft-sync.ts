@@ -117,9 +117,89 @@ export const reportPreference =
       ? Effect.void
       : Effect.logError(`${what} storage failed:`, error.diagnostic);
 
+// Runs one owner's synchronization passes and resolves once they settle; a defect rejects. Passes
+// run one at a time, and a request during one runs another after it. A pass another device's
+// write overtook runs again, at most `attemptLimit` times. A write refused at an older key epoch
+// ends this workflow's run so Registration adopts the newer epoch through its own boundary; the
+// request then passes again, or with `retryAfterAdoption` false leaves that to the next request.
+const syncPasses = (
+  pass: () => Effect.Effect<boolean | undefined, DraftStorageFailure>,
+  report: (
+    error: Readonly<Pick<DraftStorageFailure, 'kind' | 'cause' | 'diagnostic'>>,
+  ) => Effect.Effect<void>,
+  options: Readonly<{
+    removed: (() => void) | undefined;
+    adopt: () => Promise<unknown>;
+    retryAfterAdoption: boolean;
+  }>,
+) => {
+  const attemptLimit = 3;
+  // Resolves the attempt to resume at once a newer key epoch is adopted.
+  const attempts = Effect.fnUntraced(function* (from: number) {
+    for (let attempt = from; attempt < attemptLimit; attempt += 1) {
+      const outcome = yield* pass().pipe(
+        Effect.map((conflicted) => (conflicted === true ? 'again' : 'done')),
+        Effect.catchTag('DraftStorageFailure', (error) => {
+          notifyRemoval(error, options.removed);
+          return report(error).pipe(
+            Effect.as(
+              rejectionCode(error.cause) === 'key-rotation-required'
+                ? 'adopt'
+                : 'done',
+            ),
+          );
+        }),
+      );
+      if (outcome === 'adopt') {
+        return attempt + 1;
+      }
+      if (outcome === 'done') {
+        return undefined;
+      }
+    }
+    return undefined;
+  });
+  let requested = false;
+  // Continues a request at `from`, then serves the requests made meanwhile.
+  const workflow = Effect.fnUntraced(function* (from: number) {
+    let resume = yield* attempts(from);
+    while (resume === undefined && requested) {
+      requested = false;
+      resume = yield* attempts(0);
+    }
+    return resume;
+  });
+  let passing: Promise<void> | undefined = undefined;
+  return async () => {
+    requested = true;
+    passing ??= (async () => {
+      // A defect or interruption rejects the pass; the next request must still start a new one.
+      try {
+        let from = attemptLimit;
+        for (;;) {
+          const resume = await runLogged(workflow(from));
+          // A request made while the run settled is seen here, before `passing` clears.
+          if (resume === undefined && !requested) {
+            break;
+          }
+          if (resume !== undefined) {
+            await options.adopt();
+          }
+          from =
+            resume !== undefined && options.retryAfterAdoption
+              ? resume
+              : attemptLimit;
+        }
+      } finally {
+        passing = undefined;
+      }
+    })();
+    await passing;
+  };
+};
+
 // Synchronizes a synced Profile preference by `pass`, which resolves whether another device's
-// write overtook it. Passes run one at a time; a request during one runs another after it, and an
-// overtaken pass runs again, at most three times. The result logs an unexpected defect rather than
+// write overtook it, through `syncPasses`. The result logs an unexpected defect rather than
 // rejecting, so lifecycle and change requests need no handler.
 export const preferencePasses = <Remote>(
   what: string,
@@ -132,47 +212,20 @@ export const preferencePasses = <Remote>(
       }>
     | undefined,
 ) => {
-  const report = reportPreference(what);
-  let passing: Promise<void> | undefined = undefined;
-  let requested = false;
-  const passes = async (remote: Remote) => {
-    requested = true;
-    passing ??= (async () => {
-      try {
-        while (requested) {
-          requested = false;
-          for (let attempt = 0; attempt < 3; attempt += 1) {
-            let needsAdoption = false;
-            const conflicted = await runLogged(
-              pass(remote).pipe(
-                Effect.catchTag('DraftStorageFailure', (error) => {
-                  notifyRemoval(error, sync?.removed);
-                  needsAdoption =
-                    rejectionCode(error.cause) === 'key-rotation-required';
-                  return report(error).pipe(Effect.as(false));
-                }),
-              ),
-            );
-            // Registration owns its Effect run; adopt outside this pass's run, then pass again.
-            if (needsAdoption) {
-              await sync?.adoptKeyRotation?.();
-            } else if (!conflicted) {
-              break;
-            }
-          }
-        }
-      } finally {
-        passing = undefined;
-      }
-    })();
-    await passing;
-  };
+  const passes =
+    sync === undefined
+      ? undefined
+      : syncPasses(() => pass(sync.native), reportPreference(what), {
+          removed: sync.removed,
+          adopt: async () => sync.adoptKeyRotation?.(),
+          retryAfterAdoption: true,
+        });
   return async () => {
-    if (sync === undefined) {
+    if (passes === undefined) {
       return;
     }
     try {
-      await passes(sync.native);
+      await passes();
     } catch (error) {
       await runLogged(
         Effect.logError(
@@ -537,55 +590,31 @@ export function createDraftSynchronizer(
     return yield* pushing(remote, { ...latest, skipped }, local);
   });
 
-  // Passes run one at a time; a request during one runs another after it.
-  let passing: Promise<void> | undefined = undefined;
-  let requested = false;
+  const remote = options?.native;
+  const passes =
+    remote === undefined
+      ? undefined
+      : syncPasses(() => synchronizing(remote), quietly, {
+          removed: options?.removed,
+          // Store actions own their Effect run; the next request retries the refused write.
+          adopt: async () => {
+            // A synchronous defect rejects the request; only the adoption's rejection is logged.
+            const adoption = options?.adoptKeyRotation?.();
+            try {
+              await adoption;
+            } catch (error) {
+              await runLogged(
+                Effect.logError(
+                  'Draft key rotation adoption failed:',
+                  rejectionDiagnostic(error),
+                ),
+              );
+            }
+          },
+          retryAfterAdoption: false,
+        });
   const synchronize = async () => {
-    const remote = options?.native;
-    if (remote === undefined) {
-      return;
-    }
-    requested = true;
-    passing ??= (async () => {
-      // A defect or interruption rejects the pass; the next request must still start a new one.
-      try {
-        while (requested) {
-          requested = false;
-          for (let attempt = 0; attempt < 3; attempt += 1) {
-            let needsAdoption = false;
-            const conflicted = await runLogged(
-              synchronizing(remote).pipe(
-                Effect.catchTag('DraftStorageFailure', (error) => {
-                  notifyRemoval(error, options?.removed);
-                  needsAdoption =
-                    rejectionCode(error.cause) === 'key-rotation-required';
-                  return quietly(error);
-                }),
-              ),
-            );
-            // Store actions own their Effect run; invoke them outside this pass's run.
-            if (needsAdoption) {
-              await options
-                ?.adoptKeyRotation?.()
-                .catch((error: unknown) =>
-                  runLogged(
-                    Effect.logError(
-                      'Draft key rotation adoption failed:',
-                      rejectionDiagnostic(error),
-                    ),
-                  ),
-                );
-            }
-            if (!conflicted) {
-              break;
-            }
-          }
-        }
-      } finally {
-        passing = undefined;
-      }
-    })();
-    await passing;
+    await passes?.();
   };
   // Automatic passes log a rejection rather than leaving it unhandled.
   const background = async () => {

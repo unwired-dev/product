@@ -752,6 +752,52 @@ describe('synchronized Blocked Senders', () => {
     }
   });
 
+  it('serves requests made during a pass with one follow-up pass, and retries an overtaken write at most three times', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.store.block('work', offers);
+    await mac.store.synchronize();
+    const original = mac.sync!.pullBlockedSenders;
+    const reading = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    // A pull that starts while the first one is held would overlap its pass.
+    let held = true;
+    let overlapped = false;
+    const pull = vi
+      .spyOn(mac.sync!, 'pullBlockedSenders')
+      .mockImplementation(async (...args) => {
+        overlapped ||= held;
+        return original(...args);
+      })
+      .mockImplementationOnce(async (...args) => {
+        reading.resolve(undefined);
+        await release.promise;
+        held = false;
+        return original(...args);
+      });
+    // Every write loses its compare-and-set, as if another device always wrote first.
+    const push = vi
+      .spyOn(mac.sync!, 'pushBlockedSenders')
+      .mockResolvedValue({ owner: 'account-1', committed: false });
+    // The block starts a pass of its own.
+    await mac.store.block('work', deals);
+    await reading.promise;
+    const during = [mac.store.synchronize(), mac.store.synchronize()];
+    release.resolve(undefined);
+    await Promise.all(during);
+    // Three attempts for the block's request, then three for the follow-up both later ones share.
+    expect(overlapped).toBe(false);
+    expect(pull).toHaveBeenCalledTimes(6);
+    expect(push).toHaveBeenCalledTimes(6);
+    push.mockRestore();
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    const senders = await phone.store.blockedSenders('work');
+    expect(new Set(senders?.map(({ address }) => address))).toStrictEqual(
+      new Set([offers, deals]),
+    );
+  });
+
   it('changes nothing for a record that does not open or names another Profile, and keeps it', async () => {
     expect.hasAssertions();
     const { server, mac, phone } = devices();
@@ -815,6 +861,10 @@ describe('synchronized Blocked Senders', () => {
       Object.assign(new Error('rotated'), { code: 'key-rotation-required' }),
     );
     await store.block('work', offers);
+    // The block's own request passes again once Registration adopted the newer epoch.
+    await vi.waitFor(() => {
+      expect(server.identifiers('account-1')).toHaveLength(1);
+    });
     await store.synchronize();
     expect(adoptKeyRotation.mock.calls).toStrictEqual([[]]);
     expect(server.identifiers('account-1')).toStrictEqual([
