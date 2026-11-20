@@ -270,7 +270,7 @@ not distributed.
 | `@tiptap/extensions`                                                                                | 3.34.0  | MIT     | Undo and Redo          |
 | `prosemirror-model`, `-state`, `-view`, `-transform`, `-history`, `-keymap`, `-commands` and others | 1.x–2.x | MIT     | Through `@tiptap/pm`   |
 | `esbuild`                                                                                           | 0.28.2  | MIT     | Builds the page        |
-| `happy-dom`                                                                                         | 20.14.6 | MIT     | Page tests in Vitest   |
+| `happy-dom`                                                                                         | 21.0.4  | MIT     | Page tests in Vitest   |
 
 The packaged page is about 351 KB, including Tiptap, ProseMirror and the bridge
 (309 KB with plain paragraphs only).
