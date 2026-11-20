@@ -6,6 +6,7 @@ import type { RegistrationSnapshot } from '@private-email/mail-core/registration
 
 import {
   blockedAddress,
+  blockedDomain,
   createBlockedSenders,
 } from '@private-email/mail-core/blocked-senders';
 import * as Option from 'effect/Option';
@@ -833,5 +834,278 @@ describe('synchronized Blocked Senders', () => {
     vi.spyOn(console, 'error').mockReturnValue();
     await store.synchronize();
     expect(removed).toHaveBeenCalledWith();
+  });
+});
+
+describe('blocked domains', () => {
+  const receivedAt = '2026-11-08T09:00:00.000Z';
+  const withSubdomains = { subdomains: true, exempt: [] };
+  const arrival = (id: string, address: string) => ({
+    id,
+    address,
+    receivedAt,
+  });
+
+  it('match one plain domain without case, in its ASCII form', () => {
+    expect.hasAssertions();
+    expect(blockedDomain(' @NW-Deals.com ')).toBe('nw-deals.com');
+    expect(blockedDomain('xn--pple-43d.com')).toBe('xn--pple-43d.com');
+    for (const refused of [
+      'offers@nw-deals.com',
+      'Northwind Deals',
+      'nw-deals.com, northwind.io',
+      'com',
+      '\u0430pple.com',
+      '\u212Aey.example',
+      'nw-deals..com',
+      '-nw-deals.com',
+      '',
+    ]) {
+      expect(blockedDomain(refused)).toBeUndefined();
+    }
+  });
+
+  const work = {
+    profile: 'work',
+    domain: 'nw-deals.com',
+    subdomains: true,
+    exempt: ['eva@nw-deals.com'],
+    blockedAt: november8,
+    moved: 0,
+  };
+  // Storage holding `work` and the home Profile's block of mail.nw-deals.com alone.
+  const blocked = async () => {
+    const stored = storage();
+    await expect(
+      stored.store.blockDomain('work', '@NW-Deals.com', {
+        subdomains: true,
+        exempt: ['Eva@nw-deals.com', 'eva@nw-deals.com'],
+      }),
+    ).resolves.toBe(true);
+    await stored.store.blockDomain('home', 'mail.nw-deals.com', {
+      subdomains: false,
+      exempt: [],
+    });
+    return stored;
+  };
+
+  it('keeps each Profile its own Blocked Domains with their choices across a relaunch', async () => {
+    expect.hasAssertions();
+    const { relaunch } = await blocked();
+    await expect(relaunch().blockedDomains('work')).resolves.toStrictEqual([
+      work,
+    ]);
+    await expect(relaunch().blockedDomains('home')).resolves.toMatchObject([
+      { domain: 'mail.nw-deals.com', subdomains: false },
+    ]);
+  });
+
+  it('keeps the first date of the same choices and never stores an invalid domain or exemption', async () => {
+    expect.hasAssertions();
+    const error = vi.spyOn(console, 'error');
+    const { state, store } = await blocked();
+    const { commits } = state;
+    vi.setSystemTime(november8 + 1000);
+    await store.blockDomain('work', 'nw-deals.com', work);
+    const refused = await Promise.all([
+      ...['offers@nw-deals.com', 'Northwind Deals', 'com'].map((domain) =>
+        store.blockDomain('work', domain, withSubdomains),
+      ),
+      store.blockDomain('work', 'nw-deals.com', {
+        subdomains: true,
+        exempt: ['Eva <eva@nw-deals.com>'],
+      }),
+      store.blockDomain('', 'nw-deals.com', withSubdomains),
+    ]);
+    expect(refused).toStrictEqual([false, false, false, false, false]);
+    expect(state.commits).toBe(commits);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("replaces a block's choices from now and unblocks one Profile's domain alone", async () => {
+    expect.hasAssertions();
+    const { store } = await blocked();
+    // Moves before other choices count for the block they replace.
+    await store.screen('work', { id: 'connection-1', moves: true }, [
+      arrival('a', 'offers@nw-deals.com'),
+    ]);
+    vi.setSystemTime(november8 + 1000);
+    await store.blockDomain('work', 'nw-deals.com', {
+      subdomains: false,
+      exempt: [],
+    });
+    await expect(store.blockedDomains('work')).resolves.toStrictEqual([
+      { ...work, subdomains: false, exempt: [], blockedAt: november8 + 1000 },
+    ]);
+    await expect(store.unblockDomain('work', 'NW-deals.com')).resolves.toBe(
+      true,
+    );
+    await expect(store.blockedDomains('work')).resolves.toStrictEqual([]);
+    await expect(store.blockedDomains('home')).resolves.toHaveLength(1);
+  });
+
+  it('screens arrivals at the domain, its subdomains when chosen, and never a lookalike or exemption', async () => {
+    expect.hasAssertions();
+    const { store } = storage();
+    await store.blockDomain('work', 'nw-deals.com', {
+      subdomains: true,
+      exempt: ['eva@nw-deals.com'],
+    });
+    await store.blockDomain('work', 'northwind.io', {
+      subdomains: false,
+      exempt: [],
+    });
+    const arrivals = [
+      arrival('domain', 'offers@NW-Deals.com'),
+      arrival('subdomain', 'offers@mail.nw-deals.com'),
+      arrival('exempt', 'Eva@nw-deals.com'),
+      arrival('suffix', 'offers@nw-deals.com.evil.io'),
+      arrival('prefix', 'offers@xnw-deals.com'),
+      arrival('lookalike', 'offers@xn--nw-dels-4ve.com'),
+      arrival('only', 'news@northwind.io'),
+      arrival('not-subdomain', 'news@mail.northwind.io'),
+      arrival('display', 'NW Deals <offers@growthleads.io>'),
+      // The Kelvin sign lowercases to an ASCII k.
+      arrival('kelvin', 'offers@\u212Aey.nw-deals.com'),
+    ];
+    await expect(
+      store.screen('work', { id: 'connection-1', moves: true }, arrivals),
+    ).resolves.toStrictEqual({
+      blocked: new Set(['domain', 'subdomain', 'only']),
+      move: ['domain', 'subdomain', 'only'],
+    });
+    await expect(
+      store.screen('home', { id: 'connection-2', moves: true }, arrivals),
+    ).resolves.toStrictEqual({ blocked: new Set(), move: [] });
+    await expect(store.blockedDomains('work')).resolves.toMatchObject([
+      { domain: 'nw-deals.com', moved: 2 },
+      { domain: 'northwind.io', moved: 1 },
+    ]);
+    // Unblocking stops new matches; what moved stays moved.
+    await store.unblockDomain('work', 'nw-deals.com');
+    await expect(
+      store.screen('work', { id: 'connection-1', moves: true }, [
+        arrival('later', 'offers@nw-deals.com'),
+      ]),
+    ).resolves.toStrictEqual({ blocked: new Set(), move: [] });
+  });
+
+  it('counts an arrival for its exact Blocked Sender before a Blocked Domain, and moves it once', async () => {
+    expect.hasAssertions();
+    const { store } = storage();
+    await store.block('work', 'offers@nw-deals.com');
+    await store.blockDomain('work', 'nw-deals.com', withSubdomains);
+    const arrivals = [
+      arrival('exact', 'offers@nw-deals.com'),
+      arrival('domain', 'news@nw-deals.com'),
+    ];
+    await expect(
+      store.screen('work', { id: 'connection-1', moves: true }, arrivals),
+    ).resolves.toStrictEqual({
+      blocked: new Set(['exact', 'domain']),
+      move: ['exact', 'domain'],
+    });
+    await expect(
+      store.screen('work', { id: 'connection-1', moves: true }, arrivals),
+    ).resolves.toStrictEqual({
+      blocked: new Set(['exact', 'domain']),
+      move: [],
+    });
+    await expect(store.blockedSenders('work')).resolves.toMatchObject([
+      { moved: 1 },
+    ]);
+    await expect(store.blockedDomains('work')).resolves.toMatchObject([
+      { moved: 1 },
+    ]);
+  });
+
+  // Two Trusted Devices of one Product Account sharing Product Sync, and what the work Profile's
+  // record seals.
+  const devices = () => {
+    const server = createSyntheticProductSync();
+    const identifier = 'profile-blocked-senders.work';
+    const sealed = () =>
+      Schema.decodeSync(Schema.fromJsonString(Schema.Unknown))(
+        Option.getOrThrow(
+          openRecord(
+            server.open(
+              String(server.get('account-1', identifier)?.sealed),
+              'account-1',
+              identifier,
+            ),
+          ),
+        ).senders,
+      );
+    return { sealed, mac: storage(server), phone: storage(server) };
+  };
+
+  it('keeps a record without domains in the shape devices before Blocked Domains read', async () => {
+    expect.hasAssertions();
+    const { sealed, mac } = devices();
+    await mac.store.block('work', 'offers@growthleads.io');
+    await mac.store.synchronize();
+    expect(sealed()).toStrictEqual({
+      profile: 'work',
+      changes: [
+        { address: 'offers@growthleads.io', blocked: true, at: november8 },
+      ],
+    });
+  });
+
+  it('carries a domain block, its choices and its unblock to another device in the same Profile', async () => {
+    expect.hasAssertions();
+    const { sealed, mac, phone } = devices();
+    await mac.store.blockDomain('work', 'nw-deals.com', {
+      subdomains: true,
+      exempt: ['eva@nw-deals.com'],
+    });
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    await expect(phone.store.blockedDomains('work')).resolves.toStrictEqual([
+      {
+        profile: 'work',
+        domain: 'nw-deals.com',
+        subdomains: true,
+        exempt: ['eva@nw-deals.com'],
+        blockedAt: november8,
+        moved: 0,
+      },
+    ]);
+    await expect(phone.store.blockedDomains('home')).resolves.toStrictEqual([]);
+
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.unblockDomain('work', 'nw-deals.com');
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    await expect(mac.store.blockedDomains('work')).resolves.toStrictEqual([]);
+    expect(sealed()).toStrictEqual({
+      profile: 'work',
+      changes: [],
+      domains: [
+        { domain: 'nw-deals.com', blocked: false, at: november8 + 1000 },
+      ],
+    });
+  });
+
+  it('keeps the same one of two blocks of a domain made at the same instant on every device', async () => {
+    expect.hasAssertions();
+    const { sealed, mac, phone } = devices();
+    await mac.store.blockDomain('work', 'nw-deals.com', withSubdomains);
+    await phone.store.blockDomain('work', 'nw-deals.com', {
+      subdomains: false,
+      exempt: [],
+    });
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    const record = sealed();
+    await mac.store.synchronize();
+    expect(sealed()).toStrictEqual(record);
+    await expect(phone.store.blockedDomains('work')).resolves.toStrictEqual(
+      await mac.store.blockedDomains('work'),
+    );
+    await expect(mac.store.blockedDomains('work')).resolves.toMatchObject([
+      { subdomains: true },
+    ]);
   });
 });

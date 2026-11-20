@@ -31,6 +31,10 @@ _Avoid_: Device-run Mail Rule, Notification Rule, Category
 An exact normalized sender email address whose future arriving messages are moved recoverably to the Mail Provider's Trash on each trusted device that can mutate that Mailbox Connection. The synchronized preference does not retroactively move existing mail, infer aliases, or permanently erase messages.
 _Avoid_: Display sender name, domain block, spam report
 
+**Blocked Domain**:
+An explicitly chosen, normalized sender domain, optionally with every subdomain, whose future arriving messages are moved recoverably to Trash like a **Blocked Sender**'s, except for exact addresses it exempts. It never matches by organization, display name or lookalike domain.
+_Avoid_: Domain block, organization block, wildcard sender
+
 **Mail View**:
 A user-selectable filter within the currently selected mailbox scope that narrows the **Threads** shown without changing mailbox membership or **Message Categories**.
 _Avoid_: Category, Mailbox, bottom tab
