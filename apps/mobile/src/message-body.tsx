@@ -504,6 +504,19 @@ function RichDocument({
   // How far a document taller than its view has scrolled inside it, and the check it reruns.
   const inner = useRef(0);
   const near = useRef<() => void>(undefined);
+  // The shown view's `layout`, advanced as soon as it is replaced so its late events are ignored.
+  const live = useRef(0);
+  // An outgoing document, such as one replaced by a Message Zoom change, withdraws its images.
+  const withdraw = useRef(onNear);
+  useEffect(() => {
+    withdraw.current = onNear;
+  });
+  useEffect(
+    () => () => {
+      withdraw.current([]);
+    },
+    [],
+  );
   useEffect(() => {
     if (
       viewport === undefined ||
@@ -514,7 +527,11 @@ function RichDocument({
     }
     let active = true;
     let measurement = 0;
+    const shown = live.current;
     const request = () => {
+      if (live.current !== shown) {
+        return;
+      }
       measurement += 1;
       const revision = measurement;
       const { offset, height: visible } = viewport.get();
@@ -523,16 +540,16 @@ function RichDocument({
         return;
       }
       container.current?.measureLayout(content, (_left, top) => {
-        if (!active || revision !== measurement) {
+        if (!active || revision !== measurement || live.current !== shown) {
           return;
         }
         // A document taller than its view scrolls inside it; only images inside the view count.
-        const shown = top - inner.current;
+        const start = top - inner.current;
         const bottom = top + Math.min(height, heightCap);
         const urls = positions
           .filter((position) => {
-            const upper = Math.max(shown + position.top, top);
-            const lower = Math.min(shown + position.bottom, bottom);
+            const upper = Math.max(start + position.top, top);
+            const lower = Math.min(start + position.bottom, bottom);
             return (
               upper < lower &&
               lower >= offset - visible &&
@@ -573,10 +590,11 @@ function RichDocument({
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
           // The replacement view reports its images afresh; the old ones are withdrawn.
+          live.current += 1;
           inner.current = 0;
           onNear([]);
           setHeight(undefined);
-          setLayout((count) => count + 1);
+          setLayout(live.current);
         }
         setWidth(next);
       }}>
@@ -598,7 +616,7 @@ function RichDocument({
           onContentProcessDidTerminate={onFailure}
           onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
-            if (measured !== undefined) {
+            if (measured !== undefined && layout === live.current) {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured.height);
               setContentWidth(measured.width);
@@ -607,8 +625,10 @@ function RichDocument({
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
           onScroll={({ nativeEvent }: WebViewScrollEvent) => {
-            inner.current = nativeEvent.contentOffset.y;
-            near.current?.();
+            if (layout === live.current) {
+              inner.current = nativeEvent.contentOffset.y;
+              near.current?.();
+            }
           }}
           // Every URL reaches `choose`; the wrapper would otherwise open unlisted origins itself.
           originWhitelist={['*']}

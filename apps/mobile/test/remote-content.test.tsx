@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 
@@ -18,6 +20,7 @@ import {
 
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { GmailMessageBody, ReaderScrollView } from '../src/message-body.tsx';
+import { setMessageZoom } from '../src/reading.ts';
 import {
   RemoteContentContext,
   RemoteContentSettings,
@@ -500,6 +503,51 @@ describe('remote message content in the reader', () => {
       expect(gmail.remoteFetches).toStrictEqual([source]);
     } finally {
       await app.unmount();
+    }
+  });
+
+  it('withdraws queued images when Message Zoom replaces the document', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const always = settingsWith('{"policy":"always","overrides":{}}');
+    await always.load();
+    const sources = Array.from(
+      { length: 7 },
+      (_, index) => `https://images.example/photo-${index}.png`,
+    );
+    const { gmail, app } = await openReader(
+      always,
+      sources.map((url) => `<img src="${url}" alt="Photo">`).join(''),
+    );
+    try {
+      gmail.pauseRemote();
+      const webview = await screen.findByTestId('message-webview');
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: {
+            contentSize: { width: 320, height: 4000 },
+            remoteImages: sources.map((_, index) => ({
+              index,
+              top: 0,
+              bottom: 100,
+            })),
+          },
+        });
+      });
+      // Six fetches run per message; the seventh waits its turn.
+      expect(gmail.remoteFetches).toHaveLength(6);
+      await act(() => {
+        setMessageZoom(150);
+      });
+      await act(async () => {
+        gmail.resumeRemote();
+        // The queued fetch would start once the paused ones settle.
+        await sleep(50);
+      });
+      expect(gmail.remoteFetches).toStrictEqual(sources.slice(0, 6));
+    } finally {
+      await app.unmount();
+      setMessageZoom(100);
     }
   });
 });
