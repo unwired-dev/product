@@ -1616,10 +1616,16 @@ for authorization again. Saved mail stays readable, and changes made meanwhile a
 saved and wait. When Gmail's message names a time (`Retry after <instant>`),
 nothing synchronizes the mailbox before it, neither activation, refresh nor
 **Try Again**, and synchronization runs again at that time; activation still
-verifies the saved grant, as it does for every connection. Without a time, or with
+verifies the saved grant, as it does for every connection. That verification
+reads Gmail's profile, and the same usage limit there, like a 429, keeps the saved
+Inbox open from its cache and asks for no authorization
+([#2502](https://github.com/unwired-dev/product/issues/2502)). Without a time, or with
 one already past, synchronization tries again after one minute, doubling with
 each limit in a row up to half an hour, and earlier when the person asks for
-it; organizing changes still wait for that synchronization. The
+it; organizing changes still wait for that synchronization. Each of these
+automatic attempts first verifies only that mailbox's grant again, as a
+[push wake](#freshness-across-app-lifecycles) does, so a mailbox whose verification met the limit
+synchronizes too. The
 Inbox counts the day's limits for the status text. A completed synchronization ends
 the wait sequence; a refused grant, closing the Inbox or removing the mailbox ends
 the pause.

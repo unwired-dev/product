@@ -1163,6 +1163,7 @@ export function createInboxStore(
     shared = createBodyLoads(),
     connection = '',
     provider = 'gmail',
+    verify = (load) => load(),
   }: Readonly<{
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
@@ -1176,6 +1177,9 @@ export function createInboxStore(
     connection?: string;
     // Microsoft mail is read, organized and sent through Graph.
     provider?: MailGrantProvider;
+    // Runs `load` once registration verifies this connection again, as a pull does, so a resume
+    // after a usage limit also reaches a connection whose verification met the limit.
+    verify?: (load: () => Promise<void>) => Promise<void>;
   }> = {},
 ) {
   // Set when the open Inbox closes, until the next synchronization starts; synchronizations run one
@@ -3627,7 +3631,7 @@ export function createInboxStore(
           resumeAfter(left);
           return;
         }
-        void load();
+        void verify(load);
       },
       Math.min(delay, longestTimer),
     );
