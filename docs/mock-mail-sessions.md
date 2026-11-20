@@ -112,7 +112,9 @@ journey opens the Profile Menu and creates a **Work** Mail Profile. In Settings 
 Profiles it checks that the Primary Profile's Color and Icon are read-only, chooses
 Blue and Airplane for Work from their menus, audits the page, and samples Work's blue
 monogram there, in the Profile Menu and in the switcher
-([#1800](https://github.com/unwired-dev/product/issues/1800)). On iPhone it
+([#1800](https://github.com/unwired-dev/product/issues/1800)). The page's audit
+permits no unlocated text in Light or Dark
+([#1825](https://github.com/unwired-dev/product/issues/1825)). On iPhone it
 then opens Settings from the Mailboxes header's Account, returns with the list's Back
 to Mailboxes, and closes a New Message started there back to Mailboxes. Creating
 and switching after relaunch remain deferred under [#1188](https://github.com/unwired-dev/product/issues/1188)
