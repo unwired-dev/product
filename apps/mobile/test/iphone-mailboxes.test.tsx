@@ -64,7 +64,9 @@ describe('iPhone Mailboxes', () => {
     await act(inbox.load);
     expect(screen.getByRole('header', { name: header })).toBeVisible();
     // Closing the Inbox ends the pause and its wait.
-    inbox.forget();
+    await act(() => {
+      inbox.forget();
+    });
     gmail.fail({ status: 401 });
     await act(inbox.load);
     expect(
