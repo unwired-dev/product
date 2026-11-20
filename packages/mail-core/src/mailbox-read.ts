@@ -122,6 +122,20 @@ export const rateLimited = Schema.decodeUnknownOption(
     }),
   ),
 );
+// The time a usage limit's message asks to wait until, as Gmail words it: "Retry after <instant>".
+const retryAfter = (body: string) =>
+  Schema.decodeUnknownOption(
+    Schema.fromJsonString(
+      Schema.Struct({ error: Schema.Struct({ message: Schema.String }) }),
+    ),
+  )(body).pipe(
+    Option.flatMapNullishOr(
+      ({ error }) => /Retry after (\S+)/u.exec(error.message)?.[1],
+    ),
+    Option.map(Date.parse),
+    Option.filter(Number.isFinite),
+    Option.map((at) => new Date(at).toISOString()),
+  );
 
 // 'authentication' needs Gmail authorized again; 'retry' may succeed on a later synchronization.
 export class SyncFailure extends Schema.TaggedError<SyncFailure>()(
@@ -140,6 +154,11 @@ export class SyncFailure extends Schema.TaggedError<SyncFailure>()(
     cause: Schema.Defect(),
     // Logged instead of the cause; see rejectionDiagnostic.
     diagnostic: Schema.String,
+    // A 'retry' because of the provider's usage limit, with the ISO instant its answer asked to
+    // wait until, when it named one.
+    limit: Schema.optional(
+      Schema.Struct({ until: Schema.optional(Schema.String) }),
+    ),
   },
 ) {}
 
@@ -200,16 +219,28 @@ const gmailResponse = (
     ),
   );
 
-// Gmail refusing the grant needs authorization again; other HTTP failures may pass on a later try.
-const httpFailure = (status: number, body: string) =>
-  new SyncFailure({
+// Gmail refusing the grant needs authorization again; other HTTP failures may pass on a later try,
+// a usage limit's after the time Gmail named.
+const httpFailure = (status: number, body: string) => {
+  const limited =
+    status === 429 || (status === 403 && Option.isSome(rateLimited(body)));
+  return new SyncFailure({
     kind:
-      status === 401 || (status === 403 && Option.isNone(rateLimited(body)))
+      status === 401 || (status === 403 && !limited)
         ? 'authentication'
         : 'retry',
     cause: status,
     diagnostic: `status ${status}`,
+    ...(limited
+      ? {
+          limit: Option.match(retryAfter(body), {
+            onNone: () => ({}),
+            onSome: (until) => ({ until }),
+          }),
+        }
+      : {}),
   });
+};
 
 // One provider write's reply: none when the provider refuses it for good because the message or
 // its target no longer exists, the decoded body when `accepted` reads its status as success, and

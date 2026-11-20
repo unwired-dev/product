@@ -541,7 +541,13 @@
   "gmailSync": {
     "syncing": "Checking {{provider}}…",
     "authentication": "{{provider}} needs your permission again to show new mail.",
-    "retry": "{{provider}} could not be reached. Showing mail saved on this device."
+    "retry": "{{provider}} could not be reached. Showing mail saved on this device.",
+    "limitedUntil": "Gmail is limiting requests from this account and asked Unwired to wait until {{time}}.",
+    "limitedUntil_popover": "Limited by Gmail until {{time}}",
+    "limited_ordinal_one": "Limited by Gmail, {{count}}st time today. Gmail didn’t say for how long; trying again automatically, waiting longer each time.",
+    "limited_ordinal_two": "Limited by Gmail, {{count}}nd time today. Gmail didn’t say for how long; trying again automatically, waiting longer each time.",
+    "limited_ordinal_few": "Limited by Gmail, {{count}}rd time today. Gmail didn’t say for how long; trying again automatically, waiting longer each time.",
+    "limited_ordinal_other": "Limited by Gmail, {{count}}th time today. Gmail didn’t say for how long; trying again automatically, waiting longer each time."
   },
   "syncStatus": {
     "updating_one": "Updating {{count}} account",
@@ -560,7 +566,14 @@
     "updatedAt": "Last updated {{time}} · View › Refresh (⌘R)",
     "refresh": "View › Refresh (⌘R)",
     "updatedAtPull": "Last updated {{time}} · Pull down to refresh",
-    "pullToRefresh": "Pull down to refresh"
+    "pullToRefresh": "Pull down to refresh",
+    "paused": "Gmail paused",
+    "pausedAccounts_one": "{{count}} account paused by Gmail",
+    "pausedAccounts_other": "{{count}} accounts paused by Gmail",
+    "pausedUntil": "until {{time}}",
+    "availableAt": "Available at {{time}}",
+    "pausedFooter_iphone": "Mail already on this iPhone stays readable. Sending has its own status in Outbox.",
+    "pausedFooter_ipad": "Mail already on this iPad stays readable. Sending has its own status in Outbox."
   },
   "messageBody": {
     "download": "This message is not saved on this device, and {{provider}} could not be reached to download it.",

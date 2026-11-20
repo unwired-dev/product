@@ -209,6 +209,7 @@ type BodyTier = 'opened' | 'prefetched' | 'excluded';
 
 // Online search results per page and mailbox.
 const searchPageSize = 20;
+const minute = 60_000;
 
 // The latest organizing outcome, until the next one; unsaved batches also report their size.
 export type OrganizeNotice = Readonly<
@@ -219,6 +220,10 @@ export type OrganizeNotice = Readonly<
 >;
 
 type Sync = 'syncing' | 'current' | 'authentication' | 'retry';
+
+// Gmail's usage limit paused synchronization: until the ISO instant Gmail named, or, when it named
+// none, for a wait that grows with each limit in a row. `times` counts today's limits.
+export type GmailLimit = Readonly<{ until?: string; times: number }>;
 
 // A Gmail view other than the Inbox: its newest messages with requested changes applied. A view
 // whose last read failed keeps its saved messages.
@@ -250,6 +255,8 @@ export type GmailInboxState =
       // Online search results the reader can open, kept in memory only until the Inbox closes.
       readonly found?: readonly GmailMessage[];
       readonly sync: Sync;
+      // Present while a 'retry' waits out Gmail's usage limit.
+      readonly limit?: GmailLimit;
       // The mailbox's own labels, empty until Gmail lists them, or its folders.
       readonly labels: readonly GmailLabel[];
       // More folders exist than `labels` lists.
@@ -1254,6 +1261,18 @@ export function createInboxStore(
       }>
     | undefined = undefined;
   let sync: Sync = 'syncing';
+  // Gmail's usage limits on this local day, and in a row since the last completed synchronization.
+  let limits = { day: '', times: 0, streak: 0 };
+  // When a limited synchronization runs again, and whether Gmail named that time. Until a named
+  // time passes, nothing synchronizes this mailbox.
+  let pause: Readonly<{ until: number; named: boolean }> | undefined;
+  let resume: ReturnType<typeof setTimeout> | undefined;
+  const endPause = () => {
+    clearTimeout(resume);
+    resume = undefined;
+    pause = undefined;
+  };
+  const held = () => pause?.named === true && Date.now() < pause.until;
   let notice: OrganizeNotice | undefined = undefined;
   // Requested changes not yet saved with the document, each bound to the mailbox it was made in.
   const queued: Array<{
@@ -1411,6 +1430,16 @@ export function createInboxStore(
         ? {}
         : { responses: document.responses }),
       sync: shownSyncState(),
+      ...(pause === undefined || shownSyncState() !== 'retry'
+        ? {}
+        : {
+            limit: {
+              ...(pause.named
+                ? { until: new Date(pause.until).toISOString() }
+                : {}),
+              times: limits.times,
+            },
+          }),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
       ...(unavailableActions === undefined ? {} : { unavailableActions }),
@@ -1476,6 +1505,12 @@ export function createInboxStore(
   // Search readers keep their bodies after Inbox removal, but removal still ends file ownership.
   const settle = (next: Sync) => {
     sync = next;
+    if (next !== 'retry') {
+      endPause();
+    }
+    if (next === 'current') {
+      limits = { ...limits, streak: 0 };
+    }
     const rendered = render();
     const listed = new Set(
       [
@@ -2935,6 +2970,8 @@ export function createInboxStore(
   // Forgets everything the open Inbox holds in memory: its mail, bodies, changes not yet saved and
   // their outcome, so another account or mailbox never renders them.
   const forgetOpenInbox = () => {
+    endPause();
+    limits = { day: '', times: 0, streak: 0 };
     ownership += 1;
     owner += 1;
     remoteContent.releaseAll();
@@ -2983,10 +3020,40 @@ export function createInboxStore(
       publish({ kind: kind === 'locked' ? 'locked' : 'failed' });
     }
   };
+  // A usage limit waits for Gmail's named time, or else one minute doubling with each limit in a
+  // row up to half an hour, then synchronizes again unless the open Inbox changed.
+  const pauseFor = (limit: NonNullable<SyncFailure['limit']>) => {
+    const now = Date.now();
+    const day = new Date(now).toDateString();
+    limits = {
+      day,
+      times: limits.day === day ? limits.times + 1 : 1,
+      streak: limits.streak + 1,
+    };
+    const named =
+      limit.until === undefined ? Number.NaN : Date.parse(limit.until);
+    pause =
+      named > now
+        ? { until: named, named: true }
+        : {
+            until:
+              now + Math.min(minute * 2 ** (limits.streak - 1), 30 * minute),
+            named: false,
+          };
+    const pausedFor = ownership;
+    clearTimeout(resume);
+    resume = setTimeout(() => {
+      resume = undefined;
+      if (pausedFor === ownership && !forgotten) {
+        void load();
+      }
+    }, pause.until - now);
+  };
   const recover = ({
     kind,
     diagnostic,
-  }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) =>
+    limit,
+  }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic' | 'limit'>>) =>
     (kind === 'authentication' || kind === 'locked' || kind === 'revoked'
       ? Effect.void
       : Effect.logError('Gmail Inbox failed:', diagnostic)
@@ -3000,6 +3067,14 @@ export function createInboxStore(
             forgetOpenInbox();
             removed?.();
           } else if (kind === 'authentication' || kind === 'retry') {
+            endPause();
+            if (
+              kind === 'retry' &&
+              limit !== undefined &&
+              provider === 'gmail'
+            ) {
+              pauseFor(limit);
+            }
             settle(
               authenticationRejected && kind === 'retry'
                 ? 'authentication'
@@ -3472,6 +3547,12 @@ export function createInboxStore(
           waiting = null;
           if (requestedFor !== ownership) {
             return Effect.void;
+          }
+          // Before Gmail's named time, changes made meanwhile are saved and wait for it.
+          if (held()) {
+            return queued.length === 0
+              ? Effect.void
+              : persistence.withPermit(save);
           }
           forgotten = false;
           authenticationRejected = false;
