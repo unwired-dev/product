@@ -32,7 +32,14 @@ import {
 } from '@private-email/mail-core/mailboxes';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  use,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -149,6 +156,8 @@ interface InboxProps {
   // The mailbox or folder the list shows; every mailbox of the Profile without one.
   readonly view?: MailboxView;
   readonly onView?: (view: MailboxView) => void;
+  // Each new value ends a search and scrolls to the Outbox, as when View in Outbox shows it.
+  readonly outboxShown?: object | undefined;
 }
 
 const allInboxes: MailboxView = {};
@@ -776,6 +785,7 @@ export function Inbox({
   composing,
   view = allInboxes,
   onView = keepView,
+  outboxShown,
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
@@ -920,6 +930,34 @@ export function Inbox({
   });
   // The rows the list shows, with leaving rows beside their former neighbours.
   const placed = motion.place();
+  const list =
+    useRef<
+      SectionList<
+        (typeof placed)[number]['data'][number],
+        (typeof placed)[number]
+      >
+    >(null);
+  // View in Outbox ends a search, which hides the Outbox, then scrolls to it once it is listed.
+  const scrolledFor = useRef(outboxShown);
+  const closeSearch = useEffectEvent(() => {
+    searchState.close();
+  });
+  const scrollToOutbox = useEffectEvent(() => {
+    if (placed.length > 0) {
+      list.current?.scrollToLocation({ sectionIndex: 0, itemIndex: 0 });
+    }
+  });
+  useEffect(() => {
+    if (outboxShown === undefined || scrolledFor.current === outboxShown) {
+      return;
+    }
+    if (searching) {
+      closeSearch();
+      return;
+    }
+    scrolledFor.current = outboxShown;
+    scrollToOutbox();
+  }, [outboxShown, searching]);
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),
@@ -1111,6 +1149,7 @@ export function Inbox({
             </SearchHeading>
           </InboxHeading>
           <SectionList
+            ref={list}
             accessibilityLabel={t('inbox.messages')}
             automaticallyAdjustKeyboardInsets
             maintainVisibleContentPosition={keepPosition}
@@ -1292,10 +1331,21 @@ export function Inbox({
             ListFooterComponentStyle={styles.listFooter}
             renderItem={({ item, section, index }) => {
               if ('outbox' in item) {
+                const { draft, invitation } = item.outbox;
                 return (
                   <OutboxRow
                     actions={outboxActions.actions}
                     entry={item.outbox}
+                    onOpenInvitation={
+                      invitation === undefined
+                        ? undefined
+                        : () => {
+                            void select({
+                              mailbox: draft.connection,
+                              id: invitation.message,
+                            });
+                          }
+                    }
                   />
                 );
               }

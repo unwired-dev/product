@@ -164,9 +164,10 @@ it.
   capsule wider than the row at an accessibility text size is not shortened yet
   ([#2374](https://github.com/unwired-dev/product/issues/2374)). On iPad Undo and
   Edit sit beside the reason, and an unknown outcome's Check Again and Edit sit
-  under it. On Mac an IMAP [Invitation Response](invitation-responses.md#imap)
-  has its own row: the meeting, the choice and where it stands, with Undo, Check
-  Again and Open Invitation but no Edit.
+  under it. On Mac, iPhone and iPad an IMAP
+  [Invitation Response](invitation-responses.md#imap) has its own row: the
+  meeting, the choice and where it stands, with Undo, Check Again and Open
+  Invitation but no Edit; on iPhone and iPad they are capsules under its words.
 - VoiceOver announces each change of where a message stands, and each answer to
   **Check Again** that leaves delivery unknown, once however many Mac windows show
   it. On Mac it hears them whichever list the window shows. In the composer, a refused Send, a Draft that could not be saved on Close or Discard, and the
