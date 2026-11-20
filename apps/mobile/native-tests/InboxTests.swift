@@ -718,11 +718,7 @@ final class InboxTests: XCTestCase {
     }
     app.terminate()
     app.launch()
-    // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
-    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
-    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
-    XCTAssertTrue(contact.exists)
-    app.buttons[settingsExit].tap()
+    // Setup is confirmed, so relaunch opens the unified Inbox from the encrypted Microsoft cache.
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
