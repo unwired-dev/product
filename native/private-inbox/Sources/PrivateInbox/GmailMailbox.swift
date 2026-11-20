@@ -57,6 +57,32 @@ extension RegistrationStore {
     _ = try mailboxAccount(id)
   }
 
+  // Opens several connections' caches as `prepareMailbox` and `openMailbox` open one, behind one
+  // revocation query for their shared account; each connection's failure stays its own.
+  func openSavedMailboxes(_ ids: [String]) async throws -> [String: Result<[String: Any], any Error>]
+  {
+    let generations = Dictionary(ids.map { ($0, mailboxGeneration($0)) }) { first, _ in first }
+    guard let saved = try load(), saved.accountRemoval == nil, let product = saved.product else {
+      throw PrivateInboxError.mailboxInvalidated
+    }
+    do {
+      try await requireNotRevoked(product)
+    } catch RegistrationError.revoked {
+      try await purge()
+      throw RegistrationError.revoked
+    }
+    var opened: [String: Result<[String: Any], any Error>] = [:]
+    for (id, generation) in generations {
+      opened[id] = Result {
+        guard generation == mailboxGeneration(id) else {
+          throw PrivateInboxError.mailboxInvalidated
+        }
+        return try openMailbox(id)
+      }
+    }
+    return opened
+  }
+
   // Only reads of the connected mailbox's own resources reach the credential.
   static func gmailURL(path: String, query: [URLQueryItem]) throws -> URL {
     guard

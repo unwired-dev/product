@@ -907,33 +907,39 @@ extension UnwiredRegistration {
   private static func rejectMailbox(
     _ name: String, _ error: any Error, _ reject: RCTPromiseRejectBlock
   ) {
+    let (code, message) = mailboxFailure(name, error)
+    reject(code, message, nil)
+  }
+
+  // The code and message a mailbox operation's failure reaches TypeScript with.
+  private static func mailboxFailure(_ name: String, _ error: any Error) -> (String, String) {
     switch error {
     case is CancellationError:
-      reject("cancelled", "The Gmail request was cancelled.", nil)
+      return ("cancelled", "The Gmail request was cancelled.")
     case RegistrationError.revoked, RegistrationError.deleted:
-      reject("mailbox-revoked", "This device no longer has access.", nil)
+      return ("mailbox-revoked", "This device no longer has access.")
     case RegistrationError.gmailUnavailable:
-      reject("gmail-unavailable", "Gmail needs authorization again.", nil)
-    case PrivateInboxError.locked: reject("locked", "Private storage is locked.", nil)
+      return ("gmail-unavailable", "Gmail needs authorization again.")
+    case PrivateInboxError.locked: return ("locked", "Private storage is locked.")
     case PrivateInboxError.attachmentMissing:
-      reject("attachment-missing", "The attachment is no longer on this device.", nil)
+      return ("attachment-missing", "The attachment is no longer on this device.")
     case PrivateInboxError.tooLarge:
-      reject("too-large", "The file is too large for Drafts on this device.", nil)
-    case PrivateInboxError.conflict: reject("conflict", "The mailbox changed.", nil)
+      return ("too-large", "The file is too large for Drafts on this device.")
+    case PrivateInboxError.conflict: return ("conflict", "The mailbox changed.")
     case PrivateInboxError.mailboxInvalidated:
-      reject("mailbox-invalidated", "The mailbox is no longer available.", nil)
+      return ("mailbox-invalidated", "The mailbox is no longer available.")
     case PrivateInboxError.deliveryUnknown:
-      reject("delivery-unknown", "Gmail may have received the message.", nil)
+      return ("delivery-unknown", "Gmail may have received the message.")
     // A removal moved the account to a newer key epoch; TypeScript adopts it before retrying.
     case ProductSyncWriteFailure.keyRotationRequired:
-      reject("key-rotation-required", "Private sync moved to newer keys.", nil)
+      return ("key-rotation-required", "Private sync moved to newer keys.")
     case let error as ImapFailure:
-      reject(error.code, "The mail server could not be read.", nil)
+      return (error.code, "The mail server could not be read.")
     case let error as SmtpFailure:
-      reject(error.code, "The outgoing mail server did not take the message.", nil)
+      return (error.code, "The outgoing mail server did not take the message.")
     default:
       logger.error("\(name, privacy: .public) failed: unavailable")
-      reject("unavailable", "Gmail could not be reached.", nil)
+      return ("unavailable", "Gmail could not be reached.")
     }
   }
 
@@ -1680,6 +1686,23 @@ extension UnwiredRegistration {
     mailbox("openMailbox", resolve, reject: reject) {
       try await $0.prepareMailbox(connection)
       return try $0.openMailbox(connection)
+    }
+  }
+
+  // Resolves with each connection's `cache`, as `openMailbox` resolves, or the `code` it would
+  // reject with.
+  @objc(openSavedMailboxes:resolver:rejecter:)
+  func openSavedMailboxes(
+    _ connections: [String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    mailbox("openSavedMailboxes", resolve, reject: reject) {
+      try await $0.openSavedMailboxes(connections).mapValues { opened -> [String: Any] in
+        switch opened {
+        case .success(let cache): ["cache": cache]
+        case .failure(let error): ["code": Self.mailboxFailure("openSavedMailboxes", error).0]
+        }
+      }
     }
   }
 

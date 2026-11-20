@@ -1084,6 +1084,69 @@ describe('connecting IMAP mailboxes', () => {
     ).toContain('Not yet read');
   });
 
+  it('shows the saved Inbox once a folder read that held the store ends', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Archive');
+    imap.deliver('INBOX', { subject: 'Saved' });
+    imap.deliver('Archive', { subject: 'Archived' });
+    const held = Promise.withResolvers<undefined>();
+    let opening: Promise<unknown> = Promise.resolve();
+    const native = syntheticConnections(
+      {},
+      {
+        'imap-connection': {
+          ...imap.native,
+          imapOpen: async (...open) => {
+            await opening;
+            return imap.native.imapOpen(...open);
+          },
+        },
+      },
+    );
+    const registration = {
+      getSnapshot: () => ({
+        busy: false,
+        failed: false,
+        snapshot: {
+          kind: 'connected' as const,
+          productAccountId: 'account',
+          signInProvider: 'apple' as const,
+          mailboxes: JSON.stringify([
+            {
+              id: 'imap-connection',
+              address: 'alex@example.invalid',
+              provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'alex',
+              },
+              state: 'connected',
+            },
+          ]),
+        },
+      }),
+      subscribe: () => () => undefined,
+    };
+    await createMailboxes(native, registration).load();
+    // The process launches again, and Archive is read before anything opens the Inbox.
+    const mailboxes = createMailboxes(native, registration);
+    opening = held.promise;
+    const archive = imapInbox(mailboxes).openFolder('Archive');
+    await mailboxes.showSaved();
+    expect(imapInbox(mailboxes).getSnapshot().kind).toBe('loading');
+    held.resolve(undefined);
+    await archive;
+    await vi.waitFor(() => {
+      expect(
+        ready(imapInbox(mailboxes).getSnapshot()).messages.map(
+          ({ subject }) => subject,
+        ),
+      ).toStrictEqual(['Saved']);
+    });
+  });
+
   it('reopens the cache and reads a folder again after another store committed it', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

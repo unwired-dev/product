@@ -124,6 +124,11 @@ export interface NativeGmailMailboxes {
     mailbox: Scope,
   ) => Promise<unknown>;
   readonly openMailbox: (connection: string) => Promise<unknown>;
+  // Each connection's cache, `{ cache }`, or the code its open rejected with, `{ code }`, behind
+  // one revocation query.
+  readonly openSavedMailboxes: (
+    connections: readonly string[],
+  ) => Promise<unknown>;
   // oxlint-disable-next-line eslint/max-params -- The history write rides on the native commit.
   readonly commitMailbox: (
     mailbox: Scope,
@@ -470,6 +475,16 @@ type Opened = Readonly<
     | { provider: 'imap'; inbox: ImapInbox }
   )
 >;
+
+// Each connection's cache from one native call, or the code its open rejected with.
+const SavedOpens = Schema.Record(
+  Schema.String,
+  Schema.Union([
+    Schema.Struct({ cache: Schema.Unknown }),
+    Schema.Struct({ code: Schema.String }),
+  ]),
+);
+const decodeSavedOpens = Schema.decodeUnknownOption(SavedOpens);
 
 // The messages screening moves to Trash, looked up once per arrival of a burst of any size.
 const movedBy = (screened: Readonly<{ move: readonly string[] }> | undefined) =>
@@ -845,9 +860,32 @@ export function createMailboxes(
       await Promise.all([...inboxes.values()].map(({ inbox }) => inbox.load()));
     },
     // Shows each saved listing no synchronization has opened yet, without asking any provider.
+    // Their caches open in one native call, behind one revocation query.
     showSaved: async () => {
+      const waiting = [...inboxes]
+        .filter(([, { inbox }]) => inbox.getSnapshot().kind === 'loading')
+        .map(([id]) => id);
+      let opened: Promise<typeof SavedOpens.Type> | undefined = undefined;
+      const open = (id: string) => async () => {
+        if (!waiting.includes(id)) {
+          return native.openMailbox(id);
+        }
+        opened ??= (async () =>
+          Option.getOrElse(
+            decodeSavedOpens(await native.openSavedMailboxes(waiting)),
+            () => ({}),
+          ))();
+        const replies = await opened;
+        const reply = replies[id];
+        if (reply !== undefined && 'cache' in reply) {
+          return reply.cache;
+        }
+        throw Object.assign(new Error('The saved mailbox did not open.'), {
+          code: reply?.code ?? 'unavailable',
+        });
+      };
       await Promise.all(
-        [...inboxes.values()].map(({ inbox }) => inbox.showSaved()),
+        [...inboxes].map(([id, { inbox }]) => inbox.showSaved(open(id))),
       );
     },
     // Waits with IDLE on each IMAP connection's Inbox, including connections added later, until

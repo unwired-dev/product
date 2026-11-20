@@ -1391,7 +1391,11 @@ The application, not a window or screen, owns Gmail synchronization
 **Push wake hints** carry only an opaque route. The handler reads that route and
 synchronizes only its mailbox after registration verifies. Every other open
 connection then shows its saved Inbox listing without reading mail from its provider, so counts
-across every Inbox, such as the App Icon Badge's, stay whole. It never decodes,
+across every Inbox, such as the App Icon Badge's, stay whole. Those saved listings open
+together behind one Trusted Device revocation check, so more connections don't add backend
+queries to the wake. A wake does not wait for a connection that is busy: a synchronization shows
+the saved listing itself, and after any other operation, such as an IMAP folder read or Retry of a
+blocked Gmail change, the saved listing shows once that operation ends. It never decodes,
 keeps or logs Gmail's history ID or address, because the mailbox's checkpoint
 says where to resume. A malformed hint, a route this device does not know, or a
 route removed while verification runs, or whose mailbox was removed or needs Gmail again, reads nothing.

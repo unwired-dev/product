@@ -1367,8 +1367,9 @@ export function createImapInbox(
     notify();
   };
 
-  const open = Effect.gen(function* () {
-    const cache = yield* decodeCache(yield* call(native.openMailbox)).pipe(
+  // Opens the cache through `read`: the connection's own open, or one several connections share.
+  const openWith = Effect.fnUntraced(function* (read: () => Promise<unknown>) {
+    const cache = yield* decodeCache(yield* call(read)).pipe(
       Effect.mapError(malformed),
     );
     if (forgotten) {
@@ -1410,6 +1411,7 @@ export function createImapInbox(
     yield* restoreRelocations(stored);
     return cache.availability === undefined;
   });
+  const open = openWith(() => native.openMailbox());
 
   const commit = Effect.fnUntraced(function* (
     next: ImapDocument,
@@ -2345,23 +2347,36 @@ export function createImapInbox(
     );
 
   // Shows the saved listing without asking the server, as a load starts, for an Inbox nothing has
-  // opened yet; the next `load` reads it. A running operation is skipped, not awaited: a load shows
-  // the saved listing itself before it asks the server.
-  const showSaved = () =>
+  // opened yet; the next `load` reads it. `read` opens the cache when several connections share one
+  // open. A running operation is not awaited: a load shows the saved listing itself before it asks
+  // the server, and after any other, such as a folder read, the listing shows once it ends.
+  const savedFrom = (opening: () => Promise<unknown>) =>
+    Effect.suspend(() =>
+      forgotten || state.kind !== 'loading'
+        ? Effect.void
+        : Effect.gen(function* () {
+            selectionReference = yield* DateTime.now;
+            render((yield* openWith(opening)) ? 'syncing' : 'retry');
+          }).pipe(
+            // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+            Effect.catch(loadFailed),
+          ),
+    );
+  const showSaved = (read: () => Promise<unknown> = native.openMailbox) =>
     runLogged(
-      semaphore.withPermitsIfAvailable(1)(
-        Effect.suspend(() =>
-          forgotten || state.kind !== 'loading'
-            ? Effect.void
-            : Effect.gen(function* () {
-                selectionReference = yield* DateTime.now;
-                render((yield* open) ? 'syncing' : 'retry');
-              }).pipe(
-                // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
-                Effect.catch(loadFailed),
-              ),
+      semaphore
+        .withPermitsIfAvailable(1)(savedFrom(read))
+        .pipe(
+          Effect.flatMap((ran) =>
+            Option.isSome(ran)
+              ? Effect.void
+              : Effect.sync(() => {
+                  void runLogged(
+                    semaphore.withPermit(savedFrom(native.openMailbox)),
+                  );
+                }),
+          ),
         ),
-      ),
     );
 
   const folderFailed = (name: string) => (failure: Failure) => {
