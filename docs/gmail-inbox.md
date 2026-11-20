@@ -399,6 +399,8 @@ during search, the capsule rises with it and stays 12pt above it.
   **until 14:20** below when Gmail named the time it asked to wait until
   ([#2488](https://github.com/unwired-dev/product/issues/2488)). Several such
   mailboxes read **2 accounts paused by Gmail**. VoiceOver hears it when it appears.
+  Gmail's time is in the device's time zone. The sidebar shows no warning beside a
+  paused connection, which it shows beside one that cannot be reached.
   On iPhone the paused capsule takes Filter's place in the system toolbar, beside
   search, and opens the same Sync Status sheet.
   A paused mailbox is not Offline: the list header keeps its unread count.

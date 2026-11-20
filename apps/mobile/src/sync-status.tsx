@@ -15,7 +15,7 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { spacing, typography } from '@private-email/mail-core/theme';
-import { Fragment, use, useEffect, useState } from 'react';
+import { Fragment, use, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -387,6 +387,18 @@ const useWaited = (progressing: boolean) => {
 const inToolbar = (toolbar: Details | undefined, said: Shown) =>
   toolbar !== undefined && said.kind === 'paused';
 
+// Gmail's time as a clock time in the person's own zone: the list's formats name days in UTC.
+const useClockTime = () => {
+  const { settings } = useLocalization();
+  return useMemo(() => {
+    const clock = new Intl.DateTimeFormat(settings.locale, {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return (iso: string) => clock.format(Date.parse(iso));
+  }, [settings.locale]);
+};
+
 type Details = readonly [shown: boolean, show: (shown: boolean) => void];
 
 // Whether the capsule's details show: the toolbar's with the system toolbar, so they stay open
@@ -403,7 +415,7 @@ export const useToolbarPause = (
   toolbar: boolean,
 ) => {
   const { t } = useLocalization();
-  const { time } = useMessageListDateFormats();
+  const clock = useClockTime();
   const [open, setOpen] = useState(false);
   const status = syncStatusOf(shown);
   if (!toolbar) {
@@ -416,7 +428,7 @@ export const useToolbarPause = (
   return {
     details,
     paused: {
-      ...describe(t, status, (iso) => time.format(Date.parse(iso))),
+      ...describe(t, status, clock),
       onOpen: () => {
         setOpen(true);
       },
@@ -449,7 +461,7 @@ export function SyncStatusCapsule({
   const { t } = useLocalization();
   const colors = usePalette();
   const width = useCapsuleWidth();
-  const { time } = useMessageListDateFormats();
+  const clock = useClockTime();
   const status = syncStatusOf(shown);
   const waited = useWaited(status?.kind === 'progress');
   const [retrying, setRetrying] = useState(false);
@@ -459,10 +471,7 @@ export function SyncStatusCapsule({
     await onTryAgain(loaded);
     setRetrying(false);
   };
-  const current =
-    status === undefined
-      ? undefined
-      : describe(t, status, (iso) => time.format(Date.parse(iso)));
+  const current = status === undefined ? undefined : describe(t, status, clock);
   const open =
     current !== undefined &&
     (current.kind !== 'progress' || refreshing || retrying || waited);
@@ -927,8 +936,7 @@ function Connection({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const { time } = useMessageListDateFormats();
-  const format = (iso: string) => time.format(Date.parse(iso));
+  const format = useClockTime();
   const attention = failed(mailbox.state);
   const limit = limitOf(mailbox.state);
   const percent = percentOf([mailbox.state]);

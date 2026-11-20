@@ -822,13 +822,11 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
                                           }]];
   }
   configuration.attributedTitle = title;
-  configuration.image = [UIImage systemImageNamed:@"clock"
-                                withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20]];
-  // The clock takes the warning colour; the title keeps its own colours.
-  UIColor *tint = self.pausedTint ?: UIColor.systemOrangeColor;
-  configuration.imageColorTransformer = ^UIColor *(UIColor *color) {
-    return tint;
-  };
+  // The clock keeps the warning colour; the title keeps its own colours.
+  configuration.image = [[UIImage systemImageNamed:@"clock"
+                                 withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20]]
+      imageWithTintColor:self.pausedTint ?: UIColor.systemOrangeColor
+           renderingMode:UIImageRenderingModeAlwaysOriginal];
   configuration.imagePadding = 8;
   configuration.titleAlignment = UIButtonConfigurationTitleAlignmentLeading;
   __weak UnwiredSearchToolbarView *weakSelf = self;

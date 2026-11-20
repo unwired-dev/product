@@ -1144,6 +1144,30 @@ describe('searching saved metadata', () => {
 });
 
 describe('mailbox sidebar projection', () => {
+  it('warns beside a mailbox that cannot be reached, but not one paused by Gmail’s usage limit', async () => {
+    expect.hasAssertions();
+    const { gmail, mailboxes, registration } = await twoMailboxes();
+    gmail.alex.deliver({ subject: 'Saved' });
+    gmail.other.deliver({ subject: 'Saved' });
+    await mailboxes.load();
+    const problems = () =>
+      sectionsOf(
+        mailboxSidebar({
+          mailboxes: mailboxes.getSnapshot(),
+          connections: mailboxesOf(registration.getSnapshot().snapshot),
+          profile: defaultProfile,
+          view: {},
+        }),
+      ).map(({ mailbox: entry, problem }) => [entry.id, problem]);
+    gmail.alex.fail({ status: 429 });
+    gmail.other.fail({ code: 'unavailable' });
+    await mailboxes.load();
+    expect(problems()).toStrictEqual([
+      [alex, undefined],
+      [other, 'retry'],
+    ]);
+  });
+
   it('keeps unread totals and row selection tied to the current Inbox snapshots', async () => {
     expect.hasAssertions();
     const { gmail, mailboxes, registration } = await twoMailboxes();
