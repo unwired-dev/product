@@ -383,16 +383,34 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
 
   const { checkedMailbox, verify } = createMailboxVerification(vault);
 
+  // A push wake's routed connection alone verifies with its provider: the others keep this
+  // process's access, and one it has not verified opens its saved Inbox from the cache until a
+  // later verification.
+  const verifyRouted = (
+    mailbox: RegistrationRecord['mailboxes'][number],
+    routed: string,
+  ) => {
+    if (mailbox.id === routed) {
+      return verify(mailbox);
+    }
+    return !mailbox.authorizationNeeded && mailbox.access === 'unverified'
+      ? step(() => vault.markMailbox(mailbox.id, 'cached'))
+      : Effect.void;
+  };
+
   // Reports each retained connection as connected only after its provider access verifies again,
   // including one its provider refused before. One connection's failure never changes another's
-  // state.
-  const mailboxStatus = Effect.gen(function* () {
+  // state. With `routed`, only that connection verifies, and watch renewal, which refreshes every
+  // verified connection's grant, waits for the next full verification.
+  const mailboxStatus = Effect.fnUntraced(function* (routed?: string) {
     const value = yield* saved;
     if (value.product?.pending === true || value.mailboxes.length === 0) {
       return yield* pendingStatus(value);
     }
     for (const mailbox of value.mailboxes) {
-      yield* verify(mailbox);
+      yield* routed === undefined
+        ? verify(mailbox)
+        : verifyRouted(mailbox, routed);
     }
     const verified = (yield* saved).mailboxes.some(
       (mailbox) =>
@@ -400,7 +418,9 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     );
     if (verified) {
       yield* synchronize;
-      yield* pushStep(vault.routeMailboxes);
+      yield* routed === undefined
+        ? pushStep(vault.routeMailboxes)
+        : Effect.void;
     }
     return yield* current;
   });
@@ -425,8 +445,11 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     return yield* current;
   });
 
-  const restore = Effect.gen(function* () {
-    yield* step(vault.forgetMailboxAccess);
+  // A push wake names its `routed` connection; the others keep the access this process verified.
+  const restore = Effect.fnUntraced(function* (routed?: string) {
+    if (routed === undefined) {
+      yield* step(vault.forgetMailboxAccess);
+    }
     const retained = yield* record;
     if (retained === null) {
       return { kind: 'signed-out' } satisfies RegistrationSnapshot;
@@ -443,6 +466,10 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     }
     const unconfirmed = yield* reconfirm(value).pipe(
       Effect.as(undefined),
+      // A push wake keeps the others' access only while the Product Sign-In confirms.
+      Effect.tapError(() =>
+        routed === undefined ? Effect.void : step(vault.forgetMailboxAccess),
+      ),
       Effect.catchIf(
         (error) => !endsAccess.has(error.code),
         (error) =>
@@ -464,7 +491,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           }),
       ),
     );
-    return unconfirmed ?? (yield* mailboxStatus);
+    return unconfirmed ?? (yield* mailboxStatus(routed));
   });
 
   // Moves this device to a Linked Sign-In once the backend confirms it opens the same account.
@@ -482,7 +509,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     if (value?.product !== undefined && value.signInProvider !== provider) {
       // Switching sign-ins keeps the mailbox; recheck it rather than restarting Gmail consent.
       yield* switchSignIn(provider);
-      return yield* mailboxStatus;
+      return yield* mailboxStatus();
     }
     const signedIn = yield* identity(
       provider,
@@ -493,7 +520,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       value === null || (value.product === undefined && !signedIn.matches),
     );
     // Signing in again keeps a saved mailbox; recheck it rather than restarting Gmail consent.
-    return yield* mailboxStatus;
+    return yield* mailboxStatus();
   });
 
   // Product Sync writes need this process's Product Sign-In, which a relaunch connects only when
@@ -979,7 +1006,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
   return {
     // Reads current saved policy/ownership after an action learned state but refused its write.
     snapshot: () => program(current),
-    restore: () => program(restore),
+    restore: (routed?: string) => program(restore(routed)),
     signIn: (provider: SignInProvider) => program(signIn(provider)),
     // Adds a mailbox of the provider; the first Gmail one suggests the Google sign-in unless
     // `chooseAccount`. Adding a mailbox that is already connected authorizes it again instead.

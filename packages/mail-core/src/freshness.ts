@@ -59,10 +59,12 @@ type Synchronized = Readonly<{
 // the operating system suspends, ends or never delivers loses nothing: the next one catches up.
 export function createFreshness(
   mailboxes: Synchronized,
-  // Verifies registration before running `load`, as `Registration.refreshInbox` does.
+  // Verifies registration before running `load`, as `Registration.refreshInbox` does; a wake
+  // verifies only its `routed` connection with its provider.
   verify: (
     load: () => Promise<void>,
     mailboxLoading?: 'automatic' | 'explicit',
+    routed?: string,
   ) => Promise<void>,
 ) {
   const refresh = () => verify(mailboxes.load);
@@ -108,8 +110,8 @@ export function createFreshness(
         controller.abort();
       };
     },
-    // Synchronizes only the mailbox a wake hint's route names, once registration verifies, and
-    // opens the others' saved listings without reading their mail. A route this device does not
+    // Synchronizes only the mailbox a wake hint's route names, once registration and that mailbox
+    // verify, and opens the others' saved listings without contacting their providers. A route this device does not
     // know, or whose mailbox was removed or lost its grant, wakes nothing.
     wake: async (
       hint: unknown,
@@ -127,19 +129,23 @@ export function createFreshness(
         return 'ignored';
       }
       let woke = false;
-      await verify(async () => {
-        // Read after verification, which can remove the mailbox.
-        const mailbox = mailboxes
-          .getSnapshot()
-          .find(({ id }) => id === connection);
-        if (mailbox !== undefined && (await route(routeId)) === connection) {
-          woke = true;
-          await mailbox.inbox.load();
-          // The other connections show their saved listings, so counts across every Inbox, such
-          // as the App Icon Badge's, stay whole.
-          await mailboxes.showSaved();
-        }
-      }, 'explicit');
+      await verify(
+        async () => {
+          // Read after verification, which can remove the mailbox.
+          const mailbox = mailboxes
+            .getSnapshot()
+            .find(({ id }) => id === connection);
+          if (mailbox !== undefined && (await route(routeId)) === connection) {
+            woke = true;
+            await mailbox.inbox.load();
+            // The other connections show their saved listings, so counts across every Inbox, such
+            // as the App Icon Badge's, stay whole.
+            await mailboxes.showSaved();
+          }
+        },
+        'explicit',
+        connection,
+      );
       return woke ? 'synchronized' : 'ignored';
     },
   };
