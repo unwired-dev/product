@@ -484,12 +484,12 @@ describe('remote message content in the reader', () => {
         fireEvent(webview, 'contentSizeChange', {
           nativeEvent: {
             contentSize: { width: 320, height: 40_000 },
-            remoteImages: [{ index: 0, top: 20_500, bottom: 20_600 }],
+            remoteImages: [{ index: 0, top: 20_000, bottom: 20_100 }],
           },
         });
       });
-      // Below the view's bottom edge, it stays hidden beside the reader's visible range.
-      await scrollReader(20_000);
+      // Starting at the view's bottom edge, it stays hidden beside the reader's visible range.
+      await scrollReader(19_600);
       expect(gmail.remoteFetches).toStrictEqual([]);
       await scrollReader(0);
       await act(() => {

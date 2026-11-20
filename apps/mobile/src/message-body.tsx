@@ -534,7 +534,7 @@ function RichDocument({
             const upper = Math.max(shown + position.top, top);
             const lower = Math.min(shown + position.bottom, bottom);
             return (
-              upper <= lower &&
+              upper < lower &&
               lower >= offset - visible &&
               upper <= offset + 2 * visible
             );
@@ -572,7 +572,9 @@ function RichDocument({
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
+          // The replacement view reports its images afresh; the old ones are withdrawn.
           inner.current = 0;
+          onNear([]);
           setHeight(undefined);
           setLayout((count) => count + 1);
         }
