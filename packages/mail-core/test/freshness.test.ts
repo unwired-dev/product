@@ -428,40 +428,52 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     });
   });
 
+  // Every connection's own cache in one reply, but the last connection's entry is `last`.
+  const replacingLast =
+    (last: unknown) =>
+    async (ids: readonly string[], native: NativeGmailMailboxes) =>
+      Object.fromEntries([
+        ...(await Promise.all(
+          ids.map(
+            async (id) =>
+              [id, { cache: await native.openMailbox(id) }] as const,
+          ),
+        )),
+        ...ids.slice(-1).map((id) => [id, last] as const),
+      ]);
+
   it.each([
     {
       reply: 'whole',
       answer: (ids: readonly string[], native: NativeGmailMailboxes) =>
         native.openSavedMailboxes(ids),
+      kinds: ['ready', 'ready'],
       shown: [['Saved for b@example.invalid'], ['Saved for c@example.invalid']],
     },
     {
-      // A malformed reply fails only its own connection.
+      // A failed or malformed reply fails only its own connection, with its own code.
+      reply: 'locked',
+      answer: replacingLast({ code: 'locked' }),
+      kinds: ['ready', 'locked'],
+      shown: [['Saved for b@example.invalid'], []],
+    },
+    {
       reply: 'malformed',
-      answer: async (ids: readonly string[], native: NativeGmailMailboxes) =>
-        Object.fromEntries([
-          ...(await Promise.all(
-            ids.map(
-              async (id) =>
-                [id, { cache: await native.openMailbox(id) }] as const,
-            ),
-          )),
-          ...ids.slice(-1).map((id) => [id, { code: 42 }] as const),
-        ]),
+      answer: replacingLast({ code: 42 }),
+      kinds: ['ready', 'failed'],
       shown: [['Saved for b@example.invalid'], []],
     },
     {
       reply: 'rejected',
       answer: async () => {
-        throw Object.assign(new Error('Synthetic revoked'), {
-          code: 'revoked',
-        });
+        throw Object.assign(new Error('Synthetic locked'), { code: 'locked' });
       },
+      kinds: ['locked', 'locked'],
       shown: [[], []],
     },
   ] as const)(
     'opens the other mailboxes’ saved listings in one native call after a wake that launched the app, with a $reply reply',
-    async ({ answer, shown }) => {
+    async ({ answer, kinds, shown }) => {
       expect.hasAssertions();
       const synthetic = await createRegistrationScenario(
         'registration-success',
@@ -510,10 +522,16 @@ describe('keeping Gmail fresh through application lifecycles', () => {
       expect({
         batches,
         single: single.filter((id) => id !== routed),
+        kinds: others.map(
+          (id) =>
+            mailboxes.getSnapshot().find((mailbox) => mailbox.id === id)?.state
+              .kind,
+        ),
         shown: others.map((id) => subjects(mailboxes, id)),
       }).toStrictEqual({
         batches: [others],
         single: [],
+        kinds,
         shown,
       });
     },
