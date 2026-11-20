@@ -718,11 +718,10 @@ final class InboxTests: XCTestCase {
     }
     app.terminate()
     app.launch()
-    // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
-    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
-    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
-    XCTAssertTrue(contact.exists)
-    app.buttons[settingsExit].tap()
+    // Setup is confirmed, so relaunch opens the unified Inbox from the encrypted Microsoft cache.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 20))
+    }
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -1239,7 +1238,11 @@ final class InboxTests: XCTestCase {
       waitUntil { back.isHittable && !switcher.isHittable }
       back.tap()
     } else if !switcher.exists || !switcher.isHittable {
-      app.navigationBars.buttons.firstMatch.tap()
+      if app.buttons["Show Sidebar"].exists {
+        showSidebar(app)
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
     // #1800: the Profile Menu draws Work's monogram in full colour rather than tinted, and the
