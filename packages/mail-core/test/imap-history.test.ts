@@ -145,13 +145,10 @@ describe('imap historical metadata backfill', () => {
       },
     });
     await inbox.load();
+    // Ending the first history read hands the permit to the second synchronization and queues the
+    // next step behind it, before that synchronization lists folders.
     await vi.waitFor(() => {
       expect(order).toStrictEqual(['synchronization', 'synchronization']);
-    });
-    // The backfill queues its next step behind the held synchronization.
-    // oxlint-disable-next-line promise/avoid-new -- Let the backfill loop reach the permit.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
     });
 
     const third = inbox.load();

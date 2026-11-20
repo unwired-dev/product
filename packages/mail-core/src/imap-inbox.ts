@@ -105,6 +105,7 @@ import {
 import {
   createBodyLoads,
   downloadFailure,
+  foregroundPermit,
   reportArrivals,
   sendRejection,
 } from './inbox-store.ts';
@@ -854,18 +855,8 @@ export function createImapInbox(
   }> = {},
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
+  const foreground = foregroundPermit(semaphore);
   const speculativeLane = Semaphore.makeUnsafe(1);
-  // Synchronizations waiting for the permit; a history step steps aside for them.
-  let queuedSynchronizations = 0;
-  const synchronizing = <A, E, R>(effect: Effect.Effect<A, E, R>) => {
-    queuedSynchronizations += 1;
-    return semaphore.withPermit(
-      Effect.suspend(() => {
-        queuedSynchronizations -= 1;
-        return effect;
-      }),
-    );
-  };
   const listeners = new Set<() => void>();
   // Runs `use` in one authenticated server session and always closes it, also when `use` fails
   // or is interrupted; closing cancels a command still in flight.
@@ -2134,7 +2125,7 @@ export function createImapInbox(
   // leave the changes saved for the next opportunity.
   const drainNow = () =>
     runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         drain.pipe(
           Effect.catchIf(
             ({ kind }) => kind === 'conflict' || kind === 'invalidated',
@@ -2219,7 +2210,7 @@ export function createImapInbox(
       return drainNow();
     }
     return runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.gen(function* () {
           if (document !== undefined && unsent(target.id)) {
             yield* commit({
@@ -2247,7 +2238,7 @@ export function createImapInbox(
     response: InvitationResponse | undefined,
   ) =>
     runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.gen(function* () {
           if (document === undefined || forgotten) {
             return false;
@@ -2268,7 +2259,7 @@ export function createImapInbox(
   // Discard acknowledges an unknown move outcome without replaying it; later changes may resume.
   const discardPending = (id: string) =>
     runLogged(
-      semaphore.withPermit(
+      foreground.withPermit(
         Effect.gen(function* () {
           yield* open;
           const head = blockedChange();
@@ -2297,7 +2288,7 @@ export function createImapInbox(
   // already shows; a conflicting commit from another window starts again from the cache once.
   const load = () =>
     runLogged(
-      synchronizing(
+      foreground.withPermit(
         Effect.suspend(() => {
           // Internal retries must preserve a refusal raised during this load.
           authenticationRejected = false;
@@ -2416,7 +2407,7 @@ export function createImapInbox(
       showFolder(name, 'current');
     });
     return runLogged(
-      synchronizing(
+      foreground.withPermit(
         read(false).pipe(
           Effect.catchIf(
             (failure) =>
@@ -3160,9 +3151,9 @@ export function createImapInbox(
       backfilling = false;
       return;
     }
-    // A read or synchronization may have queued while either permit was queued.
+    // A read or another request may have queued while either permit was queued.
     const step = Effect.suspend(() =>
-      shared.idle.isOpen() && queuedSynchronizations === 0
+      shared.idle.isOpen() && !foreground.pending()
         ? backfillStep(scope)
         : Effect.succeed(true),
     );
