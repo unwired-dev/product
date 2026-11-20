@@ -915,13 +915,15 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   **Add an IMAP Mailbox** › **Other IMAP Account** then filled in `imap.seznam.cz` 993
   (TLS) and `smtp.seznam.cz` 465 (SSL/TLS) from the catalog for the Seznam Email address,
   and that mailbox connected with its mail-client password. After **Connect**, Email
-  Accounts listed each mailbox as **Updated just now**. Before the run, one test message was submitted over SMTP from
-  each mailbox to the other. Each Inbox listed real messages, and the test message opened
+  Accounts listed each mailbox as **Updated just now**. Before the mailboxes were
+  connected, one test message was submitted over SMTP from each mailbox to the other.
+  Each Inbox listed real messages, and the test message opened
   in the reader beside the list in each mailbox, which set its `\Seen` flag on the server.
   A new message from iCloud Mail showed **Sending soon** with **Undo**, then **Sending…**
   and **Sent. Saving a copy to Sent…**. The row then left the Outbox, and the message
-  appeared in the Seznam Email Inbox in the app. A reply from Seznam Email went the same
-  way and appeared in the iCloud Mail Inbox in the app. Over IMAP, its `In-Reply-To`
+  appeared in the Seznam Email Inbox in the app. A reply from Seznam Email showed **Sending
+  soon** with **Undo**, then **Sent. Saving a copy to Sent…**, left the Outbox and
+  appeared in the iCloud Mail Inbox in the app. Over IMAP, its `In-Reply-To`
   named the original's Message-ID and its `References` included it. Each sending
   mailbox's Sent folder held exactly one copy, with the same Message-ID as the delivered
   message, and the app listed that one copy in each Sent folder. Afterwards no run
@@ -929,8 +931,8 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   typed in the composer opened the system Contacts access prompt, which interrupted the
   address. Contacts access was then denied from the operator's tools, which ended the
   app. After launch the composer offered to restore the unsaved message, and the
-  restored message was completed and sent. The first tap on the reply's **Send** did not
-  send it, and a second tap did; this was not reproduced. Mac, iPad organizing, search,
+  restored message was completed and sent. After the first tap on the reply's **Send**, no
+  Outbox row appeared for 20 seconds; a second tap sent it. It was not tried again. Mac, iPad organizing, search,
   attachments, IDLE and relaunch, recovery and large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
