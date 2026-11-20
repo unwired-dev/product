@@ -826,7 +826,10 @@ are kept ([#2054](https://github.com/unwired-dev/product/issues/2054)). `journal
 Draft this account's session never listed, so an editor opened before a Product
 Account change cannot write under the new account.
 
-The composers on iPhone, iPad and Mac journal their unsaved version two seconds
+The composers on iPhone, iPad and Mac share one recovery journal per open composer
+(`@private-email/mail-core/recovery-journal`,
+[#2492](https://github.com/unwired-dev/product/issues/2492)); each client reports its
+own edits, foreground returns and closes to it. They journal their unsaved version two seconds
 after an edit, so continuous typing is recorded every two seconds, and again when
 the app returns to the foreground, which writes a record that locked storage
 refused. A version undone back to the stored one removes its record; a removal
@@ -835,7 +838,9 @@ to the foreground, and never takes a record written after it
 ([#2381](https://github.com/unwired-dev/product/issues/2381)). Closing the
 composer removes it: **Save Draft**, **Save**, **Send**, **Delete Draft**,
 **Don’t Save**, **Discard**, and a **Close** that removes an empty Draft or leaves
-an unchanged one. While another composer has the same Draft open, the record stays
+an unchanged one; on the Mac, Quit waits for that removal. A composer that goes
+without closing, as when its window is torn down, cancels its pending write and
+leaves other windows' writes alone. While another composer has the same Draft open, the record stays
 until that composer closes too. A record the previous run left and the person has
 not answered yet stays through a close that keeps its Draft listed. Both composers
 write the same record, so it holds the version journaled last. A version the

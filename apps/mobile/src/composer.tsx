@@ -80,6 +80,7 @@ import {
 } from '@private-email/mail-core/drafts';
 import { applyTemplate } from '@private-email/mail-core/mail-templates';
 import { inboxMessages } from '@private-email/mail-core/mailboxes';
+import { createRecoveryJournal } from '@private-email/mail-core/recovery-journal';
 import {
   applyText,
   blockKindAt,
@@ -2905,103 +2906,48 @@ function ReplyFooter({
   );
 }
 
-// How long after an edit its composer recovery record is written: the most typing that ending the
-// app can lose (ADR 0077).
-const journalDelay = 2000;
 // Whether the Drafts store holds every edit it was given.
 const savedOf = (state: DraftsState) =>
   state.kind === 'ready' && state.save === 'saved';
 
-// Keeps the editor's unsaved version and the stored version it started from, which `unsaved`
-// returns, in a composer recovery record a few seconds after each `edited` change and when the app returns to the foreground, retrying a
-// record locked storage refused. The records it wrote go once the version is unchanged again; a
-// removal storage refused is tried again on the next write. The
-// first returned function closes the journal, removing those records and that of Draft `id` the
-// editor closes on, which another editor's journal may have written. The second journals at once,
-// as after a save that keeps the editor open; the third too, unless unsaved edits have a write
-// scheduled. A version unsaved from the start, as
-// a restored recovery record, counts as written.
+// Keeps the editor's unsaved version, which `unsaved` returns, in a composer recovery record
+// through the shared journal (ADR 0077): a few seconds after each `edited` change and when the app
+// returns to the foreground. The first returned function closes the journal on Draft `id` the
+// editor closes on and resolves once its records are gone. The
+// second journals at once, as after a save that keeps the editor open; the third too, unless
+// unsaved edits have a write scheduled.
 function useRecoveryJournal(
   edited: unknown,
   unsaved: () => Recovery | undefined,
   editor: (id: string) => void,
 ) {
   const store = useDraftStore();
-  // Each Draft id journaled, with its latest write or removal: only the latest, once storage accepts
-  // its removal, retires it.
-  const journaled = useRef(new Map<string, object>());
-  useEffect(() => {
-    const restored = unsaved();
-    if (restored !== undefined) {
-      journaled.current.set(restored.version.id, {});
-    }
-  }, [unsaved]);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const closed = useRef(false);
-  const forget = useCallback(
-    () =>
-      Promise.allSettled(
-        [...journaled.current.keys()].map(async (id) => {
-          const attempt = {};
-          journaled.current.set(id, attempt);
-          if (
-            (await store.forget(id, editor)) &&
-            journaled.current.get(id) === attempt
-          ) {
-            journaled.current.delete(id);
-          }
-        }),
-      ),
-    [editor, store],
+  const journal = useMemo(
+    () => createRecoveryJournal(store, unsaved, editor),
+    [editor, store, unsaved],
   );
-  const write = useCallback(() => {
-    clearTimeout(timer.current);
-    timer.current = undefined;
-    const kept = closed.current ? undefined : unsaved();
-    if (kept === undefined) {
-      void forget();
-      return;
-    }
-    journaled.current.set(kept.version.id, {});
-    void store.journal(kept.version, kept.base);
-  }, [forget, store, unsaved]);
+  useEffect(() => {
+    journal.adopt();
+  }, [journal]);
   const seen = useRef(edited);
   useEffect(() => {
-    if (seen.current === edited) {
-      return;
-    }
-    seen.current = edited;
-    if (timer.current === undefined && !closed.current) {
-      timer.current = setTimeout(write, journalDelay);
+    if (seen.current !== edited) {
+      seen.current = edited;
+      journal.edited();
     }
   });
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active' && !closed.current) {
-        write();
+      if (next === 'active') {
+        journal.resume();
       }
     });
     return () => {
       subscription.remove();
-      clearTimeout(timer.current);
-      timer.current = undefined;
+      journal.dispose();
     };
-  }, [write]);
-  const close = useCallback(
-    (id: string) => {
-      closed.current = true;
-      journaled.current.set(id, {});
-      write();
-    },
-    [write],
-  );
-  // Writes at once, except that unsaved edits keep a write already scheduled for them.
-  const settle = useCallback(() => {
-    if (timer.current === undefined || unsaved() === undefined) {
-      write();
-    }
-  }, [unsaved, write]);
-  return [close, write, settle] as const;
+  }, [journal]);
+  return [journal.close, journal.write, journal.settle] as const;
 }
 
 // A Product Account's offer of the composer recovery records the previous run left: those already
@@ -4318,7 +4264,7 @@ function Editor({
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
     if (closed) {
-      closeRecord(authored.current.id);
+      void closeRecord(authored.current.id);
     }
     finishOperation();
     answerLeave(closed);
