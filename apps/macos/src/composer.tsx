@@ -3429,6 +3429,8 @@ function Editor({
   const asked = useRef(false);
   // Whether Close offers to return the Draft to an Inbox window: Quit leaves it in Drafts.
   const offersReturn = useRef(false);
+  // Whether Try Again retries a Save Draft that was returning the Draft to an Inbox window.
+  const retryReturn = useRef(false);
   const answerLeave = useCallback((allowed: boolean) => {
     const answer = leaving.current;
     leaving.current = undefined;
@@ -3813,10 +3815,10 @@ function Editor({
       return;
     }
     const handOver = take;
-    await saveDraft(() => {
+    retryReturn.current = !(await saveDraft(() => {
       handOver(authored.current.id);
       onClose();
-    });
+    }));
   };
   // A returning Draft asks this one to save first.
   useLayoutEffect(() => {
@@ -3835,6 +3837,7 @@ function Editor({
       if (choice === 0 && returnTo !== undefined && offersReturn.current) {
         void returnDraft(returnTo);
       } else if (choice === 0) {
+        retryReturn.current = false;
         void saveDraft();
       } else if (choice === 1) {
         void discard();
@@ -4135,7 +4138,11 @@ function Editor({
           refused={refused}
           blocked={blocked}
           onClose={() => {
-            void saveDraft();
+            if (retryReturn.current && returnTo !== undefined) {
+              void returnDraft(returnTo);
+            } else {
+              void saveDraft();
+            }
           }}
           onDiscard={() => {
             void discard();

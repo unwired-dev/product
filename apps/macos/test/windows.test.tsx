@@ -577,14 +577,8 @@ describe('mac window selection with the shared mock mailbox', () => {
       expect(app.queryByTestId('composer-overlay')).toBeNull();
       expect(closedWindows()).toStrictEqual([]);
       storage.setLocked(false);
-      await act(async () => {
-        DeviceEventEmitter.emit('windowShouldClose', {
-          window: 'composer-window-1',
-        });
-      });
-      await act(async () => {
-        chooseSheetButton('Save Draft');
-      });
+      // Try Again returns the Draft too.
+      await fireEvent.press(window.getByRole('button', { name: 'Try Again' }));
       await waitFor(() => {
         expect(closedWindows()).toContain('composer-window-1');
       });
@@ -813,6 +807,23 @@ describe('mac window selection with the shared mock mailbox', () => {
           'Subject',
         ),
       ).resolves.toHaveProp('value', 'Alone');
+      // That window opens the returned Draft once: switched to another Profile, it shows none.
+      await app.rerender(
+        <AccountContext
+          value={{
+            ...accountActions,
+            profiles: [{ id: 'work', name: 'Work' }],
+          }}>
+          <InboxWindow
+            windowId="returned"
+            profile="work"
+            draft={alone.draft}
+          />
+        </AccountContext>,
+      );
+      await waitFor(() => {
+        expect(app.queryByTestId('composer-overlay')).toBeNull();
+      });
     } finally {
       await app.unmount();
       replacement.restore();

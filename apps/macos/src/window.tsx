@@ -216,6 +216,11 @@ function ProfileWindow({
   const account = use(AccountContext);
   const profiles = account?.profiles;
   const owner = account?.account ?? '';
+  // The returned Draft opens once: contents remounted for another Profile start without it.
+  const [launch, setLaunch] = useState(draft);
+  const launched = useCallback(() => {
+    setLaunch(undefined);
+  }, []);
   // Another Product Account's choice never names this one's Profile.
   const current =
     choice?.account === (account?.account ?? '') ? choice.choice : undefined;
@@ -251,7 +256,8 @@ function ProfileWindow({
       <ProfileScope profile={profile}>
         <WindowContents
           windowId={windowId}
-          initialDraft={draft}
+          initialDraft={launch}
+          onInitialDraft={launched}
           initialSelection={opened}
           onOpenProfile={choose}
           onProfile={choose}
@@ -307,12 +313,14 @@ function SidebarToggle({
 function WindowContents({
   windowId,
   initialDraft,
+  onInitialDraft,
   initialSelection,
   onOpenProfile,
   onProfile,
 }: {
   readonly windowId: string;
   readonly initialDraft: string | undefined;
+  readonly onInitialDraft: () => void;
   readonly initialSelection: Selection | undefined;
   readonly onOpenProfile: (
     target: NonNullable<ReturnType<typeof openedTarget>>,
@@ -325,6 +333,7 @@ function WindowContents({
   );
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState(initialDraft);
+  useEffect(onInitialDraft, [onInitialDraft]);
   // The composer recovery record restored, while its composer is open under Draft `id`, which
   // follows the composer to a conflicting copy.
   const [recovered, setRecovered] = useState<{
