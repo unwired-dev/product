@@ -967,6 +967,84 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(phone.list()).toHaveLength(2);
   });
 
+  it('serves requests made during a pass with one follow-up pass, and retries an overtaken write at most three times', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a Draft');
+    await phone.drafts.sync();
+    await phone.drafts.update(
+      write(phone.draft(id), 'Edited'),
+      phone.draft(id),
+    );
+    const native = present(phone.storage.sync, 'sync boundary');
+    const original = native.pullDrafts;
+    const reading = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    // A pull that starts while the first one is held would overlap its pass.
+    let held = true;
+    let overlapped = false;
+    const pull = vi
+      .spyOn(native, 'pullDrafts')
+      .mockImplementation(async (...args) => {
+        overlapped ||= held;
+        return original(...args);
+      })
+      .mockImplementationOnce(async (...args) => {
+        reading.resolve(undefined);
+        await release.promise;
+        held = false;
+        return original(...args);
+      });
+    // Every write loses its compare-and-set, as if another device always wrote first.
+    const push = vi
+      .spyOn(native, 'pushDraft')
+      .mockResolvedValue({ owner: 'account-a', committed: false });
+    const first = phone.drafts.sync();
+    await reading.promise;
+    const during = [phone.drafts.sync(), phone.drafts.sync()];
+    release.resolve(undefined);
+    await Promise.all([first, ...during]);
+    // Three attempts for the first request, then three for the follow-up both later ones share.
+    expect(overlapped).toBe(false);
+    expect(pull).toHaveBeenCalledTimes(6);
+    expect(push).toHaveBeenCalledTimes(6);
+    push.mockRestore();
+    await phone.drafts.sync();
+    const mac = await device(server);
+    await mac.drafts.sync();
+    expect(mac.draft(id).body).toStrictEqual(phone.draft(id).body);
+  });
+
+  it('serves a request made while a pass settles with a follow-up pass', async () => {
+    expect.hasAssertions();
+    // Each delay lands the request at another point of the settling pass.
+    for (let delay = 0; delay < 10; delay += 1) {
+      const phone = await device(createSyntheticProductSync());
+      present(await phone.drafts.create(alex), 'a Draft');
+      await phone.drafts.sync();
+      const native = present(phone.storage.sync, 'sync boundary');
+      const original = native.pullDrafts;
+      let following: Promise<void> | undefined = undefined;
+      const pull = vi
+        .spyOn(native, 'pullDrafts')
+        .mockImplementationOnce(async (...args) => {
+          const result = original(...args);
+          void (async () => {
+            await result;
+            for (let tick = 0; tick < delay; tick += 1) {
+              await Promise.resolve();
+            }
+            following = phone.drafts.sync();
+          })();
+          return result;
+        });
+      await phone.drafts.sync();
+      await following;
+      expect(pull).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it('retains earlier committed publications when a later Draft interrupts the pass', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

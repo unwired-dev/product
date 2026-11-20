@@ -37,6 +37,8 @@ describe('draft key rotation', () => {
     );
     await drafts.sync();
     expect(adoptions).toBe(1);
+    // The refused write waits for the next request.
+    expect(server.identifiers('account-a')).not.toContain(`draft.${id}`);
     await drafts.sync();
     const mac = await device(server);
     await mac.drafts.sync();
