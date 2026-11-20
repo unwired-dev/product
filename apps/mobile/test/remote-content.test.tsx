@@ -460,6 +460,35 @@ describe('remote message content in the reader', () => {
       await app.unmount();
     }
   });
+
+  it('loads an image deep in a document taller than its view once it scrolls near', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const always = settingsWith('{"policy":"always","overrides":{}}');
+    await always.load();
+    const { gmail, app } = await openReader(always);
+    try {
+      const webview = await screen.findByTestId('message-webview');
+      // A large Message Zoom places the image past the view's 20,000-point height.
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: {
+            contentSize: { width: 320, height: 40_000 },
+            remoteImages: [{ index: 0, top: 26_900, bottom: 27_000 }],
+          },
+        });
+      });
+      expect(gmail.remoteFetches).toStrictEqual([]);
+      await act(() => {
+        fireEvent(webview, 'scroll', {
+          nativeEvent: { contentOffset: { y: 26_500 } },
+        });
+      });
+      expect(gmail.remoteFetches).toStrictEqual([source]);
+    } finally {
+      await app.unmount();
+    }
+  });
 });
 
 // The IMAP Inbox's only listed message.

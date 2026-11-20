@@ -21,6 +21,7 @@ import type {
 import type {
   ShouldStartLoadRequest,
   WebViewEvent,
+  WebViewScrollEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
 import {
@@ -500,6 +501,9 @@ function RichDocument({
   const [positions, setPositions] = useState<
     ReturnType<typeof decodeRemoteImagePositions>
   >([]);
+  // How far a document taller than its view has scrolled inside it, and the check it reruns.
+  const inner = useRef(0);
+  const near = useRef<() => void>(undefined);
   useEffect(() => {
     if (
       viewport === undefined ||
@@ -522,22 +526,24 @@ function RichDocument({
         if (!active || revision !== measurement) {
           return;
         }
-        // A document taller than its view scrolls inside it; only its first view is placed.
+        // A document taller than its view scrolls inside it, which moves its images up.
+        const shown = top - inner.current;
         const urls = positions
           .filter(
             (position) =>
-              position.top < heightCap &&
-              top + position.bottom >= offset - visible &&
-              top + position.top <= offset + 2 * visible,
+              shown + position.bottom >= offset - visible &&
+              shown + position.top <= offset + 2 * visible,
           )
           .flatMap(({ index }) => rich.remote.images[index] ?? []);
         onNear(urls);
       });
     };
     request();
+    near.current = request;
     const unsubscribe = viewport.subscribe(request);
     return () => {
       active = false;
+      near.current = undefined;
       unsubscribe();
     };
   }, [viewport, height, positions, rich, onNear]);
@@ -592,6 +598,10 @@ function RichDocument({
           }}
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
+          onScroll={({ nativeEvent }: WebViewScrollEvent) => {
+            inner.current = nativeEvent.contentOffset.y;
+            near.current?.();
+          }}
           // Every URL reaches `choose`; the wrapper would otherwise open unlisted origins itself.
           originWhitelist={['*']}
           // Without bounce, a sideways scroll keeps a normal-height document pinned vertically.
