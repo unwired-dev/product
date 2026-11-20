@@ -662,4 +662,67 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     stop();
     vi.useRealTimers();
   });
+
+  // Alex's Inbox paused until 13:20 by Gmail's usage limit, and an activation whose grant
+  // verifications met the same limit, so both saved Inboxes open from their caches (#2502).
+  const pausedWhileVerificationLimited = async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-20T13:00:00.000Z'));
+    const mail = await twoMailboxes();
+    const { mailboxes, freshness } = mail.launch();
+    await loaded(mailboxes);
+    const inbox = () =>
+      mailboxes.getSnapshot().find(({ id }) => id === alex)?.state;
+    mail.gmail.alex.fail({
+      status: 403,
+      body: JSON.stringify({
+        error: {
+          errors: [{ reason: 'rateLimitExceeded' }],
+          message: 'Rate limit exceeded. Retry after 2026-11-20T13:20:00.000Z',
+        },
+      }),
+    });
+    await mailboxes.load();
+    expect(inbox()).toMatchObject({ sync: 'retry', limit: { times: 1 } });
+    mail.setOnline(false);
+    await freshness.refresh();
+    expect(states(mail.registration)).toStrictEqual({
+      [alex]: 'cached',
+      [other]: 'cached',
+    });
+    mail.verifications.length = 0;
+    return { ...mail, freshness, inbox };
+  };
+
+  it("verifies only a paused mailbox at Gmail's time, after its verification met the usage limit", async () => {
+    expect.hasAssertions();
+    const { registration, verifications, setOnline, inbox } =
+      await pausedWhileVerificationLimited();
+    setOnline(true);
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    await vi.waitFor(() => {
+      expect(inbox()).toMatchObject({ sync: 'current' });
+    });
+    expect({ verifications, states: states(registration) }).toStrictEqual({
+      verifications: [alex],
+      states: { [alex]: 'connected', [other]: 'cached' },
+    });
+    vi.useRealTimers();
+  });
+
+  it("ends the pause at Gmail's time when verification still meets the limit, until it verifies again", async () => {
+    expect.hasAssertions();
+    const { verifications, setOnline, inbox, freshness } =
+      await pausedWhileVerificationLimited();
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    await vi.waitFor(() => {
+      expect(verifications).toStrictEqual([alex]);
+    });
+    expect(inbox()).toMatchObject({ sync: 'retry' });
+    expect(inbox()).not.toHaveProperty('limit');
+    setOnline(true);
+    await freshness.refresh();
+    expect(inbox()).toMatchObject({ sync: 'current' });
+    vi.useRealTimers();
+  });
 });

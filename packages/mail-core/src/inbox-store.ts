@@ -3508,6 +3508,14 @@ export function createInboxStore(
     failedViews.clear();
     let document = Option.getOrUndefined(yield* documentOf(cache));
     if (cache.availability === 'retry') {
+      // A usage limit's pause whose time passed ends: the cache-only mailbox waits for
+      // registration to verify it again, never for a time already gone.
+      if (
+        pause !== undefined &&
+        DateTime.toEpochMillis(started) >= pause.until
+      ) {
+        endPause();
+      }
       return yield* ready(cache, document, 'retry');
     }
     yield* ready(cache, document, 'syncing');
@@ -3617,11 +3625,12 @@ export function createInboxStore(
   // timer waits at most about 24.8 days, so a later time of Gmail's waits again until it comes.
   function resumeAfter(delay: number) {
     const pausedFor = ownership;
+    const current = () => pausedFor === ownership && !forgotten;
     clearTimeout(resume);
     resume = setTimeout(
       () => {
         resume = undefined;
-        if (pausedFor !== ownership || forgotten) {
+        if (!current()) {
           return;
         }
         // Only Gmail's own time follows the clock; a backoff has waited its time.
@@ -3631,7 +3640,12 @@ export function createInboxStore(
           resumeAfter(left);
           return;
         }
-        void verify(load);
+        // Verification can close or replace this Inbox before it synchronizes.
+        void verify(async () => {
+          if (current()) {
+            await load();
+          }
+        });
       },
       Math.min(delay, longestTimer),
     );

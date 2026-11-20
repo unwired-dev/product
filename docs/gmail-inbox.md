@@ -1625,7 +1625,9 @@ each limit in a row up to half an hour, and earlier when the person asks for
 it; organizing changes still wait for that synchronization. Each of these
 automatic attempts first verifies only that mailbox's grant again, as a
 [push wake](#freshness-across-app-lifecycles) does, so a mailbox whose verification met the limit
-synchronizes too. The
+synchronizes too. If that verification meets the limit again, the pause ends and the
+saved Inbox stays open until a later verification: an activation, a pull, **Try
+Again** or the app's periodic check. The
 Inbox counts the day's limits for the status text. A completed synchronization ends
 the wait sequence; a refused grant, closing the Inbox or removing the mailbox ends
 the pause.

@@ -812,52 +812,6 @@ describe('pausing at a Gmail usage limit', () => {
     expect(gmail.modifies).toHaveLength(1);
   });
 
-  it("at Gmail's time verifies the connection again before synchronizing it", async () => {
-    expect.hasAssertions();
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(new Date('2026-11-20T13:00:00.000Z'));
-    onTestFinished(() => {
-      vi.useRealTimers();
-    });
-    const gmail = createSyntheticGmail();
-    gmail.deliver({ subject: 'Saved before the limit' });
-    // A grant verification that met the usage limit leaves the connection cache-only, so native
-    // code refuses its Gmail requests until registration verifies it again (#2502).
-    const verified = gmail.native.gmailRequest;
-    const cacheOnly: typeof verified = (...request) => {
-      gmail.fail({ code: 'unavailable' });
-      return verified(...request);
-    };
-    let gmailRequest = verified;
-    const inbox = createInboxStore(
-      {
-        ...gmail.native,
-        gmailRequest: (...request) => gmailRequest(...request),
-      },
-      {
-        verify: async (load) => {
-          gmailRequest = verified;
-          await load();
-        },
-      },
-    );
-    await inbox.load();
-    gmail.fail({
-      status: 403,
-      body: limitBody(
-        'rateLimitExceeded',
-        'Rate limit exceeded. Retry after 2026-11-20T13:20:00.000Z',
-      ),
-    });
-    await inbox.load();
-    gmailRequest = cacheOnly;
-    await vi.advanceTimersByTimeAsync(20 * 60_000);
-    await vi.waitFor(() => {
-      expect(ready(inbox.getSnapshot()).sync).toBe('current');
-    });
-    expect(ready(inbox.getSnapshot())).not.toHaveProperty('limit');
-  });
-
   it("without Gmail's time, tries again with growing waits, counting today's limits", async () => {
     expect.hasAssertions();
     const { gmail, inbox, message } = await synchronized();
