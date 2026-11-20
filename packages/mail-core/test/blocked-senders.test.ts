@@ -760,11 +760,19 @@ describe('synchronized Blocked Senders', () => {
     const original = mac.sync!.pullBlockedSenders;
     const reading = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
+    // A pull that starts while the first one is held would overlap its pass.
+    let held = true;
+    let overlapped = false;
     const pull = vi
       .spyOn(mac.sync!, 'pullBlockedSenders')
+      .mockImplementation(async (...args) => {
+        overlapped ||= held;
+        return original(...args);
+      })
       .mockImplementationOnce(async (...args) => {
         reading.resolve(undefined);
         await release.promise;
+        held = false;
         return original(...args);
       });
     // Every write loses its compare-and-set, as if another device always wrote first.
@@ -778,6 +786,7 @@ describe('synchronized Blocked Senders', () => {
     release.resolve(undefined);
     await Promise.all(during);
     // Three attempts for the block's request, then three for the follow-up both later ones share.
+    expect(overlapped).toBe(false);
     expect(pull).toHaveBeenCalledTimes(6);
     expect(push).toHaveBeenCalledTimes(6);
     push.mockRestore();
