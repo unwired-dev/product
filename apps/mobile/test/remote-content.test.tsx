@@ -582,6 +582,49 @@ describe('remote message content in the reader', () => {
       setMessageZoom(100);
     }
   });
+
+  it('keeps the text being read in place when an image refits a wide message to a new scale', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    const always = settingsWith('{"policy":"always","overrides":{}}');
+    await always.load();
+    const { app, scroll } = await openReader(always);
+    try {
+      const webview = await screen.findByTestId('message-webview');
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: { ...measured(0), fitScale: 0.5 },
+        });
+      });
+      // The person reads 1,000 points into the document, which starts 200 points down.
+      await act(() => {
+        fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y: 1200 },
+            layoutMeasurement: { height: 600 },
+          },
+        });
+      });
+      // A narrower document refits from half size to 80%, so the same text is 1,600 points in.
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: {
+            ...measured(0),
+            contentSize: { width: 320, height: 6400 },
+            fitScale: 0.8,
+          },
+        });
+      });
+      expect(scrollTo.mock.calls).toStrictEqual([
+        [{ y: 1800, animated: false }],
+      ]);
+    } finally {
+      await app.unmount();
+    }
+  });
 });
 
 // The IMAP Inbox's only listed message.

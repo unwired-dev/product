@@ -18,7 +18,7 @@ index 2be787788..eaaf90a29 100644
  
  // Needed because of this: https://github.com/facebook/react-native/pull/37274
  + (void)load
-@@ -204,6 +204,28 @@ - (instancetype)initWithFrame:(CGRect)frame
+@@ -204,6 +204,29 @@ - (instancetype)initWithFrame:(CGRect)frame
                  webViewEventEmitter->onContentProcessDidTerminate(data);
              }
          };
@@ -39,7 +39,8 @@ index 2be787788..eaaf90a29 100644
 +                        .width = [[size valueForKey:@"width"] doubleValue],
 +                        .height = [[size valueForKey:@"height"] doubleValue]
 +                    },
-+                    .remoteImages = remoteImages
++                    .remoteImages = remoteImages,
++                    .fitScale = [[dictionary valueForKey:@"fitScale"] doubleValue]
 +                };
 +                webViewEventEmitter->onContentSizeChange(data);
 +            }
@@ -47,7 +48,7 @@ index 2be787788..eaaf90a29 100644
          _view.onCustomMenuSelection = [self](NSDictionary* dictionary) {
              if (_eventEmitter) {
                  auto webViewEventEmitter = std::static_pointer_cast<RNCWebViewEventEmitter const>(_eventEmitter);
-@@ -291,6 +313,7 @@ - (void)updateProps:(Props::Shared const &)props oldProps:(Props::Shared const &
+@@ -291,6 +314,7 @@ - (void)updateProps:(Props::Shared const &)props oldProps:(Props::Shared const &
  
      REMAP_WEBVIEW_PROP(scrollEnabled)
      REMAP_WEBVIEW_STRING_PROP(injectedJavaScript)
@@ -201,7 +202,7 @@ index 38904266d..61df5fd36 100644
  /**
   * Called when the navigation is complete.
   * @see https://fburl.com/rtys6jlb
-@@ -1589,6 +1640,78 @@ - (void)webView:(WKWebView *)webView
+@@ -1589,6 +1640,80 @@ - (void)webView:(WKWebView *)webView
    if (_onLoadingFinish) {
      _onLoadingFinish([self baseEvent]);
    }
@@ -233,8 +234,9 @@ index 38904266d..61df5fd36 100644
 +  // Only app-sanitized image nodes change; the document, text, typography and scroll stay.
 +  // A document marked to fit is shrunk in place to the view's width from its unscaled width, keeps
 +  // the content at the top of its own scroll, and measures to its shrunk bottom, as the root never
-+  // measures shorter than the view.
-+  [_webView callAsyncJavaScript:@"globalThis.__unwiredRemoteRevision = revision;\nconst pending = [];\nfor (const element of document.querySelectorAll('[data-remote]')) {\n  const index = Number(element.dataset.remote), html = nodes[index];\n  if (typeof html !== 'string') continue;\n  const template = document.createElement('template');\n  template.innerHTML = html;\n  const next = template.content.firstElementChild;\n  if (template.content.childNodes.length !== 1 || !next || !['IMG', 'SPAN'].includes(next.tagName) || Number(next.dataset.remote) !== index) throw new Error('Invalid remote node');\n  if (next.tagName === 'IMG' && !next.getAttribute('src').startsWith('data:image/')) throw new Error('Nonlocal remote image');\n  if (element.outerHTML === next.outerHTML) continue;\n  element.replaceWith(next);\n  if (next.tagName === 'IMG') pending.push(next.decode().catch(() => undefined));\n}\nawait Promise.all(pending);\nif (globalThis.__unwiredRemoteRevision !== revision) return null;\nconst root = document.documentElement, body = document.body;\nlet height = root.scrollHeight;\nif (body && getComputedStyle(root).getPropertyValue('--unwired-fit').trim() === '1') {\n  const before = globalThis.__unwiredFitScale ?? 1, top = window.scrollY / before;\n  body.style.removeProperty('transform');\n  const view = root.clientWidth, wide = root.scrollWidth;\n  const scale = wide > view ? Math.floor((view * 10000) / wide) / 10000 : 1;\n  if (scale !== 1) body.style.setProperty('transform', 'scale(' + scale + ')');\n  globalThis.__unwiredFitScale = scale;\n  if (scale !== before) window.scrollTo(window.scrollX, top * scale);\n  height = Math.max(1, Math.ceil(body.getBoundingClientRect().bottom + window.scrollY));\n}\nreturn [root.scrollWidth, height, Array.from(document.querySelectorAll('[data-remote]'), (element) => { const box = element.getBoundingClientRect(); return [Number(element.dataset.remote), box.top + window.scrollY, box.bottom + window.scrollY]; })];"
++  // measures shorter than the view. Only content that overflows, on either side, widens the body
++  // to its widest content first; text that wraps within the view keeps its normal layout.
++  [_webView callAsyncJavaScript:@"globalThis.__unwiredRemoteRevision = revision;\nconst pending = [];\nfor (const element of document.querySelectorAll('[data-remote]')) {\n  const index = Number(element.dataset.remote), html = nodes[index];\n  if (typeof html !== 'string') continue;\n  const template = document.createElement('template');\n  template.innerHTML = html;\n  const next = template.content.firstElementChild;\n  if (template.content.childNodes.length !== 1 || !next || !['IMG', 'SPAN'].includes(next.tagName) || Number(next.dataset.remote) !== index) throw new Error('Invalid remote node');\n  if (next.tagName === 'IMG' && !next.getAttribute('src').startsWith('data:image/')) throw new Error('Nonlocal remote image');\n  if (element.outerHTML === next.outerHTML) continue;\n  element.replaceWith(next);\n  if (next.tagName === 'IMG') pending.push(next.decode().catch(() => undefined));\n}\nawait Promise.all(pending);\nif (globalThis.__unwiredRemoteRevision !== revision) return null;\nconst root = document.documentElement, body = document.body;\nlet height = root.scrollHeight;\nif (body && getComputedStyle(root).getPropertyValue('--unwired-fit').trim() === '1') {\n  const before = globalThis.__unwiredFitScale ?? 1, top = window.scrollY / before;\n  for (const property of ['transform', 'width', 'min-width']) body.style.removeProperty(property);\n  const view = root.clientWidth;\n  let wide = root.scrollWidth;\n  if (wide > view || Array.prototype.some.call(body.getElementsByTagName('*'), (element) => element.getBoundingClientRect().left < -0.5)) {\n    body.style.setProperty('width', 'fit-content');\n    body.style.setProperty('min-width', '100%');\n    wide = root.scrollWidth;\n  }\n  const scale = wide > view ? Math.floor((view * 10000) / wide) / 10000 : 1;\n  if (scale !== 1) body.style.setProperty('transform', 'scale(' + scale + ')');\n  globalThis.__unwiredFitScale = scale;\n  if (scale !== before) window.scrollTo(window.scrollX, top * scale);\n  height = Math.max(1, Math.ceil(body.getBoundingClientRect().bottom + window.scrollY));\n}\nreturn [root.scrollWidth, height, Array.from(document.querySelectorAll('[data-remote]'), (element) => { const box = element.getBoundingClientRect(); return [Number(element.dataset.remote), box.top + window.scrollY, box.bottom + window.scrollY]; }), globalThis.__unwiredFitScale ?? 1];"
 +                      arguments:@{@"nodes": nodes, @"revision": @(revision)}
 +                        inFrame:nil
 +                 inContentWorld:WKContentWorld.defaultClientWorld
@@ -245,7 +247,7 @@ index 38904266d..61df5fd36 100644
 +      return;
 +    }
 +    NSArray *size = [result isKindOfClass:[NSArray class]] ? result : nil;
-+    BOOL valid = error == nil && size.count == 3 &&
++    BOOL valid = error == nil && size.count == 4 &&
 +      [size[0] isKindOfClass:[NSNumber class]] && [size[1] isKindOfClass:[NSNumber class]] &&
 +      isfinite([size[0] doubleValue]) && isfinite([size[1] doubleValue]) &&
 +      [size[0] doubleValue] > 0 && [size[1] doubleValue] > 0;
@@ -274,7 +276,8 @@ index 38904266d..61df5fd36 100644
 +    }
 +    strongSelf->_onContentSizeChange(@{
 +      @"contentSize": @{@"width": size[0], @"height": size[1]},
-+      @"remoteImages": remoteImages
++      @"remoteImages": remoteImages,
++      @"fitScale": size[3]
 +    });
 +  }];
  }
@@ -297,20 +300,22 @@ diff --git a/src/RNCWebViewNativeComponent.ts b/src/RNCWebViewNativeComponent.ts
 index ca3af151a..70be2e042 100644
 --- a/src/RNCWebViewNativeComponent.ts
 +++ b/src/RNCWebViewNativeComponent.ts
-@@ -16,6 +16,12 @@ export type WebViewNativeEvent = Readonly<{
+@@ -16,6 +16,14 @@ export type WebViewNativeEvent = Readonly<{
    canGoForward: boolean;
    lockIdentifier: Double;
  }>;
 +// Product patch: the document size measured without page JavaScript, on Apple platforms too,
-+// with each blocked remote image placeholder's document offsets.
++// with each blocked remote image placeholder's document offsets and the scale a document marked
++// to fit was shrunk to.
 +export type WebViewContentSizeEvent = Readonly<{
 +  contentSize: Readonly<{ width: Double; height: Double }>;
 +  remoteImages: { index: Int32; top: Double; bottom: Double }[];
++  fitScale: Double;
 +}>;
  export type WebViewCustomMenuSelectionEvent = Readonly<{
    label: string;
    key: string;
-@@ -149,7 +155,8 @@ export interface NativeProps extends ViewProps {
+@@ -149,7 +157,8 @@ export interface NativeProps extends ViewProps {
    minimumFontSize?: Int32;
    mixedContentMode?: WithDefault<'never' | 'always' | 'compatibility', 'never'>;
    nestedScrollEnabled?: boolean;

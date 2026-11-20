@@ -24,6 +24,7 @@ export type { MessagePresentation } from './message-presentation.ts';
 export {
   contentIdsOf,
   decodeMessageContentSize,
+  decodeMessageFitScale,
   decodeRemoteImagePositions,
   presentation,
 } from './message-presentation.ts';

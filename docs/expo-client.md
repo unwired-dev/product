@@ -437,14 +437,17 @@ device's user defaults (`UnwiredMessageZoom`). **Fit Wide Messages to the Screen
 the frames and iOS Mail, shrinks a formatted message wider than the reader to its
 width at every Message Zoom; off, it scrolls sideways. CSS `zoom` cannot fit:
 WebKit's minimum font size and optical sizing keep the text wider. The reader
-instead marks the document with app-owned CSS: `--unwired-fit`, and a body that
-grows to its widest content (`display:flow-root`, `width:fit-content`,
-`min-width:100%`), so floats and right-aligned content shrink with it. Each measurement in the
-patched WebView's isolated client world, at load and after every remote image
-update, sets the body's `transform: scale()` to the view's width over the unscaled
-width, or removes it, in the same navigation. It keeps the content at the top of
-WebKit's own scroll and reports the shrunk body's bottom as the height, since the
-root never measures shorter than the view. The reader's WebView uses WebKit's mobile content
+instead marks the document with app-owned CSS: `--unwired-fit`, a zero-height
+root, so WebKit's own scroll ends at the shrunk content, and a `display:flow-root`
+body, so floats shrink with it. Each measurement in the patched WebView's isolated
+client world, at load and after every remote image update, first lays the message
+out normally. Only content that overflows, on either side, widens the body to its
+widest content (`width:fit-content`, `min-width:100%`); text that wraps within
+the view keeps its size. The body's `transform: scale()` is then set to the view's
+width over the unscaled width, or removed, in the same navigation. It keeps the
+content at the top of WebKit's own scroll, reports the shrunk body's bottom as the
+height, since the root never measures shorter than the view, and reports the scale,
+so the reader moves its offset with a refit and the text being read stays in place. The reader's WebView uses WebKit's mobile content
 mode, so iPad, too, leaves a wide document to this fit instead of zooming it out
 with an unscaled height. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
 from the reader, and the Mac, follow in their own slices.

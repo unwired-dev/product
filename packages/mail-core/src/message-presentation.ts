@@ -72,6 +72,17 @@ export const decodeRemoteImagePositions = (
     Option.getOrElse(() => []),
   );
 
+const decodeFitScale = Schema.decodeUnknownOption(
+  Schema.Struct({ fitScale: Schema.Finite.check(Schema.isGreaterThan(0)) }),
+);
+
+// The scale a document marked to fit was shrunk to; 1 when the measurement carries none.
+export const decodeMessageFitScale = (nativeEvent: unknown): number =>
+  decodeFitScale(nativeEvent).pipe(
+    Option.map(({ fitScale }) => fitScale),
+    Option.getOrElse(() => 1),
+  );
+
 // App-owned sanitized nodes cross the native prop as data, never as executable script.
 // oxlint-disable-next-line node/no-sync -- Pure serialization of prepared reader markup.
 const encodeRemoteNodes = Schema.encodeSync(

@@ -48,6 +48,7 @@ import {
 } from '@private-email/mail-core/link-inspection';
 import {
   decodeMessageContentSize,
+  decodeMessageFitScale,
   decodeRemoteImagePositions,
   labelImagePlaceholders,
 } from '@private-email/mail-core/message-body';
@@ -524,6 +525,15 @@ function RichDocument({
   >([]);
   // How far the view has scrolled inside its document and its pinch zoom, and the check it reruns.
   const inner = useRef({ offset: 0, scale: 1 });
+  // The scale the document was last fitted to, and the reader offset to restore after a refit.
+  const fitScale = useRef(1);
+  const anchor = useRef<number>(undefined);
+  useLayoutEffect(() => {
+    if (anchor.current !== undefined) {
+      viewport?.scrollTo(anchor.current);
+      anchor.current = undefined;
+    }
+  });
   const near = useRef<() => void>(undefined);
   // The shown view's `layout`, advanced as soon as it is replaced so its late events are ignored.
   const live = useRef(0);
@@ -640,11 +650,45 @@ function RichDocument({
           onContentProcessDidTerminate={onFailure}
           onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
-            if (measured !== undefined && layout === live.current) {
+            if (measured === undefined || layout !== live.current) {
+              return;
+            }
+            const apply = () => {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured.height);
               setContentWidth(measured.width);
+            };
+            const scale = decodeMessageFitScale(event.nativeEvent);
+            const ratio = scale / fitScale.current;
+            fitScale.current = scale;
+            const content = viewport?.content();
+            if (
+              ratio === 1 ||
+              height === undefined ||
+              viewport === undefined ||
+              !content
+            ) {
+              apply();
+              return;
             }
+            // A refit to a new scale keeps the text being read at the top of the reader in place.
+            container.current?.measureLayout(content, (_left, top) => {
+              if (layout !== live.current) {
+                return;
+              }
+              const read = viewport.get().offset - top;
+              if (read > 0 && read < Math.min(height, heightCap)) {
+                const next =
+                  top +
+                  Math.min(read * ratio, Math.min(measured.height, heightCap));
+                if (measured.height === height) {
+                  viewport.scrollTo(next);
+                } else {
+                  anchor.current = next;
+                }
+              }
+              apply();
+            });
           }}
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
