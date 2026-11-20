@@ -20,6 +20,7 @@ import {
 import {
   imageCharacter,
   imagesOf,
+  imageWidthOf,
 } from '@private-email/mail-core/semantic-document';
 import {
   createSendReminders,
@@ -453,6 +454,43 @@ const textStyleMenu = () => {
   const props: unknown = screen.getByLabelText('Text style').props;
   ok(isStyleMenu(props));
   return props;
+};
+
+// The native context menu around a rendered control.
+const contextMenuAround = (element: Parameters<typeof fireEvent.press>[0]) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredContextMenu') {
+    node = node.parent;
+  }
+  ok(node, 'Expected a context menu');
+  return node;
+};
+
+// An asset row's context menu, which a touch and hold opens.
+const assetMenuOf = (row: Parameters<typeof fireEvent.press>[0]) => {
+  const props: unknown = contextMenuAround(row).props;
+  ok(isStyleMenu(props));
+  return props;
+};
+
+const checkedInAssetMenu = (row: Parameters<typeof fireEvent.press>[0]) =>
+  assetMenuOf(row)
+    .sections.flatMap(({ items }) => items)
+    .filter((item) => item.checked === true)
+    .map(({ title }) => title);
+
+const chooseFromAssetMenu = async (
+  row: Parameters<typeof fireEvent.press>[0],
+  title: string,
+) => {
+  const { sections, onSelect } = assetMenuOf(row);
+  const item = sections
+    .flatMap(({ items }) => items)
+    .find((each) => each.title === title);
+  ok(item);
+  await act(async () => {
+    onSelect({ nativeEvent: { id: item.id } });
+  });
 };
 
 // The native view taking a hardware keyboard's arrow keys around a rendered field.
@@ -7143,39 +7181,16 @@ describe('adding files and images to a Draft', () => {
     await press('Paste Image');
     await screen.findByLabelText('Inline image Pasted image.png');
     const row = () => screen.getByLabelText(/^Pasted image\.png, /u);
-    // The row's context menu, which a touch and hold opens.
-    const menu = () => {
-      let node = row().parent;
-      while (node !== null && node.type !== 'UnwiredContextMenu') {
-        node = node.parent;
-      }
-      const props: unknown = node?.props;
-      ok(isStyleMenu(props));
-      return props;
-    };
     const shown = () =>
-      menu().sections.map(({ items }) =>
+      assetMenuOf(row()).sections.map(({ items }) =>
         items.map(({ title, subtitle, checked }) => [
           title,
           subtitle,
           checked === true,
         ]),
       );
-    const choose = async (title: string) => {
-      const { sections, onSelect } = menu();
-      const item = sections
-        .flatMap(({ items }) => items)
-        .find((each) => each.title === title);
-      ok(item);
-      await act(async () => {
-        onSelect({ nativeEvent: { id: item.id } });
-      });
-    };
-    const checked = () =>
-      menu()
-        .sections.flatMap(({ items }) => items)
-        .filter((item) => item.checked === true)
-        .map(({ title }) => title);
+    const choose = async (title: string) => chooseFromAssetMenu(row(), title);
+    const checked = () => checkedInAssetMenu(row());
     expect(shown()).toStrictEqual([
       [
         ['Small', '320 px', false],
@@ -7207,11 +7222,52 @@ describe('adding files and images to a Draft', () => {
     await saveDraft();
     const [saved] = draftsOf(drafts.getSnapshot());
     ok(saved, 'Expected the saved Draft');
-    expect(
-      saved.body.flatMap(({ spans }) =>
-        spans.flatMap((span) => ('image' in span ? [span.width] : [])),
-      ),
-    ).toStrictEqual([1024]);
+    const [image] = imagesOf(saved.body);
+    ok(image, 'Expected an inline image');
+    expect(imageWidthOf(saved.body, image.id)).toBe(1024);
+  });
+
+  it('checks no size while an image’s uses differ, resizes them together and offers no size for a quoted image (#2577)', async () => {
+    expect.hasAssertions();
+    const image = (id: string, name: string) =>
+      ({
+        text: imageCharacter,
+        image: { id, name, type: 'image/png', state: 'cancelled' },
+      }) as const;
+    const photo = image('photo0001', 'photo.png');
+    const { drafts, id } = await composeWithTemplates('compact', (draft) => ({
+      ...draft,
+      body: [
+        {
+          kind: 'paragraph',
+          spans: [{ ...photo, width: 320 }, { text: ' and ' }, photo],
+        },
+      ],
+      quoted: [
+        { kind: 'paragraph', spans: [image('quoted0001', 'quoted.png')] },
+      ],
+    }));
+    const row = () => screen.getByLabelText(/^photo\.png, /u);
+    expect(checkedInAssetMenu(row())).toStrictEqual([]);
+    await chooseFromAssetMenu(row(), 'Large');
+    expect(checkedInAssetMenu(row())).toStrictEqual(['Large']);
+    // One Undo restores both uses.
+    await press('Undo');
+    expect(checkedInAssetMenu(row())).toStrictEqual([]);
+    // An image only in the quoted correspondence keeps its size.
+    const quoted = screen.getByLabelText(/^quoted\.png, /u);
+    expect(() => contextMenuAround(quoted)).toThrow('Expected a context menu');
+    expect(quoted).not.toHaveProp(
+      'accessibilityActions',
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Show quoted.png at Large size' }),
+      ]),
+    );
+    await chooseFromAssetMenu(row(), 'Large');
+    await saveDraft();
+    const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(saved, 'Expected the saved Draft');
+    expect(imageWidthOf(saved.body, photo.image.id)).toBe(1024);
   });
 
   it('offers attaching a downloaded file only while a sending mailbox is available', async () => {

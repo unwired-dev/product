@@ -1652,6 +1652,93 @@ const imageSizes = [
   ['original', undefined],
 ] as const;
 
+// An asset row's context menu and VoiceOver actions: an image in the body offers its display
+// sizes and Remove Image; an editor that converts offers that, with Remove.
+const assetMenu = (
+  t: Translate,
+  {
+    asset,
+    inline,
+    width,
+    onConvert,
+    onRemove,
+    onResize,
+  }: Readonly<{
+    asset: Asset;
+    inline: boolean;
+    width: ImageWidth | null | undefined;
+    onConvert: ((id: string) => void) | undefined;
+    onRemove: (id: string) => void;
+    onResize: ((width: ImageWidth | undefined) => void) | undefined;
+  }>,
+) => {
+  const toAttachment = inline ? 'toAttachment' : 'toInline';
+  const sizes =
+    onResize === undefined
+      ? []
+      : imageSizes.map(([size, sizeWidth]) => ({
+          key: `size:${size}:${asset.id}`,
+          title: t(`drafts.assets.size.${size}`),
+          symbol: '',
+          ...(sizeWidth === undefined
+            ? {}
+            : {
+                subtitle: t('drafts.assets.size.width', { width: sizeWidth }),
+              }),
+          checked: width === sizeWidth,
+          accessibilityLabel: t('drafts.assets.size.label', {
+            name: asset.name,
+            size: t(`drafts.assets.size.${size}`),
+          }),
+          run: () => {
+            onResize(sizeWidth);
+          },
+        }));
+  const convert =
+    onConvert !== undefined && (inline || asset.type.startsWith('image/'))
+      ? [
+          {
+            key: `convert:${asset.id}`,
+            title: t(`drafts.assets.${toAttachment}`),
+            symbol: inline ? 'paperclip' : 'photo',
+            run: () => {
+              onConvert(asset.id);
+            },
+          },
+        ]
+      : [];
+  if (sizes.length + convert.length === 0) {
+    return { sections: [], actions: [] };
+  }
+  // The size menu's Remove Image, as the frames show it, has no symbol.
+  const remove = {
+    key: `remove:${asset.id}`,
+    title: t(
+      sizes.length > 0 ? 'drafts.assets.removeImage' : 'drafts.assets.remove',
+    ),
+    symbol: sizes.length > 0 ? '' : 'trash',
+    destructive: true,
+    run: () => {
+      onRemove(asset.id);
+    },
+  };
+  return {
+    sections: [{ items: sizes }, { items: [...convert, remove] }],
+    actions: [
+      ...convert.map(({ run }) => ({
+        name: 'convert',
+        label: t(`drafts.assets.${toAttachment}Label`, { name: asset.name }),
+        run,
+      })),
+      ...sizes.map(({ key, accessibilityLabel, run }) => ({
+        name: key,
+        label: accessibilityLabel,
+        run,
+      })),
+    ],
+  };
+};
+
 function AssetRow({
   asset,
   editable,
@@ -1668,8 +1755,9 @@ function AssetRow({
   readonly inline: boolean;
   readonly running: boolean;
   readonly editable: boolean;
-  // The display width of an inline image in the body; undefined at its original size.
-  readonly width?: ImageWidth | undefined;
+  // The display width every use of an inline image in the body shares: undefined at its original
+  // size, null when they differ.
+  readonly width?: ImageWidth | null | undefined;
   readonly onRemove: (id: string) => void;
   readonly onCancel: (id: string) => void;
   readonly onConvert?: ((id: string) => void) | undefined;
@@ -1696,51 +1784,14 @@ function AssetRow({
     running,
     preview,
   });
-  const toAttachment = inline ? 'toAttachment' : 'toInline';
-  // An editor that converts offers it, with Remove, from the chip's context menu.
-  const convertible =
-    onConvert !== undefined && (inline || asset.type.startsWith('image/'));
-  const sizes =
-    onResize === undefined
-      ? []
-      : imageSizes.map(([size, sizeWidth]) => ({
-          key: `size:${size}:${asset.id}`,
-          title: t(`drafts.assets.size.${size}`),
-          symbol: '',
-          ...(sizeWidth === undefined
-            ? {}
-            : {
-                subtitle: t('drafts.assets.size.width', { width: sizeWidth }),
-              }),
-          checked: width === sizeWidth,
-          accessibilityLabel: t('drafts.assets.size.label', {
-            name: asset.name,
-            size: t(`drafts.assets.size.${size}`),
-          }),
-          run: () => {
-            onResize(sizeWidth);
-          },
-        }));
-  const actions = [
-    ...(convertible
-      ? [
-          {
-            name: 'convert',
-            label: t(`drafts.assets.${toAttachment}Label`, {
-              name: asset.name,
-            }),
-            run: () => {
-              onConvert?.(asset.id);
-            },
-          },
-        ]
-      : []),
-    ...sizes.map(({ key, accessibilityLabel, run }) => ({
-      name: key,
-      label: accessibilityLabel,
-      run,
-    })),
-  ];
+  const menu = assetMenu(t, {
+    asset,
+    inline,
+    width,
+    onConvert,
+    onRemove,
+    onResize,
+  });
   const chip = (
     <View
       style={[
@@ -1769,14 +1820,14 @@ function AssetRow({
           name: asset.name,
           status,
         })}
-        {...(actions.length > 0 && editable
+        {...(menu.actions.length > 0 && editable
           ? {
-              accessibilityActions: actions.map(({ name, label }) => ({
+              accessibilityActions: menu.actions.map(({ name, label }) => ({
                 name,
                 label,
               })),
               onAccessibilityAction: ({ nativeEvent }) => {
-                actions
+                menu.actions
                   .find(({ name }) => name === nativeEvent.actionName)
                   ?.run();
               },
@@ -1828,49 +1879,8 @@ function AssetRow({
       />
     </View>
   );
-  return (convertible || sizes.length > 0) && editable ? (
-    <ContextMenu
-      sections={[
-        { items: sizes },
-        {
-          items: [
-            ...(convertible
-              ? [
-                  {
-                    key: `convert:${asset.id}`,
-                    title: t(`drafts.assets.${toAttachment}`),
-                    symbol: inline ? 'paperclip' : 'photo',
-                    run: () => {
-                      onConvert?.(asset.id);
-                    },
-                  },
-                ]
-              : []),
-            // The size menu's Remove Image, as the frames show it, has no symbol.
-            sizes.length > 0
-              ? {
-                  key: `remove:${asset.id}`,
-                  title: t('drafts.assets.removeImage'),
-                  symbol: '',
-                  destructive: true,
-                  run: () => {
-                    onRemove(asset.id);
-                  },
-                }
-              : {
-                  key: `remove:${asset.id}`,
-                  title: t('drafts.assets.remove'),
-                  symbol: 'trash',
-                  destructive: true,
-                  run: () => {
-                    onRemove(asset.id);
-                  },
-                },
-          ],
-        },
-      ]}>
-      {chip}
-    </ContextMenu>
+  return menu.sections.length > 0 && editable ? (
+    <ContextMenu sections={menu.sections}>{chip}</ContextMenu>
   ) : (
     chip
   );

@@ -1254,14 +1254,19 @@ export const withImage = (
     ),
   }));
 
-// The display width of the inline image `id`'s first use; undefined at its original size or when
-// the document does not show it.
-export const imageWidthOf = (document: SemanticDocument, id: string) =>
-  document
-    .flatMap(({ spans }) =>
-      spans.flatMap((span) => ('image' in span ? [span] : [])),
-    )
-    .find((span) => span.image.id === id)?.width;
+// The display width every use of the inline image `id` shares: undefined at its original size, or
+// null when its uses differ or the document does not show it.
+export const imageWidthOf = (document: SemanticDocument, id: string) => {
+  const widths = new Set(
+    document.flatMap(({ spans }) =>
+      spans.flatMap((span) =>
+        'image' in span && span.image.id === id ? [span.width] : [],
+      ),
+    ),
+  );
+  const [width] = widths;
+  return widths.size === 1 ? width : null;
+};
 
 // Every use of the inline image `id` at `width`, or with none at its original size; the same
 // document when each use already has it.
