@@ -949,6 +949,68 @@ describe('the Tiptap evaluation page', () => {
     ]);
   });
 
+  it('keeps and sets Inline Image display widths through typing, Undo and cut and paste', async () => {
+    expect.hasAssertions();
+    const page = await open([
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'a' },
+          { text: '￼', image: photo, width: 640 },
+          { text: 'b' },
+        ],
+      },
+    ]);
+    const spans = () => bodyOf(page)?.[0]?.spans;
+    page.editor.commands.setTextSelection(1);
+    page.type('X');
+    const typed = spans();
+    // Copying keeps the width with the image; every use of the asset is resized as one edit.
+    const copied = page.editor.getHTML();
+    page.command({ type: 'resize', id: photo.id, width: 1024 });
+    const resized = spans();
+    page.command({ type: 'undo' });
+    const undone = spans();
+    page.command({ type: 'resize', id: photo.id, width: null });
+    const original = spans();
+    // A pasted width the document does not admit shows the original size.
+    page.editor.commands.setTextSelection(1);
+    page.editor.view.pasteHTML(
+      '<p><img data-draft-asset="photo0001" data-draft-width="320"><img data-draft-asset="photo0001" data-draft-width="500"></p>',
+    );
+    expect({
+      typed,
+      copied: copied.includes(
+        '<img data-draft-asset="photo0001" data-draft-width="640"',
+      ),
+      resized,
+      undone,
+      original,
+      pasted: spans(),
+    }).toStrictEqual({
+      typed: [
+        { text: 'Xa' },
+        { text: '￼', image: photo, width: 640 },
+        { text: 'b' },
+      ],
+      copied: true,
+      resized: [
+        { text: 'Xa' },
+        { text: '￼', image: photo, width: 1024 },
+        { text: 'b' },
+      ],
+      undone: typed,
+      original: [{ text: 'Xa' }, { text: '￼', image: photo }, { text: 'b' }],
+      pasted: [
+        { text: '￼', image: photo, width: 320 },
+        { text: '￼', image: photo },
+        { text: 'Xa' },
+        { text: '￼', image: photo },
+        { text: 'b' },
+      ],
+    });
+  });
+
   it('shows only native thumbnails, and never reads pasted or dropped files', async () => {
     expect.hasAssertions();
     const page = await open([

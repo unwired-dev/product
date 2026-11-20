@@ -38,6 +38,7 @@ import {
   displayOffset,
   editorPosition,
   fromEditor,
+  isImageWidth,
   kindAt,
   linesOfDocument,
   markOrder,
@@ -80,27 +81,41 @@ const show = (image: HTMLImageElement) => {
 };
 
 // An Inline Image: one position of the text, showing its asset's thumbnail when native code has
-// verified the bytes. Only an image this page shows parses back from a paste, as when it is cut
-// and pasted to move it; other pasted images are dropped.
+// verified the bytes, with any display width it was given. Only an image this page shows parses
+// back from a paste, as when it is cut and pasted to move it; other pasted images are dropped.
 const InlineImage = Node.create({
   name: 'inlineImage',
   group: 'inline',
   inline: true,
   atom: true,
   draggable: true,
-  addAttributes: () => ({ id: { default: '', rendered: false } }),
+  addAttributes: () => ({
+    id: { default: '', rendered: false },
+    width: { default: null, rendered: false },
+  }),
   parseHTML: () => [
     {
       tag: 'img[data-draft-asset]',
       getAttrs: (element) => {
         const id = element.dataset.draftAsset ?? '';
-        return assets.has(id) ? { id } : false;
+        const width = Number(element.dataset.draftWidth);
+        return assets.has(id)
+          ? { id, width: isImageWidth(width) ? width : null }
+          : false;
       },
     },
   ],
   renderHTML: ({ node }) => {
     const id = String(node.attrs.id);
-    return ['img', { 'data-draft-asset': id, alt: assets.get(id)?.name }];
+    const width: unknown = node.attrs.width;
+    return [
+      'img',
+      {
+        'data-draft-asset': id,
+        'data-draft-width': isImageWidth(width) ? String(width) : undefined,
+        alt: assets.get(id)?.name,
+      },
+    ];
   },
   addNodeView:
     () =>
@@ -569,6 +584,16 @@ if (draftEditor !== undefined && element !== null) {
     }
     editor.view.dispatch(tr);
   };
+  // Every use of an Inline Image shows at `width`, or at its original size, as one edit.
+  const resize = ({ id, width }: Extract<Command, { type: 'resize' }>) => {
+    const { tr } = editor.state;
+    tr.doc.descendants((node, position) => {
+      if (node.type.name === 'inlineImage' && node.attrs.id === id) {
+        tr.setNodeAttribute(position, 'width', width);
+      }
+    });
+    editor.view.dispatch(tr);
+  };
   // Images go inline at the selection and the rest become Attachments, as one edit.
   const add = ({ images, attachments }: Extract<Command, { type: 'add' }>) => {
     learn([...images, ...attachments]);
@@ -621,6 +646,8 @@ if (draftEditor !== undefined && element !== null) {
       editor.view.dispatch(tr);
     } else if (command.type === 'convert') {
       convert(command.id);
+    } else if (command.type === 'resize') {
+      resize(command);
     } else if (command.type === 'previews') {
       showPreviews(command.previews);
     } else if (command.type === 'editable') {

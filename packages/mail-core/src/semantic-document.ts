@@ -54,6 +54,10 @@ const FontSizeSchema = Schema.Number.check(
 
 // The character an inline image occupies in the editor's text; typed text never contains it.
 export const imageCharacter = '\uFFFC';
+// The widths, in CSS pixels, an inline image can be shown at: Small, Medium and Large. Its height
+// follows its aspect ratio. Without one it shows at its original size; the bytes never change.
+export const ImageWidthSchema = Schema.Literals([320, 640, 1024]);
+export type ImageWidth = typeof ImageWidthSchema.Type;
 
 const assetFields = {
   // Random and unique within the account's Drafts; native storage files the bytes under it.
@@ -112,6 +116,7 @@ const SpanSchema = Schema.Union([
   Schema.Struct({
     text: Schema.Literal(imageCharacter),
     image: AssetSchema,
+    width: Schema.optionalKey(ImageWidthSchema),
     marks: Schema.optionalKey(Schema.NonEmptyArray(MarkSchema)),
   }),
 ]);
@@ -193,12 +198,12 @@ const samePaint = (left: Span, right: Span) => {
 const sameMarks = (left: readonly Mark[], right: readonly Mark[]) =>
   left.length === right.length && left.every((mark, i) => right[i] === mark);
 
-// A span of `text` with `marks`, keeping the image, or the link and paint, of `from`.
+// A span of `text` with `marks`, keeping the image and its width, or the link and paint, of `from`.
 const spanOf = (
   text: string,
   marks: readonly Mark[],
   from:
-    | Readonly<{ image: Asset }>
+    | Readonly<{ image: Asset; width?: ImageWidth | undefined }>
     | Readonly<{
         link?: string | undefined;
         color?: string | undefined;
@@ -211,7 +216,12 @@ const spanOf = (
   const marked =
     first === undefined ? {} : { marks: [first, ...rest] as const };
   if ('image' in from) {
-    return { text: imageCharacter, image: from.image, ...marked };
+    return {
+      text: imageCharacter,
+      image: from.image,
+      ...(from.width === undefined ? {} : { width: from.width }),
+      ...marked,
+    };
   }
   return {
     text,

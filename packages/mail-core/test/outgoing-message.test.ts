@@ -386,4 +386,47 @@ describe('building an outgoing message', () => {
     expect(parsed.to).toStrictEqual([recipient]);
     expect(parsed.attachments[0]?.filename).toBe(filename);
   });
+
+  it('shows a sized inline image at its display width and sends its original bytes', async () => {
+    expect.hasAssertions();
+    const image = {
+      id: 'a1b2c3d4e5',
+      name: 'room.png',
+      type: 'image/png',
+      state: 'complete',
+      size: 200,
+      digest: '0'.repeat(64),
+    } as const;
+    const parsed = await PostalMime.parse(
+      assemble(
+        build(
+          draft({
+            body: [
+              {
+                kind: 'paragraph',
+                spans: [
+                  { text: 'Room ' },
+                  { text: '\uFFFC', image, width: 640 },
+                  { text: '\uFFFC', image },
+                ],
+              },
+            ],
+          }),
+        ),
+      ),
+      { attachmentEncoding: 'utf8' },
+    );
+    // Only the shown width changes: its height follows the aspect ratio, and an image without a
+    // width keeps its original size.
+    expect(parsed.html).toContain(
+      '<p>Room <img src="cid:a1b2c3d4e5@unwired.invalid" alt="room.png" width="640"><img src="cid:a1b2c3d4e5@unwired.invalid" alt="room.png"></p>',
+    );
+    expect(parsed.text).toBe('Room [room.png][room.png]');
+    expect(
+      parsed.attachments.map(({ disposition, content }) => ({
+        disposition,
+        content,
+      })),
+    ).toStrictEqual([{ disposition: 'inline', content: 'x'.repeat(200) }]);
+  });
 });

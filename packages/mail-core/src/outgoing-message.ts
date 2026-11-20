@@ -213,7 +213,7 @@ const linkRuns = (spans: Block['spans']) => {
 const htmlSpan = (span: Span) => {
   const inner =
     'image' in span
-      ? `<img src="cid:${contentIdOf(span.image)}" alt="${escapeHtml(span.image.name)}">`
+      ? `<img src="cid:${contentIdOf(span.image)}" alt="${escapeHtml(span.image.name)}"${span.width === undefined ? '' : ` width="${span.width}"`}>`
       : escapeHtml(span.text);
   const marked = (span.marks ?? []).reduceRight((html, mark) => {
     const style =

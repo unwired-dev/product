@@ -2,6 +2,7 @@ import type {
   Asset,
   Block,
   BlockKind,
+  ImageWidth,
   Mark,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
@@ -12,7 +13,7 @@ import type { Node, ResolvedPos } from '@tiptap/pm/model';
 // Draft stores only the Semantic Message Document; editor JSON never leaves the page.
 // Consecutive list items and quote lines share one Tiptap container, as they share one in
 // outgoing mail, and split back into one block each. Each code line is a textblock of its own.
-// An Inline Image is an inline node naming its Draft Asset, and the Draft's Attachments are an
+// An Inline Image is an inline node naming its Draft Asset and any display width, and the Draft's Attachments are an
 // attribute of the editor document naming theirs, so one edit and one Undo step can change both.
 // The page keeps the assets it was given by identifier. Linked text carries a `link` mark naming
 // its destination.
@@ -69,7 +70,10 @@ const inlineOf = (span: Span): JSONContent => {
   }
   return {
     ...('image' in span
-      ? { type: 'inlineImage', attrs: { id: span.image.id } }
+      ? {
+          type: 'inlineImage',
+          attrs: { id: span.image.id, width: span.width ?? null },
+        }
       : { type: 'text', text: span.text }),
     ...(marks.length === 0 ? {} : { marks }),
   };
@@ -151,6 +155,11 @@ const continues = (last: Span | undefined, span: Span): last is Span =>
   ('link' in last ? last.link : undefined) ===
     ('link' in span ? span.link : undefined);
 
+// The display widths the document admits, kept here so the page bundles no schema library.
+const imageWidths: ReadonlySet<unknown> = new Set<ImageWidth>([320, 640, 1024]);
+export const isImageWidth = (value: unknown): value is ImageWidth =>
+  imageWidths.has(value);
+
 // Text spans with their marks in document order and their link; adjacent text spans with the same
 // marks and link merge, and each Inline Image is a span of its own.
 // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Tiptap's JSON type is mutable; this only reads it.
@@ -166,7 +175,13 @@ const spansOf = (nodes: readonly JSONContent[], assets: Assets) => {
     const span: Span = { text, ...marks, ...linkOf(node) };
     const last = spans.at(-1);
     if (image !== undefined) {
-      spans.push({ text: imageCharacter, image, ...marks });
+      const width: unknown = node.attrs?.width;
+      spans.push({
+        text: imageCharacter,
+        image,
+        ...(isImageWidth(width) ? { width } : {}),
+        ...marks,
+      });
     } else if (continues(last, span)) {
       spans[spans.length - 1] = { ...last, text: last.text + text };
     } else if (text !== '') {

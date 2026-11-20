@@ -608,6 +608,16 @@ An inline image is part of the formatted body, so typing around it, deleting it,
 **Attachments** and **Inline images** under the body with their name, size and a
 **Remove** action; an inline image shows its picture.
 
+An inline image may have a display size: **Small**, **Medium** or **Large**, a
+width of 320, 640 or 1024 CSS pixels, or **Original** without one. The width is
+stored with the image's place in the body, so formatting, typing, line breaks,
+**Undo**, cut and paste and saving keep it, and outgoing HTML gives the image
+that `width`, its height following the aspect ratio. Only the shown size
+changes: the Draft keeps and sends the original file. The editor page's `resize`
+command sets or clears the width of every use of one image as one undoable edit.
+The menus that choose a size come in later [#1735](https://github.com/unwired-dev/product/issues/1735)
+slices.
+
 An added file is **importing** until its bytes are stored. While it imports, its
 row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
 interrupted by quitting or relaunch, could not be read or saved, or is too large
