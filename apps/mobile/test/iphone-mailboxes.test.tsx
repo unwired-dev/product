@@ -59,6 +59,14 @@ describe('iPhone Mailboxes', () => {
       </AccountContext>,
     );
     const header = `Gmail · ${address}`;
+    // Waiting out Gmail's usage limit is a pause, not a problem beside the mailbox.
+    gmail.fail({ status: 429 });
+    await act(inbox.load);
+    expect(screen.getByRole('header', { name: header })).toBeVisible();
+    // Closing the Inbox ends the pause and its wait.
+    await act(() => {
+      inbox.forget();
+    });
     gmail.fail({ status: 401 });
     await act(inbox.load);
     expect(

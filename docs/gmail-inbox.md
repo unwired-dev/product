@@ -394,6 +394,16 @@ during search, the capsule rises with it and stays 12pt above it.
   mailboxes needing authorization, that could not be reached, or whose history pass paused, once
   registration verifies; that synchronization resumes the pass. VoiceOver hears
   the attention summary when it appears.
+- **Paused.** On iPhone and iPad, when Gmail's usage limit stops every mailbox
+  needing attention, a clock and **Gmail paused** replace the warning, with
+  **until 14:20** below when Gmail named the time it asked to wait until
+  ([#2488](https://github.com/unwired-dev/product/issues/2488)). Several such
+  mailboxes read **2 accounts paused by Gmail**. VoiceOver hears it when it appears.
+  Gmail's time is in the device's time zone. The sidebar shows no warning beside a
+  paused connection, which it shows beside one that cannot be reached.
+  On iPhone the paused capsule takes Filter's place in the system toolbar, beside
+  search, and opens the same Sync Status sheet.
+  A paused mailbox is not Offline: the list header keeps its unread count.
 - **Idle.** The capsule fades out. A refused grant or password also keeps its own
   authorization notice above the list, and the sidebar keeps each connection's problem.
 
@@ -416,6 +426,16 @@ and then synchronizes that connection, and **Enter the Password…** opens Email
 Accounts in Settings. Authorizing closes the details first. The footer points to
 pulling the list down instead of ⌘R. On iPhone, whose Inbox heading has no room for
 the last update, this footer is where it appears.
+
+A connection paused by Gmail's usage limit shows a clock and, when Gmail named a
+time, **Gmail is limiting requests from this account and asked Unwired to wait
+until 14:20.** (**Limited by Gmail until 14:20** in the iPad popover); its
+**Try Again** stays unavailable, beside **Available at 14:20**, until then.
+Without a time it reads **Limited by Gmail, 2nd time today. Gmail didn’t say for
+how long; trying again automatically, waiting longer each time.** and its
+**Try Again** stays available. While any shown connection is paused, the footer
+says **Mail already on this iPhone stays readable. Sending has its own status in
+Outbox.** instead of pointing to pulling down.
 
 A rejected saved listing token starts a fresh listing. When a full cache loses an
 entry, a fresh listing admits the next older Inbox message. Unreadable cache
@@ -1265,7 +1285,8 @@ authorization can recover the Inbox, retry unavailable bodies and resolve pendin
 Inline Images in already shown bodies.
 Gmail quota/rate-limit and
 server failures pause speculative work and follow the existing retry/activation
-path without a tight retry loop. A usage-limit 403 must not trigger reauthorization.
+path without a tight retry loop. A usage-limit 403 must not trigger reauthorization;
+see [Gmail's usage limit](#gmails-usage-limit).
 Ownership changes, Inbox closure and removal invalidate speculative work and
 fence late completions just as they do explicit downloads.
 
@@ -1574,6 +1595,23 @@ The Inbox reports:
 - **Gmail could not be reached** after a network failure, quota or rate limit, server
   error or malformed Gmail response. **Try Again** resumes from the last commit;
   so does the next activation.
+
+### Gmail's usage limit
+
+A 429, or a 403 whose reason is `dailyLimitExceeded`, `rateLimitExceeded` or
+`userRateLimitExceeded`, pauses the mailbox's synchronization at Gmail's usage
+limit ([#2488](https://github.com/unwired-dev/product/issues/2488)); it never asks
+for authorization again. Saved mail stays readable, and changes made meanwhile are
+saved and wait. When Gmail's message names a time (`Retry after <instant>`),
+nothing synchronizes the mailbox before it, neither activation, refresh nor
+**Try Again**, and synchronization runs again at that time; activation still
+verifies the saved grant, as it does for every connection. Without a time, or with
+one already past, synchronization tries again after one minute, doubling with
+each limit in a row up to half an hour, and earlier when the person asks for
+it; organizing changes still wait for that synchronization. The
+Inbox counts the day's limits for the status text. A completed synchronization ends
+the wait sequence; a refused grant, closing the Inbox or removing the mailbox ends
+the pause.
 
 Locked or unreadable storage hides the cached mail, as the
 [preview Inbox](private-inbox-storage.md#failure-behavior) does, and offers

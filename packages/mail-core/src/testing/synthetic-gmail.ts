@@ -512,6 +512,14 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
       // two minutes and fails it once, then lists the rest.
       const slowHistory =
         scenario === 'registration-sync-status' ? { failed: false } : undefined;
+      // One fixed future time, in summer so London is off UTC too, which the native journey formats.
+      const retryAfter =
+        scenario === 'registration-sync-status-paused'
+          ? '2099-07-02T12:20:00.000Z'
+          : undefined;
+      // Both scenarios list All Mail's history in pages.
+      const pagedHistory =
+        slowHistory !== undefined || retryAfter !== undefined;
       const historyPage = Effect.fnUntraced(function* (
         listed: ReadonlyArray<{
           readonly id: string;
@@ -523,6 +531,14 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           return yield* reply(200, {
             messages: listed.slice(0, 2),
             nextPageToken: 'rest',
+          });
+        }
+        if (retryAfter !== undefined) {
+          return yield* reply(429, {
+            error: {
+              errors: [{ reason: 'rateLimitExceeded' }],
+              message: `Rate limit exceeded. Retry after ${retryAfter}`,
+            },
           });
         }
         if (slowHistory?.failed === false) {
@@ -558,13 +574,13 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           reply(200, {
             emailAddress: 'other@example.invalid',
             historyId: '100',
-            ...(slowHistory === undefined
-              ? {}
-              : {
+            ...(pagedHistory
+              ? {
                   messagesTotal: [...labels.values()].filter((ids) =>
                     inView(allMail, ids),
                   ).length,
-                }),
+                }
+              : {}),
           }),
         // Synthetic Gmail accepts every message and keeps nothing of it, apart from the failures
         // of responses to the supplier walkthrough.
@@ -602,7 +618,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
                 '5 seconds',
               );
             }
-            return slowHistory !== undefined &&
+            return pagedHistory &&
               item('labelIds') === undefined &&
               item('maxResults') === String(historyPageSize)
               ? historyPage(listed, item('pageToken'))

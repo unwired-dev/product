@@ -628,8 +628,9 @@ export function createGmailReader(
               }),
             ),
           ),
+        // A usage limit pauses the whole synchronization, not just this view.
         SyncFailure: (failure) =>
-          failure.kind === 'retry'
+          failure.kind === 'retry' && failure.limit === undefined
             ? failed.pipe(Effect.as(Option.none()))
             : Effect.fail(failure),
       }),

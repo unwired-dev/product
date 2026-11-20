@@ -209,6 +209,9 @@ type BodyTier = 'opened' | 'prefetched' | 'excluded';
 
 // Online search results per page and mailbox.
 const searchPageSize = 20;
+const minute = 60_000;
+// setTimeout's longest delay.
+const longestTimer = 2 ** 31 - 1;
 
 // The latest organizing outcome, until the next one; unsaved batches also report their size.
 export type OrganizeNotice = Readonly<
@@ -219,6 +222,10 @@ export type OrganizeNotice = Readonly<
 >;
 
 type Sync = 'syncing' | 'current' | 'authentication' | 'retry';
+
+// Gmail's usage limit paused synchronization: until the ISO instant Gmail named, or, when it named
+// none, for a wait that grows with each limit in a row. `times` counts today's limits.
+export type GmailLimit = Readonly<{ until?: string; times: number }>;
 
 // A Gmail view other than the Inbox: its newest messages with requested changes applied. A view
 // whose last read failed keeps its saved messages.
@@ -250,6 +257,8 @@ export type GmailInboxState =
       // Online search results the reader can open, kept in memory only until the Inbox closes.
       readonly found?: readonly GmailMessage[];
       readonly sync: Sync;
+      // Present while a 'retry' waits out Gmail's usage limit.
+      readonly limit?: GmailLimit;
       // The mailbox's own labels, empty until Gmail lists them, or its folders.
       readonly labels: readonly GmailLabel[];
       // More folders exist than `labels` lists.
@@ -1255,6 +1264,21 @@ export function createInboxStore(
       }>
     | undefined = undefined;
   let sync: Sync = 'syncing';
+  // Gmail's usage limits on this local day, and in a row since the last completed synchronization.
+  let limits = { day: '', times: 0, streak: 0 };
+  // The last usage limit met the backfill, so only the backfill finishing ends the streak.
+  let limitedBackfill = false;
+  // When a limited synchronization runs again, and whether Gmail named that time. Until a named
+  // time passes, nothing synchronizes this mailbox.
+  let pause: Readonly<{ until: number; named: boolean }> | undefined =
+    undefined;
+  let resume: ReturnType<typeof setTimeout> | undefined = undefined;
+  const endPause = () => {
+    clearTimeout(resume);
+    resume = undefined;
+    pause = undefined;
+  };
+  const held = () => pause?.named === true && Date.now() < pause.until;
   let notice: OrganizeNotice | undefined = undefined;
   // Requested changes not yet saved with the document, each bound to the mailbox it was made in.
   const queued: Array<{
@@ -1412,6 +1436,16 @@ export function createInboxStore(
         ? {}
         : { responses: document.responses }),
       sync: shownSyncState(),
+      ...(pause === undefined || shownSyncState() !== 'retry'
+        ? {}
+        : {
+            limit: {
+              ...(pause.named
+                ? { until: new Date(pause.until).toISOString() }
+                : {}),
+              times: limits.times,
+            },
+          }),
       ...listed,
       labels: includingLabels(listed.labels, queuedLabels()),
       ...(unavailableActions === undefined ? {} : { unavailableActions }),
@@ -1477,6 +1511,12 @@ export function createInboxStore(
   // Search readers keep their bodies after Inbox removal, but removal still ends file ownership.
   const settle = (next: Sync) => {
     sync = next;
+    if (next !== 'retry') {
+      endPause();
+    }
+    if (next === 'current' && !limitedBackfill) {
+      limits = { ...limits, streak: 0 };
+    }
     const rendered = render();
     const listed = new Set(
       [
@@ -1496,6 +1536,15 @@ export function createInboxStore(
       }
     }
     publish(rendered);
+  };
+  // A refused grant asks for Gmail again, ending any usage limit's pause.
+  const refuseGrant = () => {
+    authenticationRejected = true;
+    if (pause === undefined) {
+      publish(render());
+    } else {
+      settle('authentication');
+    }
   };
 
   const ready = Effect.fnUntraced(function* (
@@ -2251,9 +2300,8 @@ export function createInboxStore(
   const askForGmail = (reading: number, id: string) =>
     Effect.sync(() => {
       if (owner === reading && readable(id)) {
-        authenticationRejected = true;
         imagesAwaitingGmail.add(id);
-        publish(render());
+        refuseGrant();
       }
     });
 
@@ -2471,8 +2519,7 @@ export function createInboxStore(
             if (kind === 'authentication') {
               return Effect.sync(() => {
                 if (owner === reading && readable(id)) {
-                  authenticationRejected = true;
-                  publish(render());
+                  refuseGrant();
                 }
               }).pipe(Effect.as(bodyFailure(kind)));
             }
@@ -2643,8 +2690,7 @@ export function createInboxStore(
         const pausing = !speculativeFailure;
         speculativeFailure = true;
         if (kind === 'authentication') {
-          authenticationRejected = true;
-          publish(render());
+          refuseGrant();
           return;
         }
         // An unfinished backfill now waits for the next synchronization.
@@ -2842,6 +2888,9 @@ export function createInboxStore(
       newName: segmentName,
     });
     if (Option.isNone(step)) {
+      // The backfill finished, so its usage limits in a row end.
+      limitedBackfill = false;
+      limits = { ...limits, streak: 0 };
       return false;
     }
     const { written, keep } = step.value;
@@ -2936,6 +2985,9 @@ export function createInboxStore(
   // Forgets everything the open Inbox holds in memory: its mail, bodies, changes not yet saved and
   // their outcome, so another account or mailbox never renders them.
   const forgetOpenInbox = () => {
+    endPause();
+    limits = { day: '', times: 0, streak: 0 };
+    limitedBackfill = false;
     ownership += 1;
     owner += 1;
     remoteContent.releaseAll();
@@ -2984,10 +3036,38 @@ export function createInboxStore(
       publish({ kind: kind === 'locked' ? 'locked' : 'failed' });
     }
   };
+  // A usage limit waits for Gmail's named time, or else one minute doubling with each limit in a
+  // row up to half an hour, then synchronizes again unless the open Inbox changed.
+  // Any other failure ends the pause; only a Gmail 'retry' carries a usage limit.
+  const pauseFor = (limit: SyncFailure['limit']) => {
+    if (limit === undefined || provider !== 'gmail') {
+      endPause();
+      return;
+    }
+    const now = Date.now();
+    const day = new Date(now).toDateString();
+    limits = {
+      day,
+      times: limits.day === day ? limits.times + 1 : 1,
+      streak: limits.streak + 1,
+    };
+    const named =
+      limit.until === undefined ? Number.NaN : Date.parse(limit.until);
+    pause =
+      named > now
+        ? { until: named, named: true }
+        : {
+            until:
+              now + Math.min(minute * 2 ** (limits.streak - 1), 30 * minute),
+            named: false,
+          };
+    resumeAfter(pause.until - now);
+  };
   const recover = ({
     kind,
     diagnostic,
-  }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>) =>
+    limit,
+  }: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic' | 'limit'>>) =>
     (kind === 'authentication' || kind === 'locked' || kind === 'revoked'
       ? Effect.void
       : Effect.logError('Gmail Inbox failed:', diagnostic)
@@ -3001,6 +3081,7 @@ export function createInboxStore(
             forgetOpenInbox();
             removed?.();
           } else if (kind === 'authentication' || kind === 'retry') {
+            pauseFor(limit);
             settle(
               authenticationRejected && kind === 'retry'
                 ? 'authentication'
@@ -3014,11 +3095,15 @@ export function createInboxStore(
     );
 
   function historyFailure(
-    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic'>>,
+    failure: Readonly<Pick<SyncFailure, 'kind' | 'diagnostic' | 'limit'>>,
     reading: number,
   ) {
     if (owner !== reading || forgotten) {
       return Effect.void;
+    }
+    if (failure.limit !== undefined && provider === 'gmail') {
+      limitedBackfill = true;
+      return recover(failure);
     }
     return failure.kind === 'locked' || failure.kind === 'revoked'
       ? recover(failure)
@@ -3474,6 +3559,12 @@ export function createInboxStore(
           if (requestedFor !== ownership) {
             return Effect.void;
           }
+          // Before Gmail's named time, changes made meanwhile are saved and wait for it.
+          if (held()) {
+            return queued.length === 0
+              ? Effect.void
+              : persistence.withPermit(save);
+          }
           forgotten = false;
           authenticationRejected = false;
           speculativeFailure = false;
@@ -3495,6 +3586,30 @@ export function createInboxStore(
     }
     return run;
   };
+
+  // Synchronizes again after a usage limit's pause, unless the open Inbox changed meanwhile. A
+  // timer waits at most about 24.8 days, so a later time of Gmail's waits again until it comes.
+  function resumeAfter(delay: number) {
+    const pausedFor = ownership;
+    clearTimeout(resume);
+    resume = setTimeout(
+      () => {
+        resume = undefined;
+        if (pausedFor !== ownership || forgotten) {
+          return;
+        }
+        // Only Gmail's own time follows the clock; a backoff has waited its time.
+        const left =
+          pause?.named === true ? pause.until - Date.now() : Number.NaN;
+        if (left > 0) {
+          resumeAfter(left);
+          return;
+        }
+        void load();
+      },
+      Math.min(delay, longestTimer),
+    );
+  }
 
   // Shows the saved listing without asking the provider, as a synchronization starts, for an Inbox
   // nothing has opened yet; the next `load` synchronizes it. A running operation is skipped, not
@@ -3751,7 +3866,8 @@ export function createInboxStore(
     publish(render());
     // Resolves false when the change rolled back unsaved.
     return runLogged(persistence.withPermit(save)).then(async (saved) => {
-      if (saved && requestedFor === ownership) {
+      // During a usage limit's pause the saved change waits for the next synchronization.
+      if (saved && requestedFor === ownership && pause === undefined) {
         await load();
       }
       return !rolledBack.has(request);
