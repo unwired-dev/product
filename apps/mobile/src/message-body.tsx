@@ -630,6 +630,8 @@ function RichDocument({
           allowsInlineMediaPlayback={false}
           allowsLinkPreview={false}
           cacheEnabled={false}
+          // iPad's desktop mode would zoom a wide document out itself and leave its height unscaled.
+          contentMode="mobile"
           dataDetectorTypes="none"
           incognito
           javaScriptCanOpenWindowsAutomatically={false}

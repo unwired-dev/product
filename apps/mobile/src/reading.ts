@@ -55,9 +55,10 @@ export const zoomedDocument = (html: string, scale: number) =>
     : html.replace('</head>', `<style>body{zoom:${scale}}</style></head>`);
 
 // The sanitized document marked to fit: the reader's measurement shrinks it to the view's width
-// with an app-owned transform, in place, and the root measures at the shrunk height.
+// with an app-owned transform, in place. The body grows to its widest content, so floats and
+// content aligned right stay inside it and shrink with it.
 export const fittedDocument = (html: string) =>
   html.replace(
     '</head>',
-    '<style>:root{--unwired-fit:1}html{height:0}body{display:flow-root;transform-origin:0 0}</style></head>',
+    '<style>:root{--unwired-fit:1}body{display:flow-root;width:fit-content;min-width:100%;transform-origin:0 0}</style></head>',
   );

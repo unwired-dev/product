@@ -437,12 +437,16 @@ device's user defaults (`UnwiredMessageZoom`). **Fit Wide Messages to the Screen
 the frames and iOS Mail, shrinks a formatted message wider than the reader to its
 width at every Message Zoom; off, it scrolls sideways. CSS `zoom` cannot fit:
 WebKit's minimum font size and optical sizing keep the text wider. The reader
-instead marks the document with app-owned CSS (`--unwired-fit`, `html{height:0}`
-so the root measures at its shrunk height, and `body{display:flow-root}` so floats
-shrink with the body). Each measurement in the patched WebView's isolated client
-world, at load and after every remote image update, sets the body's
-`transform: scale()` to the view's width over the unscaled width, or removes it,
-in the same navigation. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
+instead marks the document with app-owned CSS: `--unwired-fit`, and a body that
+grows to its widest content (`display:flow-root`, `width:fit-content`,
+`min-width:100%`), so floats and right-aligned content shrink with it. Each measurement in the
+patched WebView's isolated client world, at load and after every remote image
+update, sets the body's `transform: scale()` to the view's width over the unscaled
+width, or removes it, in the same navigation. It keeps the content at the top of
+WebKit's own scroll and reports the shrunk body's bottom as the height, since the
+root never measures shorter than the view. The reader's WebView uses WebKit's mobile content
+mode, so iPad, too, leaves a wide document to this fit instead of zooming it out
+with an unscaled height. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
 from the reader, and the Mac, follow in their own slices.
 
 ## Interface language
