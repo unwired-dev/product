@@ -767,7 +767,10 @@ function SyncStatusDetails({
 const limitStatus = (
   t: Translate,
   { times, until }: NonNullable<ReturnType<typeof limitOf>>,
-  { time, popover }: Readonly<{ time: (iso: string) => string; popover: boolean }>,
+  {
+    time,
+    popover,
+  }: Readonly<{ time: (iso: string) => string; popover: boolean }>,
 ) =>
   until === undefined
     ? t('gmailSync.limited', { count: times, ordinal: true })
