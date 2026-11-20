@@ -130,7 +130,9 @@ it.
   sign-in again as the Authorization Needed banner under From, for example
   **Microsoft 365 needs you to sign in again before this address can send.**,
   whose **Sign In…** starts the mailbox's authorization; the other sender
-  problems, the Sent folder and files not ready among the composer's notices. The
+  problems, the Sent folder and files still being added among the composer's
+  notices; files that were not added leave Send available, which asks to send
+  without them ([#2466](https://github.com/unwired-dev/product/issues/2466)). The
   Attachment Chip's Importing and Failed states wait for the rest of
   [#2092](https://github.com/unwired-dev/product/issues/2092).
 
