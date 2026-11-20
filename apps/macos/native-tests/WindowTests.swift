@@ -205,7 +205,7 @@ final class WindowTests: XCTestCase {
     body.click()
     body.typeText("Typed just before the app ended")
     body.typeKey("v", modifierFlags: .command)
-    // A stored and checked attachment shows its size; a pending or failed one says why instead.
+    // An imported attachment shows its size; a failed one adds why.
     let attachment = window.descendants(matching: .any)
       .matching(NSPredicate(format: "label == %@", "recovery-note.txt, 30 bytes")).firstMatch
     XCTAssertTrue(attachment.waitForExistence(timeout: 15))
