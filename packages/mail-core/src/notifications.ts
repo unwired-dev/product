@@ -313,23 +313,33 @@ export function createNotifications(
     // Inbox yet keeps the badge it found.
     followBadge: (sources: BadgeSources) => {
       // What the icon shows once the system applied it, and the count it should show. One write
-      // runs at a time and ends on the latest count; a refused one is tried again at the next
+      // runs at a time and ends on the latest count; a refused count is tried again at the next
       // change.
       let shown: number | undefined = undefined;
       let wanted: number | undefined = undefined;
       let writing = false;
+      const apply = (count: number) =>
+        logged(
+          'The App Icon Badge could not be set:',
+          call(() => native.setBadgeCount(count)).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                shown = count;
+              }),
+            ),
+          ),
+        );
       const write = Effect.gen(function* () {
+        let attempted: number | undefined = undefined;
         for (
           let count = wanted;
-          count !== undefined && count !== shown;
+          count !== undefined && count !== shown && count !== attempted;
           count = wanted
         ) {
-          const applied = count;
-          yield* call(() => native.setBadgeCount(applied));
-          shown = count;
+          attempted = count;
+          yield* apply(count);
         }
       }).pipe(
-        (effect) => logged('The App Icon Badge could not be set:', effect),
         Effect.ensuring(
           Effect.sync(() => {
             writing = false;
