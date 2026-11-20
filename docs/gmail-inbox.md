@@ -1368,7 +1368,7 @@ The application, not a window or screen, owns Gmail synchronization
 
 **Push wake hints** carry only an opaque route. The handler reads that route and
 synchronizes only its mailbox after registration verifies. Every other open
-connection then shows its saved Inbox listing without a provider request, so counts
+connection then shows its saved Inbox listing without reading mail from its provider, so counts
 across every Inbox, such as the App Icon Badge's, stay whole. It never decodes,
 keeps or logs Gmail's history ID or address, because the mailbox's checkpoint
 says where to resume. A malformed hint, a route this device does not know, or a

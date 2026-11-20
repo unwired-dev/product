@@ -3497,10 +3497,11 @@ export function createInboxStore(
   };
 
   // Shows the saved listing without asking the provider, as a synchronization starts, for an Inbox
-  // nothing has opened yet; the next `load` synchronizes it.
+  // nothing has opened yet; the next `load` synchronizes it. A running operation is skipped, not
+  // awaited: a synchronization shows the saved listing itself before it asks the provider.
   const showSaved = () =>
     runLogged(
-      semaphore.withPermit(
+      semaphore.withPermitsIfAvailable(1)(
         Effect.suspend(() =>
           forgotten || state.kind !== 'loading'
             ? Effect.void

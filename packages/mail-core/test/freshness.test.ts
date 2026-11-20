@@ -269,7 +269,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     },
   );
 
-  it('shows the other mailboxes’ saved listings after a wake that launched the app, without asking their providers', async () => {
+  it('shows the other mailboxes’ saved listings after a wake that launched the app, without reading their mail', async () => {
     expect.hasAssertions();
     const { gmail, launch } = await twoMailboxes();
     gmail.other.deliver({ subject: 'Saved for Other' });
@@ -293,6 +293,31 @@ describe('keeping Gmail fresh through application lifecycles', () => {
       other: ['Saved for Other'],
       otherRequests: 0,
     });
+  });
+
+  it('finishes a wake while another mailbox’s synchronization still waits on its provider', async () => {
+    expect.hasAssertions();
+    const { gmail, launch } = await twoMailboxes();
+    const held = Promise.withResolvers<undefined>();
+    const request = gmail.other.native.gmailRequest;
+    const holding = vi
+      .spyOn(gmail.other.native, 'gmailRequest')
+      .mockImplementation(async (...args) => {
+        await held.promise;
+        return request(...args);
+      });
+    const { mailboxes, freshness } = launch();
+    const foreground = mailboxes.load();
+    gmail.alex.deliver({ subject: 'Pushed for Alex' });
+    await expect(
+      freshness.wake({ provider: 'gmail', routeId: 'route-alex' }, (id) =>
+        new Map([['route-alex', alex]]).get(id),
+      ),
+    ).resolves.toBe('synchronized');
+    expect(subjects(mailboxes, alex)).toStrictEqual(['Pushed for Alex']);
+    held.resolve(undefined);
+    await foreground;
+    holding.mockRestore();
   });
 
   it('wakes only the routed mailbox, keeps nothing from the hint, and ignores unknown and removed routes', async () => {

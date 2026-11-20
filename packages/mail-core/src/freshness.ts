@@ -109,7 +109,8 @@ export function createFreshness(
       };
     },
     // Synchronizes only the mailbox a wake hint's route names, once registration verifies, and
-    // opens the others' saved listings without asking their providers. A route this device does not know, or whose mailbox was removed or lost its grant, wakes nothing.
+    // opens the others' saved listings without reading their mail. A route this device does not
+    // know, or whose mailbox was removed or lost its grant, wakes nothing.
     wake: async (
       hint: unknown,
       route: (

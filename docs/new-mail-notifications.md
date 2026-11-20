@@ -112,7 +112,7 @@ becomes active, since permission can change in the system's settings. While it c
 until saved registration has been read and while any Inbox is still opening or locked,
 the device leaves the badge it found unchanged rather than showing a partial count. A
 push wake that launches the app synchronizes its routed mailbox and opens every other
-connection's saved Inbox listing without asking its provider, so the badge counts them
+connection's saved Inbox listing without reading mail from its provider, so the badge counts them
 all. Snooze and Profile Lock do not exist
 yet; the per-Profile **Badge and sound** switches, **New Mail Sound** and the Mac's
 Dock badge come with [#1723](https://github.com/unwired-dev/product/issues/1723).

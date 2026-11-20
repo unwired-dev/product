@@ -1076,6 +1076,12 @@ describe('connecting IMAP mailboxes', () => {
       subjects: saved.messages.map(({ subject }) => subject),
       sessions: sessions - opened,
     }).toStrictEqual({ subjects: ['Saved'], sessions: 0 });
+    await mailboxes.load();
+    expect(
+      ready(imapInbox(mailboxes).getSnapshot()).messages.map(
+        ({ subject }) => subject,
+      ),
+    ).toContain('Not yet read');
   });
 
   it('reopens the cache and reads a folder again after another store committed it', async () => {

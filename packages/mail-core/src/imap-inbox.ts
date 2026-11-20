@@ -2345,10 +2345,11 @@ export function createImapInbox(
     );
 
   // Shows the saved listing without asking the server, as a load starts, for an Inbox nothing has
-  // opened yet; the next `load` reads it.
+  // opened yet; the next `load` reads it. A running operation is skipped, not awaited: a load shows
+  // the saved listing itself before it asks the server.
   const showSaved = () =>
     runLogged(
-      semaphore.withPermit(
+      semaphore.withPermitsIfAvailable(1)(
         Effect.suspend(() =>
           forgotten || state.kind !== 'loading'
             ? Effect.void
