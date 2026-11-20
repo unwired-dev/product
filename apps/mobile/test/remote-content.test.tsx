@@ -506,6 +506,32 @@ describe('remote message content in the reader', () => {
     }
   });
 
+  it('places images where a pinch zoom shows them', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const always = settingsWith('{"policy":"always","overrides":{}}');
+    await always.load();
+    const { gmail, app } = await openReader(always);
+    try {
+      const webview = await screen.findByTestId('message-webview');
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: measured(1500),
+        });
+      });
+      expect(gmail.remoteFetches).toStrictEqual([]);
+      // At twice the scale, the image's 3,000 points less the 2,600 scrolled show it in view.
+      await act(() => {
+        fireEvent(webview, 'scroll', {
+          nativeEvent: { contentOffset: { y: 2600 }, zoomScale: 2 },
+        });
+      });
+      expect(gmail.remoteFetches).toStrictEqual([source]);
+    } finally {
+      await app.unmount();
+    }
+  });
+
   it('withdraws queued images when Message Zoom replaces the document', async () => {
     expect.hasAssertions();
     placeDocument();

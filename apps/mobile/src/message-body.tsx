@@ -514,8 +514,8 @@ function RichDocument({
   const [positions, setPositions] = useState<
     ReturnType<typeof decodeRemoteImagePositions>
   >([]);
-  // How far a document taller than its view has scrolled inside it, and the check it reruns.
-  const inner = useRef(0);
+  // How far the view has scrolled inside its document and its pinch zoom, and the check it reruns.
+  const inner = useRef({ offset: 0, scale: 1 });
   const near = useRef<() => void>(undefined);
   // The shown view's `layout`, advanced as soon as it is replaced so its late events are ignored.
   const live = useRef(0);
@@ -556,13 +556,14 @@ function RichDocument({
         if (!active || revision !== measurement || live.current !== shown) {
           return;
         }
-        // A document taller than its view scrolls inside it; only images inside the view count.
-        const start = top - inner.current;
+        // The document scrolls and pinch-zooms inside its view; only images inside the view count.
+        const { offset: scrolled, scale } = inner.current;
+        const start = top - scrolled;
         const bottom = top + Math.min(height, heightCap);
         const urls = positions
           .filter((position) => {
-            const upper = Math.max(start + position.top, top);
-            const lower = Math.min(start + position.bottom, bottom);
+            const upper = Math.max(start + position.top * scale, top);
+            const lower = Math.min(start + position.bottom * scale, bottom);
             return (
               upper < lower &&
               lower >= offset - visible &&
@@ -604,7 +605,7 @@ function RichDocument({
         if (width !== undefined && width !== next) {
           // The replacement view reports its images afresh; the old ones are withdrawn.
           live.current += 1;
-          inner.current = 0;
+          inner.current = { offset: 0, scale: 1 };
           onNear([]);
           setHeight(undefined);
           setLayout(live.current);
@@ -639,7 +640,10 @@ function RichDocument({
           onShouldStartLoadWithRequest={choose}
           onScroll={({ nativeEvent }: WebViewScrollEvent) => {
             if (layout === live.current) {
-              inner.current = nativeEvent.contentOffset.y;
+              inner.current = {
+                offset: nativeEvent.contentOffset.y,
+                scale: nativeEvent.zoomScale ?? 1,
+              };
               near.current?.();
             }
           }}

@@ -58,8 +58,10 @@ const shownZoom = async () => {
 };
 
 describe('settings › Reading', () => {
-  it('zooms received formatted mail in the reader and keeps the zoom on this device', async () => {
+  it('starts at the zoom kept on this device and zooms received formatted mail in the reader', async () => {
     expect.hasAssertions();
+    // An earlier launch kept 125%; this file's first reader reads it from user defaults.
+    Settings.set({ UnwiredMessageZoom: 125 });
     await openReader();
     const initial = {
       textSize: screen.queryByText('Follows iOS') !== null,
@@ -84,9 +86,9 @@ describe('settings › Reading', () => {
     }).toStrictEqual({
       initial: {
         textSize: true,
-        zoom: 'Message Zoom: 100%',
+        zoom: 'Message Zoom: 125%',
         footer: true,
-        document: undefined,
+        document: '<style>body{zoom:1.25}</style>',
       },
       zoomed: '<style>body{zoom:1.5}</style>',
       label: 'Message Zoom: 150%',
