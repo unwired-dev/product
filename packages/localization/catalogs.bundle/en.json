@@ -1144,6 +1144,13 @@
       "restore": "Restore",
       "discard": "Discard"
     },
+    "return": {
+      "title": "Save this Draft?",
+      "detail": "“{{title}}” goes back to your Inbox window either way.",
+      "busyTitle": "The Inbox window already has a Draft open",
+      "busyDetail": "“{{title}}” is open there. Save it to Drafts to bring this Draft back.",
+      "saveOther": "Save Other Draft and Return"
+    },
     "loading": "Loading Draft",
     "badge": "DRAFT",
     "rowLabel": "Draft. {{subject}}. {{recipients}}. From {{from}}",

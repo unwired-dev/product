@@ -166,8 +166,9 @@ Command Input, From, Compose actions and Send beside the window controls.
 AppKit owns the window controls; React Native lays out the title and application
 controls. The window is at least 640pt wide, so the row keeps all of
 them; the title and From truncate first. AppKit does not restore New Message
-windows; closing one or quitting asks its composer first, as an Inbox window
-does.
+windows; closing one asks its composer first, whose Save Draft returns the Draft
+to an Inbox window ([composing](drafts.md#composing)), and quitting asks as an
+Inbox window does.
 
 | Command                                | Behavior                                            |
 | -------------------------------------- | --------------------------------------------------- |
