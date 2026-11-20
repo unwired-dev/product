@@ -970,6 +970,31 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   ([#2549](https://github.com/unwired-dev/product/issues/2549)). Mac, iPad attachments,
   the star, IDLE and relaunch, offline queueing, uncertain-move recovery and large-folder
   backfill stay on #632.
+- **2026-11-20, iPad attachments
+  ([#2567](https://github.com/unwired-dev/product/issues/2567)).** Target, toolchain and
+  operator as in the iPad connect record, on a new iPad Pro 11-inch (M5) Simulator on iOS
+  27.0. Build: the app source of `6322b2a96c20a65e815c44d16c8f4960341a5088`. Google
+  Product Sign-In found the certification Product Account, this device was unlocked with
+  its Recovery Key, and both certification mailboxes were connected through the app as in
+  the iPad connect record. Attachment: one synthetic PNG image (`image/png`, 173,158 bytes,
+  shown as `169,1 KB` in the simulator's Czech region format), added with the composer's
+  **Attach Photo**. Result: pass. From each mailbox, a new message with the attachment
+  went through the Outbox and arrived in the other mailbox. The connections send through
+  `smtp.mail.me.com` 587 (STARTTLS) and `smtp.seznam.cz` 465 (SSL/TLS). Over
+  IMAP, `imap.mail.me.com` 993 and `imap.seznam.cz` 993 (TLS), the delivered message and
+  the sender's single Sent copy each carried one attachment part with the source file's
+  name, content type, decoded size and SHA-256 prefix (first 16 hex digits). In each
+  receiving mailbox, the reader beside the list showed the attachment with its name and
+  size, **Download** saved a file with the same size and prefix, and **Open** showed it
+  in Quick Look. After the preview was closed, the reader's **Forward** listed the
+  attachment in the composer and carried it back to the other mailbox. The delivered
+  forward and its single Sent copy had the same decoded size and prefix. Afterwards no run
+  message remained in any folder of either mailbox. Limitations: Contacts access was
+  denied before composing, so the system prompt of the iPad connect record did not
+  appear. Mac, Share and Save to Files
+  ([#2469](https://github.com/unwired-dev/product/issues/2469)), inline images,
+  attachments over the 25 MiB download limit, IDLE and relaunch on iPad, recovery and
+  large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
