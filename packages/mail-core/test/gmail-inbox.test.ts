@@ -310,6 +310,46 @@ describe('synchronizing a Gmail Inbox', () => {
     expect(listRequests(gmail)).toHaveLength(2);
   });
 
+  it('drops search results Gmail deleted while the history was expired, keeping the rest and their reader', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const kept = gmail.deliver({ subject: 'Invoice kept' });
+    const deleted = gmail.deliver({ subject: 'Invoice deleted' });
+    const unanswered = gmail.deliver({ subject: 'Invoice unanswered' });
+    for (const id of [kept, deleted, unanswered]) {
+      gmail.archive(id);
+    }
+    let failing = false;
+    const inbox = createInboxStore({
+      ...gmail.native,
+      gmailRequest: (path, query, request) =>
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only one held message's lookup fails.
+        failing && path === `messages/${unanswered}`
+          ? Promise.resolve({ status: 503, body: '{}' })
+          : gmail.native.gmailRequest(path, query, request),
+    });
+    await inbox.load();
+    await inbox.searchGmail('Invoice');
+    const close = inbox.retainMessage(kept);
+    await inbox.readMessage(kept);
+    expect(ready(inbox.getSnapshot()).found).toHaveLength(3);
+
+    gmail.expireHistory();
+    gmail.remove(deleted);
+    const arrived = gmail.deliver({ subject: 'Arrived while history expired' });
+    failing = true;
+    await inbox.load();
+
+    // A held result Gmail did not answer for stays, and the Inbox lists again regardless.
+    const recovered = ready(inbox.getSnapshot());
+    expect(new Set(recovered.found?.map(({ id }) => id))).toStrictEqual(
+      new Set([kept, unanswered]),
+    );
+    expect(recovered.messages.map(({ id }) => id)).toContain(arrived);
+    expect(inbox.messageBody(kept)).toMatchObject({ kind: 'ready' });
+    close();
+  });
+
   it('keeps cached mail through authentication and retry states, and hides it when storage fails', async () => {
     expect.hasAssertions();
     const logged: unknown[] = [];

@@ -227,7 +227,8 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   folders; Choose Folders… or Change… (the whole row on iPhone) opens the same sheet
   with the saved folders, on the Mac as a sheet on the Settings window. The choice
   synchronizes through Product Sync for that connection only
-  until it is removed. A chosen folder supplies a role only where the server marks no
+  until it is removed; a device that has not yet learned another device removed and
+  added the connection again cannot save over the new connection's choice. A chosen folder supplies a role only where the server marks no
   folder with it, and a server marking still wins. A server marking several folders
   with a role offers no choice and stays out of All Mail, since choosing one would
   leave the others' mail in it; Move to Inbox still works from each of those folders.
@@ -749,24 +750,135 @@ Trash folder of both mailboxes, also when a step failed. The search for messages
 have, polls for 70 seconds shared by both deliveries; cleanup polls for one the test did not
 find for 16 seconds more, shared by both mailboxes, within the test's 120-second allowance.
 
-| Step               | iCloud Mail                                                                           | Seznam Email                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| IMAP 993 login     | Name part of the address, app-specific password                                       | Full address, mail-client password                                                                                                                                                                                                                                                                                                                                                                                                |
-| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                 | Refused as an authentication failure on IMAP and SMTP                                                                                                                                                                                                                                                                                                                                                                             |
-| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                              | 465, SSL/TLS; delivered to iCloud Mail                                                                                                                                                                                                                                                                                                                                                                                            |
-| Delivered message  | Found by text search; envelope, source and `\Seen` cleared and set                    | Found by text search; envelope, source, `\Seen` cleared and set and MOVE to Trash                                                                                                                                                                                                                                                                                                                                                 |
-| Folders and roles  | `INBOX` alone, no roles ([#2401](https://github.com/unwired-dev/product/issues/2401)) | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                                                                                                                                                                                                                                                                                                                                               |
-| Sent filing        | Not possible: without a Sent folder, Send refuses                                     | No copy filed by the server. The boundary lookup finds none in an empty Sent folder, so the copy is appended; the lookup that follows drops the connection in the folder that now holds it ([#2402](https://github.com/unwired-dev/product/issues/2402)), and a text search on a new session finds the one copy. In a Sent folder that already holds messages, the first lookup drops the connection and the product stops filing |
-| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                    | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                                                                                                                                                                                                                                                                                                                                         |
+| Step               | iCloud Mail                                                                               | Seznam Email                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| IMAP 993 login     | Name part of the address, app-specific password                                           | Full address, mail-client password                                                                                                                                    |
+| Wrong password     | Refused as an authentication failure on IMAP and SMTP                                     | Refused as an authentication failure on IMAP and SMTP                                                                                                                 |
+| SMTP submission    | 587, STARTTLS; delivered to Seznam Email                                                  | 465, SSL/TLS; delivered to iCloud Mail                                                                                                                                |
+| Delivered message  | Found by text search, read, marked and moved to Trash using COPY and targeted UID EXPUNGE | Found by text search; envelope, source, `\Seen` cleared and set and MOVE to Trash                                                                                     |
+| Folders and roles  | Sent and Trash roles on LIST                                                              | Sent, Drafts, Archive, Junk and Trash roles on LIST                                                                                                                   |
+| Sent filing        | The test finds no provider-filed copy, appends one and verifies it by Message-ID and text | No copy filed by the server. The Message-ID lookup finds none, so the copy is appended, and the lookup that follows and a text search each find exactly that one copy |
+| Extensions of note | IDLE, ESEARCH, CONDSTORE, QRESYNC, UIDPLUS; no MOVE or SPECIAL-USE                        | MOVE, UIDPLUS; no IDLE, ESEARCH, CONDSTORE or SPECIAL-USE                                                                                                             |
 
-The test marks the INBOX-only listing (#2401) and the boundary lookup's dropped connection
-in a Sent folder that holds messages (#2402) as known issues, which fail the run once they are fixed so the markers get removed.
-On 19 November 2026 the test passed with exactly those two known issues on an iOS 27.0
-iPhone 18 Pro Simulator, where the whole suite passed, and on the Mac host (macOS 27.2),
-both built with Xcode 27.2 (27B52) from `main` at `eb28e204d` with this change applied. In
-that Mac run, 60 Keychain checks of other tests failed with `.locked`, as they did on `main`
-on the same host at the time. The run is engine evidence only: the app's
-setup and reader journeys, IDLE, recovery and large folders are still to be qualified.
+After the owner opened iCloud Mail for the certification account, IMAP LIST returned
+INBOX, Sent Messages, Deleted Messages, Drafts, Junk and Archive. LIST marked Sent
+Messages and Deleted Messages with Sent and Trash roles. Drafts, Junk and Archive
+had no special-use flags. [#2401](https://github.com/unwired-dev/product/issues/2401)
+
+On 19 November 2026 the certification test passed on an iOS 27.0 iPhone 18 Pro
+Simulator and macOS 27.2 (26B123) using Xcode 27.2 (27B52) and this change on top of
+`4faf00f00`. The iOS suite passed 105 tests and skipped the controlled standards
+server test. The Mac suite reported 60 Keychain `.locked` issues across 57 other
+tests, as in the first run. The Mac run skipped the controlled standards server
+test and three loopback TLS tests. The credential scan passed.
+
+The first run that day, built with Xcode 27.2 (27B52) from `main` at `eb28e204d`
+with the certification test applied, passed the certification test on both hosts
+with two known issues. iCloud Mail listed only INBOX, and Seznam Email dropped
+the connection on a MIME-boundary Sent lookup (#2402). On `592c536af` with the
+Message-ID lookup of [#2431](https://github.com/unwired-dev/product/issues/2431)
+applied, the iOS suite passed with only the iCloud Mail exception still active.
+
+### Certification runs through the app
+
+Each record holds only non-secret facts: no addresses, passwords or mail content.
+
+- **2026-11-19, iPhone connect and read
+  ([#2444](https://github.com/unwired-dev/product/issues/2444)).** Target: Expo client,
+  Release build without a Mock Mail Session, iPhone 18 Pro Simulator on iOS 27.0, with the
+  development Convex deployment. Build: the app source of
+  `3f2363b2abe4acdd2c48dd12e5b5a9c42d0c48fb`. Toolchain: Xcode 27.2 (27B52). Operator:
+  agent, with credentials read at run time from the approved password manager. Result:
+  pass. Google Product Sign-In created a new Product Account. **iCloud Mail** connected
+  with the app-specific password over `imap.mail.me.com` 993 (TLS) and
+  `smtp.mail.me.com` 587 (STARTTLS), then **Add an IMAP Mailbox** › **Other IMAP
+  Account** filled in `imap.seznam.cz` 993 (TLS) and `smtp.seznam.cz` 465 (SSL/TLS) from
+  the catalog for the Seznam Email address, and connected with its mail-client password.
+  Each Inbox listed real messages and one opened in the reader with remote images
+  held back. The Mailboxes list showed both accounts' folders, including Seznam Email's
+  `drafts`, `archive`, `spam` and `trash`. Limitations: Product Sync logged an
+  unavailable failure right after sign-in, the `pullDrafts` pull failed as unavailable
+  once the first IMAP mailbox connected, and Account & Devices showed the Gmail
+  pending-changes notice on this account without a Gmail mailbox
+  ([#2390](https://github.com/unwired-dev/product/issues/2390)). Mac, iPad,
+  organizing, search, attachments, sending, IDLE, Sent filing, relaunch and recovery were
+  not run and stay on #632.
+- **2026-11-19, iPhone send and reply
+  ([#2450](https://github.com/unwired-dev/product/issues/2450)).** Target, build,
+  toolchain and operator as in the record above, with both certification mailboxes
+  connected through the app the same way. Result: pass. A new message from iCloud Mail
+  went through the Outbox, SMTP `smtp.mail.me.com` 587 (STARTTLS) accepted it, the row
+  left the Outbox and the message appeared in the Seznam Email Inbox in the app. A reply
+  from Seznam Email went out over `smtp.seznam.cz` 465 (SSL/TLS) and appeared in the
+  iCloud Mail Inbox in the app. Over IMAP, its `In-Reply-To` named the original's
+  Message-ID and its `References` included it, and each sending mailbox's Sent folder held
+  exactly one copy, with the same Message-ID as the delivered message. In the app,
+  Seznam Email's `sent` folder listed exactly one copy of the reply. A later message from
+  iCloud Mail showed **Sending soon** with **Undo**, then **Sent. Saving a copy to
+  Sent…**, and iCloud Mail's Sent Messages folder in the app then listed exactly one
+  copy, but only after the list was pulled down
+  ([#2454](https://github.com/unwired-dev/product/issues/2454)). A message from Seznam
+  Email carried a `Date` header 12 seconds before its SMTP submission, consistent with
+  the 10-second Undo Send Window. Afterwards no run message remained in any folder of
+  either mailbox. Limitations: the first message stayed **Waiting to send**
+  because `claimDraftDelivery` failed as unavailable. The development Convex deployment
+  ran functions older than the app, and their validators rejected the
+  `productAccountId` and `mailProfileCapability` arguments. After those functions were
+  pushed, the row was delivered and the Private Sync pull failures of the record above
+  stopped ([#2390](https://github.com/unwired-dev/product/issues/2390)). **Undo** itself
+  and Delivery unknown were not exercised. Mac, iPad, attachments, organizing, search,
+  IDLE, relaunch and recovery stay on #632.
+- **2026-11-19, iPhone organize and search
+  ([#2458](https://github.com/unwired-dev/product/issues/2458)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `2b6b0a2081d0b149db16bbede517c29cff5898db`. Both certification
+  mailboxes were connected through the app as in the first record, and each Inbox
+  received one test message from the other mailbox. Result: pass. Each step below was
+  checked on the server over IMAP as well as in the app. In each mailbox, the row menu's
+  **Mark as unread** cleared the message's `\Seen` flag and **Mark as Read** set it.
+  **Move to** a folder without a role (iCloud Mail's unmarked `Archive`, Seznam Email's
+  `newsletters`) moved the message there and **Undo** moved it back to the Inbox. iCloud
+  Mail offers UIDPLUS without MOVE, so the app moved its messages with `UID COPY` and
+  `UID EXPUNGE`. Seznam Email offers MOVE, so the app used `UID MOVE`. **Delete** moved the message to the Trash-role folder
+  (`Deleted Messages`, `trash`), and **Move to Inbox** in the Trash view brought it back.
+  Seznam Email declares `\Archive` and `\Junk`: the row menu's **Archive** moved the
+  message to `archive`, the Command Palette's **Move to Spam** moved it to `spam`, and
+  each **Undo** brought it back. iCloud Mail declares neither role, and no Spam folder
+  was chosen. Its row menu and reader offered no Archive or Move to Spam, and the Command
+  Palette showed Archive as not available and listed no Move to Spam. **Search Mail
+  Servers** listed the Inbox copies saved on the device. Under **From mail servers** it
+  also listed a message from each mailbox that had been appended over IMAP to a folder
+  without a role and was never saved on the device. Afterwards no run message remained
+  in any folder of either mailbox. Limitations: Mac, iPad, attachments, the star, IDLE,
+  offline queueing, uncertain-move recovery, relaunch and large-folder backfill stay on
+  #632.
+- **2026-11-20, iPhone attachments
+  ([#2471](https://github.com/unwired-dev/product/issues/2471)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `594c5a152f12ffd59a8ff56ff3a95b5e0313a91c`. Both certification
+  mailboxes were connected through the app as in the first record. Attachment: one PNG
+  image (`image/png`, 146,436 bytes, listed as 143 KB), added with the composer's
+  **Attach Photo**. Result: pass. From each mailbox, a new message with the attachment
+  went through the Outbox, iCloud Mail over `smtp.mail.me.com` 587 (STARTTLS) and Seznam
+  Email over `smtp.seznam.cz` 465 (SSL/TLS), and arrived in the other mailbox. Over IMAP,
+  `imap.mail.me.com` 993 and `imap.seznam.cz` 993 (TLS), the delivered message and the
+  sender's Sent copy each carried one attachment part with the same file name, content
+  type, decoded size and SHA-256 prefix (first 16 hex digits). In each receiving
+  mailbox, the reader listed the attachment with its name and size, **Download** saved a
+  file with the same size and prefix and **Open** showed it in Quick Look. **Reply** ›
+  **Forward** then carried the attachment back to the other mailbox, and the delivered
+  forward and its Sent copy had the same decoded size and prefix. Afterwards no run
+  message remained in any folder of either mailbox.
+  Limitations: once, Forward after **Download**, **Open** and closing the preview showed
+  the attachment as **Not added: the file could not be read or saved**, and repeating the
+  steps carried it. In the same reader the first **Open** showed no preview and the row
+  returned to **Download** ([#2480](https://github.com/unwired-dev/product/issues/2480)).
+  The first forward from iCloud Mail was sent, but its server copies were removed before
+  they were checked, so the verified forward in that direction came from a second test
+  message from Seznam Email. The machine was under heavy load: typed text dropped
+  characters and Quick Look took many seconds to appear. Mac, iPad, Share and Save to
+  Files ([#2469](https://github.com/unwired-dev/product/issues/2469)), inline images,
+  attachments over the 25 MiB download limit, IDLE, relaunch and recovery stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

@@ -80,6 +80,25 @@ const filing: Readonly<
   'sent-folder': 'outbox.filing.sent-folder',
 };
 
+// An Invitation Response's own words while it waits, sends, was refused or is unknown, by its state
+// and any problem; why it waits and its Sent copy read as for any message.
+const responseEntries = [
+  ['waiting', 'outbox.invitation.waiting'],
+  ['queued', 'outbox.invitation.sending'],
+  ['sending', 'outbox.invitation.sending'],
+  ['failed', 'outbox.invitation.refused'],
+  ['failed refused', 'outbox.invitation.refused'],
+  ['unknown', 'outbox.invitation.unknown'],
+] as const;
+const responseCopy = new Map<string, (typeof responseEntries)[number][1]>(
+  responseEntries,
+);
+
+const responseStatus = ({ invitation, state, problem }: OutboxSnapshotEntry) =>
+  invitation === undefined
+    ? undefined
+    : responseCopy.get(problem === undefined ? state : `${state} ${problem}`);
+
 // Where a message stands, in words: waiting out Undo Send, waiting to send and why, sending,
 // sent with its Sent copy pending and why, refused and why, or handed off without a confirmed
 // outcome.
@@ -118,8 +137,9 @@ export function outboxCopy(
   entry: OutboxSnapshotEntry,
   provider: CopyProvider = 'unlisted',
 ) {
+  const response = responseStatus(entry);
   return {
-    status: statusOf(t, entry, provider),
+    status: response === undefined ? statusOf(t, entry, provider) : t(response),
     unconfirmed:
       entry.check === 'unconfirmed'
         ? t(`outbox.unknown.unconfirmed${unknownCopy[provider]}`)

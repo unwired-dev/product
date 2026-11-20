@@ -80,6 +80,7 @@ Interruption and protection terms are defined in the [privacy and sync glossary]
 - A **Blocked Sender** is a profile-scoped **Mail Workflow Preference** protected by **Private Sync**; the backend receives neither its readable address nor provider execution requests
 - Blocking applies only to future arriving messages whose normalized sender address matches exactly, suppresses their new-message notifications, and enqueues a recoverable move to Trash through the owning **Mailbox Connection** when that connection supports the action
 - Unblocking stops future enforcement but does not restore mail already moved to Trash; devices without local authorization retain the synchronized preference and report that enforcement is waiting for an authorized trusted device
+- A **Blocked Domain** is enforced the same way for the domain the person chose, with every subdomain only when chosen, letting through the exact addresses it exempts; an organization, display name or lookalike domain never matches ([ADR 0078](../adr/0078-block-explicit-sender-domains-beside-exact-blocked-senders.md))
 
 ## Product categories
 

@@ -26,6 +26,7 @@ import { Text, TextInput } from 'react-native';
 import type { SettingsButton } from './settings.tsx';
 
 import { AnnouncedAlert } from './design.tsx';
+import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
@@ -67,7 +68,12 @@ function DeviceConfirmation({
           />
         </Alert.Actions>
         <Alert.Message>
-          <SwiftUIText>{t('revocation.confirm', { name })}</SwiftUIText>
+          {/* iPhone says it in two sentences; iPad keeps the full explanation its frames draw. */}
+          <SwiftUIText>
+            {t(ipad ? 'revocation.confirm' : 'revocation.confirmPhone', {
+              name,
+            })}
+          </SwiftUIText>
         </Alert.Message>
       </Alert>
     </Host>

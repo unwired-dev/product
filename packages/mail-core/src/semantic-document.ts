@@ -1,4 +1,5 @@
 import * as Schema from 'effect/Schema';
+import * as Struct from 'effect/Struct';
 
 import { vettedHref } from './link-inspection.ts';
 import { channelsOf, luminanceOf, palette } from './theme.ts';
@@ -118,6 +119,8 @@ export const BlockSchema = Schema.Struct({
   kind: BlockKindSchema,
   spans: Schema.Array(SpanSchema),
   align: Schema.optionalKey(AlignmentSchema),
+  // How many levels a list item nests below its list's first; any other block ignores it.
+  indent: Schema.optionalKey(Schema.Literals([1, 2])),
 });
 export type Block = typeof BlockSchema.Type;
 export const SemanticDocumentSchema = Schema.NonEmptyArray(BlockSchema);
@@ -267,20 +270,56 @@ const joinSpans = (...parts: ReadonlyArray<readonly Span[]>) => {
   return spans;
 };
 
+// Lists nest three levels deep.
+export const listLevels = 3;
+
+export const isListKind = (kind: BlockKind) =>
+  kind === 'bulleted' || kind === 'numbered';
+
+// A block that stops being a list item stops nesting.
+const withoutIndent = (block: Block): Block => Struct.omit(block, ['indent']);
+
 const documentOf = (blocks: readonly Block[]): SemanticDocument => {
-  const [first, ...rest] = blocks;
+  const [first, ...rest] = blocks.map((block) =>
+    block.indent === undefined || isListKind(block.kind)
+      ? block
+      : withoutIndent(block),
+  );
   return first === undefined ? emptyDocument : [first, ...rest];
 };
 
-// Consecutive numbered items count from one; any other block restarts the count.
-const markersOf = (lines: readonly Block[]) => {
-  let number = 0;
-  return lines.map(({ kind }) => {
-    number = kind === 'numbered' ? number + 1 : 0;
-    if (kind === 'bulleted') {
-      return '• ';
+// Each numbered item's number, zero for any other block. Consecutive numbered items of one level
+// count from one, across items nested between them; any block that is not a list item restarts
+// every count, and a bulleted item restarts its level's.
+export const listNumbersOf = (lines: readonly Block[]) => {
+  const levels: Array<Readonly<{ kind: BlockKind; count: number }>> = [];
+  return lines.map(({ kind, indent = 0 }) => {
+    if (!isListKind(kind)) {
+      levels.length = 0;
+      return 0;
     }
-    return kind === 'numbered' ? `${number}. ` : '';
+    levels.length = Math.min(levels.length, indent + 1);
+    const previous = levels[indent];
+    const count = previous?.kind === kind ? previous.count + 1 : 1;
+    levels[indent] = { kind, count };
+    return kind === 'numbered' ? count : 0;
+  });
+};
+
+// One level of nesting before a list marker: an em and an en space, about the 25pt the frames
+// indent each level at the body's size.
+const nesting = '\u2003\u2002';
+
+const markersOf = (lines: readonly Block[]) => {
+  const numbers = listNumbersOf(lines);
+  return lines.map(({ kind, indent = 0 }, index) => {
+    if (!isListKind(kind)) {
+      return '';
+    }
+    return (
+      nesting.repeat(indent) +
+      (kind === 'bulleted' ? '• ' : `${numbers[index] ?? 1}. `)
+    );
   });
 };
 
@@ -1212,6 +1251,22 @@ export const withoutImage = (document: SemanticDocument, id: string) =>
     spans: joinSpans(block.spans.filter((span) => !showsImage(span, id))),
   }));
 
+// The selection after `result` changed only the kinds or nesting of `document`'s lines: the same
+// text, after their new markers.
+const keptSelection = (
+  document: SemanticDocument,
+  selection: Selection,
+  result: SemanticDocument,
+): Selection => {
+  const { from, to } = bounds(document, selection);
+  const column = (at: Readonly<typeof from>) =>
+    Math.max(0, at.column - at.marker);
+  return {
+    start: offsetOf(result, from.line, column(from)),
+    end: offsetOf(result, to.line, column(to)),
+  };
+};
+
 // Sets every selected block to `kind`, or back to a paragraph when they all have it already.
 export function setBlockKind(
   document: SemanticDocument,
@@ -1221,16 +1276,69 @@ export function setBlockKind(
   const { lines, from, to } = bounds(document, selection);
   const chosen = lines.slice(from.line, to.line + 1);
   const next = chosen.every((line) => line.kind === kind) ? 'paragraph' : kind;
-  const result = lines.map((line, index) =>
-    index < from.line || index > to.line ? line : { ...line, kind: next },
+  const result = documentOf(
+    lines.map((line, index) =>
+      index < from.line || index > to.line ? line : { ...line, kind: next },
+    ),
   );
-  const column = (at: Readonly<typeof from>) =>
-    Math.max(0, at.column - at.marker);
   return {
-    document: documentOf(result),
-    selection: {
-      start: offsetOf(result, from.line, column(from)),
-      end: offsetOf(result, to.line, column(to)),
-    },
+    document: result,
+    selection: keptSelection(document, selection, result),
+  };
+}
+
+// The lines Outdent and Indent move: a selection ending at the start of a line, as a selected
+// paragraph with its line break does, stops at the line before.
+const indentedLines = (document: SemanticDocument, selection: Selection) => {
+  const { lines, from, to } = bounds(document, selection);
+  const last =
+    to.line > from.line && to.column <= to.marker ? to.line - 1 : to.line;
+  return { lines, first: from.line, last };
+};
+
+// The selected list items.
+const selectedItems = (document: SemanticDocument, selection: Selection) => {
+  const { lines, first, last } = indentedLines(document, selection);
+  return lines.slice(first, last + 1).filter(({ kind }) => isListKind(kind));
+};
+
+// Whether Outdent and Indent can move the selected list items: the selection holds some, and each
+// of them stays within the list's levels.
+export function listIndentAt(document: SemanticDocument, selection: Selection) {
+  const items = selectedItems(document, selection);
+  return {
+    outdent: items.length > 0 && items.every(({ indent = 0 }) => indent > 0),
+    indent:
+      items.length > 0 &&
+      items.every(({ indent = 0 }) => indent < listLevels - 1),
+  };
+}
+
+// Moves every selected list item one level deeper, or with `outdent` one level out, as one edit;
+// other blocks stay as they are. The same document when an item would leave the list's levels.
+export function indentList(
+  document: SemanticDocument,
+  selection: Selection,
+  direction: 'indent' | 'outdent',
+): Edit {
+  if (!listIndentAt(document, selection)[direction]) {
+    return { document };
+  }
+  const { lines, first, last } = indentedLines(document, selection);
+  const by = direction === 'indent' ? 1 : -1;
+  const result = documentOf(
+    lines.map((line, index) => {
+      if (index < first || index > last || !isListKind(line.kind)) {
+        return line;
+      }
+      const indent = (line.indent ?? 0) + by;
+      return indent === 1 || indent === 2
+        ? { ...line, indent }
+        : withoutIndent(line);
+    }),
+  );
+  return {
+    document: result,
+    selection: keptSelection(document, selection, result),
   };
 }

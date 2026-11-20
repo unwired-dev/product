@@ -55,13 +55,29 @@ export interface NativeAttachments {
     mailbox: Readonly<{ address: string; generation: string }>,
     file: string,
   ) => Promise<unknown>;
-  // Shows the system Attachment Preview, or the system share sheet, for a saved attachment.
+  // Shows the system Attachment Preview, the system share sheet or, on iPhone and iPad, the Save to
+  // Files picker for a saved attachment. Saving resolves once the person saved a copy, with its
+  // name, folder and Files link, or cancelled, with `{ cancelled: true }`.
   readonly presentAttachment: (
     mailbox: Readonly<{ address: string; generation: string }>,
     file: string,
-    action: 'open' | 'share',
+    action: AttachmentAction,
   ) => Promise<unknown>;
 }
+
+export type AttachmentAction = 'open' | 'share' | 'save';
+
+// A copy the person saved through Save to Files: its actual name, its folder as Files names it, and
+// the link that shows it in Files.
+const savedCopy = Schema.Struct({
+  name: Schema.NonEmptyString,
+  folder: Schema.NonEmptyString,
+  show: Schema.String.check(Schema.isStartingWith('shareddocuments://')),
+});
+const decodeSaveReply = Schema.decodeUnknownEffect(
+  Schema.Union([savedCopy, Schema.Struct({ cancelled: Schema.Literal(true) })]),
+);
+export type SavedCopy = typeof savedCopy.Type;
 
 const attachmentStates = {
   available: { kind: 'available' },
@@ -295,6 +311,49 @@ export function createAttachmentDownloads<S extends Scope, E>(
     return operation;
   };
 
+  // Hands a Downloaded Attachment to the system, succeeding with the native reply, or undefined
+  // when it was not presented. A file the device no longer has, or one saved before the mailbox
+  // changed, is downloaded again.
+  const present = (id: string, locator: string, action: AttachmentAction) => {
+    const saved = downloads.get(attachmentKey(id, locator));
+    const opened = scope();
+    const file = saved?.saved;
+    if (file === undefined || opened === undefined || !readable(id)) {
+      return Effect.void;
+    }
+    const stale = () =>
+      Effect.sync(() => {
+        if (downloads.get(attachmentKey(id, locator)) === saved) {
+          setDownload(id, locator, undefined);
+          discardSaved(file);
+        }
+      });
+    if (
+      file.scope.address !== opened.address ||
+      file.scope.generation !== opened.generation
+    ) {
+      return stale().pipe(Effect.as(undefined));
+    }
+    return Effect.tryPromise({
+      try: () => native.presentAttachment(opened, file.file, action),
+      catch: (cause) => rejected(cause, 'failed'),
+    }).pipe(
+      // Only a file the device no longer has, or one from another mailbox generation, is
+      // downloaded again; a presenter that could not show the file keeps it.
+      Effect.catchTag('SyncFailure', ({ kind, cause, diagnostic }) =>
+        Effect.logError('Attachment could not be presented:', diagnostic).pipe(
+          Effect.andThen(
+            kind === 'invalidated' ||
+              rejectionCode(cause) === 'attachment-missing'
+              ? stale()
+              : Effect.void,
+          ),
+          Effect.as(undefined),
+        ),
+      ),
+    );
+  };
+
   return {
     // An opened message's received attachments with their availability, once its body is ready;
     // listing them never downloads their bytes.
@@ -326,56 +385,35 @@ export function createAttachmentDownloads<S extends Scope, E>(
         abort?.abort();
       }
     },
-    // Opens the system Attachment Preview or share sheet for a Downloaded Attachment. A file the
-    // device no longer has, or one saved before the mailbox changed, is downloaded again.
+    // Opens the system Attachment Preview or share sheet for a Downloaded Attachment.
     presentAttachment: (
       id: string,
       locator: string,
-      action: 'open' | 'share',
-    ) => {
-      const saved = downloads.get(attachmentKey(id, locator));
-      const opened = scope();
-      const file = saved?.saved;
-      if (file === undefined || opened === undefined || !readable(id)) {
-        return Promise.resolve();
-      }
-      const stale = () =>
-        Effect.sync(() => {
-          if (downloads.get(attachmentKey(id, locator)) === saved) {
-            setDownload(id, locator, undefined);
-            discardSaved(file);
-          }
-        });
-      if (
-        file.scope.address !== opened.address ||
-        file.scope.generation !== opened.generation
-      ) {
-        return runLogged(stale());
-      }
-      return runLogged(
-        Effect.tryPromise({
-          try: () => native.presentAttachment(opened, file.file, action),
-          catch: (cause) => rejected(cause, 'failed'),
-        }).pipe(
-          Effect.asVoid,
-          // Only a file the device no longer has, or one from another mailbox generation, is
-          // downloaded again; a presenter that could not show the file keeps it.
-          Effect.catchTag('SyncFailure', ({ kind, cause, diagnostic }) =>
-            Effect.logError(
-              'Attachment could not be presented:',
-              diagnostic,
-            ).pipe(
-              Effect.andThen(
-                kind === 'invalidated' ||
-                  rejectionCode(cause) === 'attachment-missing'
-                  ? stale()
-                  : Effect.void,
-              ),
-            ),
+      action: Exclude<AttachmentAction, 'save'>,
+    ) => runLogged(present(id, locator, action).pipe(Effect.asVoid)),
+    // Saves a copy of a Downloaded Attachment where the person chooses. Resolves the saved copy,
+    // 'cancelled', or 'failed' when nothing was saved for another reason.
+    saveAttachmentCopy: (id: string, locator: string) =>
+      runLogged(
+        present(id, locator, 'save').pipe(
+          Effect.flatMap((reply) =>
+            reply === undefined
+              ? Effect.succeed('failed' as const)
+              : decodeSaveReply(reply).pipe(
+                  Effect.map((copy) =>
+                    'cancelled' in copy ? ('cancelled' as const) : copy,
+                  ),
+                  Effect.tapError((failure) =>
+                    Effect.logError(
+                      'Saved attachment reply was malformed:',
+                      malformed(failure, 'failed').diagnostic,
+                    ),
+                  ),
+                  Effect.orElseSucceed(() => 'failed' as const),
+                ),
           ),
         ),
-      );
-    },
+      ),
     // A Downloaded Attachment saved for the open mailbox generation, which a Draft can copy; native
     // code reads it only while that generation is current.
     attachmentFile: (id: string, locator: string) => {

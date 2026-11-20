@@ -16,22 +16,21 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { draftSummary } from '@private-email/mail-core/drafts';
+import { invitationChoiceKeys } from '@private-email/mail-core/invitations';
 import { outboxCopy } from '@private-email/mail-core/outbox';
-import { radius, spacing, typography } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
-  Animated,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
 import { Action } from './action.tsx';
-import { SFSymbol, useMenuMotion } from './design.tsx';
-import { useLocalization } from './localization.ts';
+import { SFSymbol, Toast } from './design.tsx';
+import { useLocalization, useMessageListDateFormats } from './localization.ts';
 import { useOutbox, useOutboxEntries } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -66,19 +65,10 @@ const styles = StyleSheet.create({
     flexWrap: phone ? 'wrap' : 'nowrap',
     gap: spacing.s,
   },
-  toast: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.m,
-    paddingHorizontal: spacing.l,
-    paddingVertical: 10,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
-  toastMessage: { ...typography.macos.body, flexShrink: 1 },
-  // The 44pt target extends 4pt above and below the 36pt toast.
-  toastAction: { minHeight: 44, marginVertical: -14, justifyContent: 'center' },
-  toastActionLabel: { ...typography.macos.bodyEmphasized },
+  responseHeading: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  responseTitle: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  // Long labels wrap the capsules onto another line on iPad too.
+  responseActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
 });
 
 // Where each send last stood when announced, and its last Check Again answer, keyed by the send;
@@ -113,8 +103,8 @@ export function forgetRetired(entries: readonly OutboxSnapshotEntry[]) {
   }
 }
 
-// The deep graphite toast saying storage refused to return a message to the Drafts. It stays until
-// Try Again or the next Outbox action, and while the message can still return.
+// The toast saying storage refused to return a message to the Drafts. It stays until Try Again or
+// the next Outbox action, and while the message can still return.
 function RefusedToast({
   open,
   message,
@@ -124,37 +114,15 @@ function RefusedToast({
   readonly message: string;
   readonly onTryAgain: () => void;
 }) {
-  const colors = usePalette();
   const { t } = useLocalization();
-  const motion = useMenuMotion(open, 'menu');
-  if (!motion.shown) {
-    return null;
-  }
   return (
-    <Animated.View
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'auto' : 'none'}
-      style={[
-        styles.toast,
-        { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
-        motion.style,
-      ]}>
-      <SFSymbol
-        name="exclamationmark.triangle.fill"
-        color={colors.brandOnDeep}
-      />
-      <Text style={[styles.toastMessage, { color: colors.brandOnDeep }]}>
-        {message}
-      </Text>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onTryAgain}
-        style={styles.toastAction}>
-        <Text style={[styles.toastActionLabel, { color: colors.brandOnDeep }]}>
-          {t('outbox.tryAgain')}
-        </Text>
-      </Pressable>
-    </Animated.View>
+    <Toast
+      open={open}
+      symbol="exclamationmark.triangle.fill"
+      message={message}
+      action={t('outbox.tryAgain')}
+      onAction={onTryAgain}
+    />
   );
 }
 
@@ -212,6 +180,11 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
       }
     })();
   };
+  // An Invitation Response, which was never a Draft, only leaves the Outbox.
+  const undoResponse = (entry: OutboxSnapshotEntry) => {
+    dismiss();
+    void outbox.undo(entry.id, 'waiting');
+  };
   const check = (entry: OutboxSnapshotEntry) => {
     dismiss();
     void (async () => {
@@ -235,7 +208,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
         }}
       />
     );
-  return { toast, actions: { returnToDrafts, check, dismiss } };
+  return { toast, actions: { returnToDrafts, undoResponse, check, dismiss } };
 }
 
 export type OutboxActions = ReturnType<typeof useOutboxActions>['actions'];
@@ -249,14 +222,16 @@ function RowAction({
   onPress,
   disabled = false,
   destructive = false,
+  capsule = phone,
 }: {
   readonly label: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
   readonly destructive?: boolean;
+  readonly capsule?: boolean;
 }) {
   const colors = usePalette();
-  if (!phone) {
+  if (!capsule) {
     return (
       <Action
         variant="composer"
@@ -268,7 +243,7 @@ function RowAction({
     );
   }
   // The iPhone frames draw a row's controls as quiet capsules; iPad keeps text actions until its
-  // frames draw them otherwise.
+  // frames draw them otherwise, as they do for an Invitation Response.
   return (
     <Host matchContents>
       <SwiftUIButton
@@ -374,23 +349,170 @@ function ReturnAction({ children }: { readonly children: ReactNode }) {
   );
 }
 
+// Where an Invitation Response stands, as its row's symbol shows it.
+const responseSymbols = {
+  waiting: ['clock', 'textSecondary'],
+  queued: ['clock', 'textSecondary'],
+  sending: ['clock', 'textSecondary'],
+  filing: ['clock', 'textSecondary'],
+  failed: ['exclamationmark.triangle.fill', 'statusDestructive'],
+  unknown: ['info.circle', 'statusWarning'],
+} as const satisfies Record<OutboxSnapshotEntry['state'], readonly string[]>;
+
+// An Invitation Response's row: the meeting, the choice and where it stands, with Undo while it
+// waits, Check Again when its delivery is unknown, and Open Invitation, as capsules under its words
+// on iPhone and iPad. It has no Edit, since it was never a Draft.
+function ResponseRow({
+  entry,
+  invitation,
+  actions,
+  onOpenInvitation,
+}: {
+  readonly entry: OutboxSnapshotEntry;
+  readonly invitation: NonNullable<OutboxSnapshotEntry['invitation']>;
+  readonly actions: OutboxActions;
+  readonly onOpenInvitation: (() => void) | undefined;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const formats = useMessageListDateFormats();
+  const subject = invitation.summary ?? t('invitation.untitled');
+  const recipients = t('outbox.invitation.response', {
+    choice: t(`invitation.${invitationChoiceKeys[invitation.choice]}`),
+  });
+  const { status, unconfirmed } = outboxCopy(t, entry, 'imap');
+  const label = t('outbox.rowLabel', {
+    subject,
+    recipients,
+    status: unconfirmed ?? status,
+  });
+  useAnnouncement(sendOf(entry), status, label);
+  useAnnouncement(`${sendOf(entry)}:check`, unconfirmed);
+  const [symbol, tone] = responseSymbols[entry.state];
+  return (
+    <View style={[styles.row, { backgroundColor: colors.surfaceSidebar }]}>
+      <View
+        accessible
+        accessibilityLabel={label}
+        style={styles.grow}>
+        <View style={styles.responseHeading}>
+          <Text
+            numberOfLines={1}
+            style={[styles.responseTitle, { color: colors.textPrimary }]}>
+            {subject}
+          </Text>
+          <SFSymbol
+            name={symbol}
+            size={13}
+            color={colors[tone]}
+          />
+          <Text
+            style={[
+              styles.detail,
+              {
+                color:
+                  entry.state === 'failed'
+                    ? colors.statusDestructive
+                    : colors.textSecondary,
+              },
+            ]}>
+            {formats.time.format(entry.draft.updatedAt)}
+          </Text>
+        </View>
+        <Text
+          numberOfLines={1}
+          style={[styles.detail, { color: colors.textPrimary }]}>
+          {recipients}
+        </Text>
+        <Text style={[styles.detail, { color: colors.textSecondary }]}>
+          {unconfirmed ?? status}
+        </Text>
+      </View>
+      <View style={styles.recovery}>
+        <View style={styles.responseActions}>
+          {entry.state === 'waiting' ? (
+            <RowAction
+              capsule
+              label={t('outbox.undo')}
+              onPress={() => {
+                actions.undoResponse(entry);
+              }}
+            />
+          ) : null}
+          {entry.state === 'unknown' ? (
+            <RowAction
+              capsule
+              disabled={entry.check === 'checking'}
+              label={t(
+                entry.check === 'checking'
+                  ? 'outbox.unknown.checking'
+                  : 'outbox.unknown.check',
+              )}
+              onPress={() => {
+                actions.check(entry);
+              }}
+            />
+          ) : null}
+          {onOpenInvitation === undefined ? null : (
+            <RowAction
+              capsule
+              label={t('outbox.invitation.open')}
+              onPress={onOpenInvitation}
+            />
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export function OutboxRow({
   entry,
   actions,
+  onOpenInvitation,
 }: {
   readonly entry: OutboxSnapshotEntry;
   readonly actions: OutboxActions;
+  // Opens the invitation an Invitation Response answers.
+  readonly onOpenInvitation?: (() => void) | undefined;
+}) {
+  const provider = use(AccountContext)?.mailboxes.find(
+    ({ id }) => id === entry.draft.connection,
+  )?.provider;
+  if (entry.invitation !== undefined) {
+    return (
+      <ResponseRow
+        entry={entry}
+        invitation={entry.invitation}
+        actions={actions}
+        onOpenInvitation={onOpenInvitation}
+      />
+    );
+  }
+  return (
+    <MessageRow
+      entry={entry}
+      actions={actions}
+      provider={provider}
+    />
+  );
+}
+
+// An outgoing message's row: its subject, recipients and where it stands, with Undo or Edit, and
+// the way out of an unknown outcome.
+function MessageRow({
+  entry,
+  actions,
+  provider,
+}: {
+  readonly entry: OutboxSnapshotEntry;
+  readonly actions: OutboxActions;
+  readonly provider: Parameters<typeof outboxCopy>[2];
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { subject, recipients } = draftSummary(t, entry.draft);
-  const { status, unconfirmed, editWarning } = outboxCopy(
-    t,
-    entry,
-    use(AccountContext)?.mailboxes.find(
-      ({ id }) => id === entry.draft.connection,
-    )?.provider,
-  );
+  const { status, unconfirmed, editWarning } = outboxCopy(t, entry, provider);
   const label = t('outbox.rowLabel', { subject, recipients, status });
   // A message sent again after Undo has a new deadline, so its words are heard again.
   useAnnouncement(sendOf(entry), status, label);

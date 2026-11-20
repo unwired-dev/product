@@ -186,16 +186,18 @@ the newest 200 and the older ones scrolling has revealed from
   opens without the server, or **Downloads from the mail server when opened**. Messages that recent-body
   prefetch leaves for on-demand download count as not saved. The answer is checked when the results
   change, when a result is opened or the reader closes, and whenever this device saves or
-  prunes a body while the results are shown, such as recent-body prefetch finishing. When nothing matches, the
-  list on iPhone and iPad says **No mail saved on this device matches “…”**. On Mac, when neither saved mail nor
-  an answer from the mail servers matches, the list shows **No Results** with a magnifying glass and the line
-  **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, VoiceOver hears
-  **No Results** once as it appears, and the subtitle reads **No results · [scope]**: the folder
+  prunes a body while the results are shown, such as recent-body prefetch finishing. When neither saved mail nor
+  an answer from the mail servers matches, the list shows **No Results** with a magnifying glass, and VoiceOver hears
+  **No Results** once as it appears. On iPhone it stands centred, its magnifying glass on an icon tile, above the
+  line **No mail saved on this device matches “…”** ([#2435](https://github.com/unwired-dev/product/issues/2435)).
+  On iPad and Mac, at the top of the list, the line reads
+  **No saved mail in [scope] matches “…”. Check the spelling or search for fewer words.**, naming the folder, the
+  mailbox, or **All Inboxes** for several. On Mac the subtitle also reads **No results · [scope]**: the folder
   searched in one mailbox, or else the mailbox, or **All Mailboxes** for several, which the mail
   servers search
   ([#2346](https://github.com/unwired-dev/product/issues/2346)). A mail server search that fails, leaves
   IMAP folders out or has another page replaces No Results with its failure and **Try Again**, its
-  note or **More from Mail Servers**, and the subtitle then names only the scope, or adds **Offline**
+  note or **More from Mail Servers**, and on Mac the subtitle then names only the scope, or adds **Offline**
   when a mail server could not be reached. The Inbox, a folder or a Unified Mailbox shows No
   Results only once each of its mailboxes has opened and its first listing has arrived (for an Inbox, once its first synchronization has completed or its cache lists mail), and not while it has listed nothing
   because that first listing failed.
@@ -245,10 +247,15 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
 - **Results.** They appear under **From mail servers**, after the saved results, which stay
   as they were. Each mailbox returns 20 results per page, newest first across
   mailboxes, and **More from Mail Servers** asks every mailbox with another page for it.
-  When nothing matches, the section says **Mail servers found no mail matching “…”**.
-  On Mac, while the mail servers are searched, five skeleton rows hold their answer's place and the
-  subtitle reads **Searching [mailbox]…**, or **Searching All Mailboxes…** for several mailboxes, unless
-  Syncing or Offline takes precedence.
+  When a complete search finds no matches, the list shows **Mail servers found no mail matching
+  “…”**. On iPhone and iPad the heading appears only above mail server rows, a mailbox it could
+  not search or a note about IMAP folders it left out.
+  While the mail servers are searched, iPhone and iPad show an activity indicator above
+  **Searching [scope]…**: iPhone names the shown scope, such as **Searching All Inboxes…**, and iPad
+  the mailbox searched, or **All Mailboxes** for several
+  ([#2435](https://github.com/unwired-dev/product/issues/2435)). On Mac five skeleton rows hold their
+  answer's place and the subtitle reads **Searching [mailbox]…**, or **Searching All Mailboxes…** for
+  several mailboxes, unless Syncing or Offline takes precedence.
   The same request also searches Microsoft and [IMAP](imap-mailboxes.md#online-search)
   mailboxes in the view, so its copy names no provider.
 - **Reading.** A result opens in the reader, read from Gmail with the mailbox's own
@@ -283,8 +290,9 @@ IDs. Rows are grouped under Today, Yesterday, Last Week and month dividers by
 the UTC day they arrived; a row shows the time today, Yesterday for the prior
 day, the weekday within the last week and the date before that. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
-Offline while the server is being checked or cannot be reached. Otherwise, on iPad and
-Mac while the Inbox is listed, it also says how long ago the shown mailboxes were last brought up to date, such as **Updated just
+Offline while the server is being checked or cannot be reached; under iPad's All Inboxes
+heading, which already names them, it leaves the mailboxes out. When neither applies, on iPad and
+Mac while the Inbox is listed, including under All Inboxes, it also says how long ago the shown mailboxes were last brought up to date, such as **Updated just
 now** or **Updated 5 minutes ago**, counted from the start of each mailbox's latest
 completed synchronization and taking the oldest of them. Each mailbox saves that time
 with its cache after every successful synchronization, even when no mail changed,
@@ -467,13 +475,21 @@ A note that the mailbox has no folders or labels of its own, or that some were l
 as an unavailable item. **Mark as Read** (or **Unread**) and **Move to** are the toolbar's own
 buttons, so **More** appears for Gmail mail only and opens the system menu with **Labels**: a submenu listing each
 label, checked when the message has it. Choosing a label adds or removes it. Below a
-separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253))
-asks for a name in a native alert sheet on the window: **Add Label** creates the label in
-Gmail and applies it to the message the menu opened for, as choosing a label does, and
-**Cancel** or a blank name changes nothing. The name and failure sheets close with
-their reader. Changing appearance while entering a name preserves that input.
-Creation needs Gmail to answer: when Gmail refuses the name, including an existing label's name, or
-cannot be reached, an alert says the label could not be created and nothing is applied.
+separator, **New Label…** ([#1253](https://github.com/unwired-dev/product/issues/1253),
+[#2442](https://github.com/unwired-dev/product/issues/2442)) opens **Labels** in an AppKit
+popover below the toolbar's last group, with the naming rules of iPhone and iPad below: the
+Gmail account, a label name field, **Create “Acme” inside “Clients”** or **Create “Acme”** for a
+name no label has, the account's labels (under **Matching labels** once a name is typed), then **Cancel** and **Apply**.
+That row, **Apply** or Return creates the label in Gmail and applies it to the message the menu
+opened for, as choosing a label does; choosing a listed label applies it. Before then, **Cancel**,
+Escape or a click outside closes it without a change, and a blank name applies nothing. A name another label has in a different case
+closes **Labels** for a sheet on the window offering **Use “clients/acme”** or **Edit Name**,
+which opens **Labels** again with the name. Creation needs Gmail to answer, and **Cancel** is
+unavailable meanwhile; closing **Labels** another way still creates and applies the label, and
+**New Label…** reopens it on that name until Gmail answers. When Gmail refuses the name or cannot be reached, a sheet says the label
+could not be created, nothing is applied, and **OK** opens **Labels** again with the name to edit.
+**Labels** and its sheets close with their reader or when it shows another message, a refusal arriving after that asks nothing, and changing
+appearance while entering a name preserves that input.
 The new label joins **Labels** and the Move menus as soon as Gmail creates it, and is saved
 with the message's pending label change without waiting for synchronization. iPad's fixed toolbar holds **Archive**, **Labels**
 (or **Folders**), Reply, Reply All, Forward and **More**. iPhone's capsule floating
@@ -511,7 +527,21 @@ search field, the account, then its folders as above. A tap outside or Escape cl
 moving anything, the system keeps it clear of the keyboard, and choosing a folder closes it and
 moves the message. On
 iPhone, **Labels** in More's menu opens the same label checkboxes under a **Labels**
-heading. Menu panels ease in from their toolbar and fade out on iPhone and iPad; with Reduce Motion
+heading. On iPhone and iPad, **New Label…** after the label checkboxes
+([#2441](https://github.com/unwired-dev/product/issues/2441)) opens **Labels**: a native sheet
+on iPhone, and on iPad the panel the checkboxes were in. It names the Gmail account, starts in a
+label name field and lists the account's labels, under **Matching labels** once a name is typed.
+A name no label has offers **Create “Acme” inside “Clients”** (a slash
+nests the label, as in Gmail) or **Create “Acme”**; that row, **Apply** or Return creates the
+label in Gmail and applies it, and closes **Labels** once Gmail answers. A name a label already
+has applies that label without creating one, as choosing a listed label does. A name another
+label has in a different case creates nothing: an alert offers **Use “clients/acme”**, which
+applies the existing label, or **Edit Name**. When Gmail refuses the name or cannot be reached,
+an alert says the label could not be created, nothing is applied and the name stays to edit.
+**Cancel** changes nothing and is unavailable while Gmail creates the label; closing **Labels**
+another way meanwhile still creates and applies it, and still explains a refusal. Labels already on
+the Thread stay. Menu panels ease in from their
+toolbar and fade out on iPhone and iPad; with Reduce Motion
 they only fade. The Reply sheet and the Move picker are system presentations and move as iOS presents
 them. The action buttons and label checkboxes are keyboard-focusable
 and show the system keyboard focus indicator. After a removal, **Undo** appears in the Inbox. For every provider, a
@@ -546,7 +576,8 @@ open message's header lists Reply, Reply All and Forward, its read state,
 **Pin** or **Unpin**, **Move to Inbox** in Trash and Spam, **Move to…** with the same destinations as
 the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
-downloaded attachment offers **Quick Look** and **Share…**. Links inside a rich
+downloaded attachment's menu is titled with its file name and offers **Quick Look**, then
+**Save to Files…** (iPhone and iPad) and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.
 
 A change shows at once with **Saving the change on this device…** until local
@@ -1466,6 +1497,24 @@ attachment descriptors.
   Look never launches another app or runs the file. On Mac, changing focus while the file is being prepared does not move its preview or share sheet to another window. If that window closes, presentation is refused. **Share** opens the system share
   sheet (`UIActivityViewController`, or `NSSharingServicePicker` on Mac) with only
   that file. If the file is gone, the row offers **Download** again.
+- **Save to Files.** On iPhone and iPad the attachment's menu also offers **Save to
+  Files…** ([#2469](https://github.com/unwired-dev/product/issues/2469), a slice of
+  [#1681](https://github.com/unwired-dev/product/issues/1681)). It opens the system
+  document picker (`UIDocumentPickerViewController` exporting a copy), so the person
+  chooses the folder and the system settles a name already there. The saved copy is
+  the person's file: it is not a Downloaded Attachment, and clearing Downloaded
+  Attachments leaves it alone. The reader then shows a toast naming the folder and the
+  copy's actual file name, with **Show**, which opens Files at the copy. Cancelling the
+  picker says nothing. When nothing was saved, such as when no window could show the
+  picker, the iPhone reader shows **Couldn’t save “name”** at its top and the iPad
+  reader a toast, each with **Save to Files…** to try again; a file that is gone offers
+  **Download** again. The system picker writes the copy; the reader shows and announces
+  its result only during the same uninterrupted visit to the readable message that
+  started the save. Leaving the message, the message disappearing, closing the reader
+  or a storage lock ends that visit and drops the result, but never undoes a copy
+  already saved. The
+  Mac, and **Save to Downloads** to a folder remembered for the Profile, follow in
+  #1681.
 
 Downloaded Attachments are plaintext so the system can preview them. They are
 written under the app's private Application Support directory, in a folder per Mailbox Connection,
@@ -1629,8 +1678,8 @@ changes during conflict reopening, preserving labels on Undo, five-attempt
 stopping and resolution, revoked access, and the cache upgrade. Label creation tests
 cover creating and applying a label, refusing duplicate names, a refused or unreachable
 Gmail applying nothing, immediate and durable label publication during held synchronization,
-catalog refresh races, stale-message rejection and access-loss recovery; the Mac journey covers **New Label…**, Cancel and
-the failure alert. Shared
+catalog refresh races, stale-message rejection and access-loss recovery; the Mac component tests cover **Labels**: nested,
+listed, same-case and refused names, Cancel and the failure sheet. Shared
 registration tests cover queued foreground verification, concurrent sign-out and
 deletion after a mailbox removal hand-off.
 

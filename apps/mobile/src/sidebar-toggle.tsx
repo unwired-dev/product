@@ -65,6 +65,12 @@ export function useSidebarToggle(sideBySide: boolean, portrait: boolean) {
   // UIKit ignores a display mode requested before it first places the columns, so the Portrait
   // one waits for its first report.
   const [placed, setPlaced] = useState(false);
+  // A rotation returns to the new orientation's default, even after Show or Hide Sidebar (#2414).
+  const [orientation, setOrientation] = useState(portrait);
+  if (orientation !== portrait) {
+    setOrientation(portrait);
+    setDisplayMode('automatic');
+  }
   const value = useMemo(
     () => ({
       shown,

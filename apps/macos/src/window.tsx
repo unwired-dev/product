@@ -44,7 +44,7 @@ import { FolderChoiceSheet } from './folder-choice.tsx';
 import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
 import { listWidth } from './inbox-styles.ts';
 import { Inbox } from './inbox.tsx';
-import { OpenMessageContext } from './invitation.tsx';
+import { OpenMessageContext, ShowOutboxContext } from './invitation.tsx';
 import { useLocalization } from './localization.ts';
 import {
   InboxProvider,
@@ -313,6 +313,8 @@ function WindowContents({
   const barOffset = useMemo(() => createBarOffset(), []);
   const [toolbarWidth, setToolbarWidth] = useState(0);
   const [view, setView] = useState<MailboxView>({});
+  // Set each time View in Outbox shows the Outbox, which ends a search that would hide it.
+  const [outboxShown, setOutboxShown] = useState<object>();
   // AppKit owns the sidebar's collapse, including by window resizing; the toggle follows it.
   const [collapsed, setCollapsed] = useState(false);
   const inbox = useMailboxes().find(
@@ -453,13 +455,19 @@ function WindowContents({
                               setSelected({ mailbox: selected.mailbox, id });
                             }
                           }}>
-                          <MessageDetail
-                            id={selected?.id}
-                            mailbox={selected?.mailbox}
-                            folder={selected?.folder}
-                            onClose={close}
-                            onCompose={compose}
-                          />
+                          <ShowOutboxContext
+                            value={() => {
+                              setView({ outbox: true });
+                              setOutboxShown({});
+                            }}>
+                            <MessageDetail
+                              id={selected?.id}
+                              mailbox={selected?.mailbox}
+                              folder={selected?.folder}
+                              onClose={close}
+                              onCompose={compose}
+                            />
+                          </ShowOutboxContext>
                         </OpenMessageContext>
                       </ReaderToolbarWidthContext>
                     )}
@@ -509,6 +517,7 @@ function WindowContents({
                 }}
                 onView={setView}
                 view={view}
+                searchEnded={outboxShown}
               />
             </BarOffsetContext>
           </View>

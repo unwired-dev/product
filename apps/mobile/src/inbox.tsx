@@ -32,7 +32,14 @@ import {
 } from '@private-email/mail-core/mailboxes';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { spacing } from '@private-email/mail-core/theme';
-import { use, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  use,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { SectionList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -69,7 +76,7 @@ import {
 import {
   InboxBar,
   InboxToolbar,
-  OnlineResults,
+  SearchFooter,
   SearchHeading,
   useInboxSearch,
 } from './inbox-search.tsx';
@@ -149,6 +156,8 @@ interface InboxProps {
   // The mailbox or folder the list shows; every mailbox of the Profile without one.
   readonly view?: MailboxView;
   readonly onView?: (view: MailboxView) => void;
+  // Each new value ends a search and scrolls to the Outbox, as when View in Outbox shows it.
+  readonly outboxShown?: object | undefined;
 }
 
 const allInboxes: MailboxView = {};
@@ -461,11 +470,13 @@ const subtitleOf = (
   unconnected: Readonly<{ name: string }> | undefined,
   {
     signIn,
+    title,
     ...label
   }: Readonly<{
     scope: string;
     status: string;
     signIn: MailProvider | undefined;
+    title: string;
   }>,
 ) => {
   if (signIn !== undefined) {
@@ -475,7 +486,10 @@ const subtitleOf = (
     });
   }
   if (unconnected === undefined) {
-    return t('inbox.subtitleLabel', label);
+    // The heading already names a scope it shares, as iPad's All Inboxes does.
+    return label.scope === title
+      ? label.status
+      : t('inbox.subtitleLabel', label);
   }
   return ipad
     ? t('profiles.noMailboxes')
@@ -553,18 +567,30 @@ function statusOf(
     : t('inbox.statusUpdated', { status, updated });
 }
 
-// Section data lets the native list virtualize online pages together with saved rows.
+type OnlineSections<T> = Readonly<{
+  found?:
+    | Readonly<{
+        results: readonly T[];
+        failures: readonly unknown[];
+        limited: readonly unknown[];
+      }>
+    | undefined;
+}>;
+
+// Section data lets the native list virtualize online pages together with saved rows. The section
+// and its heading hold mail server rows and the connections it could not search; Searching and No
+// Results stand alone beneath the saved results.
 const searchSections = <T,>(
   saved: ReadonlyArray<Readonly<{ key: string; data: readonly T[] }>>,
-  online: Readonly<{
-    searching: boolean;
-    found?: Readonly<{ results: readonly T[] }> | undefined;
-  }>,
+  { found }: OnlineSections<T>,
 ) => [
   ...saved,
-  ...(online.found === undefined && !online.searching
-    ? []
-    : [{ key: 'gmail', data: online.found?.results ?? [] }]),
+  ...(found !== undefined &&
+  (found.results.length > 0 ||
+    found.failures.length > 0 ||
+    found.limited.length > 0)
+    ? [{ key: 'gmail', data: found.results }]
+    : []),
 ];
 
 // Outbox and Drafts come before received mail; a search lists matching messages alone.
@@ -580,10 +606,7 @@ function inboxSections<M>({
   canCompose: boolean;
   drafts: readonly Draft[];
   messages: ReadonlyArray<Readonly<{ key: string; data: readonly M[] }>>;
-  online: Readonly<{
-    searching: boolean;
-    found?: Readonly<{ results: readonly M[] }> | undefined;
-  }>;
+  online: OnlineSections<M>;
   searching: boolean;
 }>) {
   const outboxRows =
@@ -762,6 +785,7 @@ export function Inbox({
   composing,
   view = allInboxes,
   onView = keepView,
+  outboxShown,
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
@@ -823,6 +847,7 @@ export function Inbox({
     folder,
     title: folderName,
     listed,
+    unlisted,
     failure,
     limited,
     downloading,
@@ -905,6 +930,34 @@ export function Inbox({
   });
   // The rows the list shows, with leaving rows beside their former neighbours.
   const placed = motion.place();
+  const list =
+    useRef<
+      SectionList<
+        (typeof placed)[number]['data'][number],
+        (typeof placed)[number]
+      >
+    >(null);
+  // View in Outbox ends a search, which hides the Outbox, then scrolls to it once it is listed.
+  const scrolledFor = useRef(outboxShown);
+  const closeSearch = useEffectEvent(() => {
+    searchState.close();
+  });
+  const scrollToOutbox = useEffectEvent(() => {
+    if (placed.length > 0) {
+      list.current?.scrollToLocation({ sectionIndex: 0, itemIndex: 0 });
+    }
+  });
+  useEffect(() => {
+    if (outboxShown === undefined || scrolledFor.current === outboxShown) {
+      return;
+    }
+    if (searching) {
+      closeSearch();
+      return;
+    }
+    scrolledFor.current = outboxShown;
+    scrollToOutbox();
+  }, [outboxShown, searching]);
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),
@@ -1090,11 +1143,13 @@ export function Inbox({
                   scope: scopeName,
                   status,
                   signIn,
+                  title,
                 })}
               />
             </SearchHeading>
           </InboxHeading>
           <SectionList
+            ref={list}
             accessibilityLabel={t('inbox.messages')}
             automaticallyAdjustKeyboardInsets
             maintainVisibleContentPosition={keepPosition}
@@ -1250,9 +1305,14 @@ export function Inbox({
             }
             ListFooterComponent={
               searching ? (
-                <OnlineResults
-                  query={searched}
-                  search={online}
+                <SearchFooter
+                  search={searchState}
+                  mailboxes={mailboxes}
+                  shown={shown}
+                  ready={ready}
+                  unlisted={unlisted}
+                  scopeName={scopeName}
+                  folderName={folderName}
                 />
               ) : (
                 <InboxFooter
@@ -1269,22 +1329,23 @@ export function Inbox({
               )
             }
             ListFooterComponentStyle={styles.listFooter}
-            renderSectionFooter={({ section }) =>
-              searching &&
-              section.key === 'saved' &&
-              ready &&
-              results?.length === 0 ? (
-                <Text style={[styles.notice, { color: colors.textSecondary }]}>
-                  {t('search.empty', { query: searched })}
-                </Text>
-              ) : null
-            }
             renderItem={({ item, section, index }) => {
               if ('outbox' in item) {
+                const { draft, invitation } = item.outbox;
                 return (
                   <OutboxRow
                     actions={outboxActions.actions}
                     entry={item.outbox}
+                    onOpenInvitation={
+                      invitation === undefined
+                        ? undefined
+                        : () => {
+                            void select({
+                              mailbox: draft.connection,
+                              id: invitation.message,
+                            });
+                          }
+                    }
                   />
                 );
               }

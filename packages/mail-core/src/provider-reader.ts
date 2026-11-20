@@ -40,6 +40,8 @@ export type ReaderViews = Readonly<{
   // Starts a read whose confirmed deletions search results then drop, unless the mailbox
   // changed meanwhile.
   deletions: () => (ids: ReadonlySet<string>) => void;
+  // The IDs of the search results and looked-up messages the reader holds.
+  held: () => readonly string[];
 }>;
 
 // The step of Historical Metadata Backfill a reader took: the document to commit, the segment

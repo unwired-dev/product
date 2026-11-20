@@ -81,6 +81,7 @@ import { graphProgress } from './graph-history.ts';
 import { createGraphReader } from './graph-reader.ts';
 import { sanitizeHtml } from './html-sanitizer.ts';
 import { decodedSize, inlineImageLimits } from './inline-images.ts';
+import { withResponse } from './invitation-record.ts';
 import {
   cachedViews,
   cacheLimit,
@@ -296,6 +297,7 @@ const loadingBody: MessageBodyState = { kind: 'loading' };
 export type {
   AttachmentState,
   ReceivedAttachment,
+  SavedCopy,
 } from './attachment-downloads.ts';
 
 // Offline, quota and server failures can pass on a later try; stale work shows nothing new.
@@ -1223,6 +1225,7 @@ export function createInboxStore(
         }
       };
     },
+    held: () => [...found.keys()],
   };
   const providerReader: ProviderReader =
     provider === 'microsoft-graph'
@@ -3136,15 +3139,7 @@ export function createInboxStore(
       ) {
         return false;
       }
-      const responses = [
-        ...(response === undefined ? [] : [response]),
-        ...(document.responses ?? []).filter(
-          ({ uid, sequence, recurrence }) =>
-            uid !== revision.uid ||
-            sequence !== revision.sequence ||
-            recurrence !== revision.recurrence,
-        ),
-      ];
+      const responses = withResponse(document.responses, revision, response);
       const next = {
         ...Struct.omit(document, ['responses']),
         ...(responses.length === 0 ? {} : { responses }),
@@ -3994,6 +3989,7 @@ export function createInboxStore(
     downloadAttachment: attachments.downloadAttachment,
     cancelAttachment: attachments.cancelAttachment,
     presentAttachment: attachments.presentAttachment,
+    saveAttachmentCopy: attachments.saveAttachmentCopy,
     attachmentFile: attachments.attachmentFile,
     // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
     // provider, so the message waits.

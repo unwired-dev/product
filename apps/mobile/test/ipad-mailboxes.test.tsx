@@ -61,6 +61,25 @@ describe('iPad Mailboxes', () => {
     expect(result.current.displayMode).toBe('oneBesideSecondary');
   });
 
+  it('hides Mailboxes again when a rotation returns to Portrait after Show Sidebar', async () => {
+    expect.hasAssertions();
+    const { result, rerender } = await renderHook(
+      ({ portrait }: { portrait: boolean }) => useSidebarToggle(true, portrait),
+      { initialProps: { portrait: true } },
+    );
+    await act(() => {
+      result.current.follow('oneBesideSecondary');
+    });
+    await act(() => {
+      result.current.value?.toggle();
+    });
+    expect(result.current.displayMode).toBe('twoBesideSecondary');
+    await rerender({ portrait: false });
+    expect(result.current.displayMode).toBe('automatic');
+    await rerender({ portrait: true });
+    expect(result.current.displayMode).toBe('oneBesideSecondary');
+  });
+
   it('shows a connection that needs sign-in beside its header and in the list subtitle', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

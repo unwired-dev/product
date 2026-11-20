@@ -844,8 +844,9 @@ app follows under the issue named:
   and #2118.
 - **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
   until #2104.
-- **Outbox:** the frames draw the conditional Outbox as a sidebar row after Sent.
-  The app lists its rows at the top of the Inbox column until #2101.
+- **Outbox:** the frames draw the conditional Outbox as a sidebar row after Sent,
+  without a count. The Mac does (#2421); iPhone and iPad list its rows at the top
+  of the Inbox column until the rest of #2101.
 - **Reader date:** the frames write `Today, 8:12`. The app writes a full UTC date
   until #2102.
 - **Trusted Devices:** the rows' device symbol, Current Device, last activity and
@@ -854,8 +855,6 @@ app follows under the issue named:
   #2108.
 - **Copy:** one name per action, Spam and Thread wait for #2083. The iPhone
   heading's "All read" waits for #2068.
-- **Search states:** the Mac shows the No Results empty state and the Searching
-  rows (#2346); iPhone and iPad wait for #2090.
 - **Reader loading:** the reader's states for a message that is loading, failed
   or unavailable wait for #2091.
 - **Blocked Send:** the reason beside Send, and the Attachment Chip's Importing
@@ -867,6 +866,3 @@ app follows under the issue named:
   Results, above the date sections, which waits for #2372.
 - **German strings:** no check lays the screens out at German lengths until
   #2096.
-- **iPhone alert and Settings failure:** the two-sentence Trusted Device
-  removal message and the empty state of a Settings page that failed to load
-  wait for #2100.

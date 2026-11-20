@@ -1,3 +1,4 @@
+import type { Translate } from '@private-email/localization';
 import type { ViewScope } from '@private-email/mail-core/mailboxes';
 import type { ReactNode, RefObject } from 'react';
 import type { TextInputInstance } from 'react-native';
@@ -5,6 +6,7 @@ import type { TextInputInstance } from 'react-native';
 import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
   inboxMessages,
+  inboxUnlisted,
   searchMessages,
 } from '@private-email/mail-core/mailboxes';
 import { spacing } from '@private-email/mail-core/theme';
@@ -22,7 +24,7 @@ import type { InboxMailbox } from './private-storage.ts';
 
 import { Action } from './action.tsx';
 import { useCommandPalette, usePaletteHeader } from './command-palette.tsx';
-import { SearchToolbar } from './design.tsx';
+import { SearchToolbar, SFSymbol, useOutcomeAnnouncement } from './design.tsx';
 import {
   BarButton,
   BarNotices,
@@ -339,14 +341,60 @@ export function SearchHeading({
   ) : null;
 }
 
+// A mail server search that failed, left IMAP folders out or has another page has not answered
+// whether nothing matches.
+const searchIncomplete = (search: ReturnType<typeof useGmailSearch>) =>
+  search.found !== undefined &&
+  (search.found.failures.length > 0 ||
+    search.found.limited.length > 0 ||
+    search.found.next.size > 0);
+
+// What Searching names. iPhone names the shown scope, as its approved frames do. iPad names what the
+// mail servers search, as the Mac does: a single mailbox by its address and several as All
+// Mailboxes. Only ready mailboxes that search their server are asked, as the search store does, and
+// More from Mail Servers asks only those with another page.
+function searchingScope(
+  t: Translate,
+  {
+    searchesAll,
+    searched,
+    scopeName,
+    more,
+  }: Readonly<{
+    searchesAll: boolean;
+    // The mailboxes the online search was given.
+    searched: readonly InboxMailbox[];
+    scopeName: string;
+    more: Readonly<{ next: ReadonlyMap<string, string> }> | undefined;
+  }>,
+) {
+  if (!ipad) {
+    return searchesAll ? t('inbox.allInboxes') : scopeName;
+  }
+  const asked = searched.filter(
+    ({ id, state, inbox }) =>
+      state.kind === 'ready' &&
+      'searchGmail' in inbox &&
+      inbox.searchGmail !== undefined &&
+      (more === undefined || more.next.has(id)),
+  );
+  const [only] = asked;
+  return asked.length > 1
+    ? t('search.allMailboxes')
+    : (only?.address ?? scopeName);
+}
+
 // Gmail's own search, asked for explicitly below the results saved on this device, which it never
-// replaces. Each mailbox that Gmail could not search says why.
-export function OnlineResults({
+// replaces. Each mailbox that Gmail could not search says why. While the mail servers are searched,
+// Searching names the scope.
+function OnlineResults({
   search,
   query,
+  scope,
 }: {
   readonly search: ReturnType<typeof useGmailSearch>;
   readonly query: string;
+  readonly scope: string;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -368,14 +416,27 @@ export function OnlineResults({
     );
   }
   return (
-    <View>
-      {found?.results.length === 0 && found.failures.length === 0 ? (
+    <View style={searching ? styles.fill : undefined}>
+      {found?.results.length === 0 && !searchIncomplete(search) ? (
         <Text style={[styles.notice, { color: colors.textSecondary }]}>
           {t('search.onlineEmpty', { query })}
         </Text>
       ) : null}
       {searching ? (
-        <ActivityIndicator accessibilityLabel={t('search.searching')} />
+        <View
+          accessible
+          accessibilityRole="progressbar"
+          style={styles.searchState}>
+          <ActivityIndicator style={styles.searchingIndicator} />
+          <Text
+            style={[
+              styles.emptyText,
+              styles.searchStateText,
+              { color: colors.textSecondary },
+            ]}>
+            {t('search.searchingScope', { scope })}
+          </Text>
+        </View>
       ) : null}
       {!searching && found !== undefined && found.next.size > 0 ? (
         <View style={styles.noticeAction}>
@@ -399,6 +460,102 @@ export function OnlineResults({
           />
         </View>
       ) : null}
+    </View>
+  );
+}
+
+// Below the results: No Results when neither saved mail nor a complete mail server answer matches,
+// which VoiceOver hears once as it appears, then the mail server search. iPhone draws No Results
+// with the Profile Locked recipe's icon tile and the saved-search line; iPad, as the Mac, names the
+// scope and the query.
+export function SearchFooter({
+  search: { online: search, searched: query, results, searchesAll },
+  mailboxes,
+  shown,
+  ready,
+  unlisted,
+  scopeName,
+  folderName,
+}: {
+  readonly search: ReturnType<typeof useInboxSearch>;
+  readonly mailboxes: readonly InboxMailbox[];
+  readonly shown: readonly InboxMailbox[];
+  readonly ready: boolean;
+  // The listed folder or view is still opening or could not be read, so it has not answered.
+  readonly unlisted: boolean;
+  readonly scopeName: string;
+  readonly folderName: string | undefined;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  // Search widened to every Inbox has answered once each of them has listed.
+  const answered =
+    ready &&
+    results?.length === 0 &&
+    !(searchesAll
+      ? mailboxes.some(({ state }) => inboxUnlisted(state))
+      : unlisted);
+  const noResults =
+    answered &&
+    !search.searching &&
+    !search.found?.results.length &&
+    !searchIncomplete(search);
+  const title = t('search.noResults');
+  useOutcomeAnnouncement(noResults ? title : undefined, true);
+  const online = (
+    <OnlineResults
+      query={query}
+      search={search}
+      scope={searchingScope(t, {
+        searchesAll,
+        searched: searchesAll ? mailboxes : shown,
+        scopeName,
+        more: search.found,
+      })}
+    />
+  );
+  if (!noResults) {
+    return online;
+  }
+  return (
+    <View style={[styles.searchState, styles.noResults]}>
+      <View
+        style={
+          ipad
+            ? styles.noResultsGlyph
+            : [styles.noResultsTile, { backgroundColor: colors.fillQuiet }]
+        }>
+        <SFSymbol
+          name="magnifyingglass"
+          size={ipad ? 34 : 36}
+          color={ipad ? colors.textSecondary : colors.textPrimary}
+        />
+      </View>
+      <Text
+        accessibilityRole="header"
+        style={[
+          styles.emptyTitle,
+          styles.noResultsTitle,
+          { color: colors.textPrimary },
+        ]}>
+        {title}
+      </Text>
+      <Text
+        style={[
+          styles.emptyText,
+          styles.searchStateText,
+          { color: colors.textSecondary },
+        ]}>
+        {ipad
+          ? t('search.noResultsDetail', {
+              scope: searchesAll
+                ? t('inbox.allInboxes')
+                : (folderName ?? scopeName),
+              query,
+            })
+          : t('search.empty', { query })}
+      </Text>
+      {online}
     </View>
   );
 }

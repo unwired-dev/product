@@ -228,9 +228,12 @@ mailbox and an `update` message but not the other mailbox or its `update` messag
 other messages are not checked. Search for `update 003` in each finds only its own mailbox's message.
 A Draft saved from Work's window appears there and not in the Primary Profile's.
 A message sent from Work's window waits in its **Outbox** as `Sending soon` during
-the Undo Send Window while the Primary Profile's window shows no Outbox, and
-Work's Outbox empties once delivery takes it
-([#1909](https://github.com/unwired-dev/product/issues/1909)).
+the Undo Send Window: the Inbox column does not list it, Work's sidebar offers
+**Outbox** after Sent and opening it lists the message, while the Primary
+Profile's window shows no Outbox. Once delivery takes it, the row leaves and
+Work's window lists its Inbox again
+([#1909](https://github.com/unwired-dev/product/issues/1909),
+[#2421](https://github.com/unwired-dev/product/issues/2421)).
 Moving the mailbox back restores its messages and the Draft to the Primary Profile
 window. Each window's capture is kept as an attachment. Links are not covered.
 
@@ -420,6 +423,35 @@ Inboxes subtitle ends in **IMAP needs sign-in**; on iPhone the header names it t
 Inbox row does not, and a banner above the folders offers **Enter the Password…**
 ([#2099](https://github.com/unwired-dev/product/issues/2099)). Each is captured with the
 appearance.
+
+## iPhone and iPad New Label journey
+
+`testNewLabel` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testNewLabel`. It connects the synthetic Gmail mailbox, opens a message and
+opens **New Label…** from its labels: from the Reply sheet's **Labels** on iPhone, from the
+toolbar's **Labels** on iPad ([#2441](https://github.com/unwired-dev/product/issues/2441)). It
+captures **Labels** empty, with **Apply** unavailable, and again with `Travel/Spain` typed and its
+**Create “Spain” inside “Travel”** row, each named with the appearance for comparison with the
+approved frames, then closes it with **Cancel**. Creating the label is covered by Jest; the
+synthetic Gmail layer does not create labels.
+
+## iPhone and iPad Send Now journey
+
+`testSendNow` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testSendNow`.
+It connects the synthetic Gmail mailbox, writes a New Message to `maya@example.invalid`, and a
+long press on Send opens the Send menu, whose **Send Now** must say "No Undo"
+([#2457](https://github.com/unwired-dev/product/issues/2457)). Choosing it closes the composer
+with no Outbox row "Sending soon" and no **Undo**. The captures "Send menu with Send Now" and
+"After Send Now" are named with the appearance. The dimmed state while a file is still being
+added is covered by Jest.
+
+`testListIndent` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testListIndent`.
+It connects the synthetic Gmail mailbox and, in a New Message body, types a bulleted list whose
+items Tab nests three levels deep ([#2465](https://github.com/unwired-dev/product/issues/2465)).
+At the third level Tab does nothing and Shift-Tab moves the item out one level. **Indent**,
+iPhone's in the Format panel and iPad's on the format bar, is off there and **Outdent** on;
+Outdent moves the item out and one **Undo** nests it again. The capture "Nested list" is named with
+the appearance.
 
 ## iPhone and iPad Apple registration journey
 

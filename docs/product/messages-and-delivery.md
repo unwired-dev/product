@@ -133,7 +133,7 @@ rules below do not establish that this target is implemented.
 - A **Mail Template** uses that same semantic vocabulary, never includes recipients, attachments, Inline Images, signatures, or dynamic placeholders in v1, and never sends automatically
 - Creating a Draft from a Mail Template retains the Profile's default authorized **Sending Identity**; inserting one leaves an authored subject unchanged
 - Outgoing delivery derives interoperable HTML and plain-text alternatives from the **Semantic Message Document**
-- The v1 **Semantic Message Document** supports paragraphs, headings one through three, bold, italic, underline, strikethrough, bulleted and numbered lists, blockquotes, inline code, code blocks, links, undo, and redo
+- The v1 **Semantic Message Document** supports paragraphs, headings one through three, bold, italic, underline, strikethrough, bulleted and numbered lists nested up to three levels, blockquotes, inline code, code blocks, links, undo, and redo
 - The **Semantic Message Document** may contain **Inline Images** at authored cursor positions
 - Font families, arbitrary font sizes, text and background colors, alignment, and tables are outside the v1 formatting vocabulary
 - Rich-message delivery is verified against current Apple Mail on iOS and macOS, Gmail web and mobile, and Outlook web and desktop, while every message includes a standards-compatible plain-text alternative
@@ -142,6 +142,7 @@ rules below do not establish that this target is implemented.
 - Before **Outbox** admission, the client computes final transfer-encoded MIME size and enforces a known limit from the selected sending **Mailbox Connection**; an unknown provider limit permits attempted delivery with a visible estimate, while excess size requires removal or local image compression
 - During provider delivery, outgoing **Attachments** and **Inline Images** travel from the trusted device to the **Mail Provider** without passing through the product backend; their encrypted Draft Assets synchronize through **Private Sync** before handoff
 - The **Undo Send Window** defaults to 10 seconds and may be disabled or set to 20 or 30 seconds
+- **Send Now** in the composer's Send menu sends one message without its **Undo Send Window**, after the same checks as Send; it says "No Undo" and never changes the default for Send
 - Cancelling during the **Undo Send Window** prevents provider handoff; the product never describes this as recalling a message already accepted by a provider
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
 - Permanently failed **Outgoing Delivery Attempts** stop until the user resolves authentication, policy, recipient, or message problems

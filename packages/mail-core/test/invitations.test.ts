@@ -94,6 +94,28 @@ const withoutAttachments = (
   },
 });
 
+// The organizer's next revision of the invitation `invited` delivers.
+const updatedInvitation = {
+  from: 'Lena Fischer <lena@northwind.example>',
+  subject: 'Updated invitation: Q4 roadmap review',
+  content: {
+    text: 'Moved.',
+    attachments: [
+      {
+        filename: 'invite.ics',
+        mimeType: 'text/calendar',
+        bytes: [
+          ...Buffer.from(
+            calendar(
+              meeting.map((line) => line.replace('SEQUENCE:2', 'SEQUENCE:3')),
+            ),
+          ),
+        ],
+      },
+    ],
+  },
+};
+
 type NativeGmail = ReturnType<typeof createSyntheticGmail>['native'];
 
 // An Inbox showing one received invitation and the mailbox's responses to it.
@@ -876,28 +898,7 @@ describe('meeting invitations', () => {
   it('opens the newest answered revision’s message from an older one while the mailbox has it', async () => {
     expect.hasAssertions();
     const { gmail, id, inbox, invitation, responses, close } = await invited();
-    const newer = gmail.deliver({
-      from: 'Lena Fischer <lena@northwind.example>',
-      subject: 'Updated invitation: Q4 roadmap review',
-      content: {
-        text: 'Moved.',
-        attachments: [
-          {
-            filename: 'invite.ics',
-            mimeType: 'text/calendar',
-            bytes: [
-              ...Buffer.from(
-                calendar(
-                  meeting.map((line) =>
-                    line.replace('SEQUENCE:2', 'SEQUENCE:3'),
-                  ),
-                ),
-              ),
-            ],
-          },
-        ],
-      },
-    });
+    const newer = gmail.deliver(updatedInvitation);
     await inbox.load();
     const release = inbox.retainMessage(newer);
     const revised = await invitationIn(inbox, newer);
@@ -938,6 +939,32 @@ describe('meeting invitations', () => {
     await responses.findLatest(invitation);
 
     expect(responses.latest(invitation)).toBeUndefined();
+  });
+
+  it('stops offering the newer invitation Gmail deleted while the history was expired', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, invitation, responses, close } = await invited();
+    const newer = gmail.deliver(updatedInvitation);
+    await inbox.load();
+    const release = inbox.retainMessage(newer);
+    const revised = await invitationIn(inbox, newer);
+    release();
+    await responses.respond(invitation, 'accepted', english);
+    await responses.respond(revised, 'declined', english);
+    gmail.archive(newer);
+    await inbox.load();
+    await responses.findLatest(invitation);
+
+    expect(responses.latest(invitation)).toBe(newer);
+
+    // Gmail reports no deletions for the expired gap, so the held message is checked again.
+    gmail.expireHistory();
+    gmail.remove(newer);
+    await inbox.load();
+
+    expect(responses.latest(invitation)).toBeUndefined();
+
+    close();
   });
 
   it('does not hold a message Gmail deleted while it was being looked up', async () => {

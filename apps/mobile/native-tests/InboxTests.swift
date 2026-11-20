@@ -718,11 +718,10 @@ final class InboxTests: XCTestCase {
     }
     app.terminate()
     app.launch()
-    // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
-    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
-    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
-    XCTAssertTrue(contact.exists)
-    app.buttons[settingsExit].tap()
+    // Setup is confirmed, so relaunch opens the unified Inbox from the encrypted Microsoft cache.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 20))
+    }
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -1239,7 +1238,11 @@ final class InboxTests: XCTestCase {
       waitUntil { back.isHittable && !switcher.isHittable }
       back.tap()
     } else if !switcher.exists || !switcher.isHittable {
-      app.navigationBars.buttons.firstMatch.tap()
+      if app.buttons["Show Sidebar"].exists {
+        showSidebar(app)
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
     // #1800: the Profile Menu draws Work's monogram in full colour rather than tinted, and the
@@ -2002,6 +2005,9 @@ final class InboxTests: XCTestCase {
     for _ in 0..<30 where !onScreen(earlier) { app.swipeUp(velocity: .slow) }
     XCTAssertTrue(onScreen(earlier))
     attachScreen("Portrait Thread", of: app, to: self)
+    // #2414: rotating keeps the Thread open at the message it was scrolled to, its body mounted.
+    readAcrossRotation(app.staticTexts["Crew 5, note 1."].firstMatch, in: app)
+    XCTAssertTrue(app.staticTexts["6 Messages"].exists)
     let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Trail field guide"))
       .firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 10))
@@ -2011,7 +2017,9 @@ final class InboxTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(app.staticTexts["crew6@example.invalid"].firstMatch.frame.minX, 392)
     XCTAssertFalse(app.buttons["Settings"].firstMatch.isHittable)
     // The list opens a message of the Thread in the reader, under its toolbar.
-    app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Crew 6.")).firstMatch.tap()
+    let selected = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Crew 6."))
+      .firstMatch
+    selected.tap()
     let replyAll = app.buttons["Reply All"].firstMatch
     XCTAssertTrue(replyAll.waitForExistence(timeout: 20))
     XCTAssertGreaterThanOrEqual(replyAll.frame.minX, 392)
@@ -2021,6 +2029,10 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(subject.frame.minX, 415, accuracy: 1)
     XCTAssertEqual(subject.frame.width, 396, accuracy: 1)
     attachScreen("Portrait Reader", of: app, to: self)
+    // #2414: rotating keeps the list's selection and the reader's place, and an open reply keeps
+    // its text and focus: typing after each rotation continues it.
+    XCTAssertTrue(selected.isSelected)
+    readAcrossRotation(app.staticTexts["Crew 6, note 20."].firstMatch, in: app, keeping: selected)
     // #2411: the reply docks 442×720 across the reader's lower part, as Compose Inline draws it.
     waitUntil { replyAll.isEnabled && replyAll.isHittable }
     replyAll.tap()
@@ -2032,6 +2044,35 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(composer.frame.height, 720, accuracy: 1)
     XCTAssertEqual(composer.frame.maxY, app.windows.firstMatch.frame.maxY, accuracy: 1)
     attachScreen("Portrait Docked Reply", of: app, to: self)
+    let body = composer.textViews
+      .matching(NSPredicate(format: "label BEGINSWITH %@", "Message body")).firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    body.tap()
+    // Few keys, each confirmed and pressed again only if it dropped: once the reply holds text,
+    // XCUITest on iPad often waits a minute per key for the app to idle, and a key can drop.
+    var typed = ""
+    func append(_ key: String) {
+      XCTAssertEqual(body.value as? String, typed)
+      let next = typed + key
+      let shown = NSPredicate { _, _ in body.value as? String == next }
+      for _ in 0..<2 where body.value as? String == typed {
+        press(key, in: app)
+        _ = XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: shown, object: nil)], timeout: 5)
+      }
+      XCTAssertEqual(body.value as? String, next)
+      typed = next
+    }
+    // Digits: the body capitalizes its first letter, and a synthesized Shift can stay down.
+    append("1")
+    for (orientation, key) in [(UIDeviceOrientation.landscapeLeft, "2"), (.portrait, "3")] {
+      rotate(app, to: orientation)
+      append(key)
+    }
+    // Back in Portrait, Mailboxes hides again and the list returns to the window's edge.
+    waitUntil { selected.frame.minX < 20 && abs(selected.frame.maxX - 384) <= 2 }
+    XCTAssertTrue(selected.isSelected)
+    attachScreen("Portrait Reply after rotation", of: app, to: self)
     composer.buttons["Discard"].tap()
     let discard = composer.buttons["Discard Draft"]
     XCTAssertTrue(discard.waitForExistence(timeout: 10))
@@ -2056,6 +2097,59 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Account & Devices"].firstMatch.waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons["Check for a New Device"].waitForExistence(timeout: 10))
     attachScreen("Portrait Settings", of: app, to: self)
+  }
+
+  private func rotate(_ app: XCUIApplication, to orientation: UIDeviceOrientation) {
+    XCUIDevice.shared.orientation = orientation
+    let window = app.windows.firstMatch
+    waitUntil { (window.frame.width > window.frame.height) == orientation.isLandscape }
+    // Landscape shows Mailboxes beside the list; Portrait hides them again. After a rotation
+    // isHittable misreports the sidebar's Settings, so its frame decides.
+    let settings = app.buttons.matching(NSPredicate(format: "label == %@", "Settings"))
+    waitUntil {
+      settings.allElementsBoundByIndex.contains {
+        window.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY))
+      } == orientation.isLandscape
+    }
+  }
+
+  // Brings `text` into the reader's upper half, then rotates to Landscape and back to Portrait;
+  // the text stays on screen, and `selection` selected, after each rotation, and back in
+  // Portrait the text returns to its place.
+  private func readAcrossRotation(
+    _ text: XCUIElement, in app: XCUIApplication, keeping selection: XCUIElement? = nil
+  ) {
+    let window = app.windows.firstMatch
+    // The innermost scroll view holding the text: its visible frame, below any header.
+    let scrolls = app.scrollViews.containing(NSPredicate(format: "label == %@", text.label))
+    let shown = {
+      let viewport = scrolls.element(boundBy: max(scrolls.count - 1, 0))
+      return text.exists
+        && viewport.frame.contains(CGPoint(x: text.frame.midX, y: text.frame.midY))
+    }
+    for _ in 0..<30 where !shown() || text.frame.midY > window.frame.midY {
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.7))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -300)))
+    }
+    XCTAssertTrue(shown())
+    let place = text.frame.midY
+    XCTAssertLessThan(place, window.frame.midY)
+    for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+      rotate(app, to: orientation)
+      waitUntil(shown)
+      if let selection { XCTAssertTrue(selection.isSelected) }
+      if !orientation.isLandscape { XCTAssertEqual(text.frame.midY, place, accuracy: 80) }
+      if orientation.isLandscape {
+        // In Landscape an app screenshot draws the Portrait buffer; the screen's is upright.
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
+        shot.name = "\(text.label) rotated to Landscape (\(appearance))"
+        shot.lifetime = .keepAlways
+        add(shot)
+      } else {
+        attachScreen("\(text.label) rotated to Portrait", of: app, to: self)
+      }
+    }
   }
 
   // Settings' way back to the Inbox: iPhone's bar offers Open Inbox, iPad's sidebar Back to Mail.
@@ -2121,9 +2215,13 @@ final class InboxTests: XCTestCase {
       app.buttons["Remove iPad"].tap()
       let dialog = app.alerts["Remove “iPad”?"]
       XCTAssertTrue(dialog.waitForExistence(timeout: 15))
+      // iPhone says it in two sentences; iPad keeps the full explanation.
+      let erased =
+        UIDevice.current.userInterfaceIdiom == .pad
+        ? "cannot be erased remotely" : "can’t be erased remotely"
       XCTAssertTrue(
         dialog.staticTexts.containing(
-          NSPredicate(format: "label CONTAINS %@", "cannot be erased remotely")
+          NSPredicate(format: "label CONTAINS %@", erased)
         ).firstMatch.exists)
       let shot = XCTAttachment(screenshot: app.screenshot())
       shot.name = "Trusted Device removal alert"
@@ -2420,7 +2518,7 @@ final class InboxTests: XCTestCase {
     let item = app.cells[name]
     let more = app.buttons["More Lists and Links"]
     if !control.isHittable, item.exists || more.isHittable,
-      ["Numbered List", "Add Link", "Edit Link", "Undo", "Redo"].contains(name)
+      ["Numbered List", "Outdent", "Indent", "Add Link", "Edit Link", "Undo", "Redo"].contains(name)
     {
       if !item.exists {
         more.tap()
@@ -2528,8 +2626,16 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(maya.exists)
     searching()
     edit(delete(6) + "zzqx", "zzqx")
+    // #2435: both idioms show No Results with the query; iPhone keeps the saved-search line, and
+    // iPad, as the Mac, names the scope and suggests fewer words.
+    XCTAssertTrue(text("No Results", in: app).waitForExistence(timeout: 10))
     XCTAssertTrue(
-      text("No mail saved on this device matches", in: app).waitForExistence(timeout: 10))
+      text(
+        UIDevice.current.userInterfaceIdiom == .phone
+          ? "No mail saved on this device matches “zzqx”"
+          : "matches “zzqx”. Check the spelling or search for fewer words.",
+        in: app
+      ).exists)
     XCTAssertFalse(topResults.exists)
     XCTAssertFalse(oliver.exists)
     searching()
@@ -3587,9 +3693,23 @@ final class InboxTests: XCTestCase {
     app.buttons["Microsoft 365 and Outlook"].tap()
     XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 15))
     openSettings("Email Accounts", in: app)
+    let pad = UIDevice.current.userInterfaceIdiom == .pad
+    // iPad groups the add actions in one row's menu; iPhone lists them as buttons.
+    if pad {
+      XCTAssertTrue(app.buttons["Add Account…"].waitForExistence(timeout: 15))
+      app.buttons["Add Account…"].tap()
+    }
     XCTAssertTrue(app.buttons["Add Another Gmail Mailbox"].waitForExistence(timeout: 15))
     app.buttons["Add Another Gmail Mailbox"].tap()
     XCTAssertTrue(text("other@example.invalid", in: app).waitForExistence(timeout: 15))
+    // iPad draws the reader with its on-device summary, which needs Mail Assistance.
+    if pad {
+      openSettings("Privacy & Data", in: app)
+      let assistance = app.switches["Mail Assistance"]
+      XCTAssertTrue(assistance.waitForExistence(timeout: 15))
+      assistance.tap()
+      XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
+    }
     openSettings("Account & Devices", in: app)
     enter(
       String(app.staticTexts["recovery-key"].label.suffix(4)),
@@ -3620,6 +3740,49 @@ final class InboxTests: XCTestCase {
       app.launchArguments = ["-interfaceLanguage", "de"]
       app.launch()
       XCTAssertTrue(jordan.waitForExistence(timeout: 60))
+    }
+
+    // iPad (#2424): the Inbox with a Thread and its summary open, in landscape as drawn.
+    if pad {
+      XCUIDevice.shared.orientation = .landscapeLeft
+      launchInGerman()
+      waitUntil { app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+      jordan.tap()
+      app.buttons["Diese Nachricht zusammenfassen"].tap()
+      XCTAssertTrue(
+        app.staticTexts["Synthetic summary of local mail."].waitForExistence(timeout: 15))
+      // The heading names All Inboxes, so its subtitle carries the status alone, as drawn; the
+      // update's age depends on when the mailboxes last synchronized.
+      let status = app.staticTexts.matching(
+        NSPredicate(format: "label MATCHES %@", "1 ungelesen · [^·]*aktualisiert")
+      ).firstMatch
+      XCTAssertTrue(status.waitForExistence(timeout: 15))
+      // The sidebar row repeats the heading's text; the heading is the one above the subtitle.
+      let heading = try XCTUnwrap(
+        app.staticTexts.matching(identifier: "Alle Posteingänge").allElementsBoundByIndex.first {
+          abs($0.frame.minX - status.frame.minX) < 2 && $0.frame.maxY <= status.frame.minY + 1
+        })
+      func row(_ subject: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", subject)).firstMatch
+      }
+      assertLaidOut([
+        app.buttons["Seitenleiste ausblenden"], app.buttons["Alle Posteingänge"],
+        app.buttons["Einstellungen"],
+        app.buttons["Befehlspalette öffnen"], heading, status,
+        row("Quarterly planning"), row("Garden plans for spring"),
+        app.buttons["Archivieren"], app.buttons["Antworten"], app.buttons["Mehr"],
+        app.staticTexts["jordan@example.invalid"].firstMatch,
+        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1. Oktober 2025")).firstMatch,
+        app.otherElements["Zusammenfassung · Auf dem Gerät"],
+        app.buttons["Zusammenfassung ausblenden"], app.buttons["Diese Nachricht übersetzen"],
+      ])
+      XCTAssertLessThan(status.frame.height, heading.frame.height)
+      // In landscape, an app screenshot draws the portrait buffer; the screen's is upright.
+      let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      shot.name = "Thread (\(environment["UNWIRED_APPEARANCE", default: ""]))"
+      shot.lifetime = .keepAlways
+      add(shot)
+      return
     }
 
     // Inbox: the subtitle keeps one line beside the Back button; the hint fits its card.
@@ -3668,6 +3831,138 @@ final class InboxTests: XCTestCase {
       app.buttons["E-Mail-Accounts"], app.buttons["Datenschutz & Daten"],
     ])
     attachScreen("Settings", of: app, to: self)
+  }
+
+  // #2441: New Label… after a Gmail reader's labels opens Labels, the iPhone sheet or the iPad
+  // labels' panel, captured empty and with a nested name for comparison with the I1 and P1 frames.
+  func testNewLabel() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 30))
+    rowan.tap()
+    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    // iPhone opens the labels from the Reply sheet; iPad from the toolbar's Labels.
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 10))
+    }
+    app.buttons["Labels"].tap()
+    let newLabel = app.buttons["New Label…"]
+    XCTAssertTrue(newLabel.waitForExistence(timeout: 10))
+    newLabel.tap()
+    let name = app.textFields["Label name"]
+    XCTAssertTrue(name.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Travel"].firstMatch.waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["Apply"].isEnabled)
+    attachScreen("Labels", of: app, to: self)
+    type("Travel/Spain", into: name)
+    XCTAssertTrue(
+      app.buttons["Create “Spain” inside “Travel”, Created in Gmail, then applied"]
+        .waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Apply"].isEnabled)
+    attachScreen("Labels with a nested name", of: app, to: self)
+    app.buttons["Cancel"].tap()
+    XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+  }
+
+  // #2457: Send's menu offers Send Now, "No Undo", which sends without the Undo Send Window: the
+  // composer closes and no Outbox row waits to send with Undo.
+  func testSendNow() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    to.tap()
+    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    type("maya@example.invalid", into: to)
+    let subject = app.textFields["Subject"]
+    subject.tap()
+    type("Venue for the offsite", into: subject)
+    app.buttons["Send"].press(forDuration: 1.2)
+    let sendNow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send Now"))
+      .firstMatch
+    XCTAssertTrue(sendNow.waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      sendNow.label.contains("No Undo") || app.staticTexts["No Undo"].exists, sendNow.label)
+    attachScreen("Send menu with Send Now", of: app, to: self)
+    sendNow.tap()
+    XCTAssertTrue(app.otherElements["composer-overlay"].waitForNonExistence(timeout: 15))
+    let waiting = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label CONTAINS %@", "Sending soon"))
+    XCTAssertEqual(waiting.count, 0)
+    XCTAssertFalse(app.buttons["Undo"].exists)
+    attachScreen("After Send Now", of: app, to: self)
+  }
+
+  // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,
+  // iPhone's in the Format panel and iPad's on the format bar, do the same; each is one Undo step.
+  func testListIndent() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    app.buttons["New Message"].tap()
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    focus(subject) { self.hasFocus(subject) }
+    // XCUITest cannot type into the multiline body; hardware key presses reach it. A key the field
+    // drops while it re-renders is pressed once more (#1510).
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    focus(body) { !self.hasFocus(subject) }
+    for key in "- Pilot\n\tStart\n\tSeats" {
+      let before = body.value as? String
+      let changed = NSPredicate { _, _ in body.value as? String != before }
+      for _ in 0..<2 where body.value as? String == before {
+        press(String(key), in: app)
+        _ = XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: changed, object: nil)], timeout: 5)
+      }
+    }
+    // Each level shows its marker one em and one en space further in. Under host load the app can
+    // take 20 seconds to idle after a key press.
+    let level = "\u{2003}\u{2002}"
+    let nested = "• Pilot\n\(level)• Start\n\(level)\(level)• Seats"
+    waitUntil({ body.value as? String == nested }, timeout: 60)
+    // At the third level Tab does nothing, and Shift-Tab moves the item out one level.
+    press("\t", in: app)
+    app.typeKey("\t", modifierFlags: .shift)
+    waitUntil({ body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }, timeout: 60)
+    press("\t", in: app)
+    waitUntil({ body.value as? String == nested }, timeout: 60)
+    // At the third level Indent is off and Outdent is on.
+    let indent = formatControl("Indent", in: app)
+    XCTAssertTrue(indent.waitForExistence(timeout: 10))
+    XCTAssertFalse(indent.isEnabled)
+    let outdent = formatControl("Outdent", in: app)
+    XCTAssertTrue(outdent.isEnabled)
+    attachScreen("Nested list", of: app, to: self)
+    outdent.tap()
+    waitUntil({ body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }, timeout: 60)
+    formatControl("Undo", in: app).tap()
+    waitUntil({ body.value as? String == nested }, timeout: 60)
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {

@@ -254,6 +254,22 @@ export const leavesView = (
   action: GmailAction,
 ) => inView(view, labels) && !inView(view, relabel(labels, action));
 
+// A label name typed to create, read as Gmail reads it: a slash nests the label in the one named
+// before it, and names that differ only in case are the same label.
+export const typedLabel = (labels: readonly GmailLabel[], typed: string) => {
+  const name = typed.trim();
+  const slash = name.lastIndexOf('/');
+  return {
+    name,
+    // An existing label of that name, which Gmail would refuse to create again.
+    existing:
+      labels.find((label) => label.name === name) ??
+      labels.find((label) => label.name.toLowerCase() === name.toLowerCase()),
+    parent: slash > 0 ? name.slice(0, slash) : undefined,
+    leaf: name.slice(slash + 1),
+  };
+};
+
 // The provider's star is offered only by the Command Palette: toolbars, menus and rows leave it out.
 export const paletteOnly = (name: string) =>
   name === 'star' || name === 'unstar';

@@ -597,6 +597,24 @@ describe('sending a Draft through the Outbox', () => {
     ]);
   });
 
+  it('hands a Send Now message to Gmail without the Undo Send Window', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const id = await addressed(sending);
+    await expect(
+      sending.outbox.send(() => sending.draft(id), undefined, 0),
+    ).resolves.toBeUndefined();
+    expect(sending.drafts.getOutbox().map(({ state }) => state)).toStrictEqual([
+      'queued',
+    ]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(gmail.sends).toHaveLength(1);
+    expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    sending.outbox.dispose();
+  });
+
   it('delays retries when storage cannot record a deadline or claim refusal', async () => {
     expect.hasAssertions();
     vi.useFakeTimers();

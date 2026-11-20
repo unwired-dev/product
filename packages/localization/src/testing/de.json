@@ -252,7 +252,8 @@
     "dismissLabel": "Zusammenfassung ausblenden",
     "title": "Zusammenfassung",
     "region": "Zusammenfassung der Nachricht",
-    "summarizing": "Wird auf diesem Gerät zusammengefasst …"
+    "summarizing": "Wird auf diesem Gerät zusammengefasst …",
+    "disclaimer": "Auf diesem Gerät aus dem hier gezeigten Text erstellt. Kann ungenau sein und wird nicht gespeichert."
   },
   "search": {
     "title": "Suche",
@@ -309,5 +310,10 @@
   "messageBody": {
     "showQuoted": "Zitierten Text anzeigen",
     "hideQuoted": "Zitierten Text ausblenden"
+  },
+  "translation": {
+    "translate": "Übersetzen",
+    "translateMessageLabel": "Diese Nachricht übersetzen",
+    "target": "Übersetzen in"
   }
 }

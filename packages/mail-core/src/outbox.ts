@@ -7,6 +7,7 @@ import * as Semaphore from 'effect/Semaphore';
 import type { DeliveryProblem, Draft, OutboxEntry } from './draft-model.ts';
 import type { AssetPreview, Drafts } from './drafts.ts';
 import type { SendOutcome } from './inbox-store.ts';
+import type { InvitationAnswer } from './invitation-record.ts';
 import type { ImapMailbox, Mailbox, Mailboxes } from './mailboxes.ts';
 import type { OutboxCheck, OutboxSnapshotEntry } from './outbox-copy.ts';
 import type { MailProvider } from './registration-snapshot.ts';
@@ -149,12 +150,17 @@ const withState = (
   ...(entry.claim === undefined ? {} : { claim: entry.claim }),
   ...(entry.epoch === undefined ? {} : { epoch: entry.epoch }),
   ...(problem === undefined ? {} : { problem }),
+  ...(entry.invitation === undefined ? {} : { invitation: entry.invitation }),
 });
 
 // Handed to Gmail without a recorded answer. Another store opening meanwhile marks the entry
 // unknown; the store that handed it off still records the answer it got.
 const awaitingOutcome = (state: OutboxEntry['state'] | undefined) =>
   state === 'sending' || state === 'unknown';
+
+// A message admitted with an Undo Send Window waits it out; Send Now's, of 0, is queued at once.
+const admittedState = (delay: number) =>
+  delay > 0 ? ('waiting' as const) : ('queued' as const);
 
 // One Outbox step from state `from`; any other state refuses it.
 const step =
@@ -181,6 +187,7 @@ export function createOutbox({
     | 'getSnapshot'
     | 'getOutbox'
     | 'admit'
+    | 'enqueue'
     | 'deliver'
     | 'restore'
     | 'readAsset'
@@ -335,13 +342,44 @@ export function createOutbox({
       ? 'mailbox'
       : (senderProblem(draft) ?? sentFolderCheck(draft));
 
-  const record = (id: string, outcome: SendOutcome) => {
+  // Records the Invitation Response a message carries as sent in its IMAP mailbox. Resolves
+  // 'offline' when it could not; nothing for any other message
+  // or a mailbox that is gone, including one added again since Send.
+  const answer = async ({
+    draft,
+    invitation,
+    epoch,
+  }: OutboxEntry): Promise<DeliveryProblem | undefined> => {
+    const mailbox = connectionOf(draft.connection);
+    if (
+      invitation === undefined ||
+      mailbox?.provider !== 'imap' ||
+      (epoch !== undefined && epoch !== epochOf(draft))
+    ) {
+      return undefined;
+    }
+    const { summary: _title, ...revision } = invitation;
+    return (await mailbox.inbox.recordResponse(revision, {
+      kind: 'sent',
+      ...revision,
+      at: Date.now(),
+    }))
+      ? undefined
+      : 'offline';
+  };
+
+  const record = async (id: string, outcome: SendOutcome) => {
     if (outcome.kind === 'accepted') {
       return drafts.deliver(id, (entry) =>
         awaitingOutcome(entry.state) ? withState(entry, 'filing') : undefined,
       );
     }
     if (outcome.kind === 'sent') {
+      // The response stays awaiting its outcome until its mailbox holds it.
+      const awaiting = entryOf(id);
+      if (awaiting !== undefined && (await answer(awaiting)) !== undefined) {
+        return false;
+      }
       return drafts.deliver(id, (entry) =>
         awaitingOutcome(entry.state)
           ? {
@@ -635,7 +673,10 @@ export function createOutbox({
     } else if (sending === 'password') {
       problem = 'authorization';
     } else if (mailbox?.provider === 'imap' && messageId !== undefined) {
-      problem = await mailbox.inbox.fileSent(entry.message, messageId);
+      // An accepted response leaves the Outbox only once its mailbox records it.
+      problem =
+        (await mailbox.inbox.fileSent(entry.message, messageId)) ??
+        (await answer(entry));
     }
     await drafts.deliver(
       entry.id,
@@ -1064,11 +1105,13 @@ export function createOutbox({
     },
     // Why Send would refuse the Draft before reading its files, so the composer can say so first.
     refusal: refusalOf,
-    // Admits the Draft `expected` shows to the Outbox, to send once the Undo Send Window ends.
-    // Resolves why it was refused, or undefined once admitted. `report` follows the file check.
+    // Admits the Draft `expected` shows to the Outbox, to send once its Undo Send Window of `delay`
+    // milliseconds ends; Send Now's is 0. Resolves why it was refused, or undefined once admitted.
+    // `report` follows the file check.
     send: async (
       expected: () => Draft,
       report?: (check: SendCheck) => void,
+      delay = undoSendWindow,
     ): Promise<SendRefusal | undefined> => {
       const draft = expected();
       const epoch = epochOf(draft);
@@ -1088,7 +1131,7 @@ export function createOutbox({
       if (message === undefined) {
         return 'too-large';
       }
-      const sendAt = Date.now() + undoSendWindow;
+      const sendAt = Date.now() + delay;
       // The identifier follows an editor rebound to its conflict copy; the content stays the
       // version the message was built from, so a later change is refused rather than admitted.
       const pinned = () => {
@@ -1107,7 +1150,7 @@ export function createOutbox({
           draft: stored,
           message,
           sendAt,
-          state: 'waiting',
+          state: admittedState(delay),
           epoch,
         }),
       );
@@ -1121,9 +1164,38 @@ export function createOutbox({
         ? 'changed'
         : 'storage';
     },
+    // Admits an Invitation Response, which is never a Draft, from `draft`'s connection to the
+    // Outbox, to send once the Undo Send Window ends. Resolves why it was refused, or undefined once
+    // admitted.
+    respond: async ({
+      draft,
+      message,
+      invitation,
+    }: Readonly<{
+      draft: Draft;
+      message: OutboxEntry['message'];
+      invitation: InvitationAnswer;
+    }>): Promise<SendRefusal | undefined> => {
+      const refusal = refusalOf(draft);
+      if (refusal !== undefined) {
+        return refusal;
+      }
+      return (await drafts.enqueue({
+        id: draft.id,
+        draft,
+        message,
+        sendAt: Date.now() + undoSendWindow,
+        state: 'waiting',
+        epoch: epochOf(draft),
+        invitation,
+      }))
+        ? undefined
+        : 'storage';
+    },
     // Returns a message to the Drafts, as Undo, after a refusal, or when the person chooses to
-    // edit one whose delivery is unknown; only while it is `only` when given. Resolves the Draft's
-    // identifier, or false when it can no longer return.
+    // edit one whose delivery is unknown; only while it is `only` when given. An Invitation
+    // Response only leaves the Outbox. Resolves the Draft's identifier, or false when it can no
+    // longer return.
     undo: async (id: string, only?: OutboxEntry['state']) => {
       retryAt.delete(id);
       const restored = await drafts.restore(id, only);

@@ -285,6 +285,46 @@ describe('outbox status and recovery copy', () => {
           'This message may already have been sent. Edit it only if it is not in the Sent folder of the mailbox it was sent from.',
         ],
       ]);
+      // An Invitation Response reads as a response while it waits, sends, was refused or is
+      // unknown; a reason it waits and its Sent copy read as for any message.
+      const invitation = {
+        uid: 'roadmap-42@northwind.example',
+        sequence: 0,
+        choice: 'accepted',
+        message: '7.1.INBOX',
+      } as const;
+      expect(
+        (
+          [
+            { state: 'waiting' },
+            { state: 'queued' },
+            { state: 'sending' },
+            { state: 'failed' },
+            { state: 'failed', problem: 'refused' },
+            { state: 'unknown' },
+            { state: 'queued', problem: 'offline' },
+            { state: 'failed', problem: 'sent-folder' },
+            { state: 'filing' },
+          ] as const
+        ).map(
+          (outcome) =>
+            outboxCopy(
+              english,
+              { ...waiting, ...outcome, check: 'idle', invitation },
+              'imap',
+            ).status,
+        ),
+      ).toStrictEqual([
+        'Undo available. Waiting to send.',
+        'Sending your response…',
+        'Sending your response…',
+        'Not sent. The mail server refused this response.',
+        'Not sent. The mail server refused this response.',
+        'Delivery unknown. The mail server hasn’t confirmed this response.',
+        copyOf('imap', { state: 'queued', problem: 'offline' }).status,
+        copyOf('imap', { state: 'failed', problem: 'sent-folder' }).status,
+        'Sent. Saving a copy to Sent…',
+      ]);
     } finally {
       sending.outbox.dispose();
     }

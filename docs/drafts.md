@@ -135,7 +135,7 @@ transport and known native exit gaps.
   A bar narrower than 522pt, such as the 442pt Portrait reader's, shows Bold, Italic,
   Bulleted List, Writing tools when available, and Attach File, and ends each crowded section with an
   overflow menu: **More Formatting** (Underline, Strikethrough, Inline code), **More
-  Lists and Links** (Numbered List, Add Link or Edit Link, whose Link Editor popover
+  Lists and Links** (Numbered List, Outdent, Indent, Add Link or Edit Link, whose Link Editor popover
   opens from the menu, then Undo and Redo) and **More Files and Templates** (Attach
   Photo, Insert Image, Paste Image and the Templates menu).
   In the Mac overlay, **From** and **Send** share the bottom row; in its New
@@ -225,7 +225,15 @@ transport and known native exit gaps.
   three backticks, at the start of a paragraph applies that block kind and removes
   the marker; one **Undo** restores the literal marker. Return continues a list,
   quote or code block, and deleting into a list marker turns the item into a
-  paragraph. List markers are shown, never stored. On Mac, Command-B, Command-I and
+  paragraph. List markers are shown, never stored. Lists nest three levels deep:
+  on iPhone and iPad, **Outdent** and **Indent** follow the list buttons in the
+  Format panel and the format bar, and a hardware keyboard's Tab and Shift-Tab
+  do the same inside a list. They move every selected list item one level and
+  leave other blocks alone; each is one Undo step, and each switches off when a
+  selected item is already at the first or the third level. A nested item shows
+  its marker one indent further in, numbered items count per level, and sent
+  mail nests the item's list inside the item before it. Return continues an item
+  at its level; an item that becomes a paragraph stops nesting. On Mac, Command-B, Command-I and
   Command-U format the selection. In body paragraphs, the selection and the text
   typed after them show the marks in the next frame; lists, lines that start like a
   list marker, headings, quotes, code and the format bar show them when the composer
@@ -911,6 +919,15 @@ The `registration-apple` native journey
 ([#2144](https://github.com/unwired-dev/product/issues/2144)) opens the Send menu,
 sets Tomorrow Morning and checks the banner on iPhone and iPad; its results are in
 the [platform qualification](qualification/expo-react-native-client.md).
+
+The iPhone and iPad Send menu also offers **Send Now** ("No Undo",
+[#2457](https://github.com/unwired-dev/product/issues/2457)), above Remind Me to
+Send…. It sends as Send does, through the same Outbox checks and refusals, but
+admits the message with no Undo Send Window, so it is ready for delivery at once,
+under the usual Outbox claim and retry rules, and offers no Undo. It asks for no confirmation, and plain Send keeps its window.
+While Send can't send, Send Now is dimmed; while a file is still being added it
+also names that file ("Waiting for terms.pdf to finish"). The Mac gets Send Now
+in a later #1674 slice.
 
 Reminders are not synchronized and schedule no notification yet, and a reminder
 whose Draft is deleted elsewhere, or whose removal storage refused after Send or

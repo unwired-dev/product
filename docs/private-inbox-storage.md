@@ -145,8 +145,10 @@ registration store already offers these operations:
   writes the connection's ownership and that Profile's definition in one
   compare-and-set transaction, so the move and a removal of that Profile on another
   device never both succeed. A move back to the Default Profile writes only the
-  ownership. If another device changed either record first, the move changes nothing
-  and reports `profile-changed`. A name for the target chosen on this device stays
+  ownership. If another device changed either record first, or has since removed or
+  added the connection again
+  ([#1998](https://github.com/unwired-dev/product/issues/1998)), the move changes
+  nothing and reports `profile-changed`. A name for the target chosen on this device stays
   pending and is published afterwards. The connection's identity, authorization,
   cache, Drafts and Outbox stay in place.
 - **Order and Color**
@@ -550,7 +552,9 @@ that owns it; another account reads none, and every account purge removes the
 document. The same document holds this device's receipts for the arrivals it moved
 to Trash ([#2120](https://github.com/unwired-dev/product/issues/2120)) and the
 addresses each Profile unblocked, which Private Sync merges
-([#2184](https://github.com/unwired-dev/product/issues/2184)); see
+([#2184](https://github.com/unwired-dev/product/issues/2184)), and each Profile's
+Blocked Domains and unblocked domains
+([#2477](https://github.com/unwired-dev/product/issues/2477)); see
 [Mute and blocked senders](architecture/product/organization.md#mute-and-blocked-senders).
 
 The account's **Inbox preferences**

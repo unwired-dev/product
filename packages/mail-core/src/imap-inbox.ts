@@ -35,6 +35,7 @@ import type {
   OutgoingSend,
   SendOutcome,
 } from './inbox-store.ts';
+import type { InvitationResponse } from './invitation-record.ts';
 import type {
   BodyDocument,
   GmailPart,
@@ -108,6 +109,7 @@ import {
   sendRejection,
 } from './inbox-store.ts';
 import { inlineImageLimits } from './inline-images.ts';
+import { withResponse } from './invitation-record.ts';
 import { SyncFailure } from './mailbox-read.ts';
 import {
   bodyParts,
@@ -362,6 +364,8 @@ export type ImapInboxState =
       readonly undo: boolean;
       // Historical Metadata Backfill of every folder; absent until it starts.
       readonly history?: HistoryProgress;
+      // The Invitation Responses this mailbox sent, newest first.
+      readonly responses?: readonly InvitationResponse[];
       // Marks an IMAP Inbox among other providers'.
       readonly imap: true;
     };
@@ -810,6 +814,10 @@ const bodyDocument = Effect.fnUntraced(function* (
   }
   return { ...body, images: tally.result().images };
 });
+
+// The Invitation Responses a mailbox's cache records, for its ready state.
+const renderedResponses = ({ responses }: ImapDocument) =>
+  responses === undefined ? {} : { responses };
 
 // One IMAP connection's Inbox, its folder list and the folders a reader opened, from the encrypted
 // cache first and then from the server. Messages are addressed by folder, UIDVALIDITY and UID.
@@ -1334,6 +1342,7 @@ export function createImapInbox(
       ...motionFacts(),
       undo: undoable(),
       ...renderedHistory(document),
+      ...renderedResponses(document),
       imap: true,
     };
     notify();
@@ -2217,6 +2226,33 @@ export function createImapInbox(
       ),
     );
   };
+
+  // Saves `response` in place of any record of the same invitation revision, or removes that
+  // record without one. Resolves whether the mailbox's cache holds it.
+  const recordResponse = (
+    revision: Readonly<
+      Pick<InvitationResponse, 'uid' | 'sequence' | 'recurrence'>
+    >,
+    response: InvitationResponse | undefined,
+  ) =>
+    runLogged(
+      semaphore.withPermit(
+        Effect.gen(function* () {
+          if (document === undefined || forgotten) {
+            return false;
+          }
+          const { responses: _replaced, ...rest } = document;
+          const responses = withResponse(
+            document.responses,
+            revision,
+            response,
+          );
+          yield* commit(responses.length === 0 ? rest : { ...rest, responses });
+          render();
+          return true;
+        }).pipe(Effect.orElseSucceed(() => false)),
+      ),
+    );
 
   // Discard acknowledges an unknown move outcome without replaying it; later changes may resume.
   const discardPending = (id: string) =>
@@ -3542,6 +3578,7 @@ export function createImapInbox(
     send: submit,
     fileSent,
     findSent,
+    recordResponse,
     watch,
     // A cached message from any folder, for the reader.
     message: messageOf,
@@ -3616,6 +3653,7 @@ export function createImapInbox(
     downloadAttachment: attachments.downloadAttachment,
     cancelAttachment: attachments.cancelAttachment,
     presentAttachment: attachments.presentAttachment,
+    saveAttachmentCopy: attachments.saveAttachmentCopy,
     attachmentFile: attachments.attachmentFile,
     // Loads an opened message's Remote Message Content, as for Gmail: from the Authorized Remote
     // Content Cache, and with `network` also through the isolated native fetch.

@@ -2,6 +2,7 @@ import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
+import { InvitationResponseSchema } from './invitation-record.ts';
 import { newMailSince, SynchronizationTime } from './mailbox-message.ts';
 
 // ponytail: the newest messages kept per folder, as for Gmail's Inbox; older ones stay on the
@@ -144,6 +145,8 @@ const DocumentSchema = Schema.Struct({
   // Historical Metadata Backfill of each folder that began one; kept apart from the cached folders,
   // so evicting a folder's newest messages never discards its downloaded history.
   history: Schema.optionalKey(Schema.Array(FolderHistorySchema)),
+  // Invitation Responses sent from this mailbox, as for Gmail.
+  responses: Schema.optionalKey(Schema.Array(InvitationResponseSchema)),
 });
 export type ImapDocument = typeof DocumentSchema.Type;
 export const decodeDocument = Schema.decodeUnknownEffect(

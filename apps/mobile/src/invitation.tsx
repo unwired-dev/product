@@ -32,6 +32,8 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 import {
   alsoInvited,
+  imapInvitationResponses,
+  imapServer,
   invitationOf,
   invitationResponses,
   createInvitationFormats,
@@ -63,7 +65,7 @@ import {
 
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailboxes, useProviderName } from './mailbox.tsx';
+import { useMailboxes, useOutbox, useProviderName } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, useLargeText, usePalette } from './theme.ts';
 
@@ -72,6 +74,12 @@ import { textStyles, useLargeText, usePalette } from './theme.ts';
 export const OpenMessageContext = createContext<
   ((id: string) => void) | undefined
 >(undefined);
+
+// Shows the Outbox, where an IMAP mailbox's invitation response waits; a reader without it offers
+// none.
+export const ShowOutboxContext = createContext<(() => void) | undefined>(
+  undefined,
+);
 
 // The iPhone and iPad card follows the Mac one in touch sizes: 14pt inset, Subheadline text, 18pt
 // corners on iPhone and the 10pt card corners iPad shares with Mac.
@@ -458,6 +466,54 @@ function Action({
   );
 }
 
+// iOS ignores live regions, so VoiceOver hears the status when it changes, not when it opens.
+function useStatusAnnouncement({ title, detail }: InvitationStatus) {
+  const spoken = `${title}. ${detail}`;
+  const previousSpoken = useRef(spoken);
+  useEffect(() => {
+    if (spoken !== previousSpoken.current) {
+      previousSpoken.current = spoken;
+      AccessibilityInfo.announceForAccessibilityWithOptions(spoken, {
+        queue: true,
+      });
+    }
+  }, [spoken]);
+}
+
+// Accept, Maybe and Decline sharing the row, the confirmed choice checked.
+function Choices({
+  chosen,
+  off,
+  onChoose,
+}: {
+  readonly chosen: InvitationChoice | undefined;
+  readonly off: boolean;
+  readonly onChoose: (choice: InvitationChoice) => void;
+}) {
+  const { t } = useLocalization();
+  return (
+    <Actions fill>
+      {choices.map((choice) => (
+        <Action
+          key={choice}
+          fill
+          chosen={chosen === choice}
+          label={t(`invitation.${invitationChoiceKeys[choice]}`)}
+          spoken={
+            chosen === choice
+              ? t(`invitation.${choice}`)
+              : t(`invitation.${invitationChoiceKeys[choice]}`)
+          }
+          off={off}
+          onPress={() => {
+            onChoose(choice);
+          }}
+        />
+      ))}
+    </Actions>
+  );
+}
+
 function Responding({
   inbox,
   invitation,
@@ -508,17 +564,7 @@ function Responding({
     others,
     earlier,
   });
-  // iOS ignores live regions, so VoiceOver hears the status when it changes, not when it opens.
-  const spoken = `${shown.title}. ${shown.detail}`;
-  const previousSpoken = useRef(spoken);
-  useEffect(() => {
-    if (spoken !== previousSpoken.current) {
-      previousSpoken.current = spoken;
-      AccessibilityInfo.announceForAccessibilityWithOptions(spoken, {
-        queue: true,
-      });
-    }
-  }, [spoken]);
+  useStatusAnnouncement(shown);
   // One sign-in at a time: a second tap while the mailbox reloads starts nothing.
   const signingIn = useRef(false);
   const signIn = async (
@@ -653,30 +699,17 @@ function Responding({
       </Status>
     );
   }
-  const chosen = recorded.kind === 'sent' ? recorded.choice : undefined;
   return (
     <Status {...shown}>
-      <Actions fill>
-        {choices.map((choice) => (
-          <Action
-            key={choice}
-            fill
-            chosen={chosen === choice}
-            label={t(`invitation.${invitationChoiceKeys[choice]}`)}
-            spoken={
-              chosen === choice
-                ? t(`invitation.${choice}`)
-                : t(`invitation.${invitationChoiceKeys[choice]}`)
-            }
-            off={recorded.kind === 'sending' || blocked === 'offline'}
-            onPress={() => {
-              if (current()) {
-                void responses.respond(invitation, choice, t);
-              }
-            }}
-          />
-        ))}
-      </Actions>
+      <Choices
+        chosen={recorded.kind === 'sent' ? recorded.choice : undefined}
+        off={recorded.kind === 'sending' || blocked === 'offline'}
+        onChoose={(choice) => {
+          if (current()) {
+            void responses.respond(invitation, choice, t);
+          }
+        }}
+      />
     </Status>
   );
 }
@@ -792,7 +825,8 @@ export function InvitationCard({
   }
   if ('openFolder' in inbox) {
     return (
-      <ReceiveOnly
+      <ImapInvited
+        inbox={inbox}
         invitation={offer}
         connection={connection}
         current={current}
@@ -809,13 +843,15 @@ export function InvitationCard({
   );
 }
 
-// An IMAP invitation for a mailbox without an outgoing server, which no other mailbox answers for.
-// One that can send answers through the Outbox, which #1279 adds; until then it shows no card.
-function ReceiveOnly({
+// An IMAP invitation the opened mailbox can answer. One that can send answers through the Outbox of
+// its own connection; one without an outgoing server says so, and no other mailbox answers for it.
+function ImapInvited({
+  inbox,
   invitation,
   connection,
   current,
 }: {
+  readonly inbox: ImapInbox;
   readonly invitation: Invitation;
   readonly connection: string | undefined;
   readonly current: () => boolean;
@@ -826,10 +862,21 @@ function ReceiveOnly({
   const mailbox = account?.mailboxes.find(({ id }) => id === connection);
   if (
     account === undefined ||
-    mailbox?.provider !== 'imap' ||
-    mailbox.smtp !== undefined
+    connection === undefined ||
+    mailbox?.provider !== 'imap'
   ) {
     return null;
+  }
+  if (mailbox.smtp !== undefined) {
+    return (
+      <ImapResponding
+        inbox={inbox}
+        invitation={invitation}
+        connection={connection}
+        names={imapServer(t, mailbox.imap)}
+        current={current}
+      />
+    );
   }
   return (
     <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
@@ -859,6 +906,106 @@ function ReceiveOnly({
             }}
           />
         </Actions>
+      </Status>
+    </View>
+  );
+}
+
+// An invitation a sending IMAP mailbox answers through the Outbox: the choice waits out the Undo Send
+// Window there, then goes once through the mailbox's own mail server.
+function ImapResponding({
+  inbox,
+  invitation,
+  connection,
+  names: { provider, server },
+  current,
+}: {
+  readonly inbox: ImapInbox;
+  readonly invitation: Invitation;
+  readonly connection: string;
+  readonly names: ReturnType<typeof imapServer>;
+  readonly current: () => boolean;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const formats = useFormats();
+  const showOutbox = use(ShowOutboxContext);
+  const responses = imapInvitationResponses(inbox, useOutbox(), connection);
+  const state = useSyncExternalStore(responses.subscribe, () =>
+    responses.state(invitation),
+  );
+  const earlier = useSyncExternalStore(responses.subscribe, () =>
+    responses.earlier(invitation),
+  );
+  // The Outbox keeps a response until the mail server can be reached, so being offline blocks none.
+  const { status } = invitationResponding(t, formats, {
+    invitation,
+    state,
+    sync: undefined,
+    provider,
+    others: 0,
+    earlier,
+    server,
+  });
+  useStatusAnnouncement(status);
+  const inOutbox =
+    state.kind === 'waiting' ||
+    state.kind === 'queued' ||
+    state.kind === 'sending';
+  const unknown = state.kind === 'unknown' || state.kind === 'checking';
+  const viewInOutbox = (inOutbox || unknown) && showOutbox !== undefined;
+  return (
+    <View style={[styles.card, { backgroundColor: colors.fillQuiet }]}>
+      <Details
+        details={invitation.details}
+        earlier={earlier}
+        older={state.kind === 'older'}
+        invited={[
+          t('invitation.you'),
+          t('invitation.yourAddress', {
+            address: invitation.address,
+            provider,
+          }),
+        ]}
+      />
+      <Status {...status}>
+        {state.kind === 'older' ||
+        state.kind === 'removed' ||
+        unknown ? null : (
+          <Choices
+            chosen={state.kind === 'sent' ? state.choice : undefined}
+            off={inOutbox}
+            onChoose={(choice) => {
+              if (current()) {
+                void responses.respond(invitation, choice, t);
+              }
+            }}
+          />
+        )}
+        {state.kind === 'waiting' || viewInOutbox ? (
+          <Actions>
+            {state.kind === 'waiting' ? (
+              <Action
+                label={t('outbox.undo')}
+                onPress={() => {
+                  if (current()) {
+                    void responses.undo(invitation);
+                  }
+                }}
+              />
+            ) : null}
+            {viewInOutbox ? (
+              <Action
+                label={t('invitation.viewInOutbox')}
+                onPress={() => {
+                  if (current()) {
+                    showOutbox();
+                  }
+                }}
+              />
+            ) : null}
+          </Actions>
+        ) : null}
       </Status>
     </View>
   );

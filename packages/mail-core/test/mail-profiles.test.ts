@@ -15,6 +15,7 @@ import {
 import { SemanticDocumentSchema } from '../src/semantic-document.ts';
 import {
   createSyntheticVault,
+  storeDescriptor,
   storeProfile,
   storedProfiles,
 } from '../src/testing/registration-vault.ts';
@@ -828,6 +829,99 @@ describe('mail profiles', () => {
       epoch: 'another-incarnation',
       version: 1,
     });
+  });
+
+  it('never changes the notifications or owner of a connection another device removed and added again', async () => {
+    expect.hasAssertions();
+    const { flow, sync, vault, put, record, mailboxId } = await connected();
+    const id = await mailboxId();
+    const work = profileNamed(await flow.createProfile('Work'), 'Work').id;
+    const home = profileNamed(await flow.createProfile('Home'), 'Home').id;
+    const store = createRegistration(vault);
+    await store.restore();
+    // Another device removes and adds the connection again, then turns on the new incarnation's
+    // notifications and moves it into Work.
+    put({ epoch: 'another-incarnation' });
+    const incarnation = { record: record(), epoch: 'another-incarnation' };
+    const policy = {
+      kind: 'notifications',
+      ...incarnation,
+      version: 1,
+      enabled: true,
+    } as const;
+    const owner = {
+      kind: 'mailbox',
+      ...incarnation,
+      version: 1,
+      profile: work,
+    } as const;
+    storeProfile(sync, account, policy);
+    storeProfile(sync, account, owner);
+    await expect(flow.notifyMailbox(id, false)).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    await expect(flow.moveMailbox(id, home)).rejects.toMatchObject({
+      code: 'profile-changed',
+    });
+    await store.notifyMailbox(id, false);
+    expect(store.getSnapshot()).toMatchObject({ notificationFailure: id });
+    await store.moveMailbox(id, home);
+    expect(store.getSnapshot()).toMatchObject({
+      profileFailure: 'profile-changed',
+    });
+    expect(policyOf(sync)).toStrictEqual(policy);
+    expect(ownershipOf(sync)).toStrictEqual(owner);
+  });
+
+  it('never changes the folder choice of an IMAP connection another device removed and added again', async () => {
+    expect.hasAssertions();
+    const { flow, sync, vault, imap: server, mailboxId } = setup();
+    await flow.signIn('google');
+    await flow.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: server.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    const id = await mailboxId();
+    await flow.chooseFolders(id, { junk: 'Junk', trash: 'Bin' });
+    const { record } = choiceOf(sync);
+    const store = createRegistration(vault);
+    await store.restore();
+    // Another device removes and adds the connection again, then chooses its folders.
+    storeDescriptor(sync, {
+      account,
+      record,
+      descriptor: {
+        provider: 'imap',
+        address: 'alex@example.invalid',
+        epoch: 'another-incarnation',
+      },
+    });
+    const choice = {
+      kind: 'folders',
+      record,
+      epoch: 'another-incarnation',
+      version: 1,
+      junk: 'Spam',
+      trash: 'Deleted',
+    } as const;
+    storeProfile(sync, account, choice);
+    await expect(
+      flow.chooseFolders(id, { junk: 'Junk', trash: 'Trash' }),
+    ).rejects.toMatchObject({ code: 'profile-changed' });
+    await expect(
+      store.chooseFolders(id, { junk: 'Junk', trash: 'Trash' }),
+    ).resolves.toBe(false);
+    expect(store.getSnapshot()).toMatchObject({ foldersFailure: id });
+    expect(choiceOf(sync)).toStrictEqual(choice);
   });
 
   it("keeps a re-added incarnation's display when the re-add lands after this device checked", async () => {
