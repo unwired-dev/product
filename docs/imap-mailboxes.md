@@ -976,10 +976,10 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   Product Sign-In found the certification Product Account, this device was unlocked with
   its Recovery Key, and both certification mailboxes were connected through the app as in
   the iPad connect record. Attachment: one synthetic PNG image (`image/png`, 173,158 bytes,
-  listed as 169.1 KB), added with the composer's **Attach Photo**. Result: pass. From each
-  mailbox, a new message with the attachment showed **Sending soon**, then **Sending…**,
-  left the Outbox, went out over iCloud Mail's `smtp.mail.me.com` 587 (STARTTLS) or
-  Seznam Email's `smtp.seznam.cz` 465 (SSL/TLS), and arrived in the other mailbox. Over
+  shown as `169,1 KB` in the simulator's Czech region format), added with the composer's
+  **Attach Photo**. Result: pass. From each mailbox, a new message with the attachment
+  went through the Outbox and arrived in the other mailbox. The connections send through
+  `smtp.mail.me.com` 587 (STARTTLS) and `smtp.seznam.cz` 465 (SSL/TLS). Over
   IMAP, `imap.mail.me.com` 993 and `imap.seznam.cz` 993 (TLS), the delivered message and
   the sender's single Sent copy each carried one attachment part with the source file's
   name, content type, decoded size and SHA-256 prefix (first 16 hex digits). In each
