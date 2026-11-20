@@ -853,6 +853,19 @@ describe('mac window selection with the shared mock mailbox', () => {
       await waitFor(() => {
         expect(app.queryByTestId('composer-overlay')).toBeNull();
       });
+      // Back in the Draft's Profile, as after a lock remounts the window's contents, it stays closed.
+      await app.rerender(
+        <AccountContext value={accountActions}>
+          <InboxWindow
+            windowId="returned"
+            profile={alone.profile}
+            draft={alone.draft}
+          />
+        </AccountContext>,
+      );
+      await expect(app.findByTestId('composer-overlay')).rejects.toThrow(
+        'Unable to find an element with testID: composer-overlay',
+      );
     } finally {
       await app.unmount();
       replacement.restore();

@@ -154,7 +154,7 @@ type WindowProps = Readonly<{
 // A Draft returned to a new Inbox window, with the Mail Profile it belongs to.
 type Launch = Readonly<{ draft: string; profile: string }>;
 
-// The returned Draft opens in its Mail Profile until its composer first leaves it. The window keeps
+// The returned Draft opens once, when its Mail Profile's contents first mount. The window keeps
 // it above its gate, so contents remounted after a lock or a Profile switch do not reopen it.
 const useLaunch = (draft: string | undefined, profile: string | undefined) => {
   const [launch, setLaunch] = useState<Launch | undefined>(
@@ -350,10 +350,10 @@ function WindowContents({
   // The window's one composer overlays the reader while it is open.
   const [composing, setComposing] = useState(initialDraft);
   useEffect(() => {
-    if (initialDraft !== undefined && composing !== initialDraft) {
+    if (initialDraft !== undefined) {
       onInitialDraft?.();
     }
-  }, [composing, initialDraft, onInitialDraft]);
+  }, [initialDraft, onInitialDraft]);
   // The composer recovery record restored, while its composer is open under Draft `id`, which
   // follows the composer to a conflicting copy.
   const [recovered, setRecovered] = useState<{
