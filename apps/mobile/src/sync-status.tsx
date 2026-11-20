@@ -476,10 +476,13 @@ export function SyncStatusCapsule({
   ) {
     setLast(current);
   }
-  // The details close with the capsule.
-  if (!open && details) {
-    setDetails(false);
-  }
+  // The details close with the capsule, at once, then forget they were open once it has rendered:
+  // the toolbar's state belongs to the Inbox.
+  useEffect(() => {
+    if (!open) {
+      setDetails(false);
+    }
+  }, [open, setDetails]);
   const [height, setHeight] = useState(0);
   const motion = useMenuMotion(open, 'menu');
   useOutcomeAnnouncement(current?.spoken, true);
@@ -531,7 +534,7 @@ export function SyncStatusCapsule({
   );
   return (
     <Presenter
-      isPresented={details}
+      isPresented={open && details}
       onIsPresentedChange={setDetails}
       // The system toolbar shows the paused capsule.
       trigger={inToolbar(toolbar, said) ? <View /> : capsule}>
