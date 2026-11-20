@@ -9,10 +9,10 @@ export class SyntheticScenario extends Context.Service<
 >()('@private-email/mail-core/testing/SyntheticScenario') {}
 
 // What the real provider or backend would refuse with, by its fixed code.
-export class SyntheticRefusal extends Schema.TaggedError<SyntheticRefusal>()(
-  'SyntheticRefusal',
-  { code: Schema.String },
-) {}
+export class SyntheticRefusal extends Schema.TaggedError<
+  SyntheticRefusal,
+  { readonly brand: unique symbol }
+>()('SyntheticRefusal', { code: Schema.String }) {}
 export const refuse = (code: string) =>
   Effect.fail(new SyntheticRefusal({ code }));
 

@@ -135,24 +135,24 @@ const isGoogleSigningKey = Schema.is(
 );
 
 // The Gmail request or its mailbox ownership proof is refused.
-class GmailRequestRejected extends Schema.TaggedError<GmailRequestRejected>()(
-  'GmailRequestRejected',
-  {
-    message: Schema.Literals([
-      'Gmail mailbox ownership proof is not configured',
-      'Gmail mailbox ownership proof rejected',
-      'Gmail mailbox ownership proof required',
-      'Opaque Gmail connection id required',
-    ]),
-  },
-) {}
+class GmailRequestRejected extends Schema.TaggedError<
+  GmailRequestRejected,
+  { readonly brand: unique symbol }
+>()('GmailRequestRejected', {
+  message: Schema.Literals([
+    'Gmail mailbox ownership proof is not configured',
+    'Gmail mailbox ownership proof rejected',
+    'Gmail mailbox ownership proof required',
+    'Opaque Gmail connection id required',
+  ]),
+}) {}
 
 // Google's signing keys could not be fetched or read, or the signature could not be
 // checked; handlers rethrow the cause.
-class GoogleVerificationFailed extends Schema.TaggedError<GoogleVerificationFailed>()(
-  'GoogleVerificationFailed',
-  { cause: Schema.Defect() },
-) {}
+class GoogleVerificationFailed extends Schema.TaggedError<
+  GoogleVerificationFailed,
+  { readonly brand: unique symbol }
+>()('GoogleVerificationFailed', { cause: Schema.Defect() }) {}
 
 type GmailProofFailure = GmailRequestRejected | GoogleVerificationFailed;
 

@@ -447,9 +447,7 @@ type OpenMailbox = Readonly<{
 }>;
 
 // The connections whose Inbox can open, each owned by its Product Account, connection and address.
-const openMailboxes = (
-  account: RegistrationSnapshot,
-): readonly OpenMailbox[] =>
+const openMailboxes = (account: RegistrationSnapshot): readonly OpenMailbox[] =>
   canOpenInbox(account) && account.kind !== 'signed-out'
     ? mailboxesOf(account)
         .filter(({ state }) => state !== 'authorization')

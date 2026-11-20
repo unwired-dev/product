@@ -53,7 +53,7 @@ renderer's module graph, or if the page appears in any bundle other than
 ## Host adapter
 
 **TenTap was not used.** Both hosts already render message bodies in the patched
-`react-native-webview` 13.16.1, which supports AppKit through `react-native-macos`.
+`react-native-webview` 14.0.1, which supports AppKit through `react-native-macos`.
 One page and one bridge serve all three hosts. TenTap targets iOS and Android and
 would add a second bridge for iPhone and iPad without covering the Mac.
 

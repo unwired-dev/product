@@ -1,6 +1,7 @@
 #import "AppDelegate.h"
 #import "UnwiredLanguagePreferences.h"
 #import <React/RCTBundleURLProvider.h>
+#import <React/RCTDevMenu.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
 #import <os/log.h>
 #if UNWIRED_NATIVE_TESTING
@@ -117,7 +118,8 @@ extern "C" void UnwiredInstallComposerFormatting(void);
     if (self.inboxWindows.count == 0) [self newWindow:nil];
     [NSApp activateIgnoringOtherApps:YES];
   } else if (self.inboxWindows.count == 0) {
-    [self.reactFactory.rootViewFactory initializeReactHostWithLaunchOptions:nil];
+    [self.reactFactory.rootViewFactory initializeReactHostWithLaunchOptions:nil
+                                                       devMenuConfiguration:[RCTDevMenuConfiguration defaultConfiguration]];
   }
 }
 
@@ -278,7 +280,7 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 
 // Choose Folders… in an Inbox window's notice, or in Settings › Email Accounts, opens an IMAP
 // connection's Spam and Trash choice as a sheet on that window, in a React root of its own. React
-// Native macOS 0.81.9's Modal is iOS-only; remove these sheet methods when React Native macOS
+// Native macOS 0.83.0's Modal is iOS-only; remove these sheet methods when React Native macOS
 // presents a Modal as a sheet.
 - (void)openFolderChoiceInWindow:(NSString *)identifier connection:(NSString *)connection profile:(NSString *)profile
 {

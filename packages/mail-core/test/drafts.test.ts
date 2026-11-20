@@ -618,7 +618,7 @@ describe('editing a Semantic Message Document', () => {
     for (const paint of [
       { font: 'Arial,sans-serif' },
       { font: 'Arial;color:red' },
-      { font: '"Helvetica\\"Neue"' },
+      { font: String.raw`"Helvetica\"Neue"` },
       { font: '"Helvetica\nNeue"' },
       { font: '' },
       { size: 0 },

@@ -462,6 +462,10 @@ describe('mail Assistance Enablement', () => {
     expect(
       mailAssistanceEnabled(store.getSnapshot(), account, defaultProfile),
     ).toBe(false);
+    // Off is saving when the account changes.
+    await vi.waitFor(() => {
+      expect(written).toHaveLength(2);
+    });
     const queued = store.setEnabled(account, defaultProfile, true);
     owner = 'another-account';
     const changed = store.load(owner);

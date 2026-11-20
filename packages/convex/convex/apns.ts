@@ -123,27 +123,30 @@ const decodeApnsResponseStatus = Schema.decodeUnknownOption(
 );
 
 // APNs answered with a status other than 200. Some statuses end the device token.
-class ApnsRejected extends Schema.TaggedError<ApnsRejected>()('ApnsRejected', {
+class ApnsRejected extends Schema.TaggedError<
+  ApnsRejected,
+  { readonly brand: unique symbol }
+>()('ApnsRejected', {
   reason: Schema.optional(ApnsRejectionReason),
   status: Schema.Finite,
 }) {}
 
 // The request failed before APNs answered, or the answer was malformed.
-class ApnsUnavailable extends Schema.TaggedError<ApnsUnavailable>()(
-  'ApnsUnavailable',
-  { cause: Schema.Defect() },
-) {}
+class ApnsUnavailable extends Schema.TaggedError<
+  ApnsUnavailable,
+  { readonly brand: unique symbol }
+>()('ApnsUnavailable', { cause: Schema.Defect() }) {}
 
-class ApnsTimedOut extends Schema.TaggedError<ApnsTimedOut>()(
-  'ApnsTimedOut',
-  {},
-) {}
+class ApnsTimedOut extends Schema.TaggedError<
+  ApnsTimedOut,
+  { readonly brand: unique symbol }
+>()('ApnsTimedOut', {}) {}
 
 // Configuration or the provider token could not be prepared; handlers rethrow the cause.
-class ApnsConfigurationFailed extends Schema.TaggedError<ApnsConfigurationFailed>()(
-  'ApnsConfigurationFailed',
-  { cause: Schema.Defect() },
-) {}
+class ApnsConfigurationFailed extends Schema.TaggedError<
+  ApnsConfigurationFailed,
+  { readonly brand: unique symbol }
+>()('ApnsConfigurationFailed', { cause: Schema.Defect() }) {}
 
 type ApnsSendFailure = ApnsRejected | ApnsTimedOut | ApnsUnavailable;
 type ApnsBatchFailure = ApnsConfigurationFailed | CallFailed;

@@ -107,8 +107,8 @@ must not appear in the iOS production bundle.
 The selected baseline is Expo SDK 58 (`expo` 58.0.26, React Native 0.88.1,
 React 19.3.0), the SDK the [Expo Duo guide](https://expo.dev/blog/supporting-iphone-duo) names
 for Duo development, with every native peer at its SDK 58 bundled version. The
-Mac host keeps its separate `catalogs.macos` renderer (react-native-macos 0.81.9)
-and its own `react-native-webview` 13.16.1 patch. SDK 58 generates the UIKit
+Mac host keeps its separate `catalogs.macos` renderer (react-native-macos 0.83.0)
+and shares the `react-native-webview` 14.0.1 patch. SDK 58 generates the UIKit
 scene lifecycle and no longer installs `expo-symbols` for Expo Router, which loads
 it only when present; the app draws SF Symbols through its own design views.
 The pinned `expo-dev-launcher` 58.0.21 patch drops the development launcher's
@@ -127,8 +127,8 @@ when the supported upstream version clears that padding itself.
 
 The composer body shows a Draft's stored fonts through React Native's iOS font
 lookup, which already falls back to the system font at the stored size, weight
-and italic when a family is not installed. Unlike the Mac renderer, it needs no
-patch for this.
+and italic when a family is not installed. Like the Mac renderer since React
+Native macOS 0.83.0, it needs no patch for this.
 
 Keep the Effect patcher, Oxlint and `oxlint-tsgolint` on the compatible catalog
 versions and update them together. TypeScript 7 is intentionally

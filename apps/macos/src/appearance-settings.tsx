@@ -24,7 +24,7 @@ export function AppearanceSettings() {
 
   function choose(next: Choice) {
     Settings.set({ [key]: next });
-    Appearance.setColorScheme(next === 'system' ? null : next);
+    Appearance.setColorScheme(next === 'system' ? 'unspecified' : next);
     setChoice(next);
   }
 

@@ -540,11 +540,7 @@ describe('installation error reporting at the protected native boundary', () => 
       await store.load();
       await store.setEnabled(true);
       const original = host.native.errorReportingRequest;
-      host.native.errorReportingRequest = async (
-        operation,
-        body,
-        generation,
-      ) =>
+      host.native.errorReportingRequest = async (operation, body, generation) =>
         // oxlint-disable-next-line vitest/no-conditional-in-test -- Only the external deletion request fails in this recovery journey.
         operation === 'delete'
           ? { status: 'retry' }

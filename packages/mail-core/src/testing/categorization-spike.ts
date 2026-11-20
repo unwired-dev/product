@@ -100,7 +100,10 @@ const Progress = Schema.NullOr(
 );
 export type ProgressValue = typeof Progress.Type;
 const NativeCode = Schema.Struct({ code: Schema.String });
-class SpikeFailure extends Schema.TaggedError<SpikeFailure>()('SpikeFailure', {
+class SpikeFailure extends Schema.TaggedError<
+  SpikeFailure,
+  { readonly brand: unique symbol }
+>()('SpikeFailure', {
   cause: Schema.Defect(),
 }) {}
 const nativeCall = <A>(run: () => Promise<A>) =>

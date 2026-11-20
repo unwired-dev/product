@@ -238,90 +238,96 @@ const profileRefusal = (
   }),
 });
 
-class RegistrationCancelled extends Schema.TaggedError<RegistrationCancelled>()(
-  'RegistrationCancelled',
-  {},
-) {}
+class RegistrationCancelled extends Schema.TaggedError<
+  RegistrationCancelled,
+  { readonly brand: unique symbol }
+>()('RegistrationCancelled', {}) {}
 
 // Protected device data is unavailable while the device is locked; it is an expected state.
-class RegistrationLocked extends Schema.TaggedError<RegistrationLocked>()(
-  'RegistrationLocked',
-  {},
-) {}
+class RegistrationLocked extends Schema.TaggedError<
+  RegistrationLocked,
+  { readonly brand: unique symbol }
+>()('RegistrationLocked', {}) {}
 
 // An entry that does not match the Recovery Key's final group is an expected state.
-class RecoveryKeyMismatch extends Schema.TaggedError<RecoveryKeyMismatch>()(
-  'RecoveryKeyMismatch',
-  {},
-) {}
+class RecoveryKeyMismatch extends Schema.TaggedError<
+  RecoveryKeyMismatch,
+  { readonly brand: unique symbol }
+>()('RecoveryKeyMismatch', {}) {}
 
 // The same mismatch while confirming the replacement Recovery Key of a prepared removal.
-class RevocationKeyMismatch extends Schema.TaggedError<RevocationKeyMismatch>()(
-  'RevocationKeyMismatch',
-  {},
-) {}
+class RevocationKeyMismatch extends Schema.TaggedError<
+  RevocationKeyMismatch,
+  { readonly brand: unique symbol }
+>()('RevocationKeyMismatch', {}) {}
 
 // A Recovery Key that does not open this account's keys is an expected state. It carries the
 // device's current status, which the sign-in renewed for the attempt may have changed.
-class RecoveryKeyRejected extends Schema.TaggedError<RecoveryKeyRejected>()(
-  'RecoveryKeyRejected',
-  { snapshot: RegistrationSnapshotSchema },
-) {}
+class RecoveryKeyRejected extends Schema.TaggedError<
+  RecoveryKeyRejected,
+  { readonly brand: unique symbol }
+>()('RecoveryKeyRejected', { snapshot: RegistrationSnapshotSchema }) {}
 
 // A mistyped approval code is caught on this device before anything is sent.
-class EnrollmentCodeInvalid extends Schema.TaggedError<EnrollmentCodeInvalid>()(
-  'EnrollmentCodeInvalid',
-  {},
-) {}
+class EnrollmentCodeInvalid extends Schema.TaggedError<
+  EnrollmentCodeInvalid,
+  { readonly brand: unique symbol }
+>()('EnrollmentCodeInvalid', {}) {}
 
 // A link the backend refused, for example an identity owned by another Product Account, leaves
 // the Product Account and its sign-ins unchanged; it is an expected outcome.
-class LinkRefused extends Schema.TaggedError<LinkRefused>()('LinkRefused', {
+class LinkRefused extends Schema.TaggedError<
+  LinkRefused,
+  { readonly brand: unique symbol }
+>()('LinkRefused', {
   failure: LinkFailureSchema,
 }) {}
 
-class ProfileRefused extends Schema.TaggedError<ProfileRefused>()(
-  'ProfileRefused',
-  {
-    failure: ProfileFailureSchema,
-  },
-) {}
+class ProfileRefused extends Schema.TaggedError<
+  ProfileRefused,
+  { readonly brand: unique symbol }
+>()('ProfileRefused', {
+  failure: ProfileFailureSchema,
+}) {}
 
 // A connection's synchronized setting was not changed, reported on that connection's row.
-class SettingRefused extends Schema.TaggedError<SettingRefused>()(
-  'SettingRefused',
-  {
-    setting: Schema.Literals([
-      'notificationFailure',
-      'foldersFailure',
-      'orderFailure',
-      'colorFailure',
-      'sendingFailure',
-      'signatureFailure',
-    ]),
-    // The connection, or for its order or Default Sending Identity the Mail Profile, the setting
-    // belongs to.
-    connection: Schema.String,
-    snapshot: RegistrationSnapshotSchema,
-  },
-) {}
+class SettingRefused extends Schema.TaggedError<
+  SettingRefused,
+  { readonly brand: unique symbol }
+>()('SettingRefused', {
+  setting: Schema.Literals([
+    'notificationFailure',
+    'foldersFailure',
+    'orderFailure',
+    'colorFailure',
+    'sendingFailure',
+    'signatureFailure',
+  ]),
+  // The connection, or for its order or Default Sending Identity the Mail Profile, the setting
+  // belongs to.
+  connection: Schema.String,
+  snapshot: RegistrationSnapshotSchema,
+}) {}
 
-class MailboxRemovalRefused extends Schema.TaggedError<MailboxRemovalRefused>()(
-  'MailboxRemovalRefused',
-  {
-    failure: Schema.Literals(['offline', 'failed']),
-    snapshot: RegistrationSnapshotSchema,
-  },
-) {}
+class MailboxRemovalRefused extends Schema.TaggedError<
+  MailboxRemovalRefused,
+  { readonly brand: unique symbol }
+>()('MailboxRemovalRefused', {
+  failure: Schema.Literals(['offline', 'failed']),
+  snapshot: RegistrationSnapshotSchema,
+}) {}
 
 // A refused deletion, with the account as it stands: the refusal may have settled an earlier
 // unanswered deletion.
-class DeletionRefused extends Schema.TaggedError<DeletionRefused>()(
-  'DeletionRefused',
-  { snapshot: RegistrationSnapshotSchema },
-) {}
+class DeletionRefused extends Schema.TaggedError<
+  DeletionRefused,
+  { readonly brand: unique symbol }
+>()('DeletionRefused', { snapshot: RegistrationSnapshotSchema }) {}
 
-class RegistrationFailed extends Schema.TaggedError<RegistrationFailed>()(
+class RegistrationFailed extends Schema.TaggedError<
+  RegistrationFailed,
+  { readonly brand: unique symbol }
+>()(
   'RegistrationFailed',
   // The diagnostic is logged instead of the cause; see rejectionDiagnostic.
   { cause: Schema.Defect(), diagnostic: Schema.String },
@@ -627,21 +633,23 @@ export function createRegistration(vault: NativeRegistrationVault) {
   };
   const changeProfile = (operation: Parameters<typeof execute>[0]) =>
     execute(admitted(operation), profileRefusal, { queued: true });
-  const restoredAccount = request(native.restore()).pipe(
-    Effect.map((snapshot) =>
-      snapshot.kind === 'signed-out' &&
-      snapshot.notice === undefined &&
-      state.snapshot.kind === 'signed-out'
-        ? state.snapshot
-        : snapshot,
-    ),
-  );
+  const restoredAccount = (routed?: string) =>
+    request(native.restore(routed)).pipe(
+      Effect.map((snapshot) =>
+        snapshot.kind === 'signed-out' &&
+        snapshot.notice === undefined &&
+        state.snapshot.kind === 'signed-out'
+          ? state.snapshot
+          : snapshot,
+      ),
+    );
   const restore = (
     foreground = false,
     mailboxLoading: MailboxLoading = 'automatic',
+    routed?: string,
   ) =>
     execute(
-      restoredAccount,
+      restoredAccount(routed),
       (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
       { foreground, mailboxLoading },
     );
@@ -679,7 +687,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
     deviceRemoved: () => {
       const expected = accountIntent;
       return execute(
-        restoredAccount.pipe(
+        restoredAccount().pipe(
           Effect.map((snapshot): RegistrationSnapshot =>
             snapshot.kind === 'signed-out' &&
             snapshot.notice === undefined &&
@@ -693,15 +701,17 @@ export function createRegistration(vault: NativeRegistrationVault) {
         { foreground: true },
       );
     },
-    // Cache-only retry verifies registration before attempting provider synchronization.
+    // Cache-only retry verifies registration before attempting provider synchronization. A push
+    // wake verifies only its `routed` connection with its provider.
     refreshInbox: async (
       load: () => Promise<void>,
       mailboxLoading: MailboxLoading = 'automatic',
+      routed?: string,
     ) => {
       // Scoped wakes verify independently: a coalesced foreground restore could auto-load
       // unrelated newly revealed connections before the wake's route is checked.
       await (mailboxLoading === 'explicit'
-        ? restore(true, mailboxLoading)
+        ? restore(true, mailboxLoading, routed)
         : resume());
       await load();
     },

@@ -21,9 +21,9 @@ Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Window behavior
 
-The `macos` catalog pins React Native macOS 0.81.9, React Native 0.81.6 and React
-19.1.4 in the root workspace and lockfile. React Native Testing Library 14 uses
-`test-renderer` 1.1.0, the line that matches React 19.1. Keep React and native imports out of
+The `macos` catalog pins React Native macOS 0.83.0, React Native 0.83.10 and React
+19.2.0 in the root workspace and lockfile. React Native Testing Library 14 uses
+`test-renderer` 1.2.0, the line that matches React 19.2. Keep React and native imports out of
 `mail-core`. Mac views and native adapters live in `apps/macos`.
 
 Load the approved `fast-text-encoding@1.0.6` polyfill in the entry point before
@@ -51,14 +51,14 @@ focuses and opens each one, and owns keyboard navigation, Escape and click-outsi
 dismissal. VoiceOver reads a pop-up button with its label and current choice, or a
 menu button with its label.
 Writing tools retain their localized selection/body descriptions for accessibility.
-React Native macOS 0.81.9 has no pop-up button; remove the adapter when it offers one
+React Native macOS 0.83.0 has no pop-up button; remove the adapter when it offers one
 with checked, disabled and destructive items. The reader's **Translate** is a split
 button through `UnwiredSplitButton`: an AppKit `NSSegmentedControl` whose first segment
 translates and whose arrow segment opens the language menu on the first click and can
 name the chosen language, which AppKit's `NSComboButton` cannot. VoiceOver reads both
 segments as buttons in a group named for the control's title. Remove it when React Native macOS offers a split button. Other menus, such as the Profile
 Switcher's, open from their own control through `UnwiredMenu` and drop
-below it. React Native macOS 0.81.9's `ActionSheetIOS` menu cannot show checked or
+below it. React Native macOS 0.83.0's `ActionSheetIOS` menu cannot show checked or
 destructive items. Remove the presenter when the host provides an anchored menu with
 those states. Follow
 [native component selection](agents/native-components.md): prefer provided
@@ -74,7 +74,7 @@ destructive. In general, the presenter can name the button Escape answers, mark
 one destructive, replace the app icon with an SF Symbol and show a long selectable
 passage, such as a link destination, in a bounded scrolling view: `NSAlert`'s own
 text grows the sheet past the screen.
-React Native macOS 0.81.9's `Alert` asks over the key window, ignores its `cancel`
+React Native macOS 0.83.0's `Alert` asks over the key window, ignores its `cancel`
 and `destructive` button styles and cannot withdraw a question. Remove the presenter
 when the host's alert can target a window, mark a destructive button and be
 dismissed.
@@ -84,7 +84,7 @@ Trash choice in an AppKit sheet on that Inbox or Settings window: the host gives
 surface (`UnwiredFolderChoice`), sizes it to that content and ends it on Cancel
 (Escape), a successful Save (Return), once the connection no longer needs the
 choice, or when its parent window closes, including before the sheet appears.
-React Native macOS 0.81.9's `Modal` is iOS-only, so React content cannot be
+React Native macOS 0.83.0's `Modal` is iOS-only, so React content cannot be
 presented as a window sheet; remove the host sheet when `Modal` presents one on macOS.
 Sign In's **Sign in with Apple** is AppKit's `ASAuthorizationAppleIDButton` through
 `UnwiredAppleIDButton`: black in Light, white in Dark, and turned off while a
@@ -103,7 +103,7 @@ draws its title in `status/destructive`. In Dark, an `accent/ink` ring replaces 
 system focus ring. The folder-choice sheet's Save takes Return as its key equivalent.
 No Send button does, so Return never sends an open Draft, and no Writing tools result
 button does, so Return adds a new line to the Draft body (#1900). React Native macOS
-0.81.9's `Button` is a `TouchableOpacity`. Remove the adapter when React Native macOS
+0.83.0's `Button` is a `TouchableOpacity`. Remove the adapter when React Native macOS
 offers an `NSButton`.
 The Podfile check requires the mise-managed Ruby and accepts only literal pod names.
 
@@ -131,7 +131,7 @@ view's animation; with Reduce Motion on, it collapses or expands at once. A wind
 at most 900pt wide starts without it. Resizing a window to 900pt or narrower hides it,
 and widening that window again brings it back; the button's label follows each
 change. Expanding the sidebar in a narrower window widens the window. The
-account and registration pages show no sidebar. React Native macOS 0.81.9 has no
+account and registration pages show no sidebar. React Native macOS 0.83.0 has no
 split view; remove the adapter when it offers one.
 
 The Inbox's [Sync Status Capsule](gmail-inbox.md#sync-status-capsule) opens its
@@ -141,7 +141,7 @@ arrow. AppKit has no property for that: the adapter shows the popover against th
 whole bounds of a one-point edge view, then shifts those bounds a point, which
 keeps the popover in place without the arrow.
 AppKit presents and animates it, and closes it on a click elsewhere or Escape.
-React Native macOS 0.81.9 has no popover; remove the adapter when it offers one.
+React Native macOS 0.83.0 has no popover; remove the adapter when it offers one.
 The details' 3pt progress bars are React views in `accentFill`: React Native macOS
 has no determinate progress view, and `NSProgressIndicator` draws in the system
 accent color instead.
@@ -206,13 +206,13 @@ Inbox window it opens one, which starts the Draft once its New Message is
 available. While a sheet is open on either window, answer it first.
 Command-P is kept for Print
 ([#854](https://github.com/unwired-dev/product/issues/854)). Native menus use AppKit accessibility. Message buttons expose labels and selected
-state, support keyboard focus, and show a focus border. React Native macOS 0.81.9 does
+state, support keyboard focus, and show a focus border. React Native macOS 0.83.0 does
 not expose plain nonselectable `Text` to accessibility: wrap it in an accessible view carrying
 its label, or make it selectable so it becomes a native text view. Recycling a selectable
 text view turns its selection off but keeps its old props, so a reused view never turned
 it back on and stayed out of the accessibility tree. The renderer patch below compares with
 the installed text view instead (#1902); remove that hunk once React Native macOS does.
-`patches/react-native-macos@0.81.9.patch` gives every `Pressable` AppKit's press
+`patches/react-native-macos@0.83.0.patch` gives every `Pressable` AppKit's press
 action (VoiceOver's VO-Space), which sends the accessibility click that runs its
 `onPress`, and maps `accessibilityState` `disabled` and `selected` onto the
 accessibility element. React Native macOS 0.83 still lacks both on Fabric views;
@@ -221,11 +221,11 @@ text view, which has no enabled attribute, so XCTest reports the composer body a
 not enabled, as it does for any AppKit text view. Full VoiceOver and
 hardware-keyboard qualification remain separate release checks.
 
-The renderer patch also preserves italic when a Draft's stored font is not
-installed. Fabric's missing-family fallback uses its standard system-font helper
-at the stored size and weight, including the italic trait. Remove this hunk when
-the supported renderer preserves those traits itself. The focused AppKit font
-check does not replace packaged composer qualification.
+React Native macOS 0.83.0 preserves italic when a Draft's stored font is not
+installed, so the renderer patch no longer changes fonts. Fabric's missing-family
+fallback uses its standard system-font helper at the stored size and weight,
+including the italic trait. The focused AppKit font check does not replace
+packaged composer qualification.
 
 The patch also makes a secure `TextInput` answer as an `NSSecureTextField`. On
 macOS 27 the secure field editor otherwise throws as the field takes focus and

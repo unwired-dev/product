@@ -578,10 +578,10 @@ const decodeSaved = Schema.decodeUnknownOption(
   Schema.Struct({ value: Schema.NullOr(Schema.String) }),
 );
 
-class PreferenceFailure extends Schema.TaggedError<PreferenceFailure>()(
-  'PreferenceFailure',
-  { cause: Schema.Defect() },
-) {}
+class PreferenceFailure extends Schema.TaggedError<
+  PreferenceFailure,
+  { readonly brand: unique symbol }
+>()('PreferenceFailure', { cause: Schema.Defect() }) {}
 
 const call = (request: () => Promise<unknown>) =>
   Effect.tryPromise({

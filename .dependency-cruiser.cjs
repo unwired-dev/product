@@ -120,7 +120,7 @@ module.exports = {
     doNotFollow: { path: 'node_modules' },
     // Generated output, task probes and native projects are outside the source graph.
     exclude: {
-      path: '(^|/)(node_modules|\\.git|\\.turbo|\\.expo)/|^(artifacts|scratchpad)/|^apps/mobile/(ios|android)/|^apps/macos/macos/',
+      path: String.raw`(^|/)(node_modules|\.git|\.turbo|\.expo)/|^(artifacts|scratchpad)/|^apps/mobile/(ios|android)/|^apps/macos/macos/`,
     },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {

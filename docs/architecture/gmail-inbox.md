@@ -276,10 +276,10 @@ confirmation path. Rich content follows the app appearance under the
 by [#977](https://github.com/unwired-dev/product/issues/977), superseding the
 fixed light canvas.
 
-For [#1217](https://github.com/unwired-dev/product/issues/1217), the Mac patch
-overrides `RNCWebViewImpl.handleKeyboardEvent:` to call the superclass only when
+For [#1217](https://github.com/unwired-dev/product/issues/1217), the WebView patch
+overrides the Mac's `RNCWebViewImpl.handleKeyboardEvent:` to call the superclass only when
 `reactTag` is present. Fabric mounts this `RCTView` subclass without a React tag;
-React Native macOS 0.81.9 otherwise builds a keyboard event with a nil tag and
+React Native macOS 0.83.0 otherwise builds a keyboard event with a nil tag and
 aborts. Returning `NO` for the untagged view lets the inherited `keyDown:` and
 `keyUp:` methods continue through AppKit's responder chain. The
 [operational guide](../gmail-inbox.md#isolated-rich-presentation) owns the deletion condition.

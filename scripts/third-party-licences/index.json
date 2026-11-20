@@ -37,16 +37,6 @@
   },
   {
     "ecosystem": "npm",
-    "name": "@react-native-macos/virtualized-lists",
-    "version": "0.81.9",
-    "file": "npm-roots/@react-native-macos_virtualized-lists/0.81.9/LICENSE",
-    "url": "https://raw.githubusercontent.com/microsoft/react-native-macos/3693ac91a00df6374e610a0a06b0f90aaa1fe4b3/LICENSE",
-    "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
-    "role": "root",
-    "revision": "3693ac91a00df6374e610a0a06b0f90aaa1fe4b3"
-  },
-  {
-    "ecosystem": "npm",
     "name": "@react-native/asset-utils",
     "version": "0.88.1",
     "file": "npm-roots/@react-native_asset-utils/0.88.1/LICENSE",
@@ -58,22 +48,22 @@
   {
     "ecosystem": "npm",
     "name": "@react-native/assets-registry",
-    "version": "0.81.6",
-    "file": "npm-roots/@react-native_assets-registry/0.81.6/LICENSE",
-    "url": "https://raw.githubusercontent.com/facebook/react-native/cddf8a7536de12db889e35e946281cfaf327197a/LICENSE",
+    "version": "0.83.10",
+    "file": "npm-roots/@react-native_assets-registry/0.83.10/LICENSE",
+    "url": "https://raw.githubusercontent.com/react/react-native/ff4f96a23b85b30d8de9331dfac2895f385f67b0/LICENSE",
     "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
     "role": "root",
-    "revision": "cddf8a7536de12db889e35e946281cfaf327197a"
+    "revision": "ff4f96a23b85b30d8de9331dfac2895f385f67b0"
   },
   {
     "ecosystem": "npm",
     "name": "@react-native/js-polyfills",
-    "version": "0.81.6",
-    "file": "npm-roots/@react-native_js-polyfills/0.81.6/LICENSE",
-    "url": "https://raw.githubusercontent.com/facebook/react-native/cddf8a7536de12db889e35e946281cfaf327197a/LICENSE",
+    "version": "0.83.10",
+    "file": "npm-roots/@react-native_js-polyfills/0.83.10/LICENSE",
+    "url": "https://raw.githubusercontent.com/react/react-native/ff4f96a23b85b30d8de9331dfac2895f385f67b0/LICENSE",
     "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
     "role": "root",
-    "revision": "cddf8a7536de12db889e35e946281cfaf327197a"
+    "revision": "ff4f96a23b85b30d8de9331dfac2895f385f67b0"
   },
   {
     "ecosystem": "npm",
@@ -88,12 +78,12 @@
   {
     "ecosystem": "npm",
     "name": "@react-native/normalize-colors",
-    "version": "0.81.6",
-    "file": "npm-roots/@react-native_normalize-colors/0.81.6/LICENSE",
-    "url": "https://raw.githubusercontent.com/facebook/react-native/cddf8a7536de12db889e35e946281cfaf327197a/LICENSE",
+    "version": "0.83.10",
+    "file": "npm-roots/@react-native_normalize-colors/0.83.10/LICENSE",
+    "url": "https://raw.githubusercontent.com/react/react-native/ff4f96a23b85b30d8de9331dfac2895f385f67b0/LICENSE",
     "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
     "role": "root",
-    "revision": "cddf8a7536de12db889e35e946281cfaf327197a"
+    "revision": "ff4f96a23b85b30d8de9331dfac2895f385f67b0"
   },
   {
     "ecosystem": "npm",
@@ -491,116 +481,116 @@
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/LICENSE",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/LICENSE",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/LICENSE",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/LICENSE",
     "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
     "role": "root",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/esprima/LICENSE.BSD",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/esprima/LICENSE.BSD",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/esprima/LICENSE.BSD",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/esprima/LICENSE.BSD",
     "sha256": "94bcb9959136723aa4fb36e1a6c4d5c662a2369978cfae344dabfb83ae619e79",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/icu_decls/license.html.txt",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/icu_decls/license.html",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/icu_decls/license.html.txt",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/icu_decls/license.html",
     "sha256": "0f6b1df0f0deedbe33e0a371314e9c32249a0a539c5c2be9609211d6dbe0dc10",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/llvh/LICENSE.txt",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/llvh/LICENSE.txt",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/llvh/LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/llvh/LICENSE.txt",
     "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/llvh/include/llvh/Support/LICENSE.TXT",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/llvh/include/llvh/Support/LICENSE.TXT",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/llvh/include/llvh/Support/LICENSE.TXT",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/llvh/include/llvh/Support/LICENSE.TXT",
     "sha256": "a012d664e4e01df52a65b2eeafdfb8aeb856fec0e6c372265d01b0109c3f5e2a",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/zip/UNLICENSE",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/zip/UNLICENSE",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/zip/UNLICENSE",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/zip/UNLICENSE",
     "sha256": "6a872e74952f8f332fc8eec087bf08ada61c4ef5cab5266de3a6dfb3e0ee309e",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/include/hermes/Regex/LICENSE.TXT",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/include/hermes/Regex/LICENSE.TXT",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/include/hermes/Regex/LICENSE.TXT",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/include/hermes/Regex/LICENSE.TXT",
     "sha256": "c1938c0e9e90639d1e8f5a7f6bebaab83a3642e0ee44295a4c69934686d0bda8",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/zip/UNLICENSE",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/zip/UNLICENSE",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/zip/UNLICENSE",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/zip/UNLICENSE",
     "sha256": "6a872e74952f8f332fc8eec087bf08ada61c4ef5cab5266de3a6dfb3e0ee309e",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782"
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/dtoa/dtoa.c.notice.txt",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/dtoa/dtoa.c",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/dtoa/dtoa.c.notice.txt",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/dtoa/dtoa.c",
     "sha256": "d04360743ae3338bb08ab2106b51e24309e3ca4b1c6b1186139531ade351b7e3",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782",
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80",
     "extraction": "Entire licence comment, no text edits",
     "sourceSha256": "9404ae4acb020e64cc24904e92d036da90126b02815147d0ab95ff5330ade2f8"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/dtoa/g_fmt.c.notice.txt",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/dtoa/g_fmt.c",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/dtoa/g_fmt.c.notice.txt",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/dtoa/g_fmt.c",
     "sha256": "e2cc16ec0bf4b3529332893608c3e347d3defb958e9f30d14cd3d815519b524b",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782",
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80",
     "extraction": "Entire licence comment, no text edits",
     "sourceSha256": "0a1f2438e3ff2c270653a3fc51b0448570fd0ea2791590678ba54500fa349f16"
   },
   {
     "ecosystem": "pod",
     "name": "hermes-engine",
-    "version": "0.81.6",
-    "file": "hermes-e0fc67142ec0/external/zip/src/miniz.h.notice.txt",
-    "url": "https://raw.githubusercontent.com/facebook/hermes/e0fc67142ec0763c6b6153ca2bf96df815539782/external/zip/src/miniz.h",
+    "version": "0.14.1",
+    "file": "hermes-5a1485fd688e/external/zip/src/miniz.h.notice.txt",
+    "url": "https://raw.githubusercontent.com/facebook/hermes/5a1485fd688eafdf40637f4f2f44ec830f099b80/external/zip/src/miniz.h",
     "sha256": "6a872e74952f8f332fc8eec087bf08ada61c4ef5cab5266de3a6dfb3e0ee309e",
     "role": "vendor",
-    "revision": "e0fc67142ec0763c6b6153ca2bf96df815539782",
+    "revision": "5a1485fd688eafdf40637f4f2f44ec830f099b80",
     "extraction": "Entire licence comment, no text edits",
     "sourceSha256": "ac4fe37e3821b22b1c6af99f122dfd9c6ba9a38eccb532c57bab8d61b84d9f59"
   },
@@ -618,29 +608,29 @@
   {
     "ecosystem": "pod",
     "name": "ReactCodegen",
-    "version": "0.81.9",
+    "version": "0.83.0",
     "file": "spdx/Unlicense.txt",
     "url": "https://raw.githubusercontent.com/spdx/license-list-data/d46e94e2c78ceede1cfc63cfa0396472d2798d4c/text/Unlicense.txt",
     "sha256": "0bdebfeda07d45dada625ae1317c6f833186e798b171d0db640bcf32e92a8240",
     "role": "root",
     "basis": "Exact RN ReactCodegen.podspec.template declares Unlicense",
-    "declarationFile": "rn-0.81.9/scripts/codegen/templates/ReactCodegen.podspec.template"
+    "declarationFile": "rn-0.83.0/scripts/codegen/templates/ReactCodegen.podspec.template"
   },
   {
     "ecosystem": "pod",
     "name": "ReactAppDependencyProvider",
-    "version": "0.81.9",
-    "file": "rn-0.81.9/LICENSE",
-    "url": "https://raw.githubusercontent.com/microsoft/react-native-macos/3693ac91a00df6374e610a0a06b0f90aaa1fe4b3/LICENSE",
+    "version": "0.83.0",
+    "file": "rn-0.83.0/LICENSE",
+    "url": "https://raw.githubusercontent.com/microsoft/react-native-macos/19f618c032c9f07967281ed5c462dc3259e8e7e1/LICENSE",
     "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
     "role": "root"
   },
   {
     "ecosystem": "pod",
     "name": "ReactCodegen",
-    "version": "0.81.9",
-    "file": "rn-0.81.9/LICENSE",
-    "url": "https://raw.githubusercontent.com/microsoft/react-native-macos/3693ac91a00df6374e610a0a06b0f90aaa1fe4b3/LICENSE",
+    "version": "0.83.0",
+    "file": "rn-0.83.0/LICENSE",
+    "url": "https://raw.githubusercontent.com/microsoft/react-native-macos/19f618c032c9f07967281ed5c462dc3259e8e7e1/LICENSE",
     "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
     "role": "vendor"
   },
@@ -679,111 +669,6 @@
     "url": "https://raw.githubusercontent.com/expo/expo/0213a291129222bfc0e0ad6b0fa9bd7a78762169/packages/expo-router/vendor/react-helmet-async/LICENSE",
     "sha256": "c358ea82eed53098b2ee0913e1de8243c69d45862e11c48614db47fd5889d947",
     "role": "vendor"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/DoubleConversion-1.1.6/LICENSE",
-    "url": "https://raw.githubusercontent.com/google/double-conversion/361924fb61c043627d4179e941a102d543f6efa0/LICENSE",
-    "sha256": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca",
-    "role": "vendor",
-    "component": "DoubleConversion@1.1.6",
-    "componentRevision": "361924fb61c043627d4179e941a102d543f6efa0",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/RCT-Folly-2024.11.18.00/LICENSE",
-    "url": "https://raw.githubusercontent.com/facebook/folly/0660ead5b610047a279cc291129e98e3f2a1fc37/LICENSE",
-    "sha256": "2206c00af7013581ae0d7c8c8a0089f02fab621913daac019b32336bd4d1e1db",
-    "role": "vendor",
-    "component": "RCT-Folly@2024.11.18.00",
-    "componentRevision": "0660ead5b610047a279cc291129e98e3f2a1fc37",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/SocketRocket-0.7.1/LICENSE",
-    "url": "https://raw.githubusercontent.com/facebookincubator/SocketRocket/21ac000390781823dd4bd87fdc419976e05dd7a6/LICENSE",
-    "sha256": "41c74b84758ab303b091b0afbf958de909559556c8f1591dc4d687ea184356ab",
-    "role": "vendor",
-    "component": "SocketRocket@0.7.1",
-    "componentRevision": "21ac000390781823dd4bd87fdc419976e05dd7a6",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/boost-1.84.0/LICENSE_1_0.txt",
-    "url": "https://raw.githubusercontent.com/react-native-community/boost-for-react-native/59ed9e589e222fb6d54b3e0a81d510190801b1d9/LICENSE_1_0.txt",
-    "sha256": "beb8e42e9d6b4284e03304d05a81a0755200a965fc8d0a5e0aea1e84cf805d6e",
-    "role": "vendor",
-    "component": "boost@1.84.0",
-    "componentRevision": "59ed9e589e222fb6d54b3e0a81d510190801b1d9",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/fast_float-8.0.0/LICENSE-MIT",
-    "url": "https://raw.githubusercontent.com/fastfloat/fast_float/77cc847c842c49e7e3477c1e95da2b6540166d66/LICENSE-MIT",
-    "sha256": "e562f3f974ced7e69dd1db77b820b36bcf8f30377f1aa105723fba449c53c4e6",
-    "role": "vendor",
-    "component": "fast_float@8.0.0",
-    "componentRevision": "77cc847c842c49e7e3477c1e95da2b6540166d66",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/fast_float-8.0.0/LICENSE-APACHE",
-    "url": "https://raw.githubusercontent.com/fastfloat/fast_float/77cc847c842c49e7e3477c1e95da2b6540166d66/LICENSE-APACHE",
-    "sha256": "097a889aa954d04e088b790b10a4014d6189561d0a6013935a73ce3d4ddaaf06",
-    "role": "vendor",
-    "component": "fast_float@8.0.0",
-    "componentRevision": "77cc847c842c49e7e3477c1e95da2b6540166d66",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/fmt-12.1.0/LICENSE",
-    "url": "https://raw.githubusercontent.com/fmtlib/fmt/407c905e45ad75fc29bf0f9bb7c5c2fd3475976f/LICENSE",
-    "sha256": "07580f2a3b35709ce703d523f447b242f6dfec7582a8c0df102c7fa2849375f8",
-    "role": "vendor",
-    "component": "fmt@12.1.0",
-    "componentRevision": "407c905e45ad75fc29bf0f9bb7c5c2fd3475976f",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "native/glog-0.3.5/COPYING",
-    "url": "https://raw.githubusercontent.com/google/glog/a6a166db069520dbbd653c97c2e5b12e08a8bb26/COPYING",
-    "sha256": "0fc497129c5c69ff6f22da6933c7e4aaef082fde8437fd57680c2780100772a4",
-    "role": "vendor",
-    "component": "glog@0.3.5",
-    "componentRevision": "a6a166db069520dbbd653c97c2e5b12e08a8bb26",
-    "limitation": "Use only after local resolved prebuilt/source podspec component versions match"
-  },
-  {
-    "ecosystem": "pod",
-    "name": "ReactNativeDependencies",
-    "version": "0.81.9",
-    "file": "rn-0.81.9/LICENSE",
-    "url": "https://raw.githubusercontent.com/microsoft/react-native-macos/3693ac91a00df6374e610a0a06b0f90aaa1fe4b3/LICENSE",
-    "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
-    "role": "root"
   },
   {
     "ecosystem": "npm",
