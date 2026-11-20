@@ -513,9 +513,16 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
       // two minutes and fails it once, then lists the rest.
       const slowHistory =
         scenario === 'registration-sync-status' ? { failed: false } : undefined;
+      // The native journey computes the display of 12:20 UTC the next day.
       const retryAfter =
         scenario === 'registration-sync-status-paused'
-          ? DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 2 }))
+          ? DateTime.formatIso(
+              DateTime.add(DateTime.startOf(yield* DateTime.now, 'day'), {
+                days: 1,
+                hours: 12,
+                minutes: 20,
+              }),
+            )
           : undefined;
       // Both scenarios list All Mail's history in pages.
       const pagedHistory =

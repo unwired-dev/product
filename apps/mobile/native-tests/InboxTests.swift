@@ -22,9 +22,11 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
 
 // Keeps a screenshot named with the runner's appearance, for comparison with the Light and Dark
 // frames.
-private func attachScreen(_ name: String, of app: XCUIApplication, to test: XCTestCase) {
+private func attachScreen(
+  _ name: String, of source: any XCUIScreenshotProviding, to test: XCTestCase
+) {
   let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
-  let shot = XCTAttachment(screenshot: app.screenshot())
+  let shot = XCTAttachment(screenshot: source.screenshot())
   shot.name = "\(name) (\(appearance))"
   shot.lifetime = .keepAlways
   test.add(shot)
@@ -113,8 +115,25 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(title.waitForNonExistence(timeout: 30))
   }
 
-  // #2488: a timed Gmail usage limit keeps mail visible and disables the sheet's early retry.
+  // #2488: a timed Gmail usage limit keeps mail visible and disables early retry in Sync Status.
   private func pausedSyncStatusJourney(_ app: XCUIApplication) throws {
+    // The mock's retry is at 12:20 UTC the next day.
+    var utc = Calendar(identifier: .gregorian)
+    utc.timeZone = .gmt
+    let tomorrow = try XCTUnwrap(utc.date(byAdding: .day, value: 1, to: utc.startOfDay(for: Date())))
+    let retryAt = tomorrow.addingTimeInterval(12 * 3600 + 20 * 60)
+    let zone = TimeZone.current
+    XCTAssertNotEqual(zone.secondsFromGMT(for: retryAt), 0, "Use a non-UTC simulator time zone")
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.timeZone = zone
+    formatter.timeStyle = .short
+    // Foundation and Intl can use different spaces before AM or PM.
+    func normalized(_ label: String) -> String {
+      label.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+    let retryTime = normalized(formatter.string(from: retryAt))
+
     connectGmail(app)
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
     XCTAssertTrue(rowan.waitForExistence(timeout: 20))
@@ -128,23 +147,34 @@ final class InboxTests: XCTestCase {
       NSPredicate(format: "label BEGINSWITH %@", "Gmail paused")
     ).firstMatch
     XCTAssertTrue(paused.waitForExistence(timeout: 30))
-    let time = try XCTUnwrap(
-      paused.label.range(of: #"[0-9]{1,2}:[0-9]{2}.*$"#, options: .regularExpression))
-    let retryTime = String(paused.label[time])
-    XCTAssertTrue(paused.label.hasSuffix("until \(retryTime)"))
+    let capsuleLabel = paused.label
+    print("Expected retry time \(retryTime) in \(zone.identifier). Capsule shows \(capsuleLabel).")
+    XCTAssertEqual(normalized(capsuleLabel), "Gmail paused, until \(retryTime)")
     XCTAssertTrue(paused.isHittable)
-    attachScreen("Gmail paused", of: app, to: self)
-    if phone {
-      paused.tap()
-      XCTAssertTrue(app.staticTexts["Sync Status"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.staticTexts["Available at \(retryTime)"].exists)
-      let tryAgain = app.buttons.matching(
-        NSPredicate(format: "label BEGINSWITH %@", "Try Again")
-      ).firstMatch
-      XCTAssertTrue(tryAgain.exists)
-      XCTAssertFalse(tryAgain.isEnabled)
-      attachScreen("Paused Sync Status sheet", of: app, to: self)
+    let capsuleTop = paused.frame.minY
+    // An app screenshot clips the landscape iPad window to its portrait bounds.
+    let source: any XCUIScreenshotProviding = phone ? app : XCUIScreen.main
+    attachScreen("Gmail paused", of: source, to: self)
+    paused.tap()
+    let title = app.staticTexts["Sync Status"].firstMatch
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    let available = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Available at ")
+    ).firstMatch
+    XCTAssertTrue(available.exists)
+    let availableLabel = available.label
+    print("Sync Status shows \(availableLabel).")
+    XCTAssertEqual(normalized(availableLabel), "Available at \(retryTime)")
+    let tryAgain = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Try Again for Gmail")
+    ).firstMatch
+    XCTAssertTrue(tryAgain.exists)
+    XCTAssertFalse(tryAgain.isEnabled)
+    if !phone {
+      XCTAssertLessThanOrEqual(title.frame.maxY, capsuleTop)
     }
+    let presentation = phone ? "sheet" : "popover"
+    attachScreen("Paused Sync Status \(presentation)", of: source, to: self)
   }
 
   private func registrationJourney(_ app: XCUIApplication) throws {
