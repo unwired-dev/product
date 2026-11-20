@@ -7251,23 +7251,29 @@ describe('adding files and images to a Draft', () => {
     expect(checkedInAssetMenu(row())).toStrictEqual([]);
     await chooseFromAssetMenu(row(), 'Large');
     expect(checkedInAssetMenu(row())).toStrictEqual(['Large']);
-    // One Undo restores both uses.
-    await press('Undo');
-    expect(checkedInAssetMenu(row())).toStrictEqual([]);
-    // An image only in the quoted correspondence keeps its size.
+    // An image only in the quoted correspondence offers no size.
     const quoted = screen.getByLabelText(/^quoted\.png, /u);
     expect(() => contextMenuAround(quoted)).toThrow('Expected a context menu');
+    const sizeAction = expect.objectContaining({
+      label: expect.stringMatching(/^Show quoted\.png at /u),
+    });
     expect(quoted).not.toHaveProp(
       'accessibilityActions',
-      expect.arrayContaining([
-        expect.objectContaining({ label: 'Show quoted.png at Large size' }),
-      ]),
+      expect.arrayContaining([sizeAction]),
     );
-    await chooseFromAssetMenu(row(), 'Large');
-    await saveDraft();
+    // One Undo restores both uses, leaving nothing to undo or save.
+    await press('Undo');
+    expect(checkedInAssetMenu(row())).toStrictEqual([]);
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    await press('Close');
+    expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
     const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
     ok(saved, 'Expected the saved Draft');
-    expect(imageWidthOf(saved.body, photo.image.id)).toBe(1024);
+    expect(saved.body[0]?.spans).toStrictEqual([
+      { ...photo, width: 320 },
+      { text: ' and ' },
+      photo,
+    ]);
   });
 
   it('offers attaching a downloaded file only while a sending mailbox is available', async () => {
