@@ -627,21 +627,23 @@ export function createRegistration(vault: NativeRegistrationVault) {
   };
   const changeProfile = (operation: Parameters<typeof execute>[0]) =>
     execute(admitted(operation), profileRefusal, { queued: true });
-  const restoredAccount = request(native.restore()).pipe(
-    Effect.map((snapshot) =>
-      snapshot.kind === 'signed-out' &&
-      snapshot.notice === undefined &&
-      state.snapshot.kind === 'signed-out'
-        ? state.snapshot
-        : snapshot,
-    ),
-  );
+  const restoredAccount = (routed?: string) =>
+    request(native.restore(routed)).pipe(
+      Effect.map((snapshot) =>
+        snapshot.kind === 'signed-out' &&
+        snapshot.notice === undefined &&
+        state.snapshot.kind === 'signed-out'
+          ? state.snapshot
+          : snapshot,
+      ),
+    );
   const restore = (
     foreground = false,
     mailboxLoading: MailboxLoading = 'automatic',
+    routed?: string,
   ) =>
     execute(
-      restoredAccount,
+      restoredAccount(routed),
       (snapshot) => ({ ...settled(pending(snapshot)), failed: true }),
       { foreground, mailboxLoading },
     );
@@ -679,7 +681,7 @@ export function createRegistration(vault: NativeRegistrationVault) {
     deviceRemoved: () => {
       const expected = accountIntent;
       return execute(
-        restoredAccount.pipe(
+        restoredAccount().pipe(
           Effect.map((snapshot): RegistrationSnapshot =>
             snapshot.kind === 'signed-out' &&
             snapshot.notice === undefined &&
@@ -693,15 +695,17 @@ export function createRegistration(vault: NativeRegistrationVault) {
         { foreground: true },
       );
     },
-    // Cache-only retry verifies registration before attempting provider synchronization.
+    // Cache-only retry verifies registration before attempting provider synchronization. A push
+    // wake verifies only its `routed` connection with its provider.
     refreshInbox: async (
       load: () => Promise<void>,
       mailboxLoading: MailboxLoading = 'automatic',
+      routed?: string,
     ) => {
       // Scoped wakes verify independently: a coalesced foreground restore could auto-load
       // unrelated newly revealed connections before the wake's route is checked.
       await (mailboxLoading === 'explicit'
-        ? restore(true, mailboxLoading)
+        ? restore(true, mailboxLoading, routed)
         : resume());
       await load();
     },
