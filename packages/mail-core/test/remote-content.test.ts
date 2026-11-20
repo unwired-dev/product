@@ -688,9 +688,13 @@ describe('remote message content', () => {
 
       inbox.forgetRemoteImages(id);
       expect(reader.shown().document).not.toContain('data:image/png');
+      gmail.resumeRemote();
       await inbox.loadRemoteImages(id, urls, true);
-      // The twenty-source limit is already spent and policy changes do not replenish it.
-      expect(gmail.remoteFetches).toHaveLength(13);
+      await inbox.loadRemoteImages(id, urls, true);
+      // Only started requests count, and policy changes do not replenish the twenty.
+      expect(gmail.remoteFetches).toHaveLength(20);
+      await inbox.loadRemoteImages(id, urls, true);
+      expect(gmail.remoteFetches).toHaveLength(20);
     } finally {
       reader.release();
       gmail.resumeRemote();
@@ -751,6 +755,48 @@ describe('remote message content', () => {
       inbox.forget();
       gmail.resumeRemote();
       await Promise.allSettled(loads);
+    }
+  });
+
+  it('gives withdrawn queued requests their attempts back for the sources that replace them', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const urls = Array.from(
+      { length: 24 },
+      (_, index) => `https://images.example/zoomed/${index}.png`,
+    );
+    for (const url of urls) {
+      gmail.serveRemote(url, { data: png(2, 2) });
+    }
+    const id = gmail.deliver({
+      content: {
+        html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
+      },
+    });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const reader = await open(inbox, id);
+    try {
+      gmail.pauseRemote();
+      const authorization = { network: true, reader: reader.reader };
+      const first = inbox.loadRemoteImages(
+        id,
+        urls.slice(0, 20),
+        authorization,
+      );
+      await waitForFetches(gmail.remoteInFlight, 6);
+      // A Message Zoom change withdraws the old geometry's images, then reports the new ones.
+      const withdrawn = inbox.loadRemoteImages(id, [], authorization);
+      const replaced = inbox.loadRemoteImages(id, urls.slice(4), authorization);
+      gmail.resumeRemote();
+      await Promise.all([first, withdrawn, replaced]);
+      await inbox.loadRemoteImages(id, urls.slice(4), authorization);
+      // The requests that started count; the queued ones that never did leave attempts unused.
+      expect(gmail.remoteFetches).toHaveLength(20);
+      expect(gmail.remoteFetches).toContain(urls[6]);
+    } finally {
+      reader.release();
+      gmail.resumeRemote();
     }
   });
 

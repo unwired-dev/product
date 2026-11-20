@@ -1,5 +1,3 @@
-import { setTimeout as sleep } from 'node:timers/promises';
-
 import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type { RemoteContentSettingsStore } from '@private-email/mail-core/remote-content';
 
@@ -120,7 +118,7 @@ async function openReader(
   await act(() => {
     fireEvent(scroll, 'layout', { nativeEvent: { layout: { height: 600 } } });
   });
-  return { gmail, app, scroll };
+  return { gmail, inbox, app, scroll };
 }
 
 const finishMeasurement = (queued: Array<(...values: number[]) => void>) => {
@@ -514,11 +512,18 @@ describe('remote message content in the reader', () => {
     const { gmail, app } = await openReader(always);
     try {
       const webview = await screen.findByTestId('message-webview');
+      // Only a document taller than its view scrolls, and so reports pinch zoom.
       await act(() => {
         fireEvent(webview, 'contentSizeChange', {
-          nativeEvent: measured(1500),
+          nativeEvent: {
+            contentSize: { width: 320, height: 40_000 },
+            remoteImages: [{ index: 0, top: 1500, bottom: 1600 }],
+          },
         });
       });
+      expect(screen.getByTestId('message-webview').props.scrollEnabled).toBe(
+        true,
+      );
       expect(gmail.remoteFetches).toStrictEqual([]);
       // At twice the scale, the image's 3,000 points less the 2,600 scrolled show it in view.
       await act(() => {
@@ -541,10 +546,11 @@ describe('remote message content in the reader', () => {
       { length: 7 },
       (_, index) => `https://images.example/photo-${index}.png`,
     );
-    const { gmail, app } = await openReader(
+    const { gmail, inbox, app } = await openReader(
       always,
       sources.map((url) => `<img src="${url}" alt="Photo">`).join(''),
     );
+    const loads = jest.spyOn(inbox, 'loadRemoteImages');
     try {
       gmail.pauseRemote();
       const webview = await screen.findByTestId('message-webview');
@@ -567,8 +573,8 @@ describe('remote message content in the reader', () => {
       });
       await act(async () => {
         gmail.resumeRemote();
-        // The queued fetch would start once the paused ones settle.
-        await sleep(50);
+        // Each request settles once its sources, the queued one included, have ended.
+        await Promise.all(loads.mock.results.map(({ value }) => value));
       });
       expect(gmail.remoteFetches).toStrictEqual(sources.slice(0, 6));
     } finally {
