@@ -121,6 +121,12 @@ interface SearchToolbarProps {
   readonly filterSummary: string | undefined;
   readonly filterSummaryLabel: string | undefined;
   readonly filterHint: string;
+  // Gmail's usage limit paused synchronization: the capsule's two lines take Filter's place.
+  readonly pausedCaption: string | undefined;
+  readonly pausedDetail: string | undefined;
+  readonly pausedLabel: string | undefined;
+  readonly pausedHint: string;
+  readonly pausedTint: ColorValue;
   readonly composeLabel: string;
   readonly composeEnabled: boolean;
   readonly accent: ColorValue;
@@ -132,6 +138,7 @@ interface SearchToolbarProps {
   readonly onPalette: () => void;
   readonly onFilterToggle: () => void;
   readonly onFilterOpen: () => void;
+  readonly onPausedOpen: () => void;
   readonly onCompose: () => void;
 }
 

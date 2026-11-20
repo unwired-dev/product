@@ -1012,8 +1012,11 @@ async function renderConnected(
   {
     windowBar,
     pinsFor,
+    toolbar = false,
   }: Readonly<{
     windowBar?: ReturnType<typeof createWindowBar>;
+    // iPhone's system toolbar in place of the floating bar.
+    toolbar?: boolean;
     // Pin storage for the registered Product Account, instead of the host's.
     pinsFor?: (registration: Registration) => Pins;
   }> = {},
@@ -1075,6 +1078,7 @@ async function renderConnected(
               onView={setView}
               selected={selected}
               view={view}
+              {...(toolbar ? { bar: true, onCompose: () => undefined } : {})}
             />
             <MessageDetail
               id={selected?.id}
@@ -1852,6 +1856,44 @@ describe('connected Gmail Inbox', () => {
         screen.queryByRole('button', { name: /^Gmail paused/u }),
       ).toBeNull();
     });
+  });
+
+  it('shows the paused capsule in place of Filter in iPhone’s system toolbar, which opens the details', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saturday, by the river?' });
+    const connected = await renderConnected(gmail.native, 'gmail', {
+      toolbar: true,
+    });
+    await screen.findByRole('button', { name: /Saturday, by the river\?/u });
+    const until = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    gmail.fail({
+      status: 429,
+      body: JSON.stringify({
+        error: { message: `Rate limit exceeded. Retry after ${until}` },
+      }),
+    });
+    await act(connected.store().load);
+    const [toolbar] = screen.container.queryAll(
+      ({ type }) => type === 'UnwiredSearchToolbar',
+    );
+    ok(toolbar);
+    await waitFor(() => {
+      expect(toolbar.props).toMatchObject({
+        pausedCaption: 'Gmail paused',
+        pausedDetail: expect.stringMatching(/^until \d{1,2}:\d{2}/u),
+      });
+    });
+    // The floating capsule gives way to the toolbar's.
+    expect(screen.queryByRole('button', { name: /^Gmail paused/u })).toBeNull();
+    await fireEvent(toolbar, 'pausedOpen');
+    expect(
+      within(screen.getByTestId('sync-status-details')).getByText(
+        'Gmail · alex@example.invalid',
+      ),
+    ).toBeVisible();
+    // Closing the Inbox ends the pause and its wait.
+    connected.store().forget();
   });
 
   it('opens the sync status details in a popover on the capsule in a regular-width window', async () => {

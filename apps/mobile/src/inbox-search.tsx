@@ -241,6 +241,7 @@ export function InboxToolbar({
   scope,
   notice,
   listNotice,
+  paused,
 }: {
   readonly hidden: boolean;
   readonly ready: boolean;
@@ -250,6 +251,15 @@ export function InboxToolbar({
   readonly scope: string | undefined;
   readonly notice: ReactNode;
   readonly listNotice?: ReactNode;
+  // Gmail's usage limit paused synchronization: the toolbar shows the capsule in Filter's place.
+  readonly paused?:
+    | Readonly<{
+        label: string;
+        detail?: string;
+        spoken?: string;
+        onOpen: () => void;
+      }>
+    | undefined;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
@@ -310,6 +320,12 @@ export function InboxToolbar({
               setQuery(text);
             }}
             paletteLabel={t('commands.openPalette')}
+            pausedCaption={paused?.label}
+            pausedDetail={paused?.detail}
+            pausedHint={t('syncStatus.showDetails')}
+            pausedLabel={paused?.spoken}
+            pausedTint={colors.statusWarning}
+            onPausedOpen={() => paused?.onOpen()}
             placeholder={t('search.placeholder')}
             ready={ready}
             searchLabel={t('search.label')}

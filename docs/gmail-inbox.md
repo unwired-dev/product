@@ -399,6 +399,8 @@ during search, the capsule rises with it and stays 12pt above it.
   **until 14:20** below when Gmail named the time it asked to wait until
   ([#2488](https://github.com/unwired-dev/product/issues/2488)). Several such
   mailboxes read **2 accounts paused by Gmail**. VoiceOver hears it when it appears.
+  On iPhone the paused capsule takes Filter's place in the system toolbar, beside
+  search, and opens the same Sync Status sheet.
   A paused mailbox is not Offline: the list header keeps its unread count.
 - **Idle.** The capsule fades out. A refused grant or password also keeps its own
   authorization notice above the list, and the sidebar keeps each connection's problem.

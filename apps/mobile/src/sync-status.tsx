@@ -383,6 +383,38 @@ const useWaited = (progressing: boolean) => {
   return waited;
 };
 
+type Details = readonly [shown: boolean, show: (shown: boolean) => void];
+
+// Whether the capsule's details show: the toolbar's while it shows the paused capsule.
+const useDetails = (toolbar: Details | undefined) => {
+  const [shown, setShown] = useState(false);
+  return toolbar ?? ([shown, setShown] as const);
+};
+
+// iPhone's system toolbar shows the paused capsule's two lines in Filter's place and opens the
+// capsule's details, which `details` hands to the capsule.
+export const useToolbarPause = (
+  shown: readonly InboxMailbox[],
+  toolbar: boolean,
+) => {
+  const { t } = useLocalization();
+  const { time } = useMessageListDateFormats();
+  const [open, setOpen] = useState(false);
+  const status = syncStatusOf(shown);
+  if (!toolbar || status?.kind !== 'paused') {
+    return { details: undefined, paused: undefined };
+  }
+  return {
+    details: [open, setOpen] as const,
+    paused: {
+      ...describe(t, status, (iso) => time.format(Date.parse(iso))),
+      onOpen: () => {
+        setOpen(true);
+      },
+    },
+  };
+};
+
 // Tapping the capsule opens each connection's state, where each connection that needs attention
 // is tried again or authorized on its own: a popover on the capsule when the bar spans a
 // regular-width window, otherwise a medium-detent sheet.
@@ -392,6 +424,7 @@ export function SyncStatusCapsule({
   now,
   onTryAgain,
   onAuthorize,
+  toolbar,
 }: {
   readonly shown: readonly InboxMailbox[];
   // While a refresh the person started runs.
@@ -401,6 +434,8 @@ export function SyncStatusCapsule({
   readonly onTryAgain: (loaded: readonly InboxMailbox[]) => Promise<void>;
   // Asks again for the access a mailbox's provider refused, when the Inbox can.
   readonly onAuthorize: ((mailbox: InboxMailbox) => void) | undefined;
+  // The toolbar's details, while it shows the paused capsule.
+  readonly toolbar?: Details | undefined;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
@@ -409,7 +444,7 @@ export function SyncStatusCapsule({
   const status = syncStatusOf(shown);
   const waited = useWaited(status?.kind === 'progress');
   const [retrying, setRetrying] = useState(false);
-  const [details, setDetails] = useState(false);
+  const [details, setDetails] = useDetails(toolbar);
   const tryAgain = async (loaded: readonly InboxMailbox[]) => {
     setRetrying(true);
     await onTryAgain(loaded);
@@ -489,7 +524,8 @@ export function SyncStatusCapsule({
     <Presenter
       isPresented={details}
       onIsPresentedChange={setDetails}
-      trigger={capsule}>
+      // The system toolbar shows the paused capsule.
+      trigger={toolbar === undefined ? capsule : <View />}>
       {content}
     </Presenter>
   );
