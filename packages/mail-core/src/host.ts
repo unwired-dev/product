@@ -637,6 +637,7 @@ export function createHost(
               gmailMailboxes
                 .getConnections()
                 .find(({ id }) => id === connection),
+            showSaved: gmailMailboxes.showSaved,
             replies: { drafts, outbox, translate, openDraft, admitted },
           },
         );

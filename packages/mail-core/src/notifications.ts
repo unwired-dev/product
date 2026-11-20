@@ -999,11 +999,13 @@ async function act(
   {
     snapshot,
     mailbox,
+    showSaved,
     replies,
     sending,
   }: Readonly<{
     snapshot: () => RegistrationSnapshot;
     mailbox: (connection: string) => OpenInbox | undefined;
+    showSaved: () => Promise<void>;
     replies: Replies;
     sending: Sending;
   }>,
@@ -1058,6 +1060,8 @@ async function act(
     return;
   }
   await organizeListed(open, target.id, chosen.action);
+  // The other connections show their saved listings, so the App Icon Badge counts every Inbox.
+  await showSaved();
 }
 
 // Acts on each action chosen on a notification, one at a time except typed replies, until a
@@ -1080,6 +1084,7 @@ export async function followNotificationActions(
     snapshot,
     verify,
     mailbox,
+    showSaved,
     replies,
   }: Readonly<{
     snapshot: () => RegistrationSnapshot;
@@ -1089,6 +1094,8 @@ export async function followNotificationActions(
     ) => Promise<void>;
     // The connection's open Inbox.
     mailbox: (connection: string) => OpenInbox | undefined;
+    // Shows each saved Inbox listing no synchronization has opened yet.
+    showSaved: () => Promise<void>;
     replies: Replies;
   }>,
 ) {
@@ -1103,7 +1110,12 @@ export async function followNotificationActions(
     try {
       // Read after verification, which restores a cold host or removes a stale connection.
       await verify(
-        () => act(native, { snapshot, mailbox, replies, sending }, chosen),
+        () =>
+          act(
+            native,
+            { snapshot, mailbox, showSaved, replies, sending },
+            chosen,
+          ),
         'explicit',
       );
     } catch (error) {

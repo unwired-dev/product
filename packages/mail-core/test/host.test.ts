@@ -649,6 +649,61 @@ describe('the host assembly', () => {
     );
   });
 
+  it('counts every Inbox on the App Icon Badge after a notification action launched the app', async () => {
+    expect.hasAssertions();
+    const {
+      host,
+      native,
+      gmail,
+      shared,
+      imapServers,
+      badges,
+      notificationActions,
+    } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.registration.connectImap({
+      address: 'sam@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'sam',
+      password: shared.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'sam',
+      },
+    });
+    const [gmailMailbox, imapMailbox] = mailboxesOf(
+      host.registration.getSnapshot().snapshot,
+    );
+    const imap = createSyntheticImap({ address: 'sam@example.invalid' });
+    imapServers[required(imapMailbox).id] = imap.native;
+    const archived = gmail.deliver({ subject: 'Archive me', unread: true });
+    imap.deliver('INBOX', { subject: 'Unread elsewhere' });
+    await host.gmailMailboxes.load();
+    await host.notifications.request();
+    await host.notifications.setBadge('inbox');
+    // The process ends; Archive on a notification launches it again.
+    const launched = createHost(() => native);
+    launched.followBadge();
+    launched.followNotificationActions();
+    await launched.notifications.load();
+    badges.splice(0);
+    await notificationActions.send({
+      id: 'archive',
+      account: 'account-synthetic-product-subject',
+      connection: required(gmailMailbox).id,
+      epoch: required(required(gmailMailbox).epoch),
+      message: archived,
+      action: 'archive',
+    });
+    await vi.waitFor(() => {
+      expect(badges.at(-1)).toBe(1);
+    });
+  });
+
   it('sends a reply typed into a notification from the receiving connection, with only the typed text', async () => {
     expect.hasAssertions();
     const { host, answered, named, reply, replied, sweeps, admitted } =
