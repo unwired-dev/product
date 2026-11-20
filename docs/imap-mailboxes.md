@@ -1022,6 +1022,39 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   ([#2571](https://github.com/unwired-dev/product/issues/2571)). Mac,
   background refresh and push wakes, IDLE interruption, password and connection recovery,
   offline queueing and large-folder backfill stay on #632.
+- **2026-11-20, Mac connect, read, send and reply
+  ([#2579](https://github.com/unwired-dev/product/issues/2579)).** Target: React Native
+  macOS client, development-signed Release build without a Mock Mail Session, on macOS
+  27.2.1, with the development Convex deployment. Build: the app source of
+  `768201e1362cda75292a6941c56602d82d95b6aa`. Toolchain: Xcode 27.2 (27B52). Operator:
+  agent, with credentials read at run time from the approved password manager. Result:
+  pass. **Sign in with Google** first showed the system prompt that the app wants to use
+  `accounts.google.com` to sign in, then opened Google's sign-in page in the Mac's default
+  browser. Product Sign-In found the certification Product Account, and the Mac was
+  unlocked with its Recovery Key. **iCloud Mail** connected with the app-specific password
+  over `imap.mail.me.com` 993 (TLS) and `smtp.mail.me.com` 587 (STARTTLS). Settings ›
+  Email Accounts › **Add an IMAP Mailbox** › **Other IMAP Account** then filled in
+  `imap.seznam.cz` 993 (TLS) and `smtp.seznam.cz` 465 (SSL/TLS) from the catalog for the
+  Seznam Email address, and that mailbox connected with its mail-client password. Each
+  mailbox was listed only after its **Connect**. Before the mailboxes were connected, one
+  test message was submitted over SMTP from each mailbox to the other. Each Inbox listed
+  real messages, and the test message opened in the reader beside the list in each
+  mailbox, which set its `\Seen` flag on the server. A new message from iCloud Mail waited
+  in the Outbox for its Undo Send Window and arrived on `imap.seznam.cz` 16 seconds after
+  **Send**. Seznam Email does not offer IDLE, so the message appeared in its Inbox in the
+  app after **View › Refresh**. A reply from Seznam Email showed **Sending soon** with
+  **Undo** in the Outbox, left it, arrived on `imap.mail.me.com` 19 seconds after **Send**,
+  and was listed in the iCloud Mail Inbox in the app without a refresh. Over IMAP, its
+  `In-Reply-To` named the original's Message-ID and its `References` included it. Each
+  sending mailbox's Sent folder held exactly one copy, with the same Message-ID as the
+  delivered message, and the app listed that one copy in each Sent folder. Afterwards no
+  run message remained in any folder of either mailbox, and **Sign Out of This Device**
+  removed the account from the Mac and returned it to Welcome. Limitations: the first
+  launch restored two Inbox windows saved by an earlier build with the same bundle ID,
+  and one was closed before sign-in. The operator drove the app through the macOS
+  accessibility interface and synthesized keyboard and mouse input. For the first
+  message only the Outbox entry was checked, not its row text. Mac organizing, search,
+  attachments, IDLE and relaunch, recovery and large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
