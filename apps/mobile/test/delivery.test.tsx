@@ -166,6 +166,8 @@ const journey = async (
             address: 'alex@example.invalid',
           }),
         );
+        // The Draft sync that creating it queued runs on the fake clock, ahead of the edit.
+        await jest.advanceTimersByTimeAsync(0);
         const draft = present(draftOf(host.drafts.getSnapshot(), id));
         await host.drafts.update(
           { ...draft, to: [{ address: 'sam@example.invalid' }] },

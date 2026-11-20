@@ -292,6 +292,7 @@ describe('reading Microsoft mail through Graph', () => {
     graph.markRead(read);
     graph.remove(removed);
     graph.requests.length = 0;
+    inbox.forget();
 
     const relaunched = microsoftInbox(graph);
     await relaunched.load();

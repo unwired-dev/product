@@ -471,7 +471,8 @@ describe('mail Assistance Enablement', () => {
     await changed;
     // A retained control for the earlier account cannot change the replacement account either.
     await store.setEnabled(account, defaultProfile, true);
-    expect(written).toStrictEqual([account, account]);
+    // Saves still queued when the account changed never reach storage.
+    expect(written).toStrictEqual([account]);
   });
 
   it('discards failed-save status and retry ownership when the account changes', async () => {

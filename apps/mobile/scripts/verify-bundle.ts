@@ -48,7 +48,7 @@ for (const map of maps) {
 const inventory = [
   ['React 19.3.0', /react@19\.3\.0[/_]/u],
   ['React Native 0.88.1', /react-native@0\.88\.1[/_]/u],
-  ['Effect v4', /effect@4\.0\.6[/_]/u],
+  ['Effect v4', /effect@4\.1\.5[/_]/u],
   ['Shared mail core', /mail-core.*[/\\]src[/\\]index\.ts$/u],
   [
     'Native split view',

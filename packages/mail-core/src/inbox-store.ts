@@ -2863,21 +2863,19 @@ export function createInboxStore(
     backfilling = true;
     const reading = owner;
     const reconciled = new Set<string>();
+    // A read or synchronization may have queued while either permit was queued. Release both and
+    // let it go first.
+    const step = Effect.suspend(() =>
+      shared.idle.isOpen() && waiting === null
+        ? backfillStep(reading, reconciled)
+        : Effect.succeed(true),
+    );
     void runLogged(
       Effect.gen(function* () {
         for (;;) {
           yield* shared.idle.await;
           if (
-            !(yield* speculativeLane.withPermit(
-              semaphore.withPermit(
-                // A read may have begun while either permit was queued. Release both before waiting.
-                Effect.suspend(() =>
-                  shared.idle.isOpen()
-                    ? backfillStep(reading, reconciled)
-                    : Effect.succeed(true),
-                ),
-              ),
-            ))
+            !(yield* speculativeLane.withPermit(semaphore.withPermit(step)))
           ) {
             return;
           }
