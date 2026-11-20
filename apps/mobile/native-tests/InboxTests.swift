@@ -1238,7 +1238,11 @@ final class InboxTests: XCTestCase {
       waitUntil { back.isHittable && !switcher.isHittable }
       back.tap()
     } else if !switcher.exists || !switcher.isHittable {
-      app.navigationBars.buttons.firstMatch.tap()
+      if app.buttons["Show Sidebar"].exists {
+        showSidebar(app)
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
     // #1800: the Profile Menu draws Work's monogram in full colour rather than tinted, and the
