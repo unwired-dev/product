@@ -1077,6 +1077,9 @@ export function PopUpChoice<Choice extends string>({
   readonly onChoose: (choice: Choice) => void;
 }) {
   const colors = usePalette();
+  // iPad's secondary value dims, like iPhone's, to the row title's gray.
+  const color =
+    settingsColumns && !disabled ? colors.textSecondary : colors.textPrimary;
   return (
     <MenuButton
       accessibilityLabel={`${label}: ${title(selected)}`}
@@ -1099,21 +1102,14 @@ export function PopUpChoice<Choice extends string>({
       <View style={[styles.popUp, disabled && styles.popUpDisabled]}>
         <Text
           numberOfLines={1}
-          style={[
-            styles.popUpLabel,
-            {
-              color: settingsColumns
-                ? colors.textSecondary
-                : colors.textPrimary,
-            },
-          ]}>
+          style={[styles.popUpLabel, { color }]}>
           {title(selected)}
         </Text>
         {settingsColumns ? (
           <SFSymbol
             name="chevron.up.chevron.down"
             size={12}
-            color={colors.textSecondary}
+            color={color}
           />
         ) : (
           <PopUpChevrons />
