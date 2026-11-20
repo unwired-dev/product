@@ -276,7 +276,7 @@ The packaged page is about 351 KB, including Tiptap, ProseMirror and the bridge
 (309 KB with plain paragraphs only).
 
 **TenTap was not used.** The evaluated host adapter is the existing patched
-`react-native-webview` 13.16.1 on both hosts.
+`react-native-webview` 14.0.1 on both hosts.
 
 **Native adapter work.** None beyond allowing the new scenario in the synthetic
 registration provider. The existing WebView, its patch, the Draft store and the
