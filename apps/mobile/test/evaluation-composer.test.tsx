@@ -971,6 +971,9 @@ describe('the Tiptap evaluation composer', () => {
     ok(plan, 'Expected the attached file');
     // Long-pressing the image offers Attach Instead, and VoiceOver offers it as an action.
     const chip = screen.getByLabelText(/^chart\.png, /u);
+    // Its sizes are page edits too.
+    await choose(chip, 'Large');
+    const resized = lastCommand();
     await choose(chip, 'Attach Instead');
     const converted = lastSent();
     await act(async () => {
@@ -1010,12 +1013,14 @@ describe('the Tiptap evaluation composer', () => {
     expect({
       attached: attached.images,
       converted,
+      resized,
       pasted: pasted.images.map(({ name }) => name),
       removed,
       stored: draftsOf(drafts.getSnapshot())[0],
     }).toMatchObject({
       attached: [],
       converted: { type: 'convert', id: chart.id },
+      resized: commandScript({ type: 'resize', id: chart.id, width: 1024 }),
       pasted: ['Pasted image'],
       removed: { type: 'remove', id: plan.id },
       stored: {
