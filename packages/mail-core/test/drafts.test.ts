@@ -2970,6 +2970,52 @@ describe('adding files and images to Drafts', () => {
     ).toBe(false);
   });
 
+  it('keeps an inline image display width through formatting, typing, line breaks and storage', () => {
+    expect.hasAssertions();
+    const image = {
+      id: 'image0001',
+      name: 'room.png',
+      type: 'image/png',
+      state: 'importing',
+    } as const;
+    const sized: SemanticDocument = [
+      {
+        kind: 'paragraph',
+        spans: [
+          { text: 'Before ' },
+          { text: imageCharacter, image, width: 320 },
+          { text: 'after' },
+        ],
+      },
+    ];
+    const bold = toggleMark(sized, { start: 0, end: 13 }, 'bold');
+    const typedAround = applyText(
+      bold,
+      `Before and\n${imageCharacter}after`,
+    ).document;
+    const codec = Schema.fromJsonString(SemanticDocumentSchema);
+    expect({
+      bold: bold[0].spans[1],
+      typed: typedAround.map(({ spans }) => spans.map(({ text }) => text)),
+      image: typedAround[1]?.spans[0],
+      stored: Schema.decodeSync(codec)(Schema.encodeSync(codec)(typedAround)),
+    }).toStrictEqual({
+      bold: { text: imageCharacter, image, width: 320, marks: ['bold'] },
+      typed: [['Before and'], [imageCharacter, 'after']],
+      image: { text: imageCharacter, image, width: 320, marks: ['bold'] },
+      stored: typedAround,
+    });
+    // Only the Small, Medium and Large widths are stored.
+    expect(
+      Schema.is(SemanticDocumentSchema)([
+        {
+          kind: 'paragraph',
+          spans: [{ text: imageCharacter, image, width: 500 }],
+        },
+      ]),
+    ).toBe(false);
+  });
+
   it('stores verified bytes under the Draft through relaunch, Undo and deletion', async () => {
     expect.hasAssertions();
     const { session, storage, drafts, id, draft } = await opened();
@@ -3073,11 +3119,21 @@ describe('adding files and images to Drafts', () => {
     expect(assetsOf(draft())[0]).toMatchObject({ state: 'cancelled' });
     expect(storage.assets()).toStrictEqual([]);
 
-    // Unreadable source bytes fail the import.
+    // Unreadable source bytes fail the import, which reads as failed before its bytes are
+    // discarded, never as neither importing nor failed.
+    const seen: Asset[] = [];
+    const discard = vi
+      .spyOn(storage.native, 'discardDraftAsset')
+      .mockImplementationOnce(() => {
+        seen.push(...assetsOf(draft()).slice(1, 2));
+        return Promise.resolve({});
+      });
     await drafts.importAsset(failing, {
       kind: 'file',
       uri: 'file:///missing.txt',
     });
+    discard.mockRestore();
+    expect(seen.map(({ state }) => state)).toStrictEqual(['failed']);
     expect(assetsOf(draft())[1]).toMatchObject({ state: 'failed' });
     // Bytes written before native code rejected the import are discarded, so they never hold
     // the Outgoing Content Store's space until relaunch.

@@ -2269,13 +2269,14 @@ export function createDrafts(
         setImporting(asset.id, false);
       }
       if (Result.isFailure(outcome)) {
-        // Native code may have written the bytes before rejecting, as when the device locked.
-        yield* discardBytes(account, asset.id);
-        return yield* importFailed(current, {
+        // Failed first, so no editor sees the asset neither importing nor failed meanwhile. Native
+        // code may have written the bytes before rejecting, as when the device locked.
+        yield* importFailed(current, {
           asset,
           failure: outcome.failure,
           wanted,
         });
+        return yield* discardBytes(account, asset.id);
       }
       if (!wanted || outcome.success.owner !== account) {
         return yield* discardBytes(account, asset.id);

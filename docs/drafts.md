@@ -608,12 +608,32 @@ An inline image is part of the formatted body, so typing around it, deleting it,
 **Attachments** and **Inline images** under the body with their name, size and a
 **Remove** action; an inline image shows its picture.
 
+An inline image may have a display size: **Small**, **Medium** or **Large**, a
+width of 320, 640 or 1024 CSS pixels, or **Original** without one. The width is
+stored with the image's place in the body, so formatting, typing, line breaks,
+**Undo**, cut and paste and saving keep it, and outgoing HTML gives the image
+that `width`, its height following the aspect ratio. Only the shown size
+changes: the Draft keeps and sends the original file. A client that predates
+the width drops it when it rewrites a synced Draft, as it does alignment and
+colors, and the image shows at its original size. The editor page's `resize`
+command sets or clears the width of every use of one image as one undoable edit.
+The menus that choose a size come in later [#1735](https://github.com/unwired-dev/product/issues/1735)
+slices.
+
 An added file is **importing** until its bytes are stored. While it imports, its
 row says **Adding…** and offers **Cancel**. A file whose import was cancelled,
 interrupted by quitting or relaunch, could not be read or saved, or is too large
 stays listed as **Not added** with the reason, and the composer warns that files
 not added are not sent. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
+While a file is still being added, Send stays unavailable. On iPhone and iPad, once
+only files that were **Not added** stand in the way, Send and Send Now stay available
+and first ask **Send without 2 attachments?**, naming each file left out and why
+("tour.mov is too large and keys.pkpass wasn’t added.") and how many other files
+will be sent ([#2466](https://github.com/unwired-dev/product/issues/2466)).
+**Send Without Them** removes those files as one edit and
+sends the rest as the chosen action would; **Keep Editing** leaves the Draft as it
+was. The Mac still refuses Send until they are removed.
 When the composer opens, it checks every complete file's bytes against their
 recorded digest; the bytes stay in native code, and an inline image returns only
 a thumbnail at most 256 pixels on its longest side to show. Verified bytes that

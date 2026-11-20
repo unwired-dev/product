@@ -28,7 +28,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { Profiler, useState } from 'react';
-import { AccessibilityInfo, AppState } from 'react-native';
+import { AccessibilityInfo, Alert, AppState } from 'react-native';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
@@ -458,6 +458,132 @@ describe('sending a Draft', () => {
       expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
       expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     } finally {
+      sender.outbox.dispose();
+    }
+  });
+
+  it('asks to send without files that were not added, then sends the rest', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lease');
+      const attach = async (
+        file:
+          | Readonly<{ uri: string; name: string; type: string }>
+          | Readonly<{ name: string; type: string; oversized: 'true' }>,
+      ) => {
+        sender.storage.pickNext('files', [file]);
+        const choice = addFilesChoice('Attach File');
+        ok(choice !== undefined);
+        await act(async () => {
+          choice();
+        });
+      };
+      sender.storage.addFile('file:///lease.pdf', 'lease');
+      await attach({
+        uri: 'file:///lease.pdf',
+        name: 'lease.pdf',
+        type: 'application/pdf',
+      });
+      await screen.findByLabelText('lease.pdf, 5 bytes');
+      await attach({
+        name: 'tour.mov',
+        type: 'video/quicktime',
+        oversized: 'true',
+      });
+      await screen.findByLabelText(
+        'tour.mov, Not added: too large for Drafts on this device',
+      );
+
+      // A file still being added keeps Send unavailable.
+      sender.storage.holdImports();
+      sender.storage.addFile('file:///keys.pkpass', 'keys');
+      await attach({
+        uri: 'file:///keys.pkpass',
+        name: 'keys.pkpass',
+        type: 'application/vnd.apple.pkpass',
+      });
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await press('Cancel adding keys.pkpass');
+      await act(async () => {
+        sender.storage.releaseImports();
+        await sender.drafts.save();
+      });
+      await screen.findByLabelText('keys.pkpass, Not added: cancelled');
+
+      // Once only files that were not added are left, Send Now asks first, once however often it
+      // is chosen; Keep Editing changes nothing.
+      expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+      await sendMenuItem('Send Now').choose();
+      await sendMenuItem('Send Now').choose();
+      expect(alert.mock.calls).toStrictEqual([
+        [
+          'Send without 2 attachments?',
+          'tour.mov is too large and keys.pkpass was cancelled. The other file will be sent.',
+          [
+            expect.objectContaining({ text: 'Send Without Them' }),
+            expect.objectContaining({ text: 'Keep Editing', style: 'cancel' }),
+          ],
+          expect.anything(),
+        ],
+      ]);
+      const answer = (choice: number) =>
+        act(async () => {
+          alert.mock.lastCall?.[2]?.[choice]?.onPress?.();
+        });
+      await answer(1);
+      expect(
+        screen.getByLabelText(
+          'tour.mov, Not added: too large for Drafts on this device',
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('keys.pkpass, Not added: cancelled'),
+      ).toBeOnTheScreen();
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toStrictEqual([]);
+
+      // A file added while the question is open leaves the Draft open to ask again.
+      await press('Send');
+      sender.storage.addFile('file:///map.pdf', 'map');
+      await attach({
+        uri: 'file:///map.pdf',
+        name: 'map.pdf',
+        type: 'application/pdf',
+      });
+      await screen.findByLabelText('map.pdf, 3 bytes');
+      await answer(0);
+      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('keys.pkpass, Not added: cancelled'),
+      ).toBeOnTheScreen();
+
+      // Send asks again; Send Without Them removes both and sends the rest after the Undo Send
+      // Window.
+      await press('Send');
+      expect(alert).toHaveBeenCalledTimes(3);
+      expect(alert.mock.lastCall?.[1]).toBe(
+        'tour.mov is too large and keys.pkpass was cancelled. The other 2 files will be sent.',
+      );
+      await answer(0);
+      expect(screen.queryByLabelText('Subject')).toBeNull();
+      await later(sender, 9999);
+      expect(sender.gmail.sends).toStrictEqual([]);
+      await later(sender, 1);
+      expect(sender.gmail.sends).toHaveLength(1);
+      const raw = sender.gmail.sends[0]?.raw;
+      expect(raw).toContain('Subject: Lease');
+      expect(raw).toContain('lease.pdf');
+      expect(raw).toContain('map.pdf');
+      expect(raw).not.toContain('tour.mov');
+      expect(raw).not.toContain('keys.pkpass');
+    } finally {
+      alert.mockRestore();
       sender.outbox.dispose();
     }
   });
