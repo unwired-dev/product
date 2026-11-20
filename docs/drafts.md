@@ -626,6 +626,14 @@ interrupted by quitting or relaunch, could not be read or saved, or is too large
 stays listed as **Not added** with the reason, and the composer warns that files
 not added are not sent. Only complete files can be sent: `unsendableAssets` in
 `@private-email/mail-core/drafts` lists everything else, which [Send](outbox.md) refuses.
+While a file is still being added, Send stays unavailable. On iPhone and iPad, once
+only files that were **Not added** stand in the way, Send and Send Now stay available
+and first ask **Send without 2 attachments?**, naming each file left out and why
+("tour.mov is too large and keys.pkpass wasn’t added.") and how many other files
+will be sent ([#2466](https://github.com/unwired-dev/product/issues/2466)).
+**Send Without Them** removes those files as one edit and
+sends the rest as the chosen action would; **Keep Editing** leaves the Draft as it
+was. The Mac still refuses Send until they are removed.
 When the composer opens, it checks every complete file's bytes against their
 recorded digest; the bytes stay in native code, and an inline image returns only
 a thumbnail at most 256 pixels on its longest side to show. Verified bytes that

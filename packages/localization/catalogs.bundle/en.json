@@ -1210,6 +1210,21 @@
       "detail": "No Undo",
       "waiting": "Waiting for {{name}} to finish"
     },
+    "leftOut": {
+      "title_one": "Send without {{count}} attachment?",
+      "title_other": "Send without {{count}} attachments?",
+      "tooLarge": "{{name}} is too large",
+      "notAdded": "{{name}} wasn’t added",
+      "cancelled": "{{name}} was cancelled",
+      "interrupted": "{{name}} was interrupted while being added",
+      "list": "{{items}} and {{last}}",
+      "others_one": "The other file will be sent.",
+      "others_other": "The other {{count}} files will be sent.",
+      "none": "No attachments will be sent.",
+      "send_one": "Send Without It",
+      "send_other": "Send Without Them",
+      "keepEditing": "Keep Editing"
+    },
     "reminder": {
       "remindMeToSend": "Remind Me to Send…",
       "detail": "Keep it as a draft and remind me",

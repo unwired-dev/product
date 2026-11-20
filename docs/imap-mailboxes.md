@@ -879,6 +879,30 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   characters and Quick Look took many seconds to appear. Mac, iPad, Share and Save to
   Files ([#2469](https://github.com/unwired-dev/product/issues/2469)), inline images,
   attachments over the 25 MiB download limit, IDLE, relaunch and recovery stay on #632.
+- **2026-11-20, iPhone IDLE freshness and relaunch
+  ([#2491](https://github.com/unwired-dev/product/issues/2491)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `e7dd19fc4aac8c2405510201b841454d9080f0b1`. The certification
+  Product Account was unlocked on this device with its Recovery Key, and both
+  certification mailboxes were connected through the app as in the first record. Test
+  messages were submitted between the two mailboxes over SMTP from outside the app, and
+  each arrival time was read on the server as the message's IMAP `INTERNALDATE`. Result:
+  pass. With the app active on All Inboxes, three messages submitted to iCloud Mail,
+  which offers IDLE, appeared in the list without pulling it down, 5 to 10 seconds after
+  they arrived on `imap.mail.me.com` 993 (TLS). A message submitted to Seznam Email,
+  which does not offer IDLE, appeared about three minutes after it arrived on
+  `imap.seznam.cz` 993 (TLS), with no interaction, as the five-minute poll allows.
+  Another message appeared 12 seconds after the pull-down began, about two and a half
+  minutes after its arrival. The app was then terminated, and a message was submitted to
+  each mailbox while it was not running. After launch, both connections opened without
+  asking for a password, Email Accounts showed each as **Updated just now**, the Inbox
+  listed the earlier messages, and both new messages appeared 21 seconds after launch. A
+  message submitted to iCloud Mail after the relaunch appeared 5 seconds after it
+  arrived, consistent with a resumed IDLE wait. Afterwards no run message remained in
+  any folder of either mailbox. Limitations: the delays include up to about 4 seconds
+  between the operator's checks of the screen. Mac, iPad, background refresh and push
+  wakes, IDLE interruption, password and connection recovery, offline queueing and
+  large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
