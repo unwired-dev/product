@@ -262,15 +262,15 @@ not distributed.
 
 | Package                                                                                             | Version | License | Use                    |
 | --------------------------------------------------------------------------------------------------- | ------- | ------- | ---------------------- |
-| `@tiptap/core`                                                                                      | 3.31.4  | MIT     | Editor                 |
-| `@tiptap/pm`                                                                                        | 3.31.4  | MIT     | ProseMirror re-exports |
-| `@tiptap/extension-document`, `@tiptap/extension-paragraph`, `@tiptap/extension-text`               | 3.31.4  | MIT     | Document schema        |
-| `@tiptap/extension-heading`, `-list`, `-blockquote`                                                 | 3.31.4  | MIT     | Block kinds            |
-| `@tiptap/extension-bold`, `-italic`, `-underline`, `-strike`, `-code`                               | 3.31.4  | MIT     | Marks                  |
-| `@tiptap/extensions`                                                                                | 3.31.4  | MIT     | Undo and Redo          |
+| `@tiptap/core`                                                                                      | 3.34.0  | MIT     | Editor                 |
+| `@tiptap/pm`                                                                                        | 3.34.0  | MIT     | ProseMirror re-exports |
+| `@tiptap/extension-document`, `@tiptap/extension-paragraph`, `@tiptap/extension-text`               | 3.34.0  | MIT     | Document schema        |
+| `@tiptap/extension-heading`, `-list`, `-blockquote`                                                 | 3.34.0  | MIT     | Block kinds            |
+| `@tiptap/extension-bold`, `-italic`, `-underline`, `-strike`, `-code`                               | 3.34.0  | MIT     | Marks                  |
+| `@tiptap/extensions`                                                                                | 3.34.0  | MIT     | Undo and Redo          |
 | `prosemirror-model`, `-state`, `-view`, `-transform`, `-history`, `-keymap`, `-commands` and others | 1.x–2.x | MIT     | Through `@tiptap/pm`   |
 | `esbuild`                                                                                           | 0.28.2  | MIT     | Builds the page        |
-| `happy-dom`                                                                                         | 20.14.5 | MIT     | Page tests in Vitest   |
+| `happy-dom`                                                                                         | 20.14.6 | MIT     | Page tests in Vitest   |
 
 The packaged page is about 351 KB, including Tiptap, ProseMirror and the bridge
 (309 KB with plain paragraphs only).

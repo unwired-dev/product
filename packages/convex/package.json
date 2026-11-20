@@ -23,7 +23,7 @@
     "@types/node": "catalog:",
     "convex-test": "^0.0.60",
     "typescript": "catalog:",
-    "vite": "^8.3.2",
+    "vite": "^8.3.8",
     "vitest": "catalog:"
   }
 }
