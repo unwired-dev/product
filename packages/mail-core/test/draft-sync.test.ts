@@ -967,6 +967,46 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(phone.list()).toHaveLength(2);
   });
 
+  it('serves requests made during a pass with one follow-up pass, and retries an overtaken write at most three times', async () => {
+    expect.hasAssertions();
+    const server = createSyntheticProductSync();
+    const phone = await device(server);
+    const id = present(await phone.drafts.create(alex), 'a Draft');
+    await phone.drafts.sync();
+    await phone.drafts.update(
+      write(phone.draft(id), 'Edited'),
+      phone.draft(id),
+    );
+    const native = present(phone.storage.sync, 'sync boundary');
+    const original = native.pullDrafts;
+    const reading = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const pull = vi
+      .spyOn(native, 'pullDrafts')
+      .mockImplementationOnce(async (...args) => {
+        reading.resolve(undefined);
+        await release.promise;
+        return original(...args);
+      });
+    // Every write loses its compare-and-set, as if another device always wrote first.
+    const push = vi
+      .spyOn(native, 'pushDraft')
+      .mockResolvedValue({ owner: 'account-a', committed: false });
+    const first = phone.drafts.sync();
+    await reading.promise;
+    const during = [phone.drafts.sync(), phone.drafts.sync()];
+    release.resolve(undefined);
+    await Promise.all([first, ...during]);
+    // Three attempts for the first request, then three for the follow-up both later ones share.
+    expect(pull).toHaveBeenCalledTimes(6);
+    expect(push).toHaveBeenCalledTimes(6);
+    push.mockRestore();
+    await phone.drafts.sync();
+    const mac = await device(server);
+    await mac.drafts.sync();
+    expect(mac.draft(id).body).toStrictEqual(phone.draft(id).body);
+  });
+
   it('retains earlier committed publications when a later Draft interrupts the pass', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();
