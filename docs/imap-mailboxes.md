@@ -1041,8 +1041,8 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   real messages, and the test message opened in the reader beside the list in each
   mailbox, which set its `\Seen` flag on the server. A new message from iCloud Mail waited
   in the Outbox for its Undo Send Window and arrived on `imap.seznam.cz` 16 seconds after
-  **Send**. Seznam Email does not offer IDLE, so the message appeared in its Inbox in the
-  app after **View › Refresh**. A reply from Seznam Email showed **Sending soon** with
+  **Send**. It was not yet listed in the Seznam Email Inbox in the app at a check about
+  40 seconds after it arrived, and appeared after **View › Refresh**. A reply from Seznam Email showed **Sending soon** with
   **Undo** in the Outbox, left it, arrived on `imap.mail.me.com` 19 seconds after **Send**,
   and was listed in the iCloud Mail Inbox in the app without a refresh. Over IMAP, its
   `In-Reply-To` named the original's Message-ID and its `References` included it. Each
@@ -1050,8 +1050,7 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   delivered message, and the app listed that one copy in each Sent folder. Afterwards no
   run message remained in any folder of either mailbox, and **Sign Out of This Device**
   removed the account from the Mac and returned it to Welcome. Limitations: the first
-  launch restored two Inbox windows saved by an earlier build with the same bundle ID,
-  and one was closed before sign-in. The operator drove the app through the macOS
+  launch restored two Inbox windows, and one was closed before sign-in. The operator drove the app through the macOS
   accessibility interface and synthesized keyboard and mouse input. For the first
   message only the Outbox entry was checked, not its row text. Mac organizing, search,
   attachments, IDLE and relaunch, recovery and large-folder backfill stay on #632.
