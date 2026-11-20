@@ -1007,6 +1007,35 @@ describe('synchronizing Drafts through Product Sync', () => {
     expect(mac.draft(id).body).toStrictEqual(phone.draft(id).body);
   });
 
+  it('serves a request made while a pass settles with a follow-up pass', async () => {
+    expect.hasAssertions();
+    // Each delay lands the request at another point of the settling pass.
+    for (let delay = 0; delay < 10; delay += 1) {
+      const phone = await device(createSyntheticProductSync());
+      present(await phone.drafts.create(alex), 'a Draft');
+      await phone.drafts.sync();
+      const native = present(phone.storage.sync, 'sync boundary');
+      const original = native.pullDrafts;
+      let following: Promise<void> | undefined = undefined;
+      const pull = vi
+        .spyOn(native, 'pullDrafts')
+        .mockImplementationOnce(async (...args) => {
+          const result = original(...args);
+          void (async () => {
+            await result;
+            for (let tick = 0; tick < delay; tick += 1) {
+              await Promise.resolve();
+            }
+            following = phone.drafts.sync();
+          })();
+          return result;
+        });
+      await phone.drafts.sync();
+      await following;
+      expect(pull).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it('retains earlier committed publications when a later Draft interrupts the pass', async () => {
     expect.hasAssertions();
     const server = createSyntheticProductSync();

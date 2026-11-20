@@ -175,12 +175,20 @@ const syncPasses = (
     passing ??= (async () => {
       // A defect or interruption rejects the pass; the next request must still start a new one.
       try {
-        let resume = await runLogged(workflow(attemptLimit));
-        while (resume !== undefined) {
-          await options.adopt();
-          resume = await runLogged(
-            workflow(options.retryAfterAdoption ? resume : attemptLimit),
-          );
+        let from = attemptLimit;
+        for (;;) {
+          const resume = await runLogged(workflow(from));
+          // A request made while the run settled is seen here, before `passing` clears.
+          if (resume === undefined && !requested) {
+            break;
+          }
+          if (resume !== undefined) {
+            await options.adopt();
+          }
+          from =
+            resume !== undefined && options.retryAfterAdoption
+              ? resume
+              : attemptLimit;
         }
       } finally {
         passing = undefined;
@@ -590,8 +598,10 @@ export function createDraftSynchronizer(
           removed: options?.removed,
           // Store actions own their Effect run; the next request retries the refused write.
           adopt: async () => {
+            // A synchronous defect rejects the request; only the adoption's rejection is logged.
+            const adoption = options?.adoptKeyRotation?.();
             try {
-              await options?.adoptKeyRotation?.();
+              await adoption;
             } catch (error) {
               await runLogged(
                 Effect.logError(
