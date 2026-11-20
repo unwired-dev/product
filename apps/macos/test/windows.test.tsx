@@ -3549,8 +3549,8 @@ describe('mac windows of different Mail Profiles', () => {
       const buttons = prompt.mock.lastCall?.[2];
       ok(Array.isArray(buttons));
       await act(async () => {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
         const create = buttons.find(({ text }) => text === 'Create')
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
           ?.onPress as ((value: string) => void) | undefined;
         create?.('Family');
         await Promise.resolve();
@@ -4283,8 +4283,8 @@ describe('mac windows of different Mail Profiles', () => {
       ok(Array.isArray(buttons));
       await act(async () => {
         // A plain-text prompt hands its button the entered text.
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
         const create = buttons.find(({ text }) => text === 'Create')
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React Native types the value per prompt type.
           ?.onPress as ((value: string) => void) | undefined;
         create?.('Family');
         await Promise.resolve();

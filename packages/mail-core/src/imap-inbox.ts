@@ -440,7 +440,10 @@ export type ImapBodyState =
         | 'failed';
     };
 
-class ImapFailure extends Schema.TaggedError<ImapFailure>()('ImapFailure', {
+class ImapFailure extends Schema.TaggedError<
+  ImapFailure,
+  { readonly brand: unique symbol }
+>()('ImapFailure', {
   kind: Schema.Literals([
     'authentication',
     'retry',
@@ -1140,7 +1143,7 @@ export function createImapInbox(
       const copies =
         count * occurrences.filter((id) => id === image.contentId).length;
       const size =
-        Math.floor((image.data.replace(/=+$/u, '').length * 3) / 4) * copies;
+        Math.floor((image.data.replace(/[=]+$/u, '').length * 3) / 4) * copies;
       const area = image.width * image.height * copies;
       if (
         bytes + size > inlineImageLimits.aggregateBytes ||

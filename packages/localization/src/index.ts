@@ -51,10 +51,13 @@ const settingsSchema = Schema.Struct({
   language: languageCode,
   locale,
 });
-class InvalidLanguageSettings extends Schema.TaggedError<InvalidLanguageSettings>()(
-  'InvalidLanguageSettings',
-  { cause: Schema.Defect(), message: Schema.String },
-) {}
+class InvalidLanguageSettings extends Schema.TaggedError<
+  InvalidLanguageSettings,
+  { readonly brand: unique symbol }
+>()('InvalidLanguageSettings', {
+  cause: Schema.Defect(),
+  message: Schema.String,
+}) {}
 const decodeSettings = (input: unknown): LanguageSettings => {
   const decoded = Schema.decodeUnknownResult(settingsSchema)(input);
   if (Result.isFailure(decoded)) {

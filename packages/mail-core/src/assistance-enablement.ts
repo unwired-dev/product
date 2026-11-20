@@ -66,10 +66,10 @@ type Choice = Readonly<{
 }>;
 
 // A native call or its reply failed; its cause is logged only as a diagnostic.
-class MailAssistanceNativeFailure extends Schema.TaggedError<MailAssistanceNativeFailure>()(
-  'MailAssistanceNativeFailure',
-  { cause: Schema.Defect() },
-) {}
+class MailAssistanceNativeFailure extends Schema.TaggedError<
+  MailAssistanceNativeFailure,
+  { readonly brand: unique symbol }
+>()('MailAssistanceNativeFailure', { cause: Schema.Defect() }) {}
 
 const call = (request: () => Promise<unknown>) =>
   Effect.tryPromise({

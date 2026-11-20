@@ -124,39 +124,39 @@ export const rateLimited = Schema.decodeUnknownOption(
 );
 
 // 'authentication' needs Gmail authorized again; 'retry' may succeed on a later synchronization.
-export class SyncFailure extends Schema.TaggedError<SyncFailure>()(
-  'SyncFailure',
-  {
-    kind: Schema.Literals([
-      'authentication',
-      'retry',
-      'locked',
-      'conflict',
-      // Native work started before a registration change; a new synchronization opens the cache again.
-      'invalidated',
-      'revoked',
-      'failed',
-    ]),
-    cause: Schema.Defect(),
-    // Logged instead of the cause; see rejectionDiagnostic.
-    diagnostic: Schema.String,
-  },
-) {}
+export class SyncFailure extends Schema.TaggedError<
+  SyncFailure,
+  { readonly brand: unique symbol }
+>()('SyncFailure', {
+  kind: Schema.Literals([
+    'authentication',
+    'retry',
+    'locked',
+    'conflict',
+    // Native work started before a registration change; a new synchronization opens the cache again.
+    'invalidated',
+    'revoked',
+    'failed',
+  ]),
+  cause: Schema.Defect(),
+  // Logged instead of the cause; see rejectionDiagnostic.
+  diagnostic: Schema.String,
+}) {}
 
 // A message or history that Gmail no longer has.
-export class GmailNotFound extends Schema.TaggedError<GmailNotFound>()(
-  'GmailNotFound',
-  {},
-) {}
+export class GmailNotFound extends Schema.TaggedError<
+  GmailNotFound,
+  { readonly brand: unique symbol }
+>()('GmailNotFound', {}) {}
 
 // Gmail refused the mailbox's grant; authorizing Gmail again is the only remedy.
 export const rejectedGrant = (error: unknown) =>
   error instanceof SyncFailure && error.kind === 'authentication';
 
-export class GmailInvalidPage extends Schema.TaggedError<GmailInvalidPage>()(
-  'GmailInvalidPage',
-  {},
-) {}
+export class GmailInvalidPage extends Schema.TaggedError<
+  GmailInvalidPage,
+  { readonly brand: unique symbol }
+>()('GmailInvalidPage', {}) {}
 
 export const rejected = (
   cause: unknown,

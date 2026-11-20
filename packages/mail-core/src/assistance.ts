@@ -227,18 +227,18 @@ export type AssistanceState<Pending extends string> =
 
 export type SummaryState = AssistanceState<'summarizing'>;
 
-class AssistanceFailure extends Schema.TaggedError<AssistanceFailure>()(
-  'AssistanceFailure',
-  {
-    outcome: Schema.Union([
-      RequestUnavailable,
-      Schema.Literals(['refused', 'cancelled', 'failed']),
-    ]),
-    cause: Schema.Defect(),
-    // Logged instead of the cause; see rejectionDiagnostic.
-    diagnostic: Schema.String,
-  },
-) {}
+class AssistanceFailure extends Schema.TaggedError<
+  AssistanceFailure,
+  { readonly brand: unique symbol }
+>()('AssistanceFailure', {
+  outcome: Schema.Union([
+    RequestUnavailable,
+    Schema.Literals(['refused', 'cancelled', 'failed']),
+  ]),
+  cause: Schema.Defect(),
+  // Logged instead of the cause; see rejectionDiagnostic.
+  diagnostic: Schema.String,
+}) {}
 
 // A native rejection's fields for an assistance failure: its allow-listed code as the outcome,
 // or `failed` for anything else.
