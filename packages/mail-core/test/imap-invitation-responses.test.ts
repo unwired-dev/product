@@ -149,6 +149,19 @@ async function invited({
   };
 }
 
+// Records what the card shows, and declines, each time the response changes while it files.
+function declineWhileFiling(mail: Awaited<ReturnType<typeof invited>>) {
+  const filing: unknown[] = [];
+  const chosen: Array<Promise<void>> = [];
+  const stop = mail.responses.subscribe(() => {
+    if (mail.outbox.getSnapshot()[0]?.state === 'filing') {
+      filing.push(mail.state());
+      chosen.push(mail.respond('declined'));
+    }
+  });
+  return { filing, chosen, stop };
+}
+
 describe('imap invitation responses', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
   beforeEach(() => {
@@ -330,15 +343,7 @@ describe('imap invitation responses', () => {
     const mail = await invited();
     try {
       await mail.respond('accepted');
-      // What the card shows, and a choice made, while the response is still filing.
-      const filing: unknown[] = [];
-      const chosen: Promise<void>[] = [];
-      const stop = mail.responses.subscribe(() => {
-        if (mail.outbox.getSnapshot()[0]?.state === 'filing') {
-          filing.push(mail.state());
-          chosen.push(mail.respond('declined'));
-        }
-      });
+      const { filing, chosen, stop } = declineWhileFiling(mail);
       await mail.deliver();
       stop();
       await Promise.all(chosen);
