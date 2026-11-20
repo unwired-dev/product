@@ -309,28 +309,49 @@ export function createNotifications(
       ),
     // Keeps the App Icon Badge on the unread Inbox count while the badge counts it and the system
     // allows notifications, and removes it otherwise. A count is applied only once every source
-    // has settled, so a launch that has not opened saved registration or an Inbox yet keeps the
-    // badge it found.
+    // has settled, so while it counts, a launch that has not opened saved registration or an
+    // Inbox yet keeps the badge it found.
     followBadge: (sources: BadgeSources) => {
+      // What the icon shows once the system applied it, and the count it should show. One write
+      // runs at a time and ends on the latest count; a refused one is tried again at the next
+      // change.
       let shown: number | undefined = undefined;
+      let wanted: number | undefined = undefined;
+      let writing = false;
+      const write = Effect.gen(function* () {
+        for (
+          let count = wanted;
+          count !== undefined && count !== shown;
+          count = wanted
+        ) {
+          const applied = count;
+          yield* call(() => native.setBadgeCount(applied));
+          shown = count;
+        }
+      }).pipe(
+        (effect) => logged('The App Icon Badge could not be set:', effect),
+        Effect.ensuring(
+          Effect.sync(() => {
+            writing = false;
+          }),
+        ),
+      );
       const follow = () => {
         const current = settings.getSnapshot();
-        const unread = inboxUnread(sources);
-        if (current === undefined || unread === undefined) {
+        if (current === undefined) {
           return;
         }
         const count =
           current.authorization === 'authorized' && current.badge === 'inbox'
-            ? unread
+            ? inboxUnread(sources)
             : 0;
-        if (count !== shown) {
-          shown = count;
-          void runLogged(
-            logged(
-              'The App Icon Badge could not be set:',
-              call(() => native.setBadgeCount(count)),
-            ),
-          );
+        if (count === undefined) {
+          return;
+        }
+        wanted = count;
+        if (!writing && wanted !== shown) {
+          writing = true;
+          void runLogged(write);
         }
       };
       settings.subscribe(follow);

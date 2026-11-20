@@ -3769,11 +3769,12 @@ describe('product registration', () => {
     });
   });
 
-  it('dims the App Icon Badge choice while notifications are denied and saves it once they are allowed', async () => {
+  it('keeps the saved App Icon Badge choice, dimmed, while notifications are denied and saves a new one once they are allowed', async () => {
     expect.hasAssertions();
     const { synthetic } = await connectedAccount();
     const store = createRegistration(synthetic.relaunch());
-    const device = { authorization: 'denied', previews: false, badge: 'off' };
+    // Unread in Inbox was chosen on this device before notifications were turned off.
+    const device = { authorization: 'denied', previews: false, badge: 'inbox' };
     const notifications = createNotifications(
       {
         notificationSettings: () => Promise.resolve({ ...device }),
@@ -3804,7 +3805,10 @@ describe('product registration', () => {
     await screen.findByText(
       'Your choices are kept and apply as soon as notifications are allowed.',
     );
-    const denied = badge().props.accessibilityState?.disabled;
+    const denied = {
+      disabled: badge().props.accessibilityState?.disabled,
+      label: badge().props.accessibilityLabel,
+    };
     // The person allows notifications in the system's settings and comes back.
     device.authorization = 'authorized';
     await act(() => notifications.load());
@@ -3813,7 +3817,7 @@ describe('product registration', () => {
         ({ items }: { items: ReadonlyArray<{ id: string; title: string }> }) =>
           items,
       )
-      .find(({ title }: { title: string }) => title === 'Unread in Inbox');
+      .find(({ title }: { title: string }) => title === 'Off');
     await act(() => {
       fireEvent(badge(), 'select', { nativeEvent: { id: item.id } });
     });
@@ -3824,10 +3828,10 @@ describe('product registration', () => {
       saved: device.badge,
       footer: screen.queryByText('Counts unread mail in Inbox.') !== null,
     }).toStrictEqual({
-      denied: true,
+      denied: { disabled: true, label: 'App Icon Badge: Unread in Inbox' },
       allowed: false,
-      label: 'App Icon Badge: Unread in Inbox',
-      saved: 'inbox',
+      label: 'App Icon Badge: Off',
+      saved: 'off',
       footer: true,
     });
   });

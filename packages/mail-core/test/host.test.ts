@@ -108,6 +108,8 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     badge: 'off',
   };
   const badges: number[] = [];
+  // How the system answers each App Icon Badge write.
+  const badgeWrites = { answer: (): Promise<unknown> => Promise.resolve(null) };
   const notified: unknown[] = [];
   const titles: unknown[] = [];
   // The notifications a typed reply posted, and those withdrawn.
@@ -238,7 +240,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     },
     setBadgeCount: (count) => {
       badges.push(count);
-      return Promise.resolve(null);
+      return badgeWrites.answer();
     },
     openNotificationSettings: () => Promise.resolve(null),
     postNotifications: (posted, actions) => {
@@ -292,6 +294,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     notified,
     titles,
     badges,
+    badgeWrites,
     device,
     replied,
     withdrawn,
@@ -469,14 +472,10 @@ describe('the host assembly', () => {
     const step = (name: string) => {
       steps.push([name, badges.splice(0)]);
     };
-    // Until saved registration is read, the badge found at launch stays.
+    // Off, the badge clears at launch without waiting for saved registration.
     await host.notifications.load();
     step('launch');
-    // Signed out, nothing is unread.
     await host.start();
-    await vi.waitFor(() => {
-      expect(badges).toHaveLength(1);
-    });
     step('signed out');
     gmail.deliver({ subject: 'Unread', unread: true });
     const read = gmail.deliver({ subject: 'Read me', unread: true });
@@ -517,8 +516,8 @@ describe('the host assembly', () => {
     // Each count was set once, when it changed; the choice stayed on this device.
     expect({ steps, badge: device.badge }).toStrictEqual({
       steps: [
-        ['launch', []],
-        ['signed out', [0]],
+        ['launch', [0]],
+        ['signed out', []],
         ['listed while off', []],
         ['chosen without permission', []],
         ['allowed', [2]],
@@ -533,6 +532,17 @@ describe('the host assembly', () => {
       ],
       badge: 'inbox',
     });
+  });
+
+  it('sets the App Icon Badge again after the system refused a write', async () => {
+    expect.hasAssertions();
+    const { host, badges, badgeWrites } = syntheticHost(undefined, true);
+    badgeWrites.answer = () => Promise.reject(new Error('refused'));
+    host.followBadge();
+    await host.notifications.load();
+    badgeWrites.answer = () => Promise.resolve(null);
+    await host.notifications.load();
+    expect(badges).toStrictEqual([0, 0]);
   });
 
   it('logs why New Mail Notifications were or were not posted, never what or whose', async () => {

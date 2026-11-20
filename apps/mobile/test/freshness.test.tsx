@@ -74,6 +74,7 @@ describe('headless Gmail freshness', () => {
     const completeWake = jest.fn<undefined, [string, string]>();
     const completeNotificationAction = jest.fn<undefined, [string]>();
     const setBadgeCount = jest.fn<Promise<null>, [number]>(async () => null);
+    const permission = { authorization: 'authorized' };
     const native = {
       getConstants: () => ({}),
       ...vault,
@@ -99,7 +100,7 @@ describe('headless Gmail freshness', () => {
       }),
       // The App Icon Badge counts unread Inbox mail.
       notificationSettings: async () => ({
-        authorization: 'authorized',
+        ...permission,
         previews: false,
         badge: 'inbox',
       }),
@@ -184,6 +185,23 @@ describe('headless Gmail freshness', () => {
         // the notification's Archive, two once the pushed message arrived.
         await waitFor(() => {
           expect(setBadgeCount.mock.calls).toStrictEqual([[0], [2], [1], [2]]);
+        });
+        // Permission changed in the system's settings reaches the badge when the app activates.
+        const activate = () => {
+          for (const [, listener] of jest.mocked(AppState.addEventListener).mock
+            .calls) {
+            listener('active');
+          }
+        };
+        permission.authorization = 'denied';
+        activate();
+        await waitFor(() => {
+          expect(setBadgeCount).toHaveBeenLastCalledWith(0);
+        });
+        permission.authorization = 'authorized';
+        activate();
+        await waitFor(() => {
+          expect(setBadgeCount).toHaveBeenLastCalledWith(2);
         });
         // The host replaced this reader; nothing more is followed.
         replaced.resolve(null);

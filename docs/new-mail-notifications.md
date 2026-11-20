@@ -107,9 +107,12 @@ with alerts and sounds.
 
 The badge is removed when the choice is **Off**, when notifications are not allowed,
 when no Inbox can open (after the last connection is removed or the person signs out)
-and when there is no unread listed mail. Until saved registration has been read, and
-while any Inbox is still opening or locked, the device leaves the badge it found
-unchanged rather than showing a partial count. Snooze and Profile Lock do not exist
+and when there is no unread listed mail. The badge is checked again whenever the app
+becomes active, since permission can change in the system's settings. While it counts,
+until saved registration has been read and while any Inbox is still opening or locked,
+the device leaves the badge it found unchanged rather than showing a partial count. A
+push wake that launches the app synchronizes only its routed mailbox, so with several
+Mailbox Connections the badge waits for the next background refresh or activation. Snooze and Profile Lock do not exist
 yet; the per-Profile **Badge and sound** switches, **New Mail Sound** and the Mac's
 Dock badge come with [#1723](https://github.com/unwired-dev/product/issues/1723).
 

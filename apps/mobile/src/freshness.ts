@@ -15,6 +15,7 @@ import {
   followWakes,
   freshness,
   gmailMailboxes,
+  notifications,
 } from './registration.ts';
 
 const task = 'dev.unwired.mail.gmail-freshness';
@@ -55,8 +56,14 @@ export const followOpenedDrafts = (open: OpenDraft) => {
 // only its routed mailbox once registration verifies.
 if (!previewInbox) {
   followWakes();
-  // The App Icon Badge follows the Inbox wherever synchronization runs, foreground or background.
+  // The App Icon Badge follows the Inbox wherever synchronization runs, foreground or background,
+  // and permission changed in the system's settings while the app was away.
   followBadge();
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      void notifications.load();
+    }
+  });
   // Likewise Archive, Mark as Read and a typed reply chosen on a notification, without opening the
   // app.
   followNotificationActions((draft, _, profile) => {
