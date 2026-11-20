@@ -447,11 +447,11 @@ export function createRemoteContentLoader(
         network: () => boolean;
         request: Readonly<{ session: string; request: string }>;
         current: () => boolean;
-        fetching: () => void;
+        claim: () => boolean;
         retain: (image: RemoteImage) => boolean;
       }>,
     ) {
-      const { network, request, current, fetching, retain } = authorized;
+      const { network, request, current, claim, retain } = authorized;
       if (!current()) {
         return { kind: 'failed' } as const;
       }
@@ -466,10 +466,10 @@ export function createRemoteContentLoader(
         }
         return { kind: 'restored', image: restored } as const;
       }
-      if (!network()) {
+      // Consent and the attempt are checked together, just before the fetch starts.
+      if (!network() || !claim()) {
         return { kind: 'absent' } as const;
       }
-      fetching();
       const fetched = yield* Effect.tryPromise({
         try: () => native.fetchRemoteContent(mailbox, url, request),
         catch: (cause) => rejected(cause, 'failed'),
@@ -639,6 +639,7 @@ export function createRemoteContentLoader(
             remote.sequence += wanted.length;
             remote.reserved += network.length;
             // A reservation becomes an attempt when its fetch starts; the rest return on settling.
+            // A source queued without one, such as for the cache, starts only with spare attempts.
             const unstarted = new Set(network);
             yield* Effect.forEach(
               wanted,
@@ -656,11 +657,17 @@ export function createRemoteContentLoader(
                             request: `${remote.session}:${attemptStart + wanted.indexOf(url)}`,
                           },
                           current: () => current(url),
-                          fetching: () => {
-                            remote.attempts += 1;
+                          claim: () => {
                             if (unstarted.delete(url)) {
                               remote.reserved -= 1;
+                            } else if (
+                              remote.attempts + remote.reserved >=
+                              inlineImageLimits.attempts
+                            ) {
+                              return false;
                             }
+                            remote.attempts += 1;
+                            return true;
                           },
                           retain: (image) => reserve({ id, url }, image),
                         },

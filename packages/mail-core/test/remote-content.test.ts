@@ -838,6 +838,51 @@ describe('remote message content', () => {
     }
   });
 
+  it('keeps a source that gains consent while queued for the cache within the attempt limit', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    const urls = Array.from(
+      { length: 24 },
+      (_, index) => `https://images.example/consent/${index}.png`,
+    );
+    for (const url of urls) {
+      gmail.serveRemote(url, { data: png(2, 2) });
+    }
+    const id = gmail.deliver({
+      content: {
+        html: urls.map((url) => `<img src="${url}" alt="Photo">`).join(''),
+      },
+    });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const first = await open(inbox, id);
+    const second = await open(inbox, id);
+    try {
+      gmail.pauseRemote();
+      const reserved = inbox.loadRemoteImages(id, urls.slice(0, 20), {
+        network: true,
+        reader: first.reader,
+      });
+      await waitForFetches(gmail.remoteInFlight, 6);
+      // The second reader's cache lookups wait behind the six fetches, then it consents.
+      const cached = inbox.loadRemoteImages(id, urls.slice(20), {
+        network: false,
+        reader: second.reader,
+      });
+      const consented = inbox.loadRemoteImages(id, urls.slice(20), {
+        network: true,
+        reader: second.reader,
+      });
+      gmail.resumeRemote();
+      await Promise.all([reserved, cached, consented]);
+      expect(gmail.remoteFetches).toStrictEqual(urls.slice(0, 20));
+    } finally {
+      first.release();
+      second.release();
+      gmail.resumeRemote();
+    }
+  });
+
   it('bounds attempted sources and shares retained pixels and cache protection across connections', async () => {
     expect.hasAssertions();
     const shared = createBodyLoads();
