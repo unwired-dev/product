@@ -929,6 +929,7 @@ export function createSyntheticGmail({
     presentations: attachments.presentations,
     failSave: attachments.failSave,
     failPresent: attachments.failPresent,
+    cancelSave: attachments.cancelSave,
     // Native admission refuses this message's body, as when it cannot fit.
     refuseBody: (id: string) => {
       refusedBodies.add(id);

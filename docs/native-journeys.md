@@ -356,6 +356,32 @@ and the header still names the problem; clicking it again expands it. The expand
 and collapsed sidebars are kept as attachments. The Inbox row's unread count is
 covered by the Mac Jest tests. VoiceOver speech is not covered.
 
+## Mac composer recovery journey
+
+The `testComposerRecoveryAfterForceQuit` journey uses the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2406](https://github.com/unwired-dev/product/issues/2406)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testComposerRecoveryAfterForceQuit
+```
+
+A New Message gets a recipient, a subject, body text and a pasted file
+attachment. Five seconds later, past the composer's 2-second journal delay and
+without a save, the journey ends the app with `SIGKILL` and relaunches it. The
+Inbox asks **Recover unsaved message?** with only **Your unsaved changes were
+kept on this device.**, **Restore** and **Discard**. Restore opens the composer
+with the same recipient, subject, body and attachment. A second force quit
+offers the record again, Discard removes it, and a third launch offers nothing.
+The offer and the restored composer are kept as attachments. The
+[iPhone and iPad journey](#iphone-and-ipad-composer-recovery-journey) checks the
+same there. Neither covers the record's removal on sign-out, account removal or a
+Product Account change, which [#1989](https://github.com/unwired-dev/product/issues/1989)
+still needs.
+
 ## iPhone and iPad IMAP Spam and Trash folder journey
 
 The Expo native journey for a `registration-imap-folders` Release build signs in
@@ -418,6 +444,14 @@ long press on Send opens the Send menu, whose **Send Now** must say "No Undo"
 with no Outbox row "Sending soon" and no **Undo**. The captures "Send menu with Send Now" and
 "After Send Now" are named with the appearance. The dimmed state while a file is still being
 added is covered by Jest.
+
+`testListIndent` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testListIndent`.
+It connects the synthetic Gmail mailbox and, in a New Message body, types a bulleted list whose
+items Tab nests three levels deep ([#2465](https://github.com/unwired-dev/product/issues/2465)).
+At the third level Tab does nothing and Shift-Tab moves the item out one level. **Indent**,
+iPhone's in the Format panel and iPad's on the format bar, is off there and **Outdent** on;
+Outdent moves the item out and one **Undo** nests it again. The capture "Nested list" is named with
+the appearance.
 
 ## iPhone and iPad Apple registration journey
 

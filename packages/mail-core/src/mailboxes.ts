@@ -162,7 +162,7 @@ export interface NativeGmailMailboxes {
   readonly presentAttachment: (
     mailbox: Scope,
     file: string,
-    action: 'open' | 'share',
+    action: Parameters<NativeGmailMailbox['presentAttachment']>[2],
   ) => Promise<unknown>;
   readonly openRemoteContent: (
     mailbox: Scope,
@@ -843,6 +843,12 @@ export function createMailboxes(
     load: async () => {
       started = true;
       await Promise.all([...inboxes.values()].map(({ inbox }) => inbox.load()));
+    },
+    // Shows each saved listing no synchronization has opened yet, without asking any provider.
+    showSaved: async () => {
+      await Promise.all(
+        [...inboxes.values()].map(({ inbox }) => inbox.showSaved()),
+      );
     },
     // Waits with IDLE on each IMAP connection's Inbox, including connections added later, until
     // the returned function stops every wait.

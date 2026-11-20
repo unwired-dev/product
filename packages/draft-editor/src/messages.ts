@@ -1,5 +1,6 @@
 import type {
   Asset,
+  ImageWidth,
   Selection,
   SemanticDocument,
 } from '@private-email/mail-core/semantic-document';
@@ -75,6 +76,9 @@ export type Command =
   // Attachment and an Attachment into an Inline Image at the selection.
   | Readonly<{ type: 'remove'; id: string }>
   | Readonly<{ type: 'convert'; id: string }>
+  // One undoable edit: every use of an Inline Image shows at a display width, or with null at its
+  // original size.
+  | Readonly<{ type: 'resize'; id: string; width: ImageWidth | null }>
   // Verified native thumbnails; null revokes bytes that are no longer available or verified.
   | Readonly<{
       type: 'previews';

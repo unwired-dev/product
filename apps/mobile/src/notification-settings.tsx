@@ -12,6 +12,7 @@ import type { SettingsButton } from './settings.tsx';
 import { useLocalization } from './localization.ts';
 import { notifications } from './registration.ts';
 import {
+  PopUpChoice,
   settingsColumns,
   SettingsGroup,
   SettingsRow,
@@ -108,6 +109,48 @@ function MailboxNotifications({
   );
 }
 
+// What the App Icon Badge counts. While notifications are off, the choice stays, dimmed, until
+// they are allowed again.
+function AppIconBadge({
+  device,
+  settings,
+}: {
+  readonly device: NotificationSettingsStore;
+  readonly settings: DeviceSettings;
+}) {
+  const { t } = useLocalization();
+  const denied = settings?.authorization === 'denied';
+  return (
+    <SettingsGroup
+      footer={t(
+        denied ? 'notifications.badgeKept' : 'notifications.badgeDetail',
+      )}>
+      <SettingsRow
+        title={t('notifications.badge')}
+        disabled={denied}>
+        {settings === undefined ? null : (
+          <PopUpChoice
+            label={t('notifications.badge')}
+            selected={settings.badge}
+            choices={['off', 'inbox']}
+            title={(badge) => t(`notifications.badges.${badge}`)}
+            disabled={denied}
+            onChoose={(badge) => {
+              if (
+                badge === 'inbox' &&
+                settings.authorization === 'undetermined'
+              ) {
+                void device.request();
+              }
+              void device.setBadge(badge);
+            }}
+          />
+        )}
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
 // The Per Mailbox group: a switch for each connection.
 function PerMailbox({
   mailboxes,
@@ -143,8 +186,8 @@ function PerMailbox({
   );
 }
 
-// This device's notification permission and previews, which never synchronize, then each
-// connection's synchronized New Mail Notification switch.
+// This device's notification permission, previews and App Icon Badge, which never synchronize,
+// then each connection's synchronized New Mail Notification switch.
 export function NotificationSettings({
   button,
   mailboxes,
@@ -196,6 +239,10 @@ export function NotificationSettings({
           />
         </SettingsRow>
       </SettingsGroup>
+      <AppIconBadge
+        device={device}
+        settings={settings}
+      />
       <PerMailbox
         mailboxes={mailboxes}
         device={device}

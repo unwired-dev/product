@@ -306,6 +306,7 @@ const loadingBody: MessageBodyState = { kind: 'loading' };
 export type {
   AttachmentState,
   ReceivedAttachment,
+  SavedCopy,
 } from './attachment-downloads.ts';
 
 // Offline, quota and server failures can pass on a later try; stale work shows nothing new.
@@ -3610,6 +3611,36 @@ export function createInboxStore(
     );
   }
 
+  // Shows the saved listing without asking the provider, as a synchronization starts, for an Inbox
+  // nothing has opened yet; the next `load` synchronizes it. A running operation is skipped, not
+  // awaited: a synchronization shows the saved listing itself before it asks the provider.
+  const showSaved = () =>
+    runLogged(
+      semaphore.withPermitsIfAvailable(1)(
+        Effect.suspend(() =>
+          forgotten || state.kind !== 'loading'
+            ? Effect.void
+            : Effect.gen(function* () {
+                const cache = yield* storage(native.openMailbox);
+                if (!forgotten) {
+                  opened = {
+                    address: cache.address,
+                    generation: cache.generation,
+                  };
+                }
+                const document = Option.getOrUndefined(
+                  yield* documentOf(cache),
+                );
+                yield* ready(
+                  cache,
+                  document,
+                  cache.availability === 'retry' ? 'retry' : 'syncing',
+                );
+              }).pipe(Effect.catchTag('SyncFailure', recover)),
+        ),
+      ),
+    );
+
   // Only the shown mailbox's blocked change, as the person saw it, can be retried or discarded.
   const resolvable = (
     cache: Cache,
@@ -3953,6 +3984,7 @@ export function createInboxStore(
     // changes requested there and not yet saved.
     forget: forgetOpenInbox,
     load,
+    showSaved,
     resolvePending,
     // A window protects its chosen view before opening it, then releases this exact lease on exit.
     retainView: (label: string) => {
@@ -4104,6 +4136,7 @@ export function createInboxStore(
     downloadAttachment: attachments.downloadAttachment,
     cancelAttachment: attachments.cancelAttachment,
     presentAttachment: attachments.presentAttachment,
+    saveAttachmentCopy: attachments.saveAttachmentCopy,
     attachmentFile: attachments.attachmentFile,
     // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
     // provider, so the message waits.

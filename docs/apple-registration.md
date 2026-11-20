@@ -129,7 +129,8 @@ in with a synthetic Apple identity and a relay address, which leaves the mailbox
 choice pending without asking for any mailbox. It relaunches, connects the
 synthetic Microsoft mailbox first and adds Gmail from the account page. After the
 Recovery Key is confirmed it opens the Microsoft message beside Gmail's in the
-unified Inbox, then relaunches and reads its body again. This synthetic journey
+unified Inbox, then relaunches into that Inbox, as launch does once setup needs
+nothing more, and reads its body again. This synthetic journey
 checks packaged reading and relaunch; it does not isolate cache-only access from
 provider availability. It no longer covers a declined Gmail session after Apple sign-in. Its native provider and runner rules match the
 [Google registration sessions](google-registration.md#deterministic-evidence).

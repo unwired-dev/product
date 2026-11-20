@@ -162,6 +162,18 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     overflow: 'hidden',
   },
+  // The esc key cap's touch target reaches 44pt into the field's end padding without moving it, and
+  // leaves the query's end to the query, at every text size (#1873).
+  escape: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingVertical: spacing.m,
+    marginVertical: -spacing.m,
+    paddingEnd: spacing.m,
+    marginEnd: -spacing.m,
+  },
   // The commands on the frames' 16pt glass panel.
   popoverPanel: {
     flexShrink: 1,
@@ -595,8 +607,8 @@ function Palette({
               <Pressable
                 accessibilityLabel={t('common.cancel')}
                 accessibilityRole="button"
-                hitSlop={spacing.s}
-                onPress={close}>
+                onPress={close}
+                style={styles.escape}>
                 <Text
                   style={[
                     styles.keyCap,

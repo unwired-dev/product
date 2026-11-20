@@ -57,6 +57,7 @@ import {
 import {
   acceptRecipient,
   addBodyRecipient,
+  assetsOf,
   addRecipients,
   bodyRecipientQuery,
   bodyRecipientSuggestions,
@@ -88,6 +89,9 @@ import {
   imageCharacter,
   imagesOf,
   editableLinkAt,
+  indentList,
+  isListKind,
+  listIndentAt,
   marksAt,
   clip,
   previewOf,
@@ -142,7 +146,10 @@ import {
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-screens/experimental';
 
-import type { GeneratePromptState } from './composer-controls.tsx';
+import type {
+  GeneratePromptState,
+  IndentDirection,
+} from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
@@ -1976,16 +1983,101 @@ const blockedMessage = (
 // composer says it. To, Cc and Bcc say why Send waits for them, and From's notice why the sender
 // cannot send, and the notices the rest; a docked reply asks for a recipient on one line above
 // Send instead of under To.
+// A file still being added, of those `running` now.
+const addingOf = (draft: Draft, running: ReadonlySet<string>) =>
+  unsendableAssets(draft).find(
+    ({ state, id }) => state === 'importing' && running.has(id),
+  );
 // Send Now as Send's menu offers it: unavailable while Send is, naming a file still being added.
 const sendNowOf = (
-  draft: Draft,
   blocked: SendRefusal | undefined,
   saving: boolean,
+  adding: Asset | undefined,
 ) => ({
   disabled: saving || blocked !== undefined,
-  waiting: unsendableAssets(draft).find((asset) => asset.state === 'importing')
-    ?.name,
+  waiting: adding?.name,
 });
+
+// Each file once, though an Inline Image can appear more than once.
+const distinct = (assets: readonly Asset[]) => [
+  ...new Map(assets.map((asset) => [asset.id, asset])).values(),
+];
+// The files Send leaves out once asked: every one that was not added, though not one still being
+// added.
+const leftOutOf = (draft: Draft, running: ReadonlySet<string>) =>
+  distinct(
+    unsendableAssets(draft).filter(
+      ({ state, id }) => state !== 'importing' || !running.has(id),
+    ),
+  );
+
+// Why a file was not added, as the alert names it.
+const leftOutReason = (asset: Asset) => {
+  if (asset.state === 'importing') {
+    return 'interrupted';
+  }
+  if (asset.state === 'cancelled') {
+    return 'cancelled';
+  }
+  return asset.state === 'failed' && 'reason' in asset
+    ? 'tooLarge'
+    : 'notAdded';
+};
+// Each file and its state, to tell whether the Draft's files changed.
+const filesOf = (draft: Draft) =>
+  distinct(assetsOf(draft))
+    .map(({ id, state }) => `${id}:${state}`)
+    .join(',');
+
+// Asks whether to send without the files that were not added, naming each and why; resolves
+// whether the person chose Send Without Them.
+const askLeftOut = (
+  t: Translate,
+  leftOut: readonly Asset[],
+  others: number,
+) => {
+  const reasons = leftOut.map((asset) =>
+    t(`drafts.leftOut.${leftOutReason(asset)}`, { name: asset.name }),
+  );
+  const last = reasons.pop() ?? '';
+  const files =
+    reasons.length === 0
+      ? last
+      : t('drafts.leftOut.list', { items: reasons.join(', '), last });
+  const detail = `${files}. ${
+    others === 0
+      ? t('drafts.leftOut.none')
+      : t('drafts.leftOut.others', { count: others })
+  }`;
+  // oxlint-disable-next-line promise/avoid-new -- The alert answers through its button callbacks.
+  return new Promise<boolean>((resolve) => {
+    SystemAlert.alert(
+      t('drafts.leftOut.title', { count: leftOut.length }),
+      detail,
+      [
+        {
+          text: t('drafts.leftOut.send', { count: leftOut.length }),
+          isPreferred: true,
+          onPress: () => {
+            resolve(true);
+          },
+        },
+        {
+          text: t('drafts.leftOut.keepEditing'),
+          style: 'cancel',
+          onPress: () => {
+            resolve(false);
+          },
+        },
+      ],
+      {
+        onDismiss: () => {
+          resolve(false);
+        },
+      },
+    );
+  });
+};
 
 function useBlockedSend({
   shown,
@@ -2001,10 +2093,18 @@ function useBlockedSend({
   const outbox = useOutbox();
   const mailboxList = useMailboxList();
   const mailboxes = use(AccountContext)?.mailboxes ?? [];
+  const store = useDraftStore();
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
   const finished = finishedEntries(shown);
-  const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
+  const refusal = useSyncExternalStore(mailboxList.subscribe, () =>
     outbox.refusal(finished),
   );
+  // Files that were not added leave Send available, which asks to send without them; one still
+  // being added keeps it unavailable.
+  const blocked =
+    refusal === 'assets' && addingOf(finished, running) === undefined
+      ? undefined
+      : refusal;
   if (blocked === undefined) {
     return { blocked, reason: undefined, notice: undefined, line: undefined };
   }
@@ -3381,6 +3481,8 @@ function useBodyRecipients(
     },
     // A hardware keyboard's Up and Down Arrow move the highlight while two or more show.
     moving: suggestions.length > 1,
+    // Typed Return and Tab choose the highlighted suggestion while any shows.
+    choosing: suggestions.length > 0,
     // Up and Down move from the highlighted suggestion for the latest Draft and caret.
     move: (key: string, latest: Draft, at: Selection) => {
       const listed = candidates(latest, at) ?? [];
@@ -3548,6 +3650,11 @@ function BodyRecipientMenu({
   );
 }
 
+// In a list, a hardware keyboard's Tab and Shift-Tab indent and outdent its items, unless Tab
+// chooses a Recipient Suggestion.
+const listTabs = (kind: BlockKind, choosing: boolean) =>
+  !choosing && isListKind(kind);
+
 function Editor({
   initial,
   opening,
@@ -3572,6 +3679,9 @@ function Editor({
   readonly onExpand?: (() => void) | undefined;
 }) {
   const store = useDraftStore();
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
+  // Whether Send's question about files that were not added is open.
+  const askingLeftOut = useRef(false);
   const state = useDrafts();
   const colors = usePalette();
   const { t } = useLocalization();
@@ -3917,24 +4027,34 @@ function Editor({
       inline,
     );
   };
-  const removeAsset = (id: string) => {
+  // Removes files `ids` as one edit.
+  const removeAssets = (ids: readonly string[]) => {
     if (sendingNow.current) {
       return;
     }
-    void store.cancelImport(id);
+    for (const id of ids) {
+      void store.cancelImport(id);
+    }
+    const without = (document: SemanticDocument) =>
+      ids.reduce((remaining, id) => withoutImage(remaining, id), document);
     const latest = authored.current;
     change({
       ...latest,
-      body: withoutImage(latest.body, id),
+      body: without(latest.body),
       ...(latest.quoted === undefined
         ? {}
-        : { quoted: withoutImage(latest.quoted, id) }),
+        : { quoted: without(latest.quoted) }),
       ...(latest.attachments === undefined
         ? {}
         : {
-            attachments: latest.attachments.filter((asset) => asset.id !== id),
+            attachments: latest.attachments.filter(
+              (asset) => !ids.includes(asset.id),
+            ),
           }),
     });
+  };
+  const removeAsset = (id: string) => {
+    removeAssets([id]);
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
@@ -4143,6 +4263,20 @@ function Editor({
     const at = selectionNow.current;
     const latest = authored.current;
     const result = setBlockKind(latest.body, at, kind);
+    change({ ...latest, body: result.document });
+    selectionNow.current = result.selection ?? at;
+    setPlaced(result.selection);
+  };
+  const indent = (direction: IndentDirection) => {
+    if (sendingNow.current) {
+      return;
+    }
+    const at = selectionNow.current;
+    const latest = authored.current;
+    const result = indentList(latest.body, at, direction);
+    if (result.document === latest.body) {
+      return;
+    }
     change({ ...latest, body: result.document });
     selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
@@ -4430,6 +4564,32 @@ function Editor({
       setSending(false);
       return false;
     });
+  // Send and Send Now first ask, once at a time, to leave out the files that were not added, then
+  // remove them as one edit and send; files that changed meanwhile leave the Draft open to ask
+  // again.
+  const sendAsking = async (delay?: number) => {
+    if (askingLeftOut.current) {
+      return;
+    }
+    const latest = authored.current;
+    const leftOut = leftOutOf(latest, running);
+    if (leftOut.length > 0) {
+      const files = filesOf(latest);
+      const others = distinct(assetsOf(latest)).length - leftOut.length;
+      askingLeftOut.current = true;
+      const agreed = await askLeftOut(t, leftOut, others);
+      askingLeftOut.current = false;
+      if (
+        !agreed ||
+        !lifetime.current.mounted ||
+        filesOf(authored.current) !== files
+      ) {
+        return;
+      }
+      removeAssets(leftOut.map(({ id }) => id));
+    }
+    await send(delay);
+  };
   // On iPad a reply docks beneath its message, titled by its kind; a new message is a card.
   const presentation = presentationOf(regular, draft);
   const docked = presentation === 'docked';
@@ -4437,6 +4597,7 @@ function Editor({
   const { title, titleLabel } = composerTitle(t, draft, docked || !regular);
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
+  const indents = listIndentAt(draft.body, selection);
   const copiesShown = copiesShownOf(draft);
   // An edit in Cc or Bcc keeps both shown for the Draft, even once they are empty.
   const changeCopies = (next: Draft, word: boolean, field: string) => {
@@ -4459,9 +4620,13 @@ function Editor({
     <SendMenu
       popover={regular}
       disabled={closing === 'saving'}
-      sendNow={sendNowOf(draft, blocked.blocked, closing === 'saving')}
+      sendNow={sendNowOf(
+        blocked.blocked,
+        closing === 'saving',
+        addingOf(draft, running),
+      )}
       onSendNow={() => {
-        void send(0);
+        void sendAsking(0);
       }}
       onRemind={(dueAt, timeZone) => {
         void remind(dueAt, timeZone);
@@ -4471,7 +4636,7 @@ function Editor({
         disabled={closing === 'saving' || blocked.blocked !== undefined}
         hint={blocked.reason}
         onPress={() => {
-          void send();
+          void sendAsking();
         }}
       />
     </SendMenu>
@@ -4574,8 +4739,10 @@ function Editor({
     <FormatBar
       active={active}
       kind={kind}
+      indents={indents}
       disabled={sending}
       onBlock={block}
+      onIndent={indent}
       onMark={format}
       style={parts.formatBar}>
       {(lists) => (
@@ -4860,6 +5027,10 @@ function Editor({
               onArrow={(key) => {
                 recipientMenu.move(key, authored.current, selectionNow.current);
               }}
+              tabs={listTabs(kind, recipientMenu.choosing)}
+              onTab={(shift) => {
+                indent(shift ? 'outdent' : 'indent');
+              }}
               onLayout={({ nativeEvent }) => {
                 setBodyTop(nativeEvent.layout.y);
               }}>
@@ -5093,6 +5264,8 @@ function Editor({
               travel(redo);
             }}
             onBlock={block}
+            indents={indents}
+            onIndent={indent}
             onMark={format}
             onLink={editLink}
             onClose={() => {

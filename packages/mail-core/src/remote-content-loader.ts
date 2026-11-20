@@ -180,7 +180,9 @@ export function createRemoteContentLoader(
     >;
     networkUrls: ReadonlySet<string>;
     near: ReadonlySet<string>;
+    // Network requests started, and those queued in this load but not started yet.
     attempts: number;
+    reserved: number;
     sequence: number;
     admitted: number;
   }
@@ -284,6 +286,8 @@ export function createRemoteContentLoader(
           ]),
       ]),
       abort: new AbortController(),
+      // The replaced load's queued requests end without starting, so they keep no attempts.
+      reserved: 0,
       near,
       networkUrls,
       network,
@@ -440,13 +444,14 @@ export function createRemoteContentLoader(
       mailbox: MailboxScope,
       resource: RemoteResource,
       authorized: Readonly<{
-        network: () => boolean;
         request: Readonly<{ session: string; request: string }>;
         current: () => boolean;
+        // Takes a network attempt for a consented source, just before its fetch starts.
+        claim: () => boolean;
         retain: (image: RemoteImage) => boolean;
       }>,
     ) {
-      const { network, request, current, retain } = authorized;
+      const { request, current, claim, retain } = authorized;
       if (!current()) {
         return { kind: 'failed' } as const;
       }
@@ -461,7 +466,7 @@ export function createRemoteContentLoader(
         }
         return { kind: 'restored', image: restored } as const;
       }
-      if (!network()) {
+      if (!claim()) {
         return { kind: 'absent' } as const;
       }
       const fetched = yield* Effect.tryPromise({
@@ -559,6 +564,7 @@ export function createRemoteContentLoader(
         Readonly<{ urls: ReadonlySet<string>; network: boolean }>
       >(),
       attempts: 0,
+      reserved: 0,
       sequence: 0,
       admitted: 0,
     };
@@ -607,7 +613,10 @@ export function createRemoteContentLoader(
             });
             const network = eligible
               .filter((url) => remote.networkUrls.has(url))
-              .slice(0, inlineImageLimits.attempts - remote.attempts);
+              .slice(
+                0,
+                inlineImageLimits.attempts - remote.attempts - remote.reserved,
+              );
             const cached = eligible
               .filter((url) => !remote.networkUrls.has(url))
               .slice(0, inlineImageLimits.attempts);
@@ -627,7 +636,10 @@ export function createRemoteContentLoader(
             lane.pending += wanted.length;
             const attemptStart = remote.sequence;
             remote.sequence += wanted.length;
-            remote.attempts += network.length;
+            remote.reserved += network.length;
+            // A reservation becomes an attempt when its fetch starts; the rest return on settling.
+            // A source queued without one, such as for the cache, starts only with spare attempts.
+            const unstarted = new Set(network);
             yield* Effect.forEach(
               wanted,
               (url) =>
@@ -638,12 +650,26 @@ export function createRemoteContentLoader(
                         mailbox,
                         { id, url },
                         {
-                          network: () => remote.networkUrls.has(url),
                           request: {
                             session: remote.session,
                             request: `${remote.session}:${attemptStart + wanted.indexOf(url)}`,
                           },
                           current: () => current(url),
+                          claim: () => {
+                            if (!remote.networkUrls.has(url)) {
+                              return false;
+                            }
+                            if (unstarted.delete(url)) {
+                              remote.reserved -= 1;
+                            } else if (
+                              remote.attempts + remote.reserved >=
+                              inlineImageLimits.attempts
+                            ) {
+                              return false;
+                            }
+                            remote.attempts += 1;
+                            return true;
+                          },
                           retain: (image) => reserve({ id, url }, image),
                         },
                       ),
@@ -663,9 +689,10 @@ export function createRemoteContentLoader(
               { concurrency: 'unbounded' },
             ).pipe(
               Effect.flatMap((results) =>
-                Effect.sync(() =>
-                  settle(id, results, () => loads.get(id) === remote),
-                ),
+                Effect.sync(() => {
+                  remote.reserved -= unstarted.size;
+                  return settle(id, results, () => loads.get(id) === remote);
+                }),
               ),
               Effect.flatMap((admittedResults) =>
                 Effect.forEach(

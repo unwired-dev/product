@@ -779,11 +779,10 @@ final class InboxTests: XCTestCase {
     }
     app.terminate()
     app.launch()
-    // Relaunch reopens the account page, then the encrypted Microsoft cache and its message.
-    XCTAssertTrue(text("connected on this device", in: app).waitForExistence(timeout: 20))
-    XCTAssertTrue(text("casey@example.invalid", in: app).exists)
-    XCTAssertTrue(contact.exists)
-    app.buttons[settingsExit].tap()
+    // Setup is confirmed, so relaunch opens the unified Inbox from the encrypted Microsoft cache.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 20))
+    }
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
@@ -1149,10 +1148,7 @@ final class InboxTests: XCTestCase {
     choose(
       "Airplane", in: icon, checked: "First Letter",
       of: ["Person", "People", "Laptop", "Book", "Airplane", "Cart", "Paintbrush", "Star"], app)
-    // The iPad sidebar shows the account's monogram, which Light detects.
-    let sidebarMonogram = UIDevice.current.userInterfaceIdiom == .pad
-      && ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE"] == "light"
-    try audit(app, "Mail Profiles", monograms: sidebarMonogram ? 1 : 0)
+    try audit(app, "Mail Profiles")
     verifyBlueMonogram(app, in: work.frame, "Settings row of a styled Profile")
   }
 
@@ -1300,7 +1296,11 @@ final class InboxTests: XCTestCase {
       waitUntil { back.isHittable && !switcher.isHittable }
       back.tap()
     } else if !switcher.exists || !switcher.isHittable {
-      app.navigationBars.buttons.firstMatch.tap()
+      if app.buttons["Show Sidebar"].exists {
+        showSidebar(app)
+      } else {
+        app.navigationBars.buttons.firstMatch.tap()
+      }
     }
     XCTAssertTrue(switcher.waitForExistence(timeout: 15))
     // #1800: the Profile Menu draws Work's monogram in full colour rather than tinted, and the
@@ -2576,7 +2576,7 @@ final class InboxTests: XCTestCase {
     let item = app.cells[name]
     let more = app.buttons["More Lists and Links"]
     if !control.isHittable, item.exists || more.isHittable,
-      ["Numbered List", "Add Link", "Edit Link", "Undo", "Redo"].contains(name)
+      ["Numbered List", "Outdent", "Indent", "Add Link", "Edit Link", "Undo", "Redo"].contains(name)
     {
       if !item.exists {
         more.tap()
@@ -3967,6 +3967,61 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(waiting.count, 0)
     XCTAssertFalse(app.buttons["Undo"].exists)
     attachScreen("After Send Now", of: app, to: self)
+  }
+
+  // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,
+  // iPhone's in the Format panel and iPad's on the format bar, do the same; each is one Undo step.
+  func testListIndent() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    app.buttons["New Message"].tap()
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    focus(subject) { self.hasFocus(subject) }
+    // XCUITest cannot type into the multiline body; hardware key presses reach it. A key the field
+    // drops while it re-renders is pressed once more (#1510).
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    focus(body) { !self.hasFocus(subject) }
+    for key in "- Pilot\n\tStart\n\tSeats" {
+      let before = body.value as? String
+      let changed = NSPredicate { _, _ in body.value as? String != before }
+      for _ in 0..<2 where body.value as? String == before {
+        press(String(key), in: app)
+        _ = XCTWaiter.wait(
+          for: [XCTNSPredicateExpectation(predicate: changed, object: nil)], timeout: 5)
+      }
+    }
+    // Each level shows its marker one em and one en space further in. Under host load the app can
+    // take 20 seconds to idle after a key press.
+    let level = "\u{2003}\u{2002}"
+    let nested = "• Pilot\n\(level)• Start\n\(level)\(level)• Seats"
+    waitUntil({ body.value as? String == nested }, timeout: 60)
+    // At the third level Tab does nothing, and Shift-Tab moves the item out one level.
+    press("\t", in: app)
+    app.typeKey("\t", modifierFlags: .shift)
+    waitUntil({ body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }, timeout: 60)
+    press("\t", in: app)
+    waitUntil({ body.value as? String == nested }, timeout: 60)
+    // At the third level Indent is off and Outdent is on.
+    let indent = formatControl("Indent", in: app)
+    XCTAssertTrue(indent.waitForExistence(timeout: 10))
+    XCTAssertFalse(indent.isEnabled)
+    let outdent = formatControl("Outdent", in: app)
+    XCTAssertTrue(outdent.isEnabled)
+    attachScreen("Nested list", of: app, to: self)
+    outdent.tap()
+    waitUntil({ body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }, timeout: 60)
+    formatControl("Undo", in: app).tap()
+    waitUntil({ body.value as? String == nested }, timeout: 60)
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {

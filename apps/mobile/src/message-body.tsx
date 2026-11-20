@@ -5,6 +5,7 @@ import type {
   GmailInbox,
   MessageBodyState,
   ReceivedAttachment,
+  SavedCopy,
 } from '@private-email/mail-core/inbox-store';
 import type {
   BodyLink,
@@ -21,6 +22,7 @@ import type {
 import type {
   ShouldStartLoadRequest,
   WebViewEvent,
+  WebViewScrollEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
 import {
@@ -81,6 +83,7 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
+import { useMessageZoom, zoomedDocument } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
@@ -107,11 +110,23 @@ export const withoutLinkFrom =
   (inbox: object, id: string) => (pending: PendingLink | undefined) =>
     pending?.inbox === inbox && pending.id === id ? undefined : pending;
 
+// What Save to Files did for one of the reader's attachments: the copy it saved, or nothing saved,
+// with the action that tries again.
+export type SaveOutcome =
+  | Readonly<{ kind: 'saved'; copy: SavedCopy }>
+  | Readonly<{ kind: 'failed'; name: string; retry: () => void }>;
+
+// Starts a save in the reader showing the message, returning how to report its outcome; none
+// outside a reader.
+export const SaveOutcomeContext = createContext<
+  (() => (outcome: SaveOutcome) => void) | undefined
+>(undefined);
+
 export const LinkConfirmationContext = createContext<
   Dispatch<SetStateAction<PendingLink | undefined>> | undefined
 >(undefined);
 
-async function openLink(href: string) {
+export async function openLink(href: string) {
   try {
     await Linking.openURL(href);
   } catch {
@@ -462,14 +477,17 @@ export function ReaderScrollView({
 // The sanitized document in an isolated WebKit view: no page JavaScript, non-persistent data,
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
-// images within one viewport of the visible range are reported as they come near.
+// images within one viewport of the visible range are reported as they come near. The document
+// takes the reader's Message Zoom.
 function RichDocument({
   rich,
+  zoom,
   onChoose,
   onFailure,
   onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
+  readonly zoom: number;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
@@ -480,9 +498,12 @@ function RichDocument({
   const [width, setWidth] = useState<number>();
   // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
   const [source] = useState(() => ({
-    html: labelImagePlaceholders(
-      rich.initialDocument,
-      t('messageBody.imageNotLoaded'),
+    html: zoomedDocument(
+      labelImagePlaceholders(
+        rich.initialDocument,
+        t('messageBody.imageNotLoaded'),
+      ),
+      zoom,
     ),
   }));
   const container = useRef<ViewInstance>(null);
@@ -493,6 +514,22 @@ function RichDocument({
   const [positions, setPositions] = useState<
     ReturnType<typeof decodeRemoteImagePositions>
   >([]);
+  // How far the view has scrolled inside its document and its pinch zoom, and the check it reruns.
+  const inner = useRef({ offset: 0, scale: 1 });
+  const near = useRef<() => void>(undefined);
+  // The shown view's `layout`, advanced as soon as it is replaced so its late events are ignored.
+  const live = useRef(0);
+  // An outgoing document, such as one replaced by a Message Zoom change, withdraws its images.
+  const withdraw = useRef(onNear);
+  useEffect(() => {
+    withdraw.current = onNear;
+  });
+  useEffect(
+    () => () => {
+      withdraw.current([]);
+    },
+    [],
+  );
   useEffect(() => {
     if (
       viewport === undefined ||
@@ -503,7 +540,11 @@ function RichDocument({
     }
     let active = true;
     let measurement = 0;
+    const shown = live.current;
     const request = () => {
+      if (live.current !== shown) {
+        return;
+      }
       measurement += 1;
       const revision = measurement;
       const { offset, height: visible } = viewport.get();
@@ -512,25 +553,33 @@ function RichDocument({
         return;
       }
       container.current?.measureLayout(content, (_left, top) => {
-        if (!active || revision !== measurement) {
+        if (!active || revision !== measurement || live.current !== shown) {
           return;
         }
-        // A document taller than its view scrolls inside it; only its first view is placed.
+        // The document scrolls and pinch-zooms inside its view; only images inside the view count.
+        const { offset: scrolled, scale } = inner.current;
+        const start = top - scrolled;
+        const bottom = top + Math.min(height, heightCap);
         const urls = positions
-          .filter(
-            (position) =>
-              position.top < heightCap &&
-              top + position.bottom >= offset - visible &&
-              top + position.top <= offset + 2 * visible,
-          )
+          .filter((position) => {
+            const upper = Math.max(start + position.top * scale, top);
+            const lower = Math.min(start + position.bottom * scale, bottom);
+            return (
+              upper < lower &&
+              lower >= offset - visible &&
+              upper <= offset + 2 * visible
+            );
+          })
           .flatMap(({ index }) => rich.remote.images[index] ?? []);
         onNear(urls);
       });
     };
     request();
+    near.current = request;
     const unsubscribe = viewport.subscribe(request);
     return () => {
       active = false;
+      near.current = undefined;
       unsubscribe();
     };
   }, [viewport, height, positions, rich, onNear]);
@@ -554,8 +603,12 @@ function RichDocument({
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
+          // The replacement view reports its images afresh; the old ones are withdrawn.
+          live.current += 1;
+          inner.current = { offset: 0, scale: 1 };
+          onNear([]);
           setHeight(undefined);
-          setLayout((count) => count + 1);
+          setLayout(live.current);
         }
         setWidth(next);
       }}>
@@ -577,7 +630,7 @@ function RichDocument({
           onContentProcessDidTerminate={onFailure}
           onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
-            if (measured !== undefined) {
+            if (measured !== undefined && layout === live.current) {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured.height);
               setContentWidth(measured.width);
@@ -585,6 +638,15 @@ function RichDocument({
           }}
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
+          onScroll={({ nativeEvent }: WebViewScrollEvent) => {
+            if (layout === live.current) {
+              inner.current = {
+                offset: nativeEvent.contentOffset.y,
+                scale: nativeEvent.zoomScale ?? 1,
+              };
+              near.current?.();
+            }
+          }}
           // Every URL reaches `choose`; the wrapper would otherwise open unlisted origins itself.
           originWhitelist={['*']}
           // Without bounce, a sideways scroll keeps a normal-height document pinned vertically.
@@ -626,6 +688,7 @@ export function Presentation({
   const colors = usePalette();
   const { t } = useLocalization();
   const { rich, readable } = presentation;
+  const zoom = useMessageZoom();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
     document: rich?.initialDocument,
@@ -675,8 +738,9 @@ export function Presentation({
       ) : (
         <>
           <RichDocument
-            key={richKey}
+            key={`${richKey}:${zoom}`}
             rich={rich}
+            zoom={zoom / 100}
             onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {
@@ -742,6 +806,7 @@ type AttachmentSource = Pick<
   | 'downloadAttachment'
   | 'cancelAttachment'
   | 'presentAttachment'
+  | 'saveAttachmentCopy'
   | 'attachmentFile'
 >;
 // Starts a new message with a Downloaded Attachment, where the reader can open a composer.
@@ -767,6 +832,7 @@ function AttachmentRow({
 }) {
   const colors = usePalette();
   const attach = use(AttachContext);
+  const report = use(SaveOutcomeContext);
   const { t, settings } = useLocalization();
   const sizeFormat = useMemo(
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
@@ -811,6 +877,30 @@ function AttachmentRow({
         void inbox.presentAttachment(id, locator, 'share');
       }
     };
+    // Saves a copy where the person chooses, and tells the reader what happened unless they
+    // cancelled; the reader drops a result once it stopped showing the message.
+    const saveCopy = async (shown: (outcome: SaveOutcome) => void) => {
+      const saved = await inbox.saveAttachmentCopy(id, locator);
+      if (saved === 'cancelled') {
+        return;
+      }
+      shown(
+        saved === 'failed'
+          ? {
+              kind: 'failed',
+              name,
+              retry: () => {
+                void saveCopy(shown);
+              },
+            }
+          : { kind: 'saved', copy: saved },
+      );
+    };
+    const save = () => {
+      if (current() && report !== undefined) {
+        void saveCopy(report());
+      }
+    };
     menu = [
       {
         items: [
@@ -820,6 +910,20 @@ function AttachmentRow({
             symbol: 'eye',
             run: open,
           },
+        ],
+      },
+      {
+        items: [
+          ...(report === undefined
+            ? []
+            : [
+                {
+                  key: 'saveToFiles',
+                  title: t('attachment.saveToFiles'),
+                  symbol: 'folder',
+                  run: save,
+                },
+              ]),
           {
             key: 'share',
             title: t('contextMenu.share'),
@@ -870,7 +974,9 @@ function AttachmentRow({
       );
   }
   return (
-    <ContextMenu sections={menu}>
+    <ContextMenu
+      title={name}
+      sections={menu}>
       <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
         <SFSymbol
           name="doc"

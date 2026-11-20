@@ -100,6 +100,17 @@
     "detail": "System follows macOS. Increase Contrast and Reduce Transparency apply in every choice.",
     "iosDetail": "System follows iOS. Increase Contrast and Reduce Transparency apply in every choice."
   },
+  "reading": {
+    "appText": "App text",
+    "textSize": "Text Size",
+    "followsSystem": "Follows iOS",
+    "received": "Received messages",
+    "zoom_iphone": "Message Zoom",
+    "zoom_ipad": "Message zoom",
+    "percent": "{{value}}%",
+    "footer_iphone": "Zooms formatted mail as you read it on this iPhone. The message and your Drafts don’t change.",
+    "footer_ipad": "Zooms formatted mail as you read it on this iPad. The message and your Drafts don’t change."
+  },
   "listDensity": {
     "title": "List density",
     "comfortable": "Comfortable",
@@ -226,6 +237,7 @@
     "accountPrivateSync": "Account & Devices · Sync on",
     "sections": {
       "accounts": "Accounts",
+      "mail": "Mail",
       "composing": "Composing",
       "automation": "Automation",
       "application": "Application"
@@ -237,6 +249,7 @@
       "signatures": "Signatures",
       "notifications": "Notifications",
       "blockedSenders": "Blocked Senders",
+      "reading": "Reading",
       "appearance": "Appearance",
       "language": "Language",
       "privacy": "Privacy & Data",
@@ -644,7 +657,15 @@
     "downloadAction": "Download",
     "attachToNew": "Attach to New Message",
     "attachToNewLabel": "Attach {{name}} to a new message",
-    "attachFailed": "The new message with this attachment didn’t open. Choose Attach to New Message again."
+    "attachFailed": "The new message with this attachment didn’t open. Choose Attach to New Message again.",
+    "saveToFiles": "Save to Files…",
+    "saveToFilesLabel": "Save {{name}} to Files",
+    "saved": "Saved to {{folder}}",
+    "savedNamed": "Saved “{{name}}” to {{folder}}",
+    "show": "Show",
+    "showLabel": "Show {{name}} in Files",
+    "saveFailed": "Couldn’t save “{{name}}”",
+    "saveFailedDetail": "The file was not saved."
   },
   "invitation": {
     "heading": "Invitation",
@@ -1202,6 +1223,21 @@
       "detail": "No Undo",
       "waiting": "Waiting for {{name}} to finish"
     },
+    "leftOut": {
+      "title_one": "Send without {{count}} attachment?",
+      "title_other": "Send without {{count}} attachments?",
+      "tooLarge": "{{name}} is too large",
+      "notAdded": "{{name}} wasn’t added",
+      "cancelled": "{{name}} was cancelled",
+      "interrupted": "{{name}} was interrupted while being added",
+      "list": "{{items}} and {{last}}",
+      "others_one": "The other file will be sent.",
+      "others_other": "The other {{count}} files will be sent.",
+      "none": "No attachments will be sent.",
+      "send_one": "Send Without It",
+      "send_other": "Send Without Them",
+      "keepEditing": "Keep Editing"
+    },
     "reminder": {
       "remindMeToSend": "Remind Me to Send…",
       "detail": "Keep it as a draft and remind me",
@@ -1259,6 +1295,8 @@
     "formatting": "Formatting",
     "moreFormatting": "More Formatting",
     "moreLists": "More Lists and Links",
+    "outdent": "Outdent",
+    "indent": "Indent",
     "moreFiles": "More Files and Templates",
     "moreFileActions": "More Files",
     "body": "Message body",
@@ -1684,6 +1722,13 @@
     "openSettings": "Open Settings…",
     "previews": "Show Sender and Subject",
     "previewsDetail": "Sender and subject appear only on this device after you choose them.",
+    "badge": "App Icon Badge",
+    "badges": {
+      "off": "Off",
+      "inbox": "Unread in Inbox"
+    },
+    "badgeDetail": "Counts unread mail in Inbox.",
+    "badgeKept": "Your choices are kept and apply as soon as notifications are allowed.",
     "perMailbox": "Per Mailbox",
     "mailbox": "{{provider}} · {{address}}",
     "perMailboxDetail": "Off until you turn it on. Each mailbox’s choice syncs to your other devices.",

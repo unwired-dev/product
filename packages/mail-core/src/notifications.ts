@@ -15,6 +15,7 @@ import type {
   MailGrantProvider,
   RegistrationSnapshot,
 } from './registration-snapshot.ts';
+import type { Registration } from './registration.ts';
 
 import { logNote, rejectionDiagnostic, runLogged } from './diagnostics.ts';
 import { draftOf, draftSaveProblem, isEmptyDraft } from './drafts.ts';
@@ -22,16 +23,20 @@ import { gmailAction } from './gmail-actions.ts';
 import { imapRoleFolder } from './imap-actions.ts';
 import { listedMessage } from './inbox-store.ts';
 import { mailboxesOf, unavailableProfile } from './registration-snapshot.ts';
+import { canOpenInbox } from './registration.ts';
 import { typedBody, typedReply } from './responses.ts';
 import { createSubscribable } from './subscribable.ts';
 
-// What the operating system lets this device show, and whether a New Mail Notification may show
-// its sender and subject. Native code keeps both as Device-Local Preferences; previews start off.
+// What the operating system lets this device show, whether a New Mail Notification may show its
+// sender and subject, and what the App Icon Badge counts. Native code keeps the choices as
+// Device-Local Preferences; previews and the badge start off.
 const Settings = Schema.Struct({
   authorization: Schema.Literals(['undetermined', 'denied', 'authorized']),
   previews: Schema.Boolean,
+  badge: Schema.Literals(['off', 'inbox']),
 });
 export type NotificationSettings = typeof Settings.Type;
+export type BadgeChoice = NotificationSettings['badge'];
 const decodeSettings = Schema.decodeUnknownEffect(Settings);
 
 const Mailbox = Schema.Struct({
@@ -121,6 +126,9 @@ export interface NativeNotifications {
   // Asks the operating system for alert permission and resolves the settings afterwards.
   readonly requestNotifications: () => Promise<unknown>;
   readonly setNotificationPreviews: (previews: boolean) => Promise<unknown>;
+  readonly setNotificationBadge: (badge: BadgeChoice) => Promise<unknown>;
+  // Shows `count` on the application's icon; 0 removes the badge.
+  readonly setBadgeCount: (count: number) => Promise<unknown>;
   // Opens this application's notification settings in the system's settings.
   readonly openNotificationSettings: () => Promise<unknown>;
   readonly postNotifications: (
@@ -185,6 +193,43 @@ const logged = (
       Effect.logError(message, rejectionDiagnostic(cause)),
     ),
   );
+
+// What the App Icon Badge counts: Registration, and every connection whose Inbox can open.
+type BadgeSources = Readonly<{
+  registration: Pick<Registration, 'getSnapshot' | 'subscribe'>;
+  mailboxes: Readonly<{
+    getConnections: () => ReadonlyArray<
+      Readonly<{
+        state: Readonly<{
+          kind: string;
+          messages?: ReadonlyArray<Readonly<{ unread: boolean }>>;
+        }>;
+      }>
+    >;
+    subscribe: (listener: () => void) => () => void;
+  }>;
+}>;
+
+// The unread messages this device lists in the Inbox of every open connection, as the sidebar's
+// Inbox rows count them, or undefined while saved registration or an Inbox has not opened yet.
+// Without an Inbox to open, after sign-out or the last removal, nothing is unread.
+const inboxUnread = ({ registration, mailboxes }: BadgeSources) => {
+  const { snapshot, restoring, locked } = registration.getSnapshot();
+  if (restoring === true || locked === true) {
+    return undefined;
+  }
+  if (!canOpenInbox(snapshot)) {
+    return 0;
+  }
+  let unread = 0;
+  for (const { state } of mailboxes.getConnections()) {
+    if (state.kind === 'loading' || state.kind === 'locked') {
+      return undefined;
+    }
+    unread += state.messages?.filter((message) => message.unread).length ?? 0;
+  }
+  return unread;
+};
 
 // Generic content unless this device chose previews. Without a title the system shows the
 // application's name.
@@ -257,6 +302,76 @@ export function createNotifications(
         () => native.setNotificationPreviews(previews),
         'Notification previews could not be saved:',
       ),
+    setBadge: (badge: BadgeChoice) =>
+      update(
+        () => native.setNotificationBadge(badge),
+        'The App Icon Badge choice could not be saved:',
+      ),
+    // Keeps the App Icon Badge on the unread Inbox count while the badge counts it and the system
+    // allows notifications, and removes it otherwise. A count is applied only once every source
+    // has settled, so while it counts, a launch that has not opened saved registration or an
+    // Inbox yet keeps the badge it found.
+    followBadge: (sources: BadgeSources) => {
+      // What the icon shows once the system applied it, and the count it should show. One write
+      // runs at a time and ends on the latest count; a refused count is tried again at the next
+      // change.
+      let shown: number | undefined = undefined;
+      let wanted: number | undefined = undefined;
+      let writing = false;
+      const apply = (count: number) =>
+        logged(
+          'The App Icon Badge could not be set:',
+          call(() => native.setBadgeCount(count)).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                shown = count;
+              }),
+            ),
+          ),
+        );
+      const write = Effect.gen(function* () {
+        let attempted: number | undefined = undefined;
+        for (
+          let count = wanted;
+          count !== undefined && count !== shown && count !== attempted;
+          count = wanted
+        ) {
+          attempted = count;
+          yield* apply(count);
+        }
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            writing = false;
+          }),
+        ),
+      );
+      const follow = () => {
+        const current = settings.getSnapshot();
+        if (current === undefined) {
+          return;
+        }
+        const count =
+          current.authorization === 'authorized' && current.badge === 'inbox'
+            ? inboxUnread(sources)
+            : 0;
+        if (count === undefined) {
+          return;
+        }
+        wanted = count;
+        if (!writing && wanted !== shown) {
+          writing = true;
+          void runLogged(write);
+        }
+      };
+      settings.subscribe(follow);
+      sources.registration.subscribe(follow);
+      sources.mailboxes.subscribe(follow);
+      void update(
+        () => native.notificationSettings(),
+        'Notification settings could not be read:',
+      );
+    },
     openSettings: () =>
       runLogged(
         logged(
@@ -884,11 +999,13 @@ async function act(
   {
     snapshot,
     mailbox,
+    showSaved,
     replies,
     sending,
   }: Readonly<{
     snapshot: () => RegistrationSnapshot;
     mailbox: (connection: string) => OpenInbox | undefined;
+    showSaved: () => Promise<void>;
     replies: Replies;
     sending: Sending;
   }>,
@@ -943,6 +1060,8 @@ async function act(
     return;
   }
   await organizeListed(open, target.id, chosen.action);
+  // The other connections show their saved listings, so the App Icon Badge counts every Inbox.
+  await showSaved();
 }
 
 // Acts on each action chosen on a notification, one at a time except typed replies, until a
@@ -965,6 +1084,7 @@ export async function followNotificationActions(
     snapshot,
     verify,
     mailbox,
+    showSaved,
     replies,
   }: Readonly<{
     snapshot: () => RegistrationSnapshot;
@@ -974,6 +1094,8 @@ export async function followNotificationActions(
     ) => Promise<void>;
     // The connection's open Inbox.
     mailbox: (connection: string) => OpenInbox | undefined;
+    // Shows each saved Inbox listing no synchronization has opened yet.
+    showSaved: () => Promise<void>;
     replies: Replies;
   }>,
 ) {
@@ -988,7 +1110,12 @@ export async function followNotificationActions(
     try {
       // Read after verification, which restores a cold host or removes a stale connection.
       await verify(
-        () => act(native, { snapshot, mailbox, replies, sending }, chosen),
+        () =>
+          act(
+            native,
+            { snapshot, mailbox, showSaved, replies, sending },
+            chosen,
+          ),
         'explicit',
       );
     } catch (error) {

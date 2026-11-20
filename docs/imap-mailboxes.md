@@ -852,6 +852,89 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   in any folder of either mailbox. Limitations: Mac, iPad, attachments, the star, IDLE,
   offline queueing, uncertain-move recovery, relaunch and large-folder backfill stay on
   #632.
+- **2026-11-20, iPhone attachments
+  ([#2471](https://github.com/unwired-dev/product/issues/2471)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `594c5a152f12ffd59a8ff56ff3a95b5e0313a91c`. Both certification
+  mailboxes were connected through the app as in the first record. Attachment: one PNG
+  image (`image/png`, 146,436 bytes, listed as 143 KB), added with the composer's
+  **Attach Photo**. Result: pass. From each mailbox, a new message with the attachment
+  went through the Outbox, iCloud Mail over `smtp.mail.me.com` 587 (STARTTLS) and Seznam
+  Email over `smtp.seznam.cz` 465 (SSL/TLS), and arrived in the other mailbox. Over IMAP,
+  `imap.mail.me.com` 993 and `imap.seznam.cz` 993 (TLS), the delivered message and the
+  sender's Sent copy each carried one attachment part with the same file name, content
+  type, decoded size and SHA-256 prefix (first 16 hex digits). In each receiving
+  mailbox, the reader listed the attachment with its name and size, **Download** saved a
+  file with the same size and prefix and **Open** showed it in Quick Look. **Reply** ›
+  **Forward** then carried the attachment back to the other mailbox, and the delivered
+  forward and its Sent copy had the same decoded size and prefix. Afterwards no run
+  message remained in any folder of either mailbox.
+  Limitations: once, Forward after **Download**, **Open** and closing the preview showed
+  the attachment as **Not added: the file could not be read or saved**, and repeating the
+  steps carried it. In the same reader the first **Open** showed no preview and the row
+  returned to **Download** ([#2480](https://github.com/unwired-dev/product/issues/2480)).
+  The first forward from iCloud Mail was sent, but its server copies were removed before
+  they were checked, so the verified forward in that direction came from a second test
+  message from Seznam Email. The machine was under heavy load: typed text dropped
+  characters and Quick Look took many seconds to appear. Mac, iPad, Share and Save to
+  Files ([#2469](https://github.com/unwired-dev/product/issues/2469)), inline images,
+  attachments over the 25 MiB download limit, IDLE, relaunch and recovery stay on #632.
+- **2026-11-20, iPhone IDLE freshness and relaunch
+  ([#2491](https://github.com/unwired-dev/product/issues/2491)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `e7dd19fc4aac8c2405510201b841454d9080f0b1`. The certification
+  Product Account was unlocked on this device with its Recovery Key, and both
+  certification mailboxes were connected through the app as in the first record. Test
+  messages were submitted between the two mailboxes over SMTP from outside the app, and
+  each arrival time was read on the server as the message's IMAP `INTERNALDATE`. Result:
+  pass. With the app active on All Inboxes, three messages submitted to iCloud Mail,
+  which offers IDLE, appeared in the list without pulling it down, 5 to 10 seconds after
+  they arrived on `imap.mail.me.com` 993 (TLS). A message submitted to Seznam Email,
+  which does not offer IDLE, appeared about three minutes after it arrived on
+  `imap.seznam.cz` 993 (TLS), with no interaction, as the five-minute poll allows.
+  Another message appeared 12 seconds after the pull-down began, about two and a half
+  minutes after its arrival. The app was then terminated, and a message was submitted to
+  each mailbox while it was not running. After launch, both connections opened without
+  asking for a password, Email Accounts showed each as **Updated just now**, the Inbox
+  listed the earlier messages, and both new messages appeared 21 seconds after launch. A
+  message submitted to iCloud Mail after the relaunch appeared 5 seconds after it
+  arrived, consistent with a resumed IDLE wait. Afterwards no run message remained in
+  any folder of either mailbox. Limitations: the delays include up to about 4 seconds
+  between the operator's checks of the screen. Mac, iPad, background refresh and push
+  wakes, IDLE interruption, password and connection recovery, offline queueing and
+  large-folder backfill stay on #632.
+- **2026-11-20, iPad connect, read, send and reply
+  ([#2510](https://github.com/unwired-dev/product/issues/2510)).** Target: Expo client,
+  Release build without a Mock Mail Session, a new iPad Pro 11-inch (M5) Simulator on iOS
+  27.0, with the development Convex deployment. Build: the app source of
+  `f065fdff4d670ced0e31a389a9f714d7357e3de5`. Toolchain: Xcode 27.2 (27B52). Operator:
+  agent, with credentials read at run time from the approved password manager. Result:
+  pass. Google Product Sign-In found the certification Product Account, and this device
+  was unlocked with its Recovery Key. **iCloud Mail** connected with the app-specific
+  password over `imap.mail.me.com` 993 (TLS) and `smtp.mail.me.com` 587 (STARTTLS).
+  **Add an IMAP Mailbox** › **Other IMAP Account** then filled in `imap.seznam.cz` 993
+  (TLS) and `smtp.seznam.cz` 465 (SSL/TLS) from the catalog for the Seznam Email address,
+  and that mailbox connected with its mail-client password. After **Connect**, Email
+  Accounts listed each mailbox as **Updated just now**. Before the mailboxes were
+  connected, one test message was submitted over SMTP from each mailbox to the other.
+  Each Inbox listed real messages, and the test message opened
+  in the reader beside the list in each mailbox, which set its `\Seen` flag on the server.
+  A new message from iCloud Mail showed **Sending soon** with **Undo**, then **Sending…**
+  and **Sent. Saving a copy to Sent…**. The row then left the Outbox, and the message
+  appeared in the Seznam Email Inbox in the app. A reply from Seznam Email showed **Sending
+  soon** with **Undo**, then **Sent. Saving a copy to Sent…**, left the Outbox and
+  appeared in the iCloud Mail Inbox in the app. Over IMAP, its `In-Reply-To`
+  named the original's Message-ID and its `References` included it. Each sending
+  mailbox's Sent folder held exactly one copy, with the same Message-ID as the delivered
+  message, and the app listed that one copy in each Sent folder. Afterwards no run
+  message remained in any folder of either mailbox. Limitations: the first recipient
+  typed in the composer opened the system Contacts access prompt, which interrupted the
+  address. Contacts access was then denied from the operator's tools, which ended the
+  app. After launch the composer offered to restore the unsaved message, and the
+  restored message was completed and sent. After the first tap on the reply's **Send**, no
+  Outbox row appeared for 20 seconds; a second tap sent it. It was not tried again
+  ([#2512](https://github.com/unwired-dev/product/issues/2512)). Mac, iPad organizing, search,
+  attachments, IDLE and relaunch, recovery and large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

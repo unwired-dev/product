@@ -927,6 +927,8 @@ RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 #else
 @property (nonatomic, strong) UIColor *previewColor;
 @property (nonatomic) CGFloat previewRadius;
+// A title over the menu, such as the pressed attachment's file name.
+@property (nonatomic, copy) NSString *menuTitle;
 // Reports `previewing` as the menu shows and ends, so the content can take the lifted card's
 // layout: the preview draws the view live.
 @property (nonatomic, copy) RCTDirectEventBlock onPreview;
@@ -1136,9 +1138,12 @@ static UIMenu *UnwiredMenu(NSArray<NSDictionary *> *sections, void (^select)(NSS
   __weak UnwiredContextMenuView *weakSelf = self;
   return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil
       actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
-        return UnwiredMenu(weakSelf.sections, ^(NSString *identifier) {
+        UIMenu *menu = UnwiredMenu(weakSelf.sections, ^(NSString *identifier) {
           if (weakSelf.onSelect) weakSelf.onSelect(@{@"id": identifier});
         });
+        return weakSelf.menuTitle.length == 0
+                   ? menu
+                   : [UIMenu menuWithTitle:weakSelf.menuTitle children:menu.children];
       }];
 }
 
@@ -1194,6 +1199,7 @@ RCT_EXPORT_VIEW_PROPERTY(destructiveColor, NSColor)
 #else
 RCT_EXPORT_VIEW_PROPERTY(previewColor, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(previewRadius, CGFloat)
+RCT_EXPORT_VIEW_PROPERTY(menuTitle, NSString)
 RCT_EXPORT_VIEW_PROPERTY(onPreview, RCTDirectEventBlock)
 #endif
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
@@ -1574,21 +1580,33 @@ RCT_EXPORT_METHOD(refresh)
 
 #if !TARGET_OS_OSX
 // A hardware keyboard's Up and Down Arrow while `enabled`, ahead of the text view inside, which
-// would move its caret: the iPad body's Recipient Suggestions move their highlight with them.
+// would move its caret: the iPad body's Recipient Suggestions move their highlight with them. Tab
+// and Shift-Tab while `tabs`, ahead of the text view, which would type a tab: they indent and
+// outdent list items.
 @interface UnwiredArrowKeysView : UIView
 @property (nonatomic) BOOL enabled;
+@property (nonatomic) BOOL tabs;
 @property (nonatomic, copy) RCTDirectEventBlock onArrow;
+@property (nonatomic, copy) RCTDirectEventBlock onTab;
 @end
 
 @implementation UnwiredArrowKeysView
 - (NSArray<UIKeyCommand *> *)keyCommands
 {
-  if (!self.enabled) return @[];
   NSMutableArray<UIKeyCommand *> *commands = [NSMutableArray array];
-  for (NSString *input in @[UIKeyInputUpArrow, UIKeyInputDownArrow]) {
-    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:0 action:@selector(arrow:)];
-    command.wantsPriorityOverSystemBehavior = YES;
-    [commands addObject:command];
+  if (self.enabled) {
+    for (NSString *input in @[UIKeyInputUpArrow, UIKeyInputDownArrow]) {
+      UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:0 action:@selector(arrow:)];
+      command.wantsPriorityOverSystemBehavior = YES;
+      [commands addObject:command];
+    }
+  }
+  if (self.tabs) {
+    for (NSNumber *flags in @[@0, @(UIKeyModifierShift)]) {
+      UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:@"\t" modifierFlags:flags.integerValue action:@selector(tab:)];
+      command.wantsPriorityOverSystemBehavior = YES;
+      [commands addObject:command];
+    }
   }
   return commands;
 }
@@ -1597,6 +1615,12 @@ RCT_EXPORT_METHOD(refresh)
 {
   if (!self.onArrow) return;
   self.onArrow(@{@"key": [command.input isEqualToString:UIKeyInputUpArrow] ? @"ArrowUp" : @"ArrowDown"});
+}
+
+- (void)tab:(UIKeyCommand *)command
+{
+  if (!self.onTab) return;
+  self.onTab(@{@"shift": @((command.modifierFlags & UIKeyModifierShift) != 0)});
 }
 @end
 
@@ -1607,6 +1631,8 @@ RCT_EXPORT_METHOD(refresh)
 RCT_EXPORT_MODULE(UnwiredArrowKeys)
 RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onArrow, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(tabs, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onTab, RCTDirectEventBlock)
 - (UIView *)view { return [UnwiredArrowKeysView new]; }
 @end
 #endif

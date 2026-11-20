@@ -2344,6 +2344,26 @@ export function createImapInbox(
       ),
     );
 
+  // Shows the saved listing without asking the server, as a load starts, for an Inbox nothing has
+  // opened yet; the next `load` reads it. A running operation is skipped, not awaited: a load shows
+  // the saved listing itself before it asks the server.
+  const showSaved = () =>
+    runLogged(
+      semaphore.withPermitsIfAvailable(1)(
+        Effect.suspend(() =>
+          forgotten || state.kind !== 'loading'
+            ? Effect.void
+            : Effect.gen(function* () {
+                selectionReference = yield* DateTime.now;
+                render((yield* open) ? 'syncing' : 'retry');
+              }).pipe(
+                // oxlint-disable-next-line promise/prefer-await-to-then -- Effect's typed error channel.
+                Effect.catch(loadFailed),
+              ),
+        ),
+      ),
+    );
+
   const folderFailed = (name: string) => (failure: Failure) => {
     const { kind, diagnostic } = failure;
     if (changesAccess(kind)) {
@@ -3540,6 +3560,7 @@ export function createImapInbox(
       }
     },
     load,
+    showSaved,
     openFolder,
     // A folder's messages as last read, cached ones first; the Inbox reads `messages`.
     folder: (name: string): ImapFolderView => {
@@ -3653,6 +3674,7 @@ export function createImapInbox(
     downloadAttachment: attachments.downloadAttachment,
     cancelAttachment: attachments.cancelAttachment,
     presentAttachment: attachments.presentAttachment,
+    saveAttachmentCopy: attachments.saveAttachmentCopy,
     attachmentFile: attachments.attachmentFile,
     // Loads an opened message's Remote Message Content, as for Gmail: from the Authorized Remote
     // Content Cache, and with `network` also through the isolated native fetch.

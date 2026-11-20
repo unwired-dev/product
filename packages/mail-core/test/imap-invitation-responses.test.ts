@@ -149,6 +149,19 @@ async function invited({
   };
 }
 
+// Records what the card shows, and declines, each time the response changes while it files.
+function declineWhileFiling(mail: Awaited<ReturnType<typeof invited>>) {
+  const filing: unknown[] = [];
+  const chosen: Array<Promise<void>> = [];
+  const stop = mail.responses.subscribe(() => {
+    if (mail.outbox.getSnapshot()[0]?.state === 'filing') {
+      filing.push(mail.state());
+      chosen.push(mail.respond('declined'));
+    }
+  });
+  return { filing, chosen, stop };
+}
+
 describe('imap invitation responses', () => {
   // oxlint-disable-next-line vitest/no-hooks -- Every journey runs on the same controlled clock.
   beforeEach(() => {
@@ -316,6 +329,34 @@ describe('imap invitation responses', () => {
         outbox: mail.outbox.getSnapshot(),
         state: mail.state(),
       }).toStrictEqual({
+        submitted: 1,
+        outbox: [],
+        state: { kind: 'sent', choice: 'accepted', at: expect.any(Number) },
+      });
+    } finally {
+      mail.outbox.dispose();
+    }
+  });
+
+  it('keeps the choices unavailable until a recorded response leaves the Outbox', async () => {
+    expect.hasAssertions();
+    const mail = await invited();
+    try {
+      await mail.respond('accepted');
+      const { filing, chosen, stop } = declineWhileFiling(mail);
+      await mail.deliver();
+      stop();
+      await Promise.all(chosen);
+      await mail.deliver();
+      expect({
+        filing: new Set(filing.map((state) => JSON.stringify(state))),
+        submitted: mail.server.smtp.accepted.length,
+        outbox: mail.outbox.getSnapshot(),
+        state: mail.state(),
+      }).toStrictEqual({
+        filing: new Set([
+          JSON.stringify({ kind: 'sending', choice: 'accepted' }),
+        ]),
         submitted: 1,
         outbox: [],
         state: { kind: 'sent', choice: 'accepted', at: expect.any(Number) },
