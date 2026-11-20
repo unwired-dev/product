@@ -444,14 +444,14 @@ export function createRemoteContentLoader(
       mailbox: MailboxScope,
       resource: RemoteResource,
       authorized: Readonly<{
-        network: () => boolean;
         request: Readonly<{ session: string; request: string }>;
         current: () => boolean;
+        // Takes a network attempt for a consented source, just before its fetch starts.
         claim: () => boolean;
         retain: (image: RemoteImage) => boolean;
       }>,
     ) {
-      const { network, request, current, claim, retain } = authorized;
+      const { request, current, claim, retain } = authorized;
       if (!current()) {
         return { kind: 'failed' } as const;
       }
@@ -466,8 +466,7 @@ export function createRemoteContentLoader(
         }
         return { kind: 'restored', image: restored } as const;
       }
-      // Consent and the attempt are checked together, just before the fetch starts.
-      if (!network() || !claim()) {
+      if (!claim()) {
         return { kind: 'absent' } as const;
       }
       const fetched = yield* Effect.tryPromise({
@@ -651,13 +650,15 @@ export function createRemoteContentLoader(
                         mailbox,
                         { id, url },
                         {
-                          network: () => remote.networkUrls.has(url),
                           request: {
                             session: remote.session,
                             request: `${remote.session}:${attemptStart + wanted.indexOf(url)}`,
                           },
                           current: () => current(url),
                           claim: () => {
+                            if (!remote.networkUrls.has(url)) {
+                              return false;
+                            }
                             if (unstarted.delete(url)) {
                               remote.reserved -= 1;
                             } else if (
