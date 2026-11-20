@@ -2659,7 +2659,8 @@ final class WindowTests: XCTestCase {
     settings.buttons["Language"].click()
     let language = settings.popUpButtons["Language"]
     XCTAssertTrue(language.waitForExistence(timeout: 15))
-    XCTAssertEqual(language.value as? String, "System Default")
+    // The journey launches with `-interfaceLanguage en`, which chooses English (#2359).
+    XCTAssertEqual(language.value as? String, "English")
     try audit(app, "Language")
     profileRemovalJourney(app, settings: settings)
     app.typeKey("w", modifierFlags: .command)
@@ -2803,7 +2804,8 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(typed.exists)
 
     // #1266: Expand saves the Draft and moves it into its own New Message window, closing the
-    // overlay; Command-W closes that window, and the app keeps running.
+    // overlay; Command-W closes that window, and the app keeps running. Its Save Draft returns the
+    // Draft to the Inbox window's overlay (#1671).
     window.buttons["Expand"].click()
     let composer = app.windows["composer-window-1"]
     XCTAssertTrue(composer.waitForExistence(timeout: 15))
@@ -2838,8 +2840,8 @@ final class WindowTests: XCTestCase {
     waitUntil { to.value as? String == "unfinished" }
     let question = composer.sheets.firstMatch
     composer.typeKey("w", modifierFlags: .command)
-    XCTAssertTrue(question.buttons["Save"].waitForExistence(timeout: 10))
-    question.buttons["Save"].click()
+    XCTAssertTrue(question.buttons["Save Draft"].waitForExistence(timeout: 10))
+    question.buttons["Save Draft"].click()
     let invalid = text("Correct or remove the invalid address to close this Draft.", in: composer)
     XCTAssertTrue(invalid.waitForExistence(timeout: 10))
     // Quit asks too, and Cancel keeps the app running with the Draft open.
@@ -2852,18 +2854,26 @@ final class WindowTests: XCTestCase {
     composer.typeKey("a", modifierFlags: .command)
     composer.typeKey(.delete, modifierFlags: [])
     waitUntil { (to.value as? String ?? "").isEmpty }
+    func capture(_ element: XCUIElement, _ name: String) {
+      let shot = XCTAttachment(screenshot: element.screenshot())
+      shot.name = "#1671 \(name) \(appearance)"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
     composer.typeKey("w", modifierFlags: .command)
-    XCTAssertTrue(question.buttons["Save"].waitForExistence(timeout: 10))
-    question.buttons["Save"].click()
+    XCTAssertTrue(question.buttons["Save Draft"].waitForExistence(timeout: 10))
+    capture(composer, "C1 Close the New Message window")
+    question.buttons["Save Draft"].click()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
     // A composer unmount aborted the host within seconds before (#1174).
     Thread.sleep(forTimeInterval: 5)
     XCTAssertEqual(app.state, .runningForeground)
-    XCTAssertTrue(row("Draft. Re: Outlook update 003").exists)
+    XCTAssertTrue(typed.waitForExistence(timeout: 15))
+    front("inbox-window-1")
+    XCTAssertEqual(typed.value as? String, "Keyboard replyKeyboard reply")
+    capture(window, "C2 Back in its Inbox window")
     // The refused Quit was cancelled, so it did not terminate after the later successful Close.
     // A fresh New Message window also permits Quit through its own successful save/close guard.
-    row("Draft. Re: Outlook update 003").click()
-    XCTAssertTrue(typed.waitForExistence(timeout: 15))
     window.buttons["Expand"].click()
     let quittingComposer = app.windows["composer-window-2"]
     XCTAssertTrue(quittingComposer.waitForExistence(timeout: 15))

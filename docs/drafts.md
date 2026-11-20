@@ -70,11 +70,20 @@ transport and known native exit gaps.
   way ([Draft rewrites](draft-assistance.md#behavior)). On the Mac, the overlay
   stays beneath the window's [command bar](command-palette.md#entry-points), and
   **Expand** saves the Draft, then moves it into its own **New Message** window and
-  closes the overlay; there is no way back into the Inbox window. A failed save
-  keeps the Draft in the overlay. The New Message window's toolbar row, beside
+  closes the overlay. A failed save keeps the Draft in the overlay. The New Message window's toolbar row, beside
   the window controls, holds its title, its own command bar, From, the Compose
   actions overflow with Discard, and Send; it has no composer Close or bottom
-  row. Closing the window or quitting asks as an Inbox window's composer does. Several New Message windows can be open, and AppKit
+  row. Closing the window asks **Save this Draft?**
+  ([#1671](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=1185-54138)):
+  **Save Draft** and **Discard Draft** close the window and bring forward the
+  Inbox window it was expanded from, or another Inbox window of its Mail
+  Profile when that one closed or switched Profile; Save Draft reopens the
+  Draft in that window's overlay, and in a new Inbox window when none shows the
+  Profile. When that overlay already holds another Draft, Save Draft first asks;
+  **Save Other Draft and Return** saves that Draft to Drafts and brings this one
+  in, and Cancel leaves both where they are. **Cancel** keeps the window open.
+  Quitting, and closing a New Message window a notification opened, ask as an
+  Inbox window's composer does. Several New Message windows can be open, and AppKit
   does not restore them. A New Message window closes if its Product Account is
   replaced or its Inbox becomes unavailable. The Inbox column stays
   interactive beside the overlay. On the Mac, so does the reader's toolbar and

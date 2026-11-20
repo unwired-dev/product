@@ -44,7 +44,13 @@ import {
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import type { Closing, Recovered, Toolbar } from './composer.tsx';
+import type {
+  Closing,
+  OpenDraft,
+  Recovered,
+  ReturnTo,
+  Toolbar,
+} from './composer.tsx';
 import type {
   CaptureRequest,
   PageState,
@@ -569,7 +575,7 @@ function EvaluationEditor({
   // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
   // Command-W, the window's close button and Quit ask the same question before closing.
-  useCloseGuard(navigation.leave);
+  useCloseGuard(() => navigation.leave());
   useLayoutEffect(() =>
     navigation.register(async () => {
       if (await close()) {
@@ -947,6 +953,10 @@ type ComposerProps = Readonly<{
   // Moves the saved Draft into its own window, when offered.
   onExpand?: ((id: string) => void) | undefined;
   renderToolbar?: Toolbar | undefined;
+  // A New Message window's way back to an Inbox window, and an Inbox window's open Draft, which
+  // only the current composer offers.
+  returnTo?: ReturnTo | undefined;
+  onOpenDraft?: ((draft: OpenDraft | undefined) => void) | undefined;
 }>;
 
 // `registration-draft-editor` builds open Drafts in the Tiptap evaluation editor; every other

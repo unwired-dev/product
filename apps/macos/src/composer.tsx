@@ -2141,6 +2141,14 @@ export function ComposerNotices({
 // A New Message window's toolbar row, which takes the composer's From, and its actions and Send,
 // in place of its header and bottom row.
 export type Toolbar = (from: ReactNode, actions: ReactNode) => ReactNode;
+// A New Message window's way back to an Inbox window: before Save Draft, brings that window
+// forward and resolves how to hand it the saved Draft, or undefined to keep the Draft here.
+export type ReturnTo = () => Promise<((id: string) => void) | undefined>;
+// An Inbox window composer's Draft, which a returning Draft first asks to save.
+export type OpenDraft = Readonly<{
+  title: () => string;
+  save: () => Promise<boolean>;
+}>;
 
 // A new Mail Template's identifier: random lowercase letters and digits.
 const templateId = () => {
@@ -2846,6 +2854,8 @@ function Editor({
   onRebind,
   onExpand,
   renderToolbar,
+  returnTo,
+  onOpenDraft,
 }: {
   readonly initial: Draft;
   // The version the editor opens on: `initial`, or the unsaved version a composer recovery record
@@ -2858,6 +2868,10 @@ function Editor({
   // Moves the saved Draft into its own window, when offered.
   readonly onExpand?: ((id: string) => void) | undefined;
   readonly renderToolbar?: Toolbar | undefined;
+  // In a New Message window, Close asks whether to save the Draft back to its Inbox window.
+  readonly returnTo?: ReturnTo | undefined;
+  // Follows this editor's Draft while it is open, for a returning Draft to save first.
+  readonly onOpenDraft?: ((draft: OpenDraft | undefined) => void) | undefined;
 }) {
   const store = useDraftStore();
   const colors = usePalette();
@@ -3413,6 +3427,8 @@ function Editor({
   const leaving = useRef<((allowed: boolean) => void) | undefined>(undefined);
   // Whether the last Close opened its question rather than finishing.
   const asked = useRef(false);
+  // Whether Close offers to return the Draft to an Inbox window: Quit leaves it in Drafts.
+  const offersReturn = useRef(false);
   const answerLeave = useCallback((allowed: boolean) => {
     const answer = leaving.current;
     leaving.current = undefined;
@@ -3461,8 +3477,9 @@ function Editor({
     }
     return closed;
   };
-  // Stores this editor's version, then saves it. Invalid recipient text keeps the Draft open.
-  const saveDraft = async () => {
+  // Stores this editor's version, then saves it and closes, or runs `done` in place of closing.
+  // Invalid recipient text keeps the Draft open.
+  const saveDraft = async (done?: () => void) => {
     if (discarded.current || lifetime.current.finishing > 0) {
       return false;
     }
@@ -3472,7 +3489,7 @@ function Editor({
       answerLeave(false);
       return false;
     }
-    return finishing(storeAndSave);
+    return finishing(storeAndSave, done);
   };
   // A Draft that Send or Discard removed needs no reminder, whichever window set it. `target` reads
   // the Draft `id` for the store, which removes the one read last; a rebinding after that moves the
@@ -3513,8 +3530,13 @@ function Editor({
         return removed;
       });
     }
-    // Another window's failed save leaves this editor's untouched Draft alone.
-    if (authored.current === stored.current && !unsaved.current) {
+    // Another window's failed save leaves this editor's untouched Draft alone. A New Message
+    // window asks even then, as its Save Draft returns the Draft to its Inbox window.
+    if (
+      authored.current === stored.current &&
+      !unsaved.current &&
+      !offersReturn.current
+    ) {
       const removal = closeRecord(authored.current.id);
       onClose();
       await removal;
@@ -3528,7 +3550,12 @@ function Editor({
   // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
   // Command-W, the window's close button and Quit ask the same question before closing.
-  useCloseGuard(navigation.leave);
+  useCloseGuard(async (quitting) => {
+    offersReturn.current = returnTo !== undefined && !quitting;
+    const allowed = await navigation.leave();
+    offersReturn.current = false;
+    return allowed;
+  });
   useLayoutEffect(() =>
     navigation.register(async () => {
       if (await close()) {
@@ -3772,11 +3799,42 @@ function Editor({
       onClosedAfterRemoval(authored.current.id);
     }
   };
+  // Save Draft in a New Message window waits for its Inbox window to take the Draft, then saves it
+  // and hands it over; a refusal keeps the window open on its question's Cancel.
+  const returnDraft = async (prepare: ReturnTo) => {
+    let take: ((id: string) => void) | undefined = undefined;
+    try {
+      take = await prepare();
+    } catch {
+      // The Draft stays here, as on Cancel.
+    }
+    if (take === undefined) {
+      setOpen(undefined);
+      return;
+    }
+    const handOver = take;
+    await saveDraft(() => {
+      handOver(authored.current.id);
+      onClose();
+    });
+  };
+  // A returning Draft asks this one to save first.
+  useLayoutEffect(() => {
+    onOpenDraft?.({
+      title: () => clip(authored.current.subject) || t('drafts.newMessage'),
+      save: saveDraft,
+    });
+    return () => {
+      onOpenDraft?.(undefined);
+    };
+  });
   // The question's choices act through this render's Save and Don’t Save.
   const answerSave = useRef<(choice: number) => void>(undefined);
   useLayoutEffect(() => {
     answerSave.current = (choice) => {
-      if (choice === 0) {
+      if (choice === 0 && returnTo !== undefined && offersReturn.current) {
+        void returnDraft(returnTo);
+      } else if (choice === 0) {
         void saveDraft();
       } else if (choice === 1) {
         void discard();
@@ -3792,15 +3850,31 @@ function Editor({
       return undefined;
     }
     let current = true;
-    const question = askInSheet(root.current, {
-      title: t('drafts.saveQuestion'),
-      detail: t('drafts.saveQuestionDetail'),
-      buttons: [
-        t('drafts.saveAction'),
-        t('drafts.dontSave'),
-        t('common.cancel'),
-      ],
-    });
+    const question = askInSheet(
+      root.current,
+      offersReturn.current
+        ? {
+            title: t('drafts.return.title'),
+            detail: t('drafts.return.detail', {
+              title: clip(authored.current.subject) || t('drafts.newMessage'),
+            }),
+            buttons: [
+              t('drafts.saveDraft'),
+              t('drafts.discardDraft'),
+              t('common.cancel'),
+            ],
+            symbol: { name: 'square.and.pencil', color: colors.textSecondary },
+          }
+        : {
+            title: t('drafts.saveQuestion'),
+            detail: t('drafts.saveQuestionDetail'),
+            buttons: [
+              t('drafts.saveAction'),
+              t('drafts.dontSave'),
+              t('common.cancel'),
+            ],
+          },
+    );
     const answer = async () => {
       const choice = await question.answer;
       if (current && lifetime.current.mounted && choice !== null) {
@@ -3812,7 +3886,7 @@ function Editor({
       current = false;
       question.retire();
     };
-  }, [open, t]);
+  }, [open, t, colors.textSecondary]);
   const title = clip(draft.subject) || t('drafts.newMessage');
   const titleLabel =
     title.length < draft.subject.length
@@ -4317,6 +4391,8 @@ export function Composer({
   onRebind,
   onExpand,
   renderToolbar,
+  returnTo,
+  onOpenDraft,
 }: {
   readonly id: string;
   // The composer recovery record of Draft `id` to open on instead.
@@ -4326,6 +4402,8 @@ export function Composer({
   readonly onRebind: (id: string) => void;
   readonly onExpand?: ((id: string) => void) | undefined;
   readonly renderToolbar?: Toolbar | undefined;
+  readonly returnTo?: ReturnTo | undefined;
+  readonly onOpenDraft?: ((draft: OpenDraft | undefined) => void) | undefined;
 }) {
   const state = useDrafts();
   const store = useDraftStore();
@@ -4384,6 +4462,8 @@ export function Composer({
         onExpand={onExpand}
         onRebind={rebind}
         renderToolbar={renderToolbar}
+        returnTo={returnTo}
+        onOpenDraft={onOpenDraft}
       />
     );
   }

@@ -87,7 +87,9 @@ import {
 import {
   closedWindows,
   composerWindows,
+  focusedWindows,
   MacWindows,
+  openedInboxes,
   settingsWindow,
   toggledSidebars,
 } from './settings-window.tsx';
@@ -442,7 +444,11 @@ describe('mac window selection with the shared mock mailbox', () => {
         ]),
       });
       expect(composerWindows()).toStrictEqual([
-        { draft: opened.draft, profile: defaultProfile },
+        {
+          draft: opened.draft,
+          profile: defaultProfile,
+          origin: 'inbox-window-compose',
+        },
       ]);
       // AppKit shows the New Message window beside the Inbox window.
       await app.rerender(
@@ -453,6 +459,7 @@ describe('mac window selection with the shared mock mailbox', () => {
               windowId="1"
               draft={opened.draft}
               profile={opened.profile}
+              origin={opened.origin}
             />
           </View>
         </AccountContext>,
@@ -517,6 +524,7 @@ describe('mac window selection with the shared mock mailbox', () => {
         window.getByRole('button', { name: 'Keep Editing' }),
       );
       // Native Close and Quit must reach this editor's leave guard, including unfinished entries.
+      // Quit keeps the regular question, as the Draft stays in Drafts.
       await fireEvent.changeText(
         window.getByLabelText('Subject'),
         'In a window',
@@ -524,8 +532,12 @@ describe('mac window selection with the shared mock mailbox', () => {
       await act(async () => {
         DeviceEventEmitter.emit('windowShouldClose', {
           window: 'composer-window-1',
+          quitting: true,
         });
       });
+      expect(sheetShown()?.title).toBe(
+        'Do you want to save this message as a draft?',
+      );
       await act(async () => {
         chooseSheetButton('Save');
       });
@@ -541,19 +553,28 @@ describe('mac window selection with the shared mock mailbox', () => {
         window.getByLabelText('Subject'),
         'Unsaved window edit',
       );
+      // #1671: Close asks whether to save the Draft back to its Inbox window.
       await act(async () => {
         DeviceEventEmitter.emit('windowShouldClose', {
           window: 'composer-window-1',
         });
       });
+      expect(sheetShown()).toStrictEqual({
+        title: 'Save this Draft?',
+        detail:
+          '“Unsaved window edit” goes back to your Inbox window either way.',
+        buttons: ['Save Draft', 'Discard Draft', 'Cancel'],
+        symbol: { name: 'square.and.pencil', color: expect.anything() },
+      });
       await act(async () => {
-        chooseSheetButton('Save');
+        chooseSheetButton('Save Draft');
       });
       expect(
         window.getByText(
           'This Draft could not be saved, so it stays open. Try again, or discard it.',
         ),
       ).toBeVisible();
+      expect(app.queryByTestId('composer-overlay')).toBeNull();
       expect(closedWindows()).toStrictEqual([]);
       storage.setLocked(false);
       await act(async () => {
@@ -562,19 +583,236 @@ describe('mac window selection with the shared mock mailbox', () => {
         });
       });
       await act(async () => {
-        chooseSheetButton('Save');
+        chooseSheetButton('Save Draft');
       });
       await waitFor(() => {
         expect(closedWindows()).toContain('composer-window-1');
       });
+      // The saved Draft opens again in the overlay of the Inbox window it came from, which comes
+      // forward.
+      expect(focusedWindows().at(-1)).toBe('inbox-window-compose');
       await app.rerender(
         <AccountContext value={accountActions}>
           <InboxWindow windowId="compose" />
         </AccountContext>,
       );
-      await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
-      expect(app.getByRole('button', { name: 'Expand' })).toBeVisible();
+      const overlay = within(await app.findByTestId('composer-overlay'));
+      await expect(overlay.findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Unsaved window edit',
+      );
+      expect(overlay.getByLabelText('Message body')).toHaveTextContent(
+        'Keep this draft.',
+      );
+      expect(overlay.getByRole('button', { name: 'Expand' })).toBeVisible();
       expect(app.queryByLabelText('Search senders and subjects')).toBeNull();
+    } finally {
+      await app.unmount();
+      replacement.restore();
+    }
+  });
+  /* oxlint-enable vitest/max-expects */
+
+  /* oxlint-disable vitest/max-expects -- One Draft leaves and returns through each Close answer. */
+  it('returns a New Message window’s Draft to its Inbox window, asking first when another Draft is open there (#1671)', async () => {
+    expect.hasAssertions();
+    const account = {
+      snapshot: {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        mailboxes: connectedMailboxes,
+      },
+      busy: false,
+      failed: false,
+    } as const;
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, {
+      subscribe: () => () => undefined,
+      getSnapshot: () => account,
+    });
+    const replacement = jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    const accountActions = {
+      mailboxes: [
+        {
+          id: alex,
+          address: 'alex@example.invalid',
+          state: 'connected',
+          profile: defaultProfile,
+          provider: 'gmail',
+        } as const,
+      ],
+      openAccount: () => undefined,
+      authorizeMailbox: () => Promise.resolve(),
+      refreshInbox: (load: () => Promise<void>) => load(),
+      account: 'synthetic-product-account',
+      profiles: [],
+      createProfile: () => Promise.resolve(undefined),
+      chooseFolders: () => Promise.resolve(true),
+    };
+    const subjects = () => {
+      const state = drafts.getSnapshot();
+      ok(state.kind === 'ready');
+      return new Set(state.drafts.map((draft) => draft.subject));
+    };
+    const windows = (
+      composer?: ReactNode,
+      inbox: ReactNode = <InboxWindow windowId="origin" />,
+    ) => (
+      <AccountContext value={accountActions}>
+        {inbox}
+        <View testID="composer-window">{composer}</View>
+      </AccountContext>
+    );
+    const app = await render(windows());
+    const overlay = () => within(app.getByTestId('composer-overlay'));
+    const window = () => within(app.getByTestId('composer-window'));
+    const close = async (button: string) => {
+      await act(async () => {
+        DeviceEventEmitter.emit('windowShouldClose', {
+          window: 'composer-window-1',
+        });
+      });
+      await act(async () => {
+        chooseSheetButton(button);
+      });
+    };
+    // Starts a Draft in the Inbox window with `subject`.
+    const start = async (subject: string) => {
+      await waitFor(() => {
+        expect(app.getByRole('button', { name: 'New Message' })).toBeEnabled();
+      });
+      await fireEvent.press(app.getByRole('button', { name: 'New Message' }));
+      await fireEvent.changeText(
+        await overlay().findByLabelText('Subject'),
+        subject,
+      );
+    };
+    const expand = async () => {
+      await fireEvent.press(overlay().getByRole('button', { name: 'Expand' }));
+      await waitFor(() => {
+        expect(app.queryByTestId('composer-overlay')).toBeNull();
+      });
+    };
+    try {
+      await fireEvent(app.getByTestId('window-panes-origin'), 'layout', {
+        nativeEvent: { layout: { width: 1000, height: 600 } },
+      });
+      await start('Returning');
+      await expand();
+      const [expanded] = composerWindows();
+      ok(expanded !== undefined);
+      const composer = (
+        <ComposerWindow
+          windowId="1"
+          draft={expanded.draft}
+          profile={expanded.profile}
+          origin={expanded.origin}
+        />
+      );
+      await app.rerender(windows(composer));
+      await expect(window().findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Returning',
+      );
+      await start('Other');
+      // Cancel leaves both Drafts where they are, and the New Message window comes back forward.
+      await close('Save Draft');
+      expect(sheetShown()).toStrictEqual({
+        title: 'The Inbox window already has a Draft open',
+        detail:
+          '“Other” is open there. Save it to Drafts to bring this Draft back.',
+        buttons: ['Save Other Draft and Return', 'Cancel'],
+        symbol: { name: 'square.and.pencil', color: expect.anything() },
+      });
+      await act(async () => {
+        chooseSheetButton('Cancel');
+      });
+      expect(focusedWindows()).toStrictEqual([
+        'inbox-window-origin',
+        'composer-window-1',
+      ]);
+      expect(closedWindows()).toStrictEqual([]);
+      expect(overlay().getByLabelText('Subject')).toHaveProp('value', 'Other');
+      expect(window().getByLabelText('Subject')).toHaveProp(
+        'value',
+        'Returning',
+      );
+      // Save Other Draft and Return keeps that Draft in Drafts and brings this one in.
+      await close('Save Draft');
+      await act(async () => {
+        chooseSheetButton('Save Other Draft and Return');
+      });
+      // The composer and its close guard both finish the close, as for any New Message window.
+      await waitFor(() => {
+        expect(closedWindows()).toStrictEqual([
+          'composer-window-1',
+          'composer-window-1',
+        ]);
+      });
+      await app.rerender(windows());
+      await expect(overlay().findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Returning',
+      );
+      expect(subjects()).toStrictEqual(new Set(['Other', 'Returning']));
+      // Discard Draft deletes the Draft and brings the Inbox window forward.
+      await expand();
+      await app.rerender(windows(composer));
+      await expect(window().findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Returning',
+      );
+      await close('Discard Draft');
+      await waitFor(() => {
+        expect(subjects()).toStrictEqual(new Set(['Other']));
+      });
+      expect(closedWindows()).toHaveLength(4);
+      expect(focusedWindows().at(-1)).toBe('inbox-window-origin');
+      // With no Inbox window showing its Mail Profile, the Draft returns in a new one.
+      await app.rerender(windows());
+      await start('Alone');
+      await expand();
+      const alone = composerWindows().at(-1);
+      ok(alone !== undefined);
+      await app.rerender(
+        windows(
+          <ComposerWindow
+            windowId="1"
+            draft={alone.draft}
+            profile={alone.profile}
+            origin={alone.origin}
+          />,
+          null,
+        ),
+      );
+      await expect(window().findByLabelText('Subject')).resolves.toHaveProp(
+        'value',
+        'Alone',
+      );
+      await close('Save Draft');
+      await waitFor(() => {
+        expect(openedInboxes()).toStrictEqual([
+          { profile: defaultProfile, draft: alone.draft },
+        ]);
+      });
+      await app.rerender(
+        <AccountContext value={accountActions}>
+          <InboxWindow
+            windowId="returned"
+            draft={alone.draft}
+          />
+        </AccountContext>,
+      );
+      await expect(
+        within(await app.findByTestId('composer-overlay')).findByLabelText(
+          'Subject',
+        ),
+      ).resolves.toHaveProp('value', 'Alone');
     } finally {
       await app.unmount();
       replacement.restore();
