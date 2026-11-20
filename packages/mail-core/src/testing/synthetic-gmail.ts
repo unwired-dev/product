@@ -1,5 +1,6 @@
 import * as Arr from 'effect/Array';
 import * as Context from 'effect/Context';
+import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';
 import * as Base64 from 'effect/encoding/Base64';
 import * as Layer from 'effect/Layer';
@@ -512,6 +513,10 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
       // two minutes and fails it once, then lists the rest.
       const slowHistory =
         scenario === 'registration-sync-status' ? { failed: false } : undefined;
+      const retryAfter =
+        scenario === 'registration-sync-status-paused'
+          ? DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 2 }))
+          : undefined;
       const historyPage = Effect.fnUntraced(function* (
         listed: ReadonlyArray<{
           readonly id: string;
@@ -523,6 +528,14 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           return yield* reply(200, {
             messages: listed.slice(0, 2),
             nextPageToken: 'rest',
+          });
+        }
+        if (retryAfter !== undefined) {
+          return yield* reply(429, {
+            error: {
+              errors: [{ reason: 'rateLimitExceeded' }],
+              message: `Rate limit exceeded. Retry after ${retryAfter}`,
+            },
           });
         }
         if (slowHistory?.failed === false) {
@@ -558,7 +571,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
           reply(200, {
             emailAddress: 'other@example.invalid',
             historyId: '100',
-            ...(slowHistory === undefined
+            ...(slowHistory === undefined && retryAfter === undefined
               ? {}
               : {
                   messagesTotal: [...labels.values()].filter((ids) =>
@@ -602,7 +615,7 @@ export class SyntheticGoogle extends Context.Service<SyntheticGoogle>()(
                 '5 seconds',
               );
             }
-            return slowHistory !== undefined &&
+            return (slowHistory !== undefined || retryAfter !== undefined) &&
               item('labelIds') === undefined &&
               item('maxResults') === String(historyPageSize)
               ? historyPage(listed, item('pageToken'))

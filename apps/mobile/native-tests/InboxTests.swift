@@ -113,6 +113,40 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(title.waitForNonExistence(timeout: 30))
   }
 
+  // #2488: a timed Gmail usage limit keeps mail visible and disables the sheet's early retry.
+  private func pausedSyncStatusJourney(_ app: XCUIApplication) throws {
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    if !phone {
+      rotate(app, to: .landscapeLeft)
+      rowan.tap()
+      XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    }
+    let paused = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Gmail paused")
+    ).firstMatch
+    XCTAssertTrue(paused.waitForExistence(timeout: 30))
+    let time = try XCTUnwrap(
+      paused.label.range(of: #"[0-9]{1,2}:[0-9]{2}.*$"#, options: .regularExpression))
+    let retryTime = String(paused.label[time])
+    XCTAssertTrue(paused.label.hasSuffix("until \(retryTime)"))
+    XCTAssertTrue(paused.isHittable)
+    attachScreen("Gmail paused", of: app, to: self)
+    if phone {
+      paused.tap()
+      XCTAssertTrue(app.staticTexts["Sync Status"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.staticTexts["Available at \(retryTime)"].exists)
+      let tryAgain = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "Try Again")
+      ).firstMatch
+      XCTAssertTrue(tryAgain.exists)
+      XCTAssertFalse(tryAgain.isEnabled)
+      attachScreen("Paused Sync Status sheet", of: app, to: self)
+    }
+  }
+
   private func registrationJourney(_ app: XCUIApplication) throws {
     connectGmail(app)
     // Confirmed setup opens the synchronized Gmail Inbox, listed over two Gmail pages.
@@ -3660,6 +3694,7 @@ final class InboxTests: XCTestCase {
         threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
       case "registration-sync-status": try syncStatusJourney(app)
+      case "registration-sync-status-paused": try pausedSyncStatusJourney(app)
       case "registration-imap-folders": try imapFoldersJourney(app)
       case "registration-invitation":
         invitationJourney(app)
