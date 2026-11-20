@@ -477,6 +477,17 @@ Reminder". The journey fails later on iPhone
 ([#2146](https://github.com/unwired-dev/product/issues/2146)) and iPad
 ([#2148](https://github.com/unwired-dev/product/issues/2148)).
 
+## iPhone and iPad Gmail pause journey
+
+In `registration-sync-status-paused`, Gmail returns HTTP 429 during history backfill
+with the fixed retry time 2 July 2099, 12:20 UTC. Run on a simulator whose time
+zone is off UTC at that instant, as Europe/London and Europe/Prague are. The journey signs in, checks that the Inbox remains
+visible, and compares the capsule's time with the retry instant formatted for the
+simulator's locale and time zone. It taps the toolbar capsule on iPhone and the
+floating capsule in landscape on iPad. The Sync Status sheet or popover must show
+the same local time and disable Try Again. The journey captures the capsule and
+the open Sync Status details on each device.
+
 ## iPhone and iPad composer recovery journey
 
 The Expo native journey for a `registration-thread` Release build checks that a

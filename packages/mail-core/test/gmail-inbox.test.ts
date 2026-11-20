@@ -2,6 +2,7 @@ import { inspect } from 'node:util';
 
 import type { GmailInboxState } from '../src/inbox-store.ts';
 
+import { gmailAction } from '../src/gmail-actions.ts';
 import { createInboxStore } from '../src/inbox-store.ts';
 import { createSyntheticGmail } from '../src/testing/gmail-mailbox.ts';
 
@@ -382,21 +383,6 @@ describe('synchronizing a Gmail Inbox', () => {
         },
         'authentication',
       ],
-      [
-        {
-          status: 403,
-          body: '{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}',
-        },
-        'retry',
-      ],
-      [
-        {
-          status: 403,
-          body: '{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}',
-        },
-        'retry',
-      ],
-      [{ status: 429 }, 'retry'],
       [{ status: 500 }, 'retry'],
       [{ code: 'unavailable' }, 'retry'],
       // Malformed provider data never reaches the cache.
@@ -726,6 +712,232 @@ describe('synchronizing a Gmail Inbox', () => {
         messages: expect.arrayContaining([...cached]),
       });
     }
+  });
+  /* oxlint-enable vitest/max-expects */
+});
+
+describe('pausing at a Gmail usage limit', () => {
+  /* oxlint-disable vitest/max-expects -- Each journey follows one pause from limit to resumption. */
+  const limitBody = (reason: string, message = 'Rate limit exceeded') =>
+    JSON.stringify({ error: { errors: [{ reason }], message } });
+  // A synchronized Inbox with one saved message, on a clock the test advances.
+  const synchronized = async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-11-20T13:00:00.000Z'));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Saved before the limit' });
+    const inbox = createInboxStore(gmail.native);
+    await inbox.load();
+    const cached = ready(inbox.getSnapshot()).messages;
+    const [message] = cached;
+    if (message === undefined) {
+      throw new Error('Expected a saved message');
+    }
+    return { gmail, inbox, cached, message };
+  };
+
+  it('waits for a time Gmail named beyond the longest timer', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await synchronized();
+    gmail.fail({
+      status: 429,
+      body: limitBody(
+        'rateLimitExceeded',
+        'Rate limit exceeded. Retry after 2027-01-20T13:00:00.000Z',
+      ),
+    });
+    await inbox.load();
+    const reached = gmail.requests.length;
+    // Past the longest timer Gmail is still not asked; at its time the mailbox synchronizes.
+    await vi.advanceTimersByTimeAsync(2 ** 31);
+    expect(gmail.requests).toHaveLength(reached);
+    await vi.advanceTimersByTimeAsync(61 * 24 * 3_600_000 - 2 ** 31);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+  });
+
+  it('ends a backoff after its wait even when the clock moves back', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await synchronized();
+    gmail.fail({ status: 429 });
+    await inbox.load();
+    vi.setSystemTime(Date.now() - 3_600_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+  });
+
+  it('waits until the time Gmail named, keeping saved mail and changes, then synchronizes again', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, cached, message } = await synchronized();
+    gmail.fail({
+      status: 403,
+      body: limitBody(
+        'userRateLimitExceeded',
+        'User-rate limit exceeded.  Retry after 2026-11-20T13:20:00.000Z',
+      ),
+    });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      messages: cached,
+      sync: 'retry',
+      limit: { until: '2026-11-20T13:20:00.000Z', times: 1 },
+    });
+
+    // Try Again, a pull or an activation before that time does not reach Gmail; a change made
+    // meanwhile is saved on this device and waits.
+    const reached = gmail.requests.length;
+    await inbox.load();
+    await inbox.organize(message, gmailAction.archive);
+    expect(gmail.requests).toHaveLength(reached);
+    expect(gmail.modifies).toHaveLength(0);
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      sync: 'retry',
+      pending: 1,
+      limit: { until: '2026-11-20T13:20:00.000Z', times: 1 },
+    });
+
+    // At Gmail's time the mailbox synchronizes by itself and sends the waiting change.
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('limit');
+    expect(ready(inbox.getSnapshot()).pending).toBe(0);
+    expect(gmail.modifies).toHaveLength(1);
+  });
+
+  it("without Gmail's time, tries again with growing waits, counting today's limits", async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, message } = await synchronized();
+    gmail.fail({ status: 429 });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      sync: 'retry',
+      limit: { times: 1 },
+    });
+    expect(ready(inbox.getSnapshot()).limit).not.toHaveProperty('until');
+
+    // A change made meanwhile is saved and waits for the next attempt.
+    const before = gmail.requests.length;
+    await inbox.organize(message, gmailAction.archive);
+    expect(gmail.requests).toHaveLength(before);
+    expect(ready(inbox.getSnapshot()).pending).toBe(1);
+
+    // Try Again makes one attempt.
+    gmail.fail({ status: 403, body: limitBody('dailyLimitExceeded') });
+    let reached = gmail.requests.length;
+    await inbox.load();
+    expect(gmail.requests.length).toBeGreaterThan(reached);
+    expect(ready(inbox.getSnapshot()).limit).toStrictEqual({ times: 2 });
+
+    // The second limit in a row waits two minutes, not one.
+    gmail.fail({ status: 403, body: limitBody('rateLimitExceeded') });
+    reached = gmail.requests.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(gmail.requests).toHaveLength(reached);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).limit).toStrictEqual({ times: 3 });
+    });
+
+    // The next wait is four minutes; then Gmail answers and the pause ends.
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('limit');
+
+    // A new day counts afresh, and a completed synchronization starts the waits again at a minute.
+    vi.setSystemTime(new Date('2026-11-21T09:00:00.000Z'));
+    gmail.fail({ status: 429 });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).limit).toStrictEqual({ times: 1 });
+    reached = gmail.requests.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+    expect(gmail.requests.length).toBeGreaterThan(reached);
+  });
+
+  it('treats a past or partial time as no time, and a 403 without a usage reason as refused', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await synchronized();
+    gmail.fail({
+      status: 429,
+      body: limitBody(
+        'rateLimitExceeded',
+        'Retry after 2026-11-20T12:00:00.000Z',
+      ),
+    });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).limit).toStrictEqual({ times: 1 });
+    gmail.fail({
+      status: 429,
+      body: limitBody('rateLimitExceeded', 'Retry after 2050'),
+    });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).limit).toStrictEqual({ times: 2 });
+
+    gmail.fail({ status: 403, body: '{"error":{"errors":[]}}' });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('limit');
+  });
+
+  it('ends the pause when Gmail refuses authorization or the Inbox closes', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await synchronized();
+    gmail.fail({ status: 429 });
+    await inbox.load();
+    gmail.fail({ status: 401 });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('limit');
+    // The cancelled wait never synchronizes by itself.
+    const reached = gmail.requests.length;
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(gmail.requests).toHaveLength(reached);
+
+    await inbox.load();
+    gmail.fail({
+      status: 429,
+      body: limitBody(
+        'rateLimitExceeded',
+        'Retry after 2026-11-20T14:00:00.000Z',
+      ),
+    });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).limit).toMatchObject({
+      until: '2026-11-20T14:00:00.000Z',
+    });
+    inbox.forget();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({ sync: 'current' });
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('limit');
+  });
+
+  it('ends the pause when reading a message meets a refused grant', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, message } = await synchronized();
+    gmail.fail({
+      status: 429,
+      body: limitBody(
+        'rateLimitExceeded',
+        'Retry after 2026-11-20T14:00:00.000Z',
+      ),
+    });
+    await inbox.load();
+    gmail.fail({ status: 401 });
+    await inbox.readMessage(message.id);
+    expect(ready(inbox.getSnapshot()).sync).toBe('authentication');
+    expect(ready(inbox.getSnapshot())).not.toHaveProperty('limit');
   });
   /* oxlint-enable vitest/max-expects */
 });

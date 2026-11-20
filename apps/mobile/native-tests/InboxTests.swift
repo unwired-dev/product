@@ -22,9 +22,11 @@ private func assertGmailActionsSettled(_ app: XCUIApplication) {
 
 // Keeps a screenshot named with the runner's appearance, for comparison with the Light and Dark
 // frames.
-private func attachScreen(_ name: String, of app: XCUIApplication, to test: XCTestCase) {
+private func attachScreen(
+  _ name: String, of source: any XCUIScreenshotProviding, to test: XCTestCase
+) {
   let appearance = ProcessInfo.processInfo.environment["UNWIRED_APPEARANCE", default: ""]
-  let shot = XCTAttachment(screenshot: app.screenshot())
+  let shot = XCTAttachment(screenshot: source.screenshot())
   shot.name = "\(name) (\(appearance))"
   shot.lifetime = .keepAlways
   test.add(shot)
@@ -111,6 +113,65 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(attention.waitForNonExistence(timeout: 30))
     XCTAssertTrue(progress.waitForNonExistence(timeout: 30))
     XCTAssertTrue(title.waitForNonExistence(timeout: 30))
+  }
+
+  // #2488: a timed Gmail usage limit keeps mail visible and disables early retry in Sync Status.
+  private func pausedSyncStatusJourney(_ app: XCUIApplication) throws {
+    // The mock's fixed retry time.
+    let retryAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2099-07-02T12:20:00Z"))
+    let zone = TimeZone.current
+    XCTAssertNotEqual(zone.secondsFromGMT(for: retryAt), 0, "Use a non-UTC simulator time zone")
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.timeZone = zone
+    formatter.timeStyle = .short
+    // Foundation and Intl can use different spaces before AM or PM.
+    func normalized(_ label: String) -> String {
+      label.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+    let retryTime = normalized(formatter.string(from: retryAt))
+
+    connectGmail(app)
+    let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(rowan.waitForExistence(timeout: 20))
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    if !phone {
+      rotate(app, to: .landscapeLeft)
+      rowan.tap()
+      XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    }
+    let paused = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Gmail paused")
+    ).firstMatch
+    XCTAssertTrue(paused.waitForExistence(timeout: 30))
+    let capsuleLabel = paused.label
+    print("Expected retry time \(retryTime) in \(zone.identifier). Capsule shows \(capsuleLabel).")
+    XCTAssertEqual(normalized(capsuleLabel), "Gmail paused, until \(retryTime)")
+    XCTAssertTrue(paused.isHittable)
+    let capsuleTop = paused.frame.minY
+    // An app screenshot clips the landscape iPad window to its portrait bounds.
+    let source: any XCUIScreenshotProviding = phone ? app : XCUIScreen.main
+    attachScreen("Gmail paused", of: source, to: self)
+    paused.tap()
+    let title = app.staticTexts["Sync Status"].firstMatch
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    let available = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Available at ")
+    ).firstMatch
+    XCTAssertTrue(available.exists)
+    let availableLabel = available.label
+    print("Sync Status shows \(availableLabel).")
+    XCTAssertEqual(normalized(availableLabel), "Available at \(retryTime)")
+    let tryAgain = app.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Try Again for Gmail")
+    ).firstMatch
+    XCTAssertTrue(tryAgain.exists)
+    XCTAssertFalse(tryAgain.isEnabled)
+    if !phone {
+      XCTAssertLessThanOrEqual(title.frame.maxY, capsuleTop)
+    }
+    let presentation = phone ? "sheet" : "popover"
+    attachScreen("Paused Sync Status \(presentation)", of: source, to: self)
   }
 
   private func registrationJourney(_ app: XCUIApplication) throws {
@@ -3660,6 +3721,7 @@ final class InboxTests: XCTestCase {
         threadJourney(app)
       case "registration-performance": try keyboardAndAccessibilityJourney(app)
       case "registration-sync-status": try syncStatusJourney(app)
+      case "registration-sync-status-paused": try pausedSyncStatusJourney(app)
       case "registration-imap-folders": try imapFoldersJourney(app)
       case "registration-invitation":
         invitationJourney(app)

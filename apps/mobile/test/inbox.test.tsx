@@ -1012,8 +1012,11 @@ async function renderConnected(
   {
     windowBar,
     pinsFor,
+    toolbar = false,
   }: Readonly<{
     windowBar?: ReturnType<typeof createWindowBar>;
+    // iPhone's system toolbar in place of the floating bar.
+    toolbar?: boolean;
     // Pin storage for the registered Product Account, instead of the host's.
     pinsFor?: (registration: Registration) => Pins;
   }> = {},
@@ -1075,6 +1078,7 @@ async function renderConnected(
               onView={setView}
               selected={selected}
               view={view}
+              {...(toolbar ? { bar: true, onCompose: () => undefined } : {})}
             />
             <MessageDetail
               id={selected?.id}
@@ -1762,6 +1766,152 @@ describe('connected Gmail Inbox', () => {
       expect(screen.queryByTestId('sync-status-details')).toBeNull();
     });
     expect(screen.queryByText('1 account needs attention')).toBeNull();
+  });
+
+  it('pauses a Gmail connection at its usage limit until Gmail’s time, then offers one attempt without a time', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saturday, by the river?' });
+    const connected = await renderConnected(gmail.native);
+    const store = connected.store();
+    await screen.findByRole('button', { name: /Saturday, by the river\?/u });
+
+    // Gmail named a time two hours ahead: the capsule says so, and saved mail stays shown.
+    const until = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    gmail.fail({
+      status: 429,
+      body: JSON.stringify({
+        error: {
+          errors: [{ reason: 'rateLimitExceeded' }],
+          message: `Rate limit exceeded. Retry after ${until}`,
+        },
+      }),
+    });
+    await act(store.load);
+    const capsule = await screen.findByRole('button', {
+      name: /^Gmail paused, until \d{1,2}:\d{2}/u,
+    });
+    expect(screen.queryByText('1 account needs attention')).toBeNull();
+    // Paused is not offline: the heading keeps its unread count.
+    expect(screen.queryByText('Offline')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: /Saturday, by the river\?/u }),
+    ).toBeVisible();
+    await fireEvent.press(capsule);
+    let details = within(screen.getByTestId('sync-status-details'));
+    expect(
+      details.getByText(
+        /^Gmail is limiting requests from this account and asked Unwired to wait until \d{1,2}:\d{2}/u,
+      ),
+    ).toBeVisible();
+    // Try Again stays unavailable until then, and Gmail is not asked.
+    const tryAgain = details.getByRole('button', {
+      name: 'Try Again for Gmail · alex@example.invalid',
+    });
+    expect(tryAgain).toBeDisabled();
+    expect(details.getByText(/^Available at \d{1,2}:\d{2}/u)).toBeVisible();
+    expect(
+      details.getByText(
+        'Mail already on this iPhone stays readable. Sending has its own status in Outbox.',
+      ),
+    ).toBeVisible();
+    const reached = gmail.requests.length;
+    await act(async () => {
+      await fireEvent.press(tryAgain);
+    });
+    expect(gmail.requests).toHaveLength(reached);
+    await fireEvent.press(details.getByRole('button', { name: 'Done' }));
+    await waitFor(() => {
+      expect(screen.queryByTestId('sync-status-details')).toBeNull();
+    });
+
+    // Closing the Inbox ends the pause; a limit without a time leaves Try Again as one attempt.
+    store.forget();
+    await act(store.load);
+    gmail.fail({ status: 429 });
+    await act(store.load);
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Gmail paused' }),
+    );
+    details = within(screen.getByTestId('sync-status-details'));
+    expect(
+      details.getByText(
+        'Limited by Gmail, 1st time today. Gmail didn’t say for how long; trying again automatically, waiting longer each time.',
+      ),
+    ).toBeVisible();
+    expect(details.queryByText(/^Available at/u)).toBeNull();
+    gmail.deliver({ subject: 'Arrives after Try Again' });
+    await act(async () => {
+      await fireEvent.press(
+        details.getByRole('button', {
+          name: 'Try Again for Gmail · alex@example.invalid',
+        }),
+      );
+    });
+    await expect(
+      screen.findByText('Arrives after Try Again'),
+    ).resolves.toBeVisible();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: /^Gmail paused/u }),
+      ).toBeNull();
+    });
+  });
+
+  it('shows the paused capsule in place of Filter in iPhone’s system toolbar, which opens the details', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({ subject: 'Saturday, by the river?' });
+    const connected = await renderConnected(gmail.native, 'gmail', {
+      toolbar: true,
+    });
+    await screen.findByRole('button', { name: /Saturday, by the river\?/u });
+    const until = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    gmail.fail({
+      status: 429,
+      body: JSON.stringify({
+        error: { message: `Rate limit exceeded. Retry after ${until}` },
+      }),
+    });
+    await act(connected.store().load);
+    const [toolbar] = screen.container.queryAll(
+      ({ type }) => type === 'UnwiredSearchToolbar',
+    );
+    ok(toolbar);
+    await waitFor(() => {
+      expect(toolbar.props).toMatchObject({
+        pausedCaption: 'Gmail paused',
+        pausedDetail: expect.stringMatching(/^until \d{1,2}:\d{2}/u),
+      });
+    });
+    // The floating capsule gives way to the toolbar's.
+    expect(screen.queryByRole('button', { name: /^Gmail paused/u })).toBeNull();
+    await fireEvent(toolbar, 'pausedOpen');
+    expect(
+      within(screen.getByTestId('sync-status-details')).getByText(
+        'Gmail · alex@example.invalid',
+      ),
+    ).toBeVisible();
+
+    // Synchronized again, the details close with the pause, and Filter returns without the capsule.
+    const store = connected.store();
+    store.forget();
+    await act(store.load);
+    await waitFor(() => {
+      expect(screen.queryByTestId('sync-status-details')).toBeNull();
+    });
+    expect(toolbar.props).toMatchObject({ pausedCaption: undefined });
+    expect(screen.queryByRole('button', { name: /^Gmail paused/u })).toBeNull();
+
+    // The next pause waits for a tap before opening them.
+    gmail.fail({ status: 429 });
+    await act(store.load);
+    await waitFor(() => {
+      expect(toolbar.props).toMatchObject({ pausedCaption: 'Gmail paused' });
+    });
+    expect(screen.queryByTestId('sync-status-details')).toBeNull();
+    // Closing the Inbox ends the pause and its wait.
+    store.forget();
   });
 
   it('opens the sync status details in a popover on the capsule in a regular-width window', async () => {

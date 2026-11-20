@@ -110,6 +110,7 @@ import { usePinAction, usePinned } from './pins.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import {
   SyncStatusCapsule,
+  useToolbarPause,
   checking,
   offline,
   refused,
@@ -1029,6 +1030,7 @@ export function Inbox({
       // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
     }
   };
+  const { details, paused } = useToolbarPause(shown, toolbar);
   const syncCapsule = (
     <SyncStatusCapsule
       shown={shown}
@@ -1036,6 +1038,7 @@ export function Inbox({
       now={now}
       onTryAgain={tryAgain}
       onAuthorize={authorizer(account, load)}
+      toolbar={details}
     />
   );
 
@@ -1427,6 +1430,7 @@ export function Inbox({
             sticky={!inWindow}
             stickyOffset={insets.bottom + spacing.xs - spacing.m}
             listNotice={syncCapsule}
+            paused={paused}
             field={search}
             filter={filtering}
             hidden={composing !== undefined}
@@ -1455,16 +1459,19 @@ function InboxControls({
   toolbar,
   sticky,
   stickyOffset,
+  paused,
   ...props
 }: Parameters<typeof InboxBar>[0] & {
   readonly toolbar: boolean;
   readonly sticky: boolean;
   readonly stickyOffset: number;
+  readonly paused: Parameters<typeof InboxToolbar>[0]['paused'];
 }) {
   if (toolbar && props.onCompose !== undefined) {
     return (
       <InboxToolbar
         {...props}
+        paused={paused}
         onCompose={props.onCompose}
       />
     );

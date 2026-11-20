@@ -563,6 +563,12 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 @property (nonatomic, copy) NSString *filterSummary;
 @property (nonatomic, copy) NSString *filterSummaryLabel;
 @property (nonatomic, copy) NSString *filterHint;
+// Gmail's usage limit paused synchronization: the capsule takes Filter's place.
+@property (nonatomic, copy) NSString *pausedCaption;
+@property (nonatomic, copy) NSString *pausedDetail;
+@property (nonatomic, copy) NSString *pausedLabel;
+@property (nonatomic, copy) NSString *pausedHint;
+@property (nonatomic, strong) UIColor *pausedTint;
 @property (nonatomic, copy) NSString *composeLabel;
 @property (nonatomic) BOOL composeEnabled;
 @property (nonatomic, strong) UIColor *accent;
@@ -574,6 +580,7 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 @property (nonatomic, copy) RCTDirectEventBlock onPalette;
 @property (nonatomic, copy) RCTDirectEventBlock onFilterToggle;
 @property (nonatomic, copy) RCTDirectEventBlock onFilterOpen;
+@property (nonatomic, copy) RCTDirectEventBlock onPausedOpen;
 @property (nonatomic, copy) RCTDirectEventBlock onCompose;
 @end
 
@@ -669,7 +676,9 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
   NSArray *itemsKey = @[
     @(self.ready), @(self.filtered), self.filterLabel ?: @"", self.filteredBy ?: @"", self.filterSummary ?: @"",
     self.filterSummaryLabel ?: @"", self.filterHint ?: @"", self.composeLabel ?: @"", @(self.composeEnabled),
-    self.accent ?: NSNull.null, self.accentOnFill ?: NSNull.null, self.accentInk ?: NSNull.null
+    self.accent ?: NSNull.null, self.accentOnFill ?: NSNull.null, self.accentInk ?: NSNull.null,
+    self.pausedCaption ?: @"", self.pausedDetail ?: @"", self.pausedLabel ?: @"", self.pausedHint ?: @"",
+    self.pausedTint ?: NSNull.null
   ];
   BOOL mounting = self.itemsKey == nil;
   if (![itemsKey isEqualToArray:self.itemsKey]) {
@@ -699,11 +708,17 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
 {
   UINavigationItem *item = self.screen.navigationItem;
   if (item == nil) return;
-  // A filtered Inbox gives its toolbar to the filter, so search waits behind its button.
-  item.preferredSearchBarPlacement = self.filtered ? UINavigationItemSearchBarPlacementIntegratedButton
-                                                   : UINavigationItemSearchBarPlacementIntegrated;
+  BOOL paused = self.pausedCaption.length > 0;
+  // A filtered or paused Inbox gives its toolbar to the filter or the capsule, so search waits
+  // behind its button.
+  item.preferredSearchBarPlacement = self.filtered || paused ? UINavigationItemSearchBarPlacementIntegratedButton
+                                                             : UINavigationItemSearchBarPlacementIntegrated;
   NSMutableArray<UIBarButtonItem *> *items = [NSMutableArray array];
-  if (self.ready) {
+  if (self.ready && paused) {
+    [items addObject:[self pausedItem]];
+    [items addObject:[UIBarButtonItem flexibleSpaceItem]];
+    [items addObject:[UIBarButtonItem fixedSpaceItemOfWidth:0]];
+  } else if (self.ready) {
     // On, the filter fills its circle and shares one glass with the summary, as the frames draw.
     UIImage *image = self.filtered
                          ? [UIImage systemImageNamed:@"line.3.horizontal.decrease.circle.fill"
@@ -786,6 +801,44 @@ RCT_EXPORT_VIEW_PROPERTY(surface, UIColor)
   return [[UIBarButtonItem alloc] initWithCustomView:button];
 }
 
+// The Sync Status Capsule while Gmail's usage limit pauses synchronization, which opens Sync Status:
+// a clock, then the caption and Gmail's time, as the "Capsule · Gmail paused" frame draws.
+- (UIBarButtonItem *)pausedItem
+{
+  UIButtonConfiguration *configuration = [UIButtonConfiguration plainButtonConfiguration];
+  UIFontMetrics *caption = [UIFontMetrics metricsForTextStyle:UIFontTextStyleCaption1];
+  NSMutableAttributedString *title = [[NSMutableAttributedString alloc]
+      initWithString:self.pausedCaption
+          attributes:@{
+            NSFontAttributeName : [caption scaledFontForFont:[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold]],
+            NSForegroundColorAttributeName : UIColor.labelColor,
+          }];
+  if (self.pausedDetail.length > 0) {
+    [title appendAttributedString:[[NSAttributedString alloc]
+                                      initWithString:[NSString stringWithFormat:@"\n%@", self.pausedDetail]
+                                          attributes:@{
+                                            NSFontAttributeName : [caption scaledFontForFont:[UIFont systemFontOfSize:12]],
+                                            NSForegroundColorAttributeName : self.accentInk ?: UIColor.labelColor,
+                                          }]];
+  }
+  configuration.attributedTitle = title;
+  // The clock keeps the warning colour; the title keeps its own colours.
+  configuration.image = [[UIImage systemImageNamed:@"clock"
+                                 withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20]]
+      imageWithTintColor:self.pausedTint ?: UIColor.systemOrangeColor
+           renderingMode:UIImageRenderingModeAlwaysOriginal];
+  configuration.imagePadding = 8;
+  configuration.titleAlignment = UIButtonConfigurationTitleAlignmentLeading;
+  __weak UnwiredSearchToolbarView *weakSelf = self;
+  UIButton *button = [UIButton buttonWithConfiguration:configuration
+                                         primaryAction:[UIAction actionWithHandler:^(__kindof UIAction *action) {
+                                           if (weakSelf.onPausedOpen) weakSelf.onPausedOpen(@{});
+                                         }]];
+  button.accessibilityLabel = self.pausedLabel;
+  button.accessibilityHint = self.pausedHint;
+  return [[UIBarButtonItem alloc] initWithCustomView:button];
+}
+
 - (void)toggleFilter
 {
   if (self.onFilterToggle) self.onFilterToggle(@{});
@@ -840,6 +893,11 @@ RCT_EXPORT_VIEW_PROPERTY(filteredBy, NSString)
 RCT_EXPORT_VIEW_PROPERTY(filterSummary, NSString)
 RCT_EXPORT_VIEW_PROPERTY(filterSummaryLabel, NSString)
 RCT_EXPORT_VIEW_PROPERTY(filterHint, NSString)
+RCT_EXPORT_VIEW_PROPERTY(pausedCaption, NSString)
+RCT_EXPORT_VIEW_PROPERTY(pausedDetail, NSString)
+RCT_EXPORT_VIEW_PROPERTY(pausedLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(pausedHint, NSString)
+RCT_EXPORT_VIEW_PROPERTY(pausedTint, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(composeLabel, NSString)
 RCT_EXPORT_VIEW_PROPERTY(composeEnabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(accent, UIColor)
@@ -851,6 +909,7 @@ RCT_EXPORT_VIEW_PROPERTY(onSearchClose, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onPalette, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onFilterToggle, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onFilterOpen, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onPausedOpen, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onCompose, RCTDirectEventBlock)
 - (UIView *)view { return [UnwiredSearchToolbarView new]; }
 @end
