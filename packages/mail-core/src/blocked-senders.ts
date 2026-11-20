@@ -21,16 +21,29 @@ import { ownerOf } from './drafts.ts';
 // dot, no hyphen at a label's edge, and nothing a display name, list or control character adds.
 const atom = String.raw`[\p{L}\p{N}!#$%&'*+/=?^_\x60{|}~-]+`;
 const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+const domainPattern = `(?:${label}\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{0,58}[a-z0-9])`;
 const plainAddress = new RegExp(
-  `^${atom}(?:\\.${atom})*@(?:${label}\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{0,58}[a-z0-9])$`,
+  `^${atom}(?:\\.${atom})*@${domainPattern}$`,
   'u',
 );
+const plainDomain = new RegExp(`^${domainPattern}$`, 'u');
 
 // The address a Blocked Sender matches: one plain address, compared as a whole without case, as
 // recipient deduplication compares them. A display name, bare domain or list is none.
 export const blockedAddress = (address: string) => {
   const normalized = address.trim().toLowerCase();
   return normalized.length <= 254 && plainAddress.test(normalized)
+    ? normalized
+    : undefined;
+};
+
+// The domain a Blocked Domain matches: one plain domain without case, an optional leading `@`
+// dropped, written as sender addresses carry it. An internationalized name matches only in its
+// ASCII (`xn--`) form, so a lookalike never matches the domain it imitates. A display name,
+// address, list or single label is none.
+export const blockedDomain = (domain: string) => {
+  const normalized = domain.trim().toLowerCase().replace(/^@/u, '');
+  return normalized.length <= 253 && plainDomain.test(normalized)
     ? normalized
     : undefined;
 };
@@ -58,6 +71,38 @@ const UnblockedSchema = Schema.Struct({
 });
 type Unblocked = typeof UnblockedSchema.Type;
 
+// A Blocked Domain: a normalized domain a Mail Profile blocks, with every subdomain or alone, the
+// exact addresses at it that the block lets through, when it was blocked and how many arrivals this
+// device moved to Trash for it since then.
+const DomainSchema = Schema.String.check(
+  Schema.makeFilter((domain) => blockedDomain(domain) === domain),
+);
+const BlockedDomainSchema = Schema.Struct({
+  profile: Schema.NonEmptyString,
+  domain: DomainSchema,
+  subdomains: Schema.Boolean,
+  exempt: Schema.Array(AddressSchema),
+  blockedAt: Schema.Finite,
+  moved: Schema.Int,
+});
+export type BlockedDomain = typeof BlockedDomainSchema.Type;
+const UnblockedDomainSchema = Schema.Struct({
+  profile: Schema.NonEmptyString,
+  domain: DomainSchema,
+  unblockedAt: Schema.Finite,
+});
+type UnblockedDomain = typeof UnblockedDomainSchema.Type;
+
+// One domain's latest block, with its choices, or unblock in a Profile, as Private Sync holds it.
+const DomainChangeSchema = Schema.Struct({
+  domain: DomainSchema,
+  blocked: Schema.Boolean,
+  at: Schema.Finite,
+  subdomains: Schema.optionalKey(Schema.Boolean),
+  exempt: Schema.optionalKey(Schema.Array(AddressSchema)),
+});
+type DomainChange = typeof DomainChangeSchema.Type;
+
 // One address's latest block or unblock in a Profile and when it was made, as Private Sync holds
 // it.
 const ChangeSchema = Schema.Struct({
@@ -66,11 +111,14 @@ const ChangeSchema = Schema.Struct({
   at: Schema.Finite,
 });
 type Change = typeof ChangeSchema.Type;
-// What a Profile's record seals: each of its addresses' latest change.
+// What a Profile's record seals: each of its addresses' and domains' latest change. A record
+// without domains has no `domains`, as one written before #2477; a device that predates them reads
+// the addresses alone.
 const RecordJsonSchema = Schema.fromJsonString(
   Schema.Struct({
     profile: Schema.NonEmptyString,
     changes: Schema.Array(ChangeSchema),
+    domains: Schema.optionalKey(Schema.Array(DomainChangeSchema)),
   }),
 );
 const decodeRecord = Schema.decodeUnknownOption(RecordJsonSchema);
@@ -108,12 +156,16 @@ type Stored = Readonly<{
   senders: readonly BlockedSender[];
   receipts: readonly Receipt[];
   unblocked: readonly Unblocked[];
+  domains: readonly BlockedDomain[];
+  unblockedDomains: readonly UnblockedDomain[];
 }>;
 const DocumentSchema = Schema.fromJsonString(
   Schema.Struct({
     senders: Schema.Array(BlockedSenderSchema),
     receipts: Schema.optionalKey(Schema.Array(ReceiptSchema)),
     unblocked: Schema.optionalKey(Schema.Array(UnblockedSchema)),
+    domains: Schema.optionalKey(Schema.Array(BlockedDomainSchema)),
+    unblockedDomains: Schema.optionalKey(Schema.Array(UnblockedDomainSchema)),
   }),
 );
 const OpenedSchema = Schema.Struct({
@@ -191,34 +243,79 @@ const changesOf = (stored: Stored, profile: string): Change[] => [
     })),
 ];
 
-// Each address's later change, by address. At the same instant an unblock wins, since it moves
-// nothing; so devices converge whatever order they merge in.
-const merged = (changes: readonly Change[]) => {
-  const latest = new Map<string, Change>();
-  for (const change of changes) {
-    const kept = latest.get(change.address);
-    latest.set(
-      change.address,
-      kept === undefined ||
-        change.at > kept.at ||
-        (change.at === kept.at && !change.blocked)
-        ? change
-        : kept,
-    );
-  }
-  return Arr.sort(
-    latest.values(),
-    Order.mapInput(Order.String, ({ address }: Change) => address),
-  );
-};
+// Each key's later change. At the same instant an unblock wins, since it moves nothing; so devices
+// converge whatever order they merge in.
+const latestBy =
+  <C extends Readonly<{ blocked: boolean; at: number }>>(
+    key: (change: C) => string,
+  ) =>
+  (changes: readonly C[]) => {
+    const latest = new Map<string, C>();
+    for (const change of changes) {
+      const kept = latest.get(key(change));
+      latest.set(
+        key(change),
+        kept === undefined ||
+          change.at > kept.at ||
+          (change.at === kept.at && !change.blocked)
+          ? change
+          : kept,
+      );
+    }
+    return Arr.sort(latest.values(), Order.mapInput(Order.String, key));
+  };
+const merged = latestBy((change: Change) => change.address);
+const mergedDomains = latestBy((change: DomainChange) => change.domain);
 const sameChanges = Schema.toEquivalence(Schema.Array(ChangeSchema));
+const sameDomainChanges = Schema.toEquivalence(
+  Schema.Array(DomainChangeSchema),
+);
 
-// `stored` with `remote`, another device's changes of `profile`, merged in. A Blocked Sender that
-// stays blocked keeps this device's move count; one blocked again or elsewhere starts at none.
-const adopt = (stored: Stored, profile: string, remote: readonly Change[]) => {
+const isProfileDomain =
+  (profile: string, domain: string) =>
+  (block: Readonly<{ profile: string; domain: string }>) =>
+    block.profile === profile && block.domain === domain;
+
+// `profile`'s domain changes this device holds: a block with its choices for each Blocked Domain
+// and an unblock for each domain it stopped blocking.
+const domainChangesOf = (stored: Stored, profile: string): DomainChange[] => [
+  ...stored.domains
+    .filter((block) => block.profile === profile)
+    .map(({ domain, subdomains, exempt, blockedAt }) => ({
+      domain,
+      blocked: true,
+      at: blockedAt,
+      subdomains,
+      exempt,
+    })),
+  ...stored.unblockedDomains
+    .filter((unblocked) => unblocked.profile === profile)
+    .map(({ domain, unblockedAt }) => ({
+      domain,
+      blocked: false,
+      at: unblockedAt,
+    })),
+];
+
+// `stored` with `remote`, another device's changes of `profile`, merged in. A Blocked Sender or
+// Blocked Domain that stays blocked keeps this device's move count; one blocked again or elsewhere
+// starts at none.
+const adopt = (
+  stored: Stored,
+  profile: string,
+  remote: Readonly<{
+    changes: readonly Change[];
+    domains: readonly DomainChange[];
+  }>,
+) => {
   const local = merged(changesOf(stored, profile));
-  const next = merged([...local, ...remote]);
-  if (sameChanges(local, next)) {
+  const next = merged([...local, ...remote.changes]);
+  const localDomains = mergedDomains(domainChangesOf(stored, profile));
+  const nextDomains = mergedDomains([...localDomains, ...remote.domains]);
+  if (
+    sameChanges(local, next) &&
+    sameDomainChanges(localDomains, nextDomains)
+  ) {
     return stored;
   }
   const latest = new Map(next.map((change) => [change.address, change]));
@@ -255,6 +352,36 @@ const adopt = (stored: Stored, profile: string, remote: readonly Change[]) => {
         .filter(({ blocked }) => !blocked)
         .map(({ address, at }) => ({ profile, address, unblockedAt: at })),
     ],
+    domains: [
+      ...stored.domains.filter((block) => block.profile !== profile),
+      ...nextDomains.flatMap(
+        ({ domain, blocked, at, subdomains = false, exempt = [] }) =>
+          blocked
+            ? [
+                stored.domains.find(
+                  (block) =>
+                    isProfileDomain(profile, domain)(block) &&
+                    block.blockedAt === at,
+                ) ?? {
+                  profile,
+                  domain,
+                  subdomains,
+                  exempt,
+                  blockedAt: at,
+                  moved: 0,
+                },
+              ]
+            : [],
+      ),
+    ],
+    unblockedDomains: [
+      ...stored.unblockedDomains.filter(
+        (unblocked) => unblocked.profile !== profile,
+      ),
+      ...nextDomains
+        .filter(({ blocked }) => !blocked)
+        .map(({ domain, at }) => ({ profile, domain, unblockedAt: at })),
+    ],
   };
 };
 
@@ -268,7 +395,13 @@ const readable = (pulled: typeof PulledSchema.Type) => {
       unreadable.add(record.id);
       return [];
     }
-    return [{ ...record, changes: merged(sealed.changes) }];
+    return [
+      {
+        ...record,
+        changes: merged(sealed.changes),
+        domains: mergedDomains(sealed.domains ?? []),
+      },
+    ];
   });
   return { records, unreadable };
 };
@@ -277,14 +410,31 @@ type Pulled = Readonly<{
   version: number;
   updatedAt: number;
   changes: readonly Change[];
+  domains: readonly DomainChange[];
 }>;
 
 // The Profiles that have changes on this device.
 const profilesOf = (stored: Stored) => [
   ...new Set(
-    [...stored.senders, ...stored.unblocked].map(({ profile }) => profile),
+    [
+      ...stored.senders,
+      ...stored.unblocked,
+      ...stored.domains,
+      ...stored.unblockedDomains,
+    ].map(({ profile }) => profile),
   ),
 ];
+
+// Whether Blocked Domain `block` takes an arrival from `address`, a normalized address: one at its
+// domain, or at a subdomain of it when it blocks them, that it does not exempt.
+const takes = (block: BlockedDomain, address: string) => {
+  const domain = address.slice(address.lastIndexOf('@') + 1);
+  return (
+    (domain === block.domain ||
+      (block.subdomains && domain.endsWith(`.${block.domain}`))) &&
+    !block.exempt.includes(address)
+  );
+};
 
 // A sender's move count. One stored before senders kept it counts its kept receipts that arrived
 // since it was blocked.
@@ -296,8 +446,8 @@ const movedFor = (sender: BlockedSender, receipts: readonly Receipt[]) =>
       Date.parse(receipt.receivedAt) >= sender.blockedAt,
   ).length;
 
-// Each Mail Profile's Blocked Senders, stored on this device without network access, and the
-// receipts of the arrivals they moved to Trash. With `sync`, the Blocked Senders also synchronize
+// Each Mail Profile's Blocked Senders and Blocked Domains, stored on this device without network
+// access, and the receipts of the arrivals they moved to Trash. With `sync`, they also synchronize
 // through Private Sync: after each block or unblock and on `synchronize`. Receipts and move counts
 // stay on this device.
 export function createBlockedSenders(
@@ -338,19 +488,24 @@ export function createBlockedSenders(
         senders: document?.senders ?? [],
         receipts: document?.receipts ?? [],
         unblocked: document?.unblocked ?? [],
+        domains: document?.domains ?? [],
+        unblockedDomains: document?.unblockedDomains ?? [],
       };
     });
 
-  // Replaces the stored Blocked Senders, unblocks and receipts from the revision `stored` read.
+  // Replaces the stored Blocked Senders, Blocked Domains, unblocks and receipts from the revision
+  // `stored` read.
   const commit = (
     { owner, revision }: Readonly<{ owner: string; revision: number }>,
-    { senders, receipts, unblocked }: Stored,
+    { senders, receipts, unblocked, domains, unblockedDomains }: Stored,
   ) =>
     Effect.gen(function* () {
       const document = yield* Schema.encodeEffect(DocumentSchema)({
         senders,
         receipts,
         unblocked,
+        domains,
+        unblockedDomains,
       }).pipe(Effect.mapError(malformed));
       const committed = yield* native(
         () => storage.commitBlockedSenders(owner, revision, document),
@@ -370,19 +525,26 @@ export function createBlockedSenders(
     {
       profile,
       changes,
+      domains,
       record,
     }: Readonly<{
       profile: string;
       changes: readonly Change[];
+      domains: readonly DomainChange[];
       record: Pulled | undefined;
     }>,
   ) {
-    if (record !== undefined && sameChanges(record.changes, changes)) {
+    if (
+      record !== undefined &&
+      sameChanges(record.changes, changes) &&
+      sameDomainChanges(record.domains, domains)
+    ) {
       return false;
     }
     const senders = yield* Schema.encodeEffect(RecordJsonSchema)({
       profile,
       changes,
+      ...(domains.length === 0 ? {} : { domains }),
     }).pipe(Effect.mapError(malformed));
     const pushed = yield* native(
       () =>
@@ -422,7 +584,7 @@ export function createBlockedSenders(
     const stored = yield* Effect.gen(function* () {
       const read = yield* opened(account);
       const next = records.reduce<Stored>(
-        (document, { id, changes }) => adopt(document, id, changes),
+        (document, { id, ...record }) => adopt(document, id, record),
         read,
       );
       if (next !== read) {
@@ -438,6 +600,7 @@ export function createBlockedSenders(
         (yield* publish(remote, account, {
           profile,
           changes: merged(changesOf(stored, profile)),
+          domains: mergedDomains(domainChangesOf(stored, profile)),
           record: records.find(({ id }) => id === profile),
         })) || conflicted;
     }
@@ -447,14 +610,13 @@ export function createBlockedSenders(
   const synchronize = preferencePasses('Blocked Sender', pass, sync);
 
   // Resolves whether storage holds what `change` makes of the stored Blocked Senders, and then
-  // publishes it; returning them unchanged writes nothing. No Profile, or an address that is not
-  // one plain address, is refused.
+  // publishes it; returning them unchanged writes nothing. No Profile, or no `normalized` address
+  // or domain, is refused.
   const changing = async (
     profile: string,
-    address: string,
-    change: (stored: Stored, address: string) => Stored,
+    normalized: string | undefined,
+    change: (stored: Stored, normalized: string) => Stored,
   ) => {
-    const normalized = blockedAddress(address);
     if (profile === '' || normalized === undefined) {
       return false;
     }
@@ -507,7 +669,7 @@ export function createBlockedSenders(
       ),
     // Blocks `address` for `profile`; one it already blocks keeps its first date.
     block: (profile: string, address: string) =>
-      changing(profile, address, (stored, normalized) => {
+      changing(profile, blockedAddress(address), (stored, normalized) => {
         if (stored.senders.some(isProfileAddress(profile, normalized))) {
           return stored;
         }
@@ -548,13 +710,26 @@ export function createBlockedSenders(
       return runLogged(
         Effect.gen(function* () {
           const stored = yield* opened(account);
+          // An arrival counts for its exact Blocked Sender when one matches, otherwise for each
+          // Blocked Domain that takes it.
           const arrivals = messages.flatMap(({ id, receivedAt, ...sender }) => {
             const address = blockedAddress(sender.address);
-            return address !== undefined &&
-              stored.senders.some(isProfileAddress(profile, address))
+            if (address === undefined) {
+              return [];
+            }
+            const exact = stored.senders.some(
+              isProfileAddress(profile, address),
+            );
+            const domains = exact
+              ? []
+              : stored.domains.filter(
+                  (block) => block.profile === profile && takes(block, address),
+                );
+            return exact || domains.length > 0
               ? [
                   {
                     id,
+                    domains,
                     receipt: { connection: connection.id, address, receivedAt },
                   },
                 ]
@@ -576,6 +751,7 @@ export function createBlockedSenders(
             return { blocked, move };
           }
           const recorded = yield* commit(stored, {
+            ...stored,
             // A count outlives the receipts, which only keep an arrival from moving twice, so every
             // sender's is stored before older receipts are dropped.
             senders: stored.senders.map((sender) => ({
@@ -583,16 +759,22 @@ export function createBlockedSenders(
               moved:
                 movedFor(sender, stored.receipts) +
                 moving.filter(
-                  ({ receipt }) =>
+                  ({ receipt, domains }) =>
                     sender.profile === profile &&
+                    domains.length === 0 &&
                     receipt.address === sender.address,
                 ).length,
+            })),
+            domains: stored.domains.map((block) => ({
+              ...block,
+              moved:
+                block.moved +
+                moving.filter(({ domains }) => domains.includes(block)).length,
             })),
             receipts: [
               ...stored.receipts,
               ...moving.map(({ receipt }) => receipt),
             ].slice(-receiptLimit),
-            unblocked: stored.unblocked,
           }).pipe(
             Effect.as(true),
             Effect.catchTag('DraftStorageFailure', (error) =>
@@ -611,7 +793,7 @@ export function createBlockedSenders(
     },
     // Unblocks `address` for `profile` alone, keeping the unblock for Private Sync.
     unblock: (profile: string, address: string) =>
-      changing(profile, address, (stored, normalized) => {
+      changing(profile, blockedAddress(address), (stored, normalized) => {
         const sender = stored.senders.find(
           isProfileAddress(profile, normalized),
         );
@@ -629,6 +811,95 @@ export function createBlockedSenders(
                   address: normalized,
                   // After the block it ends, even when the clock went back.
                   unblockedAt: Math.max(Date.now(), sender.blockedAt + 1),
+                },
+              ],
+            };
+      }),
+    // `profile`'s Blocked Domains, or undefined while storage cannot read them.
+    blockedDomains: (profile: string) =>
+      runLogged(
+        opened(signedIn()).pipe(
+          Effect.map(({ domains }) =>
+            domains.filter((block) => block.profile === profile),
+          ),
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Effect's typed error channel.
+          Effect.catchTag('DraftStorageFailure', (error) =>
+            report(error).pipe(Effect.as(undefined)),
+          ),
+        ),
+      ),
+    // Blocks `domain` for `profile`, with every subdomain when `subdomains`, letting the exact
+    // addresses `exempt` through. One it already blocks with the same choices keeps its first date;
+    // other choices replace them from now. An invalid exempt address refuses the block.
+    blockDomain: (
+      profile: string,
+      domain: string,
+      choices: Readonly<{ subdomains: boolean; exempt: readonly string[] }>,
+    ) => {
+      const addresses = choices.exempt.map(blockedAddress);
+      const exempt = Arr.sort(
+        new Set(addresses.filter((address) => address !== undefined)),
+        Order.String,
+      );
+      return changing(
+        profile,
+        addresses.includes(undefined) ? undefined : blockedDomain(domain),
+        (stored, normalized) => {
+          const kept = stored.domains.find(
+            isProfileDomain(profile, normalized),
+          );
+          if (
+            kept?.subdomains === choices.subdomains &&
+            kept.exempt.join(' ') === exempt.join(' ')
+          ) {
+            return stored;
+          }
+          const unblocked = stored.unblockedDomains.find(
+            isProfileDomain(profile, normalized),
+          );
+          return {
+            ...stored,
+            domains: [
+              ...stored.domains.filter((block) => block !== kept),
+              {
+                profile,
+                domain: normalized,
+                subdomains: choices.subdomains,
+                exempt,
+                // After the block or unblock it replaces, even when the clock went back.
+                blockedAt: Math.max(
+                  Date.now(),
+                  (kept?.blockedAt ?? unblocked?.unblockedAt ?? 0) + 1,
+                ),
+                moved: kept?.moved ?? 0,
+              },
+            ],
+            unblockedDomains: stored.unblockedDomains.filter(
+              (block) => block !== unblocked,
+            ),
+          };
+        },
+      );
+    },
+    // Unblocks `domain` for `profile` alone, keeping the unblock for Private Sync. Mail it moved
+    // stays in Trash.
+    unblockDomain: (profile: string, domain: string) =>
+      changing(profile, blockedDomain(domain), (stored, normalized) => {
+        const kept = stored.domains.find(isProfileDomain(profile, normalized));
+        return kept === undefined
+          ? stored
+          : {
+              ...stored,
+              domains: stored.domains.filter((block) => block !== kept),
+              unblockedDomains: [
+                ...stored.unblockedDomains.filter(
+                  (block) => !isProfileDomain(profile, normalized)(block),
+                ),
+                {
+                  profile,
+                  domain: normalized,
+                  // After the block it ends, even when the clock went back.
+                  unblockedAt: Math.max(Date.now(), kept.blockedAt + 1),
                 },
               ],
             };
