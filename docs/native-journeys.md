@@ -446,8 +446,8 @@ Reminder". The journey fails later on iPhone
 ## iPhone and iPad Gmail pause journey
 
 In `registration-sync-status-paused`, Gmail returns HTTP 429 during history backfill
-with a retry time of 12:20 UTC the next day. Run on a simulator with a nonzero
-UTC offset at that instant. The journey signs in, checks that the Inbox remains
+with the fixed retry time 2 July 2099, 12:20 UTC. Run on a simulator whose time
+zone is off UTC at that instant, as Europe/London and Europe/Prague are. The journey signs in, checks that the Inbox remains
 visible, and compares the capsule's time with the retry instant formatted for the
 simulator's locale and time zone. It taps the toolbar capsule on iPhone and the
 floating capsule in landscape on iPad. The Sync Status sheet or popover must show

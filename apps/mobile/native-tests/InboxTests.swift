@@ -118,7 +118,7 @@ final class InboxTests: XCTestCase {
   // #2488: a timed Gmail usage limit keeps mail visible and disables early retry in Sync Status.
   private func pausedSyncStatusJourney(_ app: XCUIApplication) throws {
     // The mock's fixed retry time.
-    let retryAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2099-01-02T12:20:00Z"))
+    let retryAt = try XCTUnwrap(ISO8601DateFormatter().date(from: "2099-07-02T12:20:00Z"))
     let zone = TimeZone.current
     XCTAssertNotEqual(zone.secondsFromGMT(for: retryAt), 0, "Use a non-UTC simulator time zone")
     let formatter = DateFormatter()

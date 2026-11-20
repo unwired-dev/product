@@ -760,6 +760,18 @@ describe('pausing at a Gmail usage limit', () => {
     });
   });
 
+  it('ends a backoff after its wait even when the clock moves back', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await synchronized();
+    gmail.fail({ status: 429 });
+    await inbox.load();
+    vi.setSystemTime(Date.now() - 3_600_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+  });
+
   it('waits until the time Gmail named, keeping saved mail and changes, then synchronizes again', async () => {
     expect.hasAssertions();
     const { gmail, inbox, cached, message } = await synchronized();

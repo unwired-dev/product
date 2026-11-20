@@ -3597,7 +3597,9 @@ export function createInboxStore(
         if (pausedFor !== ownership || forgotten) {
           return;
         }
-        const left = (pause?.until ?? 0) - Date.now();
+        // Only Gmail's own time follows the clock; a backoff has waited its time.
+        const left =
+          pause?.named === true ? pause.until - Date.now() : Number.NaN;
         if (left > 0) {
           resumeAfter(left);
           return;
