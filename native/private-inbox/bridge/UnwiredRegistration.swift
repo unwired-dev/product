@@ -2343,7 +2343,9 @@ extension UnwiredRegistration {
     }
   }
 
-  // Resolves once the preview or share sheet is shown.
+  // Resolves once the preview or share sheet is shown. Save to Files resolves once the person
+  // saved, with the copy's file name, folder and a link that shows it in Files, or cancelled; the
+  // picker waits outside the storage gate.
   @objc(presentAttachment:file:action:resolver:rejecter:)
   func presentAttachment(
     _ scope: [String: Any], file: String, action: String,
@@ -2361,14 +2363,18 @@ extension UnwiredRegistration {
     _ scope: [String: Any], file: String, action: String, from origin: PresentationOrigin,
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    mailbox("presentAttachment", resolve, reject: reject) {
+    let save = action == AttachmentPresenter.Action.save.rawValue
+    mailbox("presentAttachment", save ? { _ in } : resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
-      guard action == "open" || action == "share" else { throw RegistrationError.unavailable }
+      guard let action = AttachmentPresenter.Action(rawValue: action) else {
+        throw RegistrationError.unavailable
+      }
       let url = try await $0.attachmentFile(
         connection: connection, address: address, generation: generation, file: file)
       Self.presentedAttachments[file, default: 0] += 1
-      let presented = AttachmentPresenter.present(url, share: action == "share", from: origin) {
+      let presented = AttachmentPresenter.present(url, action: action, from: origin) { saved in
         Self.endPresentation(file)
+        if save { resolve(saved.map(Self.savedCopy) ?? ["cancelled": true]) }
       }
       guard presented else {
         Self.endPresentation(file)
@@ -2376,6 +2382,21 @@ extension UnwiredRegistration {
       }
       return [:]
     }
+  }
+
+  // A saved copy as the reader reports it: its actual name, the folder's name as Files shows it,
+  // and the Files link that opens it there.
+  private static func savedCopy(_ url: URL) -> [String: Any] {
+    let folder = url.deletingLastPathComponent()
+    var show = URLComponents()
+    show.scheme = "shareddocuments"
+    show.host = ""
+    show.path = url.path
+    return [
+      "name": url.lastPathComponent,
+      "folder": FileManager.default.displayName(atPath: folder.path),
+      "show": show.url?.absoluteString ?? "",
+    ]
   }
 
   // Native Draft sync's Product Sync calls; each carries the device proof, and Convex sees only

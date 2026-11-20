@@ -4,11 +4,17 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
+import { AccessibilityInfo, Linking } from 'react-native';
 
+import {
+  SaveFailedNotice,
+  SaveOutcomeToast,
+  useSaveOutcome,
+} from '../src/attachment-save.tsx';
 import { ImapMessageBody } from '../src/imap-message-body.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
-import { GmailMessageBody } from '../src/message-body.tsx';
+import { GmailMessageBody, SaveOutcomeContext } from '../src/message-body.tsx';
 
 // The application callback behind a rendered control, as delayed native input would invoke it.
 const pressHandler = (
@@ -411,6 +417,169 @@ describe('received attachments in the reader', () => {
         screen.findByLabelText('Open notes.txt'),
       ).resolves.toBeOnTheScreen();
       expect(gmail.savedFiles.size).toBe(1);
+    } finally {
+      await app.unmount();
+    }
+  });
+});
+
+// An iPhone reader's Save to Files outcomes around one message body.
+function SavingReader({
+  inbox,
+  id,
+  readable = true,
+}: {
+  readonly inbox: ReturnType<typeof createInboxStore>;
+  readonly id: string;
+  // False while storage is locked.
+  readonly readable?: boolean;
+}) {
+  const saving = useSaveOutcome(id, readable);
+  return (
+    <SaveOutcomeContext value={saving.start}>
+      <SaveFailedNotice shown={saving.shown} />
+      <GmailMessageBody
+        inbox={inbox}
+        id={id}
+      />
+      <SaveOutcomeToast
+        shown={saving.shown}
+        bottom={0}
+      />
+    </SaveOutcomeContext>
+  );
+}
+
+// Renders a reader around one downloaded notes.txt, with its context menu and Save to Files… item.
+const openSaving = async () => {
+  const gmail = createSyntheticGmail();
+  const id = gmail.deliver({ content: { text: 'Notes attached.' } });
+  const inbox = createInboxStore(gmail.native);
+  await inbox.load();
+  const app = await render(
+    <SavingReader
+      inbox={inbox}
+      id={id}
+    />,
+  );
+  await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
+  const menu = contextMenuOf(await screen.findByLabelText('Open notes.txt'));
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ id: string; title: string }>;
+  }> = menu.props.sections;
+  const items = sections.flatMap((section) => section.items);
+  const save = async () => {
+    const item = items.find(({ title }) => title === 'Save to Files…');
+    await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
+  };
+  return { gmail, inbox, id, app, menu, items, save };
+};
+
+describe('saving a received attachment to Files', () => {
+  it('titles the menu with the file name and names the saved copy and its folder with Show', async () => {
+    expect.hasAssertions();
+    const show = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const { app, menu, items, save } = await openSaving();
+    try {
+      expect({
+        title: menu.props.menuTitle,
+        titles: items.map(({ title }) => title),
+      }).toStrictEqual({
+        title: 'notes.txt',
+        titles: ['Quick Look', 'Save to Files…', 'Share…'],
+      });
+      await save();
+      await expect(
+        screen.findByText('Saved to Downloads'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByText('notes 2.txt')).toBeOnTheScreen();
+      await fireEvent.press(screen.getByLabelText('Show notes 2.txt in Files'));
+      expect(show).toHaveBeenCalledWith(
+        'shareddocuments:///Downloads/notes%202.txt',
+      );
+    } finally {
+      await app.unmount();
+      show.mockRestore();
+    }
+  });
+
+  it('says nothing when the person cancels the picker', async () => {
+    expect.hasAssertions();
+    const { gmail, app, save } = await openSaving();
+    try {
+      gmail.cancelSave();
+      await save();
+      expect({
+        presentations: gmail.presentations,
+        failed: screen.queryByText('Couldn’t save “notes.txt”'),
+        saved: screen.queryByText('Saved to Downloads'),
+      }).toStrictEqual({
+        presentations: [{ name: 'notes.txt', action: 'save' }],
+        failed: null,
+        saved: null,
+      });
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('reports nothing for a save that finishes after storage locked and unlocked again', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, id, app, save } = await openSaving();
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    const picker = Promise.withResolvers<unknown>();
+    jest
+      .spyOn(gmail.native, 'presentAttachment')
+      .mockReturnValueOnce(picker.promise);
+    try {
+      await save();
+      await app.rerender(
+        <SavingReader
+          inbox={inbox}
+          id={id}
+          readable={false}
+        />,
+      );
+      await app.rerender(
+        <SavingReader
+          inbox={inbox}
+          id={id}
+        />,
+      );
+      await act(async () => {
+        picker.resolve({
+          name: 'notes 2.txt',
+          folder: 'Downloads',
+          show: 'shareddocuments:///Downloads/notes%202.txt',
+        });
+      });
+      expect({
+        saved: screen.queryByText('Saved to Downloads'),
+        announced: announce.mock.calls,
+      }).toStrictEqual({ saved: null, announced: [] });
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('says a failed save saved nothing and offers Save to Files… again', async () => {
+    expect.hasAssertions();
+    const { gmail, app, save } = await openSaving();
+    try {
+      gmail.failPresent('unavailable');
+      await save();
+      await expect(
+        screen.findByText('Couldn’t save “notes.txt”'),
+      ).resolves.toBeOnTheScreen();
+      expect(screen.getByText('The file was not saved.')).toBeOnTheScreen();
+      await fireEvent.press(screen.getByLabelText('Save notes.txt to Files'));
+      await expect(
+        screen.findByText('Saved to Downloads'),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.queryByText('Couldn’t save “notes.txt”'),
+      ).not.toBeOnTheScreen();
     } finally {
       await app.unmount();
     }

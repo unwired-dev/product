@@ -3653,6 +3653,7 @@ export function createImapInbox(
     downloadAttachment: attachments.downloadAttachment,
     cancelAttachment: attachments.cancelAttachment,
     presentAttachment: attachments.presentAttachment,
+    saveAttachmentCopy: attachments.saveAttachmentCopy,
     attachmentFile: attachments.attachmentFile,
     // Loads an opened message's Remote Message Content, as for Gmail: from the Authorized Remote
     // Content Cache, and with `network` also through the isolated native fetch.
