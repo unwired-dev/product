@@ -856,6 +856,7 @@ describe('blocked domains', () => {
       'nw-deals.com, northwind.io',
       'com',
       '\u0430pple.com',
+      '\u212Aey.example',
       'nw-deals..com',
       '-nw-deals.com',
       '',
@@ -924,6 +925,10 @@ describe('blocked domains', () => {
   it("replaces a block's choices from now and unblocks one Profile's domain alone", async () => {
     expect.hasAssertions();
     const { store } = await blocked();
+    // Moves before other choices count for the block they replace.
+    await store.screen('work', { id: 'connection-1', moves: true }, [
+      arrival('a', 'offers@nw-deals.com'),
+    ]);
     vi.setSystemTime(november8 + 1000);
     await store.blockDomain('work', 'nw-deals.com', {
       subdomains: false,
@@ -960,6 +965,8 @@ describe('blocked domains', () => {
       arrival('only', 'news@northwind.io'),
       arrival('not-subdomain', 'news@mail.northwind.io'),
       arrival('display', 'NW Deals <offers@growthleads.io>'),
+      // The Kelvin sign lowercases to an ASCII k.
+      arrival('kelvin', 'offers@\u212Aey.nw-deals.com'),
     ];
     await expect(
       store.screen('work', { id: 'connection-1', moves: true }, arrivals),
@@ -1078,5 +1085,27 @@ describe('blocked domains', () => {
         { domain: 'nw-deals.com', blocked: false, at: november8 + 1000 },
       ],
     });
+  });
+
+  it('keeps the same one of two blocks of a domain made at the same instant on every device', async () => {
+    expect.hasAssertions();
+    const { sealed, mac, phone } = devices();
+    await mac.store.blockDomain('work', 'nw-deals.com', withSubdomains);
+    await phone.store.blockDomain('work', 'nw-deals.com', {
+      subdomains: false,
+      exempt: [],
+    });
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    const record = sealed();
+    await mac.store.synchronize();
+    expect(sealed()).toStrictEqual(record);
+    await expect(phone.store.blockedDomains('work')).resolves.toStrictEqual(
+      await mac.store.blockedDomains('work'),
+    );
+    await expect(mac.store.blockedDomains('work')).resolves.toMatchObject([
+      { subdomains: true },
+    ]);
   });
 });

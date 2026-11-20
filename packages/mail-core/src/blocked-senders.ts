@@ -37,13 +37,22 @@ export const blockedAddress = (address: string) => {
     : undefined;
 };
 
+// Printable ASCII alone, checked before case folding, which turns some other characters, such as
+// the Kelvin sign, into ASCII letters.
+const ascii = /^[!-~]+$/u;
+// Whether `address` carries its domain in ASCII as it arrived.
+const asciiDomain = (address: string) =>
+  ascii.test(address.trim().slice(address.trim().lastIndexOf('@') + 1));
+
 // The domain a Blocked Domain matches: one plain domain without case, an optional leading `@`
 // dropped, written as sender addresses carry it. An internationalized name matches only in its
 // ASCII (`xn--`) form, so a lookalike never matches the domain it imitates. A display name,
 // address, list or single label is none.
 export const blockedDomain = (domain: string) => {
   const normalized = domain.trim().toLowerCase().replace(/^@/u, '');
-  return normalized.length <= 253 && plainDomain.test(normalized)
+  return ascii.test(domain.trim()) &&
+    normalized.length <= 253 &&
+    plainDomain.test(normalized)
     ? normalized
     : undefined;
 };
@@ -243,11 +252,12 @@ const changesOf = (stored: Stored, profile: string): Change[] => [
     })),
 ];
 
-// Each key's later change. At the same instant an unblock wins, since it moves nothing; so devices
-// converge whatever order they merge in.
+// Each key's later change. At the same instant an unblock wins, since it moves nothing, and of two
+// blocks the greater `tie`; so devices converge whatever order they merge in.
 const latestBy =
   <C extends Readonly<{ blocked: boolean; at: number }>>(
     key: (change: C) => string,
+    tie: (change: C) => string = () => '',
   ) =>
   (changes: readonly C[]) => {
     const latest = new Map<string, C>();
@@ -257,7 +267,8 @@ const latestBy =
         key(change),
         kept === undefined ||
           change.at > kept.at ||
-          (change.at === kept.at && !change.blocked)
+          (change.at === kept.at &&
+            (!change.blocked || (kept.blocked && tie(change) > tie(kept))))
           ? change
           : kept,
       );
@@ -265,7 +276,16 @@ const latestBy =
     return Arr.sort(latest.values(), Order.mapInput(Order.String, key));
   };
 const merged = latestBy((change: Change) => change.address);
-const mergedDomains = latestBy((change: DomainChange) => change.domain);
+// A domain block's choices, which tell apart two blocks made at the same instant.
+const choicesOf = ({
+  subdomains,
+  exempt,
+}: Readonly<{ subdomains?: boolean; exempt?: readonly string[] }>) =>
+  `${subdomains === true} ${(exempt ?? []).join(' ')}`;
+const mergedDomains = latestBy(
+  (change: DomainChange) => change.domain,
+  choicesOf,
+);
 const sameChanges = Schema.toEquivalence(Schema.Array(ChangeSchema));
 const sameDomainChanges = Schema.toEquivalence(
   Schema.Array(DomainChangeSchema),
@@ -361,7 +381,8 @@ const adopt = (
                 stored.domains.find(
                   (block) =>
                     isProfileDomain(profile, domain)(block) &&
-                    block.blockedAt === at,
+                    block.blockedAt === at &&
+                    choicesOf(block) === choicesOf({ subdomains, exempt }),
                 ) ?? {
                   profile,
                   domain,
@@ -720,11 +741,13 @@ export function createBlockedSenders(
             const exact = stored.senders.some(
               isProfileAddress(profile, address),
             );
-            const domains = exact
-              ? []
-              : stored.domains.filter(
-                  (block) => block.profile === profile && takes(block, address),
-                );
+            const domains =
+              exact || !asciiDomain(sender.address)
+                ? []
+                : stored.domains.filter(
+                    (block) =>
+                      block.profile === profile && takes(block, address),
+                  );
             return exact || domains.length > 0
               ? [
                   {
@@ -830,13 +853,16 @@ export function createBlockedSenders(
       ),
     // Blocks `domain` for `profile`, with every subdomain when `subdomains`, letting the exact
     // addresses `exempt` through. One it already blocks with the same choices keeps its first date;
-    // other choices replace them from now. An invalid exempt address refuses the block.
+    // other choices replace them from now, counting moves from none. An invalid exempt address
+    // refuses the block.
     blockDomain: (
       profile: string,
       domain: string,
       choices: Readonly<{ subdomains: boolean; exempt: readonly string[] }>,
     ) => {
-      const addresses = choices.exempt.map(blockedAddress);
+      const addresses = choices.exempt.map((address) =>
+        asciiDomain(address) ? blockedAddress(address) : undefined,
+      );
       const exempt = Arr.sort(
         new Set(addresses.filter((address) => address !== undefined)),
         Order.String,
@@ -849,8 +875,8 @@ export function createBlockedSenders(
             isProfileDomain(profile, normalized),
           );
           if (
-            kept?.subdomains === choices.subdomains &&
-            kept.exempt.join(' ') === exempt.join(' ')
+            kept !== undefined &&
+            choicesOf(kept) === choicesOf({ ...choices, exempt })
           ) {
             return stored;
           }
@@ -871,7 +897,7 @@ export function createBlockedSenders(
                   Date.now(),
                   (kept?.blockedAt ?? unblocked?.unblockedAt ?? 0) + 1,
                 ),
-                moved: kept?.moved ?? 0,
+                moved: 0,
               },
             ],
             unblockedDomains: stored.unblockedDomains.filter(
