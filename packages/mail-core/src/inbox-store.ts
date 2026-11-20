@@ -1263,7 +1263,7 @@ export function createInboxStore(
   let sync: Sync = 'syncing';
   // Gmail's usage limits on this local day, and in a row since the last completed synchronization.
   let limits = { day: '', times: 0, streak: 0 };
-  // The last usage limit met the backfill, so only the backfill's progress ends the streak.
+  // The last usage limit met the backfill, so only the backfill finishing ends the streak.
   let limitedBackfill = false;
   // When a limited synchronization runs again, and whether Gmail named that time. Until a named
   // time passes, nothing synchronizes this mailbox.
@@ -2884,10 +2884,10 @@ export function createInboxStore(
       read: storedSegment(scope),
       newName: segmentName,
     });
-    // Gmail answered the backfill.
-    limitedBackfill = false;
-    limits = { ...limits, streak: 0 };
     if (Option.isNone(step)) {
+      // The backfill finished, so its usage limits in a row end.
+      limitedBackfill = false;
+      limits = { ...limits, streak: 0 };
       return false;
     }
     const { written, keep } = step.value;
