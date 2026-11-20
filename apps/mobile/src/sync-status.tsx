@@ -80,9 +80,10 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     flex: 1,
   },
-  // A 44pt target around a 17pt label, without growing the capsule.
+  // A 44pt target around a 17pt label, without growing the capsule; a label that wraps in a narrow
+  // list grows both.
   action: {
-    minHeight: 44,
+    paddingVertical: 13.5,
     marginVertical: -14,
     justifyContent: 'center',
   },
@@ -141,6 +142,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 17,
     fontWeight: '600',
+  },
+  // The width the list leaves the capsule.
+  room: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
   },
   // The header starts below the system grabber.
   sheet: {
@@ -461,8 +467,12 @@ export function SyncStatusCapsule({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const width = useCapsuleWidth();
   const clock = useClockTime();
+  const capsuleWidth = useCapsuleWidth();
+  // A narrower list, as beside a portrait iPad's sidebar, narrows the capsule: the popover's host
+  // takes the capsule's width, so it would otherwise overflow and be clipped by the list (#2484).
+  const [room, setRoom] = useState(capsuleWidth);
+  const width = Math.min(capsuleWidth, room);
   const status = syncStatusOf(shown);
   const waited = useWaited(status?.kind === 'progress');
   const [retrying, setRetrying] = useState(false);
@@ -543,13 +553,20 @@ export function SyncStatusCapsule({
     />
   );
   return (
-    <Presenter
-      isPresented={open && details}
-      onIsPresentedChange={setDetails}
-      // The system toolbar shows the paused capsule.
-      trigger={inToolbar(toolbar, said) ? <View /> : capsule}>
-      {content}
-    </Presenter>
+    <View
+      pointerEvents="box-none"
+      onLayout={({ nativeEvent }) => {
+        setRoom(nativeEvent.layout.width);
+      }}
+      style={styles.room}>
+      <Presenter
+        isPresented={open && details}
+        onIsPresentedChange={setDetails}
+        // The system toolbar shows the paused capsule.
+        trigger={inToolbar(toolbar, said) ? <View /> : capsule}>
+        {content}
+      </Presenter>
+    </View>
   );
 }
 
