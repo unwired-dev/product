@@ -1084,7 +1084,7 @@ describe('connecting IMAP mailboxes', () => {
     ).toContain('Not yet read');
   });
 
-  it('shows the saved Inbox once a folder read that held the store ends', async () => {
+  it('shows the saved Inbox once a folder read that held the store ends, and opens only free stores together', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.addFolder('Archive');
@@ -1092,7 +1092,9 @@ describe('connecting IMAP mailboxes', () => {
     imap.deliver('Archive', { subject: 'Archived' });
     const held = Promise.withResolvers<undefined>();
     let opening: Promise<unknown> = Promise.resolve();
-    const native = syntheticConnections(
+    const other = createSyntheticImap();
+    other.deliver('INBOX', { subject: 'Other' });
+    const base = syntheticConnections(
       {},
       {
         'imap-connection': {
@@ -1102,8 +1104,22 @@ describe('connecting IMAP mailboxes', () => {
             return imap.native.imapOpen(...open);
           },
         },
+        'imap-other': other.native,
       },
     );
+    const batches: string[][] = [];
+    const single: string[] = [];
+    const native: typeof base = {
+      ...base,
+      openMailbox: async (connection) => {
+        single.push(connection);
+        return base.openMailbox(connection);
+      },
+      openSavedMailboxes: async (ids) => {
+        batches.push([...ids]);
+        return base.openSavedMailboxes(ids);
+      },
+    };
     const registration = {
       getSnapshot: () => ({
         busy: false,
@@ -1124,6 +1140,17 @@ describe('connecting IMAP mailboxes', () => {
               },
               state: 'connected',
             },
+            {
+              id: 'imap-other',
+              address: 'sam@example.invalid',
+              provider: 'imap',
+              imap: {
+                host: 'imap.example.invalid',
+                port: 993,
+                username: 'sam',
+              },
+              state: 'connected',
+            },
           ]),
         },
       }),
@@ -1134,6 +1161,7 @@ describe('connecting IMAP mailboxes', () => {
     const mailboxes = createMailboxes(native, registration);
     opening = held.promise;
     const archive = imapInbox(mailboxes).openFolder('Archive');
+    single.length = 0;
     await mailboxes.showSaved();
     expect(imapInbox(mailboxes).getSnapshot().kind).toBe('loading');
     held.resolve(undefined);
@@ -1144,6 +1172,10 @@ describe('connecting IMAP mailboxes', () => {
           ({ subject }) => subject,
         ),
       ).toStrictEqual(['Saved']);
+    });
+    expect({ batches, single }).toStrictEqual({
+      batches: [['imap-other']],
+      single: ['imap-connection'],
     });
   });
 
