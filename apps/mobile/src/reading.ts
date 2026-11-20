@@ -54,13 +54,10 @@ export const zoomedDocument = (html: string, scale: number) =>
     ? html
     : html.replace('</head>', `<style>body{zoom:${scale}}</style></head>`);
 
-// The sanitized document shrunk to `scale` of its laid-out size. A transform keeps the layout, so
-// one measurement at the reader's width gives the scale that fits; with no height of its own, the
-// root measures at the shrunk height.
-export const fittedDocument = (html: string, scale: number) =>
-  scale === 1
-    ? html
-    : html.replace(
-        '</head>',
-        `<style>html{height:0}body{transform:scale(${scale});transform-origin:0 0}</style></head>`,
-      );
+// The sanitized document marked to fit: the reader's measurement shrinks it to the view's width
+// with an app-owned transform, in place, and the root measures at the shrunk height.
+export const fittedDocument = (html: string) =>
+  html.replace(
+    '</head>',
+    '<style>:root{--unwired-fit:1}html{height:0}body{display:flow-root;transform-origin:0 0}</style></head>',
+  );

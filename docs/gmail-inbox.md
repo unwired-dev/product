@@ -1208,9 +1208,10 @@ punctuation character and at least every 24 characters, so they do not widen a
 table past the column; other words, scripts and emoji never split. Content that still needs more width, such as unwrappable text,
 scrolls horizontally inside WebKit instead of being clipped. On iPhone and iPad,
 **Fit Wide Messages to the Screen** in Settings › Reading, on by default, shrinks
-such a document to the column instead: the reader replaces the view with the same
-layout under an app-owned CSS `transform` at the measured width ratio, so text
-shrinks evenly, below WebKit's minimum font size, and one measurement fits. On the Mac, horizontal
+such a document to the column instead: each measurement scales the body in place
+with an app-owned CSS `transform` at the unscaled width ratio, so text shrinks
+evenly, below WebKit's minimum font size, and an authorized image refits the
+document without reloading it. On the Mac, horizontal
 mouse-wheel or trackpad scrolling moves the message sideways while vertical
 scrolling still moves the reader. Only a document
 above the presentation height cap scrolls vertically inside WebKit. The reader's cap is 20,000 points on both hosts, and a

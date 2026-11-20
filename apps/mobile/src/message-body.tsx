@@ -503,22 +503,17 @@ function RichDocument({
   const { t } = useLocalization();
   // The laid-out width; a later different width lays the document out and measures it again.
   const [width, setWidth] = useState<number>();
-  // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original document.
-  const [base] = useState(() =>
-    zoomedDocument(
+  // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
+  const [source] = useState(() => {
+    const html = zoomedDocument(
       labelImagePlaceholders(
         rich.initialDocument,
         t('messageBody.imageNotLoaded'),
       ),
       zoom,
-    ),
-  );
-  // The page scale that fits the document's laid-out width; each scale gets its own view.
-  const [pageScale, setPageScale] = useState(1);
-  const source = useMemo(
-    () => ({ html: fittedDocument(base, pageScale) }),
-    [base, pageScale],
-  );
+    );
+    return { html: fit ? fittedDocument(html) : html };
+  });
   const container = useRef<ViewInstance>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
@@ -596,22 +591,8 @@ function RichDocument({
       unsubscribe();
     };
   }, [viewport, height, positions, rich, onNear]);
-  // Wider content, such as unwrappable text, scrolls sideways inside the view unless it fits.
+  // Wider content, such as unwrappable text, scrolls sideways inside the view.
   const wide = width !== undefined && contentWidth > width;
-  const shown = height !== undefined && !(fit && wide);
-  // A replacement view at `next` page scale reports its images afresh; the old ones are withdrawn.
-  const replace = (next: number) => {
-    live.current += 1;
-    inner.current = { offset: 0, scale: 1 };
-    onNear([]);
-    setPageScale(next);
-    setHeight(undefined);
-    setContentWidth(0);
-    setLayout(live.current);
-  };
-  // The page scale at which content `measured` wide fits `view`; the layout stays the same.
-  const fitting = (measured: number, view: number) =>
-    Math.floor((pageScale * view * 10_000) / measured) / 10_000;
   const choose = ({ url, navigationType }: ShouldStartLoadRequest) => {
     if (url === 'about:blank') {
       return navigationType === 'other';
@@ -630,16 +611,18 @@ function RichDocument({
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
-          // A new width lays the document out again at full scale.
-          replace(1);
-        } else if (fit && height !== undefined && contentWidth > next) {
-          replace(fitting(contentWidth, next));
+          // The replacement view reports its images afresh; the old ones are withdrawn.
+          live.current += 1;
+          inner.current = { offset: 0, scale: 1 };
+          onNear([]);
+          setHeight(undefined);
+          setLayout(live.current);
         }
         setWidth(next);
       }}>
-      {shown ? null : (
+      {height === undefined ? (
         <ActivityIndicator accessibilityLabel={t('messageBody.opening')} />
-      )}
+      ) : null}
       {
         <WebView
           key={layout}
@@ -656,11 +639,6 @@ function RichDocument({
           onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
             if (measured !== undefined && layout === live.current) {
-              // The same layout at a smaller page scale fits a wider document.
-              if (fit && width !== undefined && measured.width > width) {
-                replace(fitting(measured.width, width));
-                return;
-              }
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured.height);
               setContentWidth(measured.width);
@@ -691,7 +669,7 @@ function RichDocument({
               backgroundColor: colors.surfaceContent,
               height: Math.min(height ?? 1, heightCap),
             },
-            shown ? undefined : styles.hidden,
+            height === undefined ? styles.hidden : undefined,
           ]}
         />
       }

@@ -201,7 +201,7 @@ index 38904266d..61df5fd36 100644
  /**
   * Called when the navigation is complete.
   * @see https://fburl.com/rtys6jlb
-@@ -1589,6 +1640,75 @@ - (void)webView:(WKWebView *)webView
+@@ -1589,6 +1640,76 @@ - (void)webView:(WKWebView *)webView
    if (_onLoadingFinish) {
      _onLoadingFinish([self baseEvent]);
    }
@@ -231,7 +231,8 @@ index 38904266d..61df5fd36 100644
 +  }
 +  __weak RNCWebViewImpl *weakSelf = self;
 +  // Only app-sanitized image nodes change; the document, text, typography and scroll stay.
-+  [_webView callAsyncJavaScript:@"globalThis.__unwiredRemoteRevision = revision;\nconst pending = [];\nfor (const element of document.querySelectorAll('[data-remote]')) {\n  const index = Number(element.dataset.remote), html = nodes[index];\n  if (typeof html !== 'string') continue;\n  const template = document.createElement('template');\n  template.innerHTML = html;\n  const next = template.content.firstElementChild;\n  if (template.content.childNodes.length !== 1 || !next || !['IMG', 'SPAN'].includes(next.tagName) || Number(next.dataset.remote) !== index) throw new Error('Invalid remote node');\n  if (next.tagName === 'IMG' && !next.getAttribute('src').startsWith('data:image/')) throw new Error('Nonlocal remote image');\n  if (element.outerHTML === next.outerHTML) continue;\n  element.replaceWith(next);\n  if (next.tagName === 'IMG') pending.push(next.decode().catch(() => undefined));\n}\nawait Promise.all(pending);\nif (globalThis.__unwiredRemoteRevision !== revision) return null;\nconst root = document.documentElement;\nreturn [root.scrollWidth, root.scrollHeight, Array.from(document.querySelectorAll('[data-remote]'), (element) => { const box = element.getBoundingClientRect(); return [Number(element.dataset.remote), box.top + window.scrollY, box.bottom + window.scrollY]; })];"
++  // A document marked to fit is shrunk in place to the view's width from its unscaled width.
++  [_webView callAsyncJavaScript:@"globalThis.__unwiredRemoteRevision = revision;\nconst pending = [];\nfor (const element of document.querySelectorAll('[data-remote]')) {\n  const index = Number(element.dataset.remote), html = nodes[index];\n  if (typeof html !== 'string') continue;\n  const template = document.createElement('template');\n  template.innerHTML = html;\n  const next = template.content.firstElementChild;\n  if (template.content.childNodes.length !== 1 || !next || !['IMG', 'SPAN'].includes(next.tagName) || Number(next.dataset.remote) !== index) throw new Error('Invalid remote node');\n  if (next.tagName === 'IMG' && !next.getAttribute('src').startsWith('data:image/')) throw new Error('Nonlocal remote image');\n  if (element.outerHTML === next.outerHTML) continue;\n  element.replaceWith(next);\n  if (next.tagName === 'IMG') pending.push(next.decode().catch(() => undefined));\n}\nawait Promise.all(pending);\nif (globalThis.__unwiredRemoteRevision !== revision) return null;\nconst root = document.documentElement, body = document.body;\nif (body && getComputedStyle(root).getPropertyValue('--unwired-fit').trim() === '1') {\n  body.style.removeProperty('transform');\n  const view = root.clientWidth, wide = root.scrollWidth;\n  if (wide > view) body.style.setProperty('transform', 'scale(' + Math.floor((view * 10000) / wide) / 10000 + ')');\n}\nreturn [root.scrollWidth, root.scrollHeight, Array.from(document.querySelectorAll('[data-remote]'), (element) => { const box = element.getBoundingClientRect(); return [Number(element.dataset.remote), box.top + window.scrollY, box.bottom + window.scrollY]; })];"
 +                      arguments:@{@"nodes": nodes, @"revision": @(revision)}
 +                        inFrame:nil
 +                 inContentWorld:WKContentWorld.defaultClientWorld
