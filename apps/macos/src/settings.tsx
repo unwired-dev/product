@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   sidebarBacking: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 18,
     borderCurve: 'continuous',
   },

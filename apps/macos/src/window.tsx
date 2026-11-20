@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   sidebarBacking: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 18,
     borderCurve: 'continuous',
   },
