@@ -526,14 +526,19 @@ function RichDocument({
         if (!active || revision !== measurement) {
           return;
         }
-        // A document taller than its view scrolls inside it, which moves its images up.
+        // A document taller than its view scrolls inside it; only images inside the view count.
         const shown = top - inner.current;
+        const bottom = top + Math.min(height, heightCap);
         const urls = positions
-          .filter(
-            (position) =>
-              shown + position.bottom >= offset - visible &&
-              shown + position.top <= offset + 2 * visible,
-          )
+          .filter((position) => {
+            const upper = Math.max(shown + position.top, top);
+            const lower = Math.min(shown + position.bottom, bottom);
+            return (
+              upper <= lower &&
+              lower >= offset - visible &&
+              upper <= offset + 2 * visible
+            );
+          })
           .flatMap(({ index }) => rich.remote.images[index] ?? []);
         onNear(urls);
       });
@@ -567,6 +572,7 @@ function RichDocument({
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
+          inner.current = 0;
           setHeight(undefined);
           setLayout((count) => count + 1);
         }

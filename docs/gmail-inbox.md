@@ -1072,8 +1072,9 @@ sources, including plain HTTP and internationalized host names, stay placeholder
   cache eviction protection.
 - **Viewport.** Under every policy, loading starts only for images within the
   visible range or one viewport above or below it. Queued work rechecks current
-  eligibility before starting. In a document taller than the 20,000-point view, images below its first
-  view stay placeholders.
+  eligibility before starting. A document taller than the 20,000-point view scrolls inside it, and only
+  images inside the view count: on iPhone and iPad, scrolling inside it brings later
+  images near; on Mac, images below its first view stay placeholders.
 - **Requests** run six at a time per message and twelve across the account. Native
   code owns the isolated HTTPS fetch outside WebKit, with no cookies, credentials,
   referrer, user agent or shared session. Any literal or resolved answer that is
