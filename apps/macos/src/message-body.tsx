@@ -517,13 +517,15 @@ function RichDocument({
           allowsInlineMediaPlayback={false}
           allowsLinkPreview={false}
           cacheEnabled={false}
-          dataDetectorTypes="none"
+          // An array: the macOS wrapper passes the prop through, and React Native macOS 0.83 reads
+          // a string where the native view expects an array, which crashes the app.
+          dataDetectorTypes={['none']}
           incognito
           javaScriptCanOpenWindowsAutomatically={false}
           javaScriptEnabled={false}
           mediaPlaybackRequiresUserAction
           onContentProcessDidTerminate={onFailure}
-          onContentSizeChange={(event: WebViewEvent) => {
+          onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
             if (measured !== undefined) {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));

@@ -132,6 +132,18 @@ historical difference instead of treating resolved graphs from different builds
 as interchangeable. No simulator app was
 launched and no physical-device behavior was qualified by these build checks.
 
+On 20 November 2026 React Native macOS 0.83.0 moved the Mac to `hermes-engine`
+0.14.1, from `hermes-v0.14.1` at `5a1485fd688eafdf40637f4f2f44ec830f099b80`, and to
+`@react-native/*` 0.83.10, from `v0.83.10` at `ff4f96a23b85b30d8de9331dfac2895f385f67b0`.
+Their supplements, and those for ReactCodegen and ReactAppDependencyProvider 0.83.0
+from `19f618c032c9f07967281ed5c462dc3259e8e7e1`, are re-pinned to those revisions with
+byte-identical texts. Every Hermes licence file and extracted vendor source has the
+same Git blob as in the reviewed `e0fc67142ec0` tree, and no vendored directory was
+added. `@react-native-macos/virtualized-lists` 0.83.0 ships its own licence, so its
+supplement is removed. From the inputs of a Mac `Testing` build, the generator now
+reports 148 components with none unresolved. Before the re-pin, six were unresolved.
+This is local generation evidence, not a signed archive.
+
 Final pre-handoff and independent review outcomes are recorded with the delivery PR.
 Local Release builds without production service configuration prove compilation
 and resource packaging only. They cannot replace the selected signed production

@@ -733,9 +733,8 @@ These are native configuration requirements, not assumptions about a wrapper's
 plain-text fallback. On-device MIME decoding and presentation sanitization belong
 in shared TypeScript; native code supplies the platform WebKit boundary.
 
-Both hosts render with `react-native-webview` under repository patches: 14.0.1 on
-iPhone and iPad (`patches/react-native-webview@14.0.1.patch`) and 13.16.1 on the
-Mac (`patches/react-native-webview@13.16.1.patch`). The patch disables page JavaScript
+Both hosts render with `react-native-webview` 14.0.1 under one repository patch
+(`patches/react-native-webview@14.0.1.patch`). The patch disables page JavaScript
 through `allowsContentJavaScript` and reports the laid-out document size. It
 measures with an app-owned script in WebKit's isolated client content world after
 load; page JavaScript stays disabled. This is the owner-approved measurement
@@ -747,7 +746,10 @@ skips keyboard events for untagged views or the wrapper's Mac view stops
 subclassing `RCTView`. The reader passes `javaScriptEnabled={false}`, `incognito`,
 `allowsLinkPreview={false}`, no base URL, and `originWhitelist={['*']}`. With that
 origin list, every navigation reaches the reader, which cancels it; otherwise the
-wrapper would open unlisted origins itself. The sanitizer parses HTML as a
+wrapper would open unlisted origins itself. It also turns data detectors off. The
+Mac passes them as an array, `dataDetectorTypes={['none']}`: the wrapper's Mac
+view passes the prop through unchanged, and React Native macOS 0.83 crashes the app
+on a string where the native view expects an array. The sanitizer parses HTML as a
 document with `parse5`.
 
 ### Sanitization contract
