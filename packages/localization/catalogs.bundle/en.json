@@ -108,8 +108,6 @@
     "zoom_iphone": "Message Zoom",
     "zoom_ipad": "Message zoom",
     "percent": "{{value}}%",
-    "fit_iphone": "Fit Wide Messages to the Screen",
-    "fit_ipad": "Fit wide messages to the screen",
     "footer_iphone": "Zooms formatted mail as you read it on this iPhone. The message and your Drafts don’t change.",
     "footer_ipad": "Zooms formatted mail as you read it on this iPad. The message and your Drafts don’t change."
   },

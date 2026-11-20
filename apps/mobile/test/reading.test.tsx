@@ -26,7 +26,7 @@ const chooseZoom = async (level: string) => {
 const openReader = async () => {
   const gmail = createSyntheticGmail();
   const id = gmail.deliver({
-    content: { html: '<table width="640"><tr><td>Invoice</td></tr></table>' },
+    content: { html: '<p>Total <b>48 000 CZK</b>, due 30 November.</p>' },
   });
   const inbox = createInboxStore(gmail.native);
   await inbox.load();
@@ -38,6 +38,7 @@ const openReader = async () => {
   await settings.load();
   return render(
     <RemoteContentContext value={settings}>
+      <ReadingSettings destination="reading" />
       <ReaderScrollView>
         <GmailMessageBody
           inbox={inbox}
@@ -49,76 +50,48 @@ const openReader = async () => {
   );
 };
 
-// WebKit lays the document out at `width` points in a 320pt view.
-const measure = async (width: number) => {
+// The zoom style the reader added to the shown document, if any.
+const shownZoom = async () => {
   const webview = await screen.findByTestId('message-webview');
-  // The document's container reports the view's width.
-  await fireEvent(webview.parent ?? webview, 'layout', {
-    nativeEvent: { layout: { width: 320 } },
-  });
-  await fireEvent(webview, 'contentSizeChange', {
-    nativeEvent: { contentSize: { width, height: 400 } },
-  });
-  return screen.findByTestId('message-webview');
+  const html: string = webview.props.source.html;
+  return /<style>body\{zoom:[\d.]+\}<\/style>/u.exec(html)?.[0];
 };
 
 describe('settings › Reading', () => {
-  it('zooms received formatted mail, fits wide mail only when asked, and keeps both choices on this device', async () => {
+  it('zooms received formatted mail in the reader and keeps the zoom on this device', async () => {
     expect.hasAssertions();
-    const settings = await render(<ReadingSettings destination="reading" />);
+    await openReader();
     const initial = {
       textSize: screen.queryByText('Follows iOS') !== null,
       zoom: screen.getByLabelText(/^Message Zoom: /u).props.accessibilityLabel,
-      fit: screen.getByLabelText('Fit Wide Messages to the Screen').props.value,
       footer:
         screen.queryByText(
           'Zooms formatted mail as you read it on this iPhone. The message and your Drafts don’t change.',
         ) !== null,
+      document: await shownZoom(),
     };
     await chooseZoom('150%');
-    await settings.unmount();
-
-    // A 640pt-wide message at 150% scrolls sideways while Fit Wide Messages is off.
-    const reader = await openReader();
-    const zoomed = await measure(960);
-    const unfitted = {
-      zoom: zoomed.props.source.html.includes('<style>body{zoom:1.5}</style>'),
-      scrolls: zoomed.props.scrollEnabled,
-    };
-    await reader.unmount();
-
-    await render(<ReadingSettings destination="reading" />);
-    await fireEvent(
-      screen.getByLabelText('Fit Wide Messages to the Screen'),
-      'valueChange',
-      true,
-    );
-    await screen.findByLabelText('Message Zoom: 150%');
-    await openReader();
-    // The same message is laid out again at the zoom that fits its 320pt view.
-    const fitted = await measure(960);
-    const refitted = await measure(320);
+    const zoomed = await shownZoom();
+    const webview = await screen.findByTestId('message-webview');
+    const message: string = webview.props.source.html;
 
     expect({
       initial,
-      unfitted,
-      fitted: fitted.props.source.html.match(/body\{zoom:[\d.]+\}/u)?.[0],
-      scrolls: refitted.props.scrollEnabled,
-      kept: [
-        Settings.get('UnwiredMessageZoom'),
-        Settings.get('UnwiredFitWideMessages'),
-      ],
+      zoomed,
+      label: screen.getByLabelText(/^Message Zoom: /u).props.accessibilityLabel,
+      message: message.includes('48 000 CZK'),
+      kept: Settings.get('UnwiredMessageZoom'),
     }).toStrictEqual({
       initial: {
         textSize: true,
         zoom: 'Message Zoom: 100%',
-        fit: false,
         footer: true,
+        document: undefined,
       },
-      unfitted: { zoom: true, scrolls: true },
-      fitted: 'body{zoom:0.5}',
-      scrolls: false,
-      kept: [150, true],
+      zoomed: '<style>body{zoom:1.5}</style>',
+      label: 'Message Zoom: 150%',
+      message: true,
+      kept: 150,
     });
   });
 });

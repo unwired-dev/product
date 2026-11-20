@@ -73,8 +73,6 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-import type { Reading } from './reading.ts';
-
 import { Action } from './action.tsx';
 import { ContextMenu, Notice, SFSymbol } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
@@ -83,7 +81,7 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
-import { useReading, zoomedDocument } from './reading.ts';
+import { useMessageZoom, zoomedDocument } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
@@ -466,17 +464,16 @@ export function ReaderScrollView({
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
 // images within one viewport of the visible range are reported as they come near. The document
-// takes the reader's Message Zoom; with Fit Wide Messages, a wider one is laid out again at the
-// zoom that fits the view's width.
+// takes the reader's Message Zoom.
 function RichDocument({
   rich,
-  reading,
+  zoom,
   onChoose,
   onFailure,
   onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
-  readonly reading: Reading;
+  readonly zoom: number;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
@@ -485,19 +482,16 @@ function RichDocument({
   const { t } = useLocalization();
   // The laid-out width; a later different width lays the document out and measures it again.
   const [width, setWidth] = useState<number>();
-  const zoom = reading.zoom / 100;
-  // Each navigation keeps its source; only a new zoom starts another.
-  const sourceAt = (scale: number) => ({
-    scale,
+  // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
+  const [source] = useState(() => ({
     html: zoomedDocument(
       labelImagePlaceholders(
         rich.initialDocument,
         t('messageBody.imageNotLoaded'),
       ),
-      scale,
+      zoom,
     ),
-  });
-  const [source, setSource] = useState(() => sourceAt(zoom));
+  }));
   const container = useRef<ViewInstance>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
@@ -547,16 +541,8 @@ function RichDocument({
       unsubscribe();
     };
   }, [viewport, height, positions, rich, onNear]);
-  // Wider content, such as unwrappable text, scrolls sideways inside the view, unless it fits.
+  // Wider content, such as unwrappable text, scrolls sideways inside the view.
   const wide = width !== undefined && contentWidth > width;
-  if (wide && reading.fit && source.scale === zoom) {
-    setSource(
-      sourceAt(Math.floor((zoom * width * 1000) / contentWidth) / 1000),
-    );
-    setHeight(undefined);
-    setContentWidth(0);
-    setLayout((count) => count + 1);
-  }
   const choose = ({ url, navigationType }: ShouldStartLoadRequest) => {
     if (url === 'about:blank') {
       return navigationType === 'other';
@@ -575,9 +561,6 @@ function RichDocument({
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
-          if (source.scale !== zoom) {
-            setSource(sourceAt(zoom));
-          }
           setHeight(undefined);
           setLayout((count) => count + 1);
         }
@@ -650,7 +633,7 @@ export function Presentation({
   const colors = usePalette();
   const { t } = useLocalization();
   const { rich, readable } = presentation;
-  const reading = useReading();
+  const zoom = useMessageZoom();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
     document: rich?.initialDocument,
@@ -700,9 +683,9 @@ export function Presentation({
       ) : (
         <>
           <RichDocument
-            key={`${richKey}:${reading.zoom}:${reading.fit}`}
+            key={`${richKey}:${zoom}`}
             rich={rich}
-            reading={reading}
+            zoom={zoom / 100}
             onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {

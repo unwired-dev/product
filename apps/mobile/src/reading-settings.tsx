@@ -1,17 +1,20 @@
-import { spacing, typography } from '@private-email/mail-core/theme';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  ipadListScale,
+  spacing,
+  typography,
+} from '@private-email/mail-core/theme';
+import { StyleSheet, Text, View } from 'react-native';
 
 import type { SettingsDestination } from './settings.tsx';
 
-import { MenuButton, SFSymbol } from './design.tsx';
+import { MenuButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { messageZooms, saveReading, useReading } from './reading.ts';
+import { messageZooms, setMessageZoom, useMessageZoom } from './reading.ts';
 import {
   PopUpChevrons,
   settingsColumns,
   SettingsGroup,
   SettingsRow,
-  switchRowHeight,
 } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -21,7 +24,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: settingsColumns ? spacing.xs : spacing.m,
+    gap: settingsColumns ? spacing.m * ipadListScale : spacing.m,
   },
   value: settingsColumns ? typography.ipadList.body : textStyles.body,
 });
@@ -34,7 +37,7 @@ export function ReadingSettings({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const { zoom, fit } = useReading();
+  const zoom = useMessageZoom();
   const context = settingsColumns ? 'ipad' : 'iphone';
   const percent = (value: number) => t('reading.percent', { value });
   if (destination !== 'reading') {
@@ -63,7 +66,7 @@ export function ReadingSettings({
                   symbol: '',
                   checked: each === zoom,
                   run: () => {
-                    saveReading({ zoom: each });
+                    setMessageZoom(each);
                   },
                 })),
               },
@@ -73,29 +76,9 @@ export function ReadingSettings({
               <Text style={[styles.value, { color: colors.textPrimary }]}>
                 {percent(zoom)}
               </Text>
-              {settingsColumns ? (
-                <SFSymbol
-                  name="chevron.up.chevron.down"
-                  size={12}
-                  color={colors.textSecondary}
-                />
-              ) : (
-                <PopUpChevrons />
-              )}
+              <PopUpChevrons scaled={settingsColumns} />
             </View>
           </MenuButton>
-        </SettingsRow>
-        <SettingsRow
-          title={t('reading.fit', { context })}
-          minHeight={switchRowHeight}>
-          <Switch
-            accessibilityLabel={t('reading.fit', { context })}
-            value={fit}
-            trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
-            onValueChange={(next) => {
-              saveReading({ fit: next });
-            }}
-          />
         </SettingsRow>
       </SettingsGroup>
     </>
