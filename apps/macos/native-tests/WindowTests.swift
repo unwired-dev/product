@@ -144,7 +144,8 @@ final class WindowTests: XCTestCase {
     window.typeKey("a", modifierFlags: .command)
     window.typeKey(.delete, modifierFlags: [])
     to.typeText("jordan@example.invalid")
-    window.textFields["Subject"].click()
+    // The address's contact suggestion covers Subject; Return accepts it.
+    window.typeKey(.return, modifierFlags: [])
     waitUntil { send.isEnabled }
     XCTAssertFalse(text("not a complete address", in: window).exists)
   }
@@ -187,6 +188,15 @@ final class WindowTests: XCTestCase {
     window.buttons["New Message"].click()
     XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
     typeRecipient(window.textFields["To"], "jordan@example.invalid")
+    // The address matches a contact, whose suggestion covers Subject; Return accepts it as a token.
+    let suggestion = window.buttons["Jordan Lee, jordan@example.invalid"]
+    XCTAssertTrue(suggestion.waitForExistence(timeout: 10))
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(suggestion.waitForNonExistence(timeout: 10))
+    let recipient = window.buttons.matching(
+      NSPredicate(
+        format: "label BEGINSWITH %@ AND label CONTAINS %@", "To: ", "jordan@example.invalid"))
+    waitUntil { recipient.count == 1 }
     let subject = window.textFields["Subject"]
     subject.click()
     subject.typeText("Recovered after a force quit")
@@ -215,10 +225,7 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(offer.waitForNonExistence(timeout: 10))
     XCTAssertTrue(subject.waitForExistence(timeout: 30))
     XCTAssertEqual(subject.value as? String, "Recovered after a force quit")
-    XCTAssertEqual(
-      window.buttons.matching(
-        NSPredicate(format: "label == %@", "To: jordan@example.invalid")
-      ).count, 1)
+    XCTAssertEqual(recipient.count, 1)
     XCTAssertEqual(body.value as? String, "Typed just before the app ended")
     XCTAssertTrue(attachment.waitForExistence(timeout: 15))
     // The row shows the size before its bytes are read again; a damaged or missing file then
@@ -331,6 +338,10 @@ final class WindowTests: XCTestCase {
       prompt.buttons.matching(NSPredicate(format: "title BEGINSWITH %@", "Don")).firstMatch.click()
       XCTAssertTrue(prompt.waitForNonExistence(timeout: 10))
       field.click()
+      // Focusing the field again selects what it holds; replace that with the whole text.
+      field.typeKey("a", modifierFlags: .command)
+      field.typeText(text)
+      return
     }
     field.typeText(String(text.dropFirst()))
   }
