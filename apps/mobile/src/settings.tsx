@@ -290,7 +290,8 @@ const styles = StyleSheet.create({
     gap: settingsColumns ? spacing.xs : spacing.m,
   },
   popUpLabel: settingsColumns ? typography.ipadList.body : textStyles.body,
-  popUpDisabled: { opacity: 1 },
+  popUpOpaque: { opacity: 1 },
+  popUpDisabled: { opacity: 0.4 },
   popUpChevrons: {
     width: 22,
     height: 22,
@@ -1093,9 +1094,9 @@ export function PopUpChoice<Choice extends string>({
           })),
         },
       ]}
-      // The disabled native button already dims its value as the row dims its title.
-      style={[styles.popUpTarget, disabled && styles.popUpDisabled]}>
-      <View style={styles.popUp}>
+      // The content dims, as the row dims its title, once: not the native button too.
+      style={[styles.popUpTarget, disabled && styles.popUpOpaque]}>
+      <View style={[styles.popUp, disabled && styles.popUpDisabled]}>
         <Text
           numberOfLines={1}
           style={[
