@@ -21,7 +21,7 @@ matches content, grouping and actions to the design.
   **Allow…**, which asks once. **Show Sender and Subject** is off by default; until
   it is turned on, every notification shows only the app's name and "New mail".
   Permission and this choice belong to this device and never synchronize.
-- **App Icon Badge** on iPhone and iPad, **Dock Badge** on the Mac, chooses **Off** or
+- **App Icon Badge** on iPhone and iPad, **Dock badge** on the Mac, chooses **Off** or
   **Unread in Inbox**. It starts **Off**, belongs to this device and never synchronizes.
   While notifications are off in the system's settings, the choice stays, dimmed, and
   applies once they are allowed. See [App Icon Badge](#app-icon-badge).

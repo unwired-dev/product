@@ -249,7 +249,7 @@ Profiles. It sets Light; `testMailProfileWithoutMailboxesDark` runs it in Dark.
 
 `testDockBadge` uses the same build and sign-in
 ([#2605](https://github.com/unwired-dev/product/issues/2605)). It chooses
-**Unread in Inbox** from Settings › Notifications' **Dock Badge** pop-up, requires that
+**Unread in Inbox** from Settings › Notifications' **Dock badge** pop-up, requires that
 exactly one Unwired Mail request appears after it, allows that notification request from its banner's **Options** menu with the keyboard, since that
 menu is not in the accessibility tree, and waits for **Allowed**. The Settings capture is
 kept as an attachment. It chooses Light in Settings › Appearance first;

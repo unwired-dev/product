@@ -2699,7 +2699,7 @@ final class WindowTests: XCTestCase {
     choose("System")
   }
 
-  // #2605: Settings › Notifications' Dock Badge pop-up chooses Unread in Inbox, asking for
+  // #2605: Settings › Notifications' Dock badge pop-up chooses Unread in Inbox, asking for
   // notification permission the first time. The runner cannot read the Dock tile's badge, so the
   // count it draws is checked from the shell (docs/native-journeys.md).
   func testDockBadge() throws {
@@ -2730,7 +2730,7 @@ final class WindowTests: XCTestCase {
     look.click()
     XCTAssertEqual(look.value as? String, "radio button, checked")
     settings.buttons["Notifications"].click()
-    let badge = settings.popUpButtons["Dock Badge"]
+    let badge = settings.popUpButtons["Dock badge"]
     XCTAssertTrue(badge.waitForExistence(timeout: 15))
     XCTAssertEqual(badge.value as? String, "Off")
     // Each run's disposable identity asks for permission again. Another copy of the app shares

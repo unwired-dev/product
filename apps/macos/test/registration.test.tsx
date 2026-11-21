@@ -1925,7 +1925,7 @@ describe('product registration', () => {
     });
   });
 
-  it('keeps the saved Dock Badge choice, dimmed, while notifications are denied and saves a new one once they are allowed', async () => {
+  it('keeps the saved Dock badge choice, dimmed, while notifications are denied and saves a new one once they are allowed', async () => {
     expect.hasAssertions();
     const { synthetic, setup } = await signedIn();
     await setup.addMailbox();
@@ -1971,7 +1971,7 @@ describe('product registration', () => {
     await openAccount();
     await settings('Notifications');
     const badge = () =>
-      settingsWindow().getByRole('button', { name: 'Dock Badge' });
+      settingsWindow().getByRole('button', { name: 'Dock badge' });
     await settingsWindow().findByText(
       'Your choices are kept and apply as soon as notifications are allowed.',
     );
