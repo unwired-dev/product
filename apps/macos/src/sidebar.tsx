@@ -38,7 +38,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { InboxMailbox } from './private-storage.ts';
 
 import { RegisterCommands } from './command-palette.tsx';
-import { ContextMenu, MenuButton, SFSymbol } from './design.tsx';
+import { Button, ContextMenu, MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-list.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
@@ -101,16 +101,7 @@ const styles = StyleSheet.create({
   // The frames' 18pt-wide slot for a row's own symbol.
   editIcon: { width: 18 },
   // Done overlaps the header's trailing end as the frames draw it, so the header keeps its height.
-  done: {
-    position: 'absolute',
-    top: 3,
-    right: 0,
-    height: 28,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    borderCurve: 'continuous',
-  },
+  done: { position: 'absolute', top: 3, right: 0 },
   label: { ...textStyles.body, flex: 1 },
   count: { ...textStyles.body },
   footer: {
@@ -601,15 +592,17 @@ function EditFavorites({
   // Moves `row` to the place `to` gives for its stored place.
   readonly onMove: (row: Favorite, to: (index: number) => number) => void;
 }) {
-  const [drag, setDrag] = useState<Readonly<{ row: Favorite; dy: number }>>();
+  // The dragged row, the place it started from and how far the pointer moved it.
+  const [drag, setDrag] =
+    useState<Readonly<{ row: Favorite; from: number; dy: number }>>();
   // The row the keyboard or VoiceOver last moved, and how many times in a row.
   const [moved, setMoved] =
     useState<Readonly<{ row: Favorite; times: number }>>();
   // The place `dy` below row `from` falls on.
   const place = (from: number, dy: number) =>
     Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / rowHeight)));
-  const from = rows.findIndex(({ row }) => row === drag?.row);
-  const dragged = rows[from];
+  const from = drag?.from ?? -1;
+  const dragged = rows.find(({ row }) => row === drag?.row);
   const to = drag === undefined ? from : place(from, drag.dy);
   const rest = rows.filter((entry) => entry !== dragged);
   const order =
@@ -646,12 +639,12 @@ function EditFavorites({
         }}
         onDrag={(dy) => {
           setMoved(undefined);
-          setDrag({ row, dy });
+          setDrag({ row, from: drag?.row === row ? drag.from : index, dy });
         }}
         onDrop={(dy) => {
           setDrag(undefined);
-          if (dy !== undefined && place(index, dy) !== index) {
-            onMove(row, () => place(index, dy));
+          if (dy !== undefined && place(from, dy) !== from) {
+            onMove(row, () => place(from, dy));
           }
         }}
       />
@@ -783,18 +776,15 @@ export function Mailboxes({
                 style={[styles.section, { color: colors.textSecondary }]}>
                 {t('mailboxes.favorites')}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('mailboxes.done')}
-                focusable
-                onPress={() => {
-                  setEditing(false);
-                }}
-                style={[styles.done, { backgroundColor: colors.accentFill }]}>
-                <Text style={[textStyles.body, { color: colors.accentOnFill }]}>
-                  {t('mailboxes.done')}
-                </Text>
-              </Pressable>
+              <View style={styles.done}>
+                <Button
+                  label={t('mailboxes.done')}
+                  fill="accent"
+                  onPress={() => {
+                    setEditing(false);
+                  }}
+                />
+              </View>
             </View>
           ) : (
             <ContextMenu
