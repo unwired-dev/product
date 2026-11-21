@@ -86,7 +86,11 @@ import {
   SignInNotice,
 } from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
-import { InboxPreferencesContext, useSections } from './list-density.tsx';
+import {
+  InboxPreferencesContext,
+  useReadSections,
+  useSections,
+} from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-state.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
@@ -794,6 +798,10 @@ function DragList<T>({
       cancelled?: boolean;
     }>
   >();
+  // A drag whose item leaves the list gets no release, so it ends here and the next one can start.
+  if (held !== undefined && !keys.includes(held.key)) {
+    setHeld(undefined);
+  }
   const drag = held?.order === order && !held.cancelled ? held : undefined;
   // A drag that ends, that the items' new order cancels for good, or whose list leaves stops
   // scrolling the list and lets it scroll again.
@@ -1454,11 +1462,15 @@ export function Mailboxes({
     profile,
     view,
   });
-  // The connections the Profile shows, which All Inboxes counts; Edit mode lists every one.
+  // The connections the Profile shows, which All Inboxes counts; none until the Profile's
+  // preferences are read, as All Inboxes lists none. Edit mode lists every one.
+  const read = useReadSections(profile);
   const sections = useSections(profile);
   // Edit Favorites, and whether a row is being dragged, while the list must not scroll.
   const [editing, setEditing] = useState(false);
-  const shown = sidebar.entries.filter(({ id }) => sectionShown(sections, id));
+  const shown = sidebar.entries.filter(
+    ({ id }) => read !== undefined && sectionShown(read, id),
+  );
   const unread = shown.reduce(
     (sum, entry) => sum + ('section' in entry ? entry.section.unread : 0),
     0,

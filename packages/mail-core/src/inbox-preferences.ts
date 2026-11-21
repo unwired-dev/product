@@ -228,6 +228,11 @@ export function createInboxPreferences(
   }> = { account: '', profiles: [] };
   // Whether storage failed the last read, so which connections are muted is unknown.
   let failed = false;
+  // The Profiles whose Private Sync records the last pass could not read, once a pass merged what
+  // it pulled for `account`; none since a pass failed.
+  let pulled:
+    | Readonly<{ account: string; unreadable: ReadonlySet<string> }>
+    | undefined = undefined;
   const notify = () => {
     for (const listener of listeners) {
       listener();
@@ -339,7 +344,7 @@ export function createInboxPreferences(
       return false;
     }
     const before = yield* opened(account);
-    const pulled = yield* native(
+    const fetched = yield* native(
       () =>
         remote.pullInboxPreferences(
           account,
@@ -347,10 +352,10 @@ export function createInboxPreferences(
         ),
       PulledSchema,
     );
-    if (pulled.owner !== account) {
+    if (fetched.owner !== account) {
       return yield* ownerMismatch();
     }
-    const { records, unreadable } = readable(pulled);
+    const { records, unreadable } = readable(fetched);
     const stored = yield* changed(account, (profiles) =>
       records.reduce((next, { id, fields }) => {
         const local = fieldsOf(next, id);
@@ -360,6 +365,7 @@ export function createInboxPreferences(
           : withFields(next, id, adopted);
       }, profiles),
     );
+    pulled = { account, unreadable };
     let conflicted = false;
     for (const { profile, fields } of stored.filter(
       (kept) => !unreadable.has(kept.profile) && publishable(kept.profile),
@@ -374,7 +380,18 @@ export function createInboxPreferences(
     return conflicted;
   });
 
-  const synchronize = preferencePasses('Inbox preference', pass, sync);
+  const synchronize = preferencePasses(
+    'Inbox preference',
+    (remote: NativeInboxPreferenceSync) =>
+      pass(remote).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            pulled = undefined;
+          }),
+        ),
+      ),
+    sync,
+  );
 
   // Sets field `name` of each of `profiles` to `value`, or to what `value` makes of the stored
   // value, after the value it replaces even when the clock went back. Resolves whether storage
@@ -505,6 +522,13 @@ export function createInboxPreferences(
       sectionsRead.set(fields, sections);
       return sections;
     },
+    // Whether this device holds what Private Sync last had for `profile`: the last pass pulled its
+    // record, or found none, and merged it. Without Private Sync, the stored preferences are all.
+    pulled: (profile: string) =>
+      sync === undefined ||
+      (pulled !== undefined &&
+        pulled.account === signedIn() &&
+        !pulled.unreadable.has(profile)),
     // Shows or hides `connection`'s section of `profile`, as `setListDensity` chooses.
     showSection: (profile: string, connection: string, visible: boolean) =>
       choose([profile], shownField(connection), visible),

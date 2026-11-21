@@ -576,6 +576,11 @@ describe('iPhone Mailboxes', () => {
         <InboxPreferencesContext value={store}>
           <InboxProvider mailboxes={mailboxes}>
             <CommandPaletteProvider>
+              <Mailboxes
+                view={{}}
+                onView={ignore}
+                onProfile={ignore}
+              />
               <Inbox
                 onClose={ignore}
                 onSelect={ignore}
@@ -588,11 +593,16 @@ describe('iPhone Mailboxes', () => {
         </InboxPreferencesContext>
       </AccountContext>,
     );
-    // Until the read, All Inboxes lists no account's mail.
+    // Until the read, All Inboxes lists no account's mail, and Mailboxes no account.
     await act(async () => {
       await Promise.resolve();
     });
-    const unread = app.queryAllByRole('button', { name: /From /u });
+    const accounts = () =>
+      app.queryAllByText(/^Gmail · /u).map(({ props }) => props.children);
+    const unread = [
+      app.queryAllByRole('button', { name: /From /u }),
+      accounts(),
+    ];
     await act(() => {
       read.resolve(undefined);
     });
@@ -600,12 +610,14 @@ describe('iPhone Mailboxes', () => {
     expect([
       unread,
       app.queryAllByRole('button', { name: /hidden account/u }),
-    ]).toStrictEqual([[], []]);
+      accounts(),
+    ]).toStrictEqual([[[], []], [], ['Gmail · alex@example.invalid']]);
     await app.unmount();
   });
 
-  it('names no hidden account in All Inboxes, even when it is the only one', async () => {
+  it('names no hidden account in All Inboxes, even the only one connected or one waiting for sign-in', async () => {
     expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
     const other = syntheticMailboxes['other@example.invalid'];
     const snapshot = {
       kind: 'connected',
@@ -613,6 +625,7 @@ describe('iPhone Mailboxes', () => {
       signInProvider: 'google',
       mailboxes: JSON.stringify([
         { id: other, address: 'other@example.invalid', state: 'connected' },
+        { id: alex, address: 'alex@example.invalid', state: 'authorization' },
       ]),
     } satisfies RegistrationSnapshot;
     const registration = {
@@ -629,6 +642,7 @@ describe('iPhone Mailboxes', () => {
     const store = preferences()();
     await store.load();
     await store.showSection(defaultProfile, other, false);
+    await store.showSection(defaultProfile, alex, false);
     const app = await render(
       <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
         <InboxPreferencesContext value={store}>
@@ -647,7 +661,7 @@ describe('iPhone Mailboxes', () => {
       </AccountContext>,
     );
     await app.findByText('No Mail');
-    expect(app.queryAllByText(/other@example\.invalid/u)).toStrictEqual([]);
+    expect(app.queryAllByText(/@example\.invalid/u)).toStrictEqual([]);
     await app.unmount();
   });
 
@@ -664,9 +678,15 @@ describe('iPhone Mailboxes', () => {
         { id: other, address: 'other@example.invalid', state: 'connected' },
       ]),
     } satisfies RegistrationSnapshot;
+    // Another device can remove a connection meanwhile.
+    let current: RegistrationSnapshot = snapshot;
+    const changes = new Set<() => void>();
     const registration = {
-      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
-      subscribe: () => () => undefined,
+      getSnapshot: () => ({ snapshot: current, busy: false, failed: false }),
+      subscribe: (change: () => void) => {
+        changes.add(change);
+        return () => changes.delete(change);
+      },
     };
     const mailboxes = createMailboxes(
       syntheticConnections({
@@ -789,16 +809,46 @@ describe('iPhone Mailboxes', () => {
     await fireEvent(sent, 'responderMove', touch(290));
     const favorites = frames.size;
     await fireEvent(sent, 'responderRelease', touch(290));
+    // An account another device removes mid-drag leaves the next drag free to start.
+    await fireEvent(handle(), 'responderGrant', touch(280));
+    await fireEvent(handle(), 'responderMove', touch(290));
+    current = {
+      ...snapshot,
+      mailboxes: JSON.stringify([
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    };
+    await act(() => {
+      for (const change of changes) {
+        change();
+      }
+    });
+    await app.rerender(tree(mailboxesOf(current)));
+    const left = app
+      .queryAllByRole('button', { name: /^Gmail/u })
+      .map(({ props }) => props.accessibilityLabel);
+    const remaining = app
+      .getByRole('button', { name: 'Gmail · other@example.invalid' })
+      .queryAll((node) => node.props.onResponderGrant !== undefined)
+      .at(0)!;
+    await fireEvent(remaining, 'responderGrant', touch(100));
+    await fireEvent(remaining, 'responderMove', touch(130));
+    const draggedAfterRemoval = !list().props.scrollEnabled;
+    await fireEvent(remaining, 'responderRelease', touch(130));
     expect({
       stopped,
       scrolled: scrollTo.mock.calls.length,
       arranged: arrangeMailboxes.mock.calls.length,
       favorites,
+      left,
+      draggedAfterRemoval,
     }).toStrictEqual({
       stopped: [0, true],
       scrolled: 1,
       arranged: 1,
       favorites: 1,
+      left: ['Gmail · other@example.invalid'],
+      draggedAfterRemoval: true,
     });
     jest.restoreAllMocks();
     await app.unmount();

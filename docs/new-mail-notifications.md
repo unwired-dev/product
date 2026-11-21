@@ -41,7 +41,7 @@ matches content, grouping and actions to the design.
   Trusted Device, the Mac included, whatever its switch says
   ([#2611](https://github.com/unwired-dev/product/issues/2611)). Each delivery pulls the
   preferences from Private Sync before it posts, so a hide made on another device mutes the next
-  one. Until this device has read the Profile's Inbox preferences, and while they cannot be read,
+  one; while the pull fails, or the Profile's record does not open here, none posts. Until this device has read the Profile's Inbox preferences, and while they cannot be read,
   even after an earlier read or while a pending notification waits, no connection posts, so a
   muted one never does. Showing it again restores its switch's choice. The Mac's All Inboxes and
   search still list a hidden connection until

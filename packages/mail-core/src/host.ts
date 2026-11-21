@@ -470,14 +470,17 @@ export function createHost(
     {
       removed,
       // A connection its Mail Profile hides in the sidebar, here or on another device first, is
-      // muted: it posts none, nor does any while the preferences cannot be read.
+      // muted: it posts none, nor does any while the preferences cannot be read here or pulled
+      // from Private Sync.
       arrived: async (mailbox, messages, eligible) => {
         await inboxPreferences.synchronize();
         await inboxPreferences.load();
         await notifications.arrived(mailbox, messages, () => {
-          const sections = inboxPreferences.sections(mailbox.profile() ?? '');
+          const profile = mailbox.profile() ?? '';
+          const sections = inboxPreferences.sections(profile);
           return (
             eligible() &&
+            inboxPreferences.pulled(profile) &&
             sections !== undefined &&
             sectionShown(sections, mailbox.connection)
           );

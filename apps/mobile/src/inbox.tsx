@@ -809,18 +809,21 @@ const authorizer = (
         })();
       };
 
-// All Inboxes, and search there or widened to every Inbox, leave out every connection the Profile
-// hides, and every one until the Profile's preferences are read: `unhidden` keeps the others,
-// `inboxes` also the one the view scopes to, and `searched` is what search covers of `shown`.
-function useShownInboxes({
+// All Inboxes, its sign-in notices, and search there or widened to every Inbox, leave out every
+// connection the Profile hides, and every one until the Profile's preferences are read: `unhidden`
+// keeps the others, `inboxes` also the one the view scopes to, `waiting` is what of `waiting` the
+// list names, and `searched` is what search covers of `shown`.
+function useShownInboxes<W extends Readonly<{ id: string }>>({
   mailboxes,
   shown,
+  waiting,
   profile,
   scope,
   unified,
 }: Readonly<{
   mailboxes: readonly InboxMailbox[];
   shown: readonly InboxMailbox[];
+  waiting: readonly W[];
   profile: string;
   scope: string | undefined;
   unified: MailboxView['unified'];
@@ -845,6 +848,14 @@ function useShownInboxes({
   return {
     inboxes,
     unhidden,
+    waiting:
+      unified === undefined
+        ? waiting.filter(
+            ({ id }) =>
+              id === scope ||
+              (sections !== undefined && sectionShown(sections, id)),
+          )
+        : waiting,
     searched:
       unified === undefined
         ? shown.filter((mailbox) => inboxes.includes(mailbox))
@@ -903,7 +914,11 @@ export function Inbox({
   const indicatorInsets = useBarIndicatorInsets(toolbar);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
-  const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
+  const {
+    keepsChoice,
+    chosenWaiting,
+    waiting: allWaiting,
+  } = inboxChoice({
     mailboxes,
     connections,
     view,
@@ -921,10 +936,12 @@ export function Inbox({
   const {
     inboxes,
     unhidden,
+    waiting,
     searched: searchedMailboxes,
   } = useShownInboxes({
     mailboxes,
     shown,
+    waiting: allWaiting,
     profile,
     scope,
     unified: view.unified,

@@ -589,6 +589,36 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(1);
   });
 
+  it('posts nothing while Private Sync cannot tell whether another Trusted Device hid the connection', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, notified } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    const pull = vi.spyOn(native, 'pullInboxPreferences');
+
+    // The pull fails, then the Profile's record does not open here.
+    pull.mockRejectedValueOnce(new Error('offline'));
+    gmail.deliver({ subject: 'Pull failed' });
+    await host.gmailMailboxes.load();
+    pull.mockImplementationOnce((owner) =>
+      Promise.resolve({ owner, records: [], unreadable: [defaultProfile] }),
+    );
+    gmail.deliver({ subject: 'Record unreadable' });
+    await host.gmailMailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    // Pulled again, it posts.
+    gmail.deliver({ subject: 'Pulled' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(1);
+    });
+  });
+
   it('keeps the App Icon Badge on the unread Inbox count while it is chosen and allowed', async () => {
     expect.hasAssertions();
     const { host, gmail, badges, device } = syntheticHost(undefined, true);
