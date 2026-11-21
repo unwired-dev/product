@@ -14,17 +14,21 @@ import type {
 } from '@private-email/mail-core/registration';
 
 import {
+  HStack,
   Host,
   Button as SwiftUIButton,
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
+  background,
   buttonStyle,
+  contentShape,
   controlSize,
   disabled as inactive,
   font,
   foregroundStyle,
   frame,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { profileName } from '@private-email/mail-core/profile-windows';
@@ -32,7 +36,11 @@ import {
   profilesOf,
   recoveryKeyEntry,
 } from '@private-email/mail-core/registration';
-import { palette, typography } from '@private-email/mail-core/theme';
+import {
+  ipadListScale,
+  palette,
+  typography,
+} from '@private-email/mail-core/theme';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
@@ -63,6 +71,7 @@ import { NotificationSettings } from './notification-settings.tsx';
 import { TrustCard } from './onboarding.tsx';
 import { MailProfilesSettings } from './profile-settings.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
+import { native } from './registration.ts';
 import { RemoteContentSettings } from './remote-content.tsx';
 import {
   settingsColumns,
@@ -685,6 +694,91 @@ function brandField(colors: ReturnType<typeof usePalette>) {
       };
 }
 
+type RecoveryKeyNotice = 'copied' | 'copyFailed' | 'saved' | 'saveFailed';
+
+// Copy and Save to Files under the Recovery Key, as the frames draw them. Neither confirms the key;
+// the line beneath says what the last one did, and VoiceOver hears it. A cancelled save says
+// nothing.
+function RecoveryKeyActions({
+  recoveryKey,
+  color,
+}: {
+  readonly recoveryKey: string;
+  readonly color: string;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [notice, setNotice] = useState<RecoveryKeyNotice>();
+  const run = async (
+    action: () => Promise<RecoveryKeyNotice | undefined>,
+    failed: RecoveryKeyNotice,
+  ) => {
+    setNotice(undefined);
+    try {
+      setNotice(await action());
+    } catch {
+      setNotice(failed);
+    }
+  };
+  const copy = async () => {
+    await native().copyRecoveryKey(recoveryKey);
+    return 'copied' as const;
+  };
+  const save = async () =>
+    (await native().saveRecoveryKey(
+      t('recoveryKeyConfirmation.fileName'),
+      t('recoveryKeyConfirmation.file', { recoveryKey }),
+    )) === 'saved'
+      ? ('saved' as const)
+      : undefined;
+  // iPhone draws 44pt capsules; iPad its 1.15-scaled 36pt rounded rectangles in a 44pt target.
+  const button = (label: string, onPress: () => void) => (
+    <SwiftUIButton
+      modifiers={[buttonStyle('plain')]}
+      onPress={onPress}>
+      <SwiftUIText
+        modifiers={[
+          ipad
+            ? font({ size: typography.ipadList.body.fontSize })
+            : font({ textStyle: 'headline' }),
+          foregroundStyle(colors.brandOnDeep),
+          frame({ height: ipad ? 36 * ipadListScale : 44 }),
+          frame({ maxWidth: Infinity }),
+          background(
+            colors.brandWell,
+            ipad
+              ? shapes.roundedRectangle({ cornerRadius: 6 * ipadListScale })
+              : shapes.capsule(),
+          ),
+          frame({ minHeight: 44 }),
+          contentShape(shapes.rectangle()),
+        ]}>
+        {label}
+      </SwiftUIText>
+    </SwiftUIButton>
+  );
+  return (
+    <>
+      <Host matchContents={{ vertical: true }}>
+        <HStack spacing={10}>
+          {button(t('recoveryKeyConfirmation.copy'), () => {
+            void run(copy, 'copyFailed');
+          })}
+          {button(t('recoveryKeyConfirmation.saveToFiles'), () => {
+            void run(save, 'saveFailed');
+          })}
+        </HStack>
+      </Host>
+      {notice === undefined ? null : (
+        <AnnouncedAlert
+          style={[styles.text, ipad && styles.padSheetText, { color }]}>
+          {t(`recoveryKeyConfirmation.${notice}`)}
+        </AnnouncedAlert>
+      )}
+    </>
+  );
+}
+
 // End-to-End Encrypted Product Sync; the Recovery Key stays visible until its setup is confirmed.
 function PrivateSync({
   copy,
@@ -755,6 +849,10 @@ function PrivateSync({
           ]}>
           {recoveryKey}
         </Text>
+        <RecoveryKeyActions
+          recoveryKey={recoveryKey}
+          color={colors.textPrimary}
+        />
         <Text style={[body, { color: colors.textSecondary }]}>
           {t('recoveryKeyConfirmation.prompt')}
         </Text>

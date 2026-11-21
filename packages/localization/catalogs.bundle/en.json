@@ -517,7 +517,15 @@
     "label": "Last four characters",
     "confirm": "Confirm Recovery Key",
     "mismatch": "That does not match the end of your Recovery Key. Check your written copy and try again.",
-    "failed": "Confirming your Recovery Key didn’t finish. Choose Confirm Recovery Key to try again."
+    "failed": "Confirming your Recovery Key didn’t finish. Choose Confirm Recovery Key to try again.",
+    "copy": "Copy",
+    "copied": "Recovery Key copied. It stays on this device and leaves the clipboard in 2 minutes.",
+    "copyFailed": "Copying your Recovery Key didn’t finish. Choose Copy to try again.",
+    "saveToFiles": "Save to Files",
+    "saved": "Recovery Key saved to Files.",
+    "saveFailed": "Saving your Recovery Key didn’t finish. Choose Save to Files to try again.",
+    "fileName": "Unwired Mail Recovery Key.txt",
+    "file": "Unwired Mail Recovery Key\n\n{{recoveryKey}}\n"
   },
   "recovery": {
     "title": "Use your Recovery Key",

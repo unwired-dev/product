@@ -43,6 +43,7 @@ import {
   Pressable,
   Text,
   TextInput,
+  TurboModuleRegistry,
 } from 'react-native';
 
 import type { Selection } from '../src/inbox.tsx';
@@ -2734,6 +2735,90 @@ describe('product registration', () => {
     await expect(
       screen.findByRole('button', { name: 'Account' }),
     ).resolves.toBeVisible();
+  });
+
+  /* oxlint-enable vitest/max-expects */
+  /* oxlint-disable vitest/max-expects -- One step proves each action's outcomes. */
+  it('copies the Recovery Key and saves it to Files without confirming it', async () => {
+    expect.hasAssertions();
+    const synthetic = await createRegistrationScenario('registration-success');
+    const store = createRegistration(synthetic.vault);
+    const copyRecoveryKey = jest.fn().mockResolvedValue(null);
+    const saveRecoveryKey = jest.fn();
+    const getEnforcing =
+      TurboModuleRegistry.getEnforcing.bind(TurboModuleRegistry);
+    const module = jest
+      .spyOn(TurboModuleRegistry, 'getEnforcing')
+      .mockImplementation((name) =>
+        name === 'UnwiredRegistration'
+          ? { ...getEnforcing(name), copyRecoveryKey, saveRecoveryKey }
+          : getEnforcing(name),
+      );
+    try {
+      await render(
+        <RegistrationGate
+          store={started(store)}
+          preview={false}>
+          {null}
+        </RegistrationGate>,
+      );
+      await continueToSignIn();
+      await act(async () => {
+        await fireEvent.press(
+          await screen.findByRole('button', { name: 'Sign in with Google' }),
+        );
+      });
+      await act(async () => {
+        await fireEvent.press(
+          await screen.findByRole('button', { name: 'Gmail' }),
+        );
+      });
+      await expect(
+        screen.findByRole('button', { name: 'Copy' }),
+      ).resolves.toBeVisible();
+      const recoveryKey = shown(store, 'recoveryKey');
+      const announce = jest.mocked(AccessibilityInfo.announceForAccessibility);
+      announce.mockClear();
+      const press = async (name: string) => {
+        await act(async () => {
+          await fireEvent.press(screen.getByRole('button', { name }));
+        });
+      };
+      await press('Copy');
+      expect(copyRecoveryKey).toHaveBeenCalledWith(recoveryKey);
+      const copied =
+        'Recovery Key copied. It stays on this device and leaves the clipboard in 2 minutes.';
+      expect(screen.getByRole('alert')).toHaveTextContent(copied);
+      expect(announce).toHaveBeenCalledWith(copied);
+      // A cancelled save says nothing; a saved one and a failure say so.
+      saveRecoveryKey.mockResolvedValueOnce('cancelled');
+      await press('Save to Files');
+      expect(saveRecoveryKey).toHaveBeenCalledWith(
+        'Unwired Mail Recovery Key.txt',
+        `Unwired Mail Recovery Key\n\n${recoveryKey}\n`,
+      );
+      expect(screen.queryByRole('alert')).toBeNull();
+      saveRecoveryKey.mockResolvedValueOnce('saved');
+      await press('Save to Files');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Recovery Key saved to Files.',
+      );
+      saveRecoveryKey.mockRejectedValueOnce(
+        Object.assign(new Error('Synthetic'), { code: 'unavailable' }),
+      );
+      await press('Save to Files');
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Saving your Recovery Key didn’t finish. Choose Save to Files to try again.',
+      );
+      // Neither action confirms the key: it stays shown and Confirm still needs its last four.
+      expect(screen.getByText(recoveryKey)).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: 'Confirm Recovery Key' }),
+      ).toBeDisabled();
+      expect(shown(store, 'recoveryKey')).toBe(recoveryKey);
+    } finally {
+      module.mockRestore();
+    }
   });
 
   /* oxlint-enable vitest/max-expects */

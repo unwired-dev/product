@@ -47,6 +47,19 @@ visible and explains the error. After confirmation the screen shows **Sync is on
 and the key is no longer shown. Showing or replacing it again needs a
 recent-authentication flow that belongs to a later slice.
 
+On iPhone and iPad, **Copy** and **Save to Files** sit under the key; neither
+confirms it, and **Confirm Recovery Key** still needs the last four characters.
+**Copy** puts the whole key on the pasteboard as a local-only item, so Universal
+Clipboard does not carry it to other devices, and the system removes it after two
+minutes; the line beneath says so, and VoiceOver hears it. **Save to Files** hands
+the system's export picker a plain-text file, **Unwired Mail Recovery Key.txt**,
+that holds a heading and the key and nothing else: no address and no date. The
+app deletes its temporary file when the picker closes, so the only copy is the one
+the person saved. A saved file or a failed save is reported on the same line; a
+cancelled save says nothing. Neither action logs, reports or sends the key. The
+Mac's **Copy**, **Print…** and **Save to Passwords…** follow in
+[#2108](https://github.com/unwired-dev/product/issues/2108).
+
 Once Gmail is connected, the section lists the mailbox addresses decrypted from
 Private Sync, for example `Encrypted mailbox list: alex@example.invalid.`. The
 entry appears only after the device reads the encrypted record back and opens it.
