@@ -37,7 +37,8 @@ window forward on the destination asked for, or where the person left it. Closin
 it leaves every Inbox window as it was, and its Command Palette's Inbox brings an
 Inbox window forward. On iPhone, Settings pushes onto the native navigation stack;
 edge-back and the list of destinations' **Back** return to where it opened, such as
-Mailboxes or the kept Inbox, reader or composer. Mailboxes offers **Account** in
+Mailboxes or the kept Inbox or reader. The iPhone composer is a sheet that offers
+no way to Settings. Mailboxes offers **Account** in
 its header. When Settings opened from Mailboxes (**Account**, **Manage
 Mail Profiles** or an IMAP password repair), **Open Inbox** shows the kept Inbox.
 Reopening **Account** starts Settings on its list of destinations. iPad

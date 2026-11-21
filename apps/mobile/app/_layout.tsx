@@ -1,6 +1,7 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { NativeQualification } from '@private-email/mail-core/assistance-qualification';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
+import type { ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
@@ -20,6 +21,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
   Linking,
+  Modal,
   Platform,
   StyleSheet,
   TurboModuleRegistry,
@@ -40,6 +42,7 @@ import { restoreAppearance } from '../src/appearance-settings.tsx';
 import { CategorizationSpike } from '../src/categorization-spike.ts';
 import {
   CommandPaletteProvider,
+  InSheet,
   useCommandRegistry,
   useCommandPalette,
 } from '../src/command-palette.tsx';
@@ -55,6 +58,7 @@ import {
   WindowBarContext,
   WindowBarHost,
 } from '../src/inbox-bar.tsx';
+import { ipad } from '../src/inbox-styles.ts';
 import { Inbox } from '../src/inbox.tsx';
 import { ShowOutboxContext } from '../src/invitation.tsx';
 import {
@@ -247,6 +251,52 @@ function ComposerScrim({
       style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrimTouch }]}
     />
   ) : null;
+}
+
+// On iPhone the composer is the system sheet over the mail. Its dismissal gesture leaves the
+// composer as Close does: the sheet stays up while the composer asks about changes. The sheet
+// sliding away still shows the composer it closed.
+function ComposerSheet({
+  draft,
+  onLeave,
+  composer,
+}: Readonly<{
+  draft: string | undefined;
+  onLeave: () => void;
+  composer: (draft: string) => ReactNode;
+}>) {
+  const colors = usePalette();
+  const [shown, setShown] = useState(draft);
+  if (draft !== undefined && draft !== shown) {
+    setShown(draft);
+  }
+  return (
+    <Modal
+      testID="composer-sheet"
+      visible={draft !== undefined}
+      presentationStyle="pageSheet"
+      animationType="slide"
+      // Without this the Modal holds iPhone in portrait; the app turns with the device.
+      supportedOrientations={[
+        'portrait',
+        'portrait-upside-down',
+        'landscape-left',
+        'landscape-right',
+      ]}
+      onRequestClose={onLeave}
+      onDismiss={() => {
+        setShown(draft);
+      }}>
+      {shown === undefined ? null : (
+        <View
+          testID="composer-overlay"
+          pointerEvents={draft === undefined ? 'none' : 'auto'}
+          style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+          <InSheet value>{composer(shown)}</InSheet>
+        </View>
+      )}
+    </Modal>
+  );
 }
 
 // Whether the open Draft answers a message.
@@ -484,6 +534,55 @@ function MailShell() {
     }
   }
 
+  const composer = (opened: string) => (
+    <ComposerLayoutContext value={composerLayout}>
+      <DraftComposer
+        id={opened}
+        recovered={recovery.recovered}
+        expanded={expanded}
+        onExpand={
+          regular
+            ? () => {
+                setExpanded((current) => !current);
+              }
+            : undefined
+        }
+        onClose={() => {
+          // The sheet sliding away still shows the composer it closed.
+          if (draft === undefined) {
+            return;
+          }
+          setExpanded(false);
+          composing.current = undefined;
+          const latest = reader.current;
+          if (latest.id === undefined || latest.mailbox === undefined) {
+            router.replace({
+              pathname: '/',
+              params: { profileId: latest.profile },
+            });
+          } else {
+            router.replace({
+              pathname: '/message/[id]',
+              params: {
+                id: latest.id,
+                mailbox: latest.mailbox,
+                ...(latest.folder === undefined
+                  ? {}
+                  : { folder: latest.folder }),
+                profileId: latest.profile,
+              },
+            });
+          }
+        }}
+        onRebind={(copy) => {
+          recovery.follow(copy);
+          composing.current = copy;
+          router.setParams({ draft: copy });
+        }}
+      />
+    </ComposerLayoutContext>
+  );
+
   return (
     <>
       <StatusBar style="auto" />
@@ -632,7 +731,16 @@ function MailShell() {
           floating={floating}
           replying={replying}
         />
-        {draft === undefined ? null : (
+        {ipad ? null : (
+          <ComposerSheet
+            draft={draft}
+            onLeave={() => {
+              void leave();
+            }}
+            composer={composer}
+          />
+        )}
+        {!ipad || draft === undefined ? null : (
           <View
             testID="composer-overlay"
             accessibilityViewIsModal={!floating}
@@ -649,12 +757,10 @@ function MailShell() {
                   })
                 : [
                     StyleSheet.absoluteFill,
-                    { backgroundColor: colors.surfaceContent },
-                    // On iPhone the composer's own safe area clears the system bars; padding here
-                    // too would apply the insets twice and hide the format bar behind the keyboard
-                    // (#1165). On iPad, in any window width, that safe area gets no insets, so the
-                    // overlay pads here.
-                    !phone && {
+                    {
+                      backgroundColor: colors.surfaceContent,
+                      // The composer's own safe area gets no insets on iPad, in any window width,
+                      // so the overlay pads here.
                       paddingTop: insets.top,
                       paddingBottom: insets.bottom,
                       paddingLeft: insets.left,
@@ -662,48 +768,7 @@ function MailShell() {
                     },
                   ]
             }>
-            <ComposerLayoutContext value={composerLayout}>
-              <DraftComposer
-                id={draft}
-                recovered={recovery.recovered}
-                expanded={expanded}
-                onExpand={
-                  regular
-                    ? () => {
-                        setExpanded((current) => !current);
-                      }
-                    : undefined
-                }
-                onClose={() => {
-                  setExpanded(false);
-                  composing.current = undefined;
-                  const latest = reader.current;
-                  if (latest.id === undefined || latest.mailbox === undefined) {
-                    router.replace({
-                      pathname: '/',
-                      params: { profileId: latest.profile },
-                    });
-                  } else {
-                    router.replace({
-                      pathname: '/message/[id]',
-                      params: {
-                        id: latest.id,
-                        mailbox: latest.mailbox,
-                        ...(latest.folder === undefined
-                          ? {}
-                          : { folder: latest.folder }),
-                        profileId: latest.profile,
-                      },
-                    });
-                  }
-                }}
-                onRebind={(copy) => {
-                  recovery.follow(copy);
-                  composing.current = copy;
-                  router.setParams({ draft: copy });
-                }}
-              />
-            </ComposerLayoutContext>
+            {composer(draft)}
           </View>
         )}
       </View>

@@ -2,7 +2,8 @@ import type { Command, Update } from '@private-email/draft-editor/messages';
 import type { DraftTextPurpose } from '@private-email/mail-core/assistance';
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { Link } from '@private-email/mail-core/semantic-document';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
+import type { ViewInstance } from 'react-native';
 
 import {
   canRewrite,
@@ -537,6 +538,7 @@ export function EditorHeader({
   subject,
   busy,
   closeOpen,
+  closeAnchor,
   sender,
   expanded = false,
   onExpand,
@@ -547,6 +549,7 @@ export function EditorHeader({
   // Save Draft, Delete Draft or Send is running.
   readonly busy: boolean;
   readonly closeOpen: boolean;
+  readonly closeAnchor: RefObject<ViewInstance | null>;
   readonly sender: ReactNode;
   readonly expanded?: boolean | undefined;
   readonly onExpand?: (() => void) | undefined;
@@ -575,6 +578,7 @@ export function EditorHeader({
           <CloseButton
             disabled={busy}
             expanded={closeOpen}
+            anchor={closeAnchor}
             onPress={onClose}
           />
           <Text

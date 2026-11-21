@@ -913,6 +913,10 @@ export function CommandInputRow() {
 
 const swipe = 24;
 
+// Inside a system sheet, which owns the downward swipe, headers offer no palette, as the app's
+// other sheets do not.
+export const InSheet = createContext(false);
+
 // Opens the palette from a header. `swipe` goes on the header's whole area: a downward swipe
 // starting on it opens the palette, while swipes that start in the content below scroll it as
 // usual. `action` goes on the header's accessible element, where assistive controls find the
@@ -923,7 +927,11 @@ export function usePaletteHeader(): Readonly<{
 }> {
   const { open } = useCommandPalette();
   const { t } = useLocalization();
+  const sheet = use(InSheet);
   const start = useRef<{ x: number; y: number } | undefined>(undefined);
+  if (sheet) {
+    return { swipe: {}, action: {} };
+  }
   const moved = ({ nativeEvent }: GestureResponderEvent) => {
     const from = start.current;
     if (from === undefined) {
