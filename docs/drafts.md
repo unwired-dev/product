@@ -57,7 +57,7 @@ transport and known native exit gaps.
   **Default Sending Identity**, or its first usable mailbox when the Profile has none. A
   default that cannot send on this device still starts the Draft, whose From pop-up
   explains why Send is blocked, rather than another identity standing in. It opens the composer in
-  the detail column: a route of its own on iPhone and a bottom-anchored overlay
+  the detail column: the system sheet over the mail it was started from on iPhone and a bottom-anchored overlay
   over the reader in a Mac window, docked across the reader's full width at its bottom edge, at
   70% of the window's height (420 to 720pt). On regular-width iPad a new message opens as a card
   centred on the window (at most 874pt wide, 40pt below the status bar and 32pt above the bottom
@@ -531,7 +531,8 @@ saves as Mail does:
 On iPhone and iPad editing leaves the stored Draft unchanged and no save status is shown, as in
 Mail: the Draft is stored only on **Save Draft** or **Send**. **Close** removes an
 empty Draft and closes an unchanged one at once; otherwise **Delete Draft** and
-**Save Draft** grow out of **Close**, and pressing **Close** again keeps editing.
+**Save Draft** open over **Close** and grow out of it, and a tap outside them keeps editing; VoiceOver
+keeps to the question, and offers the area outside it as **Keep Editing**.
 **Save Draft** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed. It
 then closes once the Draft is stored; when that fails the composer stays open with
@@ -556,7 +557,12 @@ This also applies to authored edits arriving after an empty Draft was closed;
 an empty late edit creates no copy. A completed explicit discard suppresses
 later events from the editor that discarded it.
 
-On iPhone the composer covers the Inbox and reader, so their system **Back** and edge swipe cannot leave it.
+On iPhone the composer is the system page sheet over the Inbox or reader it was started from, so
+their system **Back** and edge swipe cannot leave it. Swiping the sheet down is **Close**: the
+system holds the sheet up while the composer decides, so an unchanged Draft closes, an empty one
+is removed, and changed content asks **Delete Draft** or **Save Draft** with the sheet still open
+(#2610). The sheet is React Native's page sheet, whose size, corners and motion are the system's;
+it shows no grabber, which the frames draw, because that component offers none.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.

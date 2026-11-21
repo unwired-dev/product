@@ -103,10 +103,12 @@ results never appear in the palette. The vocabulary lives in the
   that window; command entry in other windows remains available.
 - **iPhone:** a downward swipe that starts on a screen header (the Inbox title in
   the navigation bar,
-  the Mailboxes title, the reader's subject line, the composer's top bar or the
+  the Mailboxes title, the reader's subject line or the
   Account page's title,
   which stay put while the content scrolls) opens the palette; swipes that start in the content scroll
-  it as usual. There is no visible entry button. Settings pages pushed over the list
+  it as usual. The composer is a system sheet whose downward swipe asks to close it, so it offers no
+  palette, as the app's other sheets do not
+  ([#2610](https://github.com/unwired-dev/product/issues/2610)). There is no visible entry button. Settings pages pushed over the list
   show the system navigation bar's title, which takes no swipe; their Back returns to
   the list's title. A one-time hint at the top of the
   Inbox list, scrolling with the messages so that larger text never leaves them
@@ -119,8 +121,8 @@ results never appear in the palette. The vocabulary lives in the
   search replaces the Inbox heading, the search field carries it instead and
   accepts the downward swipe, including iPhone's native toolbar search field. Both entries remain available if private storage
   locks while search is open. A
-  reader, Thread or composer that is loading, cannot open its storage or has
-  no message or Draft to show keeps the same swipe and action, on its title or
+  reader or Thread that is loading, cannot open its storage or has
+  no message to show keeps the same swipe and action, on its title or
   its loading indicator, since it still covers the Inbox.
 - **iPad:** the command input stays visible in the Inbox heading, the reader's
   header, the composer's top bar and the Account page's title row, and at the

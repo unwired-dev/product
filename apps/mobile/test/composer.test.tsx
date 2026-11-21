@@ -2323,12 +2323,12 @@ describe('composing Drafts', () => {
         ),
       ),
     ).toBe(true);
-    // The unsaved edits still ask before New Message; Close keeps them.
+    // The unsaved edits still ask before New Message; Keep Editing keeps them.
     await press('New Message');
     expect(
       screen.getByRole('button', { name: 'Save Draft' }),
     ).toBeOnTheScreen();
-    await press('Close');
+    await press('Keep Editing');
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Unsaved');
     // Settings opens over the Inbox, so the Draft stays open beneath it.
     await press('Account');
@@ -2377,7 +2377,7 @@ describe('composing Drafts', () => {
     await press('Close');
     expect(screen.queryByLabelText('Subject')).toBeNull();
     expect(subjects()).toStrictEqual([]);
-    // Edits store nothing; Close asks, and Close again dismisses the question keeping them.
+    // Edits store nothing; Close asks, and Keep Editing, outside the question, keeps them.
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Asked');
     expect(subjects()).toStrictEqual(['']);
@@ -2388,13 +2388,15 @@ describe('composing Drafts', () => {
     expect(
       screen.getByRole('button', { name: 'Save Draft' }),
     ).toBeOnTheScreen();
-    await press('Close');
+    await press('Keep Editing');
     expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Asked');
     expect(subjects()).toStrictEqual(['']);
     // Leaving for New Message asks too, and leaves only once Save Draft stores the Draft.
     await press('New Message');
-    expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Asked');
+    expect(
+      screen.getByLabelText('Subject', { includeHiddenElements: true }),
+    ).toHaveProp('value', 'Asked');
     await press('Save Draft');
     await waitFor(() => {
       expect(screen.getByLabelText('Subject')).toHaveProp('value', '');
@@ -3142,12 +3144,12 @@ describe('composing Drafts', () => {
     expect(to).toHaveProp('value', 'mXaya@exa');
     await press('Redo');
     expect(to).toHaveProp('value', 'mXaya@ex');
-    // Close asks about the changes; Close again keeps them open.
+    // Close asks about the changes; Keep Editing keeps them open.
     await press('Close');
     expect(
       screen.getByRole('button', { name: 'Save Draft' }),
     ).toBeOnTheScreen();
-    await press('Close');
+    await press('Keep Editing');
     expect(screen.getByLabelText('To')).toBeOnTheScreen();
     // A Draft emptied again is removed without asking.
     await fireEvent.changeText(to, '');

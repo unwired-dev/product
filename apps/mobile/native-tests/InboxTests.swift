@@ -2532,31 +2532,20 @@ final class InboxTests: XCTestCase {
       raised.lifetime = .keepAlways
       add(raised)
     }
-    // Open Settings through the composer's palette without finishing this Draft.
+    // On iPad, open Settings through the composer's palette without finishing this Draft. The
+    // iPhone composer is a system sheet, which offers no palette (#2610).
     if UIDevice.current.userInterfaceIdiom == .pad {
       // The Inbox beneath the composer keeps its own Open Command Palette button.
       app.otherElements["composer-overlay"].buttons["Open Command Palette"].tap()
-    } else {
-      let heading = app.staticTexts["New Message"].firstMatch
-      XCTAssertTrue(heading.exists)
-      let start = heading.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 80)))
-    }
-    XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 10))
-    app.buttons["Account"].tap()
-    XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 15))
-    XCTAssertFalse(app.buttons["Save Draft"].exists)
-    XCTAssertFalse(typed.exists)
-    if UIDevice.current.userInterfaceIdiom == .phone {
-      // UIKit pops the Settings screen back to the same still-mounted composer.
-      let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-      edge.press(forDuration: 0.1, thenDragTo:
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
-    } else {
+      XCTAssertTrue(app.textFields["Type a command"].waitForExistence(timeout: 10))
+      app.buttons["Account"].tap()
+      XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 15))
+      XCTAssertFalse(app.buttons["Save Draft"].exists)
+      XCTAssertFalse(typed.exists)
       app.buttons[settingsExit].tap()
+      XCTAssertTrue(typed.waitForExistence(timeout: 15))
+      XCTAssertFalse(app.buttons[settingsExit].exists)
     }
-    XCTAssertTrue(typed.waitForExistence(timeout: 15))
-    XCTAssertFalse(app.buttons[settingsExit].exists)
     let focused = XCTAttachment(screenshot: app.screenshot())
     focused.name = "Evaluation editor typed"
     focused.lifetime = .keepAlways
@@ -4168,6 +4157,89 @@ final class InboxTests: XCTestCase {
       done.tap()
       rotate(app, to: .portrait)
     }
+  }
+
+  // #2610: on iPhone the composer is the system sheet over the Inbox, which stays out of reach.
+  // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
+  // the sheet stays. Save Draft then closes it, and Send sends from it.
+  func testComposerSheet() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheet is iPhone's")
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    let row = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
+    XCTAssertTrue(row.waitForExistence(timeout: 30))
+    let composer = app.otherElements["composer-overlay"]
+    let subject = app.textFields["Subject"]
+    // From the header's title, which shows the Subject once one is typed.
+    let swipeDown = {
+      let start = composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+        .withOffset(CGVector(dx: 0, dy: 30))
+      start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 500)))
+    }
+    app.buttons["New Message"].tap()
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    XCTAssertGreaterThan(composer.frame.minY, 0)
+    XCTAssertFalse(row.isHittable)
+    attachScreen("Composer sheet", of: app, to: self)
+    // The sheet turns with the device.
+    XCUIDevice.shared.orientation = .landscapeLeft
+    waitUntil { composer.frame.width > composer.frame.height }
+    XCUIDevice.shared.orientation = .portrait
+    waitUntil { composer.frame.width < composer.frame.height }
+    swipeDown()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(row.isHittable)
+    app.buttons["New Message"].tap()
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    focus(subject) { self.hasFocus(subject) }
+    // Taps the keyboard's keys, as a person types: `typeText` lowers and raises the keyboard around
+    // each character, which the recording showed.
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    for letter in "venue for the offsite" {
+      let key = letter == " " ? "space" : String(letter)
+      keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", key)).firstMatch.tap()
+    }
+    waitUntil { subject.value as? String == "Venue for the offsite" }
+    // Read before the question opens: it is modal to accessibility, which hides the composer.
+    let closeFrame = app.buttons["Close"].frame
+    swipeDown()
+    let save = app.buttons["Save Draft"]
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    // The question opens over Close, as a system menu opens over its button.
+    XCTAssertTrue(app.buttons["Delete Draft"].frame.intersects(closeFrame))
+    XCTAssertFalse(app.textFields["Type a command"].exists)
+    attachScreen("Composer sheet asks before closing", of: app, to: self)
+    // Keep Editing, outside the question, keeps the sheet and its text.
+    app.buttons["Keep Editing"].tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(composer.exists)
+    XCTAssertEqual(subject.value as? String, "Venue for the offsite")
+    swipeDown()
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
+    save.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    app.buttons["New Message"].tap()
+    let to = app.textFields["To"]
+    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    focus(to) { self.hasFocus(to) }
+    type("maya@example.invalid", into: to)
+    focus(subject) { self.hasFocus(subject) }
+    type("Seats for the offsite", into: subject)
+    // The fields stay clear of the keyboard inside the sheet.
+    XCTAssertLessThanOrEqual(subject.frame.maxY, app.keyboards.firstMatch.frame.minY)
+    attachScreen("Composer sheet with keyboard", of: app, to: self)
+    app.buttons["Send"].tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 15))
+    // Send admitted the message: the Outbox offers its Undo inside the Undo Send Window.
+    openOutbox(app)
+    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15))
   }
 
   // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,

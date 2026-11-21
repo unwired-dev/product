@@ -38,6 +38,8 @@ const styles = StyleSheet.create({
   },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
   choices: { gap: spacing.m, padding: spacing.l },
+  // The sheet's empty host stays out of the trigger's row, whose gap would move the trigger.
+  sheetHost: { position: 'absolute' },
   popover: { width: 320 },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   title: { ...textStyles.headline },
@@ -299,7 +301,9 @@ function ReminderPicker({
   ) : (
     <>
       {trigger}
-      <Host matchContents>
+      <Host
+        matchContents
+        style={styles.sheetHost}>
         <BottomSheet
           isPresented={open}
           onIsPresentedChange={dismiss}>
