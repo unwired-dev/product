@@ -3343,8 +3343,7 @@ function Editor({
       before,
       displayOf(authored.current.body).text.length,
     );
-    setPlaced(undefined);
-    setSelection(selectionNow.current);
+    place(selectionNow.current);
   };
   const edit = (text: string) => {
     if (pausedNow.current) {

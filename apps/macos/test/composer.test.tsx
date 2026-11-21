@@ -1123,6 +1123,8 @@ describe('composing Drafts', () => {
       await select(0);
       await press('Undo');
       shows(`• Plan\n${nesting}${nesting}• Seats`);
+      // The editor places that caret too, so its next placement is not skipped as unchanged.
+      expect(body().props.selection).toStrictEqual({ start: 18, end: 18 });
       await tab(true);
       shows(`• Plan\n${nesting}• Seats`);
       // A selection that still fits stays, so Tab nests both items again.
