@@ -206,8 +206,14 @@ one field across all columns at the window's bottom edge, or an approved design
 moves Search into a column. Keep any parts still used by the compact layout.
 
 The other custom chrome is the Mailboxes header on iPad and iPhone. iPad also keeps
-its **Account** footer; iPhone's Mailboxes header holds **Account** and its floating
-bar holds **New Message**.
+its **Account** footer; iPhone's Mailboxes header holds **Edit** and **Account** and its floating
+bar holds **New Message**. **Edit**, in iPhone's header and beside the iPad sidebar's
+toggle, shows Favorites with each row's checkmark and drag handle until **Done**
+([#2611](https://github.com/unwired-dev/product/issues/2611)). Tapping a row shows or
+hides it, except All Inboxes, and VoiceOver reads it as shown or hidden; dragging its
+handle, or its Move Up and Move Down actions, reorders it. These rows are drawn from
+React Native views, as on the Mac: SwiftUI's `List` edit mode would reorder them, but
+Favorites shares one scroll view with the Mailbox Connections' rows.
 
 ## Install and run
 

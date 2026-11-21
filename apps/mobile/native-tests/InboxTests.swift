@@ -4022,6 +4022,68 @@ final class InboxTests: XCTestCase {
     attachScreen("After Send Now", of: app, to: self)
   }
 
+  // #2611: Edit Favorites hides a row and reorders two, and Mailboxes keeps them after a relaunch.
+  func testEditFavorites() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    let ipad = UIDevice.current.userInterfaceIdiom == .pad
+    // The Favorites rows from top to bottom.
+    func favorites() -> [String] {
+      let names = ["All Inboxes", "Sent", "Archive", "All Mail", "Spam", "Trash"]
+      return app.buttons.allElementsBoundByIndex
+        .map { ($0.label.replacingOccurrences(of: ". In All Mailboxes", with: ""), $0.frame.minY) }
+        .filter { names.contains($0.0) }
+        .sorted { $0.1 < $1.1 }
+        .map(\.0)
+    }
+    // Mailboxes' Edit, beside Account on iPhone and the sidebar toggle on iPad: the leftmost one.
+    func edit() -> XCUIElement? {
+      app.buttons.matching(identifier: "Edit").allElementsBoundByIndex
+        .filter { $0.isHittable }
+        .min { $0.frame.minX < $1.frame.minX }
+    }
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    waitUntil { edit() != nil }
+    edit()?.tap()
+    let done = app.buttons["Done"].firstMatch
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    let spam = app.buttons["Spam"]
+    XCTAssertEqual(spam.value as? String, "Shown")
+    attachScreen("Edit Favorites", of: app, to: self)
+    spam.tap()
+    waitUntil { spam.value as? String == "Hidden" }
+    // Trash's handle, at the row's trailing end, drags it two rows up, above Spam and All Mail.
+    let trash = app.buttons["Trash"]
+    let allMail = app.buttons["All Mail"]
+    let handle = trash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+      .withOffset(CGVector(dx: ipad ? -18 : -31, dy: 0))
+    handle.press(
+      forDuration: 0.5, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -2 * trash.frame.height)))
+    waitUntil { trash.frame.minY < allMail.frame.minY }
+    attachScreen("Spam hidden, Trash above All Mail", of: app, to: self)
+    done.tap()
+    XCTAssertTrue(app.buttons["Spam"].waitForNonExistence(timeout: 10))
+    let edited = ["All Inboxes", "Sent", "Archive", "Trash", "All Mail"]
+    waitUntil { favorites() == edited }
+    attachScreen("Edited Favorites", of: app, to: self)
+
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    waitUntil { favorites() == edited }
+    attachScreen("Edited Favorites after a relaunch", of: app, to: self)
+  }
+
   // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,
   // iPhone's in the Format panel and iPad's on the format bar, do the same; each is one Undo step.
   func testListIndent() throws {

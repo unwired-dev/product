@@ -1,16 +1,30 @@
 import type { Translate } from '@private-email/localization';
 import type {
+  Favorite,
+  FavoriteEntries,
   MailboxProblem,
   UnifiedRole,
 } from '@private-email/mail-core/mailboxes';
 import type { MailProvider } from '@private-email/mail-core/registration';
 
+import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
+  buttonBorderShape,
+  buttonStyle,
+  controlSize,
+  labelStyle,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
+import { sidebarCommands } from '@private-email/mail-core/commands';
+import {
+  allInboxes,
   failedFolders,
+  favoriteRows,
   gmailMailbox,
   gmailViewRow,
   mailboxSidebar,
-  unifiedRoles,
+  moveFavorite,
+  toggleFavorite,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -24,7 +38,7 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { Fragment, use, useSyncExternalStore } from 'react';
+import { Fragment, use, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Platform,
   Pressable,
@@ -39,7 +53,7 @@ import { SafeAreaView } from 'react-native-screens/experimental';
 import type { InboxMailbox } from './private-storage.ts';
 import type { SettingsDestination } from './settings.tsx';
 
-import { usePaletteHeader } from './command-palette.tsx';
+import { RegisterCommands, usePaletteHeader } from './command-palette.tsx';
 import {
   GlassGroup,
   MenuButton,
@@ -48,13 +62,14 @@ import {
   SignInNotice,
 } from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
+import { InboxPreferencesContext } from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-state.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { useProfileOutbox } from './outbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { SidebarToggle } from './sidebar-toggle.tsx';
+import { SidebarToggle, SidebarToggleContext } from './sidebar-toggle.tsx';
 import { limited } from './sync-status.tsx';
 import {
   textStyles,
@@ -90,7 +105,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
     paddingVertical: spacing.xs,
   },
-  headingSlot: { width: 44 },
+  // Edit, or Done, and Account share the trailing half of the header, so the title stays centered.
+  headingActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.s,
+  },
   accountGlass: {
     padding: 0,
     borderRadius: 22,
@@ -145,6 +165,8 @@ const styles = StyleSheet.create({
   },
   compactIcon: { width: 24, alignItems: 'center' },
   separator: { height: StyleSheet.hairlineWidth, marginHorizontal: spacing.l },
+  // In Edit mode iPhone's hairlines start at the label, 90pt in, and run to the group's edge.
+  editSeparator: { marginLeft: 90, marginRight: 0 },
   // The iPad sidebar follows the Mac recipe at 1.15×, as its frames draw it.
   section: {
     ...sectionText,
@@ -173,6 +195,20 @@ const styles = StyleSheet.create({
     borderRadius: radius.control * ipadListScale,
     borderCurve: 'continuous',
   },
+  // An Edit Favorites row: checkmark, symbol, name and drag handle, 8pt apart in their slots.
+  editRow: { gap: spacing.s },
+  // iPhone's 52pt Edit row: its 26pt slots 12pt apart, 14pt from the group's leading edge and 18pt
+  // from its trailing one.
+  compactEditRow: {
+    minHeight: 52,
+    gap: spacing.m,
+    paddingLeft: 14,
+    paddingRight: 18,
+    borderRadius: 0,
+  },
+  checkSlot: { width: 18, alignItems: 'center' },
+  editIcon: { width: 20, alignItems: 'center' },
+  compactSlot: { width: 26, alignItems: 'center' },
   label: { ...typography.ipadList.body, flex: 1 },
   compactLabel: { ...textStyles.body, flex: 1 },
   compactCount: { ...textStyles.subheadline },
@@ -210,8 +246,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'flex-end',
+    gap: 9,
     paddingTop: 11.8,
   },
+  // Edit and Done keep the toggle's 32.2pt height, centered on its row.
+  panelButton: { height: 28 * ipadListScale, justifyContent: 'center' },
   compactSwitcher: {
     minHeight: 48,
     marginBottom: spacing.s,
@@ -554,12 +593,419 @@ function FolderRows({
   );
 }
 
+// A Favorites row's symbol and name.
+const favoriteRow = (t: Translate, row: Favorite) =>
+  row === allInboxes
+    ? { title: t('inbox.allInboxes'), icon: 'tray.2' }
+    : unifiedRow(t, row);
+
+// The window's Profile's Favorites as its Inbox preferences keep them, which its other Trusted
+// Devices share.
+function useFavorites(profile: string) {
+  const store = use(InboxPreferencesContext);
+  const entries = useSyncExternalStore(store.subscribe, () =>
+    store.favorites(profile),
+  );
+  return {
+    entries,
+    // Applies `change` to the stored rows, so an edit made before the last one is read keeps it.
+    // Resolves the rows it stored, or undefined when storage failed.
+    change: async (change: (stored: FavoriteEntries) => FavoriteEntries) =>
+      (await store.changeFavorites(profile, change))
+        ? favoriteRows(store.favorites(profile))
+        : undefined,
+  };
+}
+
+// A Favorites row in Edit mode: the checkmark that shows or hides it, its symbol and name, and the
+// handle that drags it to another place. Tapping the row shows or hides it, except All Inboxes,
+// which stays shown; Move Up and Move Down reorder it with VoiceOver and Full Keyboard Access.
+function EditRow({
+  row,
+  shown,
+  moves,
+  offset,
+  onToggle,
+  onMove,
+  onDrag,
+  onDrop,
+}: {
+  readonly row: Favorite;
+  readonly shown: boolean;
+  // Which ways the row can move by one place.
+  readonly moves: Readonly<{ up: boolean; down: boolean }>;
+  // How far the finger drags the row from where it shows, while it does.
+  readonly offset: number | undefined;
+  readonly onToggle: () => void;
+  readonly onMove: (by: -1 | 1) => void;
+  // How far the finger moved since the drag began, and the row's height.
+  readonly onDrag: (dy: number, height: number) => void;
+  // Where the finger let go, as far from where the drag began, and the row's height; undefined
+  // when the drag was cancelled.
+  readonly onDrop: (dy: number | undefined, height: number) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const large = useLargeText();
+  const { title, icon } = favoriteRow(t, row);
+  // Where the finger pressed the handle, and the row's height, which a drag moves by.
+  const start = useRef(0);
+  const height = useRef(0);
+  const slot = compact ? styles.compactSlot : styles.checkSlot;
+  return (
+    <Pressable
+      accessibilityActions={[
+        ...(moves.up ? [{ name: 'moveUp', label: t('mailboxes.moveUp') }] : []),
+        ...(moves.down
+          ? [{ name: 'moveDown', label: t('mailboxes.moveDown') }]
+          : []),
+      ]}
+      accessibilityLabel={title}
+      accessibilityRole="button"
+      accessibilityValue={{
+        text: t(shown ? 'mailboxes.shown' : 'mailboxes.hidden'),
+      }}
+      onAccessibilityAction={({ nativeEvent }) => {
+        onMove(nativeEvent.actionName === 'moveUp' ? -1 : 1);
+      }}
+      onLayout={({ nativeEvent }) => {
+        height.current = nativeEvent.layout.height;
+      }}
+      onPress={onToggle}
+      style={({ pressed }) => [
+        styles.row,
+        compact ? styles.compactEditRow : styles.editRow,
+        pressed && { backgroundColor: colors.accentSelectionSubtle },
+        offset === undefined
+          ? undefined
+          : {
+              zIndex: 1,
+              transform: [{ translateY: offset }],
+              backgroundColor: colors.accentSelectionSubtle,
+            },
+      ]}>
+      <View style={slot}>
+        <SFSymbol
+          name={shown ? 'checkmark.circle.fill' : 'circle'}
+          color={shown ? colors.accentFill : colors.textSecondary}
+          size={compact ? 22 : 16}
+        />
+      </View>
+      <View style={compact ? styles.compactSlot : styles.editIcon}>
+        <SFSymbol
+          name={icon}
+          color={colors.accentInk}
+        />
+      </View>
+      <Text
+        numberOfLines={large ? 0 : 1}
+        style={[
+          compact ? styles.compactLabel : styles.label,
+          // iPad dims a hidden row's name, as the frames draw it; iPhone keeps it.
+          {
+            color: shown || compact ? colors.textPrimary : colors.textSecondary,
+          },
+        ]}>
+        {title}
+      </Text>
+      <View
+        onStartShouldSetResponder={() => true}
+        // The handle keeps the finger once it has it; the list does not scroll meanwhile.
+        onResponderTerminationRequest={() => false}
+        onResponderGrant={({ nativeEvent }) => {
+          start.current = nativeEvent.pageY;
+          onDrag(0, height.current);
+        }}
+        onResponderMove={({ nativeEvent }) => {
+          onDrag(nativeEvent.pageY - start.current, height.current);
+        }}
+        onResponderRelease={({ nativeEvent }) => {
+          onDrop(nativeEvent.pageY - start.current, height.current);
+        }}
+        onResponderTerminate={() => {
+          onDrop(undefined, height.current);
+        }}
+        style={slot}>
+        <SFSymbol
+          name="line.3.horizontal"
+          color={colors.textSecondary}
+          size={compact ? 18 : 14}
+        />
+      </View>
+    </Pressable>
+  );
+}
+
+// Favorites in Edit mode: every row the Profile can show, in its order. A row dragged by its
+// handle moves to where it is dropped, the rows it passes giving way.
+function EditFavorites({
+  rows,
+  onToggle,
+  onMove,
+  onDragging,
+}: {
+  readonly rows: ReadonlyArray<Readonly<{ row: Favorite; shown: boolean }>>;
+  readonly onToggle: (row: Favorite) => void;
+  // Moves `row` to the place `to` gives for its stored place.
+  readonly onMove: (row: Favorite, to: (index: number) => number) => void;
+  // Whether a row is being dragged, while the list must not scroll.
+  readonly onDragging: (dragging: boolean) => void;
+}) {
+  const colors = usePalette();
+  // The dragged row, the place it started from, how far the finger moved it and its height.
+  const [drag, setDrag] =
+    useState<
+      Readonly<{ row: Favorite; from: number; dy: number; height: number }>
+    >();
+  // The place `dy` below row `from` falls on.
+  const place = (from: number, dy: number, height: number) =>
+    height === 0
+      ? from
+      : Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / height)));
+  const from = drag?.from ?? -1;
+  const dragged = rows.find(({ row }) => row === drag?.row);
+  const to = drag === undefined ? from : place(from, drag.dy, drag.height);
+  const rest = rows.filter((entry) => entry !== dragged);
+  const order =
+    dragged === undefined
+      ? rows
+      : [...rest.slice(0, to), dragged, ...rest.slice(to)];
+  return (
+    <View
+      style={compact && [styles.group, { backgroundColor: colors.fillQuiet }]}>
+      {order.map(({ row, shown }, position) => {
+        const index = rows.findIndex((entry) => entry.row === row);
+        // Where this row's drag began, or its place now when no drag of it has rendered yet, such
+        // as a press and release in one event batch.
+        const begin = drag?.row === row ? drag.from : index;
+        return (
+          <Fragment key={row}>
+            {compact && position > 0 ? (
+              <View
+                style={[
+                  styles.separator,
+                  styles.editSeparator,
+                  { backgroundColor: colors.separator },
+                ]}
+              />
+            ) : null}
+            <EditRow
+              row={row}
+              shown={shown}
+              moves={{ up: index > 0, down: index < rows.length - 1 }}
+              offset={
+                drag === undefined || row !== drag.row
+                  ? undefined
+                  : drag.dy - (to - from) * drag.height
+              }
+              onToggle={() => {
+                onToggle(row);
+              }}
+              onMove={(by) => {
+                onMove(row, (stored) => stored + by);
+              }}
+              onDrag={(dy, height) => {
+                onDragging(true);
+                setDrag({ row, from: begin, dy, height });
+              }}
+              onDrop={(dy, height) => {
+                onDragging(false);
+                setDrag(undefined);
+                // Compared with the row's stored place, which another device may have changed.
+                if (dy !== undefined && place(begin, dy, height) !== index) {
+                  onMove(row, () => place(begin, dy, height));
+                }
+              }}
+            />
+          </Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+// Edit, beside Account on iPhone and the sidebar toggle on iPad, and Done, which replaces both on
+// iPhone: the system's buttons, as the frames draw them. Mailboxes without an account offer none.
+function EditButton({
+  editing,
+  onEditing,
+}: {
+  readonly editing: boolean;
+  readonly onEditing: (editing: boolean) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const account = use(AccountContext);
+  if (account === undefined) {
+    return null;
+  }
+  const done = compact
+    ? [
+        labelStyle('iconOnly'),
+        buttonStyle('glassProminent'),
+        buttonBorderShape('circle'),
+        controlSize('large'),
+      ]
+    : [
+        buttonStyle('borderedProminent'),
+        buttonBorderShape('capsule'),
+        controlSize('small'),
+      ];
+  const button = (
+    <Host matchContents>
+      {editing ? (
+        <SwiftUIButton
+          label={t('mailboxes.done')}
+          {...(compact ? { systemImage: 'checkmark' } : {})}
+          modifiers={[...done, tint(colors.accentFill)]}
+          onPress={() => {
+            onEditing(false);
+          }}
+        />
+      ) : (
+        <SwiftUIButton
+          label={t('mailboxes.edit')}
+          modifiers={[
+            buttonStyle(compact ? 'glass' : 'borderless'),
+            controlSize(compact ? 'large' : 'regular'),
+            tint(colors.textPrimary),
+          ]}
+          onPress={() => {
+            onEditing(true);
+          }}
+        />
+      )}
+    </Host>
+  );
+  return compact ? button : <View style={styles.panelButton}>{button}</View>;
+}
+
+// Favorites: All Inboxes and the Unified Mailboxes the Profile shows, in its order, with the
+// Outbox after Sent while it holds a message; in Edit mode, every row with its checkmark and handle.
+function Favorites({
+  view,
+  onView,
+  onSelect,
+  onOutbox,
+  unread,
+  allSelected,
+  editing,
+  onDragging,
+}: {
+  readonly view: MailboxView;
+  readonly onView: (view: MailboxView) => void;
+  readonly onSelect: (view: MailboxView) => void;
+  readonly onOutbox?: () => void;
+  // All Inboxes' unread count, and whether it is selected.
+  readonly unread: number;
+  readonly allSelected: boolean;
+  readonly editing: boolean;
+  readonly onDragging: (dragging: boolean) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const outbox = useProfileOutbox();
+  const { entries, change } = useFavorites(useProfile());
+  const rows = favoriteRows(entries);
+  const shownRows = rows.filter(({ shown }) => shown);
+  // Hiding the selected Unified Mailbox selects the first row still shown.
+  const showOrHide = async (row: Favorite) => {
+    const after = await change((stored) => toggleFavorite(stored, row));
+    if (
+      view.unified === row &&
+      after?.some((entry) => entry.row === row && !entry.shown) === true
+    ) {
+      const first = after.find(({ shown }) => shown)?.row;
+      onSelect(
+        first === undefined || first === allInboxes ? {} : { unified: first },
+      );
+    }
+  };
+  if (editing) {
+    return (
+      <EditFavorites
+        rows={rows}
+        onToggle={(row) => {
+          void showOrHide(row);
+        }}
+        onMove={(row, to) => {
+          void change((stored) =>
+            moveFavorite(
+              stored,
+              row,
+              to(favoriteRows(stored).findIndex((entry) => entry.row === row)),
+            ),
+          );
+        }}
+        onDragging={onDragging}
+      />
+    );
+  }
+  // The Outbox follows Sent, or ends Favorites while Sent is hidden. iPhone's grouped rows are
+  // divided by hairlines.
+  const separator = compact ? (
+    <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+  ) : null;
+  const outboxRow =
+    onOutbox !== undefined && outbox.length > 0 ? (
+      <>
+        {separator}
+        <Item
+          icon="tray.and.arrow.up"
+          label={t('outbox.heading')}
+          selected={view.outbox === true}
+          onPress={onOutbox}
+        />
+      </>
+    ) : null;
+  return (
+    <View
+      style={compact && [styles.group, { backgroundColor: colors.fillQuiet }]}>
+      {shownRows.map(({ row }, index) => {
+        const { title, icon } = favoriteRow(t, row);
+        return (
+          <Fragment key={row}>
+            {index > 0 ? separator : null}
+            {row === allInboxes ? (
+              <Item
+                icon={icon}
+                label={title}
+                count={unread}
+                selected={allSelected && view.outbox !== true}
+                onPress={() => {
+                  onView({});
+                }}
+              />
+            ) : (
+              <Item
+                icon={icon}
+                label={title}
+                accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                  row: title,
+                  mailbox: t('mailboxes.allMailboxes'),
+                })}
+                selected={view.unified === row}
+                onPress={() => {
+                  onView({ unified: row });
+                }}
+              />
+            )}
+            {row === 'SENT' ? outboxRow : null}
+          </Fragment>
+        );
+      })}
+      {shownRows.some(({ row }) => row === 'SENT') ? null : outboxRow}
+    </View>
+  );
+}
+
 // The Mailboxes of the window's Profile: every Inbox together, the Unified Mailboxes with the
 // Outbox after Sent while it holds a message, then each Mailbox Connection with its folders, and
 // Settings last.
 export function Mailboxes({
   view,
   onView,
+  onSelect = onView,
   onOutbox,
   onProfile,
   onCompose,
@@ -567,6 +1013,8 @@ export function Mailboxes({
 }: {
   readonly view: MailboxView;
   readonly onView: (view: MailboxView) => void;
+  // Selects `view` without opening its list, as when Favorites hides the selected Unified Mailbox.
+  readonly onSelect?: (view: MailboxView) => void;
   // Shows the Outbox, ending a search, each time it is chosen; Mailboxes without it offer none.
   readonly onOutbox?: () => void;
   // Switches the window to another Mail Profile.
@@ -580,18 +1028,27 @@ export function Mailboxes({
   const account = use(AccountContext);
   const profile = useProfile();
   const reload = useReloadMailboxes();
-  const outbox = useProfileOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
   const header = usePaletteHeader();
   // iPhone's list runs under the home indicator, behind New Message's scroll edge.
   const { bottom } = useSafeAreaInsets();
+  const toggle = use(SidebarToggleContext);
   const sidebar = mailboxSidebar({
     mailboxes,
     connections: account?.mailboxes ?? [],
     profile,
     view,
   });
+  // Edit Favorites, and whether a row is being dragged, while the list must not scroll.
+  const [editing, setEditing] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const editButton = (
+    <EditButton
+      editing={editing}
+      onEditing={setEditing}
+    />
+  );
   // Settings over Mailboxes: Back returns here; Open Inbox shows the kept list, as choosing it would.
   const openSettings = (destination?: SettingsDestination) => {
     account?.openAccount(destination, () => {
@@ -645,6 +1102,23 @@ export function Mailboxes({
     // The safe area keeps its insets as margins, so on iPhone the surface around it fills the
     // screen behind the status bar and home indicator.
     <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
+      <RegisterCommands
+        offer={() =>
+          sidebarCommands(t, {
+            // Edit Favorites while the iPad sidebar shows beside the list; iPhone's Mailboxes has
+            // its Edit button.
+            favorites:
+              !compact && account !== undefined && toggle?.shown === true
+                ? () => {
+                    setEditing(true);
+                  }
+                : undefined,
+            unified: (role) => {
+              onView({ unified: role });
+            },
+          })
+        }
+      />
       {bar === true ? <NavigationChrome /> : null}
       <SafeAreaView
         edges={{
@@ -669,6 +1143,7 @@ export function Mailboxes({
           }>
           {compact ? null : (
             <View style={styles.panelTop}>
+              {editButton}
               <SidebarToggle />
             </View>
           )}
@@ -679,39 +1154,39 @@ export function Mailboxes({
             <View
               style={styles.compactHeading}
               {...header.swipe}>
-              <View style={styles.headingSlot} />
+              <View style={styles.grow} />
               <Text
                 accessibilityRole="header"
-                style={[
-                  styles.title,
-                  styles.grow,
-                  { color: colors.textPrimary },
-                ]}
+                style={[styles.title, { color: colors.textPrimary }]}
                 {...header.action}>
                 {t('mailboxes.title')}
               </Text>
-              {account === undefined ? null : (
-                <GlassGroup style={styles.accountGlass}>
-                  <Pressable
-                    accessibilityLabel={t('inbox.account')}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      openSettings();
-                    }}
-                    style={styles.accountButton}>
-                    {/* The frames' gear draws 16pt of ink. */}
-                    <SFSymbol
-                      name="gearshape"
-                      size={15.5}
-                      color={colors.textPrimary}
-                    />
-                  </Pressable>
-                </GlassGroup>
-              )}
+              <View style={[styles.grow, styles.headingActions]}>
+                {editButton}
+                {account === undefined || editing ? null : (
+                  <GlassGroup style={styles.accountGlass}>
+                    <Pressable
+                      accessibilityLabel={t('inbox.account')}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        openSettings();
+                      }}
+                      style={styles.accountButton}>
+                      {/* The frames' gear draws 16pt of ink. */}
+                      <SFSymbol
+                        name="gearshape"
+                        size={15.5}
+                        color={colors.textPrimary}
+                      />
+                    </Pressable>
+                  </GlassGroup>
+                )}
+              </View>
             </View>
           ) : null}
           <ScrollView
             style={styles.fill}
+            scrollEnabled={!dragging}
             // A row takes its first tap while Search's keyboard is up, so one tap on Outbox ends
             // the search.
             keyboardShouldPersistTaps="handled"
@@ -730,62 +1205,16 @@ export function Mailboxes({
               }}
             />
             <SectionHeader label={t('mailboxes.favorites')} />
-            <View
-              style={
-                compact && [styles.group, { backgroundColor: colors.fillQuiet }]
-              }>
-              <Item
-                icon="tray.2"
-                label={t('inbox.allInboxes')}
-                count={sidebar.unread}
-                selected={sidebar.allSelected && view.outbox !== true}
-                onPress={() => {
-                  onView({});
-                }}
-              />
-              {unifiedRoles.map((role) => {
-                const { title, icon } = unifiedRow(t, role);
-                // iPhone's grouped rows are divided by hairlines.
-                const separator = compact ? (
-                  <View
-                    style={[
-                      styles.separator,
-                      { backgroundColor: colors.separator },
-                    ]}
-                  />
-                ) : null;
-                return (
-                  <Fragment key={role}>
-                    {separator}
-                    <Item
-                      icon={icon}
-                      label={title}
-                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                        row: title,
-                        mailbox: t('mailboxes.allMailboxes'),
-                      })}
-                      selected={view.unified === role}
-                      onPress={() => {
-                        onView({ unified: role });
-                      }}
-                    />
-                    {role === 'SENT' &&
-                    onOutbox !== undefined &&
-                    outbox.length > 0 ? (
-                      <>
-                        {separator}
-                        <Item
-                          icon="tray.and.arrow.up"
-                          label={t('outbox.heading')}
-                          selected={view.outbox === true}
-                          onPress={onOutbox}
-                        />
-                      </>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </View>
+            <Favorites
+              view={view}
+              onView={onView}
+              onSelect={onSelect}
+              unread={sidebar.unread}
+              allSelected={sidebar.allSelected}
+              editing={editing}
+              onDragging={setDragging}
+              {...(onOutbox === undefined ? {} : { onOutbox })}
+            />
             {sidebar.entries.map((entry) => {
               if ('section' in entry) {
                 const { mailbox, folders } = entry.section;

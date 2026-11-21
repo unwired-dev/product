@@ -3608,6 +3608,10 @@ describe('organizing motion', () => {
   });
 });
 
+// The palette's Archive for the open message, listed before Go To's Archive.
+const messageArchive = () =>
+  openedPalette().getAllByRole('button', { name: 'Archive' })[0]!;
+
 describe('command palette', () => {
   it('opens by swipe and accessibility action while search replaces the Inbox heading', async () => {
     expect.hasAssertions();
@@ -3774,9 +3778,7 @@ describe('command palette', () => {
     expect(headers.indexOf('App')).toBeLessThan(headers.indexOf('Go To'));
     const input = screen.getByPlaceholderText('Type a command');
     await fireEvent.changeText(input, 'arch');
-    expect(
-      openedPalette().getByRole('button', { name: 'Archive' }),
-    ).toBeVisible();
+    expect(messageArchive()).toBeVisible();
     expect(openedPalette().queryByRole('button', { name: 'Reply' })).toBeNull();
     await fireEvent.changeText(input, '');
 
@@ -3825,9 +3827,7 @@ describe('command palette', () => {
     await openPalette(
       await screen.findByRole('header', { name: 'Saturday, by the river?' }),
     );
-    expect(
-      openedPalette().getByRole('button', { name: 'Archive' }),
-    ).toBeEnabled();
+    expect(messageArchive()).toBeEnabled();
     // Meanwhile the message is archived elsewhere and the reader closes.
     const store = connected.store();
     await act(async () => {
@@ -3835,9 +3835,7 @@ describe('command palette', () => {
     });
     expect(screen.queryByText('oliver@example.invalid')).toBeNull();
     const organize = jest.spyOn(store, 'organize');
-    await fireEvent.press(
-      openedPalette().getByRole('button', { name: 'Archive' }),
-    );
+    await fireEvent.press(messageArchive());
     expect(
       openedPalette().getByRole('button', {
         name: 'Archive. No longer available',

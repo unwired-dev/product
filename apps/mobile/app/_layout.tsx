@@ -551,6 +551,7 @@ function MailShell() {
                           // On iPhone a Mailbox opens its list; beside it, the list is already shown.
                           splitView.current?.show('supplementary');
                         }}
+                        onSelect={setView}
                         onOutbox={() => {
                           setView({ outbox: true });
                           setOutboxShown({});

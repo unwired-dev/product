@@ -343,6 +343,7 @@
     "enterPasswordFor": "Enter the Password for {{address}}…",
     "confirm_imap": "Removing {{address}} deletes its password and the mail saved for it from this device, and removes it from your other devices when they next connect. Your mail stays on the mail server.",
     "favorites": "Favorites",
+    "edit": "Edit",
     "editFavorites": "Edit Favorites…",
     "collapseFavorites": "Collapse Favorites",
     "expandFavorites": "Expand Favorites",

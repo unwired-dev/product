@@ -420,6 +420,10 @@ styles) so the file stays editable.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
   iPhone Mailboxes puts Settings in a glass **Account** circle at the header's trailing
   edge and a glass New Message at the bottom trailing corner.
+  **Edit**, beside Hide Sidebar in the iPad sidebar's top row and beside Account in
+  iPhone's Mailboxes header, turns Favorites into the Edit Favorites list until
+  **Done**, a prominent capsule on iPad and a checkmark circle that replaces Edit and
+  Account on iPhone (#2611).
 - **Message list header:** mailbox title, a subtitle carrying unread count and
   sync status, and a row of up to five Mail View chips in the order the
   [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior)
@@ -817,9 +821,6 @@ One frame size differs from the device on purpose. Here the system wins:
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
 
-- **Edit Favorites:** the Mac sidebar's Edit mode is built (#2593). The iPad
-  sidebar's Edit mode, and **Edit** beside Account in the iPhone Mailboxes
-  frames, wait for #2106.
 - **Message list header:** the iPhone frames' List/Chat toggle beside the title
   waits for #810. Their **…** menu waits for an issue that names what it offers.
 - **iPhone composer:** the frames draw the composer as a sheet, as
