@@ -270,13 +270,9 @@ extension UnwiredRegistration {
     _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
     Task {
-      // iPhone and iPad also ask for the App Icon Badge.
-      #if os(iOS)
-        let options: UNAuthorizationOptions = [.alert, .sound, .badge]
-      #else
-        let options: UNAuthorizationOptions = [.alert, .sound]
-      #endif
-      _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: options)
+      _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [
+        .alert, .sound, .badge,
+      ])
       resolve(await Self.notificationSettings())
     }
   }

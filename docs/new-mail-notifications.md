@@ -21,10 +21,10 @@ matches content, grouping and actions to the design.
   **Allow…**, which asks once. **Show Sender and Subject** is off by default; until
   it is turned on, every notification shows only the app's name and "New mail".
   Permission and this choice belong to this device and never synchronize.
-- **App Icon Badge**, on iPhone and iPad, chooses **Off** or **Unread in Inbox**. It
-  starts **Off**, belongs to this device and never synchronizes. While notifications
-  are off in the system's settings, the choice stays, dimmed, and applies once they are
-  allowed. See [App Icon Badge](#app-icon-badge).
+- **App Icon Badge** on iPhone and iPad, **Dock badge** on the Mac, chooses **Off** or
+  **Unread in Inbox**. It starts **Off**, belongs to this device and never synchronizes.
+  While notifications are off in the system's settings, the choice stays, dimmed, and
+  applies once they are allowed. See [App Icon Badge](#app-icon-badge).
 - **Per Mailbox** has a switch for each Mailbox Connection, named by its provider
   and address. Every connection starts off. Turning one on the first time also asks for permission. The switch is
   a Mail Workflow Preference of the Profile that owns the connection: it
@@ -96,14 +96,16 @@ withdraws all of them.
 
 ## App Icon Badge
 
-With **Unread in Inbox**, the app icon shows the number of unread messages this device
+With **Unread in Inbox**, the app icon, or the Mac's Dock icon, shows the number of unread messages this device
 lists in the Inbox of every Mailbox Connection whose Inbox can open, across all Mail
 Profiles: the same messages the sidebar's Inbox rows count. Unread mail older than
 what the device has listed is not counted, so a mailbox whose provider holds more
 unread mail than the device listed shows fewer. Every change to a listed Inbox updates
 the badge, whether it came from the reader, a notification action, the foreground
-poll, a push wake or a background refresh. Asking for permission requests the badge
-with alerts and sounds.
+poll, a push wake or a background refresh. Asking for permission requests the badge with
+alerts and sounds, and the system shows the count only while the app's badge setting in the
+system's notification settings is on; a Mac that allowed notifications before the Dock badge
+existed turns it on there.
 
 The badge is removed when the choice is **Off**, when notifications are not allowed,
 when no Inbox can open (after the last connection is removed or the person signs out)
@@ -114,8 +116,8 @@ the device leaves the badge it found unchanged rather than showing a partial cou
 push wake, or an Archive or Mark as Read on a notification, that launches the app works on
 its own mailbox and opens every other connection's saved Inbox listing without reading mail from its provider, so the badge counts them
 all. Snooze and Profile Lock do not exist
-yet; the per-Profile **Badge and sound** switches, **New Mail Sound** and the Mac's
-Dock badge come with [#1723](https://github.com/unwired-dev/product/issues/1723).
+yet; the per-Profile **Badge and sound** switches and **New Mail Sound** come with
+[#1723](https://github.com/unwired-dev/product/issues/1723).
 
 ## How a notification looks
 
@@ -231,7 +233,8 @@ the window, an Undo while another reply reads its message, sending notifications
 before the Drafts opened, an Archive whose connection is recreated while the Drafts open,
 and a recreated connection or another account; `commands.test.ts` covers Reply waiting for its reader. The mobile `freshness.test.tsx` journey
 imports the app entry in the background: the App Icon Badge follows each synchronization, a
-typed reply holds delivery time, one kept in Drafts does not, and Open Draft waits until the mail shell follows it. The app suites cover both
+typed reply holds delivery time, one kept in Drafts does not, and Open Draft waits until the mail shell follows it. The Mac `freshness.test.tsx`
+covers the Dock badge following a push wake and permission changed while the app was away. The app suites cover both
 Settings pages. `ProductSyncTests.swift` covers sealing the policy record. Native
 delivery on iOS, iPadOS and macOS 27, including a tap that launches the app, its
 appearance and grouping, and each action from a locked device and with the app not
