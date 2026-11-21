@@ -5,6 +5,7 @@ import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { FavoriteEntries } from './mailbox-views.ts';
 import type { Registration } from './registration.ts';
 
 import { runLogged } from './diagnostics.ts';
@@ -15,6 +16,7 @@ import {
   reportPreference,
 } from './draft-sync.ts';
 import { ownerOf } from './drafts.ts';
+import { FavoriteEntriesSchema } from './mailbox-views.ts';
 
 // How tightly a Thread list lays out its rows. Comfortable is the default.
 export const ListDensitySchema = Schema.Literals(['comfortable', 'compact']);
@@ -24,6 +26,9 @@ const isListDensity = Schema.is(ListDensitySchema);
 export const PreviewLinesSchema = Schema.Literals([0, 1, 2, 3]);
 export type PreviewLines = typeof PreviewLinesSchema.Type;
 const isPreviewLines = Schema.is(PreviewLinesSchema);
+const isFavoriteEntries = Schema.is(FavoriteEntriesSchema);
+// The same empty Favorites every read, so a React snapshot of none stays equal.
+const noFavorites: FavoriteEntries = [];
 
 // One preference's latest value and when it was chosen, in milliseconds since the epoch. A field
 // this build does not know is kept and published as it was.
@@ -326,7 +331,7 @@ export function createInboxPreferences(
   const choose = async (
     profiles: readonly string[],
     name: string,
-    value: ListDensity | PreviewLines,
+    value: ListDensity | PreviewLines | FavoriteEntries,
   ) => {
     const scopes = profiles.filter((profile) => profile !== '');
     if (scopes.length === 0) {
@@ -337,7 +342,7 @@ export function createInboxPreferences(
         scopes.reduce((next, profile) => {
           const fields = fieldsOf(next, profile);
           const field = fields[name];
-          return field?.value === value
+          return JSON.stringify(field?.value) === JSON.stringify(value)
             ? next
             : withFields(next, profile, {
                 ...fields,
@@ -376,8 +381,8 @@ export function createInboxPreferences(
           : undefined;
       return isListDensity(value) ? value : 'comfortable';
     },
-    // Reads the signed-in account's preferences for `listDensity` and `previewLines`; signed out,
-    // there are none.
+    // Reads the signed-in account's preferences for `listDensity`, `previewLines` and `favorites`;
+    // signed out, there are none.
     load: async () => {
       const account = signedIn();
       if (account !== undefined) {
@@ -405,6 +410,18 @@ export function createInboxPreferences(
     // Chooses the preview length of each of `profiles` in one write, as `setListDensity` does.
     setPreviewLines: (profiles: readonly string[], lines: PreviewLines) =>
       choose(profiles, 'previewLines', lines),
+    // `profile`'s Favorites rows in order, as last read; none until they are read, while storage
+    // cannot read them, or when none were chosen.
+    favorites: (profile: string): FavoriteEntries => {
+      const value =
+        shown.account === signedIn()
+          ? fieldsOf(shown.profiles, profile).favorites?.value
+          : undefined;
+      return isFavoriteEntries(value) ? value : noFavorites;
+    },
+    // Chooses `profile`'s Favorites rows, as `setListDensity` does.
+    setFavorites: (profile: string, entries: FavoriteEntries) =>
+      choose([profile], 'favorites', entries),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,

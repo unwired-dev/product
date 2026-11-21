@@ -1,17 +1,22 @@
 import type { Translate } from '@private-email/localization';
 import type {
+  Favorite,
   MailboxProblem,
   UnifiedRole,
 } from '@private-email/mail-core/mailboxes';
 import type { MailProvider } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
 
+import { sidebarCommands } from '@private-email/mail-core/commands';
 import {
+  allInboxes,
   failedFolders,
+  favoriteRows,
   gmailMailbox,
   gmailViewRow,
   mailboxSidebar,
-  unifiedRoles,
+  moveFavorite,
+  toggleFavorite,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -25,11 +30,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { InboxMailbox } from './private-storage.ts';
 
-import { MenuButton, SFSymbol } from './design.tsx';
+import { RegisterCommands } from './command-palette.tsx';
+import { ContextMenu, MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-list.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
 import { useProfileOutbox } from './outbox.tsx';
+import { InboxPreferencesContext } from './preview-lines.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette, useProfilePalette } from './theme.ts';
@@ -43,6 +50,9 @@ export type MailboxView = Readonly<{
   unified?: UnifiedRole | undefined;
   outbox?: boolean | undefined;
 }>;
+
+// A sidebar row's height, which a dragged Favorites row moves by.
+const rowHeight = 28;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -79,6 +89,21 @@ const styles = StyleSheet.create({
   },
   // The frames' 16pt symbol slot, its glyph drawn at 13pt.
   icon: { width: 16, height: 16 },
+  // An Edit Favorites row: checkmark, symbol, name and drag handle, 6pt apart.
+  editRow: { height: rowHeight, gap: 6 },
+  // The frames' 18pt-wide slot for a row's own symbol.
+  editIcon: { width: 18 },
+  // Done overlaps the header's trailing end as the frames draw it, so the header keeps its height.
+  done: {
+    position: 'absolute',
+    top: 3,
+    right: 0,
+    height: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderCurve: 'continuous',
+  },
   label: { ...textStyles.body, flex: 1 },
   count: { ...textStyles.body },
   footer: {
@@ -394,6 +419,221 @@ function FolderRows({
   });
 }
 
+// A Favorites row's symbol and name.
+const favoriteRow = (t: Translate, row: Favorite) =>
+  row === allInboxes
+    ? { title: t('inbox.allInboxes'), icon: 'tray.2' }
+    : unifiedRow(t, row);
+
+// The window's Profile's Favorites as its Inbox preferences keep them, which its other Trusted
+// Devices share.
+function useFavorites(profile: string) {
+  const store = use(InboxPreferencesContext);
+  const entries = useSyncExternalStore(store.subscribe, () =>
+    store.favorites(profile),
+  );
+  return {
+    entries,
+    choose: (next: typeof entries) => {
+      void store.setFavorites(profile, next);
+    },
+  };
+}
+
+// The keys an Edit Favorites row handles: Space and Return show or hide it, as a Pressable's do,
+// and Command-Option-Up and Down move it.
+const editKeys = [
+  { key: ' ' },
+  { key: 'Enter' },
+  { key: 'ArrowUp', altKey: true, metaKey: true },
+  { key: 'ArrowDown', altKey: true, metaKey: true },
+];
+
+// A Favorites row in Edit mode: the checkmark that shows or hides it, its symbol and name, and the
+// handle that drags it to another place. Activating the row shows or hides it, except All
+// Inboxes, which stays shown; Move Up and Move Down reorder it from the keyboard and VoiceOver.
+function EditRow({
+  row,
+  shown,
+  moves,
+  offset,
+  onToggle,
+  onMove,
+  onDrag,
+  onDrop,
+}: {
+  readonly row: Favorite;
+  readonly shown: boolean;
+  // Which ways the row can move by one place.
+  readonly moves: Readonly<{ up: boolean; down: boolean }>;
+  // How far the pointer drags the row from where it shows, while it does.
+  readonly offset: number | undefined;
+  readonly onToggle: () => void;
+  readonly onMove: (by: -1 | 1) => void;
+  readonly onDrag: (dy: number) => void;
+  // Where the pointer let go, as far from where the drag began; undefined when it was cancelled.
+  readonly onDrop: (dy: number | undefined) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [focused, setFocused] = useState(false);
+  const { title, icon } = favoriteRow(t, row);
+  // Where the pointer pressed the handle, while it drags the row.
+  const [start, setStart] = useState(0);
+  const move = (by: -1 | 1) => {
+    if (by < 0 ? moves.up : moves.down) {
+      onMove(by);
+    }
+  };
+  return (
+    <Pressable
+      accessibilityActions={[
+        { name: 'activate' },
+        ...(moves.up ? [{ name: 'moveUp', label: t('mailboxes.moveUp') }] : []),
+        ...(moves.down
+          ? [{ name: 'moveDown', label: t('mailboxes.moveDown') }]
+          : []),
+      ]}
+      accessibilityLabel={title}
+      accessibilityRole="button"
+      accessibilityValue={{
+        text: t(shown ? 'mailboxes.shown' : 'mailboxes.hidden'),
+      }}
+      focusable
+      keyDownEvents={editKeys}
+      onAccessibilityAction={({ nativeEvent }) => {
+        if (nativeEvent.actionName === 'activate') {
+          onToggle();
+        } else {
+          move(nativeEvent.actionName === 'moveUp' ? -1 : 1);
+        }
+      }}
+      onBlur={() => {
+        setFocused(false);
+      }}
+      onFocus={() => {
+        setFocused(true);
+      }}
+      onKeyDown={({ nativeEvent: { key } }) => {
+        if (key === 'ArrowUp' || key === 'ArrowDown') {
+          move(key === 'ArrowUp' ? -1 : 1);
+        }
+      }}
+      onPress={onToggle}
+      style={[
+        styles.row,
+        styles.editRow,
+        { borderColor: focused ? colors.accentInk : 'transparent' },
+        offset === undefined
+          ? undefined
+          : {
+              zIndex: 1,
+              transform: [{ translateY: offset }],
+              backgroundColor: colors.accentSelectionSubtle,
+            },
+      ]}>
+      <SFSymbol
+        name={shown ? 'checkmark.circle.fill' : 'circle'}
+        color={shown ? colors.accentFill : colors.textSecondary}
+        size={14}
+        style={styles.icon}
+      />
+      <SFSymbol
+        name={icon}
+        color={colors.accentInk}
+        // tray.2's ink at 13pt is larger than the frames' 13.3pt glyph.
+        size={icon === 'tray.2' ? 11.7 : 13}
+        style={[styles.icon, styles.editIcon]}
+      />
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.label,
+          { color: shown ? colors.textPrimary : colors.textSecondary },
+        ]}>
+        {title}
+      </Text>
+      <View
+        onStartShouldSetResponder={() => true}
+        onResponderGrant={({ nativeEvent }) => {
+          setStart(nativeEvent.pageY);
+        }}
+        onResponderMove={({ nativeEvent }) => {
+          onDrag(nativeEvent.pageY - start);
+        }}
+        onResponderRelease={({ nativeEvent }) => {
+          onDrop(nativeEvent.pageY - start);
+        }}
+        onResponderTerminate={() => {
+          onDrop(undefined);
+        }}>
+        <SFSymbol
+          name="line.3.horizontal"
+          color={colors.textSecondary}
+          size={12}
+          style={styles.icon}
+        />
+      </View>
+    </Pressable>
+  );
+}
+
+// Favorites in Edit mode: every row the Profile can show, in its order. A row dragged by its
+// handle moves to where it is dropped, the rows it passes giving way.
+function EditFavorites({
+  rows,
+  onToggle,
+  onMove,
+}: {
+  readonly rows: ReadonlyArray<Readonly<{ row: Favorite; shown: boolean }>>;
+  readonly onToggle: (row: Favorite) => void;
+  readonly onMove: (row: Favorite, index: number) => void;
+}) {
+  const [drag, setDrag] = useState<Readonly<{ row: Favorite; dy: number }>>();
+  // The place `dy` below row `from` falls on.
+  const place = (from: number, dy: number) =>
+    Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / rowHeight)));
+  const from = rows.findIndex(({ row }) => row === drag?.row);
+  const dragged = rows[from];
+  const to = drag === undefined ? from : place(from, drag.dy);
+  const rest = rows.filter((entry) => entry !== dragged);
+  const order =
+    dragged === undefined
+      ? rows
+      : [...rest.slice(0, to), dragged, ...rest.slice(to)];
+  return order.map(({ row, shown }) => {
+    const index = rows.findIndex((entry) => entry.row === row);
+    return (
+      <EditRow
+        key={row}
+        row={row}
+        shown={shown}
+        moves={{ up: index > 0, down: index < rows.length - 1 }}
+        offset={
+          drag === undefined || row !== drag.row
+            ? undefined
+            : drag.dy - (to - from) * rowHeight
+        }
+        onToggle={() => {
+          onToggle(row);
+        }}
+        onMove={(by) => {
+          onMove(row, index + by);
+        }}
+        onDrag={(dy) => {
+          setDrag({ row, dy });
+        }}
+        onDrop={(dy) => {
+          setDrag(undefined);
+          if (dy !== undefined && place(index, dy) !== index) {
+            onMove(row, place(index, dy));
+          }
+        }}
+      />
+    );
+  });
+}
+
 // The Mailboxes of the window's Profile: every Inbox together, the Unified Mailboxes with the
 // Outbox after Sent while it holds a message, then each Mailbox Connection with its folders, and
 // Settings last.
@@ -429,75 +669,187 @@ export function Mailboxes({
   };
   // The window's collapsed sections, by Favorites or Mailbox Connection.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const section = (key: string, label: string, trouble?: string) => ({
-    header: (
-      <SectionHeader
-        label={label}
-        trouble={trouble}
-        collapsed={collapsed.has(key)}
-        onToggle={() => {
-          setCollapsed((current) => {
-            const next = new Set(current);
-            if (!next.delete(key)) {
-              next.add(key);
-            }
-            return next;
-          });
+  const section = (key: string, label: string, trouble?: string) => {
+    const toggleSection = () => {
+      setCollapsed((current) => {
+        const next = new Set(current);
+        if (!next.delete(key)) {
+          next.add(key);
+        }
+        return next;
+      });
+    };
+    return {
+      header: (
+        <SectionHeader
+          label={label}
+          trouble={trouble}
+          collapsed={collapsed.has(key)}
+          onToggle={toggleSection}
+        />
+      ),
+      shown: !collapsed.has(key),
+      toggle: toggleSection,
+    };
+  };
+  const favorites = section('favorites', t('mailboxes.favorites'));
+  // Edit Favorites, per window; it shows Favorites expanded.
+  const [editing, setEditing] = useState(false);
+  const edit = () => {
+    setEditing(true);
+    setCollapsed((current) => {
+      const next = new Set(current);
+      next.delete('favorites');
+      return next;
+    });
+  };
+  const { entries, choose } = useFavorites(profile);
+  const rows = favoriteRows(entries);
+  const shownRows = rows.filter(({ shown }) => shown);
+  // Hiding the selected Unified Mailbox selects the first row still shown.
+  const showOrHide = (row: Favorite) => {
+    const next = toggleFavorite(entries, row);
+    choose(next);
+    const after = favoriteRows(next);
+    if (
+      view.unified === row &&
+      after.some((entry) => entry.row === row && !entry.shown)
+    ) {
+      const first = after.find(({ shown }) => shown)?.row;
+      onView(
+        first === undefined || first === allInboxes ? {} : { unified: first },
+      );
+    }
+  };
+  // The Outbox follows Sent, or ends Favorites while Sent is hidden.
+  const outboxRow =
+    outbox.length > 0 ? (
+      <Item
+        icon="tray.and.arrow.up"
+        label={t('outbox.heading')}
+        selected={view.outbox === true}
+        onPress={() => {
+          onView({ outbox: true });
         }}
       />
-    ),
-    shown: !collapsed.has(key),
-  });
-  const favorites = section('favorites', t('mailboxes.favorites'));
+    ) : null;
   return (
     <View style={styles.fill}>
+      <RegisterCommands
+        offer={() =>
+          sidebarCommands(t, {
+            // The sidebar has its toggle only while it shows.
+            favorites: toggle === undefined ? undefined : edit,
+            unified: (role) => {
+              onView({ unified: role });
+            },
+          })
+        }
+      />
       <View style={styles.fill}>
         <View style={styles.controls}>{toggle}</View>
         <ScrollView
           style={styles.fill}
           contentContainerStyle={styles.list}>
           <ProfileSwitcher onProfile={onProfile} />
-          {favorites.header}
-          {favorites.shown ? (
-            <>
-              <Item
-                icon="tray.2"
-                label={t('inbox.allInboxes')}
-                count={sidebar.unread}
-                selected={sidebar.allSelected && view.outbox !== true}
+          {editing ? (
+            <View style={styles.sectionRow}>
+              <Text
+                accessibilityRole="header"
+                numberOfLines={1}
+                style={[styles.section, { color: colors.textSecondary }]}>
+                {t('mailboxes.favorites')}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('mailboxes.done')}
+                focusable
                 onPress={() => {
-                  onView({});
+                  setEditing(false);
                 }}
-              />
-              {unifiedRoles.map((role) => {
-                const { title, icon } = unifiedRow(t, role);
+                style={[styles.done, { backgroundColor: colors.accentFill }]}>
+                <Text style={[textStyles.body, { color: colors.accentOnFill }]}>
+                  {t('mailboxes.done')}
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <ContextMenu
+              sections={[
+                {
+                  items: [
+                    {
+                      key: 'edit-favorites',
+                      title: t('mailboxes.editFavorites'),
+                      symbol: 'pencil',
+                      run: edit,
+                    },
+                  ],
+                },
+                {
+                  items: [
+                    {
+                      key: 'collapse-favorites',
+                      title: t(
+                        favorites.shown
+                          ? 'mailboxes.collapseFavorites'
+                          : 'mailboxes.expandFavorites',
+                      ),
+                      symbol: favorites.shown
+                        ? 'chevron.down'
+                        : 'chevron.right',
+                      run: favorites.toggle,
+                    },
+                  ],
+                },
+              ]}>
+              {favorites.header}
+            </ContextMenu>
+          )}
+          {editing ? (
+            <EditFavorites
+              rows={rows}
+              onToggle={showOrHide}
+              onMove={(row, index) => {
+                choose(moveFavorite(entries, row, index));
+              }}
+            />
+          ) : null}
+          {!editing && favorites.shown ? (
+            <>
+              {shownRows.map(({ row }) => {
+                const { title, icon } = favoriteRow(t, row);
                 return (
-                  <Fragment key={role}>
-                    <Item
-                      icon={icon}
-                      label={title}
-                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                        row: title,
-                        mailbox: t('mailboxes.allMailboxes'),
-                      })}
-                      selected={view.unified === role}
-                      onPress={() => {
-                        onView({ unified: role });
-                      }}
-                    />
-                    {role === 'SENT' && outbox.length > 0 ? (
+                  <Fragment key={row}>
+                    {row === allInboxes ? (
                       <Item
-                        icon="tray.and.arrow.up"
-                        label={t('outbox.heading')}
-                        selected={view.outbox === true}
+                        icon={icon}
+                        label={title}
+                        count={sidebar.unread}
+                        selected={sidebar.allSelected && view.outbox !== true}
                         onPress={() => {
-                          onView({ outbox: true });
+                          onView({});
                         }}
                       />
-                    ) : null}
+                    ) : (
+                      <Item
+                        icon={icon}
+                        label={title}
+                        accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                          row: title,
+                          mailbox: t('mailboxes.allMailboxes'),
+                        })}
+                        selected={view.unified === row}
+                        onPress={() => {
+                          onView({ unified: row });
+                        }}
+                      />
+                    )}
+                    {row === 'SENT' ? outboxRow : null}
                   </Fragment>
                 );
               })}
+              {shownRows.some(({ row }) => row === 'SENT') ? null : outboxRow}
             </>
           ) : null}
           {sidebar.entries.map((entry) => {

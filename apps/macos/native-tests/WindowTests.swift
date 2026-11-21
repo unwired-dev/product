@@ -1977,6 +1977,78 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(header.label.contains(problem))
   }
 
+  // #2593: Edit Favorites hides a row and reorders two, and the sidebar keeps them after a relaunch.
+  func testEditFavorites() throws {
+    try editFavorites(appearance: "Light")
+  }
+
+  func testEditFavoritesDark() throws {
+    try editFavorites(appearance: "Dark")
+  }
+
+  private func editFavorites(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    // The sidebar's Favorites rows from top to bottom.
+    func favorites() -> [String] {
+      let names = ["All Inboxes", "Sent", "Archive", "All Mail", "Spam", "Trash"]
+      return window.buttons.allElementsBoundByIndex
+        .map { ($0.label.replacingOccurrences(of: ". In All Mailboxes", with: ""), $0.frame.minY) }
+        .filter { names.contains($0.0) }
+        .sorted { $0.1 < $1.1 }
+        .map(\.0)
+    }
+
+    let header = window.buttons["Favorites"]
+    XCTAssertTrue(header.waitForExistence(timeout: 15))
+    header.rightClick()
+    XCTAssertTrue(app.menuItems["Edit Favorites…"].waitForExistence(timeout: 5))
+    app.menuItems["Edit Favorites…"].click()
+    let done = window.buttons["Done"]
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    let spam = window.buttons["Spam"]
+    XCTAssertEqual(spam.value as? String, "Shown")
+    attach("Edit Favorites")
+    try audit(app, "Edit Favorites")
+    spam.click()
+    waitUntil { spam.value as? String == "Hidden" }
+    // Trash's handle, at the row's trailing end, drags it one row up, above Spam.
+    let trash = window.buttons["Trash"]
+    let handle = trash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+      .withOffset(CGVector(dx: -12, dy: 0))
+    handle.click(forDuration: 0.3, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -28)))
+    waitUntil { trash.frame.minY < spam.frame.minY }
+    attach("Spam hidden, Trash above it")
+    done.click()
+    XCTAssertTrue(done.waitForNonExistence(timeout: 10))
+    let edited = ["All Inboxes", "Sent", "Archive", "All Mail", "Trash"]
+    waitUntil { favorites() == edited }
+    attach("Edited Favorites")
+
+    app.typeKey("q", modifierFlags: .command)
+    waitUntil { app.state == .notRunning }
+    app.launch()
+    XCTAssertTrue(window.buttons["All Inboxes"].waitForExistence(timeout: 45))
+    waitUntil { favorites() == edited }
+    attach("Edited Favorites after a relaunch")
+  }
+
   // #1901: moving the Microsoft mailbox into a Work Mail Profile takes its messages, Search
   // results and Drafts to Work's window only, beside a Primary Profile window that keeps the
   // Gmail mailbox; moving it back restores them to the Primary Profile.

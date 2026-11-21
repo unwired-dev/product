@@ -73,8 +73,16 @@ export {
   unifiedMailbox,
   unifiedRow,
   unifiedRoles,
+  allInboxes,
+  favoriteRows,
+  moveFavorite,
+  toggleFavorite,
 } from './mailbox-views.ts';
-export type { UnifiedRole } from './mailbox-views.ts';
+export type {
+  Favorite,
+  FavoriteEntries,
+  UnifiedRole,
+} from './mailbox-views.ts';
 export {
   ambiguousFolders,
   folderChoice,

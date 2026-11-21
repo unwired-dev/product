@@ -2,9 +2,15 @@ import type {
   NativeInboxPreferenceSync,
   NativeInboxPreferences,
 } from '@private-email/mail-core/inbox-preferences';
+import type { FavoriteEntries } from '@private-email/mail-core/mailboxes';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
 import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
+import {
+  favoriteRows,
+  moveFavorite,
+  toggleFavorite,
+} from '@private-email/mail-core/mailboxes';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
@@ -261,6 +267,48 @@ describe('synchronized Inbox preferences', () => {
       commits: 1,
       relaunched: [3, 3, undefined],
       phone: [3, 'comfortable'],
+    });
+  });
+
+  it("carries a Profile's Favorites, kept across a relaunch, to another device, keeping a row a newer build added", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    // A newer build's row, which this one keeps in its place.
+    const hidden = toggleFavorite([{ row: 'UNREAD', shown: false }], 'SPAM');
+    const stored = await mac.store.setFavorites(
+      'work',
+      moveFavorite(hidden, 'TRASH', 1),
+    );
+    const relaunched = mac.relaunch();
+    await relaunched.load();
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    // The rows the sidebar shows, in order.
+    const rows = (entries: FavoriteEntries) =>
+      favoriteRows(entries)
+        .filter(({ shown }) => shown)
+        .map(({ row }) => row);
+    const initial = rows(phone.store.favorites('home'));
+    expect({
+      initial,
+      stored,
+      relaunched: rows(relaunched.favorites('work')),
+      phone: phone.store.favorites('work'),
+      home: phone.store.favorites('home'),
+    }).toStrictEqual({
+      initial: ['ALL_INBOXES', 'SENT', 'ARCHIVE', 'ALL_MAIL', 'SPAM', 'TRASH'],
+      stored: true,
+      relaunched: ['ALL_INBOXES', 'TRASH', 'SENT', 'ARCHIVE', 'ALL_MAIL'],
+      phone: [
+        { row: 'UNREAD', shown: false },
+        { row: 'ALL_INBOXES', shown: true },
+        { row: 'TRASH', shown: true },
+        { row: 'SENT', shown: true },
+        { row: 'ARCHIVE', shown: true },
+        { row: 'ALL_MAIL', shown: true },
+        { row: 'SPAM', shown: false },
+      ],
+      home: [],
     });
   });
 
