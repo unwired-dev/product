@@ -102,10 +102,10 @@ Profiles: the same messages the sidebar's Inbox rows count. Unread mail older th
 what the device has listed is not counted, so a mailbox whose provider holds more
 unread mail than the device listed shows fewer. Every change to a listed Inbox updates
 the badge, whether it came from the reader, a notification action, the foreground
-poll, a push wake or a background refresh. On iPhone and iPad, asking for permission
-requests the badge with alerts and sounds. The Mac draws the count on its Dock tile, which
-needs no badge permission of its own, so a Mac that allowed notifications before the Dock
-badge existed shows it too; it still removes the badge while notifications are not allowed.
+poll, a push wake or a background refresh. Asking for permission requests the badge with
+alerts and sounds. The Mac draws the count on its Dock tile, which needs no badge permission
+of its own, so a Mac that allowed notifications before the Dock badge existed shows it too;
+it still removes the badge while notifications are not allowed.
 
 The badge is removed when the choice is **Off**, when notifications are not allowed,
 when no Inbox can open (after the last connection is removed or the person signs out)

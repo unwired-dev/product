@@ -247,6 +247,16 @@ no mailbox is listed. The window's capture is kept as an attachment and the
 accessibility audit runs on it. **Manage Profiles…** opens Settings ›
 Profiles. It sets Light; `testMailProfileWithoutMailboxesDark` runs it in Dark.
 
+`testDockBadge` uses the same build and sign-in
+([#2605](https://github.com/unwired-dev/product/issues/2605)). It chooses
+**Unread in Inbox** from Settings › Notifications' **Dock Badge** pop-up, allows the
+notification request from its banner's **Options** menu with the keyboard, since that
+menu is not in the accessibility tree, and waits for **Allowed**. The Settings capture is
+kept as an attachment. It chooses Light in Settings › Appearance first;
+`testDockBadgeDark` chooses Dark. The runner
+cannot read a Dock tile's badge, so check the count from the shell during the run: the
+Dock's `AXStatusLabel` on the run's `Mock` tile reads the scenario's unread Inbox count, 2.
+
 `testBlockSender` uses the same build and sign-in
 ([#2141](https://github.com/unwired-dev/product/issues/2141)). It opens Gmail
 update 001 and chooses **Block Sender…** from its sender's menu; the sheet asks
