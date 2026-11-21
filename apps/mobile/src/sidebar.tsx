@@ -209,6 +209,7 @@ const styles = StyleSheet.create({
   checkSlot: { width: 18, alignItems: 'center' },
   editIcon: { width: 20, alignItems: 'center' },
   compactSlot: { width: 26, alignItems: 'center' },
+  handle: { alignSelf: 'stretch', justifyContent: 'center' },
   label: { ...typography.ipadList.body, flex: 1 },
   compactLabel: { ...textStyles.body, flex: 1 },
   compactCount: { ...textStyles.subheadline },
@@ -725,7 +726,9 @@ function EditRow({
         onResponderTerminate={() => {
           onDrop(undefined, height.current);
         }}
-        style={slot}>
+        // The handle takes the row's height and 44pt of its width.
+        hitSlop={{ left: 13, right: 13 }}
+        style={[slot, styles.handle]}>
         <SFSymbol
           name="line.3.horizontal"
           color={colors.textSecondary}
@@ -1104,18 +1107,15 @@ export function Mailboxes({
     <View style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
       <RegisterCommands
         offer={() =>
+          // Edit Favorites while the iPad sidebar shows beside the list; iPhone's Mailboxes has its
+          // Edit button. The Inbox offers Go To each Unified Mailbox.
           sidebarCommands(t, {
-            // Edit Favorites while the iPad sidebar shows beside the list; iPhone's Mailboxes has
-            // its Edit button.
             favorites:
               !compact && account !== undefined && toggle?.shown === true
                 ? () => {
                     setEditing(true);
                   }
                 : undefined,
-            unified: (role) => {
-              onView({ unified: role });
-            },
           })
         }
       />

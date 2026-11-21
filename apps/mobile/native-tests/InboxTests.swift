@@ -4082,6 +4082,16 @@ final class InboxTests: XCTestCase {
     revealSwitcher(app, app.buttons["All Inboxes"])
     waitUntil { favorites() == edited }
     attachScreen("Edited Favorites after a relaunch", of: app, to: self)
+    // The iPad frames draw Edit mode in Landscape, whose sidebar is wider than Portrait's.
+    if ipad {
+      rotate(app, to: .landscapeLeft)
+      waitUntil { edit() != nil }
+      edit()?.tap()
+      XCTAssertTrue(done.waitForExistence(timeout: 10))
+      attachScreen("Edit Favorites in Landscape", of: app, to: self)
+      done.tap()
+      rotate(app, to: .portrait)
+    }
   }
 
   // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,

@@ -1204,7 +1204,8 @@ export function Inbox({
             bar={bar}
             searching={searching}
             onLeave={leave}
-            onSearch={ready ? searchState.open : undefined}>
+            onSearch={ready ? searchState.open : undefined}
+            onView={onView}>
             <SearchHeading search={searchState}>
               <HeadingTitle
                 bar={bar}

@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { inboxCommands } from '@private-email/mail-core/commands';
+import {
+  inboxCommands,
+  sidebarCommands,
+} from '@private-email/mail-core/commands';
 import { use } from 'react';
 import {
   Platform,
@@ -9,6 +12,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+
+import type { MailboxView } from './sidebar.tsx';
 
 import {
   CommandInput,
@@ -129,6 +134,7 @@ export function InboxHeading({
   searching,
   onLeave,
   onSearch,
+  onView,
 }: {
   // The title, or search's scope while searching.
   readonly children: ReactNode;
@@ -144,6 +150,8 @@ export function InboxHeading({
   readonly onLeave: () => Promise<boolean>;
   // Opens search; absent until the Inbox can search.
   readonly onSearch: (() => void) | undefined;
+  // Shows another mailbox in the list.
+  readonly onView: (view: MailboxView) => void;
 }) {
   const { t } = useLocalization();
   const sidebar = use(SidebarToggleContext);
@@ -182,6 +190,23 @@ export function InboxHeading({
                 : () => {
                     account.openAccount();
                   },
+          })
+        }
+      />
+      {/* Go To each Unified Mailbox, which stays reachable here when Favorites hides it; like
+        Search Mail, it first leaves a reader or composer that covers the list. */}
+      <RegisterCommands
+        offer={() =>
+          sidebarCommands(t, {
+            unified: async (role) => {
+              if (onClose !== undefined) {
+                if (detail && !(await onLeave())) {
+                  return;
+                }
+                onClose();
+              }
+              onView({ unified: role });
+            },
           })
         }
       />

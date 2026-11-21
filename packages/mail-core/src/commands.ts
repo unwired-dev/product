@@ -523,7 +523,7 @@ export const sidebarCommands = (
   t: Translate,
   handlers: Readonly<{
     favorites?: (() => void) | undefined;
-    unified: (role: UnifiedRole) => void;
+    unified?: ((role: UnifiedRole) => void | Promise<void>) | undefined;
   }>,
 ): readonly Command[] => [
   ...(handlers.favorites === undefined
@@ -536,16 +536,16 @@ export const sidebarCommands = (
           run: handlers.favorites,
         }),
       ]),
-  ...unifiedRoles.map((role) =>
-    command(t, {
-      id: mailboxCommands[role],
-      section: 'navigation',
-      title: unifiedRow(t, role).title,
-      run: () => {
-        handlers.unified(role);
-      },
-    }),
-  ),
+  ...(handlers.unified === undefined
+    ? []
+    : unifiedRoles.map((role) =>
+        command(t, {
+          id: mailboxCommands[role],
+          section: 'navigation',
+          title: unifiedRow(t, role).title,
+          run: () => handlers.unified?.(role),
+        }),
+      )),
 ];
 
 /**
