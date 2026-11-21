@@ -1539,7 +1539,8 @@ attachment descriptors.
   **This attachment didn’t download. Choose Try Again to download it.**, or the locked-storage
   message. **This attachment is no longer in Gmail.** has no **Try Again**.
 - **Attach.** A Downloaded Attachment also offers **Attach to New Message**, which
-  copies its bytes into a new Draft through the mailbox's current generation; see
+  copies its bytes into a new Draft through the mailbox's current generation, downloading
+  it again first when it was saved in an earlier generation; see
   [Drafts](drafts.md#files-and-images).
 - **Open and share.** A **Downloaded Attachment** offers **Open** and **Share**.
   **Open** shows the system **Attachment Preview** with Quick Look

@@ -29,7 +29,11 @@ export interface ComposerNavigation {
       // The reader's Mailbox Connection, which the Downloaded Attachment is read through.
       mailbox: string;
       mailboxes: readonly MailboxConnection[];
-      saved: Readonly<NonNullable<ReturnType<GmailInbox['attachmentFile']>>>;
+      // Resolves the Downloaded Attachment after leaving, so a later destination still wins.
+      saved: () => Promise<
+        | Readonly<NonNullable<ReturnType<GmailInbox['attachmentFile']>>>
+        | undefined
+      >;
     }>,
   ) => Promise<string | undefined>;
 }
@@ -122,23 +126,32 @@ export function createComposerNavigation(): ComposerNavigation {
       if (sender === undefined) {
         return undefined;
       }
+      let file: Awaited<ReturnType<typeof saved>> = undefined;
       return create(drafts, sender, {
-        prepare: (id) =>
-          drafts.attach(id, [
-            {
-              name: saved.name,
-              type: saved.type,
-              source: {
-                kind: 'received',
-                mailbox: {
-                  connection: mailbox,
-                  address: saved.address,
-                  generation: saved.generation,
+        before: async () => {
+          file = await saved();
+          return file !== undefined;
+        },
+        prepare: (id) => {
+          const chosen = file;
+          return chosen === undefined
+            ? Promise.resolve(false)
+            : drafts.attach(id, [
+                {
+                  name: chosen.name,
+                  type: chosen.type,
+                  source: {
+                    kind: 'received',
+                    mailbox: {
+                      connection: mailbox,
+                      address: chosen.address,
+                      generation: chosen.generation,
+                    },
+                    file: chosen.file,
+                  },
                 },
-                file: saved.file,
-              },
-            },
-          ]),
+              ]);
+        },
       });
     },
   };

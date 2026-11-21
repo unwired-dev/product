@@ -690,7 +690,9 @@ Deleting an importing inline image and then choosing **Undo** after import finis
 restores its verified bytes. An edit racing **Discard** keeps the conflict copy's
 files as well as its body. A picker result arriving after the composer closes or
 the Product Account changes is discarded. Repeated **Attach to New Message**
-presses start one operation; navigation chosen while its save waits stays selected.
+presses start one operation; navigation chosen while its save or the file's download
+waits stays selected. The file is downloaded again, when needed, only after the open
+composer is left.
 
 ## Continuing on another device
 
@@ -782,7 +784,9 @@ reopening, **Undo** and **Discard** work as for any Draft.
   the plain alternative or the sanitized HTML's readable text. Rich quote formatting,
   links and editing the correspondence are deferred.
 - **Forwarded files.** **Forward** first downloads every listed attachment, showing
-  **Preparing to forward…**, then attaches the copies as Draft Assets. A forward also
+  **Preparing to forward…**, then attaches the copies as Draft Assets. A Downloaded
+  Attachment saved before its mailbox's generation changed, as after each Mac
+  activation, is downloaded again. A forward also
   copies the message's resolved Inline Images into its quoted text. They import like other
   files and appear under **Inline images**. Their positions and repeated occurrences
   are kept; repeated occurrences use the same copied bytes. An attachment too large to download, or one

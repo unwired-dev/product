@@ -194,6 +194,11 @@ export function createAttachmentDownloads<S extends Scope, E>(
   };
   const descriptor = (id: string, locator: string) =>
     listed(id)?.find((attachment) => attachment.locator === locator);
+  // Whether a saved file belongs to the open mailbox generation; one saved before it changed is
+  // unreadable.
+  const savedIn = (saved: Readonly<{ scope: S }>, opened: S) =>
+    saved.scope.address === opened.address &&
+    saved.scope.generation === opened.generation;
 
   // Downloads one listed attachment into private temporary storage, resolving once it settles; a
   // request while it runs returns the same Promise. Cancelling, closing the message or a change of
@@ -211,10 +216,12 @@ export function createAttachmentDownloads<S extends Scope, E>(
       !readable(id) ||
       attachment === undefined ||
       attachment.size > attachmentLimit ||
-      current?.state.kind === 'downloaded'
+      (current?.saved !== undefined && savedIn(current.saved, opened))
     ) {
       return Promise.resolve();
     }
+    // A file saved before the mailbox generation changed is downloaded again.
+    discardSaved(current?.saved);
     const reading = owner();
     const abort = new AbortController();
     const live = () =>
@@ -328,10 +335,7 @@ export function createAttachmentDownloads<S extends Scope, E>(
           discardSaved(file);
         }
       });
-    if (
-      file.scope.address !== opened.address ||
-      file.scope.generation !== opened.generation
-    ) {
+    if (!savedIn(file, opened)) {
       return stale().pipe(Effect.as(undefined));
     }
     return Effect.tryPromise({
@@ -425,8 +429,7 @@ export function createAttachmentDownloads<S extends Scope, E>(
         attachment === undefined ||
         opened === undefined ||
         !readable(id) ||
-        saved.scope.address !== opened.address ||
-        saved.scope.generation !== opened.generation
+        !savedIn(saved, opened)
       ) {
         return undefined;
       }
