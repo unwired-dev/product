@@ -4076,15 +4076,22 @@ final class InboxTests: XCTestCase {
       keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", key)).firstMatch.tap()
     }
     waitUntil { subject.value as? String == "Venue for the offsite" }
+    // Read before the question opens: it is modal to accessibility, which hides the composer.
+    let closeFrame = app.buttons["Close"].frame
     swipeDown()
     let save = app.buttons["Save Draft"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     // The question opens over Close, as a system menu opens over its button.
-    XCTAssertTrue(app.buttons["Delete Draft"].frame.intersects(app.buttons["Close"].frame))
-    XCTAssertTrue(composer.exists)
-    XCTAssertEqual(subject.value as? String, "Venue for the offsite")
+    XCTAssertTrue(app.buttons["Delete Draft"].frame.intersects(closeFrame))
     XCTAssertFalse(app.textFields["Type a command"].exists)
     attachScreen("Composer sheet asks before closing", of: app, to: self)
+    // Keep Editing, outside the question, keeps the sheet and its text.
+    app.buttons["Keep Editing"].tap()
+    XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(composer.exists)
+    XCTAssertEqual(subject.value as? String, "Venue for the offsite")
+    swipeDown()
+    XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
     app.buttons["New Message"].tap()

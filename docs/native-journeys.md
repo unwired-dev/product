@@ -525,7 +525,8 @@ the appearance.
 New Message as the system page sheet over the Inbox, whose rows are out of reach while it is up
 ([#2610](https://github.com/unwired-dev/product/issues/2610)). The sheet turns to landscape and
 back with the device. Swiping the untouched sheet down closes it. With a Subject typed, the same swipe asks **Save Draft** over **Close** while the sheet and its text
-stay, and no Command Palette opens; **Save Draft** closes it. A third New Message to
+stay, and no Command Palette opens; **Keep Editing**, outside the question, keeps the text, and
+on the next swipe **Save Draft** closes it. A third New Message to
 `maya@example.invalid` keeps its fields above the keyboard and sends, and the Outbox then offers its **Undo**. The captures "Composer
 sheet", "Composer sheet asks before closing" and "Composer sheet with keyboard" are named with the
 appearance.
