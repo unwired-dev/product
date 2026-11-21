@@ -21,28 +21,37 @@ export function useAllMailboxes() {
 
 // The minute freshness and the list's dividers read by, so a day ends at midnight while it is open.
 const minute = 60_000;
-// One timer for every reader of the minute, so the list and an open reader change day together.
+// One clock for every reader of the minute, ticking on the minute, so the list and an open reader
+// always read the same minute and change day together.
 const minuteListeners = new Set<() => void>();
-let minuteTimer: ReturnType<typeof setInterval> | undefined = undefined;
-const subscribeMinute = (notify: () => void) => {
-  minuteListeners.add(notify);
-  minuteTimer ??= setInterval(() => {
+const currentMinute = () => Math.floor(Date.now() / minute) * minute;
+let shownMinute = currentMinute();
+let minuteTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+const tickMinute = () => {
+  shownMinute = currentMinute();
+  minuteTimer = setTimeout(() => {
+    tickMinute();
     for (const listener of minuteListeners) {
       listener();
     }
-  }, minute);
+  }, shownMinute + minute - Date.now());
+};
+const subscribeMinute = (notify: () => void) => {
+  minuteListeners.add(notify);
+  if (minuteTimer === undefined) {
+    tickMinute();
+  }
   return () => {
     minuteListeners.delete(notify);
     if (minuteListeners.size === 0) {
-      clearInterval(minuteTimer);
+      clearTimeout(minuteTimer);
       minuteTimer = undefined;
     }
   };
 };
 export const useNow = () =>
-  useSyncExternalStore(
-    subscribeMinute,
-    () => Math.floor(Date.now() / minute) * minute,
+  useSyncExternalStore(subscribeMinute, () =>
+    minuteTimer === undefined ? currentMinute() : shownMinute,
   );
 
 // How long ago a mailbox last synchronized; undefined before its first synchronization.

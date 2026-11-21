@@ -132,12 +132,16 @@ describe('message header dates', () => {
     );
   });
 
-  // Apple's formatter pads a 24-hour clock, as ICU does for the Hebrew calendar; the years
-  // 5786 and 5787 change in September.
+  // Apple's formatter pads a 24-hour clock, as ICU does for the Hebrew calendar and for Arabic in
+  // 24-hour time; the Hebrew years 5786 and 5787 change in September.
   it('writes the hour unpadded and names a year of the display calendar', () => {
     expect.hasAssertions();
     const hebrew = createMessageDateFormats('en-GB-u-ca-hebrew', 'UTC');
-    expect(hebrew.time.format(new Date('2026-10-13T07:12:00Z'))).toBe('7:12');
+    expect(
+      [hebrew, createMessageDateFormats('ar-SA-u-hc-h23', 'UTC')].map((each) =>
+        each.time.format(new Date('2026-10-13T07:12:00Z')),
+      ),
+    ).toStrictEqual(['7:12', '٧:١٢']);
     expect(
       hebrew.header(
         english,

@@ -14,29 +14,51 @@ export function createMessageDateFormat(locale: string) {
 }
 
 const dayLength = 86_400_000;
-const calendars = new Map<string, Intl.DateTimeFormat>();
+const calendars = new Map<
+  string,
+  {
+    format: Intl.DateTimeFormat;
+    dates: Map<number, { days: number; month: string }>;
+  }
+>();
 
 // The Gregorian calendar date `at` falls on in `timeZone`: its days since the epoch and its month.
+// Each zone keeps the dates it has read, so regrouping a loaded list every minute formats only new
+// arrivals.
 function calendarDate(at: number, timeZone: string) {
-  let format = calendars.get(timeZone);
-  if (format === undefined) {
-    format = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    });
-    calendars.set(timeZone, format);
+  let calendar = calendars.get(timeZone);
+  if (calendar === undefined) {
+    calendar = {
+      format: new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      }),
+      dates: new Map(),
+    };
+    calendars.set(timeZone, calendar);
+  }
+  const known = calendar.dates.get(at);
+  if (known !== undefined) {
+    return known;
   }
   const parts = new Map(
-    format.formatToParts(at).map(({ type, value }) => [type, Number(value)]),
+    calendar.format
+      .formatToParts(at)
+      .map(({ type, value }) => [type, Number(value)]),
   );
   const year = parts.get('year') ?? 0;
   const month = parts.get('month') ?? 1;
-  return {
+  const date = {
     days: Date.UTC(year, month - 1, parts.get('day') ?? 1) / dayLength,
     month: `${year}-${month}`,
   };
+  if (calendar.dates.size >= 20_000) {
+    calendar.dates.clear();
+  }
+  calendar.dates.set(at, date);
+  return date;
 }
 
 // The day group of a listed message, relative to `now`: the list's date dividers, the row's time
@@ -72,13 +94,16 @@ export function createMessageDateFormats(locale: string, timeZone: string) {
     new Intl.DateTimeFormat(locale, { ...options, timeZone });
   const clock = format({ hour: 'numeric', minute: '2-digit' });
   // An unpadded hour, as `hour: 'numeric'` asks: Apple's formatter, which Hermes uses there, writes
-  // 07:12 in 24-hour locales.
+  // 07:12 in 24-hour locales, in the locale's own digits.
+  const zero = new Intl.NumberFormat(locale).format(0);
   const time = {
     format: (at: Date | number) =>
       clock
         .formatToParts(at)
         .map(({ type, value }) =>
-          type === 'hour' ? value.replace(/^0(?=\d)/u, '') : value,
+          type === 'hour' && value.length > zero.length && value.startsWith(zero)
+            ? value.slice(zero.length)
+            : value,
         )
         .join(''),
   };
