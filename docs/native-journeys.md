@@ -258,8 +258,9 @@ attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 `testSendNow` uses the same build and sign-in
 ([#2594](https://github.com/unwired-dev/product/issues/2594)). It writes a New
 Message to `jordan@example.invalid`, opens Send's menu with a right click and
-chooses **Send Now**. The composer closes and the sidebar's **Outbox** leaves
-within 8 seconds, before a plain Send's 10-second Undo Send Window would end. The menu and the window after Send Now are kept as attachments. It sets
+chooses **Send Now**. Within 8 seconds of the click, before a plain Send's
+10-second Undo Send Window would end, the composer closes and the sidebar's
+**Outbox** leaves. The menu and the window after Send Now are kept as attachments. It sets
 Light; `testSendNowDark` runs it in Dark. The dimmed state while a file is still
 being added is covered by Jest.
 

@@ -196,11 +196,13 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(item.isEnabled)
     // The menu's own element has an empty frame, so the screen is captured.
     attach(XCUIScreen.main.screenshot(), "Send menu with Send Now")
+    // Send keeps the sidebar's Outbox for its 10-second Undo Send Window; within 8 seconds of the
+    // click, Send Now's composer closes and its delivered message leaves the Outbox.
+    let deadline = Date().addingTimeInterval(8)
     item.click()
-    XCTAssertTrue(subject.waitForNonExistence(timeout: 15))
-    // Send keeps the sidebar's Outbox for its 10-second Undo Send Window; Send Now's message leaves
-    // it once delivered.
-    XCTAssertTrue(window.buttons["Outbox"].waitForNonExistence(timeout: 8))
+    XCTAssertTrue(subject.waitForNonExistence(timeout: deadline.timeIntervalSinceNow))
+    XCTAssertTrue(
+      window.buttons["Outbox"].waitForNonExistence(timeout: max(0, deadline.timeIntervalSinceNow)))
     attach(window.screenshot(), "After Send Now")
   }
 
