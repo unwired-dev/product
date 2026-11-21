@@ -1130,6 +1130,41 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   checks. **Share**, Save to Downloads ([#1681](https://github.com/unwired-dev/product/issues/1681)),
   inline images, attachments over the 25 MiB download limit, the star, IDLE and
   relaunch, offline queueing, recovery and large-folder backfill stay on #632.
+- **2026-11-21, Mac IDLE freshness and relaunch
+  ([#2620](https://github.com/unwired-dev/product/issues/2620)).** Target, toolchain and
+  operator as in the Mac connect record. Build: the app source of
+  `9dd8ef3f828424802b9d487d43e385e0cb80df46`. Google Product Sign-In found the
+  certification Product Account, the Mac was unlocked with its Recovery Key, and both
+  certification mailboxes were connected through the app as in the Mac connect record.
+  Test messages were submitted between the two mailboxes over SMTP from outside the app,
+  and each arrival time was read on the server as the message's IMAP `INTERNALDATE`.
+  Result: pass. With the app active on All Inboxes, three messages submitted to iCloud
+  Mail, which offers IDLE, appeared in the list without **View › Refresh**, 16, 6 and 6
+  seconds after they arrived on `imap.mail.me.com` 993 (TLS). A message submitted to
+  Seznam Email, which does not offer IDLE, appeared 3 minutes 4 seconds after it arrived
+  on `imap.seznam.cz` 993 (TLS), with no interaction, as the five-minute poll allows.
+  Another was still not listed 32 seconds after its arrival and was first seen 10
+  seconds after **View › Refresh**. The app was then quit, and a message was submitted to
+  each mailbox while it was not running. After launch, one Inbox window opened, both
+  connections opened without asking for a password, and the Inbox listed the earlier run
+  messages; the new iCloud Mail message was listed 12 seconds after launch and the new
+  Seznam Email message by 17 seconds, at the first check for it. A message submitted to
+  iCloud Mail after the relaunch appeared 9 seconds after it arrived, consistent with a
+  resumed IDLE wait. Email Accounts then listed both mailboxes as connected. Afterwards
+  no run message remained in any folder of either mailbox, **Sign Out of This Device**
+  returned the app to Welcome, and the run's caches and HTTP storage were removed from
+  the app's container. Limitations: the operator drove the app through the macOS
+  accessibility interface and synthesized keyboard and mouse input, and checked the list
+  every 3 to 4 seconds while waiting for a message, so those delays include up to that
+  much. A first **Sign in with
+  Google** pressed through accessibility while the app was not the active application
+  failed with "Setup could not finish"; pressed again with the app active, it showed the
+  system prompt. The Keychain records were not inspected directly. In Email Accounts, the
+  second mailbox's **Enter the Password…** and **Remove…** buttons carried the first
+  mailbox's address in their accessibility labels
+  ([#2621](https://github.com/unwired-dev/product/issues/2621)). Background refresh and
+  push wakes, IDLE interruption, password and connection recovery, offline queueing and
+  large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
