@@ -4015,6 +4015,7 @@ final class InboxTests: XCTestCase {
   // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
   // the sheet stays. Save Draft then closes it, and Send sends from it.
   func testComposerSheet() throws {
+    try XCTSkipIf(UIDevice.current.userInterfaceIdiom != .phone, "The sheet is iPhone's")
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
@@ -4038,6 +4039,11 @@ final class InboxTests: XCTestCase {
     XCTAssertGreaterThan(composer.frame.minY, 0)
     XCTAssertFalse(row.isHittable)
     attachScreen("Composer sheet", of: app, to: self)
+    // The sheet turns with the device.
+    XCUIDevice.shared.orientation = .landscapeLeft
+    waitUntil { composer.frame.width > composer.frame.height }
+    XCUIDevice.shared.orientation = .portrait
+    waitUntil { composer.frame.width < composer.frame.height }
     swipeDown()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
     XCTAssertTrue(row.isHittable)
@@ -4066,7 +4072,8 @@ final class InboxTests: XCTestCase {
     attachScreen("Composer sheet with keyboard", of: app, to: self)
     app.buttons["Send"].tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 15))
-    // Send admitted the message: its Undo Send window is open.
+    // Send admitted the message: the Outbox offers its Undo inside the Undo Send Window.
+    openOutbox(app)
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15))
   }
 

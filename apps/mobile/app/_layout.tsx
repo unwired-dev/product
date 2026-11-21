@@ -276,6 +276,13 @@ function ComposerSheet({
       visible={draft !== undefined}
       presentationStyle="pageSheet"
       animationType="slide"
+      // Without this the Modal holds iPhone in portrait; the app turns with the device.
+      supportedOrientations={[
+        'portrait',
+        'portrait-upside-down',
+        'landscape-left',
+        'landscape-right',
+      ]}
       onRequestClose={onLeave}
       onDismiss={() => {
         setShown(draft);

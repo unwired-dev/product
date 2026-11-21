@@ -106,7 +106,7 @@ results never appear in the palette. The vocabulary lives in the
   the Mailboxes title, the reader's subject line or the
   Account page's title,
   which stay put while the content scrolls) opens the palette; swipes that start in the content scroll
-  it as usual. The composer is a system sheet whose downward swipe closes it, so it offers no
+  it as usual. The composer is a system sheet whose downward swipe asks to close it, so it offers no
   palette, as the app's other sheets do not
   ([#2610](https://github.com/unwired-dev/product/issues/2610)). There is no visible entry button. Settings pages pushed over the list
   show the system navigation bar's title, which takes no swipe; their Back returns to
