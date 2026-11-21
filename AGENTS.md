@@ -43,7 +43,10 @@ skill.
 [Unwired Mail — Design](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T)
 Figma file define how the maintained clients look and behave.
 
-- For design work, load the `impeccable` and `apple-design` skills.
+- For design work, load the `apple-design` skill. New visual design, in Figma
+  or in code, also loads
+  [`frontend-design`](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/frontend-design/skills/frontend-design/SKILL.md),
+  within DESIGN.md's direction.
 - Before changing UI, read DESIGN.md and inspect the matching Light and Dark
   frames through the Figma MCP server. Each platform has a group of pages
   (`macOS · …`, `iPadOS · …` and `iOS · …`): one per product area, from
