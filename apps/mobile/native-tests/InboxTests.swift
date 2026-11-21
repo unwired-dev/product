@@ -4054,6 +4054,8 @@ final class InboxTests: XCTestCase {
     swipeDown()
     let save = app.buttons["Save Draft"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
+    // The system action sheet grows out of Close, at the top, rather than rising from the bottom.
+    XCTAssertLessThan(save.frame.minY, app.frame.midY)
     XCTAssertTrue(composer.exists)
     XCTAssertEqual(subject.value as? String, "Venue for the offsite")
     XCTAssertFalse(app.textFields["Type a command"].exists)

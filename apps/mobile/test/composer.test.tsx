@@ -2377,7 +2377,7 @@ describe('composing Drafts', () => {
     await press('Close');
     expect(screen.queryByLabelText('Subject')).toBeNull();
     expect(subjects()).toStrictEqual([]);
-    // Edits store nothing; Close asks, and Close again dismisses the question keeping them.
+    // Edits store nothing; Close asks, and Cancel dismisses the question keeping them.
     await press('New Message');
     await fireEvent.changeText(screen.getByLabelText('Subject'), 'Asked');
     expect(subjects()).toStrictEqual(['']);
@@ -2388,7 +2388,7 @@ describe('composing Drafts', () => {
     expect(
       screen.getByRole('button', { name: 'Save Draft' }),
     ).toBeOnTheScreen();
-    await press('Close');
+    await press('Cancel');
     expect(screen.queryByRole('button', { name: 'Save Draft' })).toBeNull();
     expect(screen.getByLabelText('Subject')).toHaveProp('value', 'Asked');
     expect(subjects()).toStrictEqual(['']);

@@ -28,3 +28,23 @@ TurboModuleRegistry.getEnforcing = (name) => {
 jest.mock('react-native-keyboard-controller', () =>
   require('react-native-keyboard-controller/jest'),
 );
+
+// `UnwiredCloseQuestion` shows its system action sheet's answers as buttons while open; other
+// native components keep the React Native preset's mock.
+jest.mock('react-native/Libraries/ReactNative/requireNativeComponent', () => {
+  const requireNativeComponent = jest.requireActual(
+    require.resolve(
+      '@react-native/jest-preset/jest/mocks/requireNativeComponent',
+      {
+        paths: [require.resolve('jest-expo/package.json')],
+      },
+    ),
+  ).default;
+  return {
+    __esModule: true,
+    default: (name) =>
+      name === 'UnwiredCloseQuestion'
+        ? require('./close-question.tsx').NativeCloseQuestion
+        : requireNativeComponent(name),
+  };
+});

@@ -1205,6 +1205,97 @@ RCT_EXPORT_VIEW_PROPERTY(onPreview, RCTDirectEventBlock)
 - (UnwiredPlatformView *)view { return [UnwiredContextMenuView new]; }
 @end
 
+#if !TARGET_OS_OSX
+// The composer's Close asks Delete Draft or Save Draft in the system action sheet, which grows out
+// of Close. Opening it from state lets the iPhone sheet's downward swipe ask the same question.
+@interface UnwiredCloseQuestionView : RCTView
+@property (nonatomic, assign) BOOL open;
+@property (nonatomic, copy) NSString *deleteLabel;
+@property (nonatomic, copy) NSString *saveLabel;
+@property (nonatomic, copy) NSString *cancelLabel;
+@property (nonatomic, copy) RCTDirectEventBlock onAnswer;
+@end
+
+@implementation UnwiredCloseQuestionView {
+  UIAlertController *_question;
+}
+- (void)setOpen:(BOOL)open
+{
+  _open = open;
+  // Props arrive before the view is laid out; ask once it has its frame.
+  dispatch_async(dispatch_get_main_queue(), ^{ [self update]; });
+}
+
+- (void)didMoveToWindow
+{
+  [super didMoveToWindow];
+  [self update];
+}
+
+- (void)update
+{
+  if (_open && _question == nil && self.window != nil) {
+    [self ask];
+  } else if ((!_open || self.window == nil) && _question != nil) {
+    UIAlertController *question = _question;
+    _question = nil;
+    [question.presentingViewController dismissViewControllerAnimated:YES completion:nil];
+  }
+}
+
+- (void)ask
+{
+  UIAlertController *question =
+      [UIAlertController alertControllerWithTitle:nil
+                                          message:nil
+                                   preferredStyle:UIAlertControllerStyleActionSheet];
+  __weak UnwiredCloseQuestionView *weakSelf = self;
+  void (^answer)(NSString *) = ^(NSString *choice) {
+    UnwiredCloseQuestionView *view = weakSelf;
+    if (view == nil || view->_question != question) return;
+    view->_question = nil;
+    if (view.onAnswer) view.onAnswer(@{@"answer" : choice});
+  };
+  [question addAction:[UIAlertAction actionWithTitle:_deleteLabel
+                                               style:UIAlertActionStyleDestructive
+                                             handler:^(UIAlertAction *action) { answer(@"delete"); }]];
+  [question addAction:[UIAlertAction actionWithTitle:_saveLabel
+                                               style:UIAlertActionStyleDefault
+                                             handler:^(UIAlertAction *action) { answer(@"save"); }]];
+  // A tap outside the sheet answers Cancel.
+  [question addAction:[UIAlertAction actionWithTitle:_cancelLabel
+                                               style:UIAlertActionStyleCancel
+                                             handler:^(UIAlertAction *action) { answer(@"cancel"); }]];
+  question.popoverPresentationController.sourceView = self;
+  question.popoverPresentationController.sourceRect = self.bounds;
+  UIResponder *responder = self;
+  while (responder != nil && ![responder isKindOfClass:[UIViewController class]]) {
+    responder = responder.nextResponder;
+  }
+  UIViewController *presenter = (UIViewController *)responder;
+  while (presenter.presentedViewController != nil && !presenter.presentedViewController.isBeingDismissed) {
+    presenter = presenter.presentedViewController;
+  }
+  if (presenter == nil) return;
+  _question = question;
+  [presenter presentViewController:question animated:YES completion:nil];
+}
+@end
+
+@interface UnwiredCloseQuestionManager : RCTViewManager
+@end
+
+@implementation UnwiredCloseQuestionManager
+RCT_EXPORT_MODULE(UnwiredCloseQuestion)
+RCT_EXPORT_VIEW_PROPERTY(open, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(deleteLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(saveLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(cancelLabel, NSString)
+RCT_EXPORT_VIEW_PROPERTY(onAnswer, RCTDirectEventBlock)
+- (UIView *)view { return [UnwiredCloseQuestionView new]; }
+@end
+#endif
+
 #if TARGET_OS_OSX
 // Answers one pop-up menu with its chosen item's id, or null when nothing was chosen.
 @interface UnwiredMenuChoice : NSObject

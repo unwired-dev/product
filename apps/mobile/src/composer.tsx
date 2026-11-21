@@ -38,11 +38,13 @@ import type { SendReminder } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
 import type { ComponentProps, ReactNode } from 'react';
 import type {
+  NativeSyntheticEvent,
   StyleProp,
   ScrollViewInstance,
   TextInputInstance,
   TextStyle,
   ViewInstance,
+  ViewProps,
   ViewStyle,
 } from 'react-native';
 
@@ -143,6 +145,7 @@ import {
   Image,
   Keyboard,
   Pressable,
+  requireNativeComponent,
   ScrollView,
   StyleSheet,
   Text,
@@ -346,22 +349,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 22,
   },
-  closeQuestion: {
-    position: 'absolute',
-    zIndex: 4,
-    top: 56,
-    left: spacing.l,
-    width: 220,
-  },
-  closeQuestionPanel: { padding: spacing.m, gap: spacing.s },
-  closeChoice: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.l,
-    borderRadius: 24,
-  },
-  closeChoiceText: { ...textStyles.body },
   fromRow: { zIndex: 2, paddingHorizontal: inset, paddingBottom: spacing.xs },
   alerts: {
     gap: spacing.s,
@@ -2242,20 +2229,42 @@ export function CapturedAssistance({
   );
 }
 
-// The header's Close: a glass circle with the native glass press; disabled dims its symbol.
+// Delete Draft and Save Draft, which Close asks in the system action sheet growing out of it.
+export interface CloseAnswers {
+  readonly onDelete: () => void;
+  readonly onSave: () => void;
+  readonly onCancel: () => void;
+}
+
+const NativeCloseQuestion = requireNativeComponent<
+  ViewProps & {
+    readonly open: boolean;
+    readonly deleteLabel: string;
+    readonly saveLabel: string;
+    readonly cancelLabel: string;
+    readonly onAnswer: (
+      event: NativeSyntheticEvent<{ answer: 'delete' | 'save' | 'cancel' }>,
+    ) => void;
+  }
+>('UnwiredCloseQuestion');
+
+// The header's Close: a glass circle with the native glass press; disabled dims its symbol. With
+// `answers`, `expanded` opens its question.
 export function CloseButton({
   disabled = false,
   expanded,
+  answers,
   onPress,
 }: {
   readonly disabled?: boolean;
   // Close reports whether its save question is open.
   readonly expanded?: boolean;
+  readonly answers?: CloseAnswers;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  return (
+  const button = (
     <Glass
       cornerRadius={22}
       interactive
@@ -2277,60 +2286,25 @@ export function CloseButton({
       </Pressable>
     </Glass>
   );
-}
-
-// Delete Draft and Save Draft grow out of the header's Close.
-export function CloseQuestion({
-  open,
-  onDelete,
-  onSave,
-}: {
-  readonly open: boolean;
-  readonly onDelete: () => void;
-  readonly onSave: () => void;
-}) {
-  const { t } = useLocalization();
-  const colors = usePalette();
-  const choice = (label: string, destructive: boolean, onPress: () => void) => (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.closeChoice,
-        {
-          // The selection tint lowers destructive text below AA contrast.
-          backgroundColor:
-            pressed && !destructive
-              ? colors.accentSelectionSubtle
-              : colors.fillQuiet,
-        },
-      ]}>
-      <Text
-        style={[
-          styles.closeChoiceText,
-          {
-            color: destructive ? colors.statusDestructive : colors.textPrimary,
-          },
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
+  if (answers === undefined) {
+    return button;
+  }
   return (
-    <View
-      accessibilityRole="menu"
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'box-none' : 'none'}
-      style={styles.closeQuestion}>
-      <GlassPanel
-        cornerRadius={radius.closeQuestion}
-        open={open}
-        origin="top left"
-        style={styles.closeQuestionPanel}>
-        {choice(t('drafts.deleteDraft'), true, onDelete)}
-        {choice(t('drafts.saveDraft'), false, onSave)}
-      </GlassPanel>
-    </View>
+    <NativeCloseQuestion
+      open={expanded === true}
+      deleteLabel={t('drafts.deleteDraft')}
+      saveLabel={t('drafts.saveDraft')}
+      cancelLabel={t('common.cancel')}
+      onAnswer={({ nativeEvent }) => {
+        const answer = {
+          delete: answers.onDelete,
+          save: answers.onSave,
+          cancel: answers.onCancel,
+        }[nativeEvent.answer];
+        answer();
+      }}>
+      {button}
+    </NativeCloseQuestion>
   );
 }
 
@@ -4904,12 +4878,19 @@ function Editor({
           <CloseButton
             disabled={closing === 'saving'}
             expanded={asking}
-            onPress={() => {
-              if (asking) {
+            answers={{
+              onDelete: () => {
+                void discard();
+              },
+              onSave: () => {
+                void saveDraft();
+              },
+              onCancel: () => {
                 setAsking(false);
-              } else {
-                void close();
-              }
+              },
+            }}
+            onPress={() => {
+              void close();
             }}
           />
           <Text
@@ -4935,15 +4916,6 @@ function Editor({
             send={sendControl}
           />
         </View>
-        <CloseQuestion
-          open={asking}
-          onDelete={() => {
-            void discard();
-          }}
-          onSave={() => {
-            void saveDraft();
-          }}
-        />
         {senderPlace.row}
         {regular ? formatBar : null}
         <View

@@ -54,7 +54,6 @@ import type { Open, PageState } from './evaluation-composer-controls.tsx';
 import { FormatPanel, useLinkEditor } from './composer-controls.tsx';
 import {
   CapturedAssistance,
-  CloseQuestion,
   Composer,
   ComposerLayoutContext,
   ComposerNotices,
@@ -627,24 +626,22 @@ function EvaluationEditor({
             }
             expanded={expanded}
             onExpand={onExpand}
-            onClose={() => {
-              if (open === 'close') {
+            closeAnswers={{
+              onDelete: () => {
+                void deleteDraft();
+              },
+              onSave: () => {
+                void saveDraft();
+              },
+              onCancel: () => {
                 setOpen(undefined);
-              } else {
-                void close();
-              }
+              },
+            }}
+            onClose={() => {
+              void close();
             }}
             onSend={() => {
               void send();
-            }}
-          />
-          <CloseQuestion
-            open={open === 'close'}
-            onDelete={() => {
-              void deleteDraft();
-            }}
-            onSave={() => {
-              void saveDraft();
             }}
           />
           {retained.pad === undefined ? null : (
