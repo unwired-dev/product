@@ -58,14 +58,16 @@ import {
 import {
   acceptRecipient,
   addBodyRecipient,
-  assetsOf,
+  addingAsset,
   addRecipients,
+  assetStates,
   bodyRecipientQuery,
   bodyRecipientSuggestions,
   draftOf,
   entryOf,
   greetingName,
   isEmptyDraft,
+  leftOutQuestion,
   onlyQueryIn,
   recipientLabel,
   draftSummary,
@@ -2078,11 +2080,6 @@ const blockedMessage = (
 // composer says it. To, Cc and Bcc say why Send waits for them, and From's notice why the sender
 // cannot send, and the notices the rest; a docked reply asks for a recipient on one line above
 // Send instead of under To.
-// A file still being added, of those `running` now.
-const addingOf = (draft: Draft, running: ReadonlySet<string>) =>
-  unsendableAssets(draft).find(
-    ({ state, id }) => state === 'importing' && running.has(id),
-  );
 // Send Now as Send's menu offers it: unavailable while Send is, naming a file still being added.
 const sendNowOf = (
   blocked: SendRefusal | undefined,
@@ -2093,72 +2090,26 @@ const sendNowOf = (
   waiting: adding?.name,
 });
 
-// Each file once, though an Inline Image can appear more than once.
-const distinct = (assets: readonly Asset[]) => [
-  ...new Map(assets.map((asset) => [asset.id, asset])).values(),
-];
-// The files Send leaves out once asked: every one that was not added, though not one still being
-// added.
-const leftOutOf = (draft: Draft, running: ReadonlySet<string>) =>
-  distinct(
-    unsendableAssets(draft).filter(
-      ({ state, id }) => state !== 'importing' || !running.has(id),
-    ),
-  );
-
-// Why a file was not added, as the alert names it.
-const leftOutReason = (asset: Asset) => {
-  if (asset.state === 'importing') {
-    return 'interrupted';
-  }
-  if (asset.state === 'cancelled') {
-    return 'cancelled';
-  }
-  return asset.state === 'failed' && 'reason' in asset
-    ? 'tooLarge'
-    : 'notAdded';
-};
-// Each file and its state, to tell whether the Draft's files changed.
-const filesOf = (draft: Draft) =>
-  distinct(assetsOf(draft))
-    .map(({ id, state }) => `${id}:${state}`)
-    .join(',');
-
-// Asks whether to send without the files that were not added, naming each and why; resolves
-// whether the person chose Send Without Them.
+// Asks Send's question about files that were not added; resolves whether the person chose Send
+// Without Them.
 const askLeftOut = (
-  t: Translate,
-  leftOut: readonly Asset[],
-  others: number,
-) => {
-  const reasons = leftOut.map((asset) =>
-    t(`drafts.leftOut.${leftOutReason(asset)}`, { name: asset.name }),
-  );
-  const last = reasons.pop() ?? '';
-  const files =
-    reasons.length === 0
-      ? last
-      : t('drafts.leftOut.list', { items: reasons.join(', '), last });
-  const detail = `${files}. ${
-    others === 0
-      ? t('drafts.leftOut.none')
-      : t('drafts.leftOut.others', { count: others })
-  }`;
+  question: NonNullable<ReturnType<typeof leftOutQuestion>>,
+) =>
   // oxlint-disable-next-line promise/avoid-new -- The alert answers through its button callbacks.
-  return new Promise<boolean>((resolve) => {
+  new Promise<boolean>((resolve) => {
     SystemAlert.alert(
-      t('drafts.leftOut.title', { count: leftOut.length }),
-      detail,
+      question.title,
+      question.detail,
       [
         {
-          text: t('drafts.leftOut.send', { count: leftOut.length }),
+          text: question.send,
           isPreferred: true,
           onPress: () => {
             resolve(true);
           },
         },
         {
-          text: t('drafts.leftOut.keepEditing'),
+          text: question.keepEditing,
           style: 'cancel',
           onPress: () => {
             resolve(false);
@@ -2172,7 +2123,6 @@ const askLeftOut = (
       },
     );
   });
-};
 
 function useBlockedSend({
   shown,
@@ -2197,7 +2147,7 @@ function useBlockedSend({
   // Files that were not added leave Send available, which asks to send without them; one still
   // being added keeps it unavailable.
   const blocked =
-    refusal === 'assets' && addingOf(finished, running) === undefined
+    refusal === 'assets' && addingAsset(finished, running) === undefined
       ? undefined
       : refusal;
   if (blocked === undefined) {
@@ -4620,21 +4570,20 @@ function Editor({
       return;
     }
     const latest = authored.current;
-    const leftOut = leftOutOf(latest, running);
-    if (leftOut.length > 0) {
-      const files = filesOf(latest);
-      const others = distinct(assetsOf(latest)).length - leftOut.length;
+    const question = leftOutQuestion(t, latest, running);
+    if (question !== undefined) {
+      const files = assetStates(latest);
       askingLeftOut.current = true;
-      const agreed = await askLeftOut(t, leftOut, others);
+      const agreed = await askLeftOut(question);
       askingLeftOut.current = false;
       if (
         !agreed ||
         !lifetime.current.mounted ||
-        filesOf(authored.current) !== files
+        assetStates(authored.current) !== files
       ) {
         return;
       }
-      removeAssets(leftOut.map(({ id }) => id));
+      removeAssets(question.ids);
     }
     await send(delay);
   };
@@ -4671,7 +4620,7 @@ function Editor({
       sendNow={sendNowOf(
         blocked.blocked,
         closing === 'saving',
-        addingOf(draft, running),
+        addingAsset(draft, running),
       )}
       onSendNow={() => {
         void sendAsking(0);
