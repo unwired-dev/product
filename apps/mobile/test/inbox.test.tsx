@@ -1013,8 +1013,11 @@ async function renderConnected(
     windowBar,
     pinsFor,
     toolbar = false,
+    covered = false,
   }: Readonly<{
     windowBar?: ReturnType<typeof createWindowBar>;
+    // The composer, expanded to the regular-width window, covers the list.
+    covered?: boolean;
     // iPhone's system toolbar in place of the floating bar.
     toolbar?: boolean;
     // Pin storage for the registered Product Account, instead of the host's.
@@ -1078,6 +1081,7 @@ async function renderConnected(
               onView={setView}
               selected={selected}
               view={view}
+              covered={covered}
               {...(toolbar ? { bar: true, onCompose: () => undefined } : {})}
             />
             <MessageDetail
@@ -3923,6 +3927,36 @@ describe('command palette', () => {
       );
     });
     expect(screen.getByText('oliver@example.invalid')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Sent. In All Mailboxes' }),
+    ).toBeSelected();
+  });
+
+  it('leaves the reader when Go To shows a Unified Mailbox behind the expanded composer', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    await renderConnected(gmail.native, 'gmail', {
+      windowBar: createWindowBar(),
+      covered: true,
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Sent' }),
+      );
+    });
+    expect(screen.queryByText('oliver@example.invalid')).toBeNull();
     expect(
       screen.getByRole('button', { name: 'Sent. In All Mailboxes' }),
     ).toBeSelected();

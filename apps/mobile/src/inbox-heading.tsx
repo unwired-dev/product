@@ -136,6 +136,7 @@ export function InboxHeading({
   onLeave,
   onSearch,
   onView,
+  covered,
 }: {
   // The title, or search's scope while searching.
   readonly children: ReactNode;
@@ -153,6 +154,8 @@ export function InboxHeading({
   readonly onSearch: (() => void) | undefined;
   // Shows another mailbox in the list.
   readonly onView: (view: MailboxView) => void;
+  // Whether the composer, expanded to the regular-width window, covers the list.
+  readonly covered: boolean | undefined;
 }) {
   const { t } = useLocalization();
   const sidebar = use(SidebarToggleContext);
@@ -203,7 +206,7 @@ export function InboxHeading({
         offer={() =>
           sidebarCommands(t, {
             unified: async (role) => {
-              if (!regular && onClose !== undefined) {
+              if ((!regular || covered === true) && onClose !== undefined) {
                 if (detail && !(await onLeave())) {
                   return;
                 }

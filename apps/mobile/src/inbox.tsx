@@ -165,6 +165,8 @@ interface InboxProps {
   // Each new value ends a search and scrolls to the top of the Outbox, as when View in Outbox shows
   // it.
   readonly outboxShown?: object | undefined;
+  // Whether the composer, expanded to the regular-width window, covers the list.
+  readonly covered?: boolean;
 }
 
 const allInboxes: MailboxView = {};
@@ -817,6 +819,7 @@ export function Inbox({
   view = allInboxes,
   onView = keepView,
   outboxShown,
+  covered,
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
@@ -1205,7 +1208,8 @@ export function Inbox({
             searching={searching}
             onLeave={leave}
             onSearch={ready ? searchState.open : undefined}
-            onView={onView}>
+            onView={onView}
+            covered={covered}>
             <SearchHeading search={searchState}>
               <HeadingTitle
                 bar={bar}
