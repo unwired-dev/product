@@ -18,16 +18,23 @@ jest.mock(
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- Native preference boundary.
 jest.mock('../src/language-storage.ts', () => ({
   languageStorage: {
-    initial: { preference: 'en', language: 'en', locale: 'en' },
+    initial: {
+      preference: 'en',
+      language: 'en',
+      locale: 'en',
+      timeZone: 'UTC',
+    },
     getSettings: async () => ({
       preference: null,
       language: 'fr',
       locale: 'fr-CA',
+      timeZone: 'UTC',
     }),
     setLanguage: async (preference: string | null) => ({
       preference,
       language: preference ?? 'fr',
       locale: preference ?? 'fr-CA',
+      timeZone: 'UTC',
     }),
     subscribe: jest.fn(),
   },

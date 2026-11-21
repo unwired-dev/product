@@ -2799,11 +2799,12 @@ describe('mac windows over a connected Gmail mailbox', () => {
       });
       expect(copy).toHaveBeenCalledWith('oliver@example.invalid');
       const message = contextMenuOf(sender);
-      const received = within(message).getByLabelText(/UTC$/u);
+      // VoiceOver reads the full date; the header shows the short one.
+      const received = within(message).getByLabelText(/\d{4} at \d/u);
       // Selectable native date text consumes secondary clicks before the message menu.
       expect({
         selectableDate:
-          within(received).getByText(/UTC$/u).props.selectable === true,
+          within(received).getByText(/\d:\d\d/u).props.selectable === true,
       }).toStrictEqual({ selectableDate: false });
       expect(menuSections(message)).toStrictEqual([
         ['Mark as Unread', 'Pin'],
@@ -2818,6 +2819,66 @@ describe('mac windows over a connected Gmail mailbox', () => {
     } finally {
       await app.unmount();
       copy.mockRestore();
+    }
+  });
+
+  it('moves an open message to Yesterday in its row and its header on the same midnight tick', async () => {
+    expect.hasAssertions();
+    jest.useFakeTimers({
+      now: Date.parse('2026-10-13T23:59:30Z'),
+      advanceTimers: true,
+    });
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+      at: Date.parse('2026-10-13T08:12:00Z'),
+    });
+    const { registration } = await connectedRegistration();
+    showMailboxes(
+      createMailboxes(
+        syntheticConnections({ [alex]: { native: gmail.native } }),
+        registration,
+      ),
+    );
+    const app = await render(
+      <RegistrationGate
+        store={started(registration)}
+        preview={false}>
+        <InboxWindow windowId="first" />
+      </RegistrationGate>,
+    );
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await window.findByRole('button', { name: oliver }),
+      );
+      // Opening the message marks it read, which renames its row.
+      const day = () => ({
+        divider: window.queryByRole('header', { name: 'Yesterday' }) !== null,
+        row: ['8:12 AM', 'Yesterday'].find(
+          (label) =>
+            within(
+              window.getByRole('button', { name: /Oliver Park\. Saturday/u }),
+            ).queryByText(label) !== null,
+        ),
+        header: window.queryByText('Yesterday, 8:12 AM') !== null,
+      });
+      await window.findByText('Today, 8:12 AM');
+      expect(day()).toStrictEqual({
+        divider: false,
+        row: '8:12 AM',
+        header: false,
+      });
+      await act(() => jest.advanceTimersByTimeAsync(30_000));
+      expect(day()).toStrictEqual({
+        divider: true,
+        row: 'Yesterday',
+        header: true,
+      });
+    } finally {
+      await app.unmount();
+      jest.useRealTimers();
     }
   });
 

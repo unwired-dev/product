@@ -2,7 +2,6 @@ import type { Message } from '@private-email/mail-core';
 import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 
-import { messageDay } from '@private-email/localization';
 import { rowContextMenu } from '@private-email/mail-core/context-menu';
 import { useState } from 'react';
 import {
@@ -16,11 +15,7 @@ import {
 import { ContextMenu, SFSymbol } from './design.tsx';
 import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
-import {
-  useLocalization,
-  useMessageDateFormat,
-  useMessageListDateFormats,
-} from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { useProfile } from './mailbox.tsx';
 import { usePreviewLines } from './preview-lines.tsx';
 import { usePalette } from './theme.ts';
@@ -214,19 +209,7 @@ export function MessageRow({
 // A row's time: the clock today, the day's name within the last week, the date before that.
 function useMessageTime(receivedAt: string, now: number) {
   const { t } = useLocalization();
-  const formats = useMessageListDateFormats();
-  const dateFormat = useMessageDateFormat();
-  const received = new Date(receivedAt);
-  const day = messageDay(receivedAt, now);
-  if (day === 'today') {
-    return formats.time.format(received);
-  }
-  if (day === 'yesterday') {
-    return t('inbox.yesterday');
-  }
-  return day === 'lastWeek'
-    ? formats.weekday.format(received)
-    : dateFormat.format(received);
+  return useMessageDateFormats().row(t, receivedAt, now);
 }
 
 // Rows are grouped under the day they arrived.
@@ -238,8 +221,8 @@ export function DateDivider({
   readonly now: number;
 }) {
   const { t } = useLocalization();
-  const formats = useMessageListDateFormats();
-  const day = messageDay(receivedAt, now);
+  const formats = useMessageDateFormats();
+  const day = formats.day(receivedAt, now);
   const label =
     day === 'earlier'
       ? formats.month(new Date(receivedAt), now)
@@ -308,7 +291,7 @@ export function DownloadingOlder({
   readonly now: number;
 }) {
   const { t } = useLocalization();
-  const formats = useMessageListDateFormats();
+  const formats = useMessageDateFormats();
   const colors = usePalette();
   const title = t('inbox.downloadingOlder');
   const detail =

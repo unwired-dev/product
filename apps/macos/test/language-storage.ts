@@ -5,13 +5,19 @@ let settings: LanguageSettings = {
   preference: null,
   language: 'en',
   locale: 'en',
+  timeZone: 'UTC',
 };
 
 export const languageStorage = {
   initial: settings,
   getSettings: async () => settings,
   async setLanguage(preference: string | null) {
-    settings = { preference, language: preference ?? 'en', locale: 'en' };
+    settings = {
+      preference,
+      language: preference ?? 'en',
+      locale: 'en',
+      timeZone: 'UTC',
+    };
     return settings;
   },
   subscribe() {

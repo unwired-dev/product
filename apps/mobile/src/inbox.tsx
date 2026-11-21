@@ -815,7 +815,7 @@ export function Inbox({
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();
-  const { t } = useLocalization();
+  const { t, settings } = useLocalization();
   const profile = useProfile();
   const search = useRef<TextInputInstance>(null);
   const insets = useSafeAreaInsets();
@@ -889,11 +889,11 @@ export function Inbox({
         ? [
             { key: 'saved', data: ipad ? [] : (results ?? []) },
             ...(ipad && (results?.length ?? 0) > 0
-              ? messageDateSections(results ?? [], now)
+              ? messageDateSections(results ?? [], now, settings.timeZone)
               : []),
           ]
-        : messageDateSections(inboxRows, now),
-    [searching, results, inboxRows, now],
+        : messageDateSections(inboxRows, now, settings.timeZone),
+    [searching, results, inboxRows, now, settings.timeZone],
   );
   const sections = inboxSections({
     ...profileDrafts({

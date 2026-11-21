@@ -30,7 +30,7 @@ import {
 
 import { Action } from './action.tsx';
 import { SFSymbol, Toast } from './design.tsx';
-import { useLocalization, useMessageListDateFormats } from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { useOutbox, useOutboxEntries } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -375,7 +375,7 @@ function ResponseRow({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const formats = useMessageListDateFormats();
+  const formats = useMessageDateFormats();
   const subject = invitation.summary ?? t('invitation.untitled');
   const recipients = t('outbox.invitation.response', {
     choice: t(`invitation.${invitationChoiceKeys[invitation.choice]}`),

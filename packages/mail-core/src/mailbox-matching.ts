@@ -19,7 +19,7 @@ export type InboxFilter = Readonly<{
   today: boolean;
 }>;
 
-// Every criterion narrows the list; Today is the list's own UTC day. Only the offered connections
+// Every criterion narrows the list; Today is the list's own day in the device's time zone. Only the offered connections
 // can be left out. The host owns the filter's settings and whether it applies.
 export function filterMessages<
   M extends Readonly<{
@@ -32,10 +32,12 @@ export function filterMessages<
     filter: { excluded, unread, today },
     connections,
     now,
+    timeZone,
   }: Readonly<{
     filter: InboxFilter;
     connections: ReadonlyArray<Readonly<{ id: string }>>;
     now: number;
+    timeZone: string;
   }>,
 ) {
   return entries.filter(
@@ -45,7 +47,7 @@ export function filterMessages<
         connections.some(({ id }) => id === mailbox.id)
       ) &&
       (!unread || message.unread) &&
-      (!today || messageDay(message.receivedAt, now) === 'today'),
+      (!today || messageDay(message.receivedAt, now, timeZone) === 'today'),
   );
 }
 

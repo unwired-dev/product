@@ -1,7 +1,7 @@
 import {
   createLocalization,
   createMessageDateFormat,
-  createMessageListDateFormats,
+  createMessageDateFormats,
 } from '@private-email/localization';
 import { useMemo, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -32,19 +32,21 @@ export function useLocalization() {
   return { t, settings };
 }
 
-// How the message list names a day: a time today, a weekday this week, a month before that.
-export function useMessageListDateFormats() {
+// How the interface names when a message arrived, on the device's clocks: a time today, a weekday
+// this week, a month before that, and a message header's date.
+export function useMessageDateFormats() {
   const { settings } = useLocalization();
   return useMemo(
-    () => createMessageListDateFormats(settings.locale),
-    [settings.locale],
+    () => createMessageDateFormats(settings.locale, settings.timeZone),
+    [settings.locale, settings.timeZone],
   );
 }
 
-export function useMessageDateFormat(detail = false) {
+// The full UTC received date a response quotes when the message has no Date header.
+export function useMessageDateFormat() {
   const { settings } = useLocalization();
   return useMemo(
-    () => createMessageDateFormat(settings.locale, detail),
-    [settings.locale, detail],
+    () => createMessageDateFormat(settings.locale),
+    [settings.locale],
   );
 }

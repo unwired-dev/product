@@ -58,6 +58,7 @@ describe('received attachments in the reader', () => {
       preference: null,
       language: 'en',
       locale: 'en-u-nu-arab',
+      timeZone: 'UTC',
     });
     await localization.refresh();
     const gmail = createSyntheticGmail();

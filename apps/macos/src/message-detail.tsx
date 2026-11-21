@@ -37,8 +37,12 @@ import {
   RegisterCommands,
   useMessageCommands,
 } from './command-palette.tsx';
-import { ContextMenu, GlassGroup, ToolbarButton } from './design.tsx';
-import { useLocalization, useMessageDateFormat } from './localization.ts';
+import { ContextMenu, GlassGroup, ToolbarButton, useNow } from './design.tsx';
+import {
+  useLocalization,
+  useMessageDateFormat,
+  useMessageDateFormats,
+} from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
   MailboxScope,
@@ -404,7 +408,7 @@ function ResponseActions({
   const account = use(AccountContext);
   const mailbox = useMailbox();
   const { t } = useLocalization();
-  const dateFormat = useMessageDateFormat(true);
+  const dateFormat = useMessageDateFormat();
   const mounted = useRef(true);
   const starting = useRef(false);
   const [pending, setPending] = useState<ResponseKind | undefined>();
@@ -598,7 +602,8 @@ function MailboxMessage({
   const { anchor: blockAnchor, items: blockItems } = useBlockSender();
   const colors = usePalette();
   const { t } = useLocalization();
-  const dateFormat = useMessageDateFormat(true);
+  const dates = useMessageDateFormats();
+  const now = useNow();
   // An IMAP message can come from any folder this mailbox has read, not only its Inbox.
   const folderMessage = useSyncExternalStore(actions.subscribe, () =>
     'openFolder' in actions ? actions.message(id) : undefined,
@@ -758,17 +763,15 @@ function MailboxMessage({
                     <View
                       accessible
                       accessibilityRole="text"
-                      accessibilityLabel={t('message.received', {
-                        date: dateFormat.format(new Date(message.receivedAt)),
-                      })}>
+                      accessibilityLabel={dates.full.format(
+                        new Date(message.receivedAt),
+                      )}>
                       <Text
                         style={[
                           styles.secondary,
                           { color: colors.textSecondary },
                         ]}>
-                        {t('message.received', {
-                          date: dateFormat.format(new Date(message.receivedAt)),
-                        })}
+                        {dates.header(t, new Date(message.receivedAt), now)}
                       </Text>
                     </View>
                   </View>

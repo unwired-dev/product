@@ -36,7 +36,7 @@ import {
   useOutcomeAnnouncement,
 } from './design.tsx';
 import { WindowBarContext } from './inbox-bar.tsx';
-import { useLocalization, useMessageListDateFormats } from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { updatedOf } from './mailbox-state.ts';
 import { usePalette } from './theme.ts';
 
@@ -736,7 +736,7 @@ function SyncStatusDetails({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const { time } = useMessageListDateFormats();
+  const { time } = useMessageDateFormats();
   const popover = usePopover();
   const synchronizedAt = shown.flatMap(({ state }) =>
     state.kind === 'ready' &&

@@ -224,8 +224,8 @@ Both keep the edited choices until they close:
 - **Include Mail From**, in **All Inboxes** with more than one mailbox: each
   mailbox, checked while its mail is listed. Other views list their own mailbox only.
 - **Include:** **Unread**.
-- **Only Mail from Today:** mail that arrived on the list's current UTC day, the
-  day its **Today** divider names.
+- **Only Mail from Today:** mail that arrived on the list's current day in the
+  device's time zone, the day its **Today** divider names.
 
 Filters edits a copy; the checkmark (**Apply Filters**) applies it, and leaving it
 discards it. Every chosen criterion narrows the list. Applying a filter that
@@ -287,8 +287,13 @@ so `from:a+b@example.com` keeps its plus sign.
 The Inbox lists **Durable Message Metadata** for Gmail's `INBOX` label: sender,
 address, subject, Gmail's snippet, received time, unread state and Gmail's label
 IDs. Rows are grouped under Today, Yesterday, Last Week and month dividers by
-the UTC day they arrived; a row shows the time today, Yesterday for the prior
-day, the weekday within the last week and the date before that. The list
+the day they arrived in the device's time zone; a row shows the time today,
+Yesterday for the prior day, the weekday within the last week and the date before
+that. The reader's header on Mac and iPad names the same day: `Today, 8:12`,
+`Yesterday, 8:12`, the weekday and date with the time earlier this year
+(`Sun 11 Oct, 21:14`), and the year added before that. iPhone's compact header
+names it as the row does, with a short weekday (`Wed`). VoiceOver reads the full
+date and time. The list
 header's subtitle names the shown mailboxes and the unread count, or Syncing or
 Offline while the server is being checked or cannot be reached; under iPad's All Inboxes
 heading, which already names them, it leaves the mailboxes out. When neither applies, on iPad and

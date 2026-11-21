@@ -17,6 +17,8 @@ RCT_EXPORT_MODULE()
 {
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(localeChanged:)
       name:NSCurrentLocaleDidChangeNotification object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(localeChanged:)
+      name:NSSystemTimeZoneDidChangeNotification object:nil];
 }
 
 - (void)stopObserving
