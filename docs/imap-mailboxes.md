@@ -1165,12 +1165,50 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   ([#2621](https://github.com/unwired-dev/product/issues/2621)). Background refresh and
   push wakes, IDLE interruption, password and connection recovery, offline queueing and
   large-folder backfill stay on #632.
+- **2026-11-21, iPhone large-folder history
+  ([#2623](https://github.com/unwired-dev/product/issues/2623)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0. Build:
+  the app source of `6ca5b03971c45c2318e8ddc6d4d01ae70d067e02`. Before the app connected,
+  a run folder of 1,500 small synthetic messages was appended over IMAP to each
+  certification mailbox, with no SMTP submission. Read over IMAP before the app connected,
+  the server counted 1,501 messages across iCloud Mail's selectable folders and 1,502
+  across Seznam Email's. Google Product Sign-In found the certification Product Account,
+  the device was unlocked with its Recovery Key, and both mailboxes were connected through
+  the app as in the first record. Result: partial. The totals matched the server, Seznam
+  Email resumed after termination, and both histories completed as far as the app shows;
+  the final downloaded counts are not shown on iPhone. **iCloud Mail**: about 25 seconds
+  after **Connect**, Sync Status showed **Downloading history · 1,001 of 1,501
+  messages**, and the capsule had faded about a minute after connecting. **Seznam
+  Email**: when the Inbox was opened, about a minute after connecting, its capsule had
+  already faded. The app was then terminated, a second run folder of 6,000 messages was
+  appended to Seznam Email, and the server counted 7,502 messages across its selectable
+  folders. The app was launched again, and both connections opened without asking for a
+  password. Sync Status showed Seznam Email's **1,502 messages** already downloaded until
+  the new folder began, then **2,002 of 7,502 messages** 23 seconds after launch, when
+  the app was terminated. Launched again, it showed **2,002 of 7,502 messages** at its
+  first reading, 8 seconds after launch, and a message opened in the reader while the
+  download continued. The next check, about 11 minutes after that launch, found the
+  capsule faded, and a further launch showed each connection checking its server and then
+  up to date, with no history download. The Mailboxes list showed the three run folders.
+  Afterwards the run folders were deleted from both mailboxes, and an IMAP count then
+  found each mailbox's original totals; the run folders were not counted again between
+  the download and their deletion. The simulator was deleted. Limitations: the iCloud Mail download and
+  the first Seznam Email download finished too quickly to interrupt, so resumption after
+  termination was observed for Seznam Email only. Sync Status closes with the capsule and
+  shows no completed history, so no final downloaded count was on screen: completion is
+  read from the capsule fading and from the next launch downloading nothing. The resumed
+  download's duration is not known. As in the iPad record, the first tap on **Connect**
+  with a field focused did nothing
+  ([#2571](https://github.com/unwired-dev/product/issues/2571)). iCloud Mail resumption
+  after termination, iPad and Mac backfill, background refresh and push wakes, IDLE
+  interruption, password and connection recovery and offline queueing stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
-hosts, and backfilling large real IMAP folders. Registration Mock Mail Sessions connect any
+hosts, and backfilling large real IMAP folders on iPad and Mac and resuming an iCloud
+Mail backfill on iPhone. Registration Mock Mail Sessions connect any
 IMAP login to a synthetic server that marks only its Sent folder, which the
 [Mac](native-journeys.md#mac-imap-spam-and-trash-folder-journey) and
 [iPhone and iPad](native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey)

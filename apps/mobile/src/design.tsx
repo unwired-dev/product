@@ -187,7 +187,12 @@ export function useReducedMotion() {
 
 // Keep the presentation mounted until its exit finishes, but hide closing controls immediately.
 // A menu barely grows and a dropped panel arrives 8pt from above.
-export function useMenuMotion(open: boolean, kind: 'menu' | 'drop') {
+// `from` is the scale a menu grows from: a panel growing out of its control starts small.
+export function useMenuMotion(
+  open: boolean,
+  kind: 'menu' | 'drop',
+  from = 0.95,
+) {
   const [shown, setShown] = useState(open);
   const progress = useMemo(() => new Animated.Value(0), []);
   const reduced = useReducedMotion();
@@ -222,7 +227,7 @@ export function useMenuMotion(open: boolean, kind: 'menu' | 'drop') {
       : {
           scale: progress.interpolate({
             inputRange: [0, 1],
-            outputRange: [0.95, 1],
+            outputRange: [from, 1],
           }),
         },
   ];
@@ -643,6 +648,7 @@ export function GlassPanel({
   children,
   cornerRadius = radius.menu,
   origin = iphone ? 'bottom' : 'top right',
+  from,
   style,
 }: {
   readonly open: boolean;
@@ -651,9 +657,11 @@ export function GlassPanel({
   readonly style?: StyleProp<ViewStyle>;
   // Where the panel grows from: the control that opened it.
   readonly origin?: string;
+  // The scale it grows from.
+  readonly from?: number;
 }) {
   const colors = usePalette();
-  const motion = useMenuMotion(open, 'menu');
+  const motion = useMenuMotion(open, 'menu', from);
   const [frame, setFrame] = useState<LayoutRectangle>();
   if (!motion.shown) {
     return null;

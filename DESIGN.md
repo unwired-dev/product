@@ -582,7 +582,11 @@ content.
   control groups use 22pt corners and 18pt inset selections.
 - The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
   220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
-  between 48pt `fill/quiet` capsules with centred Body labels.
+  between 48pt `fill/quiet` capsules with centred Body labels. It opens over
+  Close, its corner on Close's, and grows out of Close from a fifth of its size,
+  as a system menu opens over its button; a tap outside it keeps editing. The
+  approved frames still draw it beneath Close; the owner chose the placement over
+  Close ([#2610](https://github.com/unwired-dev/product/issues/2610)).
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
@@ -823,9 +827,10 @@ app follows under the issue named:
   frames, wait for #2106.
 - **Message list header:** the iPhone frames' List/Chat toggle beside the title
   waits for #810. Their **…** menu waits for an issue that names what it offers.
-- **iPhone composer:** the frames draw the composer as a sheet, as
+- **Compact iPad composer:** the frames draw the composer in a compact iPad
+  window as the same sheet as on iPhone, as
   [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) now
-  decides. The app pushes it onto the navigation stack until #2113.
+  decides. The app covers the window with it until the rest of #2113.
 - **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); on
   iPhone and iPad it lists Remind Me to Send… (#2136). Send and Archive, Send
   Now and Send Later wait for #1673, #1674 and #1262.

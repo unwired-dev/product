@@ -36,7 +36,7 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 import type { SendReminder } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps, ReactNode, RefObject } from 'react';
 import type {
   StyleProp,
   ScrollViewInstance,
@@ -158,7 +158,7 @@ import type {
 } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { CommandInput, usePaletteHeader } from './command-palette.tsx';
+import { CommandInput, InSheet, usePaletteHeader } from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -296,6 +296,12 @@ const styles = StyleSheet.create({
   // 46pt. Both title in the list's semibold type.
   cardHeader: { paddingTop: 33.8 - 22, paddingBottom: 63 - 33.8 - 22 },
   dockedHeader: { paddingVertical: 1 },
+  // The iPhone sheet's frame keeps 11pt above its header for the grabber, and centres the title
+  // across the sheet: it is offset by Actions and its gap, which Send's side holds beyond Close's.
+  sheetHeader: { paddingTop: 6 + 11 },
+  sheetTitle: { paddingLeft: 44 + spacing.s },
+  // From's 34pt pill sits in a 44pt touch target; the frame's From row is the pill and 4pt below it.
+  sheetFromRow: { marginVertical: -5 },
   regularTitle: { ...typography.ipadList.body, fontWeight: '600' },
   // The docked reply's From and Send beneath its fields, as in the iPad Compose Inline frame: their
   // 32.2pt visuals 10.35pt below the fields and 13.8pt above the bottom, in line with the fields.
@@ -346,13 +352,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 22,
   },
-  closeQuestion: {
-    position: 'absolute',
-    zIndex: 4,
-    top: 56,
-    left: spacing.l,
-    width: 220,
-  },
+  closeQuestion: { ...StyleSheet.absoluteFill, zIndex: 4 },
+  closeQuestionPlace: { position: 'absolute', width: 220 },
   closeQuestionPanel: { padding: spacing.m, gap: spacing.s },
   closeChoice: {
     minHeight: 48,
@@ -2246,11 +2247,14 @@ export function CapturedAssistance({
 export function CloseButton({
   disabled = false,
   expanded,
+  anchor,
   onPress,
 }: {
   readonly disabled?: boolean;
   // Close reports whether its save question is open.
   readonly expanded?: boolean;
+  // Where CloseQuestion opens.
+  readonly anchor?: RefObject<ViewInstance | null>;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
@@ -2267,6 +2271,7 @@ export function CloseButton({
           disabled,
           ...(expanded === undefined ? {} : { expanded }),
         }}
+        ref={anchor}
         disabled={disabled}
         onPress={onPress}
         style={[styles.circle, { opacity: disabled ? 0.4 : 1 }]}>
@@ -2279,18 +2284,35 @@ export function CloseButton({
   );
 }
 
-// Delete Draft and Save Draft grow out of the header's Close.
+// Delete Draft and Save Draft open over the header's Close (`anchor`) and grow out of it, as a
+// system menu does; a tap outside them (Keep Editing) keeps editing.
 export function CloseQuestion({
   open,
+  anchor,
   onDelete,
   onSave,
+  onCancel,
 }: {
   readonly open: boolean;
+  readonly anchor: RefObject<ViewInstance | null>;
   readonly onDelete: () => void;
   readonly onSave: () => void;
+  readonly onCancel: () => void;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  const layer = useRef<ViewInstance>(null);
+  const [at, setAt] = useState<Readonly<{ left: number; top: number }>>();
+  // Measured as it opens, so the panel covers Close wherever its header placed it.
+  useLayoutEffect(() => {
+    if (open) {
+      anchor.current?.measureInWindow((x, y) => {
+        layer.current?.measureInWindow((left, top) => {
+          setAt({ left: x - left, top: y - top });
+        });
+      });
+    }
+  }, [anchor, open]);
   const choice = (label: string, destructive: boolean, onPress: () => void) => (
     <Pressable
       accessibilityRole="button"
@@ -2318,18 +2340,36 @@ export function CloseQuestion({
   );
   return (
     <View
-      accessibilityRole="menu"
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'box-none' : 'none'}
+      ref={layer}
+      accessibilityViewIsModal={open}
+      onAccessibilityEscape={onCancel}
+      pointerEvents={open ? 'auto' : 'none'}
       style={styles.closeQuestion}>
-      <GlassPanel
-        cornerRadius={radius.closeQuestion}
-        open={open}
-        origin="top left"
-        style={styles.closeQuestionPanel}>
-        {choice(t('drafts.deleteDraft'), true, onDelete)}
-        {choice(t('drafts.saveDraft'), false, onSave)}
-      </GlassPanel>
+      {open ? (
+        // Outside the question, as UIKit's menus offer VoiceOver a way out too.
+        <Pressable
+          accessibilityLabel={t('drafts.keepEditing')}
+          accessibilityRole="button"
+          onPress={onCancel}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+      <View
+        accessibilityRole="menu"
+        accessibilityElementsHidden={!open}
+        pointerEvents="box-none"
+        style={[styles.closeQuestionPlace, at]}>
+        <GlassPanel
+          cornerRadius={radius.closeQuestion}
+          open={open}
+          // Grows out of Close's centre, 22pt into the panel's corner.
+          origin="22px 22px"
+          from={0.2}
+          style={styles.closeQuestionPanel}>
+          {choice(t('drafts.deleteDraft'), true, onDelete)}
+          {choice(t('drafts.saveDraft'), false, onSave)}
+        </GlassPanel>
+      </View>
     </View>
   );
 }
@@ -2776,6 +2816,16 @@ const partStyles = {
   },
 } as const;
 
+// The iPhone sheet's header and title additions.
+const sheetStyles = (sheet: boolean) =>
+  sheet
+    ? {
+        header: styles.sheetHeader,
+        title: styles.sheetTitle,
+        fromRow: styles.sheetFromRow,
+      }
+    : { header: null, title: null, fromRow: null };
+
 const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   if (!regular) {
     return 'compact';
@@ -2793,11 +2843,13 @@ const placeSender = ({
   draft,
   presentation,
   large,
+  rowStyle,
 }: {
   readonly sender: ReactNode;
   readonly draft: Draft;
   readonly presentation: Presentation;
   readonly large: boolean;
+  readonly rowStyle: StyleProp<ViewStyle>;
 }) => {
   if (presentation === 'docked') {
     return { header: sender, row: null, signInNotice: false };
@@ -2815,7 +2867,7 @@ const placeSender = ({
         header: null,
         row: (
           <>
-            <View style={styles.fromRow}>
+            <View style={[styles.fromRow, rowStyle]}>
               <View style={styles.bar}>{sender}</View>
             </View>
             {signIn}
@@ -4513,6 +4565,8 @@ function Editor({
     }
   }, [answerLeave, asking]);
   const paletteHeader = usePaletteHeader();
+  const sheetParts = sheetStyles(use(InSheet));
+  const closeAnchor = useRef<ViewInstance>(null);
   // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
   // keeps it open. Send Now gives a `delay` of 0, with no Undo Send Window.
   const send = (delay?: number) =>
@@ -4611,7 +4665,13 @@ function Editor({
       }}
     />
   );
-  const senderPlace = placeSender({ sender, draft, presentation, large });
+  const senderPlace = placeSender({
+    sender,
+    draft,
+    presentation,
+    large,
+    rowStyle: sheetParts.fromRow,
+  });
   // Send: a tap sends, and a long press opens its menu of Send Now and Remind Me to Send….
   const sendControl = (titled: boolean) => (
     <SendMenu
@@ -4899,11 +4959,12 @@ function Editor({
         style={styles.fill}>
         {/* The header opens the Command Palette by a downward swipe, as other screens' do. */}
         <View
-          style={[styles.header, headerStyles[presentation]]}
+          style={[styles.header, headerStyles[presentation], sheetParts.header]}
           {...paletteHeader.swipe}>
           <CloseButton
             disabled={closing === 'saving'}
             expanded={asking}
+            anchor={closeAnchor}
             onPress={() => {
               if (asking) {
                 setAsking(false);
@@ -4920,6 +4981,7 @@ function Editor({
               styles.grow,
               styles.title,
               titleStyles[presentation],
+              sheetParts.title,
               { color: colors.textPrimary },
             ]}
             {...paletteHeader.action}>
@@ -4937,11 +4999,15 @@ function Editor({
         </View>
         <CloseQuestion
           open={asking}
+          anchor={closeAnchor}
           onDelete={() => {
             void discard();
           }}
           onSave={() => {
             void saveDraft();
+          }}
+          onCancel={() => {
+            setAsking(false);
           }}
         />
         {senderPlace.row}
@@ -5278,8 +5344,8 @@ function Editor({
   );
 }
 
-// A composer whose Draft is loading or cannot open. It still covers the Inbox on iPhone, so it
-// keeps the palette entry the editor's header has.
+// A composer whose Draft is loading or cannot open. It keeps the palette entry the editor's
+// header has, and leaving closes it as its Close does, which the iPhone sheet's swipe asks.
 function ComposerFallback({
   kind,
   onClose,
@@ -5291,6 +5357,13 @@ function ComposerFallback({
   const colors = usePalette();
   const { t } = useLocalization();
   const paletteHeader = usePaletteHeader();
+  const navigation = useComposerNavigation();
+  useLayoutEffect(() =>
+    navigation.register(() => {
+      onClose();
+      return Promise.resolve(true);
+    }),
+  );
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}

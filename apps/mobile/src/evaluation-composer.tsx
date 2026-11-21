@@ -6,6 +6,7 @@ import type {
 import type { Draft, PickSource } from '@private-email/mail-core/drafts';
 import type { SendRefusal } from '@private-email/mail-core/outbox';
 import type { Link } from '@private-email/mail-core/semantic-document';
+import type { ViewInstance } from 'react-native';
 
 import {
   commandScript,
@@ -139,6 +140,7 @@ function EvaluationEditor({
   const view = useRef<WebView<object>>(null);
   const pageStopped = useRef(false);
   const [open, setOpen] = useState<Open>();
+  const closeAnchor = useRef<ViewInstance>(null);
   const hide = useCallback(() => {
     setOpen(undefined);
   }, []);
@@ -616,6 +618,7 @@ function EvaluationEditor({
             subject={draft.subject}
             busy={closing === 'saving'}
             closeOpen={open === 'close'}
+            closeAnchor={closeAnchor}
             sender={
               <SendingMailbox
                 draft={draft}
@@ -640,11 +643,15 @@ function EvaluationEditor({
           />
           <CloseQuestion
             open={open === 'close'}
+            anchor={closeAnchor}
             onDelete={() => {
               void deleteDraft();
             }}
             onSave={() => {
               void saveDraft();
+            }}
+            onCancel={() => {
+              setOpen(undefined);
             }}
           />
           {retained.pad === undefined ? null : (

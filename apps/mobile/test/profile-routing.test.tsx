@@ -455,6 +455,11 @@ describe('profile-scoped mobile routes', () => {
         'useWindowDimensions',
       )
       .mockReturnValue({ width: 834, height: 1194, scale: 2, fontScale: 1 });
+    const platform = jest.replaceProperty(
+      jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+      'ipad',
+      true,
+    );
     const connection = {
       id: syntheticMailboxes['alex@example.invalid'],
       address: 'alex@example.invalid',
@@ -690,6 +695,9 @@ describe('profile-scoped mobile routes', () => {
         'select',
         { nativeEvent: { id: 'profile\nwork' } },
       );
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Keep Editing' }),
+      );
       expect(screen.getByLabelText('Profile, Primary Profile')).toBeVisible();
       expect(screen.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(screen.getByRole('button', { name: 'Expand' }));
@@ -721,7 +729,8 @@ describe('profile-scoped mobile routes', () => {
       expect(screen.getByLabelText('Message body')).toHaveTextContent(
         'Keep this draft.',
       );
-      // Selecting a message asks about the changed Draft; its unfinished recipient keeps it open.
+      // Close asks about the changed Draft; its unfinished recipient keeps it open.
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Save Draft' }));
       expect(
         screen.getByText(
@@ -736,14 +745,6 @@ describe('profile-scoped mobile routes', () => {
       });
       await app.rerender(view());
       expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull();
-      // The composer's own safe area clears the system bars; padding the overlay too would apply
-      // the insets twice and leave the format bar behind the keyboard (#1165).
-      expect(
-        screen.getByTestId('composer-overlay', { includeHiddenElements: true }),
-      ).not.toHaveStyle({ paddingTop: insets.top });
-      expect(
-        screen.getByTestId('composer-overlay', { includeHiddenElements: true }),
-      ).not.toHaveStyle({ paddingBottom: insets.bottom });
       await fireEvent.press(screen.getByRole('button', { name: 'Format' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
       expect(screen.getByLabelText('To')).toHaveProp('value', '');
@@ -782,6 +783,7 @@ describe('profile-scoped mobile routes', () => {
       releaseSave();
       await app.unmount();
       dimensions.mockRestore();
+      platform.restore();
       jest.replaceProperty(
         jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
         'drafts',
@@ -821,6 +823,11 @@ describe('profile-scoped mobile routes', () => {
           'useWindowDimensions',
         )
         .mockReturnValue({ width: 834, height: 1194, scale: 2, fontScale: 1 });
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        true,
+      );
       const connection = {
         id: syntheticMailboxes['alex@example.invalid'],
         address: 'alex@example.invalid',
@@ -910,6 +917,7 @@ describe('profile-scoped mobile routes', () => {
       } finally {
         await app.unmount();
         dimensions.mockRestore();
+        platform.restore();
         jest.replaceProperty(
           jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
           'drafts',
@@ -920,6 +928,111 @@ describe('profile-scoped mobile routes', () => {
       }
     },
   );
+
+  it('presents the iPhone composer as the system sheet, whose dismissal gesture is Close', async () => {
+    expect.hasAssertions();
+    const dimensions = jest
+      .spyOn(
+        jest.requireActual<{ useWindowDimensions: typeof useWindowDimensions }>(
+          'react-native',
+        ),
+        'useWindowDimensions',
+      )
+      .mockReturnValue({ width: 393, height: 852, scale: 3, fontScale: 1 });
+    const connection = {
+      id: syntheticMailboxes['alex@example.invalid'],
+      address: 'alex@example.invalid',
+      state: 'connected',
+      profile: defaultProfile,
+      provider: 'gmail',
+    } as const;
+    const account = {
+      snapshot: {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        mailboxes: JSON.stringify([connection]),
+      },
+      busy: false,
+      failed: false,
+    } as const;
+    const drafts = createDrafts(
+      createSyntheticDrafts(() => 'synthetic-product-account').native,
+      { subscribe: () => () => undefined, getSnapshot: () => account },
+    );
+    jest.replaceProperty(
+      jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+      'drafts',
+      drafts,
+    );
+    showMail(defaultProfile);
+    route.setParams({});
+    const app = await render(
+      <AccountContext
+        value={{
+          mailboxes: [connection],
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+          account: 'synthetic-product-account',
+          profiles: [],
+          createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
+        }}>
+        <RootLayout />
+      </AccountContext>,
+    );
+    const sheet = () =>
+      screen.queryByTestId('composer-sheet', { includeHiddenElements: true });
+    const swipeDown = async () => {
+      await act(async () => {
+        await fireEvent(screen.getByTestId('composer-sheet'), 'requestClose');
+      });
+    };
+    try {
+      await screen.findByRole('button', { name: /Garden plan/u });
+      await waitFor(() => {
+        expect(inboxNewMessage()).toBeEnabled();
+      });
+      await fireEvent.press(inboxNewMessage());
+      expect(sheet()).toHaveProp('presentationStyle', 'pageSheet');
+      // An untouched Draft closes, as Close would close it.
+      await swipeDown();
+      expect(sheet()).toBeNull();
+      // Changed content asks first; the sheet stays until the question is answered.
+      await fireEvent.press(inboxNewMessage());
+      await fireEvent.changeText(
+        await screen.findByLabelText('Message body'),
+        'Keep this draft.',
+      );
+      await swipeDown();
+      expect(
+        screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      ).toHaveTextContent('Keep this draft.');
+      await act(async () => {
+        await fireEvent.press(
+          screen.getByRole('button', { name: 'Save Draft' }),
+        );
+      });
+      ok(sheet() === null);
+      // A Draft that cannot open closes by the same swipe, as its Close does.
+      await act(() => {
+        route.router.setParams({ draft: 'missing-draft' });
+      });
+      await screen.findByText('This Draft is not available.');
+      await swipeDown();
+      expect(sheet()).toBeNull();
+    } finally {
+      await app.unmount();
+      dimensions.mockRestore();
+      jest.replaceProperty(
+        jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+        'drafts',
+        jest.requireActual<{ drafts: typeof drafts }>('../src/registration.ts')
+          .drafts,
+      );
+    }
+  });
 
   it('starts a waited-for notification Reply after navigation replaces the current Profile', async () => {
     expect.hasAssertions();
