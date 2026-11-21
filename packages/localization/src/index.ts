@@ -10,8 +10,9 @@ import { catalogs, languages } from './shipped-catalogs.ts';
 
 export {
   createMessageDateFormat,
-  createMessageListDateFormats,
+  createMessageDateFormats,
   messageDay,
+  messageMonth,
 } from './message-date-format.ts';
 export type { MessageDay } from './message-date-format.ts';
 export { lastUpdated } from './last-updated.ts';
@@ -22,6 +23,8 @@ export interface LanguageSettings {
   readonly preference: string | null;
   readonly language: string;
   readonly locale: string;
+  // The device's IANA time zone, which message dates are shown in.
+  readonly timeZone: string;
 }
 
 export interface LanguageStorage {
@@ -46,10 +49,23 @@ const locale = Schema.NonEmptyString.check(
     }
   }),
 );
+const timeZone = Schema.NonEmptyString.check(
+  Schema.makeFilter((value) => {
+    try {
+      return (
+        new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions()
+          .timeZone !== ''
+      );
+    } catch {
+      return false;
+    }
+  }),
+);
 const settingsSchema = Schema.Struct({
   preference: Schema.NullOr(languageCode),
   language: languageCode,
   locale,
+  timeZone,
 });
 class InvalidLanguageSettings extends Schema.TaggedError<
   InvalidLanguageSettings,

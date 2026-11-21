@@ -112,7 +112,7 @@ it.
   they reopen.
 
   On Mac ([#2350](https://github.com/unwired-dev/product/issues/2350)), the first
-  four reasons and a file still importing or failed disable **Send**, its Command
+  four reasons and a file still importing disable **Send**, its Command
   Palette command and its Send menu item before anything is pressed, and the
   reason shows until it goes: under To, **Add a recipient to send.**; under the
   field holding text that is not an address, once the person leaves it, a warning
@@ -120,7 +120,9 @@ it.
   Correct it to send.**; the sender's notice as before; the others above the
   body, without an announcement. **Remind Me to Send…** stays available. A file
   that does not verify, the message limit, a change in another window and storage
-  are found only after the press.
+  are found only after the press. Files that were not added leave Send available,
+  which asks in a sheet to send without them
+  ([#2598](https://github.com/unwired-dev/product/issues/2598)).
 
   On iPhone and iPad ([#2396](https://github.com/unwired-dev/product/issues/2396)),
   the same reasons disable **Send**, and VoiceOver reads the reason
@@ -255,11 +257,14 @@ it.
   the exact rendered message and verified asset references in one encrypted write.
   The Outbox remains local; its files remain available through Undo and delivery.
 - Undo succeeds only after cancellation is saved. If storage refuses Undo or
-  Edit, the row stays as it was and a deep graphite toast above the search bar
-  says ““<subject>” wasn’t returned to Drafts. It’s still in the Outbox. Choose
-  Try Again to return it.” (on iPhone, “The message wasn’t returned to Drafts.
-  It’s still in the Outbox. Choose Try Again to return it.”) with **Try Again**,
-  which repeats the request. The refusal doesn’t tell a locked store from a
+  Edit, the row stays as it was and a toast above the search bar says
+  ““<subject>” wasn’t returned to Drafts. It’s still in the Outbox. Choose
+  Try Again to return it.” with **Try Again**, which repeats the request. On
+  iPhone and iPad the toast is glass and shows the frames' shorter “Couldn’t
+  return “<subject>” to Drafts.” (on iPhone, “Couldn’t return the message to
+  Drafts.”); VoiceOver hears the full sentence, which on iPhone begins “The
+  message” instead of the subject. The Mac's toast is deep graphite until the
+  rest of #2104. The refusal doesn’t tell a locked store from a
   failed write, so the toast names no cause. The toast
   fades in over 200 ms and out over 150 ms, fading only with Reduce Motion, and
   leaves on Try Again, the next Outbox action, or once the message is no longer

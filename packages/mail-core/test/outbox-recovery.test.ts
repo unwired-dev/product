@@ -600,7 +600,12 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
       const second = sending.outbox.check(id);
       const snapshot = sending.outbox.getSnapshot();
       const checking = present(snapshot[0], 'checking message');
-      const settings = { preference: null, language: 'en', locale: 'en-US' };
+      const settings = {
+        preference: null,
+        language: 'en',
+        locale: 'en-US',
+        timeZone: 'UTC',
+      };
       const localization = createLocalization(settings, {
         getSettings: () => Promise.resolve(settings),
         setLanguage: () => Promise.resolve(settings),

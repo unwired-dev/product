@@ -44,7 +44,7 @@ describe('german test catalog', () => {
   it('is offered after the shipped languages and falls back to English', () => {
     expect.hasAssertions();
     const app = createLocalization(
-      { preference: 'de', language: 'de', locale: 'de' },
+      { preference: 'de', language: 'de', locale: 'de', timeZone: 'UTC' },
       { getSettings: async () => null, setLanguage: async () => null },
     );
     expect(app.i18n.t('drafts.send')).toBe('Senden');

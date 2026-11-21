@@ -30,7 +30,12 @@ test('Apple language matching, native fallback, and override persistence across 
     recursive: true,
   });
   const run = (...args) =>
-    parseJson(execFileSync(binary, args, { encoding: 'utf8' }));
+    parseJson(
+      execFileSync(binary, args, {
+        encoding: 'utf8',
+        env: { TZ: 'Asia/Kolkata' },
+      }),
+    );
   let compiled = false;
   try {
     execFileSync('xcrun', [
@@ -51,6 +56,14 @@ test('Apple language matching, native fallback, and override persistence across 
       binary,
     ]);
     compiled = true;
+    // Message dates are shown in the device's time zone, read afresh each time.
+    const zoned = parseJson(
+      execFileSync(binary, [], {
+        encoding: 'utf8',
+        env: { TZ: 'America/St_Johns' },
+      }),
+    );
+    assert.equal(zoned.settings.timeZone, 'America/St_Johns');
     const unsupported = run('-AppleLanguages', '(de-DE)');
     assert.equal(unsupported.settings.language, 'en');
     assert.equal(unsupported.settings.preference, null);
@@ -121,7 +134,7 @@ test('Apple language matching, native fallback, and override persistence across 
         force12,
       ];
       const { settings } = run(...preferences);
-      const formatter = createMessageDateFormat(settings.locale, true);
+      const formatter = createMessageDateFormat(settings.locale);
       assert.equal(formatter.resolvedOptions().hourCycle, hourCycle);
       assert.deepEqual(
         [new Date(0), new Date(13 * 60 * 60 * 1000)].map(
@@ -158,6 +171,7 @@ test('Apple language matching, native fallback, and override persistence across 
       preference: 'en',
       language: 'en',
       locale: 'en',
+      timeZone: 'Asia/Kolkata',
     });
     assert.equal(relaunched.showInbox, 'Show Inbox');
     const restored = run('--system', ...french);

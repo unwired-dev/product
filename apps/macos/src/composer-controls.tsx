@@ -164,6 +164,12 @@ const blockNames = {
   quote: 'drafts.blocks.quote',
   code: 'drafts.blocks.code',
 } as const satisfies Record<BlockKind, string>;
+// Outdent and Indent, after the list buttons.
+export type IndentDirection = 'outdent' | 'indent';
+const indentControls = [
+  ['outdent', 'decrease.indent', 'drafts.outdent'],
+  ['indent', 'increase.indent', 'drafts.indent'],
+] as const;
 const textStyleKinds: readonly BlockKind[] = [
   'paragraph',
   'heading1',
@@ -453,15 +459,21 @@ export function ComposerActions({
 export function FormatBar({
   active,
   kind,
+  indents,
   disabled,
   onBlock,
+  onIndent,
   onMark,
   children,
 }: {
   readonly active: readonly Mark[];
   readonly kind: BlockKind;
+  // Outdent and Indent, after the list buttons, when the composer offers them: which of them the
+  // selected list items allow.
+  readonly indents?: Readonly<Record<IndentDirection, boolean>>;
   readonly disabled: boolean;
   readonly onBlock: (kind: BlockKind) => void;
+  readonly onIndent?: (direction: IndentDirection) => void;
   readonly onMark: (mark: Mark) => void;
   readonly children: ReactNode;
 }) {
@@ -521,6 +533,19 @@ export function FormatBar({
           onBlock('numbered');
         }}
       />
+      {onIndent === undefined
+        ? null
+        : indentControls.map(([direction, icon, name]) => (
+            <ToolbarButton
+              key={direction}
+              disabled={disabled || indents?.[direction] !== true}
+              icon={icon}
+              label={t(name)}
+              onPress={() => {
+                onIndent(direction);
+              }}
+            />
+          ))}
       {children}
     </View>
   );

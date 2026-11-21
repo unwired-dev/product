@@ -47,8 +47,9 @@ journey=${2:-testIndependentWindowsCloseReopenAndQuit}
 # The performance journey relaunches the app for each of its many samples; the keyboard journey
 # runs accessibility audits; the Draft editor journey relaunches for each assistance round trip;
 # the Mail Profile journey moves a mailbox twice through Private Sync; the IMAP folder and sidebar
-# problem journeys connect a third mailbox and run accessibility audits; the German strings journey
-# relaunches after signing in and opens four screens; the composer recovery journey relaunches three
+# problem journeys connect a third mailbox and run accessibility audits; the Edit Favorites journey
+# audits and relaunches; the German strings journey relaunches after signing in and opens four
+# screens; the composer recovery journey relaunches three
 # times and waits out each journal write.
 allowance=120
 [[ "$journey" == testWarmCachePerformance ]] && allowance=1200
@@ -56,6 +57,7 @@ allowance=120
 [[ "$journey" == testMailProfileIsolation ]] && allowance=600
 [[ "$journey" == testImapSpamAndTrashFolders* ]] && allowance=600
 [[ "$journey" == testSidebarConnectionProblem* ]] && allowance=600
+[[ "$journey" == testEditFavorites* ]] && allowance=600
 [[ "$journey" == testGermanStrings* ]] && allowance=600
 [[ "$journey" == testComposerRecoveryAfterForceQuit ]] && allowance=300
 [[ "$UNWIRED_TEST_SCENARIO" == registration-draft-editor ]] && allowance=600

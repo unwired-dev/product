@@ -1447,7 +1447,12 @@ describe('entering Draft recipients', () => {
 
   it('uses complete translated recipient groups in visible and accessible Draft summaries', () => {
     expect.hasAssertions();
-    const settings = { preference: null, language: 'en', locale: 'en-US' };
+    const settings = {
+      preference: null,
+      language: 'en',
+      locale: 'en-US',
+      timeZone: 'UTC',
+    };
     const { i18n } = createLocalization(settings, {
       getSettings: async () => settings,
       setLanguage: async () => settings,

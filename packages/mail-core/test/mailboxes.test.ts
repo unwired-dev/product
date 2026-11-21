@@ -230,8 +230,8 @@ describe('mailbox connections and the unified Inbox', () => {
       ['other@example.invalid', 'Other, middle'],
       ['alex@example.invalid', 'Alex, oldest'],
     ]);
-    // Grouping preserves connection identity and tie order, and advances at UTC midnight.
-    const sections = messageDateSections(unified, at(4));
+    // Grouping preserves connection identity and tie order, and advances at midnight in the given time zone.
+    const sections = messageDateSections(unified, at(4), 'UTC');
     expect(
       sections.map(({ key, data }) => [
         key,
@@ -243,10 +243,10 @@ describe('mailbox connections and the unified Inbox', () => {
       ['saved\nlastWeek', ['Other, middle', 'Alex, oldest']],
     ]);
     expect(sections.flatMap(({ data }) => data)).toStrictEqual(unified);
-    expect(messageDateSections(unified, at(5))[0]?.key).toBe(
+    expect(messageDateSections(unified, at(5), 'UTC')[0]?.key).toBe(
       'saved\nyesterday',
     );
-    expect(messageDateSections([], at(4))).toStrictEqual([
+    expect(messageDateSections([], at(4), 'UTC')).toStrictEqual([
       { key: 'saved', data: [] },
     ]);
     // The same order holds on every render, and each connection can be shown alone.

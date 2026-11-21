@@ -1092,6 +1092,7 @@ describe('sending a Draft', () => {
       await press('Edit');
       const refused =
         'The message wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.';
+      const shown = 'Couldn’t return the message to Drafts.';
       const undo = jest.spyOn(sender.outbox, 'undo');
       sender.storage.hold();
       sender.storage.failNextCommit('locked');
@@ -1110,11 +1111,11 @@ describe('sending a Draft', () => {
       await press('Edit');
       sender.storage.failNextCommit('locked');
       await press('Edit Anyway');
-      expect(screen.getByText(refused)).toBeOnTheScreen();
+      expect(screen.getByText(shown)).toBeOnTheScreen();
       // Cancelling the warning is the next Outbox action, so the older refusal leaves.
       await press('Cancel');
       await waitFor(() => {
-        expect(screen.queryByText(refused)).toBeNull();
+        expect(screen.queryByText(shown)).toBeNull();
       });
       await press('Edit');
       await press('Edit Anyway');
@@ -1180,10 +1181,13 @@ describe('sending a Draft', () => {
       sender.storage.failNextCommit('locked');
       await press('Undo');
       // The row stays as it was, and the refusal is heard at once.
-      // iPhone's narrower toast leaves the subject to the row.
+      // iPhone's narrower toast leaves the subject to the row; VoiceOver hears the whole sentence.
       const refused =
         'The message wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.';
-      expect(screen.getByText(refused)).toBeOnTheScreen();
+      expect(
+        screen.getByText('Couldn’t return the message to Drafts.'),
+      ).toBeOnTheScreen();
+      expect(screen.getByLabelText(refused)).toBeOnTheScreen();
       expect(
         screen.getByLabelText('Lisbon. To sam@example.invalid. Sending soon'),
       ).toBeOnTheScreen();
@@ -1194,7 +1198,7 @@ describe('sending a Draft', () => {
         'value',
         'Lisbon',
       );
-      expect(screen.queryByText(refused)).toBeNull();
+      expect(screen.queryByLabelText(refused)).toBeNull();
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
       expect(announce.mock.calls).toStrictEqual([[refused]]);
       await later(sender, 10_000);
@@ -1228,9 +1232,7 @@ describe('sending a Draft', () => {
       sender.storage.failNextCommit('locked');
       await press('Undo');
       expect(
-        screen.getByText(
-          'The message wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.',
-        ),
+        screen.getByText('Couldn’t return the message to Drafts.'),
       ).toBeOnTheScreen();
       await later(sender, 10_000);
       await press('Outbox');
@@ -1241,9 +1243,7 @@ describe('sending a Draft', () => {
         ),
       ).toBeOnTheScreen();
       expect(
-        screen.queryByText(
-          'The message wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.',
-        ),
+        screen.queryByText('Couldn’t return the message to Drafts.'),
       ).toBeNull();
     } finally {
       sender.outbox.dispose();

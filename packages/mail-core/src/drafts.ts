@@ -641,6 +641,74 @@ export const pickLimit = 20;
 export const unsendableAssets = (draft: Draft) =>
   assetsOf(draft).filter(({ state }) => state !== 'complete');
 
+// A file still being added, of the imports `running` now; while one is, Send waits.
+export const addingAsset = (draft: Draft, running: ReadonlySet<string>) =>
+  unsendableAssets(draft).find(
+    ({ state, id }) => state === 'importing' && running.has(id),
+  );
+
+// Each file once, though an Inline Image can appear more than once.
+const distinctAssets = (assets: readonly Asset[]) => [
+  ...new Map(assets.map((asset) => [asset.id, asset])).values(),
+];
+
+// Each file and its state, to tell whether the Draft's files changed.
+export const assetStates = (draft: Draft) =>
+  distinctAssets(assetsOf(draft))
+    .map(({ id, state }) => `${id}:${state}`)
+    .join(',');
+
+// Why a file was not added, as Send's question names it.
+const leftOutReason = (asset: Asset) => {
+  if (asset.state === 'importing') {
+    return 'interrupted';
+  }
+  if (asset.state === 'cancelled') {
+    return 'cancelled';
+  }
+  return asset.state === 'failed' && 'reason' in asset
+    ? 'tooLarge'
+    : 'notAdded';
+};
+
+// What Send asks before leaving out the files that were not added, though not one still being
+// added (`running`), naming each and why and how many other files will be sent; undefined when no
+// file would be left out. `ids` are the files Send Without Them removes.
+export const leftOutQuestion = (
+  t: Translate,
+  draft: Draft,
+  running: ReadonlySet<string>,
+) => {
+  const leftOut = distinctAssets(
+    unsendableAssets(draft).filter(
+      ({ state, id }) => state !== 'importing' || !running.has(id),
+    ),
+  );
+  if (leftOut.length === 0) {
+    return undefined;
+  }
+  const others = distinctAssets(assetsOf(draft)).length - leftOut.length;
+  const reasons = leftOut.map((asset) =>
+    t(`drafts.leftOut.${leftOutReason(asset)}`, { name: asset.name }),
+  );
+  const last = reasons.pop() ?? '';
+  const files =
+    reasons.length === 0
+      ? last
+      : t('drafts.leftOut.list', { items: reasons.join(', '), last });
+  return {
+    ids: leftOut.map(({ id }) => id),
+    title: t('drafts.leftOut.title', { count: leftOut.length }),
+    detail: `${files}. ${
+      others === 0
+        ? t('drafts.leftOut.none')
+        : t('drafts.leftOut.others', { count: others })
+    }`,
+    send: t('drafts.leftOut.send', { count: leftOut.length }),
+    keepEditing: t('drafts.leftOut.keepEditing'),
+  };
+};
+
 // The Draft with asset `id` replaced, wherever it is; the same Draft when it has none.
 export const withAsset = (
   draft: Draft,

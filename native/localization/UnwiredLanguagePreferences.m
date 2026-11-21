@@ -67,7 +67,10 @@ NSDictionary *UnwiredLanguageSettings(void)
     [components addObjectsFromArray:extensions];
   }
   NSString *locale = preference ?: [components componentsJoinedByString:@"-"];
-  return @{@"preference": preference ?: NSNull.null, @"language": language, @"locale": locale};
+  // Foundation caches the system time zone until it is reset, so a change while running shows.
+  [NSTimeZone resetSystemTimeZone];
+  return @{@"preference": preference ?: NSNull.null, @"language": language, @"locale": locale,
+      @"timeZone": NSTimeZone.systemTimeZone.name};
 }
 
 BOOL UnwiredSetLanguage(NSString *language)

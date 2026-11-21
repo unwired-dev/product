@@ -1,4 +1,4 @@
-import { messageDay } from '@private-email/localization';
+import { messageDay, messageMonth } from '@private-email/localization';
 import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
@@ -73,8 +73,16 @@ export {
   unifiedMailbox,
   unifiedRow,
   unifiedRoles,
+  allInboxes,
+  favoriteRows,
+  moveFavorite,
+  toggleFavorite,
 } from './mailbox-views.ts';
-export type { UnifiedRole } from './mailbox-views.ts';
+export type {
+  Favorite,
+  FavoriteEntries,
+  UnifiedRole,
+} from './mailbox-views.ts';
 export {
   ambiguousFolders,
   folderChoice,
@@ -498,7 +506,8 @@ const movedBy = (screened: Readonly<{ move: readonly string[] }> | undefined) =>
 // Account or address loses its Inbox and the mail it held in memory.
 export function createMailboxes(
   native: NativeGmailMailboxes,
-  registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
+  registration: Pick<Registration, 'subscribe' | 'getSnapshot'> &
+    Partial<Pick<Registration, 'refreshInbox'>>,
   {
     removed,
     arrived,
@@ -539,6 +548,8 @@ export function createMailboxes(
   }> = {},
 ) {
   const shared = createBodyLoads();
+  // A usage limit's automatic resume verifies its connection first, as a push wake does.
+  const { refreshInbox } = registration;
   const inboxes = new Map<string, Opened>();
   let order: readonly OpenMailbox[] = [];
   let connections: ReadonlyArray<Mailbox | ImapMailbox> = [];
@@ -766,6 +777,17 @@ export function createMailboxes(
                 shared,
                 connection: id,
                 provider,
+                ...(refreshInbox === undefined
+                  ? {}
+                  : {
+                      verify: async (load: () => Promise<void>) => {
+                        try {
+                          await refreshInbox(load, 'explicit', id);
+                        } catch {
+                          // Registration reports its failure; the Inbox keeps its saved mail.
+                        }
+                      },
+                    }),
               }),
             };
       inboxes.set(id, {
@@ -1038,26 +1060,29 @@ export function inboxMessages<L extends Listing>(
 }
 
 /**
- * Group an already newest-first metadata list into UTC date sections, retaining
- * each entry's mailbox identity and relative order. An empty list keeps a
- * section for the host's empty state.
+ * Group an already newest-first metadata list into date sections of the
+ * device's time zone, retaining each entry's mailbox identity and relative
+ * order. An empty list keeps a section for the host's empty state.
  *
  * @example
- *   messageDateSections(inboxMessages(mailboxes, scope), now);
+ *   messageDateSections(inboxMessages(mailboxes, scope), now, timeZone);
  *
  * @param {readonly M[]} messages - Validated metadata in newest-first order.
  * @param {number} now - The device's current time in milliseconds since the
  *   Unix epoch.
+ * @param {string} timeZone - The device's IANA time zone, whose calendar days
+ *   the sections follow.
  * @returns {{ key: string; data: readonly M[] }[]} Date sections in arrival
  *   order, or one empty saved section.
  */
 export function messageDateSections<
   M extends Readonly<{ message: Readonly<{ receivedAt: string }> }>,
->(messages: readonly M[], now: number) {
+>(messages: readonly M[], now: number, timeZone: string) {
   const groups = new Map<string, M[]>();
   for (const entry of messages) {
-    const day = messageDay(entry.message.receivedAt, now);
-    const key = `saved\n${day === 'earlier' ? entry.message.receivedAt.slice(0, 7) : day}`;
+    const { receivedAt } = entry.message;
+    const day = messageDay(receivedAt, now, timeZone);
+    const key = `saved\n${day === 'earlier' ? messageMonth(receivedAt, timeZone) : day}`;
     const group = groups.get(key);
     if (group === undefined) {
       groups.set(key, [entry]);

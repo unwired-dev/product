@@ -11,9 +11,12 @@ import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { UnifiedRole } from './mailbox-views.ts';
 import type { ResponseKind } from './responses.ts';
 
 import { rejectionDiagnostic, runLogged } from './diagnostics.ts';
+import { allMail } from './gmail-actions.ts';
+import { unifiedRoles, unifiedRow } from './mailbox-views.ts';
 import { createSubscribable } from './subscribable.ts';
 
 export type CommandSection = 'draft' | 'selection' | 'app' | 'navigation';
@@ -40,7 +43,13 @@ const commandOrder = [
   'spam',
   'compose',
   'search',
+  'favorites',
   'inbox',
+  'sentMailbox',
+  'archiveMailbox',
+  'allMailMailbox',
+  'spamMailbox',
+  'trashMailbox',
   'account',
 ] as const;
 
@@ -314,7 +323,13 @@ const icons: Record<CommandId, string> = {
   spam: 'xmark.bin',
   compose: 'square.and.pencil',
   search: 'magnifyingglass',
+  favorites: 'pencil',
   inbox: 'tray',
+  sentMailbox: 'paperplane',
+  archiveMailbox: 'archivebox',
+  allMailMailbox: 'tray.2',
+  spamMailbox: 'xmark.bin',
+  trashMailbox: 'trash',
   account: 'gearshape',
 };
 
@@ -485,6 +500,52 @@ export const inboxCommands = (
           run: handlers.account,
         }),
       ]),
+];
+
+const mailboxCommands = {
+  SENT: 'sentMailbox',
+  ARCHIVE: 'archiveMailbox',
+  [allMail]: 'allMailMailbox',
+  SPAM: 'spamMailbox',
+  TRASH: 'trashMailbox',
+} as const satisfies Record<UnifiedRole, CommandId>;
+
+/**
+ * The sidebar's commands: Edit Favorites, and going to each Unified Mailbox,
+ * which stays reachable here when Favorites hides it.
+ *
+ * @param {Translate} t The current translation.
+ * @param {object} handlers What editing Favorites and opening a Unified Mailbox
+ *   do.
+ * @returns {readonly Command[]} The sidebar's commands.
+ */
+export const sidebarCommands = (
+  t: Translate,
+  handlers: Readonly<{
+    favorites?: (() => void) | undefined;
+    unified: (role: UnifiedRole) => void;
+  }>,
+): readonly Command[] => [
+  ...(handlers.favorites === undefined
+    ? []
+    : [
+        command(t, {
+          id: 'favorites',
+          section: 'app',
+          title: t('commands.favorites'),
+          run: handlers.favorites,
+        }),
+      ]),
+  ...unifiedRoles.map((role) =>
+    command(t, {
+      id: mailboxCommands[role],
+      section: 'navigation',
+      title: unifiedRow(t, role).title,
+      run: () => {
+        handlers.unified(role);
+      },
+    }),
+  ),
 ];
 
 /**

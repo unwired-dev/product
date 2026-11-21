@@ -284,16 +284,40 @@ interface NativeMenu extends TurboModule {
 
 // The current minute, so what a view reads by the clock, such as a day, ends while it is open.
 const minute = 60_000;
+// One clock for every reader of the minute, ticking on the minute, so the list and an open reader
+// always read the same minute and change day together.
+const minuteListeners = new Set<() => void>();
+const currentMinute = () => Math.floor(Date.now() / minute) * minute;
+let shownMinute = currentMinute();
+let minuteTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+const tickMinute = () => {
+  shownMinute = currentMinute();
+  minuteTimer = setTimeout(
+    () => {
+      tickMinute();
+      for (const listener of minuteListeners) {
+        listener();
+      }
+    },
+    shownMinute + minute - Date.now(),
+  );
+};
 const subscribeMinute = (notify: () => void) => {
-  const timer = setInterval(notify, minute);
+  minuteListeners.add(notify);
+  if (minuteTimer === undefined) {
+    tickMinute();
+  }
   return () => {
-    clearInterval(timer);
+    minuteListeners.delete(notify);
+    if (minuteListeners.size === 0) {
+      clearTimeout(minuteTimer);
+      minuteTimer = undefined;
+    }
   };
 };
 export const useNow = () =>
-  useSyncExternalStore(
-    subscribeMinute,
-    () => Math.floor(Date.now() / minute) * minute,
+  useSyncExternalStore(subscribeMinute, () =>
+    minuteTimer === undefined ? currentMinute() : shownMinute,
   );
 
 // Drops an AppKit menu of `sections` from `anchor`, as a pull-down button's does, and runs the

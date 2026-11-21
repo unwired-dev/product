@@ -2,6 +2,7 @@ import type { Translate } from '@private-email/localization';
 
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
+import * as Schema from 'effect/Schema';
 
 import type {
   ImapFolderView,
@@ -396,6 +397,70 @@ export const unifiedRoles = [
   'TRASH',
 ] as const;
 export type UnifiedRole = (typeof unifiedRoles)[number];
+
+// The Favorites row listing every Inbox of the Profile. It is always shown.
+export const allInboxes = 'ALL_INBOXES';
+// A Favorites row: All Inboxes or a Unified Mailbox.
+export type Favorite = typeof allInboxes | UnifiedRole;
+// One row of a Profile's Favorites as its preference keeps them, in order. A row this build does not
+// know, which a newer build added, keeps its place.
+export const FavoriteEntriesSchema = Schema.Array(
+  Schema.Struct({ row: Schema.String, shown: Schema.Boolean }),
+);
+export type FavoriteEntries = typeof FavoriteEntriesSchema.Type;
+const favorites: readonly Favorite[] = [allInboxes, ...unifiedRoles];
+const isFavorite = (row: string): row is Favorite =>
+  favorites.some((favorite) => favorite === row);
+
+// `entries` without repeats, followed by each row this build knows and they lack, shown.
+const completed = (entries: FavoriteEntries): FavoriteEntries => {
+  const kept = Arr.dedupeWith(entries, (left, right) => left.row === right.row);
+  return [
+    ...kept,
+    ...favorites
+      .filter((row) => !kept.some((entry) => entry.row === row))
+      .map((row) => ({ row, shown: true })),
+  ];
+};
+
+// The Favorites rows this build knows, in the Profile's order, with whether each is shown. All
+// Inboxes always is.
+export const favoriteRows = (entries: FavoriteEntries) =>
+  completed(entries).flatMap(({ row, shown }) =>
+    isFavorite(row) ? [{ row, shown: shown || row === allInboxes }] : [],
+  );
+
+// `entries` with `row` shown or hidden. All Inboxes stays shown.
+export const toggleFavorite = (
+  entries: FavoriteEntries,
+  row: Favorite,
+): FavoriteEntries =>
+  completed(entries).map((entry) =>
+    entry.row === row && row !== allInboxes
+      ? { row, shown: !entry.shown }
+      : entry,
+  );
+
+// `entries` with `row` moved to place `index` among the rows this build knows. Rows it does not know
+// keep their places.
+export const moveFavorite = (
+  entries: FavoriteEntries,
+  row: Favorite,
+  index: number,
+): FavoriteEntries => {
+  const all = completed(entries);
+  const known = all.filter((entry) => isFavorite(entry.row));
+  const moving = known.find((entry) => entry.row === row);
+  if (moving === undefined) {
+    return all;
+  }
+  const order = known.filter((entry) => entry !== moving);
+  order.splice(Math.max(0, Math.min(index, order.length)), 0, moving);
+  const placed = order.values();
+  return all.map((entry) =>
+    isFavorite(entry.row) ? (placed.next().value ?? entry) : entry,
+  );
+};
 
 const unifiedTitles = {
   SENT: 'mailboxes.sent',

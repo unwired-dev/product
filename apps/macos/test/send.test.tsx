@@ -39,9 +39,9 @@ import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
-import { chooseSheetButton, sheetShown } from './native-alert.ts';
+import { chooseSheetButton, sheetShown, sheetsShown } from './native-alert.ts';
 import { chooseMenuItem } from './native-menu.ts';
-import { remindFromSendMenu } from './send-menu.tsx';
+import { remindFromSendMenu, sendMenuItem } from './send-menu.tsx';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const account = 'synthetic-product-account';
@@ -683,6 +683,183 @@ describe('sending a Draft', () => {
       expect(screen.queryByRole('alert', { name: waiting })).toBeNull();
       expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
       expect(announce).not.toHaveBeenCalledWith(waiting);
+    } finally {
+      sender.storage.release();
+      sender.outbox.dispose();
+    }
+  });
+
+  it('sends at once with Send Now, which waits for a file still being added', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lunch');
+
+      // While a file is still being added, Send Now names it and can't be chosen.
+      sender.storage.holdImports();
+      sender.storage.addFile('file:///terms.pdf', 'terms');
+      sender.storage.pickNext('files', [
+        {
+          uri: 'file:///terms.pdf',
+          name: 'terms.pdf',
+          type: 'application/pdf',
+        },
+      ]);
+      await press('Attach Files…');
+      await screen.findByLabelText('terms.pdf, Adding…');
+      expect(sendMenuItem('sendNow')).toMatchObject({
+        title: 'Send Now — waiting for terms.pdf',
+        subtitle: undefined,
+        disabled: true,
+      });
+      await act(async () => {
+        sender.storage.releaseImports();
+      });
+      await screen.findByLabelText('terms.pdf, 5 bytes');
+
+      // Once it is added, Send Now hands the message over without the Undo Send Window.
+      const sendNow = sendMenuItem('sendNow');
+      expect(sendNow).toMatchObject({
+        title: 'Send Now',
+        subtitle: 'No Undo',
+        disabled: false,
+      });
+      await sendNow.choose();
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      await later(sender, 0);
+      expect(sender.gmail.sends).toHaveLength(1);
+      expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    } finally {
+      sender.storage.release();
+      sender.outbox.dispose();
+    }
+  });
+
+  it('asks in a sheet to send without files that were not added, then sends the rest', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lease');
+      const attach = async (
+        file:
+          | Readonly<{ uri: string; name: string; type: string }>
+          | Readonly<{ name: string; type: string; oversized: 'true' }>,
+      ) => {
+        sender.storage.pickNext('files', [file]);
+        await press('Attach Files…');
+      };
+      sender.storage.addFile('file:///lease.pdf', 'lease');
+      await attach({
+        uri: 'file:///lease.pdf',
+        name: 'lease.pdf',
+        type: 'application/pdf',
+      });
+      await screen.findByLabelText('lease.pdf, 5 bytes');
+      await attach({
+        name: 'tour.mov',
+        type: 'video/quicktime',
+        oversized: 'true',
+      });
+      await screen.findByLabelText(
+        'tour.mov, Not added: too large for Drafts on this device',
+      );
+
+      // A file still being added keeps Send unavailable.
+      sender.storage.holdImports();
+      sender.storage.addFile('file:///keys.pkpass', 'keys');
+      await attach({
+        uri: 'file:///keys.pkpass',
+        name: 'keys.pkpass',
+        type: 'application/vnd.apple.pkpass',
+      });
+      await screen.findByLabelText('keys.pkpass, Adding…');
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+      await press('Cancel adding keys.pkpass');
+      await act(async () => {
+        sender.storage.releaseImports();
+        await sender.drafts.save();
+      });
+      await screen.findByLabelText('keys.pkpass, Not added: cancelled');
+
+      // Once only files that were not added are left, Send and Send Now ask first, once however
+      // often they are chosen; Keep Editing changes nothing.
+      expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+      await sendMenuItem('sendNow').choose();
+      expect(sheetShown()?.title).toBe('Send without 2 attachments?');
+      await press('Send');
+      expect(sheetsShown()).toStrictEqual([
+        {
+          title: 'Send without 2 attachments?',
+          detail:
+            'tour.mov is too large and keys.pkpass was cancelled. The other file will be sent.',
+          buttons: ['Send Without Them', 'Keep Editing'],
+          cancel: 1,
+        },
+      ]);
+      await act(async () => {
+        chooseSheetButton('Keep Editing');
+      });
+      expect(
+        screen.getByLabelText(
+          'tour.mov, Not added: too large for Drafts on this device',
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('keys.pkpass, Not added: cancelled'),
+      ).toBeOnTheScreen();
+      await later(sender, 10_000);
+      expect(sender.gmail.sends).toStrictEqual([]);
+
+      // A file added while the question is open leaves the Draft open to ask again.
+      await press('Send');
+      sender.storage.addFile('file:///map.pdf', 'map');
+      await attach({
+        uri: 'file:///map.pdf',
+        name: 'map.pdf',
+        type: 'application/pdf',
+      });
+      await screen.findByLabelText('map.pdf, 3 bytes');
+      await act(async () => {
+        chooseSheetButton('Send Without Them');
+      });
+      expect(screen.getByLabelText('Subject')).toBeOnTheScreen();
+      expect(
+        screen.getByLabelText('keys.pkpass, Not added: cancelled'),
+      ).toBeOnTheScreen();
+
+      // Send asks again; Send Without Them removes both and sends the rest after the Undo Send
+      // Window.
+      await press('Send');
+      expect(sheetShown()?.detail).toBe(
+        'tour.mov is too large and keys.pkpass was cancelled. The other 2 files will be sent.',
+      );
+      await act(async () => {
+        chooseSheetButton('Send Without Them');
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      await later(sender, 9999);
+      expect(sender.gmail.sends).toStrictEqual([]);
+      await later(sender, 1);
+      expect(sender.gmail.sends).toHaveLength(1);
+      const raw = sender.gmail.sends[0]?.raw;
+      expect(raw).toContain('Subject: Lease');
+      expect(raw).toContain('lease.pdf');
+      expect(raw).toContain('map.pdf');
+      expect(raw).not.toContain('tour.mov');
+      expect(raw).not.toContain('keys.pkpass');
     } finally {
       sender.storage.release();
       sender.outbox.dispose();

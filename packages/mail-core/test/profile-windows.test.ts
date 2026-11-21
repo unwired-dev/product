@@ -168,7 +168,12 @@ describe('window Profiles', () => {
     expect.hasAssertions();
     const { registration, work: workId } = await createTwoProfileRegistration();
     const { snapshot } = registration.getSnapshot();
-    const settings = { preference: null, language: 'en', locale: 'en-US' };
+    const settings = {
+      preference: null,
+      language: 'en',
+      locale: 'en-US',
+      timeZone: 'UTC',
+    };
     const { i18n } = createLocalization(settings, {
       getSettings: async () => settings,
       setLanguage: async () => settings,

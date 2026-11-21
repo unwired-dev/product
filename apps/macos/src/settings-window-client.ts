@@ -15,6 +15,8 @@ export const settingsHost = () =>
   TurboModuleRegistry.get<SettingsHost>('UnwiredCommands');
 
 interface WindowHost extends TurboModule {
+  readonly addListener: (eventName: string) => void;
+  readonly removeListeners: (count: number) => void;
   // AppKit saves the window's Mail Profile with its restorable state.
   readonly setWindowProfile: (window: string, profile: string) => void;
   // Opens a New Message window editing the Draft, in the Mail Profile's scope; its Save Draft
@@ -52,6 +54,13 @@ interface WindowHost extends TurboModule {
     selection: { readonly start: number; readonly end: number },
     // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- React Native's processed color type is mutable.
     color: ReturnType<typeof processColor>,
+  ) => void;
+  // Offers Format › Decrease Indent and Increase Indent while the body has focus; their choice
+  // arrives as an `indent` event naming the body and the direction.
+  readonly setComposerIndents: (
+    body: string,
+    outdent: boolean,
+    indent: boolean,
   ) => void;
   // Where the body shows the character at `index`, in its own coordinates from its top left;
   // null once that body or character is gone.

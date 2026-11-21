@@ -817,8 +817,9 @@ One frame size differs from the device on purpose. Here the system wins:
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
 
-- **Edit Favorites:** the sidebar's Edit mode, and **Edit** beside Account in the
-  iPhone Mailboxes frames, wait for #2106.
+- **Edit Favorites:** the Mac sidebar's Edit mode is built (#2593). The iPad
+  sidebar's Edit mode, and **Edit** beside Account in the iPhone Mailboxes
+  frames, wait for #2106.
 - **Message list header:** the iPhone frames' List/Chat toggle beside the title
   waits for #810. Their **…** menu waits for an issue that names what it offers.
 - **iPhone composer:** the frames draw the composer as a sheet, as
@@ -842,10 +843,8 @@ app follows under the issue named:
   the fold, which waits for #2119.
 - **Slash Command Menu:** the menu and Show Formatting Toolbar wait for #2117
   and #2118.
-- **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
-  until #2104.
-- **Reader date:** the frames write `Today, 8:12`. The app writes a full UTC date
-  until #2102.
+- **Toasts:** the frames draw glass toasts. iPhone and iPad do (#2591); the Mac
+  draws a deep graphite toast until the rest of #2104.
 - **Trusted Devices:** the rows' device symbol, Current Device, last activity and
   disclosure chevron wait for #2107.
 - **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for

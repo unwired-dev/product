@@ -432,9 +432,29 @@ Follows iOS: app text, and plain-text messages, keep following Dynamic Type.
 The reader adds the zoom to the sanitized document as the app's own CSS `zoom`, so
 the stored message and Drafts never change; WebKit's minimum font size still floors
 the smallest text below 100%. The zoom is a Device-Local Preference in this
-device's user defaults (`UnwiredMessageZoom`). Fit Wide Messages to the Screen
-([#2485](https://github.com/unwired-dev/product/issues/2485)), zooming one message
-from the reader, and the Mac follow in their own slices.
+device's user defaults (`UnwiredMessageZoom`). **Fit Wide Messages to the Screen**
+([#2485](https://github.com/unwired-dev/product/issues/2485)), on by default as in
+the frames and iOS Mail, shrinks a formatted message wider than the reader to its
+width at every Message Zoom; off, it scrolls sideways. CSS `zoom` cannot fit:
+WebKit's minimum font size and optical sizing keep the text wider. The reader
+instead marks the document with app-owned CSS: `--unwired-fit`, a zero-height
+root, so WebKit's own scroll ends at the shrunk content, and a `display:flow-root`
+body, so floats shrink with it. Each measurement in the patched WebView's isolated
+client world, at load and after every remote image update, first lays the message
+out normally. Only content that overflows, on either side, widens the body to its
+widest content (`width:fit-content`, `min-width:100%`); text that wraps within
+the view keeps its size. The body's `transform` then scales the full span, content
+past the left edge included, to the view's width and moves it into view, or is
+removed, in the same navigation. The height reported is the shrunk body's bottom,
+since the root never measures shorter than the view. A refit to a new scale rewraps
+the text, so the measurement first finds the character at the top of the reader's
+visible area, the first text across that row outside an image placeholder: a document taller than its view keeps that character in place in
+WebKit's own scroll, one that grows past the reader's 20,000-point height cap scrolls
+WebKit by the excess, and otherwise the measurement reports how far it moved, and the
+reader moves its offset by as much. The reader's WebView uses WebKit's mobile content
+mode, so iPad, too, leaves a wide document to this fit instead of zooming it out
+with an unscaled height. The switch is kept in `UnwiredFitWideMessages`. Zooming one message
+from the reader, and the Mac, follow in their own slices.
 
 ## Interface language
 

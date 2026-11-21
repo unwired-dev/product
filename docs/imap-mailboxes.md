@@ -1054,6 +1054,41 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   accessibility interface and synthesized keyboard and mouse input. For the first
   message only the Outbox entry was checked, not its row text. Mac organizing, search,
   attachments, IDLE and relaunch, recovery and large-folder backfill stay on #632.
+- **2026-11-21, Mac organize and search
+  ([#2585](https://github.com/unwired-dev/product/issues/2585)).** Target, toolchain and
+  operator as in the record above. Build: the app source of
+  `c55b27879524e52f026f81db368b1d6114fdcaa9`. Google Product Sign-In found the
+  certification Product Account, the Mac was unlocked with its Recovery Key, and both
+  certification mailboxes were connected through the app as in the record above. Before
+  they were connected, one test message was submitted over SMTP from each mailbox to the
+  other. Result: pass. Each step below was checked on the server over IMAP as well as in
+  the app. In each mailbox, the row menu's **Mark as Read** set the message's `\Seen` flag
+  and **Mark as Unread** cleared it. The reader's **Folders** moved the message to a folder
+  without a role (iCloud Mail's unmarked `Archive`, Seznam Email's `newsletters`), and
+  **Undo** moved it back to the Inbox under a new UID. iCloud Mail offers UIDPLUS without
+  MOVE, so the app's move path there is `UID COPY` with `UID EXPUNGE`; Seznam Email offers
+  MOVE, so its path is `UID MOVE`. The paths follow from each server's capabilities; the
+  IMAP commands themselves were not captured. The row menu's **Delete** moved the message
+  to the Trash-role folder (`Deleted Messages`, `trash`), and **Move to Inbox** in the row
+  menu of the Trash view, which offered no Delete, brought it back. Seznam Email declares
+  `\Archive` and `\Junk`: the row menu's **Archive** moved the message to `archive`, the
+  reader's **Move to Spam** moved it to `spam`, and each **Undo** brought it back. iCloud
+  Mail declares neither role, and no Spam folder was chosen. Its row menu offered only
+  Mark as Read or Mark as Unread, Pin and Delete, the reader's toolbar offered no Archive
+  or Move to Spam, and the Command Palette showed Archive as not available and found no
+  command for "spam". After those steps, one message was appended over IMAP to the same
+  folder without a role in each mailbox. A search for a word only in their subjects found
+  no saved mail in All Inboxes, a search that covers only the Inbox copies saved on the
+  device; whether the app had saved those two folders was not checked. **Search Mail
+  Servers** then listed both under **From mail servers**, from the servers; each opened in the reader with its text. Afterwards no run message
+  remained in any folder of either mailbox, **Sign Out of This Device** removed the
+  account's keys, Keychain records and mailbox access from the Mac and returned the app to
+  Welcome, and the run's caches, HTTP storage and saved window state were removed from
+  the app's container. Limitations: the system prompt for Contacts access appeared during
+  sign-in and was denied; the app kept running. The operator drove the app through the
+  macOS accessibility interface and synthesized keyboard and mouse input. Mac attachments,
+  the star, IDLE and relaunch, offline queueing, uncertain-move recovery and large-folder
+  backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

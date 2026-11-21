@@ -685,6 +685,34 @@ enum GmailTransport {
     }
   }
 
+  // The address in the answer to the grant's profile probe. A 429, a 5xx or a 403 for one of
+  // Gmail's usage limits is a transport failure, which keeps the saved Inbox open: authorizing Gmail
+  // again cannot resolve it. Any other answer refuses the grant.
+  static func profileAddress(status: Int, data: Data) throws -> String {
+    if status == 429 || status >= 500 || (status == 403 && usageLimited(data)) {
+      throw URLError(.cannotConnectToHost)
+    }
+    guard status == 200 else { throw RegistrationError.gmailUnavailable }
+    struct Profile: Decodable { let emailAddress: String }
+    return try JSONDecoder().decode(Profile.self, from: data).emailAddress
+  }
+
+  // Gmail's documented 403 usage limits, read as mailbox-read.ts reads them.
+  static func usageLimited(_ data: Data) -> Bool {
+    struct Answer: Decodable {
+      struct Failure: Decodable {
+        struct Reason: Decodable { let reason: String }
+        let errors: [Reason]
+      }
+      let error: Failure
+    }
+    let reasons: Set = ["dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded"]
+    guard let errors = try? JSONDecoder().decode(Answer.self, from: data).error.errors,
+      !errors.isEmpty
+    else { return false }
+    return errors.allSatisfy { reasons.contains($0.reason) }
+  }
+
   // Failures that prove the request never left this device: no connection, no host, or a secure
   // connection that was never established.
   static let unsent: Set<URLError.Code> = [

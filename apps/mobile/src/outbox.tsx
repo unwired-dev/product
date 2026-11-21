@@ -31,7 +31,7 @@ import {
 
 import { Action } from './action.tsx';
 import { SFSymbol, Toast } from './design.tsx';
-import { useLocalization, useMessageListDateFormats } from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { useOutbox, useOutboxEntries, useProfile } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -138,10 +138,12 @@ export function forgetRetired(entries: readonly OutboxSnapshotEntry[]) {
 function RefusedToast({
   open,
   message,
+  spoken,
   onTryAgain,
 }: {
   readonly open: boolean;
   readonly message: string;
+  readonly spoken: string;
   readonly onTryAgain: () => void;
 }) {
   const { t } = useLocalization();
@@ -150,6 +152,7 @@ function RefusedToast({
       open={open}
       symbol="exclamationmark.triangle.fill"
       message={message}
+      messageLabel={spoken}
       action={t('outbox.tryAgain')}
       onAction={onTryAgain}
     />
@@ -172,6 +175,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
     readonly id: string;
     readonly state: OutboxSnapshotEntry['state'];
     readonly message: string;
+    readonly spoken: string;
     readonly open: boolean;
   }>();
   const current = entries.find(({ id }) => id === refused?.id);
@@ -198,15 +202,23 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
       const now = outbox.getSnapshot().find((each) => each.id === entry.id);
       // Not when another press or action came since, or its sending began.
       if (started === action.current && now !== undefined && returnable(now)) {
-        // The iPhone's narrow toast leaves out the subject.
-        const message =
-          Platform.OS === 'ios' && Platform.isPad
-            ? t('outbox.refused', {
-                subject: draftSummary(t, entry.draft).subject,
-              })
-            : t('outbox.refusedShort');
-        setRefused({ id: entry.id, state: now.state, message, open: true });
-        AccessibilityInfo.announceForAccessibility(message);
+        // The iPhone's narrow toast leaves out the subject. VoiceOver also hears what happens next.
+        const { subject } = draftSummary(t, entry.draft);
+        const pad = Platform.OS === 'ios' && Platform.isPad;
+        const message = pad
+          ? t('outbox.notReturned', { subject })
+          : t('outbox.notReturnedShort');
+        const spoken = pad
+          ? t('outbox.refused', { subject })
+          : t('outbox.refusedShort');
+        setRefused({
+          id: entry.id,
+          state: now.state,
+          message,
+          spoken,
+          open: true,
+        });
+        AccessibilityInfo.announceForAccessibility(spoken);
       }
     })();
   };
@@ -230,6 +242,7 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
     refused === undefined ? null : (
       <RefusedToast
         message={refused.message}
+        spoken={refused.spoken}
         open={refused.open}
         onTryAgain={() => {
           if (current !== undefined) {
@@ -404,7 +417,7 @@ function ResponseRow({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const formats = useMessageListDateFormats();
+  const formats = useMessageDateFormats();
   const { subject, recipients } = responseSummary(t, invitation);
   const { status, unconfirmed } = outboxCopy(t, entry, 'imap');
   const label = t('outbox.rowLabel', {

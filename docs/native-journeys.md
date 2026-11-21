@@ -255,6 +255,15 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+`testSendNow` uses the same build and sign-in
+([#2594](https://github.com/unwired-dev/product/issues/2594)). It writes a New
+Message to `jordan@example.invalid`, opens Send's menu with a right click and
+chooses **Send Now**. Within 8 seconds of the click, before a plain Send's
+10-second Undo Send Window would end, the composer closes and the sidebar's
+**Outbox** leaves. The menu and the window after Send Now are kept as attachments. It sets
+Light; `testSendNowDark` runs it in Dark. The dimmed state while a file is still
+being added is covered by Jest.
+
 `testPinThread` uses the same build and sign-in
 ([#2280](https://github.com/unwired-dev/product/issues/2280)). It opens Gmail
 update 001 and chooses **Pin** in the reader's toolbar; the row then reads
@@ -358,6 +367,28 @@ and the header still names the problem; clicking it again expands it. The expand
 and collapsed sidebars are kept as attachments. The Inbox row's unread count is
 covered by the Mac Jest tests. VoiceOver speech is not covered.
 
+## Mac Edit Favorites journey
+
+The `testEditFavorites` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2593](https://github.com/unwired-dev/product/issues/2593)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testEditFavorites
+```
+
+Edit Favorites… in the Favorites header's context menu shows the editable list with
+**Done**, which passes an accessibility audit. Clicking Spam hides it, and dragging
+Trash's handle two rows up moves it above Spam and All Mail. After Done the sidebar
+lists All Inboxes, Sent, Archive, Trash and All Mail, and after Quit and a relaunch
+it lists them again. Edit mode, the edited list and the relaunched sidebar are kept as
+attachments. The Move Up and Move Down actions and Command-Option-Up and Down are
+covered by the Mac Jest tests, and the Private Sync merge by the mail-core tests.
+Space and Return, VoiceOver speech and keyboard focus after a move are not covered.
+
 ## Mac composer recovery journey
 
 The `testComposerRecoveryAfterForceQuit` journey uses the same
@@ -383,6 +414,28 @@ The offer and the restored composer are kept as attachments. The
 same there. Neither covers the record's removal on sign-out, account removal or a
 Product Account change, which [#1989](https://github.com/unwired-dev/product/issues/1989)
 still needs.
+
+## Mac list indent journey
+
+The `testListIndent` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2597](https://github.com/unwired-dev/product/issues/2597)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testListIndent
+```
+
+A New Message body gets a two-item bulleted list with the caret in the second
+item. The format bar's **Outdent** is off and **Indent** on. Command-] nests the
+item one level and **Format › Increase Indent** a second; at the third level
+Indent and Increase Indent are off and Decrease Indent on. One Command-Z takes
+back one level, then Shift-Tab, Tab and Command-[ move the item out, in and out.
+The captures "List Indent" and "List Indent third level" are named with the
+appearance. Indenting several selected items and sent HTML are covered by the
+mail-core tests.
 
 ## iPhone and iPad IMAP Spam and Trash folder journey
 
@@ -476,7 +529,7 @@ banner, **Change** and **Remove Reminder**
 ([#2144](https://github.com/unwired-dev/product/issues/2144)). The captures are
 named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
 Reminder". The journey fails later on iPhone
-([#2146](https://github.com/unwired-dev/product/issues/2146)) and iPad
+([#2587](https://github.com/unwired-dev/product/issues/2587)) and iPad
 ([#2148](https://github.com/unwired-dev/product/issues/2148)).
 
 ## iPhone and iPad Gmail pause journey

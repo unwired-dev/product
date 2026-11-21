@@ -3,18 +3,25 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Switch, Text, View } from 'react-native';
 
 import type { SettingsDestination } from './settings.tsx';
 
 import { MenuButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { messageZooms, setMessageZoom, useMessageZoom } from './reading.ts';
+import {
+  messageZooms,
+  setFitWideMessages,
+  setMessageZoom,
+  useFitWideMessages,
+  useMessageZoom,
+} from './reading.ts';
 import {
   PopUpChevrons,
   settingsColumns,
   SettingsGroup,
   SettingsRow,
+  switchRowHeight,
 } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -29,7 +36,8 @@ const styles = StyleSheet.create({
   value: settingsColumns ? typography.ipadList.body : textStyles.body,
 });
 
-// Settings › Reading: app text follows the system; received formatted mail zooms on this device.
+// Settings › Reading: app text follows the system; received formatted mail zooms, and wide mail
+// fits the screen, on this device.
 export function ReadingSettings({
   destination,
 }: {
@@ -38,6 +46,7 @@ export function ReadingSettings({
   const { t } = useLocalization();
   const colors = usePalette();
   const zoom = useMessageZoom();
+  const fit = useFitWideMessages();
   const context = settingsColumns ? 'ipad' : 'iphone';
   const percent = (value: number) => t('reading.percent', { value });
   if (destination !== 'reading') {
@@ -79,6 +88,16 @@ export function ReadingSettings({
               <PopUpChevrons scaled={settingsColumns} />
             </View>
           </MenuButton>
+        </SettingsRow>
+        <SettingsRow
+          title={t('reading.fitWide', { context })}
+          minHeight={switchRowHeight}>
+          <Switch
+            accessibilityLabel={t('reading.fitWide', { context })}
+            value={fit}
+            trackColor={{ false: colors.fillTrack, true: colors.accentFill }}
+            onValueChange={setFitWideMessages}
+          />
         </SettingsRow>
       </SettingsGroup>
     </>

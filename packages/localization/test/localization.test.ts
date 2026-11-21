@@ -14,6 +14,7 @@ function storage() {
     preference: null,
     language: 'en',
     locale: 'en-GB',
+    timeZone: 'UTC',
   };
   return {
     getSettings: async () => settings,
@@ -22,6 +23,7 @@ function storage() {
         preference,
         language: preference ?? 'en',
         locale: preference ?? 'en-GB',
+        timeZone: 'UTC',
       };
       return settings;
     },
@@ -45,6 +47,8 @@ describe('interface language', () => {
       { ...initial, preference: 'unsupported' },
       { ...initial, language: 42 },
       { ...initial, locale: 'not_a_locale' },
+      { ...initial, timeZone: 'Not/A_Zone' },
+      { preference: null, language: 'en', locale: 'en' },
     ]) {
       expect(() => createLocalization(invalid, native)).toThrow(
         'Invalid native language settings.',
@@ -62,7 +66,7 @@ describe('interface language', () => {
         publications: listener.mock.calls.length,
       }).toStrictEqual({ settings: initial, language: 'en', publications: 0 });
     }
-    reply = { preference: 'en', language: 'en', locale: 'en' };
+    reply = { preference: 'en', language: 'en', locale: 'en', timeZone: 'UTC' };
     await app.setLanguage('en');
     expect({
       settings: app.getSnapshot(),
@@ -105,12 +109,14 @@ describe('interface language', () => {
       preference: 'en',
       language: 'en',
       locale: 'en',
+      timeZone: 'UTC',
     });
     await relaunched.setLanguage(null);
     expect(relaunched.getSnapshot()).toStrictEqual({
       preference: null,
       language: 'en',
       locale: 'en-GB',
+      timeZone: 'UTC',
     });
   });
 

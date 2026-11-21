@@ -1012,7 +1012,7 @@ export function Inbox({
   const reload = useReloadMailboxes();
   const account = use(AccountContext);
   const colors = usePalette();
-  const { t } = useLocalization();
+  const { t, settings } = useLocalization();
   const profile = useProfile();
   const search = useRef<TextInput>(null);
   const composeSearch = useComposeSearch(composing, search);
@@ -1078,8 +1078,8 @@ export function Inbox({
   const messages = results ?? listed;
   const now = useNow();
   const dated = useMemo(
-    () => messageDateSections(messages, now),
-    [messages, now],
+    () => messageDateSections(messages, now, settings.timeZone),
+    [messages, now, settings.timeZone],
   );
   const outboxView = useOutboxView({
     chosen: view.outbox === true,

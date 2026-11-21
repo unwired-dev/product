@@ -98,6 +98,84 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(token.count, 0)
   }
 
+  // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
+  // Decrease Indent (Command-[) and Tab and Shift-Tab nest the item three levels deep, Indent
+  // switches off at the third, and each change is one Undo step.
+  func testListIndent() throws {
+    try listIndent(appearance: "Light")
+  }
+
+  func testListIndentDark() throws {
+    try listIndent(appearance: "Dark")
+  }
+
+  private func listIndent(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    let body = window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    body.typeText("Plan")
+    app.typeKey(.return, modifierFlags: [])
+    app.typeText("Seats")
+    app.typeKey("a", modifierFlags: .command)
+    window.buttons["Bulleted List"].click()
+    app.typeKey(.rightArrow, modifierFlags: [])
+    let nesting = "\u{2003}\u{2002}"
+    func shows(_ levels: Int) {
+      waitUntil {
+        body.value as? String == "• Plan\n\(String(repeating: nesting, count: levels))• Seats"
+      }
+    }
+    shows(0)
+    let outdent = window.buttons["Outdent"]
+    let indent = window.buttons["Indent"]
+    XCTAssertFalse(outdent.isEnabled)
+    XCTAssertTrue(indent.isEnabled)
+    let format = app.menuBars.menuBarItems["Format"]
+    func menuItem(_ title: String) -> XCUIElement { format.menuItems[title] }
+    app.typeKey("]", modifierFlags: .command)
+    shows(1)
+    XCTAssertTrue(outdent.isEnabled)
+    attach("List Indent")
+    format.click()
+    menuItem("Increase Indent").click()
+    shows(2)
+    XCTAssertFalse(indent.isEnabled)
+    format.click()
+    XCTAssertFalse(menuItem("Increase Indent").isEnabled)
+    XCTAssertTrue(menuItem("Decrease Indent").isEnabled)
+    app.typeKey(.escape, modifierFlags: [])
+    attach("List Indent third level")
+    // One Undo takes back one level; Shift-Tab and Tab outdent and indent; Command-[ outdents.
+    app.typeKey("z", modifierFlags: .command)
+    shows(1)
+    app.typeKey(.tab, modifierFlags: .shift)
+    shows(0)
+    app.typeKey(.tab, modifierFlags: [])
+    shows(1)
+    app.typeKey("[", modifierFlags: .command)
+    shows(0)
+  }
+
   // #2350: Send stays unavailable until the Draft has a complete recipient, and To says why.
   func testSendBlockedReason() throws {
     try sendBlockedReason(appearance: "Light")
@@ -148,6 +226,62 @@ final class WindowTests: XCTestCase {
     window.typeKey(.return, modifierFlags: [])
     waitUntil { send.isEnabled }
     XCTAssertFalse(text("not a complete address", in: window).exists)
+  }
+
+  // #2594: Send's menu offers Send Now, which hands the message to the Outbox with no Undo Send
+  // Window, so it never waits as "Sending soon".
+  func testSendNow() throws {
+    try sendNow(appearance: "Light")
+  }
+
+  func testSendNowDark() throws {
+    try sendNow(appearance: "Dark")
+  }
+
+  private func sendNow(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ screenshot: XCUIScreenshot, _ name: String) {
+      let attachment = XCTAttachment(screenshot: screenshot)
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let send = window.buttons["Send"].firstMatch
+    typeRecipient(window.textFields["To"], "jordan@example.invalid")
+    // The address's contact suggestion covers Subject; Return accepts it.
+    window.typeKey(.return, modifierFlags: [])
+    let subject = window.textFields["Subject"]
+    subject.click()
+    subject.typeText("Send Now check")
+    waitUntil { send.isEnabled }
+    send.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+    // AppKit names the item by its title and subtitle.
+    let item = app.menuItems["Send Now, No Undo"]
+    XCTAssertTrue(item.waitForExistence(timeout: 5))
+    XCTAssertTrue(item.isEnabled)
+    // The menu's own element has an empty frame, so the screen is captured.
+    attach(XCUIScreen.main.screenshot(), "Send menu with Send Now")
+    // Send keeps the sidebar's Outbox for its 10-second Undo Send Window; within 8 seconds of the
+    // click, Send Now's composer closes and its delivered message leaves the Outbox.
+    let deadline = Date().addingTimeInterval(8)
+    item.click()
+    XCTAssertTrue(subject.waitForNonExistence(timeout: deadline.timeIntervalSinceNow))
+    XCTAssertTrue(
+      window.buttons["Outbox"].waitForNonExistence(timeout: max(0, deadline.timeIntervalSinceNow)))
+    attach(window.screenshot(), "After Send Now")
   }
 
   // #2406: a force quit mid-typing keeps the New Message's unsaved edits, which Restore recovers
@@ -1975,6 +2109,79 @@ final class WindowTests: XCTestCase {
     header.click()
     waitUntil { header.value as? String == "expanded" }
     XCTAssertTrue(header.label.contains(problem))
+  }
+
+  // #2593: Edit Favorites hides a row and reorders two, and the sidebar keeps them after a relaunch.
+  func testEditFavorites() throws {
+    try editFavorites(appearance: "Light")
+  }
+
+  func testEditFavoritesDark() throws {
+    try editFavorites(appearance: "Dark")
+  }
+
+  private func editFavorites(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    // The sidebar's Favorites rows from top to bottom.
+    func favorites() -> [String] {
+      let names = ["All Inboxes", "Sent", "Archive", "All Mail", "Spam", "Trash"]
+      return window.buttons.allElementsBoundByIndex
+        .map { ($0.label.replacingOccurrences(of: ". In All Mailboxes", with: ""), $0.frame.minY) }
+        .filter { names.contains($0.0) }
+        .sorted { $0.1 < $1.1 }
+        .map(\.0)
+    }
+
+    let header = window.buttons["Favorites"]
+    XCTAssertTrue(header.waitForExistence(timeout: 15))
+    header.rightClick()
+    XCTAssertTrue(app.menuItems["Edit Favorites…"].waitForExistence(timeout: 5))
+    app.menuItems["Edit Favorites…"].click()
+    let done = window.buttons["Done"]
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    let spam = window.buttons["Spam"]
+    XCTAssertEqual(spam.value as? String, "Shown")
+    attach("Edit Favorites")
+    try audit(app, "Edit Favorites")
+    spam.click()
+    waitUntil { spam.value as? String == "Hidden" }
+    // Trash's handle, at the row's trailing end, drags it two rows up, above Spam and All Mail.
+    let trash = window.buttons["Trash"]
+    let allMail = window.buttons["All Mail"]
+    let handle = trash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+      .withOffset(CGVector(dx: -12, dy: 0))
+    handle.click(forDuration: 0.3, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -56)))
+    waitUntil { trash.frame.minY < allMail.frame.minY }
+    attach("Spam hidden, Trash above All Mail")
+    done.click()
+    XCTAssertTrue(done.waitForNonExistence(timeout: 10))
+    let edited = ["All Inboxes", "Sent", "Archive", "Trash", "All Mail"]
+    waitUntil { favorites() == edited }
+    attach("Edited Favorites")
+
+    app.typeKey("q", modifierFlags: .command)
+    waitUntil { app.state == .notRunning }
+    app.launch()
+    XCTAssertTrue(window.buttons["All Inboxes"].waitForExistence(timeout: 45))
+    waitUntil { favorites() == edited }
+    attach("Edited Favorites after a relaunch")
   }
 
   // #1901: moving the Microsoft mailbox into a Work Mail Profile takes its messages, Search
