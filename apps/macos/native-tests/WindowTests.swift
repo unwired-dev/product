@@ -173,8 +173,8 @@ final class WindowTests: XCTestCase {
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
     performanceSetup(app, window: window)
-    func attach(_ element: XCUIElement, _ name: String) {
-      let attachment = XCTAttachment(screenshot: element.screenshot())
+    func attach(_ screenshot: XCUIScreenshot, _ name: String) {
+      let attachment = XCTAttachment(screenshot: screenshot)
       attachment.name = "\(name) (\(appearance))"
       attachment.lifetime = .keepAlways
       add(attachment)
@@ -190,16 +190,18 @@ final class WindowTests: XCTestCase {
     subject.typeText("Send Now check")
     waitUntil { send.isEnabled }
     send.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
-    let item = app.menuItems["Send Now"]
+    // AppKit names the item by its title and subtitle.
+    let item = app.menuItems["Send Now, No Undo"]
     XCTAssertTrue(item.waitForExistence(timeout: 5))
     XCTAssertTrue(item.isEnabled)
-    attach(app.menus.firstMatch, "Send menu with Send Now")
+    // The menu's own element has an empty frame, so the screen is captured.
+    attach(XCUIScreen.main.screenshot(), "Send menu with Send Now")
     item.click()
     XCTAssertTrue(subject.waitForNonExistence(timeout: 15))
     // Send keeps the sidebar's Outbox for its 10-second Undo Send Window; Send Now's message leaves
     // it once delivered.
     XCTAssertTrue(window.buttons["Outbox"].waitForNonExistence(timeout: 8))
-    attach(window, "After Send Now")
+    attach(window.screenshot(), "After Send Now")
   }
 
   // #2406: a force quit mid-typing keeps the New Message's unsaved edits, which Restore recovers
