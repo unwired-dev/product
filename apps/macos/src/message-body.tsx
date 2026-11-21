@@ -366,11 +366,16 @@ interface ReaderViewport {
   readonly content: () =>
     | ReturnType<ScrollView['getNativeScrollRef']>
     | undefined;
+  // Scrolls back to the header, where the reader's notices show.
+  readonly top: () => void;
 }
 
 const ReaderViewportContext = createContext<ReaderViewport | undefined>(
   undefined,
 );
+
+// Scrolls the reader back to its header; nothing outside a reader.
+export const useReaderTop = () => use(ReaderViewportContext)?.top;
 
 // The reader's scrolling content, reporting its visible range to the documents inside it.
 export function ReaderScrollView({
@@ -391,6 +396,9 @@ export function ReaderScrollView({
       },
       get: () => visible,
       content: () => scroll.current?.getNativeScrollRef(),
+      top: () => {
+        scroll.current?.scrollTo({ y: 0 });
+      },
       update: (next: Partial<typeof visible>) => {
         visible = { ...visible, ...next };
         for (const listener of listeners) {

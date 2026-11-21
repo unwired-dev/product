@@ -38,7 +38,7 @@ import Foundation
 
     static func present(
       _ url: URL, action: Action, from origin: PresentationOrigin,
-      failed: @escaping @MainActor (URL) -> Void = { _ in },
+      failed: @escaping @MainActor (URL) -> Void,
       ended: @escaping @MainActor (URL?) -> Void
     ) -> Bool {
       guard let window = origin.window, !window.isHidden,
@@ -174,7 +174,7 @@ import Foundation
 
     static func present(
       _ url: URL, action: Action, from origin: PresentationOrigin,
-      failed: @escaping @MainActor (URL) -> Void = { _ in },
+      failed: @escaping @MainActor (URL) -> Void,
       ended: @escaping @MainActor (URL?) -> Void
     ) -> Bool {
       guard let window = origin.window, window.isVisible, let view = window.contentView
@@ -232,6 +232,8 @@ import Foundation
           guard response == .OK, let destination = panel.url else { return ended(nil) }
           Task {
             do {
+              // The panel's grant to write there ends with the write; Finder still reveals it.
+              defer { destination.stopAccessingSecurityScopedResource() }
               try await Task.detached(priority: .userInitiated) {
                 try Data(contentsOf: url, options: .alwaysMapped)
                   .write(to: destination, options: .atomic)

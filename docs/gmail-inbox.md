@@ -1599,9 +1599,10 @@ every other cached view deletes its downloads even while the search reader stays
 Download acquires a new copy. Opening a result outside every cached view does not save its body
 in the encrypted body cache.
 
-A file still shown in Quick Look, or handed to a share that has not finished, is
+A file still shown in Quick Look, handed to a share that has not finished, or being
+saved with **Save to Files…** or **Save As…**, is
 deleted after its reader closes, its message leaves the Inbox and every other cached view, or the Inbox closes or
-changes owner only once that preview closes or the share ends.
+changes owner only once that preview closes, the share ends or the save finishes.
 It also stays through eviction and counts toward the 250 MiB limit. A download
 that cannot fit without deleting a presented file fails and can be retried after
 the preview closes or the share ends.

@@ -6,7 +6,11 @@ import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mai
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
-import { AccessibilityInfo, TurboModuleRegistry } from 'react-native';
+import {
+  AccessibilityInfo,
+  ScrollView,
+  TurboModuleRegistry,
+} from 'react-native';
 
 import {
   SaveFailedNotice,
@@ -15,7 +19,11 @@ import {
 } from '../src/attachment-save.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
-import { MessageBody, SaveOutcomeContext } from '../src/message-body.tsx';
+import {
+  MessageBody,
+  ReaderScrollView,
+  SaveOutcomeContext,
+} from '../src/message-body.tsx';
 
 // The application callback behind a rendered control, as delayed native input would invoke it.
 const pressHandler = (
@@ -412,11 +420,13 @@ function SavingReader({
   const saving = useSaveOutcome(id, readable);
   return (
     <SaveOutcomeContext value={saving.start}>
-      <SaveFailedNotice shown={saving.shown} />
-      <MessageBody
-        inbox={inbox}
-        id={id}
-      />
+      <ReaderScrollView>
+        <SaveFailedNotice shown={saving.shown} />
+        <MessageBody
+          inbox={inbox}
+          id={id}
+        />
+      </ReaderScrollView>
       <SaveOutcomeToast shown={saving.shown} />
     </SaveOutcomeContext>
   );
@@ -560,17 +570,19 @@ describe('saving a received attachment with Save As…', () => {
     }
   });
 
-  it('names the chosen folder when writing there fails, and the file when no panel could open', async () => {
+  it('names the chosen folder when writing there fails, and the file when no panel could open, scrolling up to say so', async () => {
     expect.hasAssertions();
     const { gmail, app, save } = await openSaving();
     jest
       .spyOn(gmail.native, 'presentAttachment')
       .mockResolvedValueOnce({ failed: 'Home' });
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo');
     try {
       await save();
       await expect(
         screen.findByLabelText('Couldn’t save to Home The file was not saved.'),
       ).resolves.toBeOnTheScreen();
+      expect(scrollTo.mock.calls).toStrictEqual([[{ y: 0 }]]);
       jest.restoreAllMocks();
       gmail.failPresent('unavailable');
       await save();

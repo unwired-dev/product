@@ -2472,7 +2472,13 @@ extension UnwiredRegistration {
         let file = folder.appendingPathComponent((name as NSString).lastPathComponent)
         try Data(contents.utf8).write(
           to: file, options: [.withoutOverwriting, .completeFileProtection])
-        let presented = AttachmentPresenter.present(file, action: .save, from: origin) { saved in
+        let presented = AttachmentPresenter.present(
+          file, action: .save, from: origin,
+          failed: { _ in
+            discard()
+            reject("unavailable", nil, nil)
+          }
+        ) { saved in
           discard()
           resolve(saved == nil ? "cancelled" : "saved")
         }

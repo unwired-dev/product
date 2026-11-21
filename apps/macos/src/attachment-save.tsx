@@ -16,6 +16,7 @@ import type { SaveOutcome } from './message-body.tsx';
 import { Toast } from './design.tsx';
 import { ReaderToastContext } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
+import { useReaderTop } from './message-body.tsx';
 import { windowHost } from './settings-window-client.ts';
 import { textStyles, usePalette } from './theme.ts';
 
@@ -96,6 +97,14 @@ type Shown = ReturnType<typeof useSaveOutcome>['shown'];
 export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {
   const colors = usePalette();
   const { t } = useLocalization();
+  const top = useReaderTop();
+  const failed = shown?.outcome.kind === 'failed' ? shown : undefined;
+  // The menu that started the save may be far down a long message.
+  useEffect(() => {
+    if (failed !== undefined) {
+      top?.();
+    }
+  }, [failed, top]);
   if (shown?.outcome.kind !== 'failed') {
     return null;
   }
