@@ -5,7 +5,12 @@ import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ComponentProps, ContextType, ReactNode } from 'react';
+import type {
+  ComponentProps,
+  ContextType,
+  ReactElement,
+  ReactNode,
+} from 'react';
 import type { TextInputInstance } from 'react-native';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
@@ -595,6 +600,25 @@ const searchSections = <T,>(
     : []),
 ];
 
+// The Outbox view shows its own heading over the Outbox alone, with no older mail or footer.
+const withOutboxView = (
+  outboxView: Readonly<{ title: string; subtitle: string }> | undefined,
+  list: Readonly<{
+    title: string;
+    subtitle: string;
+    onEndReached: () => void;
+    footer: ReactElement;
+  }>,
+) =>
+  outboxView === undefined
+    ? list
+    : {
+        title: outboxView.title,
+        subtitle: outboxView.subtitle,
+        onEndReached: undefined,
+        footer: undefined,
+      };
+
 // The Outbox view lists the Outbox alone. Otherwise Drafts come before received mail, and a search
 // lists matching messages alone.
 function inboxSections<M>({
@@ -604,8 +628,8 @@ function inboxSections<M>({
   online,
   searching,
 }: Readonly<{
-  // The Outbox's messages while the Outbox view shows them.
-  outbox: readonly OutboxSnapshotEntry[] | undefined;
+  // The Outbox view, while it shows the Outbox's messages.
+  outbox: Readonly<{ entries: readonly OutboxSnapshotEntry[] }> | undefined;
   drafts: readonly Draft[];
   messages: ReadonlyArray<Readonly<{ key: string; data: readonly M[] }>>;
   online: OnlineSections<M>;
@@ -615,7 +639,7 @@ function inboxSections<M>({
     return [
       {
         key: 'outbox',
-        data: outbox.map((entry): OutboxItem | DraftItem | M => ({
+        data: outbox.entries.map((entry): OutboxItem | DraftItem | M => ({
           outbox: entry,
         })),
       },
@@ -910,8 +934,8 @@ export function Inbox({
     searching,
   });
   const sections = inboxSections({
-    drafts: profileDrafts({ drafts, outbox, account, profile }).drafts,
-    outbox: outboxView?.entries,
+    drafts: profileDrafts({ drafts, outbox: [], account, profile }).drafts,
+    outbox: outboxView,
     messages: dated,
     online,
     searching,
@@ -1131,6 +1155,39 @@ export function Inbox({
       }
     />
   );
+  const { onEndReached, footer, ...heading } = withOutboxView(outboxView, {
+    title,
+    subtitle: subtitleOf(t, unconnected, {
+      scope: scopeName,
+      status,
+      signIn,
+      title,
+    }),
+    onEndReached: showOlder,
+    footer: searching ? (
+      <SearchFooter
+        search={searchState}
+        mailboxes={mailboxes}
+        shown={shown}
+        ready={ready}
+        unlisted={unlisted}
+        scopeName={scopeName}
+        folderName={folderName}
+      />
+    ) : (
+      <InboxFooter
+        unconnected={unconnected !== undefined}
+        connected={gmail}
+        limited={limited}
+        downloading={downloading}
+        oldest={listed.at(-1)}
+        now={now}
+        empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
+        syncing={syncing}>
+        {empty}
+      </InboxFooter>
+    ),
+  });
   return (
     // The surface fills the safe area's margins too, behind the status bar and home indicator.
     <View
@@ -1151,16 +1208,8 @@ export function Inbox({
             <SearchHeading search={searchState}>
               <HeadingTitle
                 bar={bar}
-                title={outboxView?.title ?? title}
-                subtitle={
-                  outboxView?.subtitle ??
-                  subtitleOf(t, unconnected, {
-                    scope: scopeName,
-                    status,
-                    signIn,
-                    title,
-                  })
-                }
+                title={heading.title}
+                subtitle={heading.subtitle}
               />
             </SearchHeading>
           </InboxHeading>
@@ -1186,7 +1235,7 @@ export function Inbox({
             onRefresh={() => {
               void refresh();
             }}
-            onEndReached={outboxView === undefined ? showOlder : undefined}
+            onEndReached={onEndReached}
             sections={placed}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {
@@ -1316,31 +1365,7 @@ export function Inbox({
                 {onCompose === undefined ? null : <DraftList />}
               </>
             }
-            ListFooterComponent={
-              outboxView !== undefined ? undefined : searching ? (
-                <SearchFooter
-                  search={searchState}
-                  mailboxes={mailboxes}
-                  shown={shown}
-                  ready={ready}
-                  unlisted={unlisted}
-                  scopeName={scopeName}
-                  folderName={folderName}
-                />
-              ) : (
-                <InboxFooter
-                  unconnected={unconnected !== undefined}
-                  connected={gmail}
-                  limited={limited}
-                  downloading={downloading}
-                  oldest={listed.at(-1)}
-                  now={now}
-                  empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
-                  syncing={syncing}>
-                  {empty}
-                </InboxFooter>
-              )
-            }
+            ListFooterComponent={footer}
             ListFooterComponentStyle={styles.listFooter}
             renderItem={({ item, section, index }) => {
               if ('outbox' in item) {

@@ -946,8 +946,12 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(jordan.exists)
     XCTAssertFalse(draft.exists)
     XCTAssertFalse(outbox.exists)
-    XCTAssertFalse(app.buttons["Outbox"].exists)
     XCTAssertFalse(sending.exists)
+    // The Primary Profile's Mailboxes offer no Outbox while Work's holds the message.
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    XCTAssertFalse(app.buttons["Outbox"].exists)
+    app.buttons["All Inboxes"].tap()
+    XCTAssertTrue(rowan.waitForExistence(timeout: 10))
     // Synthetic Graph holds the Work report a minute after the Undo Send Window.
     XCTAssertLessThan(
       Date().timeIntervalSince(sentAt), 70, "The Primary Profile was checked after Work's send")
@@ -1496,7 +1500,9 @@ final class InboxTests: XCTestCase {
       add(stuck)
       XCTFail("The sent message stayed in the Outbox")
     }
-    // The emptied Outbox leaves Mailboxes, and the list shows All Inboxes again.
+    // The emptied Outbox returns the list to All Inboxes and leaves Mailboxes.
+    XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 10))
+    revealSwitcher(app, app.buttons["All Inboxes"])
     XCTAssertTrue(app.buttons["Outbox"].waitForNonExistence(timeout: 10))
   }
 
