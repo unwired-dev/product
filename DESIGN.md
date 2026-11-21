@@ -423,7 +423,9 @@ styles) so the file stays editable.
   **Edit**, beside Hide Sidebar in the iPad sidebar's top row and beside Account in
   iPhone's Mailboxes header, turns Favorites into the Edit Favorites list until
   **Done**, a prominent capsule on iPad and a checkmark circle that replaces Edit and
-  Account on iPhone (#2611).
+  Account on iPhone (#2611). The same list follows with each Mailbox Connection: a
+  checkmark and handle on its header, and its folders as Edit rows without counts;
+  a hidden connection collapses to its header.
 - **Message list header:** mailbox title, a subtitle carrying unread count and
   sync status, and a row of up to five Mail View chips in the order the
   [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior)

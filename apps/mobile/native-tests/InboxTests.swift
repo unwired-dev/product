@@ -4022,7 +4022,8 @@ final class InboxTests: XCTestCase {
     attachScreen("After Send Now", of: app, to: self)
   }
 
-  // #2611: Edit Favorites hides a row and reorders two, and Mailboxes keeps them after a relaunch.
+  // #2611: Edit hides a Favorites row and reorders two, and hides a folder of the Gmail mailbox;
+  // Mailboxes keeps them after a relaunch.
   func testEditFavorites() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
@@ -4069,8 +4070,16 @@ final class InboxTests: XCTestCase {
       forDuration: 0.5, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -2 * trash.frame.height)))
     waitUntil { trash.frame.minY < allMail.frame.minY }
     attachScreen("Spam hidden, Trash above All Mail", of: app, to: self)
+    // The Gmail mailbox's own Spam folder, beneath its header.
+    let folderSpam = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Spam. In "))
+      .firstMatch
+    XCTAssertEqual(folderSpam.value as? String, "Shown")
+    folderSpam.tap()
+    waitUntil { folderSpam.value as? String == "Hidden" }
+    attachScreen("Edit Mailboxes, Spam folder hidden", of: app, to: self)
     done.tap()
     XCTAssertTrue(app.buttons["Spam"].waitForNonExistence(timeout: 10))
+    XCTAssertTrue(folderSpam.waitForNonExistence(timeout: 10))
     let edited = ["All Inboxes", "Sent", "Archive", "Trash", "All Mail"]
     waitUntil { favorites() == edited }
     attachScreen("Edited Favorites", of: app, to: self)
@@ -4081,6 +4090,7 @@ final class InboxTests: XCTestCase {
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
     revealSwitcher(app, app.buttons["All Inboxes"])
     waitUntil { favorites() == edited }
+    XCTAssertFalse(folderSpam.exists)
     attachScreen("Edited Favorites after a relaunch", of: app, to: self)
     // The iPad frames draw Edit mode in Landscape, whose sidebar is wider than Portrait's.
     if ipad {

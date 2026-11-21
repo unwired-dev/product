@@ -2,7 +2,10 @@ import type { NativeErrorReporting } from '@private-email/mail-core/error-report
 import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
-import { unifiedFolders } from '@private-email/mail-core/mailboxes';
+import {
+  toggleSection,
+  unifiedFolders,
+} from '@private-email/mail-core/mailboxes';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 
 import type { NativeHostModule } from '../src/host.ts';
@@ -143,6 +146,12 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     revision: 0,
     document: null as string | null,
   };
+  // The signed-in account's stored Inbox preferences.
+  const preferenceStorage = {
+    owner: 'account-synthetic-product-subject',
+    revision: 0,
+    document: null as string | null,
+  };
   // While set, settings reads wait for it, as a slow native reply would.
   const settingsGate: { held?: Promise<void>; started?: () => void } = {};
   const native: NativeHostModule = {
@@ -204,10 +213,15 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     pullBlockedSenders: (owner) =>
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushBlockedSenders: (owner) => Promise.resolve({ owner, committed: false }),
-    openInboxPreferences: () =>
-      Promise.resolve({ owner: 'account', revision: 0, document: null }),
-    commitInboxPreferences: (owner, expectedRevision) =>
-      Promise.resolve({ owner, revision: expectedRevision + 1 }),
+    openInboxPreferences: () => Promise.resolve({ ...preferenceStorage }),
+    commitInboxPreferences: (owner, expectedRevision, document) => {
+      Object.assign(preferenceStorage, {
+        owner,
+        revision: expectedRevision + 1,
+        document,
+      });
+      return Promise.resolve({ owner, revision: preferenceStorage.revision });
+    },
     pullInboxPreferences: (owner) =>
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushInboxPreferences: (owner) =>
@@ -453,6 +467,14 @@ describe('the host assembly', () => {
       archive: 'Archive',
       read: 'Mark as Read',
     });
+
+    // Hidden in the sidebar, the connection is muted.
+    await host.inboxPreferences.changeSections(defaultProfile, (entries) =>
+      toggleSection(entries, connection),
+    );
+    gmail.deliver({ subject: 'While hidden' });
+    await host.gmailMailboxes.load();
+    expect(notified).toHaveLength(2);
 
     // Turned off again, the connection posts nothing.
     await host.registration.notifyMailbox(connection, false);

@@ -2,10 +2,16 @@ import type { Translate } from '@private-email/localization';
 import type {
   Favorite,
   FavoriteEntries,
+  FolderScope,
   MailboxProblem,
+  SectionEntries,
   UnifiedRole,
 } from '@private-email/mail-core/mailboxes';
-import type { MailProvider } from '@private-email/mail-core/registration';
+import type {
+  MailboxConnection,
+  MailProvider,
+} from '@private-email/mail-core/registration';
+import type { ReactNode } from 'react';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
@@ -16,15 +22,22 @@ import {
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { sidebarCommands } from '@private-email/mail-core/commands';
+import { inboxFolder } from '@private-email/mail-core/imap-inbox';
 import {
   allInboxes,
   failedFolders,
   favoriteRows,
+  folderRows,
   gmailMailbox,
   gmailViewRow,
   mailboxSidebar,
   moveFavorite,
+  moveFolder,
+  profileMailboxes,
+  sectionShown,
   toggleFavorite,
+  toggleFolder,
+  toggleSection,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -62,7 +75,7 @@ import {
   SignInNotice,
 } from './design.tsx';
 import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
-import { InboxPreferencesContext } from './list-density.tsx';
+import { InboxPreferencesContext, useSections } from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-state.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
@@ -195,8 +208,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.control * ipadListScale,
     borderCurve: 'continuous',
   },
-  // An Edit Favorites row: checkmark, symbol, name and drag handle, 8pt apart in their slots.
+  // An Edit row: checkmark, symbol, name and drag handle, 8pt apart in their slots.
   editRow: { gap: spacing.s },
+  // A Mailbox Connection's header in Edit mode keeps its header's spacing above it.
+  editHeader: { marginTop: spacing.m * ipadListScale - spacing.xs },
+  compactEditHeader: {
+    minHeight: 44,
+    paddingLeft: spacing.xs,
+    paddingRight: 18,
+    marginTop: spacing.l - 10,
+  },
   // iPhone's 52pt Edit row: its 26pt slots 12pt apart, 14pt from the group's leading edge and 18pt
   // from its trailing one.
   compactEditRow: {
@@ -502,6 +523,22 @@ const problemText = (
 
 const noSubscription = () => () => undefined;
 
+// A folder or Gmail view's name and SF Symbol; a connection waiting for authorization lists only
+// its Inbox.
+const folderLabel = (
+  t: Translate,
+  mailbox: InboxMailbox | undefined,
+  folder: string,
+) => {
+  const gmail = mailbox === undefined ? undefined : gmailMailbox(mailbox);
+  if (gmail !== undefined) {
+    return gmailViewRow(t, gmail, folder);
+  }
+  return folder === inboxFolder
+    ? { title: t('inbox.title'), icon: 'tray' }
+    : { title: folder, icon: 'folder' };
+};
+
 // A Mailbox Connection's folder rows: an IMAP connection's folders, or a Gmail mailbox's Inbox,
 // labels, All Mail, Spam and Trash. A folder or view whose last read failed keeps its warning
 // after another mailbox is chosen. The connection's own problem rides on its header.
@@ -536,26 +573,19 @@ function FolderRows({
             .join('\n')
         : '',
   ).split('\n');
-  const gmail = gmailMailbox(mailbox);
   // A folder or Gmail view's name, SF Symbol and failed-read notice.
-  const row = (folder: string, isInbox: boolean) => {
-    if (gmail !== undefined) {
-      return gmailViewRow(t, gmail, folder);
-    }
-    return {
-      title: isInbox ? t('inbox.title') : folder,
-      icon: isInbox ? 'tray' : 'folder',
-      failure: failed.includes(JSON.stringify(folder))
-        ? t('imap.foldersUnavailable')
-        : undefined,
-    };
-  };
+  const row = (folder: string) => ({
+    failure: failed.includes(JSON.stringify(folder))
+      ? t('imap.foldersUnavailable')
+      : undefined,
+    ...folderLabel(t, mailbox, folder),
+  });
   return (
     <View
       style={compact && [styles.group, { backgroundColor: colors.fillQuiet }]}>
       {folders.map(
         ({ name: folder, inbox: isInbox, unread, selected }, index) => {
-          const { title: label, icon, failure } = row(folder, isInbox);
+          const { title: label, icon, failure } = row(folder);
           return (
             <Fragment key={folder}>
               {compact && index > 0 ? (
@@ -618,72 +648,186 @@ function useFavorites(profile: string) {
   };
 }
 
-// A Favorites row in Edit mode: the checkmark that shows or hides it, its symbol and name, and the
-// handle that drags it to another place. Tapping the row shows or hides it, except All Inboxes,
-// which stays shown; Move Up and Move Down reorder it with VoiceOver and Full Keyboard Access.
-function EditRow({
-  row,
-  shown,
-  moves,
-  offset,
-  onToggle,
+// What a DragList gives each of its items: whether the item is lifted by a drag, which ways it can
+// move by one place, and how to move it so or drag it by its handle.
+type Draggable = Readonly<{
+  lifted: boolean;
+  moves: Readonly<{ up: boolean; down: boolean }>;
+  onMove: (by: -1 | 1) => void;
+  // How far the finger moved since the drag began.
+  onDrag: (dy: number) => void;
+  // How far from where the drag began the finger let go; undefined when the drag was cancelled.
+  onDrop: (dy: number | undefined) => void;
+}>;
+
+// Items an Edit mode list reorders: one dragged by its handle moves to where it is dropped, the
+// items it passes giving way, each as tall as it lays out.
+function DragList<T>({
+  items,
+  keyOf,
+  separator,
   onMove,
-  onDrag,
-  onDrop,
+  onDragging,
+  render,
 }: {
-  readonly row: Favorite;
+  readonly items: readonly T[];
+  readonly keyOf: (item: T) => string;
+  // Drawn between items, as iPhone's hairlines.
+  readonly separator?: ReactNode;
+  // Moves item `key` to the place `to` gives for its stored place.
+  readonly onMove: (key: string, to: (index: number) => number) => void;
+  // Whether an item is being dragged, while the list must not scroll.
+  readonly onDragging: (dragging: boolean) => void;
+  readonly render: (item: T, drag: Draggable) => ReactNode;
+}) {
+  // The dragged item, the place it started from and how far the finger moved it.
+  const [drag, setDrag] =
+    useState<Readonly<{ key: string; from: number; dy: number }>>();
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(
+    new Map(),
+  );
+  const keys = items.map(keyOf);
+  const height = (index: number) => heights.get(keys[index] ?? '') ?? 0;
+  // The place `dy` from item `from` falls on: past each laid-out item whose middle it crosses.
+  const place = (from: number, dy: number) => {
+    const step = dy < 0 ? -1 : 1;
+    let to = from;
+    let rest = Math.abs(dy);
+    while (height(to + step) > 0 && rest > height(to + step) / 2) {
+      rest -= height(to + step);
+      to += step;
+    }
+    return to;
+  };
+  const from = drag?.from ?? -1;
+  const to = drag === undefined ? from : place(from, drag.dy);
+  // How far the items the dragged one passed reach.
+  let passed = 0;
+  for (
+    let index = Math.min(from, to);
+    index <= Math.max(from, to);
+    index += 1
+  ) {
+    passed += index === from ? 0 : height(index);
+  }
+  const dragged = items.find((item) => keyOf(item) === drag?.key);
+  const rest = items.filter((item) => item !== dragged);
+  const order =
+    dragged === undefined
+      ? items
+      : [...rest.slice(0, to), dragged, ...rest.slice(to)];
+  return order.map((item, position) => {
+    const key = keyOf(item);
+    const index = keys.indexOf(key);
+    // Where this item's drag began, or its place now when no drag of it has rendered yet, such
+    // as a press and release in one event batch.
+    const begin = drag?.key === key ? drag.from : index;
+    const lifted = drag !== undefined && item === dragged;
+    return (
+      <Fragment key={key}>
+        {position > 0 ? separator : null}
+        <View
+          onLayout={({ nativeEvent }) => {
+            const { height: laid } = nativeEvent.layout;
+            setHeights((kept) =>
+              kept.get(key) === laid ? kept : new Map(kept).set(key, laid),
+            );
+          }}
+          style={
+            lifted && {
+              zIndex: 1,
+              transform: [
+                { translateY: drag.dy - (to < from ? -passed : passed) },
+              ],
+            }
+          }>
+          {render(item, {
+            lifted,
+            moves: { up: index > 0, down: index < items.length - 1 },
+            onMove: (by) => {
+              onMove(key, (stored) => stored + by);
+            },
+            onDrag: (dy) => {
+              onDragging(true);
+              setDrag({ key, from: begin, dy });
+            },
+            onDrop: (dy) => {
+              onDragging(false);
+              setDrag(undefined);
+              // Compared with the item's stored place, which another device may have changed.
+              if (dy !== undefined && place(begin, dy) !== index) {
+                onMove(key, () => place(begin, dy));
+              }
+            },
+          })}
+        </View>
+      </Fragment>
+    );
+  });
+}
+
+// An Edit row's name: a connection header's title fills the row as its header's does.
+const editLabel = (header: boolean) => {
+  if (header) {
+    return [
+      compact ? styles.compactSectionTitle : styles.sectionTitle,
+      styles.grow,
+    ];
+  }
+  return compact ? styles.compactLabel : styles.label;
+};
+
+// A row in Edit mode: the checkmark that shows or hides it, its symbol and name, and the handle
+// that drags it to another place. Tapping the row shows or hides it; Move Up and Move Down reorder
+// it with VoiceOver and Full Keyboard Access. A Mailbox Connection's header row has no symbol.
+function EditRow({
+  title,
+  icon,
+  accessibilityLabel = title,
+  shown,
+  drag,
+  onToggle,
+}: {
+  readonly title: string;
+  readonly icon?: string;
+  readonly accessibilityLabel?: string;
   readonly shown: boolean;
-  // Which ways the row can move by one place.
-  readonly moves: Readonly<{ up: boolean; down: boolean }>;
-  // How far the finger drags the row from where it shows, while it does.
-  readonly offset: number | undefined;
+  readonly drag: Draggable;
   readonly onToggle: () => void;
-  readonly onMove: (by: -1 | 1) => void;
-  // How far the finger moved since the drag began, and the row's height.
-  readonly onDrag: (dy: number, height: number) => void;
-  // Where the finger let go, as far from where the drag began, and the row's height; undefined
-  // when the drag was cancelled.
-  readonly onDrop: (dy: number | undefined, height: number) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const large = useLargeText();
-  const { title, icon } = favoriteRow(t, row);
-  // Where the finger pressed the handle, and the row's height, which a drag moves by.
+  // Where the finger pressed the handle.
   const start = useRef(0);
-  const height = useRef(0);
   const slot = compact ? styles.compactSlot : styles.checkSlot;
+  const header = icon === undefined;
   return (
     <Pressable
       accessibilityActions={[
-        ...(moves.up ? [{ name: 'moveUp', label: t('mailboxes.moveUp') }] : []),
-        ...(moves.down
+        ...(drag.moves.up
+          ? [{ name: 'moveUp', label: t('mailboxes.moveUp') }]
+          : []),
+        ...(drag.moves.down
           ? [{ name: 'moveDown', label: t('mailboxes.moveDown') }]
           : []),
       ]}
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityValue={{
         text: t(shown ? 'mailboxes.shown' : 'mailboxes.hidden'),
       }}
       onAccessibilityAction={({ nativeEvent }) => {
-        onMove(nativeEvent.actionName === 'moveUp' ? -1 : 1);
-      }}
-      onLayout={({ nativeEvent }) => {
-        height.current = nativeEvent.layout.height;
+        drag.onMove(nativeEvent.actionName === 'moveUp' ? -1 : 1);
       }}
       onPress={onToggle}
       style={({ pressed }) => [
         styles.row,
         compact ? styles.compactEditRow : styles.editRow,
-        pressed && { backgroundColor: colors.accentSelectionSubtle },
-        offset === undefined
-          ? undefined
-          : {
-              zIndex: 1,
-              transform: [{ translateY: offset }],
-              backgroundColor: colors.accentSelectionSubtle,
-            },
+        header && (compact ? styles.compactEditHeader : styles.editHeader),
+        (pressed || drag.lifted) && {
+          backgroundColor: colors.accentSelectionSubtle,
+        },
       ]}>
       <View style={slot}>
         <SFSymbol
@@ -692,16 +836,18 @@ function EditRow({
           size={compact ? 22 : 16}
         />
       </View>
-      <View style={compact ? styles.compactSlot : styles.editIcon}>
-        <SFSymbol
-          name={icon}
-          color={colors.accentInk}
-        />
-      </View>
+      {header ? null : (
+        <View style={compact ? styles.compactSlot : styles.editIcon}>
+          <SFSymbol
+            name={icon}
+            color={colors.accentInk}
+          />
+        </View>
+      )}
       <Text
         numberOfLines={large ? 0 : 1}
         style={[
-          compact ? styles.compactLabel : styles.label,
+          editLabel(header),
           // iPad dims a hidden row's name, as the frames draw it; iPhone keeps it.
           {
             color: shown || compact ? colors.textPrimary : colors.textSecondary,
@@ -715,16 +861,16 @@ function EditRow({
         onResponderTerminationRequest={() => false}
         onResponderGrant={({ nativeEvent }) => {
           start.current = nativeEvent.pageY;
-          onDrag(0, height.current);
+          drag.onDrag(0);
         }}
         onResponderMove={({ nativeEvent }) => {
-          onDrag(nativeEvent.pageY - start.current, height.current);
+          drag.onDrag(nativeEvent.pageY - start.current);
         }}
         onResponderRelease={({ nativeEvent }) => {
-          onDrop(nativeEvent.pageY - start.current, height.current);
+          drag.onDrop(nativeEvent.pageY - start.current);
         }}
         onResponderTerminate={() => {
-          onDrop(undefined, height.current);
+          drag.onDrop(undefined);
         }}
         // The handle takes the row's height and 44pt of its width.
         hitSlop={{ left: 13, right: 13 }}
@@ -739,91 +885,170 @@ function EditRow({
   );
 }
 
-// Favorites in Edit mode: every row the Profile can show, in its order. A row dragged by its
-// handle moves to where it is dropped, the rows it passes giving way.
-function EditFavorites({
-  rows,
-  onToggle,
-  onMove,
+// iPhone's hairline between Edit rows, from the label to the group's edge.
+function EditSeparator() {
+  const colors = usePalette();
+  return compact ? (
+    <View
+      style={[
+        styles.separator,
+        styles.editSeparator,
+        { backgroundColor: colors.separator },
+      ]}
+    />
+  ) : null;
+}
+
+type SidebarEntry = ReturnType<
+  typeof mailboxSidebar<InboxMailbox, MailboxConnection>
+>['entries'][number];
+
+// A Mailbox Connection's address, and its header title: its provider and address.
+const connectionNames = (t: Translate, entry: SidebarEntry) => {
+  const { provider, address } =
+    'section' in entry
+      ? {
+          provider: entry.section.mailbox.provider ?? 'gmail',
+          address: entry.section.mailbox.address ?? entry.id,
+        }
+      : entry.waiting.connection;
+  return { address, title: `${t(`mailProviders.${provider}`)} · ${address}` };
+};
+
+// `folders` of `connection` in the Profile's order, without those it hides.
+const shownFolders = <F extends Readonly<{ name: string }>>(
+  sections: SectionEntries,
+  connection: string,
+  folders: readonly F[],
+) =>
+  folderRows(sections, {
+    connection,
+    names: folders.map(({ name }) => name),
+  }).flatMap(({ name, shown }) =>
+    shown ? folders.filter((folder) => folder.name === name) : [],
+  );
+
+// The Profile's Mailbox Connections in Edit mode, in its order: a header's checkmark shows or hides
+// the connection and its handle drags it with its folders; a shown connection lists its folders to
+// show, hide and reorder, its Inbox staying shown. Hiding the selected connection selects All
+// Inboxes, and hiding the selected folder selects its connection's Inbox.
+function EditConnections({
+  entries,
+  view,
+  onSelect,
   onDragging,
 }: {
-  readonly rows: ReadonlyArray<Readonly<{ row: Favorite; shown: boolean }>>;
-  readonly onToggle: (row: Favorite) => void;
-  // Moves `row` to the place `to` gives for its stored place.
-  readonly onMove: (row: Favorite, to: (index: number) => number) => void;
-  // Whether a row is being dragged, while the list must not scroll.
+  readonly entries: readonly SidebarEntry[];
+  readonly view: MailboxView;
+  readonly onSelect: (view: MailboxView) => void;
   readonly onDragging: (dragging: boolean) => void;
 }) {
   const colors = usePalette();
-  // The dragged row, the place it started from, how far the finger moved it and its height.
-  const [drag, setDrag] =
-    useState<
-      Readonly<{ row: Favorite; from: number; dy: number; height: number }>
-    >();
-  // The place `dy` below row `from` falls on.
-  const place = (from: number, dy: number, height: number) =>
-    height === 0
-      ? from
-      : Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / height)));
-  const from = drag?.from ?? -1;
-  const dragged = rows.find(({ row }) => row === drag?.row);
-  const to = drag === undefined ? from : place(from, drag.dy, drag.height);
-  const rest = rows.filter((entry) => entry !== dragged);
-  const order =
-    dragged === undefined
-      ? rows
-      : [...rest.slice(0, to), dragged, ...rest.slice(to)];
+  const { t } = useLocalization();
+  const account = use(AccountContext);
+  const profile = useProfile();
+  const store = use(InboxPreferencesContext);
+  const sections = useSections(profile);
+  // Applies `change` to the stored sections; resolves the sections stored, or undefined when
+  // storage failed.
+  const change = async (edit: (stored: SectionEntries) => SectionEntries) =>
+    (await store.changeSections(profile, edit))
+      ? store.sections(profile)
+      : undefined;
+  const showOrHide = async (connection: string) => {
+    const after = await change((stored) => toggleSection(stored, connection));
+    if (
+      after !== undefined &&
+      view.mailbox === connection &&
+      !sectionShown(after, connection)
+    ) {
+      onSelect({});
+    }
+  };
+  const showOrHideFolder = async (scope: FolderScope, name: string) => {
+    const after = await change((stored) => toggleFolder(stored, scope, name));
+    const hidden = folderRows(after ?? [], scope).some(
+      (row) => row.name === name && !row.shown,
+    );
+    if (hidden && view.mailbox === scope.connection && view.folder === name) {
+      onSelect({ mailbox: scope.connection });
+    }
+  };
+  const connections = profileMailboxes(account?.mailboxes ?? [], profile).map(
+    ({ id }) => id,
+  );
   return (
-    <View
-      style={compact && [styles.group, { backgroundColor: colors.fillQuiet }]}>
-      {order.map(({ row, shown }, position) => {
-        const index = rows.findIndex((entry) => entry.row === row);
-        // Where this row's drag began, or its place now when no drag of it has rendered yet, such
-        // as a press and release in one event batch.
-        const begin = drag?.row === row ? drag.from : index;
+    <DragList
+      items={entries}
+      keyOf={({ id }) => id}
+      onMove={(key, to) => {
+        const order = connections.filter((id) => id !== key);
+        const place = to(connections.indexOf(key));
+        order.splice(Math.max(0, Math.min(place, order.length)), 0, key);
+        void account?.arrangeMailboxes?.(profile, order);
+      }}
+      onDragging={onDragging}
+      render={(entry, drag) => {
+        const { id } = entry;
+        const mailbox = 'section' in entry ? entry.section.mailbox : undefined;
+        const scope = {
+          connection: id,
+          names:
+            'section' in entry
+              ? entry.section.folders.map(({ name }) => name)
+              : [inboxFolder],
+        };
+        const shown = sectionShown(sections, id);
+        const { title, address } = connectionNames(t, entry);
         return (
-          <Fragment key={row}>
-            {compact && position > 0 ? (
-              <View
-                style={[
-                  styles.separator,
-                  styles.editSeparator,
-                  { backgroundColor: colors.separator },
-                ]}
-              />
-            ) : null}
+          <>
             <EditRow
-              row={row}
+              title={title}
               shown={shown}
-              moves={{ up: index > 0, down: index < rows.length - 1 }}
-              offset={
-                drag === undefined || row !== drag.row
-                  ? undefined
-                  : drag.dy - (to - from) * drag.height
-              }
+              drag={drag}
               onToggle={() => {
-                onToggle(row);
-              }}
-              onMove={(by) => {
-                onMove(row, (stored) => stored + by);
-              }}
-              onDrag={(dy, height) => {
-                onDragging(true);
-                setDrag({ row, from: begin, dy, height });
-              }}
-              onDrop={(dy, height) => {
-                onDragging(false);
-                setDrag(undefined);
-                // Compared with the row's stored place, which another device may have changed.
-                if (dy !== undefined && place(begin, dy, height) !== index) {
-                  onMove(row, () => place(begin, dy, height));
-                }
+                void showOrHide(id);
               }}
             />
-          </Fragment>
+            {shown ? (
+              <View
+                style={
+                  compact && [
+                    styles.group,
+                    { backgroundColor: colors.fillQuiet },
+                  ]
+                }>
+                <DragList
+                  items={folderRows(sections, scope)}
+                  keyOf={({ name }) => name}
+                  separator={<EditSeparator />}
+                  onMove={(name, to) => {
+                    void change((stored) =>
+                      moveFolder(stored, scope, { name, to }),
+                    );
+                  }}
+                  onDragging={onDragging}
+                  render={(folder, folderDrag) => (
+                    <EditRow
+                      {...folderLabel(t, mailbox, folder.name)}
+                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                        row: folderLabel(t, mailbox, folder.name).title,
+                        mailbox: address,
+                      })}
+                      shown={folder.shown}
+                      drag={folderDrag}
+                      onToggle={() => {
+                        void showOrHideFolder(scope, folder.name);
+                      }}
+                    />
+                  )}
+                />
+              </View>
+            ) : null}
+          </>
         );
-      })}
-    </View>
+      }}
+    />
   );
 }
 
@@ -926,22 +1151,43 @@ function Favorites({
   };
   if (editing) {
     return (
-      <EditFavorites
-        rows={rows}
-        onToggle={(row) => {
-          void showOrHide(row);
-        }}
-        onMove={(row, to) => {
-          void change((stored) =>
-            moveFavorite(
-              stored,
-              row,
-              to(favoriteRows(stored).findIndex((entry) => entry.row === row)),
-            ),
-          );
-        }}
-        onDragging={onDragging}
-      />
+      <View
+        style={
+          compact && [styles.group, { backgroundColor: colors.fillQuiet }]
+        }>
+        <DragList
+          items={rows}
+          keyOf={({ row }) => row}
+          separator={<EditSeparator />}
+          onMove={(key, to) => {
+            const row = rows.find((entry) => entry.row === key)?.row;
+            if (row !== undefined) {
+              void change((stored) =>
+                moveFavorite(
+                  stored,
+                  row,
+                  to(
+                    favoriteRows(stored).findIndex(
+                      (entry) => entry.row === row,
+                    ),
+                  ),
+                ),
+              );
+            }
+          }}
+          onDragging={onDragging}
+          render={({ row, shown }, drag) => (
+            <EditRow
+              {...favoriteRow(t, row)}
+              shown={shown}
+              drag={drag}
+              onToggle={() => {
+                void showOrHide(row);
+              }}
+            />
+          )}
+        />
+      </View>
     );
   }
   // The Outbox follows Sent, or ends Favorites while Sent is hidden. iPhone's grouped rows are
@@ -1043,8 +1289,15 @@ export function Mailboxes({
     profile,
     view,
   });
+  // The connections the Profile shows, which All Inboxes counts; Edit mode lists every one.
+  const sections = useSections(profile);
   // Edit Favorites, and whether a row is being dragged, while the list must not scroll.
   const [editing, setEditing] = useState(false);
+  const shown = sidebar.entries.filter(({ id }) => sectionShown(sections, id));
+  const unread = shown.reduce(
+    (sum, entry) => sum + ('section' in entry ? entry.section.unread : 0),
+    0,
+  );
   const [dragging, setDragging] = useState(false);
   const editButton = (
     <EditButton
@@ -1209,98 +1462,107 @@ export function Mailboxes({
               view={view}
               onView={onView}
               onSelect={onSelect}
-              unread={sidebar.unread}
+              unread={unread}
               allSelected={sidebar.allSelected}
               editing={editing}
               onDragging={setDragging}
               {...(onOutbox === undefined ? {} : { onOutbox })}
             />
-            {sidebar.entries.map((entry) => {
-              if ('section' in entry) {
-                const { mailbox, folders } = entry.section;
-                // Waiting out Gmail's usage limit is a pause the Sync Status Capsule reports.
-                const problem = limited(mailbox.state)
-                  ? undefined
-                  : entry.section.problem;
-                const name = mailbox.address ?? mailbox.id;
-                const provider = t(
-                  `mailProviders.${mailbox.provider ?? 'gmail'}`,
-                );
-                const trouble = problemText(t, problem, {
-                  provider: mailbox.provider,
-                  name: provider,
-                });
+            {editing ? (
+              <EditConnections
+                entries={sidebar.entries}
+                view={view}
+                onSelect={onSelect}
+                onDragging={setDragging}
+              />
+            ) : (
+              shown.map((entry) => {
+                if ('section' in entry) {
+                  const { mailbox, folders } = entry.section;
+                  // Waiting out Gmail's usage limit is a pause the Sync Status Capsule reports.
+                  const problem = limited(mailbox.state)
+                    ? undefined
+                    : entry.section.problem;
+                  const name = mailbox.address ?? mailbox.id;
+                  const provider = t(
+                    `mailProviders.${mailbox.provider ?? 'gmail'}`,
+                  );
+                  const trouble = problemText(t, problem, {
+                    provider: mailbox.provider,
+                    name: provider,
+                  });
+                  return (
+                    <Fragment key={mailbox.id}>
+                      <SectionHeader
+                        label={`${provider} · ${name}`}
+                        trouble={trouble}
+                      />
+                      {problem === 'authentication'
+                        ? signInNotice({
+                            provider,
+                            address: name,
+                            imap: mailbox.provider === 'imap',
+                            onSignIn: async () => {
+                              await account?.authorizeMailbox(mailbox.id);
+                              await mailbox.inbox.load();
+                            },
+                          })
+                        : null}
+                      <FolderRows
+                        mailbox={mailbox}
+                        folders={shownFolders(sections, mailbox.id, folders)}
+                        onView={onView}
+                      />
+                    </Fragment>
+                  );
+                }
+                const { connection, recovery, selected } = entry.waiting;
+                const provider = t(`mailProviders.${connection.provider}`);
+                const imap = recovery === 'account';
+                const trouble = imap
+                  ? t('mailboxes.states.imap-authorization')
+                  : t('mailboxes.states.authorization', { provider });
                 return (
-                  <Fragment key={mailbox.id}>
+                  <Fragment key={connection.id}>
                     <SectionHeader
-                      label={`${provider} · ${name}`}
+                      label={`${provider} · ${connection.address}`}
                       trouble={trouble}
                     />
-                    {problem === 'authentication'
-                      ? signInNotice({
-                          provider,
-                          address: name,
-                          imap: mailbox.provider === 'imap',
-                          onSignIn: async () => {
-                            await account?.authorizeMailbox(mailbox.id);
-                            await mailbox.inbox.load();
-                          },
-                        })
-                      : null}
-                    <FolderRows
-                      mailbox={mailbox}
-                      folders={folders}
-                      onView={onView}
-                    />
+                    {signInNotice({
+                      provider,
+                      address: connection.address,
+                      imap,
+                      onSignIn: () => authorize(connection.id),
+                    })}
+                    <View
+                      style={
+                        compact && [
+                          styles.group,
+                          { backgroundColor: colors.fillQuiet },
+                        ]
+                      }>
+                      <Item
+                        icon="tray"
+                        label={t('inbox.title')}
+                        accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                          row: t('inbox.title'),
+                          mailbox: connection.address,
+                        })}
+                        selected={selected}
+                        onPress={() => {
+                          // IMAP needs its password entered again in Settings' Email Accounts.
+                          if (imap) {
+                            openSettings('mailboxes');
+                          } else {
+                            void authorize(connection.id);
+                          }
+                        }}
+                      />
+                    </View>
                   </Fragment>
                 );
-              }
-              const { connection, recovery, selected } = entry.waiting;
-              const provider = t(`mailProviders.${connection.provider}`);
-              const imap = recovery === 'account';
-              const trouble = imap
-                ? t('mailboxes.states.imap-authorization')
-                : t('mailboxes.states.authorization', { provider });
-              return (
-                <Fragment key={connection.id}>
-                  <SectionHeader
-                    label={`${provider} · ${connection.address}`}
-                    trouble={trouble}
-                  />
-                  {signInNotice({
-                    provider,
-                    address: connection.address,
-                    imap,
-                    onSignIn: () => authorize(connection.id),
-                  })}
-                  <View
-                    style={
-                      compact && [
-                        styles.group,
-                        { backgroundColor: colors.fillQuiet },
-                      ]
-                    }>
-                    <Item
-                      icon="tray"
-                      label={t('inbox.title')}
-                      accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                        row: t('inbox.title'),
-                        mailbox: connection.address,
-                      })}
-                      selected={selected}
-                      onPress={() => {
-                        // IMAP needs its password entered again in Settings' Email Accounts.
-                        if (imap) {
-                          openSettings('mailboxes');
-                        } else {
-                          void authorize(connection.id);
-                        }
-                      }}
-                    />
-                  </View>
-                </Fragment>
-              );
-            })}
+              })
+            )}
           </ScrollView>
           {compact && onCompose !== undefined ? (
             <FloatingBar

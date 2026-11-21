@@ -39,6 +39,7 @@ import { createErrorReporting } from './error-reporting.ts';
 import { createFreshness, followWakes } from './freshness.ts';
 import { createInboxPreferences } from './inbox-preferences.ts';
 import { createMailTemplates } from './mail-templates.ts';
+import { sectionShown } from './mailbox-views.ts';
 import { createMailboxes } from './mailboxes.ts';
 import {
   createNotifications,
@@ -338,6 +339,27 @@ export function createHost(
     registration,
   );
 
+  // Each Mail Profile's Inbox preferences, such as its Thread-list density, stored encrypted on this
+  // device and synchronized through Product Sync with its other Trusted Devices.
+  const inboxPreferences = createInboxPreferences(
+    {
+      openInboxPreferences: () => native().openInboxPreferences(),
+      commitInboxPreferences: (owner, expectedRevision, document) =>
+        native().commitInboxPreferences(owner, expectedRevision, document),
+    },
+    registration,
+    {
+      removed,
+      adoptKeyRotation: () => registration.adoptKeyRotation(),
+      native: {
+        pullInboxPreferences: (owner, known) =>
+          native().pullInboxPreferences(owner, known),
+        pushInboxPreferences: (owner, record) =>
+          native().pushInboxPreferences(owner, record),
+      },
+    },
+  );
+
   // One Inbox per Mailbox Connection, from Gmail or Microsoft Graph; each forgets its mail when its
   // connection or owner leaves.
   const gmailMailboxes = createMailboxes(
@@ -447,7 +469,21 @@ export function createHost(
     registration,
     {
       removed,
-      arrived: notifications.arrived,
+      // A connection its Mail Profile hides in the sidebar is muted: it posts none. A background
+      // launch reads the preferences first.
+      arrived: async (mailbox, messages, eligible) => {
+        await inboxPreferences.load();
+        await notifications.arrived(
+          mailbox,
+          messages,
+          () =>
+            eligible() &&
+            sectionShown(
+              inboxPreferences.sections(mailbox.profile() ?? ''),
+              mailbox.connection,
+            ),
+        );
+      },
       screen: blockedSenders.screen,
       // A Pin follows its IMAP message to the ID a move gave it.
       relocated: (connection, from, to) => pins.move(connection, from, to),
@@ -505,27 +541,6 @@ export function createHost(
           native().pullMailTemplates(owner, known),
         pushMailTemplate: (owner, record) =>
           native().pushMailTemplate(owner, record),
-      },
-    },
-  );
-
-  // Each Mail Profile's Inbox preferences, such as its Thread-list density, stored encrypted on this
-  // device and synchronized through Product Sync with its other Trusted Devices.
-  const inboxPreferences = createInboxPreferences(
-    {
-      openInboxPreferences: () => native().openInboxPreferences(),
-      commitInboxPreferences: (owner, expectedRevision, document) =>
-        native().commitInboxPreferences(owner, expectedRevision, document),
-    },
-    registration,
-    {
-      removed,
-      adoptKeyRotation: () => registration.adoptKeyRotation(),
-      native: {
-        pullInboxPreferences: (owner, known) =>
-          native().pullInboxPreferences(owner, known),
-        pushInboxPreferences: (owner, record) =>
-          native().pushInboxPreferences(owner, record),
       },
     },
   );

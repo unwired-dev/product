@@ -34,6 +34,7 @@ import {
   organizingWork,
   profileMailboxes,
   resultKey,
+  sectionShown,
 } from '@private-email/mail-core/mailboxes';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { spacing } from '@private-email/mail-core/theme';
@@ -86,6 +87,7 @@ import {
   useInboxSearch,
 } from './inbox-search.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
+import { useSections } from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import { useListedMailbox } from './mailbox-folders.tsx';
 import { useNow } from './mailbox-state.ts';
@@ -873,9 +875,17 @@ export function Inbox({
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
+  // All Inboxes leaves out every connection the Profile hides.
+  const shownSections = useSections(profile);
   const inboxListed = useMemo(
-    () => inboxMessages(mailboxes, scoped),
-    [mailboxes, scoped],
+    () =>
+      inboxMessages(
+        mailboxes.filter(
+          ({ id }) => scope !== undefined || sectionShown(shownSections, id),
+        ),
+        scoped,
+      ),
+    [mailboxes, scoped, scope, shownSections],
   );
   const {
     folder,

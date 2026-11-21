@@ -18,6 +18,13 @@ export function useListDensity(profile: string) {
   );
 }
 
+// `profile`'s Mailbox Connection sections: which it hides and its folders' order, which its other
+// Trusted Devices share.
+export function useSections(profile: string) {
+  const store = use(InboxPreferencesContext);
+  return useSyncExternalStore(store.subscribe, () => store.sections(profile));
+}
+
 // Settings › Appearance › List density: Comfortable or Compact for the window's Mail Profile.
 export function ListDensitySettings({ profile }: { readonly profile: string }) {
   const { t } = useLocalization();

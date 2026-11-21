@@ -211,7 +211,9 @@ bar holds **New Message**. **Edit**, in iPhone's header and beside the iPad side
 toggle, shows Favorites with each row's checkmark and drag handle until **Done**
 ([#2611](https://github.com/unwired-dev/product/issues/2611)). Tapping a row shows or
 hides it, except All Inboxes, and VoiceOver reads it as shown or hidden; dragging its
-handle, or its Move Up and Move Down actions, reorders it. These rows are drawn from
+handle, or its Move Up and Move Down actions, reorders it. Each Mailbox Connection
+follows with a checkmark and handle on its header, which hide or move the whole
+connection, and its folders as Edit rows; its Inbox stays shown. These rows are drawn from
 React Native views, as on the Mac: SwiftUI's `List` edit mode would reorder them, but
 Favorites shares one scroll view with the Mailbox Connections' rows.
 

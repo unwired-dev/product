@@ -504,11 +504,12 @@ added is covered by Jest.
 `UNWIRED_JOURNEY=testEditFavorites`, once with `UNWIRED_APPEARANCE=light` and once with `dark`
 ([#2611](https://github.com/unwired-dev/product/issues/2611)). It connects the synthetic Gmail
 mailbox, shows Mailboxes and taps **Edit**, beside Account on iPhone and the sidebar toggle on iPad.
-Tapping Spam hides it, and dragging Trash's handle two rows up moves it above Spam and All Mail.
-After **Done** Mailboxes lists All Inboxes, Sent, Archive, Trash and All Mail, and after a
-relaunch it lists them again. Edit mode, the edited list and the relaunched Mailboxes are kept as
-attachments named with the appearance. Move Up and Move Down and hiding the selected row are
-covered by Jest, and the Private Sync merge by the mail-core tests. VoiceOver speech is not
+Tapping Spam hides it, dragging Trash's handle two rows up moves it above Spam and All Mail, and
+tapping the Gmail mailbox's own Spam folder hides it. After **Done** Mailboxes lists All Inboxes,
+Sent, Archive, Trash and All Mail without the Spam folder, and after a relaunch it lists them
+again. Edit mode, the edited list and the relaunched Mailboxes are kept as
+attachments named with the appearance. Move Up and Move Down, hiding and moving a connection,
+hiding the selected row and All Inboxes leaving out a hidden connection are covered by Jest, and the Private Sync merge by the mail-core tests. VoiceOver speech is not
 covered.
 
 `testListIndent` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testListIndent`.

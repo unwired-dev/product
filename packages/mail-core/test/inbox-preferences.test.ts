@@ -8,8 +8,13 @@ import type { RegistrationSnapshot } from '@private-email/mail-core/registration
 import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import {
   favoriteRows,
+  folderRows,
   moveFavorite,
+  moveFolder,
+  sectionShown,
   toggleFavorite,
+  toggleFolder,
+  toggleSection,
 } from '@private-email/mail-core/mailboxes';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -311,6 +316,66 @@ describe('synchronized Inbox preferences', () => {
         { row: 'ALL_MAIL', shown: true },
         { row: 'SPAM', shown: false },
       ],
+      home: [],
+    });
+  });
+
+  it("carries a Profile's hidden accounts and its folders' order to another device; an Inbox stays shown and a folder another device lists keeps its place", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const gmail = {
+      connection: 'gmail',
+      names: ['INBOX', 'Archive', 'Receipts', 'Travel'],
+    };
+    // Edits sent before any is read all stand.
+    const [, stored] = await Promise.all([
+      // A folder only another device lists.
+      mac.store.changeSections('work', (entries) => [
+        ...entries,
+        {
+          connection: 'gmail',
+          shown: true,
+          folders: [{ name: 'Elsewhere', shown: false }],
+        },
+      ]),
+      mac.store.changeSections('work', (entries) =>
+        toggleSection(entries, 'fastmail'),
+      ),
+      mac.store.changeSections('work', (entries) =>
+        toggleFolder(entries, gmail, 'Travel'),
+      ),
+      mac.store.changeSections('work', (entries) =>
+        toggleFolder(entries, gmail, 'INBOX'),
+      ),
+      mac.store.changeSections('work', (entries) =>
+        moveFolder(entries, gmail, { name: 'Receipts', to: () => 0 }),
+      ),
+    ]);
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    const entries = phone.store.sections('work');
+    expect({
+      stored,
+      shown: ['gmail', 'fastmail'].map((id) => sectionShown(entries, id)),
+      folders: folderRows(entries, {
+        connection: 'gmail',
+        names: [...gmail.names, 'New'],
+      }),
+      kept: entries
+        .find(({ connection }) => connection === 'gmail')
+        ?.folders.at(-1),
+      home: phone.store.sections('home'),
+    }).toStrictEqual({
+      stored: true,
+      shown: [true, false],
+      folders: [
+        { name: 'Receipts', shown: true },
+        { name: 'INBOX', shown: true },
+        { name: 'Archive', shown: true },
+        { name: 'Travel', shown: false },
+        { name: 'New', shown: true },
+      ],
+      kept: { name: 'Elsewhere', shown: false },
       home: [],
     });
   });
