@@ -1001,6 +1001,11 @@ describe('mail profiles', () => {
     ]);
     await expect(relaunch().restore()).resolves.toStrictEqual(colored);
 
+    // An order dragged from one that has changed since, as another device reordered, writes nothing.
+    const reordered = new Map(records());
+    await flow.arrangeMailboxes(defaultProfile, [ids.a, ids.b], [ids.a, ids.b]);
+    expect(records()).toStrictEqual(reordered);
+
     // An order must place every connection of the Profile and no other, and one that does not
     // commit leaves the stored order.
     const before = new Map(records());
@@ -1475,6 +1480,38 @@ describe('mail profiles', () => {
       [expect.any(String), ['Alex']],
     ]);
     expect(store.getSnapshot().signatureFailure).toBeUndefined();
+  });
+
+  it('arranges a Profile dropped during foreground verification once it finishes, and reports its refusal', async () => {
+    expect.hasAssertions();
+    const { sync, vault, mailboxId } = await connected();
+    const id = await mailboxId();
+    let beforeRead: (() => Promise<void>) | undefined = undefined;
+    const store = createRegistration({
+      ...vault,
+      registration: async () => {
+        const hook = beforeRead;
+        beforeRead = undefined;
+        await hook?.();
+        return vault.registration();
+      },
+    });
+    await store.restore();
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    beforeRead = async () => {
+      entered.resolve(undefined);
+      await release.promise;
+    };
+    const resuming = store.resume();
+    await entered.promise;
+    // Product Sync is unreachable, so the arrangement is refused rather than lost.
+    sync.offline = true;
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const arranging = store.arrangeMailboxes(defaultProfile, [id]);
+    release.resolve(undefined);
+    await Promise.all([resuming, arranging]);
+    expect(store.getSnapshot()).toMatchObject({ orderFailure: defaultProfile });
   });
 
   it('refuses a signature on a receive-only IMAP connection', async () => {

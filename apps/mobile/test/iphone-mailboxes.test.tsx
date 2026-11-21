@@ -23,7 +23,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, ScrollView } from 'react-native';
 
 import type { MailboxView } from '../src/sidebar.tsx';
 
@@ -337,8 +337,8 @@ describe('iPhone Mailboxes', () => {
       );
     }
     const connections = mailboxesOf(registration.getSnapshot().snapshot);
-    // The window, with the Profile's connections in `order`.
-    const tree = (order: typeof connections) => (
+    // The window, with the Profile's connections in `order` and the Inbox showing `view`.
+    const tree = (order: typeof connections, view: MailboxView = {}) => (
       <AccountContext
         value={{
           ...account,
@@ -354,7 +354,7 @@ describe('iPhone Mailboxes', () => {
                 onSelect={ignore}
                 onView={ignore}
                 selected={undefined}
-                view={{}}
+                view={view}
               />
             </CommandPaletteProvider>
           </InboxProvider>
@@ -385,13 +385,14 @@ describe('iPhone Mailboxes', () => {
     expect(app.getByText('Second')).toBeVisible();
 
     await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
-    // Hiding the selected account while a slow write lets Alex's Inbox be selected keeps that
-    // choice; hiding the selected Spam selects All Inboxes. Alex's Inbox stays shown.
+    // Hiding the selected account, then Done and choosing Alex's Inbox while the write is slow,
+    // keeps that choice; hiding the selected Spam selects All Inboxes. Alex's Inbox stays shown.
     const written = Promise.withResolvers<undefined>();
     gate.held = written.promise;
     await fireEvent.press(
       app.getByRole('button', { name: 'Gmail · other@example.invalid' }),
     );
+    await fireEvent.press(app.getByRole('button', { name: 'Done' }));
     await act(() => {
       select({ mailbox: alex });
     });
@@ -401,6 +402,7 @@ describe('iPhone Mailboxes', () => {
       await written.promise;
     });
     expect(selected).toStrictEqual({ mailbox: alex });
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
     await act(() => {
       select({ mailbox: alex, folder: 'SPAM' });
     });
@@ -471,7 +473,7 @@ describe('iPhone Mailboxes', () => {
       ],
       unread: '1 unread',
       selected: true,
-      arranged: [[defaultProfile, [other, alex]]],
+      arranged: [[defaultProfile, [other, alex], [alex, other]]],
       refused: [
         [
           'The accounts couldn’t be reordered',
@@ -493,7 +495,147 @@ describe('iPhone Mailboxes', () => {
     expect(
       app.queryAllByRole('button', { name: /Second(?! look)/u }),
     ).toStrictEqual([]);
+    // With the hidden account's own Inbox open, search finds its mail until widened to every Inbox.
+    await app.rerender(tree(connections, { mailbox: other }));
+    await fireEvent.changeText(field, 'F');
+    await app.findByRole('button', { name: /First/u });
+    await fireEvent.press(app.getByRole('tab', { name: 'All Mailboxes' }));
+    await app.findByRole('button', { name: /From Alex’s Inbox/u });
+    expect(app.queryAllByRole('button', { name: /First/u })).toStrictEqual([]);
     alert.mockRestore();
+    await app.unmount();
+  });
+
+  it('scrolls the list while an account is dragged at its edge, but not while a handle is only held there', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const mailboxes = createMailboxes(
+      syntheticConnections({
+        [alex]: createSyntheticGmail(),
+        [other]: createSyntheticGmail({ address: 'other@example.invalid' }),
+      }),
+      registration,
+    );
+    await mailboxes.load();
+    const store = preferences()();
+    await store.load();
+    const arrangeMailboxes = jest.fn(() => Promise.resolve(true));
+    // Animation frames run only when the test steps them.
+    const frames = new Map<number, FrameRequestCallback>();
+    let requested = 0;
+    jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((frame) => {
+        requested += 1;
+        frames.set(requested, frame);
+        return requested;
+      });
+    jest.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(Number(id));
+    });
+    const step = async (count: number) => {
+      for (let index = 0; index < count; index += 1) {
+        const [id, frame] = frames.entries().next().value!;
+        frames.delete(id);
+        await act(() => {
+          frame(0);
+        });
+      }
+    };
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    const connections = mailboxesOf(snapshot);
+    const tree = (order: typeof connections) => (
+      <AccountContext
+        value={{ ...account, mailboxes: order, arrangeMailboxes }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Mailboxes
+                view={{}}
+                onView={ignore}
+                onProfile={ignore}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>
+    );
+    const app = await render(tree(connections));
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
+    // A 300pt list of 1000pt; Alex's account, with its folders, 260pt above the other's 52pt.
+    const list = () =>
+      app
+        .root!.queryAll((node) => node.props.scrollEventThrottle === 16)
+        .at(0)!;
+    await fireEvent(list(), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 370, height: 300 } },
+    });
+    await fireEvent(list(), 'contentSizeChange', 370, 1000);
+    for (const [name, height] of [
+      ['Gmail · alex@example.invalid', 260],
+      ['Gmail · other@example.invalid', 52],
+    ] as const) {
+      await fireEvent(app.getByRole('button', { name }), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 370, height } },
+      });
+    }
+    const handle = () =>
+      app
+        .getByRole('button', { name: 'Gmail · alex@example.invalid' })
+        .queryAll((node) => node.props.onResponderGrant !== undefined)
+        .at(0)!;
+
+    // Held 10pt above the bottom edge, the handle scrolls nothing and its release moves nothing.
+    await fireEvent(handle(), 'responderGrant', touch(290));
+    await fireEvent(handle(), 'responderMove', touch(292));
+    expect(frames.size).toBe(0);
+    await fireEvent(handle(), 'responderRelease', touch(292));
+    expect(arrangeMailboxes).not.toHaveBeenCalled();
+
+    // Dragged 10pt there, the list scrolls until Alex's account passes the other's middle.
+    await fireEvent(handle(), 'responderGrant', touch(280));
+    await fireEvent(handle(), 'responderMove', touch(290));
+    await step(2);
+    const scrolls = list().props.scrollEnabled;
+    await fireEvent(handle(), 'responderRelease', touch(290));
+    expect({
+      scrolls,
+      scrolled: scrollTo.mock.calls.length,
+      arranged: arrangeMailboxes.mock.calls,
+    }).toStrictEqual({
+      scrolls: false,
+      scrolled: 2,
+      arranged: [[defaultProfile, [other, alex], [alex, other]]],
+    });
+
+    // Another device's order, arriving mid-drag, ends it: the list stops and scrolls again.
+    scrollTo.mockClear();
+    await fireEvent(handle(), 'responderGrant', touch(280));
+    await fireEvent(handle(), 'responderMove', touch(290));
+    await step(1);
+    await app.rerender(tree(connections.toReversed()));
+    expect([
+      frames.size,
+      scrollTo.mock.calls.length,
+      list().props.scrollEnabled,
+    ]).toStrictEqual([0, 1, true]);
+    jest.restoreAllMocks();
     await app.unmount();
   });
 });

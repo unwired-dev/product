@@ -4140,6 +4140,7 @@ final class InboxTests: XCTestCase {
     // Hiding the selected Trash folder selects All Inboxes.
     folderTrash.tap()
     revealSwitcher(app, app.buttons["All Inboxes"])
+    waitUntil { folderTrash.isSelected }
     waitUntil { edit() != nil }
     edit()?.tap()
     XCTAssertTrue(done.waitForExistence(timeout: 10))

@@ -487,7 +487,7 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(2);
   });
 
-  it('posts nothing while the Inbox preferences that could mute a connection cannot be read, as at a cold launch', async () => {
+  it('posts nothing while the Inbox preferences that could mute a connection cannot be read, at a cold launch or after a read', async () => {
     expect.hasAssertions();
     const { host, gmail, notified, preferenceStorage } = syntheticHost(
       undefined,
@@ -511,6 +511,12 @@ describe('the host assembly', () => {
     await vi.waitFor(() => {
       expect(notified).toMatchObject([{ body: 'New mail' }]);
     });
+
+    // Unreadable again, the earlier read does not let it post.
+    preferenceStorage.locked = true;
+    gmail.deliver({ subject: 'Locked again' });
+    await host.gmailMailboxes.load();
+    expect(notified).toHaveLength(1);
   });
 
   it('keeps the App Icon Badge on the unread Inbox count while it is chosen and allowed', async () => {

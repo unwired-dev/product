@@ -405,17 +405,21 @@ export function createInboxPreferences(
       return isListDensity(value) ? value : 'comfortable';
     },
     // Reads the signed-in account's preferences for `listDensity`, `previewLines`, `favorites` and
-    // `sections`; signed out, there are none.
+    // `sections`, and resolves whether they were read; signed out, there are none.
     load: async () => {
       const account = signedIn();
-      if (account !== undefined) {
-        await runLogged(
-          changed(account, (profiles) => profiles).pipe(
-            Effect.asVoid,
-            Effect.catchTag('DraftStorageFailure', report),
-          ),
-        );
+      if (account === undefined) {
+        return false;
       }
+      const read = await runLogged(
+        changed(account, (profiles) => profiles).pipe(
+          Effect.as(true),
+          Effect.catchTag('DraftStorageFailure', (error) =>
+            report(error).pipe(Effect.as(false)),
+          ),
+        ),
+      );
+      return read;
     },
     // `profile`'s preview length as last read; undefined until it is read, while storage cannot read
     // it, or when none was chosen.

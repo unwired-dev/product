@@ -324,15 +324,13 @@ describe('synchronized Inbox preferences', () => {
     expect.hasAssertions();
     const { mac, phone } = devices();
     const names = ['INBOX', 'Archive', 'Receipts', 'Travel'];
-    // Before either pulls, the phone hides an account and one of its folders while the Mac edits
-    // the other account's folders, hiding one that only it lists.
-    const [stored] = await Promise.all([
-      phone.store.showSection('work', 'fastmail', false),
-      phone.store.changeFolders('work', 'fastmail', (folders) =>
+    // Before either pulls, the phone hides an account while the Mac hides one of that account's
+    // folders and edits the other account's, hiding one that only it lists.
+    const stored = await phone.store.showSection('work', 'fastmail', false);
+    await Promise.all([
+      mac.store.changeFolders('work', 'fastmail', (folders) =>
         toggleFolder(folders, ['INBOX', 'Spam'], 'Spam'),
       ),
-    ]);
-    await Promise.all([
       mac.store.changeFolders('work', 'gmail', (folders) =>
         toggleFolder(folders, ['Elsewhere'], 'Elsewhere'),
       ),

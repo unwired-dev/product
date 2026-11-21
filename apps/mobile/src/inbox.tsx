@@ -810,8 +810,8 @@ const authorizer = (
       };
 
 // All Inboxes, and search there or widened to every Inbox, leave out every connection the Profile
-// hides: `inboxes` keeps the others and the one the view scopes to, and `searched` is what search
-// covers of `shown`.
+// hides: `unhidden` keeps the others, `inboxes` also the one the view scopes to, and `searched` is
+// what search covers of `shown`.
 function useShownInboxes({
   mailboxes,
   shown,
@@ -831,8 +831,13 @@ function useShownInboxes({
       mailboxes.filter(({ id }) => id === scope || sectionShown(sections, id)),
     [mailboxes, scope, sections],
   );
+  const unhidden = useMemo(
+    () => inboxes.filter(({ id }) => sectionShown(sections, id)),
+    [inboxes, sections],
+  );
   return {
     inboxes,
+    unhidden,
     searched:
       unified === undefined
         ? shown.filter((mailbox) => inboxes.includes(mailbox))
@@ -906,7 +911,11 @@ export function Inbox({
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
-  const { inboxes, searched: searchedMailboxes } = useShownInboxes({
+  const {
+    inboxes,
+    unhidden,
+    searched: searchedMailboxes,
+  } = useShownInboxes({
     mailboxes,
     shown,
     profile,
@@ -930,7 +939,7 @@ export function Inbox({
     showOlder,
   } = useListedMailbox(shown, inboxListed, { view, onView });
   const searchState = useInboxSearch(search, {
-    mailboxes: inboxes,
+    mailboxes: unhidden,
     shown: searchedMailboxes,
     listed,
     profile,
@@ -1210,7 +1219,7 @@ export function Inbox({
     footer: searching ? (
       <SearchFooter
         search={searchState}
-        mailboxes={mailboxes}
+        mailboxes={unhidden}
         shown={shown}
         ready={ready}
         unlisted={unlisted}

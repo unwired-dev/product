@@ -55,6 +55,8 @@ import {
   createContext,
   Fragment,
   use,
+  useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -679,9 +681,11 @@ type EdgeScroll = Readonly<{
 const EdgeScrollContext = createContext<EdgeScroll>({
   follow: () => undefined,
 });
-// How near an edge, in points, a dragged row scrolls the list, and the most it scrolls a frame.
+// How near an edge, in points, a dragged row scrolls the list, the most it scrolls a frame, and how
+// far the finger moves a row before the list scrolls, so a press held at an edge moves nothing.
 const edgeBand = 64;
 const edgeSpeed = 14;
+const dragSlop = 8;
 
 function useEdgeScroll() {
   const list = useRef<ScrollViewInstance>(null);
@@ -777,18 +781,35 @@ function DragList<T>({
   const edge = use(EdgeScrollContext);
   const keys = items.map(keyOf);
   const order = keys.join('\n');
-  // The dragged item, the place it started from, how far the finger and the list moved it, and
-  // the items' order when it began.
+  // The dragged item, the place it started from, how far the finger and the list moved it, whether
+  // it has moved past `dragSlop`, and the items' order when it began.
   const [held, setHeld] = useState<
     Readonly<{
       key: string;
       from: number;
       dy: number;
       scrolled: number;
+      moved: boolean;
       order: string;
     }>
   >();
   const drag = held?.order === order ? held : undefined;
+  // A drag that ends, that the items' new order cancels, or whose list leaves stops scrolling the
+  // list and lets it scroll again.
+  const stop = useEffectEvent(() => {
+    edge.follow(undefined, () => undefined);
+    onDragging(false);
+  });
+  const active = drag !== undefined;
+  useEffect(
+    () =>
+      active
+        ? () => {
+            stop();
+          }
+        : undefined,
+    [active],
+  );
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(
     new Map(),
   );
@@ -856,16 +877,21 @@ function DragList<T>({
                 return;
               }
               onDragging(true);
+              const moved =
+                (drag?.moved ?? false) || Math.abs(finger) >= dragSlop;
               setHeld({
                 key,
                 from: begin,
                 dy: finger,
                 scrolled: drag?.scrolled ?? 0,
+                moved,
                 order,
               });
-              edge.follow(pageY, (by) => {
-                setHeld((kept) => kept && { ...kept, scrolled: by });
-              });
+              if (moved) {
+                edge.follow(pageY, (by) => {
+                  setHeld((kept) => kept && { ...kept, scrolled: by });
+                });
+              }
             },
             onDrop: (finger) => {
               edge.follow(undefined, () => undefined);
@@ -1049,17 +1075,19 @@ const shownFolders = <F extends Readonly<{ name: string }>>(
 
 // The Profile's Mailbox Connections in Edit mode, in its order: a header's checkmark shows or hides
 // the connection and its handle drags it with its folders; a shown connection lists its folders to
-// show, hide and reorder, its Inbox staying shown. Hiding the selected connection or folder selects
-// All Inboxes. A refused reorder says so.
+// show, hide and reorder, its Inbox staying shown. Hiding a connection or folder calls `onHidden`,
+// which selects All Inboxes when it was selected. A refused reorder says so.
 function EditConnections({
   entries,
-  view,
-  onSelect,
+  onHidden,
   onDragging,
 }: {
   readonly entries: readonly SidebarEntry[];
-  readonly view: MailboxView;
-  readonly onSelect: (view: MailboxView) => void;
+  readonly onHidden: (
+    profile: string,
+    connection: string,
+    folder?: string,
+  ) => void;
   readonly onDragging: (dragging: boolean) => void;
 }) {
   const colors = usePalette();
@@ -1068,21 +1096,8 @@ function EditConnections({
   const profile = useProfile();
   const store = use(InboxPreferencesContext);
   const sections = useSections(profile);
-  // The window's Profile and selection now, which a slow write may have outlived.
-  const latest = useRef({ profile, view });
-  useLayoutEffect(() => {
-    latest.current = { profile, view };
-  });
-  // Selects All Inboxes when `connection`, or its folder `folder`, is still the selection.
   const leave = (connection: string, folder?: string) => {
-    const { profile: now, view: selected } = latest.current;
-    if (
-      now === profile &&
-      selected.mailbox === connection &&
-      (folder === undefined || selected.folder === folder)
-    ) {
-      onSelect({});
-    }
+    onHidden(profile, connection, folder);
   };
   const showOrHide = async (connection: string, shown: boolean) => {
     if ((await store.showSection(profile, connection, !shown)) && shown) {
@@ -1111,7 +1126,7 @@ function EditConnections({
   const arrange = async (order: readonly string[]) => {
     if (
       account?.arrangeMailboxes !== undefined &&
-      !(await account.arrangeMailboxes(profile, order))
+      !(await account.arrangeMailboxes(profile, order, connections))
     ) {
       Alert.alert(t('mailboxes.orderFailed'), t('mailboxes.orderTryAgain'), [
         { text: t('common.ok') },
@@ -1439,6 +1454,22 @@ export function Mailboxes({
   const [dragging, setDragging] = useState(false);
   const { list, edge, onScroll, onContentSizeChange, onLayout } =
     useEdgeScroll();
+  // The window's Profile and selection now, which an Edit write may outlive, even past Done.
+  const latest = useRef({ profile, view });
+  useLayoutEffect(() => {
+    latest.current = { profile, view };
+  });
+  // Selects All Inboxes when `connection` of `from`, or its folder `folder`, is still the selection.
+  const leave = (from: string, connection: string, folder?: string) => {
+    const { profile: now, view: selected } = latest.current;
+    if (
+      now === from &&
+      selected.mailbox === connection &&
+      (folder === undefined || selected.folder === folder)
+    ) {
+      onSelect({});
+    }
+  };
   const editButton = (
     <EditButton
       editing={editing}
@@ -1617,8 +1648,7 @@ export function Mailboxes({
               <EdgeScrollContext value={edge}>
                 <EditConnections
                   entries={sidebar.entries}
-                  view={view}
-                  onSelect={onSelect}
+                  onHidden={leave}
                   onDragging={setDragging}
                 />
               </EdgeScrollContext>

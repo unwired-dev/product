@@ -40,8 +40,8 @@ matches content, grouping and actions to the design.
 - A Mailbox Connection its Mail Profile hides in Edit on iPhone or iPad is muted on every
   Trusted Device, the Mac included, whatever its switch says
   ([#2611](https://github.com/unwired-dev/product/issues/2611)). Until this device has read the
-  Profile's Inbox preferences, and while they cannot be read, no connection posts, so a muted one
-  never does. Showing it again restores its switch's choice.
+  Profile's Inbox preferences, and while they cannot be read, even after an earlier read, no
+  connection posts, so a muted one never does. Showing it again restores its switch's choice.
 
 ## What notifies
 

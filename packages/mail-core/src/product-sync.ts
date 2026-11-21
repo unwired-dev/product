@@ -1013,8 +1013,8 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     arrangeMailboxes: (
       value: RegistrationRecord,
       profile: string,
-      order: readonly string[],
-    ) => rotating(() => profiles.arrange(value, profile, order)),
+      arrangement: Parameters<typeof profiles.arrange>[2],
+    ) => rotating(() => profiles.arrange(value, profile, arrangement)),
     colorMailbox: (
       value: RegistrationRecord,
       connection: string,
