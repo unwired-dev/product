@@ -586,8 +586,9 @@ Picked files on iPhone and iPad are protected temporary copies removed after
 successful or failed import, an abandoned picker result, or the next launch.
 Cleanup recognizes only the picker-owned UUID folder beneath its exact temporary
 root and preserves user files in similarly named folders. Mac files are read in
-place through the open panel's or drop's grant, allowed by the user-selected
-read-only sandbox entitlement.
+place through the open panel's or drop's grant. A received attachment's **Save As…**
+writes its copy only where the save panel's grant allows. The user-selected read-write
+sandbox entitlement allows both.
 
 ## Native wiring and signing
 

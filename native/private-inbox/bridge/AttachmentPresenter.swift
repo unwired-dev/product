@@ -1,10 +1,12 @@
 import Foundation
 
-// The system Attachment Preview, share sheet and, on iPhone and iPad, Save to Files picker for one
-// Downloaded Attachment. Quick Look shows a file without launching another app or running it;
-// sharing hands only this file to the chosen service; saving writes a copy where the person
-// chooses. `ended` runs once when the system no longer needs the file, so its owner can defer
-// deleting it until then, with the saved copy's location after a save.
+// The system Attachment Preview, share sheet and, for saving, the Save to Files picker on iPhone and
+// iPad or the save panel on the Mac, for one Downloaded Attachment. Quick Look shows a file without
+// launching another app or running it; sharing hands only this file to the chosen service; saving
+// writes a copy where the person chooses. `ended` runs once when the system no longer needs the
+// file, so its owner can defer deleting it until then, with the saved copy's location after a
+// save. On the Mac a copy that could not be written ends with `failed` and the chosen folder
+// instead.
 
 // The window whose reader asked for the presentation, captured when the request arrives so a
 // later focus change cannot move the preview or share sheet into another window.
@@ -36,6 +38,7 @@ import Foundation
 
     static func present(
       _ url: URL, action: Action, from origin: PresentationOrigin,
+      failed: @escaping @MainActor (URL) -> Void,
       ended: @escaping @MainActor (URL?) -> Void
     ) -> Bool {
       guard let window = origin.window, !window.isHidden,
@@ -169,14 +172,16 @@ import Foundation
       PresentationOrigin(NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
-    // The Mac has no Save to Files picker yet; it saves through its own slice of #1681.
     static func present(
       _ url: URL, action: Action, from origin: PresentationOrigin,
+      failed: @escaping @MainActor (URL) -> Void,
       ended: @escaping @MainActor (URL?) -> Void
     ) -> Bool {
-      guard action != .save, let window = origin.window, window.isVisible,
-        let view = window.contentView
+      guard let window = origin.window, window.isVisible, let view = window.contentView
       else { return false }
+      if action == .save {
+        return save(url, on: window, failed: failed, ended: ended)
+      }
       if action == .share {
         let picker = NSSharingServicePicker(items: [url])
         let lease = ShareLease { lease in
@@ -207,6 +212,39 @@ import Foundation
       }
       preview.show(url) { ended(nil) }
       panel.reloadData()
+      return true
+    }
+  }
+
+  extension AttachmentPresenter {
+    // The save panel, as a sheet on the reader's window, names the copy after the attachment and
+    // confirms replacing a file already there; the copy is then written off the main thread.
+    fileprivate static func save(
+      _ url: URL, on window: NSWindow, failed: @escaping @MainActor (URL) -> Void,
+      ended: @escaping @MainActor (URL?) -> Void
+    ) -> Bool {
+      guard window.attachedSheet == nil else { return false }
+      let panel = NSSavePanel()
+      panel.nameFieldStringValue = url.lastPathComponent
+      panel.isExtensionHidden = false
+      panel.beginSheetModal(for: window) { response in
+        MainActor.assumeIsolated {
+          guard response == .OK, let destination = panel.url else { return ended(nil) }
+          Task {
+            do {
+              // The panel's grant to write there ends with the write; Finder still reveals it.
+              defer { destination.stopAccessingSecurityScopedResource() }
+              try await Task.detached(priority: .userInitiated) {
+                try Data(contentsOf: url, options: .alwaysMapped)
+                  .write(to: destination, options: .atomic)
+              }.value
+              ended(destination)
+            } catch {
+              failed(destination.deletingLastPathComponent())
+            }
+          }
+        }
+      }
       return true
     }
   }

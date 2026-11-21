@@ -958,7 +958,8 @@ function AttachmentRow({
         return;
       }
       shown(
-        saved === 'failed'
+        // Only the Mac names the folder a failed save chose.
+        saved === 'failed' || 'failedIn' in saved
           ? {
               kind: 'failed',
               name,
