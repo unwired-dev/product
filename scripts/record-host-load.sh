@@ -22,11 +22,13 @@ label=$2
     xcrun simctl list devices booted </dev/null >"$devices" 2>/dev/null &
     pid=$!
     set +m
+    trap 'kill -s KILL -- "-$pid"; rm -f "$devices"; exit 143' HUP INT TERM
     deadline=$((SECONDS + 10))
-    while kill -0 "$pid" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do
+    # The group outlives xcrun while any child still holds the output.
+    while kill -0 -- "-$pid" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do
       sleep 0.1
     done
-    if kill -0 "$pid" 2>/dev/null; then
+    if kill -0 -- "-$pid" 2>/dev/null; then
       kill -s KILL -- "-$pid"
       wait "$pid"
       printf 'booted simulators: unavailable (timed out)\n'
