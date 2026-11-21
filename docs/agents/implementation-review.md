@@ -147,15 +147,16 @@ components, styles, copy, icons, motion, notifications and accessibility labels.
 ## Decisions
 
 The implementer chooses reversible details within the acceptance criteria and
-records material assumptions. A question that remains goes to the global
-`council` skill, not to the user: give the delegates the question, the options,
-your recommendation and the code, ADRs and requirements it touches, keep them
-read-only, and act on the answer. One round is enough. Record the answer and any
-disagreement in the PR.
+records material assumptions. A question that remains, including how to prove
+a change, goes to the global `council` skill
+(`~/.agents/skills/council/SKILL.md`; this rule invokes it), not to the user:
+give the delegates the question, the options, your recommendation and the code,
+ADRs and requirements it touches, keep them read-only, and act on the answer.
+Record the answer and any disagreement in the PR.
 
 Changes to product scope, user-visible behavior beyond the request, privacy
-guarantees or an accepted ADR still need the owner's decision: use the council's
-recommendation as the working choice, list it in the PR as an owner decision and
-continue independent work. Credentials, accounts, devices, paid services and
+guarantees or an accepted ADR still need the owner's decision: present the
+concrete choice with the council's recommendation and continue independent
+work while it is pending. Credentials, accounts, devices, paid services and
 [design approval](#design-approval) are prerequisites only the user can give:
 request them, because the council cannot answer them.
