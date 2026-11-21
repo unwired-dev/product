@@ -5,7 +5,12 @@ import type { ImapMessage } from '@private-email/mail-core/imap-inbox';
 import type { GmailMessage } from '@private-email/mail-core/inbox-store';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { MailProvider } from '@private-email/mail-core/registration';
-import type { ComponentProps, ContextType, ReactNode } from 'react';
+import type {
+  ComponentProps,
+  ContextType,
+  ReactElement,
+  ReactNode,
+} from 'react';
 import type { TextInputInstance } from 'react-native';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
@@ -101,10 +106,10 @@ import {
 import { MovingRow, useRowMotion } from './organize-motion.tsx';
 import { OrganizeStatus } from './organize-status.tsx';
 import {
-  OutboxHeading,
   OutboxRow,
   forgetRetired,
   useOutboxActions,
+  useOutboxView,
 } from './outbox.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -157,7 +162,8 @@ interface InboxProps {
   // The mailbox or folder the list shows; every mailbox of the Profile without one.
   readonly view?: MailboxView;
   readonly onView?: (view: MailboxView) => void;
-  // Each new value ends a search and scrolls to the Outbox, as when View in Outbox shows it.
+  // Each new value ends a search and scrolls to the top of the Outbox, as when View in Outbox shows
+  // it.
   readonly outboxShown?: object | undefined;
 }
 
@@ -594,31 +600,55 @@ const searchSections = <T,>(
     : []),
 ];
 
-// Outbox and Drafts come before received mail; a search lists matching messages alone.
+// The Outbox view shows its own heading over the Outbox alone, with no older mail or footer.
+const withOutboxView = (
+  outboxView: Readonly<{ title: string; subtitle: string }> | undefined,
+  list: Readonly<{
+    title: string;
+    subtitle: string;
+    onEndReached: () => void;
+    footer: ReactElement;
+  }>,
+) =>
+  outboxView === undefined
+    ? list
+    : {
+        title: outboxView.title,
+        subtitle: outboxView.subtitle,
+        onEndReached: undefined,
+        footer: undefined,
+      };
+
+// The Outbox view lists the Outbox alone. Otherwise Drafts come before received mail, and a search
+// lists matching messages alone.
 function inboxSections<M>({
   outbox,
-  canCompose,
   drafts,
   messages,
   online,
   searching,
 }: Readonly<{
-  outbox: readonly OutboxSnapshotEntry[];
-  canCompose: boolean;
+  // The Outbox view, while it shows the Outbox's messages.
+  outbox: Readonly<{ entries: readonly OutboxSnapshotEntry[] }> | undefined;
   drafts: readonly Draft[];
   messages: ReadonlyArray<Readonly<{ key: string; data: readonly M[] }>>;
   online: OnlineSections<M>;
   searching: boolean;
 }>) {
-  const outboxRows =
-    searching || !canCompose
-      ? []
-      : outbox.map((entry): OutboxItem | DraftItem | M => ({ outbox: entry }));
+  if (outbox !== undefined) {
+    return [
+      {
+        key: 'outbox',
+        data: outbox.entries.map((entry): OutboxItem | DraftItem | M => ({
+          outbox: entry,
+        })),
+      },
+    ];
+  }
   const draftRows = searching
     ? []
     : drafts.map((draft): OutboxItem | DraftItem | M => ({ draft }));
   return [
-    ...(outboxRows.length === 0 ? [] : [{ key: 'outbox', data: outboxRows }]),
     ...(draftRows.length === 0 ? [] : [{ key: 'drafts', data: draftRows }]),
     ...(searching
       ? searchSections<OutboxItem | DraftItem | M>(messages, online)
@@ -895,14 +925,17 @@ export function Inbox({
         : messageDateSections(inboxRows, now, settings.timeZone),
     [searching, results, inboxRows, now, settings.timeZone],
   );
-  const sections = inboxSections({
-    ...profileDrafts({
-      drafts,
-      outbox,
-      account,
-      profile,
-    }),
+  const outboxView = useOutboxView({
+    chosen: view.outbox === true,
+    onEmptied: () => {
+      onView(allInboxes);
+    },
     canCompose: onCompose !== undefined,
+    searching,
+  });
+  const sections = inboxSections({
+    drafts: profileDrafts({ drafts, outbox: [], account, profile }).drafts,
+    outbox: outboxView,
     messages: dated,
     online,
     searching,
@@ -915,6 +948,7 @@ export function Inbox({
       scope,
       folder,
       view.unified,
+      outboxView === undefined,
       searching,
       searched,
       searchState.searchesAll,
@@ -938,7 +972,7 @@ export function Inbox({
         (typeof placed)[number]
       >
     >(null);
-  // View in Outbox ends a search, which hides the Outbox, then scrolls to it once it is listed.
+  // View in Outbox ends a search, which lists mail instead, then scrolls to the top of the Outbox.
   const scrolledFor = useRef(outboxShown);
   const closeSearch = useEffectEvent(() => {
     searchState.close();
@@ -1121,6 +1155,39 @@ export function Inbox({
       }
     />
   );
+  const { onEndReached, footer, ...heading } = withOutboxView(outboxView, {
+    title,
+    subtitle: subtitleOf(t, unconnected, {
+      scope: scopeName,
+      status,
+      signIn,
+      title,
+    }),
+    onEndReached: showOlder,
+    footer: searching ? (
+      <SearchFooter
+        search={searchState}
+        mailboxes={mailboxes}
+        shown={shown}
+        ready={ready}
+        unlisted={unlisted}
+        scopeName={scopeName}
+        folderName={folderName}
+      />
+    ) : (
+      <InboxFooter
+        unconnected={unconnected !== undefined}
+        connected={gmail}
+        limited={limited}
+        downloading={downloading}
+        oldest={listed.at(-1)}
+        now={now}
+        empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
+        syncing={syncing}>
+        {empty}
+      </InboxFooter>
+    ),
+  });
   return (
     // The surface fills the safe area's margins too, behind the status bar and home indicator.
     <View
@@ -1141,13 +1208,8 @@ export function Inbox({
             <SearchHeading search={searchState}>
               <HeadingTitle
                 bar={bar}
-                title={title}
-                subtitle={subtitleOf(t, unconnected, {
-                  scope: scopeName,
-                  status,
-                  signIn,
-                  title,
-                })}
+                title={heading.title}
+                subtitle={heading.subtitle}
               />
             </SearchHeading>
           </InboxHeading>
@@ -1173,13 +1235,10 @@ export function Inbox({
             onRefresh={() => {
               void refresh();
             }}
-            onEndReached={showOlder}
+            onEndReached={onEndReached}
             sections={placed}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => {
-              if (section.key === 'outbox') {
-                return <OutboxHeading />;
-              }
               if (section.key === 'drafts') {
                 return <DraftHeading />;
               }
@@ -1306,31 +1365,7 @@ export function Inbox({
                 {onCompose === undefined ? null : <DraftList />}
               </>
             }
-            ListFooterComponent={
-              searching ? (
-                <SearchFooter
-                  search={searchState}
-                  mailboxes={mailboxes}
-                  shown={shown}
-                  ready={ready}
-                  unlisted={unlisted}
-                  scopeName={scopeName}
-                  folderName={folderName}
-                />
-              ) : (
-                <InboxFooter
-                  unconnected={unconnected !== undefined}
-                  connected={gmail}
-                  limited={limited}
-                  downloading={downloading}
-                  oldest={listed.at(-1)}
-                  now={now}
-                  empty={hasNoMail({ ready, syncing, count: inboxRows.length })}
-                  syncing={syncing}>
-                  {empty}
-                </InboxFooter>
-              )
-            }
+            ListFooterComponent={footer}
             ListFooterComponentStyle={styles.listFooter}
             renderItem={({ item, section, index }) => {
               if ('outbox' in item) {

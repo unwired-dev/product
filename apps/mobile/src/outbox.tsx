@@ -1,3 +1,4 @@
+import type { Translate } from '@private-email/localization';
 import type { OutboxSnapshotEntry } from '@private-email/mail-core/outbox';
 import type { ReactNode } from 'react';
 
@@ -15,7 +16,7 @@ import {
   foregroundStyle,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { draftSummary } from '@private-email/mail-core/drafts';
+import { draftSummary, profileDrafts } from '@private-email/mail-core/drafts';
 import { invitationChoiceKeys } from '@private-email/mail-core/invitations';
 import { outboxCopy } from '@private-email/mail-core/outbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
@@ -31,19 +32,13 @@ import {
 import { Action } from './action.tsx';
 import { SFSymbol, Toast } from './design.tsx';
 import { useLocalization, useMessageDateFormats } from './localization.ts';
-import { useOutbox, useOutboxEntries } from './mailbox.tsx';
+import { useOutbox, useOutboxEntries, useProfile } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const phone = Platform.OS === 'ios' && !Platform.isPad;
 
 const styles = StyleSheet.create({
-  section: {
-    ...textStyles.footnote,
-    fontWeight: '600',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.s,
-  },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -76,21 +71,56 @@ const styles = StyleSheet.create({
 // iOS and macOS ignore live regions.
 const announced = new Map<string, string>();
 const sendOf = ({ id, sendAt }: OutboxSnapshotEntry) => `${id}:${sendAt}`;
-function useAnnouncement(
-  key: string,
-  heard: string | undefined,
-  words = heard,
-) {
+const announce = (key: string, heard: string | undefined, words = heard) => {
+  if (heard === undefined) {
+    announced.delete(key);
+  } else if (announced.get(key) !== heard) {
+    announced.set(key, heard);
+    AccessibilityInfo.announceForAccessibilityWithOptions(words ?? heard, {
+      queue: true,
+    });
+  }
+};
+
+// An Invitation Response's meeting and choice, which its row shows in place of a subject and
+// recipients.
+const responseSummary = (
+  t: Translate,
+  invitation: NonNullable<OutboxSnapshotEntry['invitation']>,
+) => ({
+  subject: invitation.summary ?? t('invitation.untitled'),
+  recipients: t('outbox.invitation.response', {
+    choice: t(`invitation.${invitationChoiceKeys[invitation.choice]}`),
+  }),
+});
+
+// VoiceOver hears where each Outbox message stands, and each answer to Check Again that leaves
+// delivery unknown, whichever list shows. A message sent again after Undo has a new deadline, so its
+// words are heard again.
+function useOutboxAnnouncements(entries: readonly OutboxSnapshotEntry[]) {
+  const { t } = useLocalization();
+  const mailboxes = use(AccountContext)?.mailboxes;
   useEffect(() => {
-    if (heard === undefined) {
-      announced.delete(key);
-    } else if (announced.get(key) !== heard) {
-      announced.set(key, heard);
-      AccessibilityInfo.announceForAccessibilityWithOptions(words ?? heard, {
-        queue: true,
-      });
+    for (const entry of entries) {
+      const { invitation } = entry;
+      const { status, unconfirmed } = outboxCopy(
+        t,
+        entry,
+        invitation === undefined
+          ? mailboxes?.find(({ id }) => id === entry.draft.connection)?.provider
+          : 'imap',
+      );
+      const label =
+        invitation === undefined
+          ? t('outbox.rowLabel', { ...draftSummary(t, entry.draft), status })
+          : t('outbox.rowLabel', {
+              ...responseSummary(t, invitation),
+              status: unconfirmed ?? status,
+            });
+      announce(sendOf(entry), status, label);
+      announce(`${sendOf(entry)}:check`, unconfirmed);
     }
-  }, [key, heard, words]);
+  }, [entries, t, mailboxes]);
 }
 
 // Forgets sends that have left the Outbox: delivered, undone, or edited after a refusal.
@@ -299,7 +329,6 @@ function UnknownRecovery({
   // Only the window that opened it asks before editing.
   const [confirming, setConfirming] = useState(false);
   const notice = confirming ? editWarning : unconfirmed;
-  useAnnouncement(`${sendOf(entry)}:check`, unconfirmed);
   return (
     <View style={styles.recovery}>
       {notice === undefined ? null : (
@@ -389,18 +418,13 @@ function ResponseRow({
   const colors = usePalette();
   const { t } = useLocalization();
   const formats = useMessageDateFormats();
-  const subject = invitation.summary ?? t('invitation.untitled');
-  const recipients = t('outbox.invitation.response', {
-    choice: t(`invitation.${invitationChoiceKeys[invitation.choice]}`),
-  });
+  const { subject, recipients } = responseSummary(t, invitation);
   const { status, unconfirmed } = outboxCopy(t, entry, 'imap');
   const label = t('outbox.rowLabel', {
     subject,
     recipients,
     status: unconfirmed ?? status,
   });
-  useAnnouncement(sendOf(entry), status, label);
-  useAnnouncement(`${sendOf(entry)}:check`, unconfirmed);
   const [symbol, tone] = responseSymbols[entry.state];
   return (
     <View style={[styles.row, { backgroundColor: colors.surfaceSidebar }]}>
@@ -527,8 +551,6 @@ function MessageRow({
   const { subject, recipients } = draftSummary(t, entry.draft);
   const { status, unconfirmed, editWarning } = outboxCopy(t, entry, provider);
   const label = t('outbox.rowLabel', { subject, recipients, status });
-  // A message sent again after Undo has a new deadline, so its words are heard again.
-  useAnnouncement(sendOf(entry), status, label);
   const returning = entry.state === 'waiting' ? 'undo' : 'edit';
   const edit = () => {
     actions.returnToDrafts(entry);
@@ -575,14 +597,60 @@ function MessageRow({
   );
 }
 
-export function OutboxHeading() {
-  const colors = usePalette();
+// The Mail Profile's Outbox, oldest Send first.
+export function useProfileOutbox() {
+  const outbox = useOutboxEntries();
+  const account = use(AccountContext);
+  const profile = useProfile();
+  return profileDrafts({ drafts: [], outbox, account, profile }).outbox;
+}
+
+// The Outbox list's subtitle: how many messages wait, and how many were not sent.
+const outboxSubtitle = (
+  t: Translate,
+  outbox: readonly OutboxSnapshotEntry[],
+) => {
+  const waiting = t('outbox.waiting', { count: outbox.length });
+  const failed = outbox.filter(({ state }) => state === 'failed').length;
+  return failed === 0
+    ? waiting
+    : t('outbox.summary', {
+        waiting,
+        attention: t('outbox.attention', { count: failed }),
+      });
+};
+
+const noOutbox: readonly OutboxSnapshotEntry[] = [];
+
+// The message list's Outbox view: the Mail Profile's Outbox while the person chose it, it holds a
+// message and no search lists mail instead. VoiceOver hears the Outbox whichever list shows, and
+// the Outbox row leaves Mailboxes with its last message, emptying the view.
+export function useOutboxView({
+  chosen,
+  onEmptied,
+  canCompose,
+  searching,
+}: Readonly<{
+  chosen: boolean;
+  onEmptied: () => void;
+  // A list that cannot compose lists no Outbox.
+  canCompose: boolean;
+  searching: boolean;
+}>) {
+  const outbox = useProfileOutbox();
   const { t } = useLocalization();
-  return (
-    <Text
-      accessibilityRole="header"
-      style={[styles.section, { color: colors.textSecondary }]}>
-      {t('outbox.heading')}
-    </Text>
-  );
+  useOutboxAnnouncements(canCompose ? outbox : noOutbox);
+  const empty = outbox.length === 0;
+  useEffect(() => {
+    if (chosen && empty) {
+      onEmptied();
+    }
+  }, [chosen, empty, onEmptied]);
+  return chosen && canCompose && !empty && !searching
+    ? {
+        entries: outbox,
+        title: t('outbox.heading'),
+        subtitle: outboxSubtitle(t, outbox),
+      }
+    : undefined;
 }

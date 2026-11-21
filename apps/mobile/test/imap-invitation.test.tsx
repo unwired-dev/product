@@ -351,6 +351,7 @@ describe('imap invitation responses on iPhone and iPad', () => {
     const opened: Selection[] = [];
     const [roadmap = '', release = ''] = mail.ids;
     const responses = imapInvitationResponses(mail.inbox, mail.outbox, mara.id);
+    const outboxView = { outbox: true };
     const list = (outboxShown?: object) => (
       <mail.Providers>
         <SafeAreaProvider
@@ -366,6 +367,8 @@ describe('imap invitation responses on iPhone and iPad', () => {
                 opened.push(selection);
               }}
               selected={undefined}
+              // The Outbox chosen in Mailboxes, which lists the responses while they wait.
+              view={outboxView}
               outboxShown={outboxShown}
             />
           </CommandPaletteProvider>

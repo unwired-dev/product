@@ -936,8 +936,22 @@ final class InboxTests: XCTestCase {
     let outbox = app.staticTexts["Outbox"].firstMatch
     let sending = app.descendants(matching: .any).matching(
       NSPredicate(
-        format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Work report.", ". Sending soon")
+        format: "label BEGINSWITH %@ AND label CONTAINS %@", "Work report.", ". Sending")
     ).firstMatch
+    waitUntil { !app.otherElements["composer-overlay"].exists }
+    // #2589: on iPad one tap on Outbox, with Search's keyboard up, ends the search and opens it.
+    let ipad = UIDevice.current.userInterfaceIdiom == .pad
+    if ipad {
+      let field = app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label == %@", "Search senders and subjects")).firstMatch
+      XCTAssertTrue(field.waitForExistence(timeout: 10))
+      field.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    }
+    openOutbox(app)
+    if ipad {
+      XCTAssertFalse(app.buttons["Close Search"].exists)
+    }
     XCTAssertTrue(sending.waitForExistence(timeout: 10))
     let queued = XCTAttachment(screenshot: app.screenshot())
     queued.name = "Work Profile with its Outbox"
@@ -949,6 +963,11 @@ final class InboxTests: XCTestCase {
     XCTAssertFalse(draft.exists)
     XCTAssertFalse(outbox.exists)
     XCTAssertFalse(sending.exists)
+    // The Primary Profile's Mailboxes offer no Outbox while Work's holds the message.
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    XCTAssertFalse(app.buttons["Outbox"].exists)
+    app.buttons["All Inboxes"].tap()
+    XCTAssertTrue(rowan.waitForExistence(timeout: 10))
     // Synthetic Graph holds the Work report a minute after the Undo Send Window.
     XCTAssertLessThan(
       Date().timeIntervalSince(sentAt), 70, "The Primary Profile was checked after Work's send")
@@ -981,10 +1000,11 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(rowan.waitForExistence(timeout: 10))
       XCTAssertFalse(jordan.exists)
     }
-    // Moving the mailbox back waits until synthetic Graph accepts the Work report and it leaves
-    // Work's Outbox.
+    // Moving the mailbox back waits until synthetic Graph accepts the Work report and Work's Outbox
+    // leaves its Mailboxes with it.
     switchProfile(to: "Work", from: primary, app)
-    XCTAssertTrue(sending.waitForNonExistence(timeout: 120))
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    XCTAssertTrue(app.buttons["Outbox"].waitForNonExistence(timeout: 120))
     switchProfile(to: "Primary Profile", from: app.buttons["Profile, Work"], app)
     // The Draft belongs to its mailbox's Profile, so it returns with the mailbox.
     moveMailbox("casey@example.invalid", from: "Work", to: "Primary Profile", primary, app)
@@ -1465,10 +1485,12 @@ final class InboxTests: XCTestCase {
         NSPredicate(format: "label ENDSWITH %@", ". " + status)
       ).firstMatch
     }
-    // iPhone returns from Send to the reader; the Outbox heads its Inbox.
+    // iPhone returns from Send to the reader. The Inbox lists no Outbox: Mailboxes offers it after
+    // Sent while it holds the message.
     if UIDevice.current.userInterfaceIdiom == .phone {
       app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back")).firstMatch.tap()
     }
+    openOutbox(app)
     XCTAssertTrue(row("Sending soon").waitForExistence(timeout: 10))
     let queued = XCTAttachment(screenshot: app.screenshot())
     queued.name = "Outbox during the Undo Send Window"
@@ -1494,6 +1516,33 @@ final class InboxTests: XCTestCase {
       add(stuck)
       XCTFail("The sent message stayed in the Outbox")
     }
+    // The emptied Outbox returns the list to All Inboxes, which iPhone's navigation bar titles Inbox,
+    // and leaves Mailboxes.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 10))
+    } else {
+      XCTAssertTrue(app.navigationBars.staticTexts["Inbox"].firstMatch.waitForExistence(timeout: 10))
+    }
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    XCTAssertTrue(app.buttons["Outbox"].waitForNonExistence(timeout: 10))
+  }
+
+  // #2589: Mailboxes offers the Outbox after Sent while it holds a message, and choosing it lists
+  // the Outbox under its own heading. Mailboxes is shown or one tap away, one Back on iPhone, so this
+  // opens it at once, inside the Undo Send Window.
+  private func openOutbox(_ app: XCUIApplication) {
+    let row = app.buttons["Outbox"]
+    let offered = { row.exists && row.isHittable }
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      let back = app.buttons["Back to Mailboxes"]
+      waitUntil { offered() || (back.exists && back.isHittable) }
+      if !offered() { back.tap() }
+    } else if !offered() {
+      showSidebar(app)
+    }
+    waitUntil(offered, timeout: 10)
+    row.tap()
+    XCTAssertTrue(app.staticTexts["Outbox"].firstMatch.waitForExistence(timeout: 10))
   }
 
   // #2144: a long press on Send opens its menu, and Remind Me to Send… sets the Draft's Send
@@ -3966,10 +4015,10 @@ final class InboxTests: XCTestCase {
     attachScreen("Send menu with Send Now", of: app, to: self)
     sendNow.tap()
     XCTAssertTrue(app.otherElements["composer-overlay"].waitForNonExistence(timeout: 15))
-    let waiting = app.descendants(matching: .any).matching(
-      NSPredicate(format: "label CONTAINS %@", "Sending soon"))
-    XCTAssertEqual(waiting.count, 0)
-    XCTAssertFalse(app.buttons["Undo"].exists)
+    // The provider takes the message, and the Outbox leaves Mailboxes. Jest proves the handoff skips
+    // the Undo Send Window; synthetic Gmail keeps no Sent copy to check here.
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    XCTAssertTrue(app.buttons["Outbox"].waitForNonExistence(timeout: 30))
     attachScreen("After Send Now", of: app, to: self)
   }
 

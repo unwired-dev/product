@@ -152,16 +152,16 @@ it.
 - If a mailbox changes its address, **From** keeps the Draft's original address
   visible with an explanation. Choose that mailbox again to use its current
   address, or choose another mailbox.
-- On Mac ([#2421](https://github.com/unwired-dev/product/issues/2421)) the
-  **Outbox** is a sidebar row directly after Sent, only while the window's Mail
-  Profile has a message in it. Selecting it lists its messages under the heading
-  **Outbox** and a subtitle such as **3 waiting · 1 needs attention**, counting the
-  messages Not sent; a search lists matching mail instead. The Inbox column lists
+- The **Outbox** is a row directly after Sent, only while the window's Mail
+  Profile has a message in it: in the sidebar on Mac
+  ([#2421](https://github.com/unwired-dev/product/issues/2421)) and iPad, and in
+  Mailboxes on iPhone ([#2589](https://github.com/unwired-dev/product/issues/2589)).
+  Selecting it lists its messages under the heading **Outbox** and a subtitle such
+  as **3 waiting · 1 needs attention**, counting the messages Not sent; a search
+  lists matching mail instead. **View in Outbox** opens it. On iPhone and iPad,
+  selecting it or View in Outbox ends a search. The Inbox column lists
   no Outbox, and when the last message leaves while the Outbox is selected, the
-  list returns to All Inboxes. On iPhone and iPad the **Outbox** still appears in
-  the Inbox column above the Drafts only while it holds a message, and is hidden
-  during search with the Drafts, until the rest of
-  [#2101](https://github.com/unwired-dev/product/issues/2101). Each row names its
+  list returns to All Inboxes. Each row names its
   subject and recipients and says where the message stands. On iPhone the row shows
   that reason in full, with its controls as quiet capsules under it. A capsule
   that does not fit beside the one before it moves to the next line, but a single
@@ -174,7 +174,7 @@ it.
   Invitation but no Edit; on iPhone and iPad they are capsules under its words.
 - VoiceOver announces each change of where a message stands, and each answer to
   **Check Again** that leaves delivery unknown, once however many Mac windows show
-  it. On Mac it hears them whichever list the window shows. In the composer, a refused Send, a Draft that could not be saved on Close or Discard, and the
+  it. It hears them whichever list the window shows. In the composer, a refused Send, a Draft that could not be saved on Close or Discard, and the
   Discard question are announced as they appear. Outbox row and Check Again
   announcements wait for existing speech; the Edit warning, a refused Undo or
   Edit, and composer outcomes announce immediately. A message confirmed in Sent
