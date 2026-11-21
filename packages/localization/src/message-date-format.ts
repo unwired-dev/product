@@ -14,18 +14,17 @@ export function createMessageDateFormat(locale: string) {
 }
 
 const dayLength = 86_400_000;
+type CalendarDate = Readonly<{ days: number; month: string }>;
 const calendars = new Map<
   string,
   {
     format: Intl.DateTimeFormat;
-    dates: Map<number, { days: number; month: string }>;
+    arrivals: Map<number, CalendarDate>;
+    now?: Readonly<{ at: number; date: CalendarDate }>;
   }
 >();
 
-// The Gregorian calendar date `at` falls on in `timeZone`: its days since the epoch and its month.
-// Each zone keeps the dates it has read, so regrouping a loaded list every minute formats only new
-// arrivals.
-function calendarDate(at: number, timeZone: string) {
+function zoneCalendar(timeZone: string) {
   let calendar = calendars.get(timeZone);
   if (calendar === undefined) {
     calendar = {
@@ -35,30 +34,49 @@ function calendarDate(at: number, timeZone: string) {
         month: 'numeric',
         day: 'numeric',
       }),
-      dates: new Map(),
+      arrivals: new Map(),
     };
     calendars.set(timeZone, calendar);
   }
-  const known = calendar.dates.get(at);
-  if (known !== undefined) {
-    return known;
-  }
+  return calendar;
+}
+
+// The Gregorian calendar date `at` falls on: its days since the epoch and its month.
+function readDate(format: Readonly<Intl.DateTimeFormat>, at: number) {
   const parts = new Map(
-    calendar.format
-      .formatToParts(at)
-      .map(({ type, value }) => [type, Number(value)]),
+    format.formatToParts(at).map(({ type, value }) => [type, Number(value)]),
   );
   const year = parts.get('year') ?? 0;
   const month = parts.get('month') ?? 1;
-  const date = {
+  return {
     days: Date.UTC(year, month - 1, parts.get('day') ?? 1) / dayLength,
     month: `${year}-${month}`,
   };
-  if (calendar.dates.size >= 20_000) {
-    calendar.dates.clear();
+}
+
+// The calendar date a message arrived on in `timeZone`. Each zone keeps the arrivals it has read,
+// so regrouping a loaded list every minute formats only new ones.
+function arrivalDate(at: number, timeZone: string) {
+  const { format, arrivals } = zoneCalendar(timeZone);
+  const known = arrivals.get(at);
+  if (known !== undefined) {
+    return known;
   }
-  calendar.dates.set(at, date);
+  const date = readDate(format, at);
+  if (arrivals.size >= 50_000) {
+    arrivals.clear();
+  }
+  arrivals.set(at, date);
   return date;
+}
+
+// The calendar date of `now`, read once for every row of a pass and kept apart from the arrivals.
+function currentDate(now: number, timeZone: string) {
+  const calendar = zoneCalendar(timeZone);
+  if (calendar.now?.at !== now) {
+    calendar.now = { at: now, date: readDate(calendar.format, now) };
+  }
+  return calendar.now.date;
 }
 
 // The day group of a listed message, relative to `now`: the list's date dividers, the row's time
@@ -66,7 +84,7 @@ function calendarDate(at: number, timeZone: string) {
 export type MessageDay = 'today' | 'yesterday' | 'lastWeek' | 'earlier';
 
 const daysBefore = (at: number, now: number, timeZone: string) =>
-  calendarDate(now, timeZone).days - calendarDate(at, timeZone).days;
+  currentDate(now, timeZone).days - arrivalDate(at, timeZone).days;
 
 export function messageDay(
   receivedAt: string,
@@ -85,11 +103,23 @@ export function messageDay(
 
 // The month an earlier message's divider names, in the device's time zone.
 export const messageMonth = (receivedAt: string, timeZone: string) =>
-  calendarDate(Date.parse(receivedAt), timeZone).month;
+  arrivalDate(Date.parse(receivedAt), timeZone).month;
+
+const formatSets = new Map<string, ReturnType<typeof messageDateFormats>>();
 
 // How the interface names when a message arrived, on the device's clocks: a row and its divider, a
-// message header, and the full date VoiceOver reads.
+// message header, and the full date VoiceOver reads. Every row of a locale and zone shares one set.
 export function createMessageDateFormats(locale: string, timeZone: string) {
+  const key = `${locale}\n${timeZone}`;
+  let formats = formatSets.get(key);
+  if (formats === undefined) {
+    formats = messageDateFormats(locale, timeZone);
+    formatSets.set(key, formats);
+  }
+  return formats;
+}
+
+function messageDateFormats(locale: string, timeZone: string) {
   const format = (options: Readonly<Intl.DateTimeFormatOptions>) =>
     new Intl.DateTimeFormat(locale, { ...options, timeZone });
   const clock = format({ hour: 'numeric', minute: '2-digit' });

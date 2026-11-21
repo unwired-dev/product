@@ -2822,6 +2822,51 @@ describe('mac windows over a connected Gmail mailbox', () => {
     }
   });
 
+  it('moves an open message to Yesterday in its row and its header on the same midnight tick', async () => {
+    expect.hasAssertions();
+    jest.useFakeTimers({
+      now: Date.parse('2026-10-13T23:59:30Z'),
+      advanceTimers: true,
+    });
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+      at: Date.parse('2026-10-13T08:12:00Z'),
+    });
+    const { registration } = await connectedRegistration();
+    showMailboxes(
+      createMailboxes(
+        syntheticConnections({ [alex]: { native: gmail.native } }),
+        registration,
+      ),
+    );
+    const app = await render(
+      <RegistrationGate
+        store={started(registration)}
+        preview={false}>
+        <InboxWindow windowId="first" />
+      </RegistrationGate>,
+    );
+    try {
+      const window = within(await app.findByTestId('inbox-window-first'));
+      await fireEvent.press(
+        await window.findByRole('button', { name: oliver }),
+      );
+      const day = () => ({
+        divider: window.queryByRole('header', { name: 'Yesterday' }) !== null,
+        header: window.queryByText('Yesterday, 8:12 AM') !== null,
+      });
+      await window.findByText('Today, 8:12 AM');
+      expect(day()).toStrictEqual({ divider: false, header: false });
+      await act(() => jest.advanceTimersByTimeAsync(30_000));
+      expect(day()).toStrictEqual({ divider: true, header: true });
+    } finally {
+      await app.unmount();
+      jest.useRealTimers();
+    }
+  });
+
   it('blocks a sender’s exact address for the Profile from the sender menu after confirming', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
