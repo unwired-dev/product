@@ -1,5 +1,40 @@
 # @private-email/draft-editor
 
+## 0.1.1
+
+### Patch Changes
+
+- fb5b3a4: An inline image in a Semantic Message Document can carry a display `width` of 320, 640 or 1024 (Small, Medium or Large; Original without one). Formatting, typing, line breaks, Undo, cut and paste and storage keep it, and outgoing HTML gives the image that `width` while sending its original bytes. The Draft editor page carries the width and takes a `resize` command that sets or clears it for every use of one image as one undoable edit (#2487, part of #1735).
+- 0302409: Refresh dependencies to the latest compatible versions: Effect 4.1.5, Convex 1.51, jose 6.2.18, i18next 27.2 and react-i18next 18.0, parse5 8.1, the CSS parser 4.0.3 and Tiptap 3.34 in the Draft editor page. The Mac app moves to React Native macOS 0.83, with React Native 0.83.10 and React 19.2, and to WebView 14.0.1, the version iPhone and iPad use. In Effect 4.1 a request that waits for a lock can no longer take a free lock ahead of an earlier waiter, so a history backfill step in a Gmail, Microsoft or IMAP Inbox now steps aside for any Inbox request that is waiting, such as a synchronization, a change being sent or Discard Change, so a history read no longer delays them. Each tagged error class now carries a type brand, so another class with the same fields no longer type-checks as it.
+- Updated dependencies [f6bdbd4]
+- Updated dependencies [2b6b0a2]
+- Updated dependencies [ce04f2c]
+- Updated dependencies [643fe96]
+- Updated dependencies [e662cb5]
+- Updated dependencies [e015cfb]
+- Updated dependencies [e74502a]
+- Updated dependencies [3f2363b]
+- Updated dependencies [1872d39]
+- Updated dependencies [16ef069]
+- Updated dependencies [3b19eb2]
+- Updated dependencies [c416829]
+- Updated dependencies [17eb728]
+- Updated dependencies [b981eff]
+- Updated dependencies [4a29bf4]
+- Updated dependencies [005823d]
+- Updated dependencies [fb5b3a4]
+- Updated dependencies [21ef44a]
+- Updated dependencies [9a7cf95]
+- Updated dependencies [41140eb]
+- Updated dependencies [7f14b01]
+- Updated dependencies [e49531b]
+- Updated dependencies [768201e]
+- Updated dependencies [b2ff343]
+- Updated dependencies [f539826]
+- Updated dependencies [a1e183e]
+- Updated dependencies [0302409]
+  - @private-email/mail-core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

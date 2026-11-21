@@ -1,5 +1,86 @@
 # @private-email/macos
 
+## 0.3.0
+
+### Patch Changes
+
+- ebb70f1: On the Mac, closing a New Message window that Expand opened asks **Save this Draft?**. **Save Draft** reopens the Draft in the overlay of the Inbox window it came from and brings that window forward. If that window has closed, another Inbox window of the same Mail Profile is used, or a new one opens. When that overlay already holds another Draft, the app first asks **Save Other Draft and Return**. **Discard Draft** deletes the Draft and brings the Inbox window forward, and **Cancel** keeps the window open (#1671).
+- f6bdbd4: When Gmail has expired a mailbox's history, the next synchronization asks Gmail again for each online search result and Show Latest message the app holds, and drops those Gmail deleted meanwhile: a search no longer lists a deleted message, and an older invitation stops offering **Show Latest** for a deleted newer revision. Results Gmail still has, and their open reader, stay (#1859).
+- ce04f2c: Message dates follow the device's time zone instead of UTC. The reader's header on Mac and iPad
+  says `Today, 8:12`, `Yesterday, 8:12`, `Sun 11 Oct, 21:14`, or the date with its year, in the
+  interface language's conventions; iPhone's compact header names the day as its list row does.
+  VoiceOver reads the full date and time. Message rows, the list's day dividers and Only Mail from
+  Today use the same day, which changes at local midnight and with the device's time zone. The
+  native language settings now report `timeZone`, and `messageDateSections` and `filterMessages`
+  take it. A response still quotes a full UTC date for a message without a Date header (#2102).
+- e662cb5: On the Mac, a search that matches nothing shows the **No Results** empty state, naming the scope and the query, and the subtitle reads "No results · Travel" for the searched folder or mailbox, or "No results · All Mailboxes" for several; while the mail servers are searched, skeleton rows hold their answer's place and the subtitle names the mailboxes searched, as in "Searching All Mailboxes…" (#2346, part of #2090). A Unified Mailbox now reports `unlisted` while a mailbox is opening or a folder has listed nothing yet because its first listing is still to arrive or failed. `inboxUnlisted` says whether a mailbox has listed its Inbox yet.
+- e015cfb: A composer whose Draft update the store declines, as when its sender moved into another Mail Profile, no longer counts that version as saved: Save keeps the composer open and its recovery record stays. On the Mac, an idle Inbox window offers a recovery record once a mailbox moves into its Profile (#2373, part of #1989).
+- e74502a: Composer recovery waits for a pending New Message and tries a refused record removal again (#2381, part of #1989).
+
+  - iPhone and iPad no longer ask **Recover unsaved message?** while a new Draft is being created, so **Restore** cannot open a composer that the new message then replaces. The record is offered once that composer closes.
+  - On iPhone, iPad and Mac, an open composer keeps a recovery record it could not remove and removes it with the next write. A removal that finishes after newer edits were journaled leaves their record in place.
+
+- ec16f71: Connecting an Outlook.com mailbox no longer stops at **Mailbox access was interrupted** after consent: the app accepts the authorization callback Microsoft returns with a trailing slash (#2389).
+- ae9692a: IMAP mailboxes find a message's Sent copy by its Message-ID instead of a Content-Type search, so Seznam Email, whose server drops the connection on that search, files Sent copies and **Check Again** can confirm a message whose delivery was unknown (#2402).
+- d6a124c: On Mac the Outbox is a sidebar row after Sent while the window's Mail Profile has a message in it, instead of rows at the top of the Inbox column. Selecting it lists the messages under the heading Outbox with a subtitle counting those waiting and those not sent; when the last one leaves, the list returns to All Inboxes. VoiceOver hears where each message stands whichever list the window shows (#2421, part of #2101).
+- 1872d39: On the Mac, **New Label…** in a Gmail message's **Labels** menu opens the **Labels** popover in place of the name alert: type a name, and **Create “Acme” inside “Clients”** creates the nested label in Gmail and applies it, a listed label applies at once, and a name another label has in a different case offers **Use “clients/acme”** or **Edit Name** in a sheet. iPhone, iPad and Mac share the naming rules through `typedLabel` in `@private-email/mail-core/gmail-actions` (#2442, part of #1683).
+- 16ef069: On the Mac, an invitation in an IMAP mailbox that can send offers **Accept**, **Maybe** and **Decline**: the response waits in the Outbox for the Undo Send Window with **Undo** and **View in Outbox**, then goes through the mailbox's own mail server, and the card names that server when it accepts, refuses or doesn't confirm the response. The Outbox shows the response in its own row with its meeting, choice and status, **Undo**, **Check Again** and **Open Invitation**, and no Edit. `invitationResponding` takes an IMAP mailbox's `server` from the new `imapServer`, and `outboxCopy` words an Invitation Response's status as a response (#2446, part of #1279).
+- 9a7cf95: iPhone, iPad and Mac composers share one composer recovery journal from mail-core (#2492).
+
+  - mail-core adds the `recovery-journal` entry point: `createRecoveryJournal` keeps an open composer's unsaved version in its recovery record two seconds after an edit and on return to the foreground, through an Effect-managed wait that disposing the composer cancels.
+  - Recording, removal retries and Mac Quit waiting for removal behave as before.
+
+- 41140eb: Gmail's usage limit on the grant verification that activation and refresh run (a 403 for a daily or rate limit, like a 429) now keeps the saved Inbox open from its cache instead of asking to authorize Gmail again. A usage limit's automatic resume first verifies that connection again, as a push wake does, so a connection whose verification met the limit synchronizes at Gmail's time; `createInboxStore` takes that verification as its `verify` option (#2502).
+- 7f14b01: A Gmail push wake now verifies only the mailbox it synchronizes with its provider. It still checks the Product Account and this Trusted Device, but no longer refreshes every other connection's grant or logs into every IMAP server within the wake's 25 seconds. After a wake that launched the app, the other mailboxes open their saved Inbox until the next activation or background refresh verifies them; in a running app they keep the access they had (#2506).
+- b2ff343: On the Mac, **Edit Favorites…** in the Favorites header's menu, or Edit Favorites in the Command Palette, lets the sidebar show or hide each Favorites row and reorder them until **Done**; All Inboxes stays shown. The Profile's choice is kept in its Inbox preferences and synchronized through Private Sync, and each Unified Mailbox can be opened from the Command Palette (#2593, part of #2106). `createInboxPreferences` adds `favorites` and `setFavorites`; `favoriteRows`, `toggleFavorite`, `moveFavorite` and `sidebarCommands` are new.
+- d0be5d8: On the Mac, the Send menu (a right click on Send) offers **Send Now**, "No Undo": it sends through the same Outbox checks as Send but without the Undo Send Window, with no confirmation. While a file is still being added, Send Now is dimmed and reads "Send Now — waiting for <file>" (#2594, part of #1674).
+- d7bd630: On Mac, **Outdent** and **Indent** follow the list buttons in the composer's format bar, **Format › Increase Indent** (Command-]) and **Decrease Indent** (Command-[) do the same, and Tab and Shift-Tab do it inside a list. Lists nest three levels deep and each change is one Undo step (#2597, part of #1679).
+- f539826: Mac: Send and Send Now with files that were not added (failed, too large, cancelled, interrupted) no longer stay unavailable. They ask “Send without 2 attachments?” in a sheet, naming each file and why, then remove them as one edit and send the rest; **Keep Editing** leaves the Draft as it was (#2598).
+- a1e183e: On Mac, **Open** on a Downloaded Attachment shows it in the Quick Look panel again; it showed nothing (#2603, part of #632).
+- a1e183e: **Forward** and **Attach to New Message** download again an attachment saved before the mailbox's access was renewed, as happens on every Mac activation, and attach the received file. Forward marked it "Not added" and Attach did nothing (#2604, part of #632).
+- 0302409: Refresh dependencies to the latest compatible versions: Effect 4.1.5, Convex 1.51, jose 6.2.18, i18next 27.2 and react-i18next 18.0, parse5 8.1, the CSS parser 4.0.3 and Tiptap 3.34 in the Draft editor page. The Mac app moves to React Native macOS 0.83, with React Native 0.83.10 and React 19.2, and to WebView 14.0.1, the version iPhone and iPad use. In Effect 4.1 a request that waits for a lock can no longer take a free lock ahead of an earlier waiter, so a history backfill step in a Gmail, Microsoft or IMAP Inbox now steps aside for any Inbox request that is waiting, such as a synchronization, a change being sent or Discard Change, so a history read no longer delays them. Each tagged error class now carries a type brand, so another class with the same fields no longer type-checks as it.
+- Updated dependencies [ebb70f1]
+- Updated dependencies [f6bdbd4]
+- Updated dependencies [2b6b0a2]
+- Updated dependencies [ce04f2c]
+- Updated dependencies [643fe96]
+- Updated dependencies [e662cb5]
+- Updated dependencies [e015cfb]
+- Updated dependencies [e74502a]
+- Updated dependencies [6d7c277]
+- Updated dependencies [9054e1a]
+- Updated dependencies [e6be4e9]
+- Updated dependencies [98f27cb]
+- Updated dependencies [e1948d0]
+- Updated dependencies [d6a124c]
+- Updated dependencies [3f2363b]
+- Updated dependencies [5246109]
+- Updated dependencies [1872d39]
+- Updated dependencies [16ef069]
+- Updated dependencies [3b19eb2]
+- Updated dependencies [c416829]
+- Updated dependencies [17eb728]
+- Updated dependencies [b981eff]
+- Updated dependencies [4a29bf4]
+- Updated dependencies [005823d]
+- Updated dependencies [fb5b3a4]
+- Updated dependencies [21ef44a]
+- Updated dependencies [9a7cf95]
+- Updated dependencies [41140eb]
+- Updated dependencies [7f14b01]
+- Updated dependencies [e49531b]
+- Updated dependencies [768201e]
+- Updated dependencies [f7ca447]
+- Updated dependencies [b2ff343]
+- Updated dependencies [d0be5d8]
+- Updated dependencies [d7bd630]
+- Updated dependencies [f539826]
+- Updated dependencies [a1e183e]
+- Updated dependencies [0302409]
+  - @private-email/localization@0.2.0
+  - @private-email/mail-core@0.2.0
+  - @private-email/draft-editor@0.1.1
+
 ## 0.2.0
 
 ### Minor Changes
