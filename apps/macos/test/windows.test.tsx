@@ -2853,14 +2853,23 @@ describe('mac windows over a connected Gmail mailbox', () => {
       await fireEvent.press(
         await window.findByRole('button', { name: oliver }),
       );
+      // Opening the message marks it read, which renames its row.
       const day = () => ({
         divider: window.queryByRole('header', { name: 'Yesterday' }) !== null,
+        row:
+          within(
+            window.getByRole('button', { name: /Oliver Park\. Saturday/u }),
+          ).queryByText('Yesterday') !== null,
         header: window.queryByText('Yesterday, 8:12 AM') !== null,
       });
       await window.findByText('Today, 8:12 AM');
-      expect(day()).toStrictEqual({ divider: false, header: false });
+      expect(day()).toStrictEqual({
+        divider: false,
+        row: false,
+        header: false,
+      });
       await act(() => jest.advanceTimersByTimeAsync(30_000));
-      expect(day()).toStrictEqual({ divider: true, header: true });
+      expect(day()).toStrictEqual({ divider: true, row: true, header: true });
     } finally {
       await app.unmount();
       jest.useRealTimers();

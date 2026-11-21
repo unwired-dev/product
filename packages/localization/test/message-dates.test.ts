@@ -103,6 +103,36 @@ describe('message header dates', () => {
     ).toStrictEqual(['2026-10', '2026-9']);
   });
 
+  it('ends a day at local midnight across the clock changes of its 23- and 25-hour days', () => {
+    expect.hasAssertions();
+    // In Prague 29 March 2026 has 23 hours and 25 October 25; each pair straddles the next midnight.
+    expect(
+      [
+        [
+          '2026-03-29T21:59:59.999Z',
+          '2026-03-29T22:00:00.000Z',
+          '2026-03-30T08:00:00Z',
+        ],
+        [
+          '2026-10-25T22:59:59.999Z',
+          '2026-10-25T23:00:00.000Z',
+          '2026-10-26T08:00:00Z',
+        ],
+      ].flatMap(([before = '', after = '', current = '']) =>
+        [before, after].map((at) => [
+          formats.day(at, Date.parse(current)),
+          formats.row(english, at, Date.parse(current)),
+          header(at, Date.parse(current)),
+        ]),
+      ),
+    ).toStrictEqual([
+      ['yesterday', 'Yesterday', 'Yesterday, 23:59'],
+      ['today', '0:00', 'Today, 0:00'],
+      ['yesterday', 'Yesterday', 'Yesterday, 23:59'],
+      ['today', '0:00', 'Today, 0:00'],
+    ]);
+  });
+
   it('moves a header to Yesterday once midnight passes, and follows a new time zone', () => {
     expect.hasAssertions();
     const afterMidnight = Date.parse('2026-10-13T22:05:00Z');
