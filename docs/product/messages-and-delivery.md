@@ -142,7 +142,7 @@ rules below do not establish that this target is implemented.
 - Before **Outbox** admission, the client computes final transfer-encoded MIME size and enforces a known limit from the selected sending **Mailbox Connection**; an unknown provider limit permits attempted delivery with a visible estimate, while excess size requires removal or local image compression
 - During provider delivery, outgoing **Attachments** and **Inline Images** travel from the trusted device to the **Mail Provider** without passing through the product backend; their encrypted Draft Assets synchronize through **Private Sync** before handoff
 - The **Undo Send Window** defaults to 10 seconds and may be disabled or set to 20 or 30 seconds
-- **Send Now** in the composer's Send menu sends one message without its **Undo Send Window**, after the same checks as Send; it says "No Undo" and never changes the default for Send
+- **Send Now** in the composer's Send menu (a long press on Send on iPhone and iPad, a right click on the Mac) sends one message without its **Undo Send Window**, after the same checks as Send; it says "No Undo" and never changes the default for Send. While a file is still being added, it is unavailable and names that file
 - Cancelling during the **Undo Send Window** prevents provider handoff; the product never describes this as recalling a message already accepted by a provider
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
 - Permanently failed **Outgoing Delivery Attempts** stop until the user resolves authentication, policy, recipient, or message problems

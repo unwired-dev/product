@@ -1241,7 +1241,8 @@
     "sendNow": {
       "title": "Send Now",
       "detail": "No Undo",
-      "waiting": "Waiting for {{name}} to finish"
+      "waiting": "Waiting for {{name}} to finish",
+      "waitingTitle": "Send Now — waiting for {{name}}"
     },
     "leftOut": {
       "title_one": "Send without {{count}} attachment?",

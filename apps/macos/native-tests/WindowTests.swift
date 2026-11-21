@@ -150,6 +150,62 @@ final class WindowTests: XCTestCase {
     XCTAssertFalse(text("not a complete address", in: window).exists)
   }
 
+  // #2594: Send's menu offers Send Now, which hands the message to the Outbox with no Undo Send
+  // Window, so it never waits as "Sending soon".
+  func testSendNow() throws {
+    try sendNow(appearance: "Light")
+  }
+
+  func testSendNowDark() throws {
+    try sendNow(appearance: "Dark")
+  }
+
+  private func sendNow(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ screenshot: XCUIScreenshot, _ name: String) {
+      let attachment = XCTAttachment(screenshot: screenshot)
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    let send = window.buttons["Send"].firstMatch
+    typeRecipient(window.textFields["To"], "jordan@example.invalid")
+    // The address's contact suggestion covers Subject; Return accepts it.
+    window.typeKey(.return, modifierFlags: [])
+    let subject = window.textFields["Subject"]
+    subject.click()
+    subject.typeText("Send Now check")
+    waitUntil { send.isEnabled }
+    send.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).rightClick()
+    // AppKit names the item by its title and subtitle.
+    let item = app.menuItems["Send Now, No Undo"]
+    XCTAssertTrue(item.waitForExistence(timeout: 5))
+    XCTAssertTrue(item.isEnabled)
+    // The menu's own element has an empty frame, so the screen is captured.
+    attach(XCUIScreen.main.screenshot(), "Send menu with Send Now")
+    // Send keeps the sidebar's Outbox for its 10-second Undo Send Window; within 8 seconds of the
+    // click, Send Now's composer closes and its delivered message leaves the Outbox.
+    let deadline = Date().addingTimeInterval(8)
+    item.click()
+    XCTAssertTrue(subject.waitForNonExistence(timeout: deadline.timeIntervalSinceNow))
+    XCTAssertTrue(
+      window.buttons["Outbox"].waitForNonExistence(timeout: max(0, deadline.timeIntervalSinceNow)))
+    attach(window.screenshot(), "After Send Now")
+  }
+
   // #2406: a force quit mid-typing keeps the New Message's unsaved edits, which Restore recovers
   // after the relaunch; Discard removes them, so the next launch offers nothing.
   func testComposerRecoveryAfterForceQuit() throws {
