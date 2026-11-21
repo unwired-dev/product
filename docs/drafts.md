@@ -690,7 +690,9 @@ Deleting an importing inline image and then choosing **Undo** after import finis
 restores its verified bytes. An edit racing **Discard** keeps the conflict copy's
 files as well as its body. A picker result arriving after the composer closes or
 the Product Account changes is discarded. Repeated **Attach to New Message**
-presses start one operation; navigation chosen while its save waits stays selected.
+presses start one operation; navigation chosen while its save or the file's download
+waits stays selected. The file is downloaded again, when needed, only after the open
+composer is left.
 
 ## Continuing on another device
 

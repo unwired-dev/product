@@ -1094,7 +1094,9 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   operator as in the Mac connect record. Builds: the app source of
   `d7bd6304c782e76926251369a23b5b94b1ea8990`, then the same source with the fixes for
   [#2603](https://github.com/unwired-dev/product/issues/2603) and
-  [#2604](https://github.com/unwired-dev/product/issues/2604). Google Product Sign-In
+  [#2604](https://github.com/unwired-dev/product/issues/2604), and last the app source of
+  `47ee9c935ed51347a43dbc444537fc456c69b65a`, which also downloads the file for Attach to
+  New Message only after leaving an open composer. Google Product Sign-In
   found the certification Product Account, the Mac was unlocked with its Recovery Key,
   and both certification mailboxes were connected through the app as in the Mac connect
   record. Attachment: one synthetic PNG image (`image/png`, 153,873 bytes, shown as
@@ -1112,15 +1114,20 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   Message did nothing (#2604). With the fixes, **Open** showed the image in the Quick Look
   panel. After a switch to Finder and back, the reader's **Forward** from Seznam Email
   downloaded the file again and carried it to iCloud Mail. The delivered forward and its
-  single Sent copy had the same decoded size and prefix. In iCloud Mail, Attach to New
-  Message after the same switch started a Draft listing the file at its size; that Draft
-  was discarded unsent, as were the Drafts the failed forwards had left. Afterwards no
+  single Sent copy had the same decoded size and prefix. On the last build, one more
+  message with the same attachment, submitted over SMTP from Seznam Email, was opened in
+  iCloud Mail: **Download** saved it, **Open** showed the image in the Quick Look panel,
+  and after a switch to Finder and back **Forward** carried it to Seznam Email, where the
+  delivered forward and iCloud Mail's single Sent copy had the same decoded size and
+  prefix. After another switch, Attach to New Message started a Draft listing the file at
+  its size. Each Draft from Attach to New Message was discarded unsent, as were the
+  Drafts the failed forwards had left. Afterwards no
   run message remained in any folder of either mailbox, **Sign Out of This Device**
   returned the app to Welcome, and the run's caches and HTTP storage were removed from
   the app's container. Limitations: the operator drove the app through the macOS
   accessibility interface and synthesized keyboard and mouse input, and saw the Quick
-  Look panel in a window capture. **Share**, Open in iCloud Mail on the fixed build,
-  Save to Downloads ([#1681](https://github.com/unwired-dev/product/issues/1681)),
+  Look panel in a window capture. Seznam Email was not connected for the last build's
+  checks. **Share**, Save to Downloads ([#1681](https://github.com/unwired-dev/product/issues/1681)),
   inline images, attachments over the 25 MiB download limit, the star, IDLE and
   relaunch, offline queueing, recovery and large-folder backfill stay on #632.
 
