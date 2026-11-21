@@ -22,6 +22,7 @@ import {
   render,
   renderHook,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react-native';
 
@@ -75,6 +76,63 @@ const account = {
   createProfile: () => Promise.resolve(undefined),
   chooseFolders: () => Promise.resolve(true),
 };
+
+// All Inboxes over Alex's shown account and another the Profile hides, neither loaded yet.
+async function hiddenAccount() {
+  const alex = syntheticMailboxes['alex@example.invalid'];
+  const other = syntheticMailboxes['other@example.invalid'];
+  const snapshot = {
+    kind: 'connected',
+    productAccountId: 'synthetic-product-account',
+    signInProvider: 'google',
+    mailboxes: JSON.stringify([
+      { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      { id: other, address: 'other@example.invalid', state: 'connected' },
+    ]),
+  } satisfies RegistrationSnapshot;
+  const registration = {
+    getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+    subscribe: () => () => undefined,
+  };
+  const shown = createSyntheticGmail({ address: 'alex@example.invalid' });
+  const hidden = createSyntheticGmail({ address: 'other@example.invalid' });
+  const mailboxes = createMailboxes(
+    syntheticConnections({ [alex]: shown, [other]: hidden }),
+    registration,
+  );
+  const kept = { revision: 0, document: null as string | null };
+  const store = createInboxPreferences(
+    {
+      openInboxPreferences: () =>
+        Promise.resolve({ owner: 'synthetic-product-account', ...kept }),
+      commitInboxPreferences: (owner, expectedRevision, document) => {
+        Object.assign(kept, { revision: expectedRevision + 1, document });
+        return Promise.resolve({ owner, revision: kept.revision });
+      },
+    },
+    registration,
+  );
+  await store.load();
+  await store.showSection(defaultProfile, other, false);
+  const tree = (view: MailboxView) => (
+    <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+      <InboxPreferencesContext value={store}>
+        <InboxProvider mailboxes={mailboxes}>
+          <CommandPaletteProvider>
+            <Inbox
+              onClose={ignore}
+              onSelect={ignore}
+              onView={ignore}
+              selected={undefined}
+              view={view}
+            />
+          </CommandPaletteProvider>
+        </InboxProvider>
+      </InboxPreferencesContext>
+    </AccountContext>
+  );
+  return { alex, other, shown, hidden, mailboxes, store, tree };
+}
 
 describe('iPad Mailboxes', () => {
   it('hides Mailboxes again after a swipe shows them over the Portrait default', async () => {
@@ -161,59 +219,9 @@ describe('iPad Mailboxes', () => {
 
   it('leaves a hidden account out of the All Inboxes subtitle, Filters and search, and names the Inbox shown', async () => {
     expect.hasAssertions();
-    const alex = syntheticMailboxes['alex@example.invalid'];
-    const other = syntheticMailboxes['other@example.invalid'];
-    const snapshot = {
-      kind: 'connected',
-      productAccountId: 'synthetic-product-account',
-      signInProvider: 'google',
-      mailboxes: JSON.stringify([
-        { id: alex, address: 'alex@example.invalid', state: 'connected' },
-        { id: other, address: 'other@example.invalid', state: 'connected' },
-      ]),
-    } satisfies RegistrationSnapshot;
-    const registration = {
-      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
-      subscribe: () => () => undefined,
-    };
-    const shown = createSyntheticGmail({ address: 'alex@example.invalid' });
-    const hidden = createSyntheticGmail({ address: 'other@example.invalid' });
-    const mailboxes = createMailboxes(
-      syntheticConnections({ [alex]: shown, [other]: hidden }),
-      registration,
-    );
+    const { alex, other, shown, hidden, mailboxes, store, tree } =
+      await hiddenAccount();
     await mailboxes.load();
-    const kept = { revision: 0, document: null as string | null };
-    const store = createInboxPreferences(
-      {
-        openInboxPreferences: () =>
-          Promise.resolve({ owner: 'synthetic-product-account', ...kept }),
-        commitInboxPreferences: (owner, expectedRevision, document) => {
-          Object.assign(kept, { revision: expectedRevision + 1, document });
-          return Promise.resolve({ owner, revision: kept.revision });
-        },
-      },
-      registration,
-    );
-    await store.load();
-    await store.showSection(defaultProfile, other, false);
-    const tree = (view: MailboxView) => (
-      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
-        <InboxPreferencesContext value={store}>
-          <InboxProvider mailboxes={mailboxes}>
-            <CommandPaletteProvider>
-              <Inbox
-                onClose={ignore}
-                onSelect={ignore}
-                onView={ignore}
-                selected={undefined}
-                view={view}
-              />
-            </CommandPaletteProvider>
-          </InboxProvider>
-        </InboxPreferencesContext>
-      </AccountContext>
-    );
     const app = await render(tree({}));
     // While the hidden account is still checking its server, the shown one has no mail.
     const request = hidden.native.gmailRequest;
@@ -283,6 +291,44 @@ describe('iPad Mailboxes', () => {
     await expect(
       screen.findByText(/^alex@example\.invalid · 1 unread/u),
     ).resolves.toBeVisible();
+    await app.unmount();
+  });
+
+  it('answers search and settles a refresh in All Inboxes while a hidden account first lists', async () => {
+    expect.hasAssertions();
+    const { shown, hidden, mailboxes, tree } = await hiddenAccount();
+    const request = hidden.native.gmailRequest;
+    const held = Promise.withResolvers<undefined>();
+    hidden.native.gmailRequest = async (...args) => {
+      await held.promise;
+      return request(...args);
+    };
+    shown.deliver({ subject: 'Shown' });
+    const app = await render(tree({}));
+    let first = Promise.resolve();
+    await act(async () => {
+      first = mailboxes.load();
+      await Promise.resolve();
+    });
+    await screen.findByText('Shown');
+    // Search answers once the shown account has listed.
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Nothing like this');
+    await screen.findByText('No Results');
+    await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
+    // Pulling down settles once the shown account has.
+    await act(async () => {
+      fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Inbox messages')).toHaveProp(
+        'refreshing',
+        false,
+      );
+    });
+    held.resolve(undefined);
+    await act(() => first);
     await app.unmount();
   });
 

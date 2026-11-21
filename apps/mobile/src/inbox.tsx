@@ -826,8 +826,8 @@ const authorizer = (
 // All Inboxes, its sign-in notices, and search there or widened to every Inbox, leave out every
 // connection the Profile hides, and every one until the Profile's preferences are read: `unhidden`
 // keeps the others, `inboxes` also the one the view scopes to, `waiting` is what of `waiting` the
-// list names, and `searched` is what of `shown` search covers, Filters offers, the heading names
-// and the list reports the state of.
+// list names, and `searched` is what of `shown` the list lists and refreshes, search covers,
+// Filters offers, the heading names and the list reports the state of.
 function useShownInboxes<W extends Readonly<{ id: string }>>({
   mailboxes,
   shown,
@@ -976,7 +976,7 @@ export function Inbox({
     missing,
     folderOf: listedFolder,
     showOlder,
-  } = useListedMailbox(shown, inboxListed, { view, onView });
+  } = useListedMailbox(searchedMailboxes, inboxListed, { view, onView });
   const searchState = useInboxSearch(search, {
     mailboxes: unhidden,
     shown: searchedMailboxes,
@@ -1136,7 +1136,7 @@ export function Inbox({
       }),
     );
   };
-  const loadShown = load(shown);
+  const loadShown = load(searchedMailboxes);
   const refresh = async () => {
     setRefreshing(true);
     try {
