@@ -1089,6 +1089,40 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   macOS accessibility interface and synthesized keyboard and mouse input. Mac attachments,
   the star, IDLE and relaunch, offline queueing, uncertain-move recovery and large-folder
   backfill stay on #632.
+- **2026-11-21, Mac attachments
+  ([#2601](https://github.com/unwired-dev/product/issues/2601)).** Target, toolchain and
+  operator as in the Mac connect record. Builds: the app source of
+  `d7bd6304c782e76926251369a23b5b94b1ea8990`, then the same source with the fixes for
+  [#2603](https://github.com/unwired-dev/product/issues/2603) and
+  [#2604](https://github.com/unwired-dev/product/issues/2604). Google Product Sign-In
+  found the certification Product Account, the Mac was unlocked with its Recovery Key,
+  and both certification mailboxes were connected through the app as in the Mac connect
+  record. Attachment: one synthetic PNG image (`image/png`, 153,873 bytes, shown as
+  `150,3 KB` in the Mac's Czech region format), added with the composer's paperclip
+  through the system open panel. Result: pass with the fixes. From each mailbox, a new
+  message with the attachment went through the Outbox and arrived in the other mailbox.
+  Over IMAP, `imap.mail.me.com` 993 and `imap.seznam.cz` 993 (TLS), the delivered message
+  and the sender's single Sent copy each carried one attachment part with the source
+  file's name, content type, decoded size and SHA-256 prefix (first 16 hex digits). In
+  each receiving mailbox, the reader listed the attachment with its name and size, and
+  **Download** offered **Open**, **Share** and **Attach to New Message**; in Seznam Email
+  the saved file had the same size and prefix. On the first build, **Open** showed
+  nothing (#2603). After the Mac switched to another app and back, Forward marked the
+  attachment **Not added: the file could not be read or saved**, and Attach to New
+  Message did nothing (#2604). With the fixes, **Open** showed the image in the Quick Look
+  panel. After a switch to Finder and back, the reader's **Forward** from Seznam Email
+  downloaded the file again and carried it to iCloud Mail. The delivered forward and its
+  single Sent copy had the same decoded size and prefix. In iCloud Mail, Attach to New
+  Message after the same switch started a Draft listing the file at its size; that Draft
+  was discarded unsent, as were the Drafts the failed forwards had left. Afterwards no
+  run message remained in any folder of either mailbox, **Sign Out of This Device**
+  returned the app to Welcome, and the run's caches and HTTP storage were removed from
+  the app's container. Limitations: the operator drove the app through the macOS
+  accessibility interface and synthesized keyboard and mouse input, and saw the Quick
+  Look panel in a window capture. **Share**, Open in iCloud Mail on the fixed build,
+  Save to Downloads ([#1681](https://github.com/unwired-dev/product/issues/1681)),
+  inline images, attachments over the 25 MiB download limit, the star, IDLE and
+  relaunch, offline queueing, recovery and large-folder backfill stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

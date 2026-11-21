@@ -762,6 +762,14 @@ function AttachmentRow({
         void inbox.presentAttachment(id, locator, 'share');
       }
     };
+    // A file saved before the mailbox generation changed is downloaded again first.
+    const attachNew = async () => {
+      await inbox.downloadAttachment(id, locator);
+      const saved = inbox.attachmentFile(id, locator);
+      if (current() && saved !== undefined) {
+        attach?.(saved);
+      }
+    };
     menu = [
       {
         items: [
@@ -801,10 +809,7 @@ function AttachmentRow({
             label={t('attachment.attachToNew')}
             accessibilityLabel={t('attachment.attachToNewLabel', { name })}
             onPress={() => {
-              const saved = inbox.attachmentFile(id, locator);
-              if (current() && saved !== undefined) {
-                attach(saved);
-              }
+              void attachNew();
             }}
           />
         )}

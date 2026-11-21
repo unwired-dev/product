@@ -937,6 +937,14 @@ function AttachmentRow({
         void inbox.presentAttachment(id, locator, 'share');
       }
     };
+    // A file saved before the mailbox generation changed is downloaded again first.
+    const attachNew = async () => {
+      await inbox.downloadAttachment(id, locator);
+      const saved = inbox.attachmentFile(id, locator);
+      if (current() && saved !== undefined) {
+        attach?.(saved);
+      }
+    };
     // Saves a copy where the person chooses, and tells the reader what happened unless they
     // cancelled; the reader drops a result once it stopped showing the message.
     const saveCopy = async (shown: (outcome: SaveOutcome) => void) => {
@@ -1010,10 +1018,7 @@ function AttachmentRow({
             label={t('attachment.attachToNew')}
             accessibilityLabel={t('attachment.attachToNewLabel', { name })}
             onPress={() => {
-              const saved = inbox.attachmentFile(id, locator);
-              if (current() && saved !== undefined) {
-                attach(saved);
-              }
+              void attachNew();
             }}
           />
         )}
