@@ -2010,6 +2010,10 @@ const finishedEntries = (draft: Draft) => {
   return finished;
 };
 
+// The file Send Now waits for, while one is still being added.
+const addingName = (draft: Draft, running: ReadonlySet<string>) =>
+  addingAsset(draft, running)?.name;
+
 // Why Send is unavailable, given the Outbox's `refusal`: files that were not added leave it
 // available, since Send asks to send without them, though one still being added does not.
 const blockedBy = (
@@ -4135,7 +4139,7 @@ function Editor({
     <SendMenu
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
-      waiting={addingAsset(draft, imports)?.name}
+      waiting={addingName(draft, imports)}
       onSend={() => {
         void sendAsking();
       }}
