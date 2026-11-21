@@ -849,8 +849,8 @@ app follows under the issue named:
   Device and last activity (#2607), with the exact time where the iPhone frame
   draws "3 days ago". The Mac rows and the disclosure chevron wait for the rest
   of #2107.
-- **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for
-  #2108.
+- **Recovery Key:** the Mac's Copy, Print… and Save to Passwords… wait for
+  #2108; iPhone and iPad have Copy and Save to Files (#2616).
 - **Copy:** one name per action, Spam and Thread wait for #2083. The iPhone
   heading's "All read" waits for #2068.
 - **Reader loading:** the reader's states for a message that is loading, failed

@@ -2749,11 +2749,11 @@ describe('product registration', () => {
       TurboModuleRegistry.getEnforcing.bind(TurboModuleRegistry);
     const module = jest
       .spyOn(TurboModuleRegistry, 'getEnforcing')
-      .mockImplementation((name) =>
-        name === 'UnwiredRegistration'
-          ? { ...getEnforcing(name), copyRecoveryKey, saveRecoveryKey }
-          : getEnforcing(name),
-      );
+      .mockImplementation((name) => ({
+        ...getEnforcing(name),
+        copyRecoveryKey,
+        saveRecoveryKey,
+      }));
     try {
       await render(
         <RegistrationGate
@@ -2798,8 +2798,22 @@ describe('product registration', () => {
         `Unwired Mail Recovery Key\n\n${recoveryKey}\n`,
       );
       expect(screen.queryByRole('alert')).toBeNull();
-      saveRecoveryKey.mockResolvedValueOnce('saved');
+      // A second press while the picker opens starts no second save.
+      let pick: (outcome: string) => void = () => undefined;
+      saveRecoveryKey.mockReturnValueOnce(
+        // oxlint-disable-next-line promise/avoid-new -- Hold the picker open across a second press.
+        new Promise((resolve) => {
+          pick = resolve;
+        }),
+      );
+      saveRecoveryKey.mockClear();
       await press('Save to Files');
+      await press('Save to Files');
+      // oxlint-disable-next-line vitest/prefer-called-once -- Jest has no toHaveBeenCalledOnce matcher.
+      expect(saveRecoveryKey).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        pick('saved');
+      });
       expect(screen.getByRole('alert')).toHaveTextContent(
         'Recovery Key saved to Files.',
       );

@@ -41,7 +41,7 @@ import {
   palette,
   typography,
 } from '@private-email/mail-core/theme';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -696,43 +696,17 @@ function brandField(colors: ReturnType<typeof usePalette>) {
 
 type RecoveryKeyNotice = 'copied' | 'copyFailed' | 'saved' | 'saveFailed';
 
-// Copy and Save to Files under the Recovery Key, as the frames draw them. Neither confirms the key;
-// the line beneath says what the last one did, and VoiceOver hears it. A cancelled save says
-// nothing.
-function RecoveryKeyActions({
-  recoveryKey,
-  color,
+// A Recovery Key action: iPhone draws 44pt capsules; iPad its 1.15-scaled 36pt rounded rectangles
+// in a 44pt target.
+function RecoveryKeyAction({
+  label,
+  onPress,
 }: {
-  readonly recoveryKey: string;
-  readonly color: string;
+  readonly label: string;
+  readonly onPress: () => void;
 }) {
   const colors = usePalette();
-  const { t } = useLocalization();
-  const [notice, setNotice] = useState<RecoveryKeyNotice>();
-  const run = async (
-    action: () => Promise<RecoveryKeyNotice | undefined>,
-    failed: RecoveryKeyNotice,
-  ) => {
-    setNotice(undefined);
-    try {
-      setNotice(await action());
-    } catch {
-      setNotice(failed);
-    }
-  };
-  const copy = async () => {
-    await native().copyRecoveryKey(recoveryKey);
-    return 'copied' as const;
-  };
-  const save = async () =>
-    (await native().saveRecoveryKey(
-      t('recoveryKeyConfirmation.fileName'),
-      t('recoveryKeyConfirmation.file', { recoveryKey }),
-    )) === 'saved'
-      ? ('saved' as const)
-      : undefined;
-  // iPhone draws 44pt capsules; iPad its 1.15-scaled 36pt rounded rectangles in a 44pt target.
-  const button = (label: string, onPress: () => void) => (
+  return (
     <SwiftUIButton
       modifiers={[buttonStyle('plain')]}
       onPress={onPress}>
@@ -757,16 +731,68 @@ function RecoveryKeyActions({
       </SwiftUIText>
     </SwiftUIButton>
   );
+}
+
+// Copy and Save to Files under the Recovery Key, as the frames draw them. Neither confirms the key;
+// the line beneath says what the last one did, and VoiceOver hears it. A cancelled save says
+// nothing.
+function RecoveryKeyActions({
+  recoveryKey,
+  color,
+}: {
+  readonly recoveryKey: string;
+  readonly color: string;
+}) {
+  const { t } = useLocalization();
+  const [notice, setNotice] = useState<RecoveryKeyNotice>();
+  // One save at a time: a second press while the picker opens starts nothing.
+  const saving = useRef(false);
+  const run = async (
+    action: () => Promise<RecoveryKeyNotice | undefined>,
+    failed: RecoveryKeyNotice,
+  ) => {
+    setNotice(undefined);
+    try {
+      setNotice(await action());
+    } catch {
+      setNotice(failed);
+    }
+  };
+  const copy = async () => {
+    await native().copyRecoveryKey(recoveryKey);
+    return 'copied' as const;
+  };
+  const save = async () =>
+    (await native().saveRecoveryKey(
+      t('recoveryKeyConfirmation.fileName'),
+      t('recoveryKeyConfirmation.file', { recoveryKey }),
+    )) === 'saved'
+      ? ('saved' as const)
+      : undefined;
+  const saveOnce = async () => {
+    if (saving.current) {
+      return;
+    }
+    saving.current = true;
+    await run(save, 'saveFailed');
+    saving.current = false;
+  };
   return (
     <>
       <Host matchContents={{ vertical: true }}>
         <HStack spacing={10}>
-          {button(t('recoveryKeyConfirmation.copy'), () => {
-            void run(copy, 'copyFailed');
-          })}
-          {button(t('recoveryKeyConfirmation.saveToFiles'), () => {
-            void run(save, 'saveFailed');
-          })}
+          <RecoveryKeyAction
+            label={t('recoveryKeyConfirmation.copy')}
+            onPress={() => {
+              void run(copy, 'copyFailed');
+            }}
+          />
+          <RecoveryKeyAction
+            label={t('recoveryKeyConfirmation.saveToFiles')}
+            onPress={() => {
+              void saveOnce();
+            }}
+          />
         </HStack>
       </Host>
       {notice === undefined ? null : (

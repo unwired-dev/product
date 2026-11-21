@@ -123,6 +123,15 @@ final class UnwiredRegistration: NSObject {
     let budget = RemoteContentBudget()
     var requests: [String: Task<Void, Never>] = [:]
   }
+  // Save to Files stages Recovery Key files here. Each launch removes any that an app ended with
+  // the picker open left behind, since the system purges temporary files only when it chooses.
+  static let recoveryKeyExports = FileManager.default.temporaryDirectory
+    .appendingPathComponent("RecoveryKeyExports", isDirectory: true)
+
+  override init() {
+    super.init()
+    try? FileManager.default.removeItem(at: Self.recoveryKeyExports)
+  }
 
   @MainActor private func store() async throws -> RegistrationStore {
     if let store = Self.sharedStore { return store }
@@ -2444,11 +2453,11 @@ extension UnwiredRegistration {
   ) {
     DispatchQueue.main.async {
       let origin = AttachmentPresenter.origin()
-      let folder = FileManager.default.temporaryDirectory
+      let folder = Self.recoveryKeyExports
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
       let discard = { _ = try? FileManager.default.removeItem(at: folder) }
       do {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appendingPathComponent((name as NSString).lastPathComponent)
         try Data(contents.utf8).write(
           to: file, options: [.withoutOverwriting, .completeFileProtection])
