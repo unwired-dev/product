@@ -929,16 +929,147 @@ describe('profile-scoped mobile routes', () => {
     },
   );
 
-  it('presents the iPhone composer as the system sheet, whose dismissal gesture is Close', async () => {
+  it.each([
+    { window: 'iPhone', ipad: false },
+    { window: 'compact iPad window', ipad: true },
+  ])(
+    'presents the $window composer as the system sheet, whose dismissal gesture is Close',
+    async ({ ipad }) => {
+      expect.hasAssertions();
+      const dimensions = jest
+        .spyOn(
+          jest.requireActual<{
+            useWindowDimensions: typeof useWindowDimensions;
+          }>('react-native'),
+          'useWindowDimensions',
+        )
+        .mockReturnValue({ width: 393, height: 852, scale: 3, fontScale: 1 });
+      const platform = jest.replaceProperty(
+        jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+        'ipad',
+        ipad,
+      );
+      const connection = {
+        id: syntheticMailboxes['alex@example.invalid'],
+        address: 'alex@example.invalid',
+        state: 'connected',
+        profile: defaultProfile,
+        provider: 'gmail',
+      } as const;
+      const account = {
+        snapshot: {
+          kind: 'connected',
+          productAccountId: 'synthetic-product-account',
+          signInProvider: 'google',
+          mailboxes: JSON.stringify([connection]),
+        },
+        busy: false,
+        failed: false,
+      } as const;
+      const drafts = createDrafts(
+        createSyntheticDrafts(() => 'synthetic-product-account').native,
+        { subscribe: () => () => undefined, getSnapshot: () => account },
+      );
+      jest.replaceProperty(
+        jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+        'drafts',
+        drafts,
+      );
+      showMail(defaultProfile);
+      route.setParams({});
+      const view = () => (
+        <AccountContext
+          value={{
+            mailboxes: [connection],
+            openAccount: () => undefined,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
+            profiles: [],
+            createProfile: () => Promise.resolve(undefined),
+            chooseFolders: () => Promise.resolve(true),
+          }}>
+          <RootLayout />
+        </AccountContext>
+      );
+      const app = await render(view());
+      const sheet = () =>
+        screen.queryByTestId('composer-sheet', { includeHiddenElements: true });
+      const swipeDown = async () => {
+        await act(async () => {
+          await fireEvent(screen.getByTestId('composer-sheet'), 'requestClose');
+        });
+      };
+      try {
+        await screen.findByRole('button', { name: /Garden plan/u });
+        await waitFor(() => {
+          expect(inboxNewMessage()).toBeEnabled();
+        });
+        await fireEvent.press(inboxNewMessage());
+        expect(sheet()).toHaveProp('presentationStyle', 'pageSheet');
+        // An untouched Draft closes, as Close would close it.
+        await swipeDown();
+        expect(sheet()).toBeNull();
+        // Changed content asks first; the sheet stays until the question is answered.
+        await fireEvent.press(inboxNewMessage());
+        await fireEvent.changeText(
+          await screen.findByLabelText('Message body'),
+          'Keep this draft.',
+        );
+        // The sheet offers no Command Palette.
+        expect(
+          screen.queryByRole('button', { name: 'Open Command Palette' }),
+        ).toBeNull();
+        await swipeDown();
+        expect(
+          screen.getByLabelText('Message body', {
+            includeHiddenElements: true,
+          }),
+        ).toHaveTextContent('Keep this draft.');
+        await act(async () => {
+          await fireEvent.press(
+            screen.getByRole('button', { name: 'Save Draft' }),
+          );
+        });
+        ok(sheet() === null);
+        // A Draft that cannot open closes by the same swipe, as its Close does.
+        await act(() => {
+          route.router.setParams({ draft: 'missing-draft' });
+        });
+        await screen.findByText('This Draft is not available.');
+        await swipeDown();
+        expect(sheet()).toBeNull();
+      } finally {
+        await app.unmount();
+        dimensions.mockRestore();
+        platform.restore();
+        jest.replaceProperty(
+          jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
+          'drafts',
+          jest.requireActual<{ drafts: typeof drafts }>(
+            '../src/registration.ts',
+          ).drafts,
+        );
+      }
+    },
+  );
+
+  /* oxlint-disable vitest/max-expects -- One composition session crosses a widening window. */
+  it('keeps a compact iPad window composer sheet with its editor when the window widens', async () => {
     expect.hasAssertions();
     const dimensions = jest
       .spyOn(
-        jest.requireActual<{ useWindowDimensions: typeof useWindowDimensions }>(
-          'react-native',
-        ),
+        jest.requireActual<{
+          useWindowDimensions: typeof useWindowDimensions;
+        }>('react-native'),
         'useWindowDimensions',
       )
       .mockReturnValue({ width: 393, height: 852, scale: 3, fontScale: 1 });
+    const platform = jest.replaceProperty(
+      jest.requireActual<{ ipad: boolean }>('../src/inbox-styles.ts'),
+      'ipad',
+      true,
+    );
     const connection = {
       id: syntheticMailboxes['alex@example.invalid'],
       address: 'alex@example.invalid',
@@ -967,7 +1098,7 @@ describe('profile-scoped mobile routes', () => {
     );
     showMail(defaultProfile);
     route.setParams({});
-    const app = await render(
+    const view = () => (
       <AccountContext
         value={{
           mailboxes: [connection],
@@ -980,8 +1111,9 @@ describe('profile-scoped mobile routes', () => {
           chooseFolders: () => Promise.resolve(true),
         }}>
         <RootLayout />
-      </AccountContext>,
+      </AccountContext>
     );
+    const app = await render(view());
     const sheet = () =>
       screen.queryByTestId('composer-sheet', { includeHiddenElements: true });
     const swipeDown = async () => {
@@ -995,36 +1127,42 @@ describe('profile-scoped mobile routes', () => {
         expect(inboxNewMessage()).toBeEnabled();
       });
       await fireEvent.press(inboxNewMessage());
-      expect(sheet()).toHaveProp('presentationStyle', 'pageSheet');
-      // An untouched Draft closes, as Close would close it.
-      await swipeDown();
-      expect(sheet()).toBeNull();
-      // Changed content asks first; the sheet stays until the question is answered.
-      await fireEvent.press(inboxNewMessage());
+      // A widening window keeps the open sheet and its editor: compact, without Expand, with the
+      // same Undo history.
       await fireEvent.changeText(
         await screen.findByLabelText('Message body'),
         'Keep this draft.',
       );
-      await swipeDown();
-      expect(
-        screen.getByLabelText('Message body', { includeHiddenElements: true }),
-      ).toHaveTextContent('Keep this draft.');
-      await act(async () => {
-        await fireEvent.press(
-          screen.getByRole('button', { name: 'Save Draft' }),
-        );
+      dimensions.mockReturnValue({
+        width: 834,
+        height: 1194,
+        scale: 2,
+        fontScale: 1,
       });
-      ok(sheet() === null);
-      // A Draft that cannot open closes by the same swipe, as its Close does.
-      await act(() => {
-        route.router.setParams({ draft: 'missing-draft' });
-      });
-      await screen.findByText('This Draft is not available.');
+      await app.rerender(view());
+      await fireEvent(
+        screen.getByTestId('mail-split', { includeHiddenElements: true }),
+        'expand',
+      );
+      expect(sheet()).toHaveProp('visible', true);
+      expect(screen.queryByTestId('composer-scrim')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull();
+      await fireEvent.press(screen.getByRole('button', { name: 'Format' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+      expect(screen.getByLabelText('Message body')).not.toHaveTextContent(
+        'Keep this draft.',
+      );
+      // The emptied Draft closes; the next composer opens as the card of the regular window.
       await swipeDown();
+      await fireEvent.press(inboxNewMessage());
+      await expect(
+        screen.findByRole('button', { name: 'Expand' }),
+      ).resolves.toBeVisible();
       expect(sheet()).toBeNull();
     } finally {
       await app.unmount();
       dimensions.mockRestore();
+      platform.restore();
       jest.replaceProperty(
         jest.requireMock<{ drafts: typeof drafts }>('../src/registration.ts'),
         'drafts',
@@ -1033,6 +1171,7 @@ describe('profile-scoped mobile routes', () => {
       );
     }
   });
+  /* oxlint-enable vitest/max-expects */
 
   it('starts a waited-for notification Reply after navigation replaces the current Profile', async () => {
     expect.hasAssertions();

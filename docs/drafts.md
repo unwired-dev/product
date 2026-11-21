@@ -57,7 +57,8 @@ transport and known native exit gaps.
   **Default Sending Identity**, or its first usable mailbox when the Profile has none. A
   default that cannot send on this device still starts the Draft, whose From pop-up
   explains why Send is blocked, rather than another identity standing in. It opens the composer in
-  the detail column: the system sheet over the mail it was started from on iPhone and a bottom-anchored overlay
+  the detail column: the system sheet over the mail it was started from on iPhone and in a compact iPad window (Slide
+  Over, a narrow Split View or a narrow window), and a bottom-anchored overlay
   over the reader in a Mac window, docked across the reader's full width at its bottom edge, at
   70% of the window's height (420 to 720pt). On regular-width iPad a new message opens as a card
   centred on the window (at most 874pt wide, 40pt below the status bar and 32pt above the bottom
@@ -92,7 +93,10 @@ transport and known native exit gaps.
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout
   retain the same editor and Undo history; the Mac's New Message window starts a
-  new editor and Undo history. Each window has one composer.
+  new editor and Undo history. An iPad composer stays where it opened until it
+  closes: when the window widens, a sheet stays the compact sheet without
+  **Expand**, and when it narrows, a card covers the window. The next composer
+  opens as the window's width then calls for. Each window has one composer.
   The floating search and New Message bar hides while composing. On Mac,
   **Search Mail** reveals it without closing the Draft; New Message remains
   available through the Command Palette and asks before switching the
