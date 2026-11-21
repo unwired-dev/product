@@ -1046,6 +1046,44 @@ extension PrivateInboxTests {
     #expect(
       !FileManager.default.fileExists(atPath: directory.appendingPathComponent("mailboxes").path))
   }
+
+  // A usage limit on the grant's profile probe keeps the saved Inbox open, as a 429 does; only a
+  // refusal asks for Gmail again (#2502).
+  @Test @MainActor func profileProbeTreatsUsageLimitsAsTransient() throws {
+    func answer(_ reasons: String...) -> Data {
+      let errors = reasons.map { #"{"reason":"\#($0)"}"# }.joined(separator: ",")
+      return Data(#"{"error":{"code":403,"errors":[\#(errors)]}}"#.utf8)
+    }
+    func transient(_ status: Int, _ data: Data) -> Bool {
+      do {
+        _ = try GmailTransport.profileAddress(status: status, data: data)
+        return false
+      } catch {
+        return RegistrationStore.transientMailboxFailure(error)
+          && RegistrationStore.rejectionCode(error) == "offline"
+      }
+    }
+    for reason in ["dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded"] {
+      #expect(transient(403, answer(reason)))
+    }
+    #expect(transient(429, Data()))
+    #expect(transient(503, Data()))
+    for refused in [
+      answer("insufficientPermissions"), answer("rateLimitExceeded", "forbidden"), answer(),
+      Data("not json".utf8),
+    ] {
+      #expect(throws: RegistrationError.gmailUnavailable) {
+        try GmailTransport.profileAddress(status: 403, data: refused)
+      }
+    }
+    #expect(throws: RegistrationError.gmailUnavailable) {
+      try GmailTransport.profileAddress(status: 401, data: Data())
+    }
+    #expect(
+      try GmailTransport.profileAddress(
+        status: 200, data: Data(#"{"emailAddress":"person@example.com"}"#.utf8))
+        == "person@example.com")
+  }
 }
 
 @MainActor final class PurgeProgress {

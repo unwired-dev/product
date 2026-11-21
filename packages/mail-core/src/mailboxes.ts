@@ -498,7 +498,8 @@ const movedBy = (screened: Readonly<{ move: readonly string[] }> | undefined) =>
 // Account or address loses its Inbox and the mail it held in memory.
 export function createMailboxes(
   native: NativeGmailMailboxes,
-  registration: Pick<Registration, 'subscribe' | 'getSnapshot'>,
+  registration: Pick<Registration, 'subscribe' | 'getSnapshot'> &
+    Partial<Pick<Registration, 'refreshInbox'>>,
   {
     removed,
     arrived,
@@ -539,6 +540,8 @@ export function createMailboxes(
   }> = {},
 ) {
   const shared = createBodyLoads();
+  // A usage limit's automatic resume verifies its connection first, as a push wake does.
+  const { refreshInbox } = registration;
   const inboxes = new Map<string, Opened>();
   let order: readonly OpenMailbox[] = [];
   let connections: ReadonlyArray<Mailbox | ImapMailbox> = [];
@@ -766,6 +769,17 @@ export function createMailboxes(
                 shared,
                 connection: id,
                 provider,
+                ...(refreshInbox === undefined
+                  ? {}
+                  : {
+                      verify: async (load: () => Promise<void>) => {
+                        try {
+                          await refreshInbox(load, 'explicit', id);
+                        } catch {
+                          // Registration reports its failure; the Inbox keeps its saved mail.
+                        }
+                      },
+                    }),
               }),
             };
       inboxes.set(id, {

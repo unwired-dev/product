@@ -83,20 +83,13 @@ import os
       url: URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/profile")!)
     request.setValue("Bearer " + identity.accessToken, forHTTPHeaderField: "Authorization")
     request.timeoutInterval = 30
-    struct Profile: Decodable { let emailAddress: String }
-    let profile: Profile
+    let address: String
     do {
       let (data, response) = try await mailSession.data(for: request)
       guard let response = response as? HTTPURLResponse else {
         throw RegistrationError.gmailUnavailable
       }
-      if response.statusCode == 429 || response.statusCode >= 500 {
-        throw URLError(.cannotConnectToHost)
-      }
-      guard response.statusCode == 200 else {
-        throw RegistrationError.gmailUnavailable
-      }
-      profile = try JSONDecoder().decode(Profile.self, from: data)
+      address = try GmailTransport.profileAddress(status: response.statusCode, data: data)
     } catch let error as URLError where error.code == .cancelled {
       throw CancellationError()
     } catch is CancellationError {
@@ -106,7 +99,7 @@ import os
     } catch {
       throw RegistrationError.gmailUnavailable
     }
-    return GmailRegistrationReceipt(subject: identity.subject, address: profile.emailAddress)
+    return GmailRegistrationReceipt(subject: identity.subject, address: address)
   }
 
   func gmail(

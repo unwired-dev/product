@@ -1163,6 +1163,7 @@ export function createInboxStore(
     shared = createBodyLoads(),
     connection = '',
     provider = 'gmail',
+    verify = (load) => load(),
   }: Readonly<{
     // Called after native code purged this device because another device removed it; the account
     // page, not the Inbox, explains what happened.
@@ -1176,6 +1177,9 @@ export function createInboxStore(
     connection?: string;
     // Microsoft mail is read, organized and sent through Graph.
     provider?: MailGrantProvider;
+    // Runs `load` once registration verifies this connection again, as a pull does, so a resume
+    // after a usage limit also reaches a connection whose verification met the limit.
+    verify?: (load: () => Promise<void>) => Promise<void>;
   }> = {},
 ) {
   // Set when the open Inbox closes, until the next synchronization starts; synchronizations run one
@@ -3567,8 +3571,9 @@ export function createInboxStore(
   );
 
   // Opens the cache and synchronizes it; requests during a synchronization share one more.
-  const load = () => {
-    if (waiting !== null) {
+  // `admit`, when given, is asked again once the permit is held; such a load joins no other.
+  const loadWhen = (admit?: () => boolean) => {
+    if (waiting !== null && admit === undefined) {
       return waiting;
     }
     let started = false;
@@ -3577,8 +3582,10 @@ export function createInboxStore(
       foreground.withPermit(
         Effect.suspend(() => {
           started = true;
-          waiting = null;
-          if (requestedFor !== ownership) {
+          if (admit === undefined) {
+            waiting = null;
+          }
+          if (requestedFor !== ownership || admit?.() === false) {
             return Effect.void;
           }
           // Before Gmail's named time, changes made meanwhile are saved and wait for it.
@@ -3603,21 +3610,45 @@ export function createInboxStore(
       ),
     );
     // With a free permit, the synchronization has already started.
-    if (!started) {
+    if (!started && admit === undefined) {
       waiting = run;
     }
     return run;
   };
+  const load = () => loadWhen();
 
   // Synchronizes again after a usage limit's pause, unless the open Inbox changed meanwhile. A
   // timer waits at most about 24.8 days, so a later time of Gmail's waits again until it comes.
   function resumeAfter(delay: number) {
     const pausedFor = ownership;
+    const paused = pause;
+    // Still this Inbox, and no other limit, completed synchronization or refusal replaced this pause.
+    const current = () =>
+      pausedFor === ownership && !forgotten && pause === paused;
+    // Verification, or a synchronization holding the permit, can close or replace this Inbox or
+    // its pause before this one starts. A mailbox that stays cache-only, or whose verification
+    // fails, synchronizes nothing, so its pause ends and it waits for a later verification.
+    const resumeNow = async () => {
+      await verify(() => loadWhen(current)).catch(() => undefined);
+      if (!current() || paused === undefined) {
+        return;
+      }
+      // A clock moved back during verification makes Gmail's time wait again.
+      if (held()) {
+        resumeAfter(paused.until - Date.now());
+        return;
+      }
+      endPause();
+      // Locked or failed storage keeps its own state; only a ready Inbox shows the pause.
+      if (state.kind === 'ready') {
+        publish(render());
+      }
+    };
     clearTimeout(resume);
     resume = setTimeout(
       () => {
         resume = undefined;
-        if (pausedFor !== ownership || forgotten) {
+        if (!current()) {
           return;
         }
         // Only Gmail's own time follows the clock; a backoff has waited its time.
@@ -3627,7 +3658,7 @@ export function createInboxStore(
           resumeAfter(left);
           return;
         }
-        void load();
+        void resumeNow();
       },
       Math.min(delay, longestTimer),
     );
