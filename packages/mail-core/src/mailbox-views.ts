@@ -430,25 +430,28 @@ export const favoriteRows = (entries: FavoriteEntries) =>
     isFavorite(row) ? [{ row, shown: shown || row === allInboxes }] : [],
   );
 
-// `entries` with `row` shown when `shown`, hidden otherwise. All Inboxes stays shown.
+// `entries` with `row` shown when `shown`, hidden otherwise. All Inboxes stays shown, so for it
+// there is nothing to write.
 export const showFavorite = (
   entries: FavoriteEntries,
   row: Favorite,
   shown: boolean,
-): FavoriteEntries =>
-  completed(entries).map((entry) =>
-    entry.row === row && row !== allInboxes ? { row, shown } : entry,
-  );
+): FavoriteEntries | undefined =>
+  row === allInboxes
+    ? undefined
+    : completed(entries).map((entry) =>
+        entry.row === row ? { row, shown } : entry,
+      );
 
 // `entries` with `row` shown or hidden. All Inboxes stays shown.
 export const toggleFavorite = (
   entries: FavoriteEntries,
   row: Favorite,
 ): FavoriteEntries =>
-  showFavorite(
-    entries,
-    row,
-    !completed(entries).some((entry) => entry.row === row && entry.shown),
+  completed(entries).map((entry) =>
+    entry.row === row && row !== allInboxes
+      ? { row, shown: !entry.shown }
+      : entry,
   );
 
 // `entries` with `row` moved to place `index` among the rows this build knows. Rows it does not know

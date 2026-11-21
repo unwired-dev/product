@@ -13,6 +13,7 @@ import {
   moveFolder,
   sectionFolders,
   sectionShown,
+  showFavorite,
   toggleFavorite,
   showFolder,
 } from '@private-email/mail-core/mailboxes';
@@ -404,6 +405,26 @@ describe('synchronized Inbox preferences', () => {
       same: sections,
       home: {},
     });
+  });
+
+  it("writes nothing for an All Inboxes tap, so another device's Favorites hide stands", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.store.changeFavorites('work', (entries) =>
+      showFavorite(entries, 'SPAM', false),
+    );
+    await mac.store.synchronize();
+    // The phone has yet to pull the hide when its All Inboxes row is tapped, later.
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.changeFavorites('work', (entries) =>
+      showFavorite(entries, 'ALL_INBOXES', false),
+    );
+    await phone.store.synchronize();
+    expect(
+      favoriteRows(phone.store.favorites('work')).find(
+        ({ row }) => row === 'SPAM',
+      ),
+    ).toStrictEqual({ row: 'SPAM', shown: false });
   });
 
   it("writes nothing for an Inbox tap, so another device's folder hide stands", async () => {
