@@ -4112,6 +4112,15 @@ final class InboxTests: XCTestCase {
     XCTAssertEqual(folderSpam.value as? String, "Shown")
     folderSpam.tap()
     waitUntil { folderSpam.value as? String == "Hidden" }
+    // Mailboxes scrolls the folders up from under the Compose button.
+    let favoritesTitle = try XCTUnwrap(
+      app.staticTexts.matching(identifier: "Favorites").allElementsBoundByIndex
+        .first { $0.isHittable }
+    ).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    favoritesTitle.press(
+      forDuration: 0.05, thenDragTo: favoritesTitle.withOffset(CGVector(dx: 0, dy: -250)))
+    let compose = app.buttons["New Message"].firstMatch
+    waitUntil { !compose.exists || folderTrash.frame.maxY < compose.frame.minY }
     // Trash's handle drags it above the Inbox, which cannot be hidden but moves.
     let trashHandle = folderTrash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
       .withOffset(CGVector(dx: ipad ? -18 : -31, dy: 0))
