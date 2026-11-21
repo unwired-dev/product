@@ -942,6 +942,9 @@ function AttachmentRow({
     const attachNew = () => {
       if (current()) {
         attach?.(async () => {
+          if (!current()) {
+            return undefined;
+          }
           await inbox.downloadAttachment(id, locator);
           return current() ? inbox.attachmentFile(id, locator) : undefined;
         });

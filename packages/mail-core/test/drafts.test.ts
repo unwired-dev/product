@@ -3569,16 +3569,9 @@ describe('adding files and images to Drafts', () => {
     const { drafts, id } = await opened();
     const navigation = createComposerNavigation();
     const count = draftsOf(drafts.getSnapshot()).length;
-    let started: () => void = () => undefined;
-    let downloaded: () => void = () => undefined;
-    // oxlint-disable-next-line promise/avoid-new -- Signals when the download starts after leaving.
-    const downloading = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    // oxlint-disable-next-line promise/avoid-new -- Holds the download until a Draft is chosen.
-    const finished = new Promise<void>((resolve) => {
-      downloaded = resolve;
-    });
+    // The download starts after leaving and waits until a Draft is chosen.
+    const started = Promise.withResolvers<undefined>();
+    const downloaded = Promise.withResolvers<undefined>();
     const creating = navigation.attachReceived(drafts, {
       mailbox: alex.id,
       mailboxes: [
@@ -3590,8 +3583,8 @@ describe('adding files and images to Drafts', () => {
         },
       ],
       saved: async () => {
-        started();
-        await finished;
+        started.resolve(undefined);
+        await downloaded.promise;
         return {
           name: 'invoice.pdf',
           type: 'application/pdf',
@@ -3601,9 +3594,9 @@ describe('adding files and images to Drafts', () => {
         };
       },
     });
-    await downloading;
+    await started.promise;
     await expect(navigation.leave(id)).resolves.toBe(true);
-    downloaded();
+    downloaded.resolve(undefined);
     await expect(creating).resolves.toBeUndefined();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(count);
   });
