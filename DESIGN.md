@@ -295,6 +295,7 @@ Graphite neutrals with a single warm seal.
 | Monogram          | `brand/monogram`           | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                  |
 | Brand well        | `brand/well`               | white 8%      | white 8%      | Recovery Key's well, iPad tile and iPad field on brand deep    |
 | Brand well border | `brand/well-border`        | white 16%     | white 16%     | The Recovery Key well's outline                                |
+| Brand action      | `brand/action`             | white 12%     | white 12%     | iPhone Recovery Key Copy and Save to Files on brand deep       |
 | Profile Blue      | `profile/blue`             | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                          |
 | Profile Indigo    | `profile/indigo`           | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                          |
 | Profile Purple    | `profile/purple`           | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                          |

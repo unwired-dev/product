@@ -56,6 +56,8 @@ export const palette = {
     // The Recovery Key's well on brand deep, alike in Light and Dark.
     brandWell: 'rgba(255, 255, 255, 0.08)',
     brandWellBorder: 'rgba(255, 255, 255, 0.16)',
+    // iPhone's Recovery Key actions on brand deep.
+    brandAction: 'rgba(255, 255, 255, 0.12)',
     // Sign in with Apple follows Apple's black and white button styles.
     appleButton: '#000000',
     appleOnButton: '#FFFFFF',
@@ -127,6 +129,8 @@ export const palette = {
     brandMonogram: '#6A6E78',
     brandWell: 'rgba(255, 255, 255, 0.08)',
     brandWellBorder: 'rgba(255, 255, 255, 0.16)',
+    // iPhone's Recovery Key actions on brand deep.
+    brandAction: 'rgba(255, 255, 255, 0.12)',
     appleButton: '#FFFFFF',
     appleOnButton: '#000000',
     textPrimary: 'rgba(255, 255, 255, 0.85)',

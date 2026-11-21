@@ -719,7 +719,7 @@ function RecoveryKeyAction({
           frame({ height: ipad ? 36 * ipadListScale : 44 }),
           frame({ maxWidth: Infinity }),
           background(
-            colors.brandWell,
+            ipad ? colors.brandWell : colors.brandAction,
             ipad
               ? shapes.roundedRectangle({ cornerRadius: 6 * ipadListScale })
               : shapes.capsule(),
