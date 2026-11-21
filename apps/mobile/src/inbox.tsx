@@ -278,14 +278,18 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
   );
 }
 
-// All Inboxes' preferences could not be read, so it lists no connection until Try Again reads them.
-function PreferencesNotice({ shown }: { readonly shown: boolean }) {
+// All Inboxes' preferences could not be read, so it lists no connection until Try Again reads them;
+// the Outbox lists its own messages and says nothing of them.
+function PreferencesNotice({
+  unreadable,
+  outbox,
+}: Readonly<{ unreadable: boolean; outbox: boolean }>) {
   const { t } = useLocalization();
   const preferences = use(InboxPreferencesContext);
-  return shown ? (
+  return unreadable && !outbox ? (
     <Notice
       icon="exclamationmark.triangle"
-      message={t('storage.failed')}
+      message={t('mailboxes.preferencesFailed')}
       messageRole="alert">
       <Button
         label={t('common.retry')}
@@ -906,14 +910,27 @@ function useShownInboxes<W extends Readonly<{ id: string }>>({
             (sections !== undefined && sectionShown(sections, id)),
         )
       : waiting;
+  const searched =
+    unified === undefined
+      ? shown.filter((mailbox) => inboxes.includes(mailbox))
+      : shown;
   return {
     inboxes,
     unhidden,
     reading: waits && !unreadable,
     unreadable: waits && unreadable,
-    // A pull reads the preferences again when the last read failed.
-    reread: () =>
-      waits && unreadable ? preferences.load() : Promise.resolve(),
+    // A pull reads the preferences again when the last read failed, and refreshes the mailboxes
+    // they then show.
+    reread: async () => {
+      if (!(waits && unreadable)) {
+        return searched;
+      }
+      await preferences.load();
+      const read = preferences.sections(profile);
+      return read === undefined
+        ? []
+        : shown.filter(({ id }) => sectionShown(read, id));
+    },
     everyHidden:
       unified === undefined &&
       sections !== undefined &&
@@ -921,10 +938,7 @@ function useShownInboxes<W extends Readonly<{ id: string }>>({
       inboxes.length === 0 &&
       named.length === 0,
     waiting: named,
-    searched:
-      unified === undefined
-        ? shown.filter((mailbox) => inboxes.includes(mailbox))
-        : shown,
+    searched,
   };
 }
 
@@ -1193,11 +1207,10 @@ export function Inbox({
       }),
     );
   };
-  const loadShown = load(searchedMailboxes);
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await reread();
+      const loadShown = load(await reread());
       await (account === undefined
         ? loadShown()
         : account.refreshInbox(loadShown));
@@ -1486,7 +1499,10 @@ export function Inbox({
                         ) : null}
                       </Notice>
                     ))}
-                    <PreferencesNotice shown={unreadable} />
+                    <PreferencesNotice
+                      unreadable={unreadable}
+                      outbox={outboxView !== undefined}
+                    />
                     {searchedMailboxes.map((mailbox) => (
                       <MailboxScope
                         key={mailbox.id}

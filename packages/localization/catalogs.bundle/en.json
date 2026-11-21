@@ -354,6 +354,7 @@
     "moveDown": "Move Down",
     "orderFailed": "The accounts couldn’t be reordered",
     "orderTryAgain": "They keep their order on every device. Check your connection and try again.",
+    "preferencesFailed": "Which accounts All Inboxes shows couldn’t be read. Choose Try Again to read them again.",
     "collapsed": "Collapsed",
     "allMail": "All Mail",
     "spam": "Spam",

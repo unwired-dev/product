@@ -216,6 +216,27 @@ describe('stored Inbox preferences', () => {
       logged: [],
     });
   });
+
+  it('reports a failed read as unreadable for its own account only, until a read succeeds', async () => {
+    expect.hasAssertions();
+    const { state, store } = storage();
+    state.locked = true;
+    await store.load();
+    const failed = [store.unreadable(), store.sections('work')];
+    state.account = 'account-2';
+    const signedOver = store.unreadable();
+    state.locked = false;
+    await store.load();
+    expect({
+      failed,
+      signedOver,
+      read: [store.unreadable(), store.sections('work')],
+    }).toStrictEqual({
+      failed: [true, undefined],
+      signedOver: false,
+      read: [false, {}],
+    });
+  });
 });
 
 describe('synchronized Inbox preferences', () => {

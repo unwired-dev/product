@@ -435,15 +435,16 @@ describe('iPad Mailboxes', () => {
     held.resolve(undefined);
     await act(() => first);
     await expect(
-      screen.findByText(/^Mail saved on this device can’t be shown/u),
+      screen.findByText(/^Which accounts All Inboxes shows couldn’t be read/u),
     ).resolves.toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Try Again' })).toBeEnabled();
-    // Pulling down reads the preferences again.
+    // Pulling down reads the preferences again and synchronizes the accounts they show.
     reads.fail = false;
+    shown.deliver({ subject: 'Arrived' });
     await act(async () => {
       fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
     });
-    await expect(screen.findByText('Shown')).resolves.toBeOnTheScreen();
+    await expect(screen.findByText('Arrived')).resolves.toBeOnTheScreen();
     await app.unmount();
   });
 
