@@ -1002,9 +1002,15 @@ describe('mail profiles', () => {
     await expect(relaunch().restore()).resolves.toStrictEqual(colored);
 
     // An order dragged from one that has changed since, as another device reordered, writes nothing.
+    await flow.moveMailbox(ids.c, defaultProfile);
     const reordered = new Map(records());
-    await flow.arrangeMailboxes(defaultProfile, [ids.a, ids.b], [ids.a, ids.b]);
+    await flow.arrangeMailboxes(
+      defaultProfile,
+      [ids.c, ids.a, ids.b],
+      [ids.a, ids.b, ids.c],
+    );
     expect(records()).toStrictEqual(reordered);
+    await flow.moveMailbox(ids.c, work);
 
     // An order must place every connection of the Profile and no other, and one that does not
     // commit leaves the stored order.

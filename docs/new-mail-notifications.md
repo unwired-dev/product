@@ -39,9 +39,13 @@ matches content, grouping and actions to the design.
   replaced. Without a connection, the group says to add a mailbox.
 - A Mailbox Connection its Mail Profile hides in Edit on iPhone or iPad is muted on every
   Trusted Device, the Mac included, whatever its switch says
-  ([#2611](https://github.com/unwired-dev/product/issues/2611)). Until this device has read the
-  Profile's Inbox preferences, and while they cannot be read, even after an earlier read, no
-  connection posts, so a muted one never does. Showing it again restores its switch's choice.
+  ([#2611](https://github.com/unwired-dev/product/issues/2611)). Each delivery pulls the
+  preferences from Private Sync before it posts, so a hide made on another device mutes the next
+  one. Until this device has read the Profile's Inbox preferences, and while they cannot be read,
+  even after an earlier read or while a pending notification waits, no connection posts, so a
+  muted one never does. Showing it again restores its switch's choice. The Mac's All Inboxes and
+  search still list a hidden connection until
+  [#2624](https://github.com/unwired-dev/product/issues/2624).
 
 ## What notifies
 

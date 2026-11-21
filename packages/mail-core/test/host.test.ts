@@ -519,6 +519,76 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(1);
   });
 
+  it('posts nothing that was pending when a newer read of the Inbox preferences fails', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, preferenceStorage, settingsGate } =
+      syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+
+    // Read while its preferences can be, it waits for the notification settings.
+    const settings = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    settingsGate.held = settings.promise;
+    settingsGate.started = () => {
+      reading.resolve(undefined);
+    };
+    gmail.deliver({ subject: 'Pending' });
+    const loading = host.gmailMailboxes.load();
+    await reading.promise;
+    preferenceStorage.locked = true;
+    await host.inboxPreferences.load();
+    settingsGate.held = undefined;
+    settings.resolve(undefined);
+    await loading;
+    expect(notified).toStrictEqual([]);
+  });
+
+  it('mutes a connection another Trusted Device hid before its next new mail posts', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, notified } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    gmail.deliver({ subject: 'Shown' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(1);
+    });
+
+    // Another device hides the connection; only Private Sync carries the hide here.
+    const preferences = JSON.stringify({
+      profile: defaultProfile,
+      fields: {
+        [`sectionShown:${connection}`]: { value: false, at: Date.now() },
+      },
+    });
+    vi.spyOn(native, 'pullInboxPreferences').mockImplementation((owner) =>
+      Promise.resolve({
+        owner,
+        records: [
+          {
+            id: defaultProfile,
+            version: 1,
+            updatedAt: Date.now(),
+            preferences,
+          },
+        ],
+        unreadable: [],
+      }),
+    );
+    gmail.deliver({ subject: 'Hidden elsewhere' });
+    await host.gmailMailboxes.load();
+    expect(notified).toHaveLength(1);
+  });
+
   it('keeps the App Icon Badge on the unread Inbox count while it is chosen and allowed', async () => {
     expect.hasAssertions();
     const { host, gmail, badges, device } = syntheticHost(undefined, true);
