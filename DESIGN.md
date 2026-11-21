@@ -842,8 +842,8 @@ app follows under the issue named:
   the fold, which waits for #2119.
 - **Slash Command Menu:** the menu and Show Formatting Toolbar wait for #2117
   and #2118.
-- **Toasts:** the frames draw glass toasts. The app draws a deep graphite toast
-  until #2104.
+- **Toasts:** the frames draw glass toasts. iPhone and iPad do (#2591); the Mac
+  draws a deep graphite toast until the rest of #2104.
 - **Outbox:** the frames draw the conditional Outbox as a sidebar row after Sent,
   without a count. The Mac does (#2421); iPhone and iPad list its rows at the top
   of the Inbox column until the rest of #2101.

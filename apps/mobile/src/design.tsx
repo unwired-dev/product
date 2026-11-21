@@ -36,7 +36,7 @@ import {
   View,
 } from 'react-native';
 
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useAppearance, usePalette } from './theme.ts';
 
 const ipad = Platform.OS === 'ios' && Platform.isPad;
 
@@ -321,21 +321,30 @@ const styles = StyleSheet.create({
       : textStyles.footnote),
     flex: 1,
   },
+  // A 48pt glass capsule; a message that wraps grows it to 64pt, 12pt above and below.
   toast: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.m,
-    paddingHorizontal: spacing.l,
-    paddingVertical: 10,
-    borderRadius: radius.card,
+    gap: 10,
+    minHeight: 48,
+    paddingLeft: spacing.l,
+    paddingRight: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
     borderCurve: 'continuous',
   },
+  toastSymbol: { width: 22, alignItems: 'center' },
   toastText: { flexShrink: 1 },
-  toastMessage: { ...typography.macos.body },
+  toastMessage: { ...textStyles.subheadline, fontWeight: '600' },
   toastDetail: { ...textStyles.footnote },
-  // The 44pt target extends 4pt above and below the 36pt toast.
-  toastAction: { minHeight: 44, marginVertical: -14, justifyContent: 'center' },
-  toastActionLabel: { ...typography.macos.bodyEmphasized },
+  // 6pt more before the action; its 44pt target extends 10pt above and below the 24pt content.
+  toastAction: {
+    minHeight: 44,
+    marginLeft: 6,
+    marginVertical: -10,
+    justifyContent: 'center',
+  },
+  toastActionLabel: { ...textStyles.headline },
   notice: {
     gap: spacing.s,
     paddingHorizontal: spacing.m,
@@ -798,12 +807,13 @@ export function Monogram({
   );
 }
 
-// The deep graphite toast (DESIGN.md's known Toasts difference, #2104): a symbol, the message with
-// an optional second line, and one action. It stays mounted while it fades out.
+// The glass toast: a symbol, the message with an optional second line, and one action. It stays
+// mounted while it fades out.
 export function Toast({
   open,
   symbol,
   message,
+  messageLabel,
   detail,
   action,
   accessibilityLabel,
@@ -812,6 +822,8 @@ export function Toast({
   readonly open: boolean;
   readonly symbol: string;
   readonly message: string;
+  // What VoiceOver reads for the message, when the toast shows a shorter one.
+  readonly messageLabel?: string | undefined;
   readonly detail?: string | undefined;
   readonly action: string;
   // The action's spoken name, when its label alone does not say what it acts on.
@@ -819,31 +831,33 @@ export function Toast({
   readonly onAction: () => void;
 }) {
   const colors = usePalette();
+  const appearance = useAppearance();
   const motion = useMenuMotion(open, 'menu');
   if (!motion.shown) {
     return null;
   }
+  const ink = { color: colors.textPrimary };
   return (
     <Animated.View
       accessibilityElementsHidden={!open}
       pointerEvents={open ? 'auto' : 'none'}
-      style={[
-        styles.toast,
-        { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
-        motion.style,
-      ]}>
-      <SFSymbol
-        name={symbol}
-        color={colors.brandOnDeep}
-      />
+      style={[styles.toast, motion.style]}>
+      <Glass cornerRadius={24} />
+      <View style={styles.toastSymbol}>
+        <SFSymbol
+          name={symbol}
+          size={18}
+          color={colors.textPrimary}
+        />
+      </View>
       <View style={styles.toastText}>
-        <Text style={[styles.toastMessage, { color: colors.brandOnDeep }]}>
+        <Text
+          accessibilityLabel={messageLabel}
+          style={[styles.toastMessage, ink]}>
           {message}
         </Text>
         {detail === undefined ? null : (
-          <Text style={[styles.toastDetail, { color: colors.brandOnDeep }]}>
-            {detail}
-          </Text>
+          <Text style={[styles.toastDetail, ink]}>{detail}</Text>
         )}
       </View>
       <Pressable
@@ -851,7 +865,14 @@ export function Toast({
         accessibilityRole="button"
         onPress={onAction}
         style={styles.toastAction}>
-        <Text style={[styles.toastActionLabel, { color: colors.brandOnDeep }]}>
+        <Text
+          style={[
+            styles.toastActionLabel,
+            {
+              color:
+                appearance === 'light' ? colors.accentInk : colors.textPrimary,
+            },
+          ]}>
           {action}
         </Text>
       </Pressable>
