@@ -354,6 +354,10 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
+// Whether the reader shows a message storage can read, which a save's result belongs to.
+const readable = (state: ReturnType<typeof useInbox>, message: unknown) =>
+  state.kind === 'ready' && message !== undefined;
+
 // The response controls live in the fixed toolbar; their progress and failure show in the
 // reader's scrolling content, for the message they belong to.
 type ResponseStatus =
@@ -615,10 +619,7 @@ function MailboxMessage({
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
-  const saving = useSaveOutcome(
-    id,
-    state.kind === 'ready' && message !== undefined,
-  );
+  const saving = useSaveOutcome(id, readable(state, message));
   const applied = new Set(
     message !== undefined && 'labels' in message ? message.labels : [],
   );

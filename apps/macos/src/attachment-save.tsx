@@ -28,6 +28,14 @@ const styles = StyleSheet.create({
   },
 });
 
+type Failed = Extract<SaveOutcome, { kind: 'failed' }>;
+
+// Names the folder the person chose when known, otherwise the file.
+const failedTitle = (t: Translate, { name, folder }: Failed) =>
+  folder === undefined
+    ? t('attachment.saveFailed', { name })
+    : t('attachment.saveFailedIn', { folder });
+
 // How long a saved copy's toast stays.
 const savedToastDuration = 6000;
 
@@ -83,14 +91,6 @@ export function useSaveOutcome(message: string, readable: boolean) {
 }
 
 type Shown = ReturnType<typeof useSaveOutcome>['shown'];
-type Failed = Extract<SaveOutcome, { kind: 'failed' }>;
-
-// Names the folder the person chose when known, otherwise the file.
-const failedTitle = (t: Translate, { name, folder }: Failed) =>
-  folder === undefined
-    ? t('attachment.saveFailed', { name })
-    : t('attachment.saveFailedIn', { folder });
-
 // The failure beneath the reader's header, until the next outcome. Save As… stays in the
 // attachment's menu to try again.
 export function SaveFailedNotice({ shown }: { readonly shown: Shown }) {

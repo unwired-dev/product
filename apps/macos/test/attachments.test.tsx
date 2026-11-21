@@ -454,16 +454,25 @@ const openSaving = async () => {
   return { gmail, inbox, id, app, items, save };
 };
 
+// Only the native Show in Finder boundary is substituted; returns what it was asked to reveal.
+const finderHost = () => {
+  const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  const showInFinder = jest.fn<undefined, [string]>();
+  const host: TurboModule & Readonly<{ showInFinder: typeof showInFinder }> = {
+    showInFinder,
+  };
+  jest
+    .spyOn(TurboModuleRegistry, 'get')
+    .mockImplementation((name) =>
+      name === 'UnwiredCommands' ? host : get(name),
+    );
+  return showInFinder;
+};
+
 describe('saving a received attachment with Save As…', () => {
   it('offers Save As… between Quick Look and Share, and names the saved copy and its folder with Show in Finder', async () => {
     expect.hasAssertions();
-    const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
-    const host = { showInFinder: jest.fn() } as unknown as TurboModule;
-    jest
-      .spyOn(TurboModuleRegistry, 'get')
-      .mockImplementation((name) =>
-        name === 'UnwiredCommands' ? host : get(name),
-      );
+    const showInFinder = finderHost();
     const { gmail, app, items, save } = await openSaving();
     jest
       .spyOn(gmail.native, 'presentAttachment')
@@ -481,7 +490,7 @@ describe('saving a received attachment with Save As…', () => {
       await fireEvent.press(
         screen.getByLabelText('Show notes 2.txt in Finder'),
       );
-      expect(host).toHaveProperty('showInFinder.mock.calls', [
+      expect(showInFinder.mock.calls).toStrictEqual([
         ['file:///Users/person/Downloads/notes%202.txt'],
       ]);
     } finally {
@@ -517,10 +526,12 @@ describe('saving a received attachment with Save As…', () => {
     const announce = jest
       .spyOn(AccessibilityInfo, 'announceForAccessibility')
       .mockClear();
-    const panel = Promise.withResolvers<unknown>();
-    jest
-      .spyOn(gmail.native, 'presentAttachment')
-      .mockReturnValueOnce(panel.promise);
+    let finish: (reply: unknown) => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- The test controls when the save panel answers.
+    const answer = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    jest.spyOn(gmail.native, 'presentAttachment').mockReturnValueOnce(answer);
     try {
       await save();
       await app.rerender(
@@ -537,7 +548,7 @@ describe('saving a received attachment with Save As…', () => {
         />,
       );
       await act(async () => {
-        panel.resolve(savedInDownloads);
+        finish(savedInDownloads);
       });
       expect({
         saved: screen.queryByText('Saved “notes 2.txt” to Downloads'),
