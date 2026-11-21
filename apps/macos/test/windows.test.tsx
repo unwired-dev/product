@@ -2856,20 +2856,26 @@ describe('mac windows over a connected Gmail mailbox', () => {
       // Opening the message marks it read, which renames its row.
       const day = () => ({
         divider: window.queryByRole('header', { name: 'Yesterday' }) !== null,
-        row:
-          within(
-            window.getByRole('button', { name: /Oliver Park\. Saturday/u }),
-          ).queryByText('Yesterday') !== null,
+        row: ['8:12 AM', 'Yesterday'].find(
+          (label) =>
+            within(
+              window.getByRole('button', { name: /Oliver Park\. Saturday/u }),
+            ).queryByText(label) !== null,
+        ),
         header: window.queryByText('Yesterday, 8:12 AM') !== null,
       });
       await window.findByText('Today, 8:12 AM');
       expect(day()).toStrictEqual({
         divider: false,
-        row: false,
+        row: '8:12 AM',
         header: false,
       });
       await act(() => jest.advanceTimersByTimeAsync(30_000));
-      expect(day()).toStrictEqual({ divider: true, row: true, header: true });
+      expect(day()).toStrictEqual({
+        divider: true,
+        row: 'Yesterday',
+        header: true,
+      });
     } finally {
       await app.unmount();
       jest.useRealTimers();
