@@ -85,6 +85,27 @@ const PulledSchema = Schema.Struct({
 // Native code accepts a Private Sync record identifier of at most 200 characters.
 const publishable = (profile: string) => profile.length <= 200;
 
+// The Mailbox Connection sections `fields` keep; a connection they name is shown, with its folders
+// in their own order, unless they say otherwise.
+const sectionsOf = (fields: Fields): Sections => {
+  const sections: Record<string, Sections[string]> = {};
+  for (const [name, { value }] of Object.entries(fields)) {
+    const [kind, connection] = name.split(/:(?<connection>.*)/su);
+    if (connection !== undefined) {
+      const section = sections[connection] ?? {
+        shown: true,
+        folders: noFolders,
+      };
+      if (kind === 'sectionShown' && typeof value === 'boolean') {
+        sections[connection] = { ...section, shown: value };
+      } else if (kind === 'sectionFolders' && isSectionFolders(value)) {
+        sections[connection] = { ...section, folders: value };
+      }
+    }
+  }
+  return sections;
+};
+
 // The signed-in Product Account's Inbox preferences on this device: one document native code keeps
 // encrypted for the account that wrote it, like its Blocked Senders. Every call rejects with
 // 'locked' while the device is locked.
@@ -480,25 +501,7 @@ export function createInboxPreferences(
       if (fields === undefined) {
         return noSections;
       }
-      const cached = sectionsRead.get(fields);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const sections: Record<string, Sections[string]> = {};
-      for (const [name, { value }] of Object.entries(fields)) {
-        const [kind, connection] = name.split(/:(?<connection>.*)/su);
-        if (connection !== undefined) {
-          const section = sections[connection] ?? {
-            shown: true,
-            folders: noFolders,
-          };
-          if (kind === 'sectionShown' && typeof value === 'boolean') {
-            sections[connection] = { ...section, shown: value };
-          } else if (kind === 'sectionFolders' && isSectionFolders(value)) {
-            sections[connection] = { ...section, folders: value };
-          }
-        }
-      }
+      const sections = sectionsRead.get(fields) ?? sectionsOf(fields);
       sectionsRead.set(fields, sections);
       return sections;
     },
