@@ -778,6 +778,23 @@ const bodyKeys = (recipientKeys: typeof choosingKeys, tabs: boolean) => [
   ...(tabs ? listTabs : []),
 ];
 
+// Where the text view leaves the selection, without reporting it, when JavaScript replaces its
+// text (RCTTextInputComponentView's _setAttributedString on macOS): a caret stays as far from the
+// end, or goes to the end; a selection stays while it fits, else collapses to the end.
+const keptByTextView = (
+  at: Selection,
+  before: number,
+  after: number,
+): Selection => {
+  if (at.start !== at.end) {
+    return at.end <= after ? at : { start: after, end: after };
+  }
+  const caret = after - before + at.start;
+  return caret < 0
+    ? { start: after, end: after }
+    : { start: caret, end: caret };
+};
+
 // Recipient Suggestions in a glass menu, Recent then Contacts, with the active one highlighted;
 // `empty` shows when none matches, and `note` beneath them.
 function SuggestionMenu({
@@ -3321,13 +3338,13 @@ function Editor({
     commitHistory((current) => keepIdentity(step(current)));
     placeTyping(undefined);
     update(historyNow.current.present);
-    // The text view keeps its caret as far from the end as before, without reporting it.
-    const after = displayOf(authored.current.body).text.length;
-    if (after !== before) {
-      const kept = Math.max(0, after - before + selectionNow.current.start);
-      selectionNow.current = { start: kept, end: kept };
-      setSelection(selectionNow.current);
-    }
+    selectionNow.current = keptByTextView(
+      selectionNow.current,
+      before,
+      displayOf(authored.current.body).text.length,
+    );
+    setPlaced(undefined);
+    setSelection(selectionNow.current);
   };
   const edit = (text: string) => {
     if (pausedNow.current) {

@@ -1119,6 +1119,21 @@ describe('composing Drafts', () => {
       await press('Undo');
       await tab(false);
       shows(`${nesting}• Plan\n${nesting}${nesting}• Seats`);
+      // A caret that would fall before the start lands at the end, in Seats.
+      await select(0);
+      await press('Undo');
+      shows(`• Plan\n${nesting}${nesting}• Seats`);
+      await tab(true);
+      shows(`• Plan\n${nesting}• Seats`);
+      // A selection that still fits stays, so Tab nests both items again.
+      await select(0, 16);
+      await tab(false);
+      shows(`${nesting}• Plan\n${nesting}${nesting}• Seats`);
+      await select(0, 12);
+      await press('Undo');
+      shows(`• Plan\n${nesting}• Seats`);
+      await tab(false);
+      shows(`${nesting}• Plan\n${nesting}${nesting}• Seats`);
       // A composer that goes away withdraws the menu items.
       await screen.unmount();
       expect(indents).toHaveBeenLastCalledWith(bodyID, false, false);
