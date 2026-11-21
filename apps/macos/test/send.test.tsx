@@ -796,6 +796,7 @@ describe('sending a Draft', () => {
       // often they are chosen; Keep Editing changes nothing.
       expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
       await sendMenuItem('sendNow').choose();
+      expect(sheetShown()?.title).toBe('Send without 2 attachments?');
       await press('Send');
       expect(sheetsShown()).toStrictEqual([
         {
