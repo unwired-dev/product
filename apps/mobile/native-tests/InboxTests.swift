@@ -4079,8 +4079,8 @@ final class InboxTests: XCTestCase {
     swipeDown()
     let save = app.buttons["Save Draft"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
-    // The question grows out of Close, at the top.
-    XCTAssertLessThan(save.frame.minY, app.frame.midY)
+    // The question opens over Close, as a system menu opens over its button.
+    XCTAssertTrue(app.buttons["Delete Draft"].frame.intersects(app.buttons["Close"].frame))
     XCTAssertTrue(composer.exists)
     XCTAssertEqual(subject.value as? String, "Venue for the offsite")
     XCTAssertFalse(app.textFields["Type a command"].exists)

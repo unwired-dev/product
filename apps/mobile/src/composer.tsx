@@ -36,7 +36,7 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 import type { SendReminder } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps, ReactNode, RefObject } from 'react';
 import type {
   StyleProp,
   ScrollViewInstance,
@@ -300,7 +300,6 @@ const styles = StyleSheet.create({
   // across the sheet: it is offset by Actions and its gap, which Send's side holds beyond Close's.
   sheetHeader: { paddingTop: 6 + 11 },
   sheetTitle: { paddingLeft: 44 + spacing.s },
-  sheetCloseQuestion: { top: 56 + 11 },
   // From's 34pt pill sits in a 44pt touch target; the frame's From row is the pill and 4pt below it.
   sheetFromRow: { marginVertical: -5 },
   regularTitle: { ...typography.ipadList.body, fontWeight: '600' },
@@ -353,13 +352,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 22,
   },
-  closeQuestion: {
-    position: 'absolute',
-    zIndex: 4,
-    top: 56,
-    left: spacing.l,
-    width: 220,
-  },
+  closeQuestion: { ...StyleSheet.absoluteFill, zIndex: 4 },
+  closeQuestionPlace: { position: 'absolute', width: 220 },
   closeQuestionPanel: { padding: spacing.m, gap: spacing.s },
   closeChoice: {
     minHeight: 48,
@@ -2253,11 +2247,14 @@ export function CapturedAssistance({
 export function CloseButton({
   disabled = false,
   expanded,
+  anchor,
   onPress,
 }: {
   readonly disabled?: boolean;
   // Close reports whether its save question is open.
   readonly expanded?: boolean;
+  // Where CloseQuestion opens.
+  readonly anchor?: RefObject<ViewInstance | null>;
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
@@ -2274,6 +2271,7 @@ export function CloseButton({
           disabled,
           ...(expanded === undefined ? {} : { expanded }),
         }}
+        ref={anchor}
         disabled={disabled}
         onPress={onPress}
         style={[styles.circle, { opacity: disabled ? 0.4 : 1 }]}>
@@ -2286,19 +2284,35 @@ export function CloseButton({
   );
 }
 
-// Delete Draft and Save Draft grow out of the header's Close.
+// Delete Draft and Save Draft open over the header's Close (`anchor`) and grow out of it, as a
+// system menu does; a tap outside them keeps editing.
 export function CloseQuestion({
   open,
+  anchor,
   onDelete,
   onSave,
+  onCancel,
 }: {
   readonly open: boolean;
+  readonly anchor: RefObject<ViewInstance | null>;
   readonly onDelete: () => void;
   readonly onSave: () => void;
+  readonly onCancel: () => void;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const sheet = use(InSheet);
+  const layer = useRef<ViewInstance>(null);
+  const [at, setAt] = useState<Readonly<{ left: number; top: number }>>();
+  // Measured as it opens, so the panel covers Close wherever its header placed it.
+  useLayoutEffect(() => {
+    if (open) {
+      anchor.current?.measureInWindow((x, y) => {
+        layer.current?.measureInWindow((left, top) => {
+          setAt({ left: x - left, top: y - top });
+        });
+      });
+    }
+  }, [anchor, open]);
   const choice = (label: string, destructive: boolean, onPress: () => void) => (
     <Pressable
       accessibilityRole="button"
@@ -2326,20 +2340,35 @@ export function CloseQuestion({
   );
   return (
     <View
-      accessibilityRole="menu"
-      accessibilityElementsHidden={!open}
-      pointerEvents={open ? 'box-none' : 'none'}
-      style={[styles.closeQuestion, sheet && styles.sheetCloseQuestion]}>
-      <GlassPanel
-        cornerRadius={radius.closeQuestion}
-        open={open}
-        // Grows out of Close, whose centre is 22pt in and 28pt above the panel's corner.
-        origin="22px -28px"
-        from={0.2}
-        style={styles.closeQuestionPanel}>
-        {choice(t('drafts.deleteDraft'), true, onDelete)}
-        {choice(t('drafts.saveDraft'), false, onSave)}
-      </GlassPanel>
+      ref={layer}
+      pointerEvents={open ? 'auto' : 'none'}
+      style={styles.closeQuestion}>
+      {open ? (
+        <Pressable
+          testID="close-question-outside"
+          accessible={false}
+          onPress={onCancel}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+      <View
+        accessibilityRole="menu"
+        accessibilityViewIsModal={open}
+        accessibilityElementsHidden={!open}
+        onAccessibilityEscape={onCancel}
+        pointerEvents="box-none"
+        style={[styles.closeQuestionPlace, at]}>
+        <GlassPanel
+          cornerRadius={radius.closeQuestion}
+          open={open}
+          // Grows out of Close's centre, 22pt into the panel's corner.
+          origin="22px 22px"
+          from={0.2}
+          style={styles.closeQuestionPanel}>
+          {choice(t('drafts.deleteDraft'), true, onDelete)}
+          {choice(t('drafts.saveDraft'), false, onSave)}
+        </GlassPanel>
+      </View>
     </View>
   );
 }
@@ -4536,6 +4565,7 @@ function Editor({
   }, [answerLeave, asking]);
   const paletteHeader = usePaletteHeader();
   const sheetParts = sheetStyles(use(InSheet));
+  const closeAnchor = useRef<ViewInstance>(null);
   // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
   // keeps it open. Send Now gives a `delay` of 0, with no Undo Send Window.
   const send = (delay?: number) =>
@@ -4933,6 +4963,7 @@ function Editor({
           <CloseButton
             disabled={closing === 'saving'}
             expanded={asking}
+            anchor={closeAnchor}
             onPress={() => {
               if (asking) {
                 setAsking(false);
@@ -4967,11 +4998,15 @@ function Editor({
         </View>
         <CloseQuestion
           open={asking}
+          anchor={closeAnchor}
           onDelete={() => {
             void discard();
           }}
           onSave={() => {
             void saveDraft();
+          }}
+          onCancel={() => {
+            setAsking(false);
           }}
         />
         {senderPlace.row}

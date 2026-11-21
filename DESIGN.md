@@ -581,8 +581,11 @@ content.
   control groups use 22pt corners and 18pt inset selections.
 - The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
   220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
-  between 48pt `fill/quiet` capsules with centred Body labels. It grows out of
-  Close from a fifth of its size.
+  between 48pt `fill/quiet` capsules with centred Body labels. It opens over
+  Close, its corner on Close's, and grows out of Close from a fifth of its size,
+  as a system menu opens over its button; a tap outside it keeps editing. The
+  approved frames still draw it beneath Close; the owner chose the placement over
+  Close ([#2610](https://github.com/unwired-dev/product/issues/2610)).
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
