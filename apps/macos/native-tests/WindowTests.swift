@@ -2728,7 +2728,7 @@ final class WindowTests: XCTestCase {
     let look = settings.otherElements[appearance]
     XCTAssertTrue(look.waitForExistence(timeout: 10))
     look.click()
-    XCTAssertEqual(look.value as? String, "radio button, checked")
+    waitUntil { look.value as? String == "radio button, checked" }
     settings.buttons["Notifications"].click()
     let badge = settings.popUpButtons["Dock badge"]
     XCTAssertTrue(badge.waitForExistence(timeout: 15))
