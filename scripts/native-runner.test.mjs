@@ -312,3 +312,56 @@ test('host load reports unavailable inspection and never overrides a runner resu
   }
   assert.equal(invoke(directory).status, 0);
 });
+
+const running = (pid) => {
+  const ps = spawnSync('ps', ['-o', 'stat=', '-p', pid], { encoding: 'utf8' });
+  return ps.status === 0 && !ps.stdout.trim().startsWith('Z');
+};
+
+// A hung CoreSimulator: xcrun never answers, or exits while its child keeps the output.
+for (const [name, end] of [
+  ['hangs', 'wait'],
+  ['exits early', 'exit 0'],
+]) {
+  test(`host load stops simctl when xcrun ${name}, then reports it timed out`, (t) => {
+    mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+    const directory = mkdtempSync(path.join(root, 'scratchpad/host-load-'));
+    const pids = path.join(directory, 'pids');
+    const fixture = () =>
+      existsSync(pids) ? readFileSync(pids, 'utf8').trim().split(' ') : [];
+    t.after(() => {
+      for (const pid of fixture().filter(running)) {
+        process.kill(Number(pid));
+      }
+      rmSync(directory, { recursive: true, force: true });
+    });
+    writeFileSync(
+      path.join(directory, 'xcrun'),
+      `#!/bin/sh\nsleep 600 &\necho $$ $! > "${pids}"\n${end}\n`,
+      { mode: 0o755 },
+    );
+    const file = path.join(directory, 'load.txt');
+    const result = spawnSync(
+      path.join(root, 'scripts/record-host-load.sh'),
+      [file, 'before journey'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
+        timeout: 30_000,
+      },
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 0);
+    assert.match(
+      readFileSync(file, 'utf8'),
+      /booted simulators: unavailable \(timed out\)/u,
+    );
+    assert.equal(fixture().length, 2);
+    // Killed children are reaped by launchd shortly after the group is stopped.
+    const deadline = Date.now() + 5000;
+    while (fixture().some(running) && Date.now() < deadline) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+    assert.deepEqual(fixture().filter(running), []);
+  });
+}

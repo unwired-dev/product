@@ -16,7 +16,9 @@ The replacement targets iOS, iPadOS, and macOS 27 or newer.
   A failed stop keeps the ledger for recovery. Never stop builds, Simulators or
   test runners by name or relative path on this shared host.
 - Both native runners record host load (`host-load.txt`: load averages,
-  `xcodebuild` processes, booted Simulators) before and after each journey.
+  `xcodebuild` processes, booted Simulators) before and after each journey;
+  a `simctl` that does not answer within 10 s is stopped and recorded as
+  `unavailable (timed out)`.
   Before attributing a timing or idle-wait failure to the host, compare it with
   a passing baseline and reproduce it without your own concurrent native work.
   Before a rerun, check `uptime` and wait while the 1-minute load is above 100,
