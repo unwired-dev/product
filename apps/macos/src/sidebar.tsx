@@ -612,6 +612,9 @@ function EditFavorites({
       : [...rest.slice(0, to), dragged, ...rest.slice(to)];
   return order.map(({ row, shown }) => {
     const index = rows.findIndex((entry) => entry.row === row);
+    // Where this row's drag began, or its place now when no drag of it has rendered yet, such
+    // as a press and release in one event batch.
+    const start = drag?.row === row ? drag.from : index;
     return (
       <EditRow
         key={row}
@@ -640,12 +643,12 @@ function EditFavorites({
         }}
         onDrag={(dy) => {
           setMoved(undefined);
-          setDrag({ row, from: drag?.row === row ? drag.from : index, dy });
+          setDrag({ row, from: start, dy });
         }}
         onDrop={(dy) => {
           setDrag(undefined);
-          if (dy !== undefined && place(from, dy) !== from) {
-            onMove(row, () => place(from, dy));
+          if (dy !== undefined && place(start, dy) !== start) {
+            onMove(row, () => place(start, dy));
           }
         }}
       />
