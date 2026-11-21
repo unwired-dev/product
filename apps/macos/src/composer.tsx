@@ -61,13 +61,16 @@ import { draftCommands } from '@private-email/mail-core/commands';
 import {
   acceptRecipient,
   addBodyRecipient,
+  addingAsset,
   addRecipients,
+  assetStates,
   bodyRecipientQuery,
   bodyRecipientSuggestions,
   draftOf,
   entryOf,
   greetingName,
   isEmptyDraft,
+  leftOutQuestion,
   onlyQueryIn,
   recipientLabel,
   draftSummary,
@@ -2007,6 +2010,17 @@ const finishedEntries = (draft: Draft) => {
   return finished;
 };
 
+// Why Send is unavailable, given the Outbox's `refusal`: files that were not added leave it
+// available, since Send asks to send without them, though one still being added does not.
+const blockedBy = (
+  refusal: SendRefusal | undefined,
+  draft: Draft,
+  running: ReadonlySet<string>,
+) =>
+  refusal === 'assets' && addingAsset(draft, running) === undefined
+    ? undefined
+    : refusal;
+
 // Why Send is unavailable now, or else why the last Send left the Draft in the composer, if it
 // did; only the last Send's outcome is announced. A message sent through an IMAP connection's mail
 // server or Microsoft is not limited by Gmail.
@@ -3104,8 +3118,13 @@ function Editor({
   const outbox = useOutbox();
   // Why Send is unavailable for the Draft shown, followed as its mailboxes change.
   const mailboxList = use(MailboxesContext);
-  const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
-    outbox.refusal(finishedEntries(history.present)),
+  const running = useSyncExternalStore(store.subscribe, store.getImports);
+  const blocked = blockedBy(
+    useSyncExternalStore(mailboxList.subscribe, () =>
+      outbox.refusal(finishedEntries(history.present)),
+    ),
+    history.present,
+    running,
   );
   // Imports running now; an 'importing' file outside them was interrupted, so Send Now names only
   // a running one.
@@ -3312,24 +3331,34 @@ function Editor({
       inline,
     );
   };
-  const removeAsset = (id: string) => {
+  // Removes files `ids` as one edit.
+  const removeAssets = (ids: readonly string[]) => {
     if (pausedNow.current) {
       return;
     }
-    void store.cancelImport(id);
+    for (const id of ids) {
+      void store.cancelImport(id);
+    }
+    const without = (document: SemanticDocument) =>
+      ids.reduce((remaining, id) => withoutImage(remaining, id), document);
     const latest = authored.current;
     change({
       ...latest,
-      body: withoutImage(latest.body, id),
+      body: without(latest.body),
       ...(latest.quoted === undefined
         ? {}
-        : { quoted: withoutImage(latest.quoted, id) }),
+        : { quoted: without(latest.quoted) }),
       ...(latest.attachments === undefined
         ? {}
         : {
-            attachments: latest.attachments.filter((asset) => asset.id !== id),
+            attachments: latest.attachments.filter(
+              (asset) => !ids.includes(asset.id),
+            ),
           }),
     });
+  };
+  const removeAsset = (id: string) => {
+    removeAssets([id]);
   };
   // Undo and Redo step from the latest history, so repeated presses each move one step.
   const travel = (step: (current: typeof history) => typeof history) => {
@@ -4060,6 +4089,44 @@ function Editor({
       }}
     />
   );
+  // Send first asks in a sheet, once at a time, to leave out the files that were not added, then
+  // removes them as one edit and sends; files that changed meanwhile leave the Draft open to ask
+  // again. Closing the editor closes the sheet.
+  const leftOutAsked = useRef<ReturnType<typeof askInSheet>>(undefined);
+  useLayoutEffect(
+    () => () => {
+      leftOutAsked.current?.retire();
+    },
+    [],
+  );
+  const sendAsking = async () => {
+    if (leftOutAsked.current !== undefined) {
+      return;
+    }
+    const latest = authored.current;
+    const question = leftOutQuestion(t, latest, running);
+    if (question !== undefined) {
+      const files = assetStates(latest);
+      const sheet = askInSheet(root.current, {
+        title: question.title,
+        detail: question.detail,
+        buttons: [question.send, question.keepEditing],
+        cancel: 1,
+      });
+      leftOutAsked.current = sheet;
+      const choice = await sheet.answer;
+      leftOutAsked.current = undefined;
+      if (
+        choice !== 0 ||
+        !lifetime.current.mounted ||
+        assetStates(authored.current) !== files
+      ) {
+        return;
+      }
+      removeAssets(question.ids);
+    }
+    await send();
+  };
   const sendButton = (
     <SendMenu
       disabled={closing === 'saving'}
@@ -4070,7 +4137,7 @@ function Editor({
         )?.name
       }
       onSend={() => {
-        void send();
+        void sendAsking();
       }}
       onSendNow={() => {
         void send(0);
@@ -4112,7 +4179,7 @@ function Editor({
                 closing === 'saving' || blocked !== undefined
                   ? undefined
                   : () => {
-                      void send();
+                      void sendAsking();
                     },
               attach: paused
                 ? undefined

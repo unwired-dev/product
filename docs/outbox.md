@@ -112,7 +112,7 @@ it.
   they reopen.
 
   On Mac ([#2350](https://github.com/unwired-dev/product/issues/2350)), the first
-  four reasons and a file still importing or failed disable **Send**, its Command
+  four reasons and a file still importing disable **Send**, its Command
   Palette command and its Send menu item before anything is pressed, and the
   reason shows until it goes: under To, **Add a recipient to send.**; under the
   field holding text that is not an address, once the person leaves it, a warning
@@ -120,7 +120,9 @@ it.
   Correct it to send.**; the sender's notice as before; the others above the
   body, without an announcement. **Remind Me to Send…** stays available. A file
   that does not verify, the message limit, a change in another window and storage
-  are found only after the press.
+  are found only after the press. Files that were not added leave Send available,
+  which asks in a sheet to send without them
+  ([#2598](https://github.com/unwired-dev/product/issues/2598)).
 
   On iPhone and iPad ([#2396](https://github.com/unwired-dev/product/issues/2396)),
   the same reasons disable **Send**, and VoiceOver reads the reason
