@@ -476,7 +476,7 @@ banner, **Change** and **Remove Reminder**
 ([#2144](https://github.com/unwired-dev/product/issues/2144)). The captures are
 named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
 Reminder". The journey fails later on iPhone
-([#2146](https://github.com/unwired-dev/product/issues/2146)) and iPad
+([#2587](https://github.com/unwired-dev/product/issues/2587)) and iPad
 ([#2148](https://github.com/unwired-dev/product/issues/2148)).
 
 ## iPhone and iPad Gmail pause journey
