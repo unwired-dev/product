@@ -660,6 +660,20 @@ function inboxSections<M>({
   ];
 }
 
+// Whether the list's mailboxes have listed and are checking their servers. A hidden connection's
+// state stays out of All Inboxes, as its mail does; with every connection hidden, theirs still tell
+// when it has no mail.
+const listState = (
+  searched: readonly InboxMailbox[],
+  shown: readonly InboxMailbox[],
+) => {
+  const stated = searched.length > 0 ? searched : shown;
+  return {
+    ready: stated.some(({ state }) => state.kind === 'ready'),
+    syncing: stated.some(({ state }) => checking(state)),
+  };
+};
+
 const hasNoMail = ({
   ready,
   syncing,
@@ -812,8 +826,8 @@ const authorizer = (
 // All Inboxes, its sign-in notices, and search there or widened to every Inbox, leave out every
 // connection the Profile hides, and every one until the Profile's preferences are read: `unhidden`
 // keeps the others, `inboxes` also the one the view scopes to, `waiting` is what of `waiting` the
-// list names, and `searched` is what of `shown` search covers, Filters offers and the list reports
-// the state of.
+// list names, and `searched` is what of `shown` search covers, Filters offers, the heading names
+// and the list reports the state of.
 function useShownInboxes<W extends Readonly<{ id: string }>>({
   mailboxes,
   shown,
@@ -1080,10 +1094,9 @@ export function Inbox({
     () => ({ selected, saved, composing }),
     [selected, saved, composing],
   );
-  const ready = shown.some(({ state }) => state.kind === 'ready');
-  const syncing = shown.some(({ state }) => checking(state));
+  const { ready, syncing } = listState(searchedMailboxes, shown);
   // A hidden connection's name stays out of All Inboxes, as its mail does.
-  const scopeName = scopeOf(t, inboxes, {
+  const scopeName = scopeOf(t, searchedMailboxes, {
     unified: view.unified !== undefined,
     several,
     gmail,
@@ -1251,7 +1264,7 @@ export function Inbox({
       <SearchFooter
         search={searchState}
         mailboxes={unhidden}
-        shown={shown}
+        shown={searchedMailboxes}
         ready={ready}
         unlisted={unlisted}
         scopeName={scopeName}

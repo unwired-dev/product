@@ -1743,7 +1743,7 @@ describe('the host assembly', () => {
 
   it('posts nothing for a connection turned off or removed while posting waited, and groups a moved one under its new Profile', async () => {
     expect.hasAssertions();
-    const { host, gmail, notified, settingsGate } = syntheticHost(
+    const { host, native, gmail, notified, settingsGate } = syntheticHost(
       undefined,
       true,
     );
@@ -1796,6 +1796,35 @@ describe('the host assembly', () => {
       expect.objectContaining({ body: 'Moved meanwhile', profile: work }),
     ]);
 
+    // Moved again while its Inbox preferences synchronize, it groups with the Profile it is in then.
+    await host.registration.createProfile('Personal');
+    const personal = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Personal',
+      ),
+    ).id;
+    const pulling = Promise.withResolvers<undefined>();
+    const pulled = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'pullInboxPreferences').mockImplementationOnce(
+      async (owner) => {
+        pulling.resolve(undefined);
+        await pulled.promise;
+        return { owner, records: [], unreadable: [] };
+      },
+    );
+    gmail.deliver({ subject: 'Moved while synchronizing' });
+    loading = host.gmailMailboxes.load();
+    await pulling.promise;
+    await host.registration.moveMailbox(connection, personal);
+    pulled.resolve(undefined);
+    await loading;
+    expect(notified.at(-1)).toStrictEqual(
+      expect.objectContaining({
+        body: 'Moved while synchronizing',
+        profile: personal,
+      }),
+    );
+
     gate = held();
     gmail.deliver({ subject: 'Removed meanwhile' });
     loading = host.gmailMailboxes.load();
@@ -1803,7 +1832,7 @@ describe('the host assembly', () => {
     await host.registration.removeMailbox(connection);
     gate.release();
     await loading;
-    expect(notified).toHaveLength(1);
+    expect(notified).toHaveLength(2);
   });
 
   it('keeps a background freshness opportunity alive until notification posting settles', async () => {

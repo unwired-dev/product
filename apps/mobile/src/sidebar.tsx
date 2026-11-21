@@ -656,12 +656,19 @@ function useFavorites(profile: string) {
     entries,
     // Applies `change` to the stored rows, so an edit made before the last one is read keeps it.
     // Resolves the rows it stored, or undefined when storage failed.
-    change: async (change: (stored: FavoriteEntries) => FavoriteEntries) =>
+    change: async (
+      change: (stored: FavoriteEntries) => FavoriteEntries | undefined,
+    ) =>
       (await store.changeFavorites(profile, change))
         ? favoriteRows(store.favorites(profile))
         : undefined,
   };
 }
+
+// The order of Favorites or folder rows, to compare.
+const orderOf = (
+  rows: ReadonlyArray<Readonly<{ row: string }> | Readonly<{ name: string }>>,
+) => rows.map((row) => ('row' in row ? row.row : row.name)).join('\n');
 
 // What a DragList gives each of its items: whether the item is lifted by a drag, which ways it can
 // move by one place, and how to move it so or drag it by its handle.
@@ -1196,8 +1203,14 @@ function EditConnections({
                   keyOf={({ name }) => name}
                   separator={<EditSeparator />}
                   onMove={(name, to) => {
+                    // A drop onto rows another device has reordered since changes nothing.
+                    const seen = orderOf(
+                      folderRows(sectionFolders(sections, id), names),
+                    );
                     void store.changeFolders(profile, id, (folders) =>
-                      moveFolder(folders, names, { name, to }),
+                      orderOf(folderRows(folders, names)) === seen
+                        ? moveFolder(folders, names, { name, to })
+                        : undefined,
                     );
                   }}
                   onDragging={onDragging}
@@ -1335,16 +1348,20 @@ function Favorites({
           onMove={(key, to) => {
             const row = rows.find((entry) => entry.row === key)?.row;
             if (row !== undefined) {
+              // A drop onto rows another device has reordered since changes nothing.
+              const seen = orderOf(rows);
               void change((stored) =>
-                moveFavorite(
-                  stored,
-                  row,
-                  to(
-                    favoriteRows(stored).findIndex(
-                      (entry) => entry.row === row,
-                    ),
-                  ),
-                ),
+                orderOf(favoriteRows(stored)) === seen
+                  ? moveFavorite(
+                      stored,
+                      row,
+                      to(
+                        favoriteRows(stored).findIndex(
+                          (entry) => entry.row === row,
+                        ),
+                      ),
+                    )
+                  : undefined,
               );
             }
           }}

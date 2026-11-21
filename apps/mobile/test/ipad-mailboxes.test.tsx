@@ -25,6 +25,8 @@ import {
   within,
 } from '@testing-library/react-native';
 
+import type { MailboxView } from '../src/sidebar.tsx';
+
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxPreferencesContext } from '../src/list-density.tsx';
@@ -157,7 +159,7 @@ describe('iPad Mailboxes', () => {
     expect(screen.getByText('1 unread · Gmail needs sign-in')).toBeVisible();
   });
 
-  it('leaves a hidden account out of the All Inboxes subtitle and Filters', async () => {
+  it('leaves a hidden account out of the All Inboxes subtitle, Filters and search, and names the Inbox shown', async () => {
     expect.hasAssertions();
     const alex = syntheticMailboxes['alex@example.invalid'];
     const other = syntheticMailboxes['other@example.invalid'];
@@ -175,7 +177,6 @@ describe('iPad Mailboxes', () => {
       subscribe: () => () => undefined,
     };
     const shown = createSyntheticGmail({ address: 'alex@example.invalid' });
-    shown.deliver({ subject: 'Shown' });
     const hidden = createSyntheticGmail({ address: 'other@example.invalid' });
     const mailboxes = createMailboxes(
       syntheticConnections({ [alex]: shown, [other]: hidden }),
@@ -196,7 +197,7 @@ describe('iPad Mailboxes', () => {
     );
     await store.load();
     await store.showSection(defaultProfile, other, false);
-    await render(
+    const tree = (view: MailboxView) => (
       <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
         <InboxPreferencesContext value={store}>
           <InboxProvider mailboxes={mailboxes}>
@@ -206,15 +207,15 @@ describe('iPad Mailboxes', () => {
                 onSelect={ignore}
                 onView={ignore}
                 selected={undefined}
-                view={{}}
+                view={view}
               />
             </CommandPaletteProvider>
           </InboxProvider>
         </InboxPreferencesContext>
-      </AccountContext>,
+      </AccountContext>
     );
-    await screen.findByText('Shown');
-    // The hidden account is still checking its server.
+    const app = await render(tree({}));
+    // While the hidden account is still checking its server, the shown one has no mail.
     const request = hidden.native.gmailRequest;
     const held = Promise.withResolvers<undefined>();
     hidden.native.gmailRequest = async (...args) => {
@@ -226,6 +227,14 @@ describe('iPad Mailboxes', () => {
       synchronized = mailboxes.load();
       await Promise.resolve();
     });
+    await screen.findByText('No Mail');
+    shown.deliver({ subject: 'Shown' });
+    let delivered = Promise.resolve();
+    await act(async () => {
+      delivered = mailboxes.load();
+      await Promise.resolve();
+    });
+    await screen.findByText('Shown');
     // Its one shown account names the scope, and the hidden one leaves the status as it is.
     await expect(
       screen.findByText(/^alex@example\.invalid · 1 unread · Updated/u),
@@ -237,8 +246,44 @@ describe('iPad Mailboxes', () => {
     );
     expect(screen.getByRole('header', { name: 'Filters' })).toBeVisible();
     expect(screen.queryAllByText(/other@example\.invalid/u)).toStrictEqual([]);
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Apply Filters' }),
+    );
+    await fireEvent.press(screen.getByRole('togglebutton', { name: 'Filter' }));
     held.resolve(undefined);
-    await act(() => synchronized);
+    await act(() => Promise.all([synchronized, delivered]));
+
+    // Searching the mail servers from All Inboxes names the one account it searches.
+    const searching = Promise.withResolvers<undefined>();
+    const search = shown.native.gmailRequest;
+    shown.native.gmailRequest = async (...args) => {
+      await searching.promise;
+      return search(...args);
+    };
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Shown');
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Search Mail Servers for “Shown”',
+      }),
+    );
+    await expect(
+      screen.findByText('Searching alex@example.invalid…'),
+    ).resolves.toBeVisible();
+    await act(async () => {
+      searching.resolve(undefined);
+      await Promise.resolve();
+    });
+
+    // Shown again, the other account leaves Alex's own Inbox named as the scope.
+    await act(() => store.showSection(defaultProfile, other, true));
+    await app.rerender(tree({ mailbox: alex }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
+    await expect(
+      screen.findByText(/^alex@example\.invalid · 1 unread/u),
+    ).resolves.toBeVisible();
+    await app.unmount();
   });
 
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {

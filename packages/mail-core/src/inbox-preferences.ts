@@ -413,7 +413,7 @@ export function createInboxPreferences(
       | ListDensity
       | PreviewLines
       | boolean
-      | ((stored: unknown) => FavoriteEntries | SectionFolders),
+      | ((stored: unknown) => FavoriteEntries | SectionFolders | undefined),
   ) => {
     const scopes = profiles.filter((profile) => profile !== '');
     if (scopes.length === 0) {
@@ -426,7 +426,8 @@ export function createInboxPreferences(
           const field = fields[name];
           const chosen =
             typeof value === 'function' ? value(field?.value) : value;
-          return JSON.stringify(field?.value) === JSON.stringify(chosen)
+          return chosen === undefined ||
+            JSON.stringify(field?.value) === JSON.stringify(chosen)
             ? next
             : withFields(next, profile, {
                 ...fields,
@@ -504,10 +505,11 @@ export function createInboxPreferences(
       return isFavoriteEntries(value) ? value : noFavorites;
     },
     // Chooses `profile`'s Favorites rows as `change` makes them from the stored ones, as
-    // `setListDensity` does, so edits made before the last one is read keep each other.
+    // `setListDensity` does, so edits made before the last one is read keep each other. A `change`
+    // that returns undefined writes nothing.
     changeFavorites: (
       profile: string,
-      change: (entries: FavoriteEntries) => FavoriteEntries,
+      change: (entries: FavoriteEntries) => FavoriteEntries | undefined,
     ) =>
       choose([profile], 'favorites', (stored) =>
         change(isFavoriteEntries(stored) ? stored : noFavorites),
@@ -548,7 +550,7 @@ export function createInboxPreferences(
     changeFolders: (
       profile: string,
       connection: string,
-      change: (folders: SectionFolders) => SectionFolders,
+      change: (folders: SectionFolders) => SectionFolders | undefined,
     ) =>
       choose([profile], foldersField(connection), (stored) =>
         change(isSectionFolders(stored) ? stored : noFolders),

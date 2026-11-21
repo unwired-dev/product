@@ -4,6 +4,7 @@ import { createInboxPreferences } from '@private-email/mail-core/inbox-preferenc
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   createMailboxes,
+  moveFavorite,
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -287,9 +288,37 @@ describe('iPhone Mailboxes', () => {
     });
     await app.unmount();
 
-    const again = await launch(relaunch());
+    const relaunched = relaunch();
+    const again = await launch(relaunched);
     await fireEvent.press(again.getByRole('button', { name: 'Edit' }));
     expect(rows(again)).toStrictEqual(edited);
+    // A move onto rows another device reordered meanwhile, whose write is still being stored,
+    // changes nothing.
+    const reordered = Promise.withResolvers<undefined>();
+    gate.held = reordered.promise;
+    const elsewhere = relaunched.changeFavorites(defaultProfile, (stored) =>
+      moveFavorite(stored, 'TRASH', 1),
+    );
+    await fireEvent(
+      again.getByRole('button', { name: 'Sent' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveUp' } },
+    );
+    delete gate.held;
+    await act(async () => {
+      reordered.resolve(undefined);
+      await elsewhere;
+      // Queued after the move, so it lands first.
+      await relaunched.changeFavorites(defaultProfile, () => undefined);
+    });
+    expect(rows(again)).toStrictEqual([
+      'All Inboxes Shown',
+      'Trash Shown',
+      'Archive Shown',
+      'All Mail Shown',
+      'Sent Shown',
+      'Spam Hidden',
+    ]);
     // Hiding the selected Trash, then Done and choosing Sent while the write is slow, keeps Sent.
     await act(() => {
       select({ unified: 'TRASH' });
@@ -410,7 +439,7 @@ describe('iPhone Mailboxes', () => {
     await waitFor(() => {
       expect(allInboxes()).toHaveAccessibilityValue({ text: '3 unread' });
     });
-    expect(app.getByText('Second')).toBeVisible();
+    await app.findByText('Second');
 
     await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
     // Hiding the selected account, then Done and choosing Alex's Inbox while the write is slow,
@@ -460,6 +489,36 @@ describe('iPhone Mailboxes', () => {
         'Gmail · other@example.invalid Hidden',
       ]);
     });
+    // A folder move onto rows another device reversed meanwhile, whose write is still being
+    // stored, changes nothing; then that device restores them.
+    const reversed = Promise.withResolvers<undefined>();
+    gate.held = reversed.promise;
+    let kept: ReadonlyArray<Readonly<{ name: string; shown: boolean }>> = [];
+    const elsewhere = store.changeFolders(defaultProfile, alex, (folders) => {
+      kept = folders;
+      return folders.toReversed();
+    });
+    await fireEvent(
+      app.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveUp' } },
+    );
+    delete gate.held;
+    await act(async () => {
+      reversed.resolve(undefined);
+      await elsewhere;
+      // Queued after the move, so it lands first.
+      await store.changeFolders(defaultProfile, alex, () => undefined);
+    });
+    expect(rows()).toStrictEqual([
+      'Gmail · alex@example.invalid Shown',
+      'Spam. In alex@example.invalid Hidden',
+      'Trash. In alex@example.invalid Shown',
+      'All Mail. In alex@example.invalid Shown',
+      'Inbox. In alex@example.invalid Shown',
+      'Gmail · other@example.invalid Hidden',
+    ]);
+    await act(() => store.changeFolders(defaultProfile, alex, () => kept));
     // Alex's header handle, released where it was pressed, and dragged past the other account
     // while another device reorders them, arranges nothing.
     const header = () =>

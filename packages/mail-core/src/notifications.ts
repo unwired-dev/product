@@ -394,7 +394,6 @@ export function createNotifications(
             const current = yield* settingsOf(() =>
               native.notificationSettings(),
             );
-            const profile = currentProfile();
             if (current.authorization !== 'authorized') {
               return yield* notPosted(`authorization ${current.authorization}`);
             }
@@ -403,6 +402,8 @@ export function createNotifications(
                 'connection closed or turned off meanwhile',
               );
             }
+            // Read after `eligible`: the connection may have moved to another Profile meanwhile.
+            const profile = currentProfile();
             if (profile === undefined) {
               return yield* notPosted('Mail Profile unknown');
             }
