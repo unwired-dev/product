@@ -654,8 +654,8 @@ without 2 attachments?**, naming each file left out and why ("tour.mov is too
 large and keys.pkpass wasn’t added.") and how many other files will be sent: on
 iPhone and iPad in an alert, for Send and Send Now
 ([#2466](https://github.com/unwired-dev/product/issues/2466)), and on the Mac in a
-sheet on the composer's window, for Send from the toolbar, its menu and the Command
-Palette ([#2598](https://github.com/unwired-dev/product/issues/2598)).
+sheet on the composer's window, for Send from the toolbar and the Command Palette and
+for Send Now ([#2598](https://github.com/unwired-dev/product/issues/2598)).
 **Send Without Them** removes those files as one edit and
 sends the rest as the chosen action would; **Keep Editing** leaves the Draft as it
 was. When the Draft's files change while the question is open, Send leaves the

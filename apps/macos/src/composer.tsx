@@ -3118,17 +3118,16 @@ function Editor({
   const outbox = useOutbox();
   // Why Send is unavailable for the Draft shown, followed as its mailboxes change.
   const mailboxList = use(MailboxesContext);
-  const running = useSyncExternalStore(store.subscribe, store.getImports);
+  // Imports running now; an 'importing' file outside them was interrupted, so Send Now names only
+  // a running one.
+  const imports = useSyncExternalStore(store.subscribe, store.getImports);
   const blocked = blockedBy(
     useSyncExternalStore(mailboxList.subscribe, () =>
       outbox.refusal(finishedEntries(history.present)),
     ),
     history.present,
-    running,
+    imports,
   );
-  // Imports running now; an 'importing' file outside them was interrupted, so Send Now names only
-  // a running one.
-  const imports = useSyncExternalStore(store.subscribe, store.getImports);
   const sendReminders = useSendReminders();
   // The Mail Profile owning this Draft, and so its Send Reminder.
   const draftProfile = profileOf(
@@ -4089,7 +4088,7 @@ function Editor({
       }}
     />
   );
-  // Send first asks in a sheet, once at a time, to leave out the files that were not added, then
+  // Send and Send Now first ask in a sheet, once at a time, to leave out the files that were not added, then
   // removes them as one edit and sends; files that changed meanwhile leave the Draft open to ask
   // again. Closing the editor closes the sheet.
   const leftOutAsked = useRef<ReturnType<typeof askInSheet>>(undefined);
@@ -4099,17 +4098,17 @@ function Editor({
     },
     [],
   );
-  const sendAsking = async () => {
+  const sendAsking = async (delay?: number) => {
     if (leftOutAsked.current !== undefined) {
       return;
     }
     // The imports running now, since a press can arrive before Send's disabled state commits.
     const latest = authored.current;
-    const imports = store.getImports();
-    if (addingAsset(latest, imports) !== undefined) {
+    const running = store.getImports();
+    if (addingAsset(latest, running) !== undefined) {
       return;
     }
-    const question = leftOutQuestion(t, latest, imports);
+    const question = leftOutQuestion(t, latest, running);
     if (question !== undefined) {
       const files = assetStates(latest);
       const sheet = askInSheet(root.current, {
@@ -4130,22 +4129,18 @@ function Editor({
       }
       removeAssets(question.ids);
     }
-    await send();
+    await send(delay);
   };
   const sendButton = (
     <SendMenu
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
-      waiting={
-        unsendableAssets(draft).find(
-          ({ id, state }) => state === 'importing' && imports.has(id),
-        )?.name
-      }
+      waiting={addingAsset(draft, imports)?.name}
       onSend={() => {
         void sendAsking();
       }}
       onSendNow={() => {
-        void send(0);
+        void sendAsking(0);
       }}
       onRemind={(dueAt, timeZone) => {
         void remind(dueAt, timeZone);

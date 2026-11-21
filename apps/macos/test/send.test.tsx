@@ -792,10 +792,10 @@ describe('sending a Draft', () => {
       });
       await screen.findByLabelText('keys.pkpass, Not added: cancelled');
 
-      // Once only files that were not added are left, Send asks first, once however often it is
-      // chosen; Keep Editing changes nothing.
+      // Once only files that were not added are left, Send and Send Now ask first, once however
+      // often they are chosen; Keep Editing changes nothing.
       expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
-      await press('Send');
+      await sendMenuItem('sendNow').choose();
       await press('Send');
       expect(sheetsShown()).toStrictEqual([
         {
