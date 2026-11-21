@@ -312,3 +312,36 @@ test('host load reports unavailable inspection and never overrides a runner resu
   }
   assert.equal(invoke(directory).status, 0);
 });
+
+test('host load stops a hung simctl and its children, then reports it timed out', (t) => {
+  mkdirSync(path.join(root, 'scratchpad'), { recursive: true });
+  const directory = mkdtempSync(path.join(root, 'scratchpad/host-load-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  // A hung CoreSimulator: xcrun never answers, and its child holds the output.
+  writeFileSync(
+    path.join(directory, 'xcrun'),
+    `#!/bin/sh\nsleep 600 &\necho $$ $! > "${directory}/pids"\nwait\n`,
+    { mode: 0o755 },
+  );
+  const file = path.join(directory, 'load.txt');
+  const result = spawnSync(
+    path.join(root, 'scripts/record-host-load.sh'),
+    [file, 'before journey'],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
+      timeout: 30_000,
+    },
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0);
+  assert.match(
+    readFileSync(file, 'utf8'),
+    /booted simulators: unavailable \(timed out\)/u,
+  );
+  for (const pid of readFileSync(path.join(directory, 'pids'), 'utf8')
+    .trim()
+    .split(' ')) {
+    assert.throws(() => process.kill(Number(pid), 0), { code: 'ESRCH' });
+  }
+});
