@@ -33,7 +33,7 @@ test('Apple language matching, native fallback, and override persistence across 
     parseJson(
       execFileSync(binary, args, {
         encoding: 'utf8',
-        env: { ...process.env, TZ: 'Asia/Kolkata' },
+        env: { TZ: 'Asia/Kolkata' },
       }),
     );
   let compiled = false;
@@ -60,7 +60,7 @@ test('Apple language matching, native fallback, and override persistence across 
     const zoned = parseJson(
       execFileSync(binary, [], {
         encoding: 'utf8',
-        env: { ...process.env, TZ: 'America/St_Johns' },
+        env: { TZ: 'America/St_Johns' },
       }),
     );
     assert.equal(zoned.settings.timeZone, 'America/St_Johns');

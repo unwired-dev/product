@@ -32,16 +32,25 @@ describe('message list days', () => {
     expect(formats.time.format(new Date('2026-10-13T09:41:00Z'))).toMatch(
       /^0?9:41$/u,
     );
-    expect(formats.row(english, '2026-10-08T12:00:00Z', now)).toBe('Thursday');
-    expect(formats.row(english, '2026-10-08T12:00:00Z', now, true)).toBe('Thu');
-    expect(formats.row(english, '2026-10-12T12:00:00Z', now)).toBe('Yesterday');
-    expect(formats.row(english, '2026-09-03T12:00:00Z', now)).toBe('3 Sept');
-    expect(formats.month(new Date('2026-09-03T12:00:00Z'), now)).toBe(
-      'September',
-    );
-    expect(formats.month(new Date('2025-12-03T12:00:00Z'), now)).toBe(
-      'December 2025',
-    );
+    expect(
+      [
+        '2026-10-12T12:00:00Z',
+        '2026-10-08T12:00:00Z',
+        '2026-09-03T12:00:00Z',
+      ].map((at) => [
+        formats.row(english, at, now),
+        formats.compact(english, at, now),
+      ]),
+    ).toStrictEqual([
+      ['Yesterday', 'Yesterday'],
+      ['Thursday', 'Thu'],
+      ['3 Sept', '3 Sept'],
+    ]);
+    expect(
+      ['2026-09-03T12:00:00Z', '2025-12-03T12:00:00Z'].map((at) =>
+        formats.month(new Date(at), now),
+      ),
+    ).toStrictEqual(['September', 'December 2025']);
   });
 });
 
@@ -56,10 +65,19 @@ describe('message header dates', () => {
 
   it('names today, yesterday, an earlier date this year and a date of another year', () => {
     expect.hasAssertions();
-    expect(header('2026-10-13T06:12:00Z')).toBe('Today, 8:12');
-    expect(header('2026-10-12T19:14:00Z')).toBe('Yesterday, 21:14');
-    expect(header('2026-10-11T19:14:00Z')).toBe('Sun 11 Oct, 21:14');
-    expect(header('2025-10-11T19:14:00Z')).toBe('Sat, 11 Oct 2025, 21:14');
+    expect(
+      [
+        '2026-10-13T06:12:00Z',
+        '2026-10-12T19:14:00Z',
+        '2026-10-11T19:14:00Z',
+        '2025-10-11T19:14:00Z',
+      ].map((at) => header(at)),
+    ).toStrictEqual([
+      'Today, 8:12',
+      'Yesterday, 21:14',
+      'Sun 11 Oct, 21:14',
+      'Sat, 11 Oct 2025, 21:14',
+    ]);
     expect(formats.full.format(new Date('2026-10-13T06:12:00Z'))).toBe(
       'Tuesday, 13 October 2026 at 8:12',
     );
@@ -67,18 +85,24 @@ describe('message header dates', () => {
 
   it('reads the day on both sides of midnight in the device time zone, as the list does', () => {
     expect.hasAssertions();
-    // 00:30 on 13 October in Prague is still 12 October in UTC.
-    expect(header('2026-10-12T22:30:00Z')).toBe('Today, 0:30');
-    expect(formats.day('2026-10-12T22:30:00Z', now)).toBe('today');
-    expect(messageDay('2026-10-12T22:30:00Z', now, 'UTC')).toBe('yesterday');
-    expect(header('2026-10-12T21:59:00Z')).toBe('Yesterday, 23:59');
-    expect(formats.day('2026-10-12T21:59:00Z', now)).toBe('yesterday');
+    // 00:30 on 13 October in Prague is still 12 October in UTC; 23:59 on the 12th is yesterday.
+    expect(
+      ['2026-10-12T22:30:00Z', '2026-10-12T21:59:00Z'].map((at) => [
+        header(at),
+        formats.day(at, now),
+        messageDay(at, now, 'UTC'),
+      ]),
+    ).toStrictEqual([
+      ['Today, 0:30', 'today', 'yesterday'],
+      ['Yesterday, 23:59', 'yesterday', 'yesterday'],
+    ]);
     // West of UTC the day ends earlier: 3:00 UTC is 23:00 the day before in New York.
     expect(messageDay('2026-10-13T03:00:00Z', now, 'America/New_York')).toBe(
       'yesterday',
     );
-    expect(messageMonth('2026-09-30T22:30:00Z', zone)).toBe('2026-10');
-    expect(messageMonth('2026-09-30T22:30:00Z', 'UTC')).toBe('2026-9');
+    expect(
+      [zone, 'UTC'].map((each) => messageMonth('2026-09-30T22:30:00Z', each)),
+    ).toStrictEqual(['2026-10', '2026-9']);
   });
 
   it('moves a header to Yesterday once midnight passes, and follows a new time zone', () => {

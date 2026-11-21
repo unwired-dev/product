@@ -299,7 +299,7 @@ export function MessageHeader({
         {/* iPhone's compact header names the day as its list row does. */}
         {ipad
           ? dates.header(t, new Date(message.receivedAt), now)
-          : dates.row(t, message.receivedAt, now, true)}
+          : dates.compact(t, message.receivedAt, now)}
       </Text>
     </View>
   );

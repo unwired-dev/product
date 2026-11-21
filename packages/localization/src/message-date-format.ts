@@ -69,36 +69,35 @@ export const messageMonth = (receivedAt: string, timeZone: string) =>
 // How the interface names when a message arrived, on the device's clocks: a row and its divider, a
 // message header, and the full date VoiceOver reads.
 export function createMessageDateFormats(locale: string, timeZone: string) {
-  const format = (options: Intl.DateTimeFormatOptions) =>
+  const format = (options: Readonly<Intl.DateTimeFormatOptions>) =>
     new Intl.DateTimeFormat(locale, { ...options, timeZone });
   const clock = { hour: 'numeric', minute: '2-digit' } as const;
-  const day = { weekday: 'short', day: 'numeric', month: 'short' } as const;
+  const shortDate = {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  } as const;
   const time = format(clock);
   const thisYear = format({ month: 'long' });
   const otherYear = format({ month: 'long', year: 'numeric' });
-  const dated = format({ ...day, ...clock });
-  const datedYear = format({ ...day, year: 'numeric', ...clock });
+  const dated = format({ ...shortDate, ...clock });
+  const datedYear = format({ ...shortDate, year: 'numeric', ...clock });
   const weekday = format({ weekday: 'long' });
   const shortWeekday = format({ weekday: 'short' });
   const date = format({ month: 'short', day: 'numeric' });
   const sameYear = (at: Date, now: number) =>
     calendarDate(at.getTime(), timeZone).year ===
     calendarDate(now, timeZone).year;
-  return {
-    day: (receivedAt: string, now: number) =>
-      messageDay(receivedAt, now, timeZone),
-    time,
-    month: (at: Date, now: number) =>
-      (sameYear(at, now) ? thisYear : otherYear).format(at),
-    // A row's time: the clock today, Yesterday, the day's name within the last week and the date
-    // before that. iPhone's compact message header names the day in short.
-    row(
+  // A row's time: the clock today, Yesterday, the day's name within the last week and the date
+  // before that.
+  const row =
+    (named: Intl.DateTimeFormat) =>
+    (
       // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- i18next's translation function is mutable; this only calls it.
       t: TFunction,
       receivedAt: string,
       now: number,
-      short = false,
-    ) {
+    ) => {
       const at = new Date(receivedAt);
       const day = messageDay(receivedAt, now, timeZone);
       if (day === 'today') {
@@ -107,10 +106,17 @@ export function createMessageDateFormats(locale: string, timeZone: string) {
       if (day === 'yesterday') {
         return t('inbox.yesterday');
       }
-      return day === 'lastWeek'
-        ? (short ? shortWeekday : weekday).format(at)
-        : date.format(at);
-    },
+      return day === 'lastWeek' ? named.format(at) : date.format(at);
+    };
+  return {
+    day: (receivedAt: string, now: number) =>
+      messageDay(receivedAt, now, timeZone),
+    time,
+    month: (at: Date, now: number) =>
+      (sameYear(at, now) ? thisYear : otherYear).format(at),
+    row: row(weekday),
+    // iPhone's compact message header names the day as its row does, the weekday in short.
+    compact: row(shortWeekday),
     // A message header: Today or Yesterday with the time, then the weekday and date with the time,
     // and the year once it is not this one.
     header(
