@@ -1605,7 +1605,7 @@ deleted after its reader closes, its message leaves the Inbox and every other ca
 changes owner only once that preview closes, the share ends or the save finishes.
 It also stays through eviction and counts toward the 250 MiB limit. A download
 that cannot fit without deleting a presented file fails and can be retried after
-the preview closes or the share ends.
+the preview closes, the share ends or the save finishes.
 Removal, sign-out, deletion and relaunch delete it immediately.
 
 Attachment controls ignore input queued for a reader that has changed or closed,
