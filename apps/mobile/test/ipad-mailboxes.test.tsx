@@ -77,10 +77,11 @@ const account = {
   chooseFolders: () => Promise.resolve(true),
 };
 
-// All Inboxes over Alex's shown account and another the Profile hides, neither loaded yet, both
-// in `state`.
+// All Inboxes over Alex's shown account and another the Profile hides, neither loaded yet: Alex's
+// in `state`, the other in `otherState`.
 async function hiddenAccount(
   state: 'connected' | 'authorization' = 'connected',
+  otherState = state,
 ) {
   const alex = syntheticMailboxes['alex@example.invalid'];
   const other = syntheticMailboxes['other@example.invalid'];
@@ -90,7 +91,7 @@ async function hiddenAccount(
     signInProvider: 'google',
     mailboxes: JSON.stringify([
       { id: alex, address: 'alex@example.invalid', state },
-      { id: other, address: 'other@example.invalid', state },
+      { id: other, address: 'other@example.invalid', state: otherState },
     ]),
   } satisfies RegistrationSnapshot;
   const registration = {
@@ -366,6 +367,37 @@ describe('iPad Mailboxes', () => {
       await app.unmount();
     },
   );
+
+  it('takes no loading or No Mail from a hidden account while the only shown one waits for sign-in', async () => {
+    expect.hasAssertions();
+    const { hidden, mailboxes, tree } = await hiddenAccount(
+      'authorization',
+      'connected',
+    );
+    const request = hidden.native.gmailRequest;
+    const held = Promise.withResolvers<undefined>();
+    hidden.native.gmailRequest = async (...args) => {
+      await held.promise;
+      return request(...args);
+    };
+    const app = await render(tree({}));
+    let first = Promise.resolve();
+    await act(async () => {
+      first = mailboxes.load();
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByText(/needs your permission again/u),
+    ).resolves.toBeOnTheScreen();
+    const loading = screen.queryByLabelText('Loading Inbox');
+    held.resolve(undefined);
+    await act(() => first);
+    expect({ loading, empty: screen.queryByText('No Mail') }).toStrictEqual({
+      loading: null,
+      empty: null,
+    });
+    await app.unmount();
+  });
 
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {
     expect.hasAssertions();
