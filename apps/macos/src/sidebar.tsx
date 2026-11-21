@@ -501,11 +501,6 @@ function EditRow({
       ref.current?.focus();
     }
   }, [moved]);
-  const move = (by: -1 | 1) => {
-    if (by < 0 ? moves.up : moves.down) {
-      onMove(by);
-    }
-  };
   return (
     <Pressable
       ref={ref}
@@ -522,7 +517,7 @@ function EditRow({
       focusable
       keyDownEvents={editKeys}
       onAccessibilityAction={({ nativeEvent }) => {
-        move(nativeEvent.actionName === t('mailboxes.moveUp') ? -1 : 1);
+        onMove(nativeEvent.actionName === t('mailboxes.moveUp') ? -1 : 1);
       }}
       onBlur={() => {
         setFocused(false);
@@ -532,7 +527,7 @@ function EditRow({
       }}
       onKeyDown={({ nativeEvent: { key, altKey, metaKey } }) => {
         if (altKey && metaKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
-          move(key === 'ArrowUp' ? -1 : 1);
+          onMove(key === 'ArrowUp' ? -1 : 1);
         }
       }}
       onPress={onToggle}
