@@ -380,17 +380,20 @@ export function createNotifications(
         ),
       ),
     // After the settings are read and `settle` has finished, `eligible` is asked about the Profile
-    // the connection is in then, in the same step that posts: the connection may have been
-    // removed, turned off, hidden or moved meanwhile.
+    // the connection is in then, and the notifications are handed to the host, `exclusively` of
+    // any registration operation: the connection may have been removed, turned off, hidden or
+    // moved meanwhile, and no move lands in storage before the host posts.
     arrived: (
       { profile: currentProfile, address, ...mailbox }: Arrival,
       messages: readonly ArrivedMessage[],
       {
         settle,
         eligible,
+        exclusively,
       }: Readonly<{
         settle: () => Promise<void>;
         eligible: (profile: string) => boolean;
+        exclusively: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>;
       }>,
     ) =>
       runLogged(
@@ -405,38 +408,42 @@ export function createNotifications(
               return yield* notPosted(`authorization ${current.authorization}`);
             }
             yield* call(settle);
-            const profile = currentProfile();
-            if (profile === undefined) {
-              return yield* notPosted('Mail Profile unknown');
-            }
-            if (!eligible(profile)) {
-              return yield* notPosted(
-                'connection closed, turned off or hidden meanwhile',
-              );
-            }
-            const t = translate();
-            yield* call(() =>
-              native.postNotifications(
-                messages.map((message) => ({
-                  id: `${mailbox.connection}.${message.id}`,
-                  ...notificationContent(t, current.previews, message),
-                  ...mailbox,
-                  profile,
-                  message: message.id,
-                  previews: current.previews,
-                  reply: t('notifications.replyFrom', { address }),
-                })),
-                {
-                  reply: t('contextMenu.reply'),
-                  send: t('drafts.send'),
-                  archive: t('contextMenu.archive'),
-                  read: t('contextMenu.read'),
-                },
-              ),
-            );
-            yield* logNote(
-              'New mail notifications handed to the host:',
-              messages.length,
+            return yield* exclusively(
+              Effect.gen(function* () {
+                const profile = currentProfile();
+                if (profile === undefined) {
+                  return yield* notPosted('Mail Profile unknown');
+                }
+                if (!eligible(profile)) {
+                  return yield* notPosted(
+                    'connection closed, turned off or hidden meanwhile',
+                  );
+                }
+                const t = translate();
+                yield* call(() =>
+                  native.postNotifications(
+                    messages.map((message) => ({
+                      id: `${mailbox.connection}.${message.id}`,
+                      ...notificationContent(t, current.previews, message),
+                      ...mailbox,
+                      profile,
+                      message: message.id,
+                      previews: current.previews,
+                      reply: t('notifications.replyFrom', { address }),
+                    })),
+                    {
+                      reply: t('contextMenu.reply'),
+                      send: t('drafts.send'),
+                      archive: t('contextMenu.archive'),
+                      read: t('contextMenu.read'),
+                    },
+                  ),
+                );
+                yield* logNote(
+                  'New mail notifications handed to the host:',
+                  messages.length,
+                );
+              }),
             );
           }),
         ),

@@ -666,6 +666,10 @@ export function createRegistration(vault: NativeRegistrationVault) {
   };
   return {
     getSnapshot: () => state,
+    // Runs `effect` while no registration operation does, so the snapshot it reads stays what
+    // storage holds until it completes.
+    exclusively: <A, E>(effect: Effect.Effect<A, E>) =>
+      effect.pipe(Semaphore.withPermits(semaphore, 1)),
     subscribe: (listener: Listener) => {
       listeners.add(listener);
       return () => {

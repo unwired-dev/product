@@ -472,7 +472,8 @@ export function createHost(
       // A connection its Mail Profile hides in the sidebar, here or on another device first, is
       // muted: it posts none, nor does any while the preferences cannot be read here or pulled
       // from Private Sync. They are synchronized once the notification settings are read, and the
-      // Profile the connection is in then is checked as it posts, so a hide or move meanwhile counts.
+      // Profile the connection is in then is checked as it posts, so a hide or move meanwhile counts;
+      // no registration operation runs until the host has posted.
       arrived: (mailbox, messages, eligible) =>
         notifications.arrived(mailbox, messages, {
           settle: async () => {
@@ -488,6 +489,7 @@ export function createHost(
               sectionShown(sections, mailbox.connection)
             );
           },
+          exclusively: registration.exclusively,
         }),
       screen: blockedSenders.screen,
       // A Pin follows its IMAP message to the ID a move gave it.

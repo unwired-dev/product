@@ -77,8 +77,11 @@ const account = {
   chooseFolders: () => Promise.resolve(true),
 };
 
-// All Inboxes over Alex's shown account and another the Profile hides, neither loaded yet.
-async function hiddenAccount() {
+// All Inboxes over Alex's shown account and another the Profile hides, neither loaded yet, both
+// in `state`.
+async function hiddenAccount(
+  state: 'connected' | 'authorization' = 'connected',
+) {
   const alex = syntheticMailboxes['alex@example.invalid'];
   const other = syntheticMailboxes['other@example.invalid'];
   const snapshot = {
@@ -86,8 +89,8 @@ async function hiddenAccount() {
     productAccountId: 'synthetic-product-account',
     signInProvider: 'google',
     mailboxes: JSON.stringify([
-      { id: alex, address: 'alex@example.invalid', state: 'connected' },
-      { id: other, address: 'other@example.invalid', state: 'connected' },
+      { id: alex, address: 'alex@example.invalid', state },
+      { id: other, address: 'other@example.invalid', state },
     ]),
   } satisfies RegistrationSnapshot;
   const registration = {
@@ -332,34 +335,37 @@ describe('iPad Mailboxes', () => {
     await app.unmount();
   });
 
-  it('shows No Mail and answers search in All Inboxes with every account hidden while none has listed', async () => {
-    expect.hasAssertions();
-    const { alex, shown, hidden, mailboxes, store, tree } =
-      await hiddenAccount();
-    await store.showSection(defaultProfile, alex, false);
-    const held = Promise.withResolvers<undefined>();
-    for (const gmail of [shown, hidden]) {
-      const request = gmail.native.gmailRequest;
-      gmail.native.gmailRequest = async (...args) => {
-        await held.promise;
-        return request(...args);
-      };
-    }
-    const app = await render(tree({}));
-    let first = Promise.resolve();
-    await act(async () => {
-      first = mailboxes.load();
-      await Promise.resolve();
-    });
-    await expect(screen.findByText('No Mail')).resolves.toBeOnTheScreen();
-    const field = screen.getByLabelText('Search senders and subjects');
-    await fireEvent(field, 'focus');
-    await fireEvent.changeText(field, 'Nothing like this');
-    await expect(screen.findByText('No Results')).resolves.toBeOnTheScreen();
-    held.resolve(undefined);
-    await act(() => first);
-    await app.unmount();
-  });
+  it.each(['connected', 'authorization'] as const)(
+    'shows No Mail and answers search in All Inboxes with every account hidden, none listed, while %s',
+    async (state) => {
+      expect.hasAssertions();
+      const { alex, shown, hidden, mailboxes, store, tree } =
+        await hiddenAccount(state);
+      await store.showSection(defaultProfile, alex, false);
+      const held = Promise.withResolvers<undefined>();
+      for (const gmail of [shown, hidden]) {
+        const request = gmail.native.gmailRequest;
+        gmail.native.gmailRequest = async (...args) => {
+          await held.promise;
+          return request(...args);
+        };
+      }
+      const app = await render(tree({}));
+      let first = Promise.resolve();
+      await act(async () => {
+        first = mailboxes.load();
+        await Promise.resolve();
+      });
+      await expect(screen.findByText('No Mail')).resolves.toBeOnTheScreen();
+      const field = screen.getByLabelText('Search senders and subjects');
+      await fireEvent(field, 'focus');
+      await fireEvent.changeText(field, 'Nothing like this');
+      await expect(screen.findByText('No Results')).resolves.toBeOnTheScreen();
+      held.resolve(undefined);
+      await act(() => first);
+      await app.unmount();
+    },
+  );
 
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {
     expect.hasAssertions();
