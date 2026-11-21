@@ -1080,8 +1080,9 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   folder without a role in each mailbox. A search for a word only in their subjects found
   no saved mail in All Inboxes, and **Search Mail Servers** then listed both under **From
   mail servers**; each opened in the reader with its text. Afterwards no run message
-  remained in any folder of either mailbox, **Sign Out of This Device** returned the app
-  to Welcome, and the run's caches, HTTP storage and saved window state were removed from
+  remained in any folder of either mailbox, **Sign Out of This Device** removed the
+  account's keys, Keychain records and mailbox access from the Mac and returned the app to
+  Welcome, and the run's caches, HTTP storage and saved window state were removed from
   the app's container. Limitations: the system prompt for Contacts access appeared during
   sign-in and was denied; the app kept running. The operator drove the app through the
   macOS accessibility interface and synthesized keyboard and mouse input. Mac attachments,
