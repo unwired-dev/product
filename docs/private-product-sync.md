@@ -54,8 +54,9 @@ Clipboard does not carry it to other devices, and the system removes it after tw
 minutes; the line beneath says so, and VoiceOver hears it. **Save to Files** hands
 the system's export picker a plain-text file, **Unwired Mail Recovery Key.txt**,
 that holds a heading and the key and nothing else: no address and no date. The
-app deletes its temporary file when the picker closes, so the only copy is the one
-the person saved. A saved file or a failed save is reported on the same line; a
+app deletes its temporary file when the picker closes, or at the next launch if the
+app ended first, so the only copy is the one the person saved. A second press
+while the picker opens starts nothing. A saved file or a failed save is reported on the same line; a
 cancelled save says nothing. Neither action logs, reports or sends the key. The
 Mac's **Copy**, **Print…** and **Save to Passwords…** follow in
 [#2108](https://github.com/unwired-dev/product/issues/2108).
