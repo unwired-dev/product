@@ -615,7 +615,7 @@ describe('iPhone Mailboxes', () => {
     await app.unmount();
   });
 
-  it('names no hidden account in All Inboxes, even the only one connected or one waiting for sign-in', async () => {
+  it('names no hidden account in All Inboxes, even the only one connected, one needing sign-in or one waiting for it', async () => {
     expect.hasAssertions();
     const alex = syntheticMailboxes['alex@example.invalid'];
     const other = syntheticMailboxes['other@example.invalid'];
@@ -661,7 +661,13 @@ describe('iPhone Mailboxes', () => {
       </AccountContext>,
     );
     await app.findByText('No Mail');
-    expect(app.queryAllByText(/@example\.invalid/u)).toStrictEqual([]);
+    // Its open Inbox then needs sign-in again.
+    gmail.fail({ status: 401 });
+    await act(mailboxes.load);
+    expect([
+      app.queryAllByText(/@example\.invalid/u),
+      app.queryAllByText(/needs attention/u),
+    ]).toStrictEqual([[], []]);
     await app.unmount();
   });
 

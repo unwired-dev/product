@@ -1465,7 +1465,6 @@ export function Mailboxes({
   // The connections the Profile shows, which All Inboxes counts; none until the Profile's
   // preferences are read, as All Inboxes lists none. Edit mode lists every one.
   const read = useReadSections(profile);
-  const sections = useSections(profile);
   // Edit Favorites, and whether a row is being dragged, while the list must not scroll.
   const [editing, setEditing] = useState(false);
   const shown = sidebar.entries.filter(
@@ -1706,7 +1705,7 @@ export function Mailboxes({
                         <FolderRows
                           mailbox={mailbox}
                           folders={shownFolders(
-                            sectionFolders(sections, mailbox.id),
+                            sectionFolders(read ?? {}, mailbox.id),
                             folders,
                           )}
                           onView={onView}

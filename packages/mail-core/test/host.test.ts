@@ -589,6 +589,36 @@ describe('the host assembly', () => {
     expect(notified).toHaveLength(1);
   });
 
+  it('posts nothing while another Trusted Device overtakes every synchronization pass', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, notified } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    // A preference this device must publish, which every write loses to another device's.
+    await host.inboxPreferences.setListDensity(defaultProfile, 'compact');
+    const push = vi.spyOn(native, 'pushInboxPreferences');
+    push.mockImplementation((owner) =>
+      Promise.resolve({ owner, committed: false }),
+    );
+    gmail.deliver({ subject: 'Overtaken' });
+    await host.gmailMailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    // A write that commits settles it.
+    push.mockImplementation((owner) =>
+      Promise.resolve({ owner, committed: true, updatedAt: Date.now() }),
+    );
+    gmail.deliver({ subject: 'Settled' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(1);
+    });
+  });
+
   it('posts nothing while Private Sync cannot tell whether another Trusted Device hid the connection', async () => {
     expect.hasAssertions();
     const { host, native, gmail, notified } = syntheticHost(undefined, true);
@@ -600,12 +630,17 @@ describe('the host assembly', () => {
     await host.notifications.request();
     const pull = vi.spyOn(native, 'pullInboxPreferences');
 
-    // The pull fails, then the Profile's record does not open here.
+    // The pull fails, then the Profile's record does not open here; as natively, only a Profile
+    // asked about is reported unreadable, and this device stores no preferences of it yet.
     pull.mockRejectedValueOnce(new Error('offline'));
     gmail.deliver({ subject: 'Pull failed' });
     await host.gmailMailboxes.load();
-    pull.mockImplementationOnce((owner) =>
-      Promise.resolve({ owner, records: [], unreadable: [defaultProfile] }),
+    pull.mockImplementationOnce((owner, known) =>
+      Promise.resolve({
+        owner,
+        records: [],
+        unreadable: known.filter((profile) => profile === defaultProfile),
+      }),
     );
     gmail.deliver({ subject: 'Record unreadable' });
     await host.gmailMailboxes.load();

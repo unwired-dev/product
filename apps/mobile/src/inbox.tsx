@@ -812,7 +812,7 @@ const authorizer = (
 // All Inboxes, its sign-in notices, and search there or widened to every Inbox, leave out every
 // connection the Profile hides, and every one until the Profile's preferences are read: `unhidden`
 // keeps the others, `inboxes` also the one the view scopes to, `waiting` is what of `waiting` the
-// list names, and `searched` is what search covers of `shown`.
+// list names, and `searched` is what of `shown` search covers and the list reports the state of.
 function useShownInboxes<W extends Readonly<{ id: string }>>({
   mailboxes,
   shown,
@@ -1083,7 +1083,7 @@ export function Inbox({
     gmail,
     waiting: chosenWaiting,
   });
-  const signIn = signInOf(shown, {
+  const signIn = signInOf(searchedMailboxes, {
     waiting,
     chosen: chosenWaiting !== undefined,
   });
@@ -1141,10 +1141,10 @@ export function Inbox({
       // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
     }
   };
-  const { details, paused } = useToolbarPause(shown, toolbar);
+  const { details, paused } = useToolbarPause(searchedMailboxes, toolbar);
   const syncCapsule = (
     <SyncStatusCapsule
-      shown={shown}
+      shown={searchedMailboxes}
       refreshing={refreshing}
       now={now}
       onTryAgain={tryAgain}
@@ -1409,7 +1409,7 @@ export function Inbox({
                         ) : null}
                       </Notice>
                     ))}
-                    {shown.map((mailbox) => (
+                    {searchedMailboxes.map((mailbox) => (
                       <MailboxScope
                         key={mailbox.id}
                         id={mailbox.id}>

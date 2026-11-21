@@ -24,6 +24,7 @@ import {
   FavoriteEntriesSchema,
   SectionFoldersSchema,
 } from './mailbox-views.ts';
+import { mailboxesOf, profilesOf } from './registration-snapshot.ts';
 
 // How tightly a Thread list lays out its rows. Comfortable is the default.
 export const ListDensitySchema = Schema.Literals(['comfortable', 'compact']);
@@ -228,10 +229,15 @@ export function createInboxPreferences(
   }> = { account: '', profiles: [] };
   // Whether storage failed the last read, so which connections are muted is unknown.
   let failed = false;
-  // The Profiles whose Private Sync records the last pass could not read, once a pass merged what
-  // it pulled for `account`; none since a pass failed.
+  // The Profiles the last pass asked Private Sync about for `account`, and those whose records it
+  // could not read, once a pass merged what it pulled and no other device's write overtook it;
+  // none since a pass failed or was overtaken.
   let pulled:
-    | Readonly<{ account: string; unreadable: ReadonlySet<string> }>
+    | Readonly<{
+        account: string;
+        known: ReadonlySet<string>;
+        unreadable: ReadonlySet<string>;
+      }>
     | undefined = undefined;
   const notify = () => {
     for (const listener of listeners) {
@@ -344,12 +350,16 @@ export function createInboxPreferences(
       return false;
     }
     const before = yield* opened(account);
+    // Every Profile stored here, registered or holding a connection, so a record of one that does
+    // not open is reported unreadable rather than absent.
+    const { snapshot } = registration.getSnapshot();
+    const known = new Set([
+      ...before.profiles.map(({ profile }) => profile),
+      ...profilesOf(snapshot).map(({ id }) => id),
+      ...mailboxesOf(snapshot).map(({ profile }) => profile),
+    ]);
     const fetched = yield* native(
-      () =>
-        remote.pullInboxPreferences(
-          account,
-          before.profiles.map(({ profile }) => profile),
-        ),
+      () => remote.pullInboxPreferences(account, [...known]),
       PulledSchema,
     );
     if (fetched.owner !== account) {
@@ -365,7 +375,6 @@ export function createInboxPreferences(
           : withFields(next, id, adopted);
       }, profiles),
     );
-    pulled = { account, unreadable };
     let conflicted = false;
     for (const { profile, fields } of stored.filter(
       (kept) => !unreadable.has(kept.profile) && publishable(kept.profile),
@@ -377,6 +386,7 @@ export function createInboxPreferences(
           record: records.find(({ id }) => id === profile),
         })) || conflicted;
     }
+    pulled = conflicted ? undefined : { account, known, unreadable };
     return conflicted;
   });
 
@@ -522,12 +532,13 @@ export function createInboxPreferences(
       sectionsRead.set(fields, sections);
       return sections;
     },
-    // Whether this device holds what Private Sync last had for `profile`: the last pass pulled its
-    // record, or found none, and merged it. Without Private Sync, the stored preferences are all.
+    // Whether this device holds what Private Sync last had for `profile`: the last pass asked for
+    // its record, pulled it or found none, and merged it unovertaken. Without Private Sync, the stored preferences are all.
     pulled: (profile: string) =>
       sync === undefined ||
       (pulled !== undefined &&
         pulled.account === signedIn() &&
+        pulled.known.has(profile) &&
         !pulled.unreadable.has(profile)),
     // Shows or hides `connection`'s section of `profile`, as `setListDensity` chooses.
     showSection: (profile: string, connection: string, visible: boolean) =>
