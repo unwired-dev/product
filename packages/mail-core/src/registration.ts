@@ -56,6 +56,7 @@ export {
 } from './registration-snapshot.ts';
 export type {
   ChosenFolders,
+  DeviceKind,
   MailboxConnection,
   MailGrantProvider,
   MailProfile,

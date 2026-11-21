@@ -28,18 +28,28 @@ const PrivateSyncSchema = Schema.Literals([
 ]);
 export type PrivateSync = typeof PrivateSyncSchema.Type;
 
+// The kinds of device a Trusted Device reports itself as.
+export const DeviceKindSchema = Schema.Literals(['iphone', 'ipad', 'mac']);
+export type DeviceKind = typeof DeviceKindSchema.Type;
+
+// Milliseconds since 1970, within the JavaScript Date range used for display.
+const DisplayTime = Schema.Finite.check(
+  Schema.isBetween({
+    minimum: -8_640_000_000_000_000,
+    maximum: 8_640_000_000_000_000,
+  }),
+);
+// The account's Trusted Devices, this one marked current. `kind` and `activeAt` are what a device
+// last reported in its sealed record; a device that has not reported has neither.
 const TrustedDevicesSchema = Schema.fromJsonString(
   Schema.Array(
     Schema.Struct({
       id: Schema.NonEmptyString,
       name: Schema.NonEmptyString,
-      // Milliseconds since 1970, within the JavaScript Date range used for display.
-      registeredAt: Schema.Finite.check(
-        Schema.isBetween({
-          minimum: -8_640_000_000_000_000,
-          maximum: 8_640_000_000_000_000,
-        }),
-      ),
+      registeredAt: DisplayTime,
+      current: Schema.optionalKey(Schema.Literal(true)),
+      kind: Schema.optionalKey(DeviceKindSchema),
+      activeAt: Schema.optionalKey(DisplayTime),
     }),
   ),
 );
@@ -279,11 +289,7 @@ export const RegistrationSnapshotSchema = Schema.Union([
 ]);
 export type RegistrationSnapshot = typeof RegistrationSnapshotSchema.Type;
 
-export type TrustedDevice = Readonly<{
-  id: string;
-  name: string;
-  registeredAt: number;
-}>;
+export type TrustedDevice = (typeof TrustedDevicesSchema.Type)[number];
 
 // The native snapshot boundary has already validated this JSON text.
 export const trustedDevicesOf = (

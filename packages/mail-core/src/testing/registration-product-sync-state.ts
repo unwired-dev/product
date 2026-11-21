@@ -1,5 +1,6 @@
 /* oxlint-disable typescript/prefer-readonly-parameter-types -- Tests change the synthetic device's state between steps. */
 import type {
+  DeviceRecord,
   MailboxDescriptor,
   ProfileRecord,
 } from '../registration-vault.ts';
@@ -120,14 +121,15 @@ export function createSyntheticProductSyncBackend() {
         descriptor: MailboxDescriptor;
       }
     >(),
-    // What each sealed Mail Profile definition or ownership opens to, and under which identifier.
+    // What each sealed Mail Profile definition, ownership or Trusted Device record opens to, and
+    // under which identifier.
     sealedProfiles: new Map<
       string,
       {
         ring: string;
         account: string;
         identifier: string;
-        record: ProfileRecord;
+        record: ProfileRecord | DeviceRecord;
       }
     >(),
     clock: 1000,
@@ -229,7 +231,10 @@ export function mailboxRecord(
 }
 
 // The kind and name a Profile record's identifier is derived from.
-function recordName(record: ProfileRecord) {
+function recordName(record: ProfileRecord | DeviceRecord) {
+  if (record.kind === 'device') {
+    return ['device', record.device] as const;
+  }
   if (record.kind === 'profile') {
     return ['profile', record.id] as const;
   }
@@ -254,7 +259,7 @@ function recordName(record: ProfileRecord) {
 function profileIdentifier(
   sync: SyntheticProductSync,
   ring: string,
-  record: ProfileRecord,
+  record: ProfileRecord | DeviceRecord,
 ) {
   const [kind, name] = recordName(record);
   const key = `${ring}\n${kind}\n${name}`;
@@ -271,7 +276,7 @@ function profileIdentifier(
 export function sealProfile(
   sync: SyntheticProductSync,
   account: string,
-  record: ProfileRecord,
+  record: ProfileRecord | DeviceRecord,
 ) {
   const ring = sync.accounts.get(account)?.ring;
   if (ring === undefined) {
@@ -295,7 +300,7 @@ export function sealProfile(
 export function storeProfile(
   sync: SyntheticProductSync,
   account: string,
-  record: ProfileRecord,
+  record: ProfileRecord | DeviceRecord,
 ) {
   const sealed = sealProfile(sync, account, record);
   sync.clock += 1;
@@ -310,7 +315,9 @@ export function storedProfiles(sync: SyntheticProductSync, account: string) {
   return [...(sync.accounts.get(account)?.records.values() ?? [])].flatMap(
     ({ encryptedPayload }) => {
       const sealed = sync.sealedProfiles.get(encryptedPayload.ciphertextBase64);
-      return sealed === undefined ? [] : [sealed.record];
+      return sealed === undefined || sealed.record.kind === 'device'
+        ? []
+        : [sealed.record];
     },
   );
 }

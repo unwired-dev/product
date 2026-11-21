@@ -957,6 +957,7 @@ function Hairline() {
 // A row: an optional SF Symbol or icon view, the title and its subtitle, then its trailing controls.
 export function SettingsRow({
   icon,
+  iconTone,
   title,
   titleTone,
   titleNumberOfLines,
@@ -964,9 +965,13 @@ export function SettingsRow({
   subtitle,
   subtitleTone,
   minHeight,
+  value,
+  accessibilityLabel,
   children,
 }: {
   readonly icon?: string | ReactElement | undefined;
+  // A symbol that names a thing rather than an action takes the text color.
+  readonly iconTone?: 'primary' | undefined;
   readonly title: string;
   readonly titleTone?: 'accent' | 'destructive' | undefined;
   readonly titleNumberOfLines?: number;
@@ -976,6 +981,10 @@ export function SettingsRow({
   readonly subtitleTone?: 'warning' | undefined;
   // A row the frames draw taller than the group's other rows.
   readonly minHeight?: number | undefined;
+  // A status at the trailing edge, before any controls.
+  readonly value?: string | undefined;
+  // Read as one element in place of the title, subtitle and value; trailing controls stay apart.
+  readonly accessibilityLabel?: string | undefined;
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
@@ -996,13 +1005,18 @@ export function SettingsRow({
                 : 20
             }
             scale={settingsColumns ? rowSymbolScales[icon] : undefined}
-            color={colors.accentInk}
+            color={
+              iconTone === 'primary' ? colors.textPrimary : colors.accentInk
+            }
           />
         </View>
       ) : (
         icon
       )}
-      <View style={[styles.rowText, disabled && { opacity: 0.4 }]}>
+      <View
+        accessible={accessibilityLabel !== undefined}
+        accessibilityLabel={accessibilityLabel}
+        style={[styles.rowText, disabled && { opacity: 0.4 }]}>
         <Text
           numberOfLines={titleNumberOfLines}
           style={[
@@ -1034,6 +1048,13 @@ export function SettingsRow({
           </Text>
         )}
       </View>
+      {value === undefined ? null : (
+        <Text
+          accessibilityElementsHidden={accessibilityLabel !== undefined}
+          style={[type.title, { color: colors.textSecondary }]}>
+          {value}
+        </Text>
+      )}
       {children === undefined ? null : (
         <View style={styles.trailing}>{children}</View>
       )}

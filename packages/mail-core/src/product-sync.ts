@@ -3,11 +3,13 @@ import {
   productSyncKeyRotationRequiredErrorCode,
 } from '@private-email/contracts/productSync';
 import * as Arr from 'effect/Array';
+import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
 import * as Order from 'effect/Order';
 import * as Random from 'effect/Random';
 import * as Schema from 'effect/Schema';
 
+import type { Reports } from './product-sync-devices.ts';
 import type { RegistrationRejected } from './registration-rejection.ts';
 import type {
   PendingEnrollment,
@@ -15,6 +17,7 @@ import type {
 } from './registration-replies.ts';
 import type {
   ChosenFolders,
+  DeviceKind,
   MailProvider,
   ProfileColor,
   PrivateSyncStateSchema,
@@ -44,7 +47,11 @@ import {
   StoredPayload,
   StoredPayloadPage,
 } from './registration-replies.ts';
-import { MailboxDescriptorSchema } from './registration-vault.ts';
+import { DeviceKindSchema } from './registration-snapshot.ts';
+import {
+  DeviceRecordSchema,
+  MailboxDescriptorSchema,
+} from './registration-vault.ts';
 
 const MailProfileFence = Schema.Struct({ fenced: Schema.Boolean });
 
@@ -59,6 +66,13 @@ const KeyRing = Schema.Struct({
   deviceKey: Schema.NonEmptyString,
 });
 const Opened = Schema.Array(Schema.NullOr(MailboxDescriptorSchema));
+const OpenedDevices = Schema.Array(Schema.NullOr(DeviceRecordSchema));
+const Sealed = Schema.Struct({
+  payloadIdentifier: Schema.NonEmptyString,
+  encryptedPayload: EncryptedPayload,
+});
+// A device reports its activity again once its last report is this old (ADR 0079).
+const activityInterval = 15 * 60 * 1000;
 const AtomicWrite = Schema.Struct({
   committed: Schema.Boolean,
   payloads: Schema.Array(StoredPayload),
@@ -250,17 +264,22 @@ const keyState = (vault: Vault, holdsKey: boolean): PrivateSyncState => {
   return { privateSync: holdsKey ? 'ready' : 'enrollment-needed' };
 };
 
-// Other devices' requests and the account's other Trusted Devices, as this process last listed them.
+// Other devices' requests and the account's Trusted Devices with what each last reported, as this
+// process last listed them.
 export type ListedDevices = Readonly<{
   requests: ReadonlyArray<typeof PendingEnrollment.Type>;
   trustedDevices: ReadonlyArray<typeof TrustedDeviceSummary.Type>;
+  reports: Reports;
 }>;
 
-// Other devices this one can approve or remove, only while it holds the account keys.
-const deviceState = ({
-  requests,
-  trustedDevices,
-}: ListedDevices): PrivateSyncState => {
+const isDeviceKind = Schema.is(DeviceKindSchema);
+
+// Other devices this one can approve or remove, and this one, only while it holds the account keys.
+// This device shows its own kind; another shows the kind and activity it last reported.
+const deviceState = (
+  { requests, trustedDevices, reports }: ListedDevices,
+  current: Readonly<{ deviceId: string; deviceKind: DeviceKind }>,
+): PrivateSyncState => {
   // The newest request Convex listed as open; it rejects an approval that arrives too late.
   const request = requests.reduce<(typeof requests)[number] | undefined>(
     (newest, next) =>
@@ -278,11 +297,23 @@ const deviceState = ({
       ? {}
       : {
           trustedDevices: JSON.stringify(
-            trustedDevices.map(({ id, displayName, registeredAt }) => ({
-              id,
-              name: displayName,
-              registeredAt,
-            })),
+            trustedDevices.map(({ id, displayName, registeredAt }) => {
+              const report = reports.get(id);
+              const kind =
+                id === current.deviceId
+                  ? current.deviceKind
+                  : report?.deviceKind;
+              return {
+                id,
+                name: displayName,
+                registeredAt,
+                ...(id === current.deviceId ? { current: true } : {}),
+                ...(isDeviceKind(kind) ? { kind } : {}),
+                ...(report === undefined || id === current.deviceId
+                  ? {}
+                  : { activeAt: report.activeAt }),
+              };
+            }),
           ),
         }),
   };
@@ -332,7 +363,7 @@ export function privateSyncState(
   return {
     ...keyState(vault, sync.deviceKey),
     ...(vault.published && sync.deviceKey && listed !== undefined
-      ? deviceState(listed)
+      ? deviceState(listed, sync)
       : {}),
     // A prepared removal shows its replacement Recovery Key until it is confirmed or cancelled.
     ...(vault.revocation === undefined
@@ -788,6 +819,54 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     };
   });
 
+  // Reads what every Trusted Device last reported and reports this device's kind and activity when
+  // it has no readable report yet, its kind changed or its report is older than the interval.
+  const activity = Effect.gen(function* () {
+    const { deviceId, deviceKind } = yield* syncState;
+    const records = yield* list('device.');
+    const opened =
+      records.length === 0
+        ? []
+        : yield* native(() => vault.openProfileRecords(records), OpenedDevices);
+    if (opened.length !== records.length) {
+      return yield* failWith('unavailable');
+    }
+    const reports = new Map<string, { deviceKind: string; activeAt: number }>();
+    for (const record of opened) {
+      if (record !== null) {
+        reports.set(record.device, record);
+      }
+    }
+    const own = opened.find((record) => record?.device === deviceId);
+    const now = yield* Clock.currentTimeMillis;
+    const last = reports.get(deviceId);
+    if (
+      last === undefined ||
+      last.deviceKind !== deviceKind ||
+      now - last.activeAt >= activityInterval
+    ) {
+      const { payloadIdentifier, encryptedPayload } = yield* native(
+        () =>
+          vault.sealProfileRecord({
+            kind: 'device',
+            device: deviceId,
+            version: (own?.version ?? 0) + 1,
+            deviceKind,
+            activeAt: now,
+          }),
+        Sealed,
+      );
+      yield* write(
+        payloadIdentifier,
+        encryptedPayload,
+        records.find((record) => record.payloadIdentifier === payloadIdentifier)
+          ?.updatedAt,
+      );
+      reports.set(deviceId, { deviceKind, activeAt: now });
+    }
+    yield* devices.recordReports(reports);
+  });
+
   // Keys are created and stored before initialization publishes them, so an interrupted attempt
   // resumes with the same keys. False when the account already holds other key material.
   const initialize = Effect.gen(function* () {
@@ -873,6 +952,7 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     if (!(yield* fenced)) {
       yield* rotating(() => profiles.synchronize);
     }
+    yield* rotating(() => activity);
   });
 
   // Synchronizes with this process's verified Product Sign-In. Product Sync stays pending on

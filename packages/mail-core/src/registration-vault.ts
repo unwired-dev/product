@@ -18,7 +18,10 @@ import {
   SmtpEndpointSchema,
   endpointMatchesProvider,
 } from './imap-setup.ts';
-import { MailProviderSchema } from './registration-snapshot.ts';
+import {
+  DeviceKindSchema,
+  MailProviderSchema,
+} from './registration-snapshot.ts';
 
 const Provider = Schema.Literals(['google', 'apple']);
 const SetupReasonSchema = Schema.Literals([
@@ -125,6 +128,17 @@ export const ProfileRecordSchema = Schema.Union([
   }),
 ]);
 export type ProfileRecord = typeof ProfileRecordSchema.Type;
+// A Trusted Device's kind, as text so a kind a newer client adds still opens, and when it was last
+// active, in milliseconds since the epoch (ADR 0079). Native code seals and opens it like a Profile
+// record, under the identifier its device determines.
+export const DeviceRecordSchema = Schema.Struct({
+  kind: Schema.Literal('device'),
+  device: Schema.NonEmptyString,
+  version: Version,
+  deviceKind: Schema.NonEmptyString,
+  activeAt: Schema.Finite,
+});
+export type DeviceRecord = typeof DeviceRecordSchema.Type;
 // Mail Profile definitions and connection ownership as this device last read them, and the
 // Profiles it named while offline. Native code keeps it in the account's device-only vault.
 export const ProfileStateSchema = Schema.Struct({
@@ -236,6 +250,8 @@ const ProductSyncStateSchema = Schema.Struct({
   deviceKey: Schema.Boolean,
   // This installation's Trusted or Pending Device identifier, an opaque name other devices list.
   deviceId: Schema.NonEmptyString,
+  // What kind of device this installation runs on.
+  deviceKind: DeviceKindSchema,
   // This Pending Device's open request.
   enrollment: Schema.optionalKey(
     Schema.Struct({
@@ -508,9 +524,12 @@ export interface NativeRegistrationVault {
     confirmed: Readonly<Record<string, string>>,
     epochs: Readonly<Record<string, string>>,
   ) => Promise<unknown>;
-  // Seals a Profile definition or connection ownership under the identifier native code derives
-  // from its Profile or connection; resolves `{ payloadIdentifier, encryptedPayload }`.
-  readonly sealProfileRecord: (record: ProfileRecord) => Promise<unknown>;
+  // Seals a Profile definition, connection ownership or Trusted Device record under the identifier
+  // native code derives from its Profile, connection or device; resolves
+  // `{ payloadIdentifier, encryptedPayload }`.
+  readonly sealProfileRecord: (
+    record: ProfileRecord | DeviceRecord,
+  ) => Promise<unknown>;
   // Each stored record's Profile definition or ownership, or null when it does not open under the
   // identifier its own content determines.
   readonly openProfileRecords: (

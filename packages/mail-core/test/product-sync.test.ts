@@ -51,12 +51,13 @@ describe('product sync', () => {
     google.subject = productSubject;
     await expect(flow.signIn('google')).resolves.toStrictEqual(connected);
     google.subject = 'synthetic-mailbox-subject';
-    expect([...records().keys()]).toStrictEqual([
-      record('synthetic-mailbox-subject'),
-    ]);
-    // Convex holds only opaque identifiers and ciphertext; no address, subject or Recovery Key.
+    expect(
+      [...records().keys()].filter((key) => key.startsWith('mailbox.')),
+    ).toStrictEqual([record('synthetic-mailbox-subject')]);
+    // Convex holds only opaque identifiers and ciphertext; no address, subject, Recovery Key or
+    // device kind.
     expect(JSON.stringify([...records().values()])).not.toMatch(
-      /alex@example\.invalid|synthetic-mailbox-subject|SYNTHETIC-RECOVERY/u,
+      /alex@example\.invalid|synthetic-mailbox-subject|SYNTHETIC-RECOVERY|iphone/u,
     );
 
     await expect(flow.confirmRecoveryKey('0000')).rejects.toMatchObject({
@@ -303,14 +304,19 @@ describe('product sync', () => {
       kind: 'connected',
       privateSyncPending: 'mailbox',
     });
-    expect(records(appleAccount).size).toBe(1);
+    // The other stored record is this device's Trusted Device record.
+    const descriptors = () =>
+      [...records(appleAccount).keys()].filter((key) =>
+        key.startsWith('mailbox.'),
+      );
+    expect(descriptors()).toHaveLength(1);
     // Signing in again saves the descriptor and reads both back.
     const signedIn = await relaunch().signIn('apple');
     expect(signedIn).not.toHaveProperty('privateSyncPending');
     expect(signedIn).toMatchObject({
       privateSyncMailboxes: 'alex@example.invalid\nother@example.invalid',
     });
-    expect(records(appleAccount).size).toBe(2);
+    expect(descriptors()).toHaveLength(2);
   });
 
   it('reads every 100-record page of descriptors', async () => {
@@ -342,8 +348,9 @@ describe('product sync', () => {
       { cursor: '200', numItems: 100 },
     ]);
     // Plus one empty page each of Profile definitions, connection ownership, notification
-    // policies, chosen folders, display records, Default Sending Identities and signatures.
-    expect(sync.listedPages).toBe(10);
+    // policies, chosen folders, display records, Default Sending Identities and signatures, and one
+    // of Trusted Device records.
+    expect(sync.listedPages).toBe(11);
   });
 
   // Replaces ProductSyncTests.writesSealedAtAnOvertakenEpochAreSealedAgainAfterAdoptingIt.

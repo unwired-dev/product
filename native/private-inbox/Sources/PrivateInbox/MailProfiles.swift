@@ -83,6 +83,16 @@ struct MailboxSignatureRecord: Codable, Equatable {
   let signature: String?
 }
 
+// One Trusted Device's kind and when it was last active, which it writes for the account's other
+// Trusted Devices to show (ADR 0079). The backend sees only its opaque identifier and ciphertext.
+struct TrustedDeviceRecord: Codable, Equatable {
+  static let schemaVersion = 1
+  let device: String
+  let version: Int
+  let deviceKind: String
+  let activeAt: Double
+}
+
 // Mail Profile definitions and connection ownership in Product Sync. TypeScript reads, merges and
 // writes them; native code seals and opens each record under an identifier bound to its Profile or
 // connection, and keeps TypeScript's Profile state in the account's device-only vault.
@@ -95,6 +105,7 @@ extension RegistrationStore {
     case display(MailboxDisplayRecord)
     case sending(ProfileSendingRecord)
     case signature(MailboxSignatureRecord)
+    case device(TrustedDeviceRecord)
 
     init?(_ value: [String: Any]) {
       guard let kind = value["kind"] as? String,
@@ -174,6 +185,14 @@ extension RegistrationStore {
         else { return nil }
         self = .profile(
           MailProfileRecord(id: id, version: version, name: name, color: color, icon: icon))
+      } else if kind == "device" {
+        guard let device = value["device"] as? String, !device.isEmpty, device.count <= 200,
+          let deviceKind = value["deviceKind"] as? String, !deviceKind.isEmpty,
+          let activeAt = value["activeAt"] as? Double, activeAt.isFinite
+        else { return nil }
+        self = .device(
+          TrustedDeviceRecord(
+            device: device, version: version, deviceKind: deviceKind, activeAt: activeAt))
       } else if kind == "mailbox" {
         guard let record = value["record"] as? String, record.hasPrefix("mailbox."),
           let epoch = value["epoch"] as? String, !epoch.isEmpty,
@@ -196,6 +215,7 @@ extension RegistrationStore {
       case .display(let value): return try ring.identifier("mailbox-display", value.record)
       case .sending(let value): return try ring.identifier("profile-sending", value.profile)
       case .signature(let value): return try ring.identifier("mailbox-signature", value.record)
+      case .device(let value): return try ring.identifier("device", value.device)
       }
     }
 
@@ -208,6 +228,7 @@ extension RegistrationStore {
       case .display: MailboxDisplayRecord.schemaVersion
       case .sending: ProfileSendingRecord.schemaVersion
       case .signature: MailboxSignatureRecord.schemaVersion
+      case .device: TrustedDeviceRecord.schemaVersion
       }
     }
 
@@ -220,6 +241,7 @@ extension RegistrationStore {
       case .display(let value): return try JSONEncoder().encode(value)
       case .sending(let value): return try JSONEncoder().encode(value)
       case .signature(let value): return try JSONEncoder().encode(value)
+      case .device(let value): return try JSONEncoder().encode(value)
       }
     }
 
@@ -234,6 +256,7 @@ extension RegistrationStore {
       case .display: object["kind"] = "display"
       case .sending: object["kind"] = "sending"
       case .signature: object["kind"] = "signature"
+      case .device: object["kind"] = "device"
       }
       return object
     }
@@ -323,6 +346,14 @@ extension RegistrationStore {
           let value = try? JSONDecoder().decode(MailboxSignatureRecord.self, from: plaintext)
         else { return nil }
         opened = .signature(value)
+      } else if identifier.hasPrefix("device.") {
+        guard
+          let plaintext = try? vault.ring.open(
+            record: sealed, account: vault.productAccountId, identifier: identifier,
+            schemaVersion: TrustedDeviceRecord.schemaVersion),
+          let value = try? JSONDecoder().decode(TrustedDeviceRecord.self, from: plaintext)
+        else { return nil }
+        opened = .device(value)
       } else {
         return nil
       }

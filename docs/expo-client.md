@@ -26,7 +26,7 @@ Production launches offer [Apple](apple-registration.md) or [Google](google-regi
 registration; the first mailbox is chosen separately: Gmail, [Microsoft mail](microsoft-mail.md) when configured for this build, or an IMAP login. Either sign-in can later be [linked](linked-sign-in.md)
 as the other sign-in method. A new account [initializes Private Sync](private-product-sync.md):
 the device that wins initialization presents the Recovery Key. Another device of
-that account shows a code and [waits for a Trusted Device to approve it](private-product-sync.md#approving-a-new-device), or [unlocks with the Recovery Key](private-product-sync.md#recovering-with-the-recovery-key). Configure the native client IDs and Convex deployment when generating the host.
+that account shows a code and [waits for a Trusted Device to approve it](private-product-sync.md#approving-a-new-device), or [unlocks with the Recovery Key](private-product-sync.md#recovering-with-the-recovery-key). Account & Devices [lists every Trusted Device](private-product-sync.md#listing-trusted-devices), the device in hand marked **Current Device**, with each device's kind and last activity. Configure the native client IDs and Convex deployment when generating the host.
 Select an explicit Mock Mail Session to run the synthetic Inbox journeys.
 
 ## Dependencies and coding rules
