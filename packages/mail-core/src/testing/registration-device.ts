@@ -1,4 +1,4 @@
-import type { SignInProvider } from '../registration.ts';
+import type { DeviceKind, SignInProvider } from '../registration.ts';
 import type { SyntheticProductSync } from './registration-product-sync-state.ts';
 import type {
   Call,
@@ -26,6 +26,8 @@ export function createSyntheticDevice() {
     record: undefined as SavedRecord | undefined,
     // Whether this device's Recovery Key is backed up, so sign-out may discard it.
     recoveryKeyConfirmed: true,
+    // What kind of device native code reports this installation as.
+    kind: 'iphone' as DeviceKind,
     // The Keychain's Product Sync items: the key ring, this installation's encryption key and an
     // open enrollment request. `unreadable` makes them fail to read.
     productSync: {

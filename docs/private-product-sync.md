@@ -363,10 +363,25 @@ The revocation mutation is internal, so callers cannot bypass that check. The
 replacement recovery envelope must use the replacement's recovery schema 3;
 prototype schemas are rejected.
 
+## Listing Trusted Devices
+
+A device that holds the account keys and has a backend session lists the
+account's Trusted Devices, itself included. After an Apple relaunch it lists none
+until its sign-in renews. Each device reports its kind and when it was last active in a sealed
+Trusted Device Record that the other Trusted Devices open and the backend cannot
+([ADR 0079](adr/0079-report-trusted-device-kind-and-activity-in-sealed-records.md)).
+It writes the record when it synchronizes and its record is missing, unreadable,
+names another kind or is at least 15 minutes old. On iPhone and iPad each row shows
+the kind's symbol, the name and a second line: **This iPhone** or **This iPad**
+with **Current Device** for the device in hand, **Last active** with the exact time
+for a device that has reported, and **Added** with its date and a neutral symbol for
+one that has not. VoiceOver reads each row as one element, with Remove as its
+action. The Mac still lists only the other devices.
+
 ## Removing a Trusted Device
 
 A device that holds the account keys lists the account's other Trusted Devices
-and offers to remove each one. A confirmation dialog first explains the consequences: the
+and offers to remove each one; the device in hand is never offered. A confirmation dialog first explains the consequences: the
 removed device is blocked immediately and the other devices switch to new keys.
 Anything a device that stays offline or is compromised already holds cannot be
 erased remotely. On iPhone the dialog is two sentences: the device loses access to

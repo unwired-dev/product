@@ -27,7 +27,8 @@ import type { SettingsButton } from './settings.tsx';
 
 import { AnnouncedAlert } from './design.tsx';
 import { ipad } from './inbox-styles.ts';
-import { useLocalization } from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
+import { useNow } from './mailbox-state.ts';
 import { registrationStyles as styles } from './registration-styles.ts';
 import { SettingsBlock, SettingsGroup, SettingsRow } from './settings.tsx';
 import { usePalette } from './theme.ts';
@@ -154,6 +155,13 @@ function RevocationProposal({
   );
 }
 
+// Each kind's symbol; a device that has not reported its kind shows a neutral one.
+const symbols = {
+  iphone: 'iphone',
+  ipad: 'ipad',
+  mac: 'laptopcomputer',
+} as const;
+
 // Removing another Trusted Device is confirmed here; the native side then asks for a new sign-in
 // and prepares the removal, which waits for its replacement Recovery Key to be confirmed.
 export function TrustedDevices({
@@ -188,6 +196,35 @@ export function TrustedDevices({
     () => new Intl.DateTimeFormat(settings.locale, { dateStyle: 'medium' }),
     [settings.locale],
   );
+  const dates = useMessageDateFormats();
+  const now = useNow();
+  // The device in hand says so; another shows when it was last active, with its exact time, or when
+  // it was added until it reports.
+  const detail = (device: TrustedDevice) => {
+    if (device.current === true) {
+      return t(
+        device.kind === 'ipad'
+          ? 'revocation.thisIpad'
+          : 'revocation.thisIphone',
+      );
+    }
+    if (device.activeAt === undefined) {
+      return t('revocation.added', {
+        date: added.format(device.registeredAt),
+      });
+    }
+    const at = new Date(device.activeAt);
+    const day = dates.day(at.toISOString(), now);
+    if (day === 'today' || day === 'yesterday') {
+      return t(
+        day === 'today'
+          ? 'revocation.lastActiveToday'
+          : 'revocation.lastActiveYesterday',
+        { time: dates.time.format(at) },
+      );
+    }
+    return t('revocation.lastActive', { date: dates.header(t, at, now) });
+  };
   const isCurrent = useConfirmationLifetime();
   // A changed snapshot retires an open confirmation, so an identical later one cannot reopen it.
   if (
@@ -214,7 +251,7 @@ export function TrustedDevices({
   return (
     <SettingsGroup
       title={t('revocation.title')}
-      footer={devices.length === 0 ? undefined : t('revocation.description')}>
+      footer={devices.length === 0 ? undefined : t('revocation.footer')}>
       {notice === undefined ? null : (
         <SettingsBlock>
           <AnnouncedAlert style={[styles.text, { color: colors.textPrimary }]}>
@@ -233,22 +270,62 @@ export function TrustedDevices({
           store={store}
         />
       )}
-      {devices.map((device) => (
-        <SettingsRow
-          key={device.id}
-          title={device.name}
-          subtitle={t('revocation.added', {
-            date: added.format(device.registeredAt),
-          })}>
-          {button(
-            t('revocation.remove', { name: device.name }),
-            async () => {
-              setConfirming({ device, owner: store.getSnapshot().snapshot });
-            },
-            { title: t('settings.remove') },
-          )}
-        </SettingsRow>
-      ))}
+      {devices.map((device) => {
+        const subtitle = detail(device);
+        const remove = t('revocation.remove', { name: device.name });
+        // Like the button, which is disabled while registration is busy.
+        const confirm = () => {
+          const { snapshot, busy } = store.getSnapshot();
+          if (!busy) {
+            setConfirming({ device, owner: snapshot });
+          }
+        };
+        return (
+          <SettingsRow
+            key={device.id}
+            icon={
+              device.kind === undefined
+                ? 'laptopcomputer.and.iphone'
+                : symbols[device.kind]
+            }
+            iconTone="primary"
+            title={device.name}
+            subtitle={subtitle}
+            value={
+              device.current === true
+                ? t('revocation.currentDevice')
+                : undefined
+            }
+            // VoiceOver reads the kind, name, Current Device and second line as one element.
+            accessibilityLabel={[
+              device.kind === undefined
+                ? undefined
+                : t('revocation.kind', { context: device.kind }),
+              device.name,
+              device.current === true
+                ? t('revocation.currentDevice')
+                : undefined,
+              subtitle,
+            ]
+              .filter((part) => part !== undefined)
+              .join(', ')}
+            accessibilityAction={
+              device.current === true || store.getSnapshot().busy
+                ? undefined
+                : { label: remove, onActivate: confirm }
+            }>
+            {device.current === true
+              ? undefined
+              : button(
+                  remove,
+                  async () => {
+                    confirm();
+                  },
+                  { title: t('settings.remove') },
+                )}
+          </SettingsRow>
+        );
+      })}
       {confirming === undefined ||
       store.getSnapshot().snapshot !== confirming.owner ? null : (
         <DeviceConfirmation

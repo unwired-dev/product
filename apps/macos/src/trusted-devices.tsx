@@ -119,10 +119,11 @@ export function TrustedDevices({
   if (!approves && proposal === undefined) {
     return null;
   }
-  // While a removal waits for confirmation, no other one starts.
+  // While a removal waits for confirmation, no other one starts. The Mac lists only the devices it
+  // can remove until its rows show the device in hand.
   const devices =
     account.privateSync === 'ready' && proposal === undefined
-      ? trustedDevicesOf(account)
+      ? trustedDevicesOf(account).filter(({ current }) => current !== true)
       : [];
   const notice = revocationNotice(t, account, failure);
   if (devices.length === 0 && notice === undefined && proposal === undefined) {
