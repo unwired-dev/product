@@ -932,10 +932,22 @@ final class InboxTests: XCTestCase {
     let outbox = app.staticTexts["Outbox"].firstMatch
     let sending = app.descendants(matching: .any).matching(
       NSPredicate(
-        format: "label BEGINSWITH %@ AND label ENDSWITH %@", "Work report.", ". Sending soon")
+        format: "label BEGINSWITH %@ AND label CONTAINS %@", "Work report.", ". Sending")
     ).firstMatch
     waitUntil { !app.otherElements["composer-overlay"].exists }
+    // #2589: on iPad one tap on Outbox, with Search's keyboard up, ends the search and opens it.
+    let ipad = UIDevice.current.userInterfaceIdiom == .pad
+    if ipad {
+      let field = app.descendants(matching: .any)
+        .matching(NSPredicate(format: "label == %@", "Search senders and subjects")).firstMatch
+      XCTAssertTrue(field.waitForExistence(timeout: 10))
+      field.tap()
+      XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+    }
     openOutbox(app)
+    if ipad {
+      XCTAssertFalse(app.buttons["Close Search"].exists)
+    }
     XCTAssertTrue(sending.waitForExistence(timeout: 10))
     let queued = XCTAttachment(screenshot: app.screenshot())
     queued.name = "Work Profile with its Outbox"
@@ -1524,13 +1536,9 @@ final class InboxTests: XCTestCase {
     } else if !offered() {
       showSidebar(app)
     }
-    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    waitUntil(offered, timeout: 10)
     row.tap()
     XCTAssertTrue(app.staticTexts["Outbox"].firstMatch.waitForExistence(timeout: 10))
-    let shown = XCTAttachment(screenshot: app.screenshot())
-    shown.name = "Outbox chosen in Mailboxes"
-    shown.lifetime = .keepAlways
-    add(shown)
   }
 
   // #2144: a long press on Send opens its menu, and Remind Me to Send… sets the Draft's Send

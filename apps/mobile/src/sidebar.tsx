@@ -712,6 +712,9 @@ export function Mailboxes({
           ) : null}
           <ScrollView
             style={styles.fill}
+            // A row takes its first tap while Search's keyboard is up, so one tap on Outbox ends
+            // the search.
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={[
               styles.list,
               compact && styles.compactList,
