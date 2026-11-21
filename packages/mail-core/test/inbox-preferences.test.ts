@@ -406,6 +406,31 @@ describe('synchronized Inbox preferences', () => {
     });
   });
 
+  it("writes nothing for an Inbox tap, so another device's folder hide stands", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Travel'];
+    await mac.store.changeFolders('work', 'gmail', (folders) =>
+      showFolder(folders, names, { name: 'Travel', shown: false }),
+    );
+    await mac.store.synchronize();
+    // The phone has yet to pull the hide when its Inbox row is tapped, later.
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.changeFolders('work', 'gmail', (folders) =>
+      showFolder(folders, names, { name: 'INBOX', shown: false }),
+    );
+    await phone.store.synchronize();
+    expect(
+      folderRows(
+        sectionFolders({ ...phone.store.sections('work') }, 'gmail'),
+        names,
+      ),
+    ).toStrictEqual([
+      { name: 'INBOX', shown: true },
+      { name: 'Travel', shown: false },
+    ]);
+  });
+
   it.each([
     ['the Mac', ['mac', 'phone', 'mac']],
     ['the phone', ['phone', 'mac', 'phone']],

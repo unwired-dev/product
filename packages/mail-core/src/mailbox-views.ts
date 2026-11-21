@@ -528,17 +528,17 @@ const changedFolders = (
 ];
 
 // `folders` with folder `name` of `names` shown when `shown`, hidden otherwise. The Inbox stays
-// shown.
+// shown, so for it there is nothing to write.
 export const showFolder = (
   folders: SectionFolders,
   names: readonly string[],
   { name, shown }: Readonly<{ name: string; shown: boolean }>,
 ) =>
-  changedFolders(folders, names, (rows) =>
-    rows.map((row) =>
-      row.name === name && name !== inboxFolder ? { name, shown } : row,
-    ),
-  );
+  name === inboxFolder
+    ? undefined
+    : changedFolders(folders, names, (rows) =>
+        rows.map((row) => (row.name === name ? { name, shown } : row)),
+      );
 
 // `folders` with folder `name` of `names` moved to the place `to` gives for its stored place.
 export const moveFolder = (
