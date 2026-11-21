@@ -3022,6 +3022,9 @@ function Editor({
   const blocked = useSyncExternalStore(mailboxList.subscribe, () =>
     outbox.refusal(finishedEntries(history.present)),
   );
+  // Imports running now; an 'importing' file outside them was interrupted, so Send Now names only
+  // a running one.
+  const imports = useSyncExternalStore(store.subscribe, store.getImports);
   const sendReminders = useSendReminders();
   // The Mail Profile owning this Draft, and so its Send Reminder.
   const draftProfile = profileOf(
@@ -3937,7 +3940,9 @@ function Editor({
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
       waiting={
-        unsendableAssets(draft).find(({ state }) => state === 'importing')?.name
+        unsendableAssets(draft).find(
+          ({ id, state }) => state === 'importing' && imports.has(id),
+        )?.name
       }
       onSend={() => {
         void send();

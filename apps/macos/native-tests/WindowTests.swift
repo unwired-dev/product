@@ -196,7 +196,9 @@ final class WindowTests: XCTestCase {
     attach(app.menus.firstMatch, "Send menu with Send Now")
     item.click()
     XCTAssertTrue(subject.waitForNonExistence(timeout: 15))
-    XCTAssertFalse(text("Sending soon", in: window).exists)
+    // Send keeps the sidebar's Outbox for its 10-second Undo Send Window; Send Now's message leaves
+    // it once delivered.
+    XCTAssertTrue(window.buttons["Outbox"].waitForNonExistence(timeout: 8))
     attach(window, "After Send Now")
   }
 

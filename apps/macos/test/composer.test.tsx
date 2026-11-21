@@ -82,7 +82,7 @@ import {
   menuSections,
   submenuItems,
 } from './native-menu.ts';
-import { remindFromSendMenu } from './send-menu.tsx';
+import { remindFromSendMenu, sendMenuItem } from './send-menu.tsx';
 
 // The shared CI runner takes seconds to warm up the first composer journey.
 jest.setTimeout(30_000);
@@ -6118,6 +6118,11 @@ describe('adding files and images to a Draft', () => {
     expect(
       screen.queryByRole('button', { name: 'Cancel adding late.txt' }),
     ).toBeNull();
+    // Send Now names only a file still being added, never an interrupted one.
+    expect(sendMenuItem('sendNow')).toMatchObject({
+      title: 'Send Now',
+      disabled: true,
+    });
   });
 
   it('pastes an inline image, attaches a dropped file, and shows damaged bytes as unavailable', async () => {
