@@ -4103,8 +4103,13 @@ function Editor({
     if (leftOutAsked.current !== undefined) {
       return;
     }
+    // The imports running now, since a press can arrive before Send's disabled state commits.
     const latest = authored.current;
-    const question = leftOutQuestion(t, latest, running);
+    const imports = store.getImports();
+    if (addingAsset(latest, imports) !== undefined) {
+      return;
+    }
+    const question = leftOutQuestion(t, latest, imports);
     if (question !== undefined) {
       const files = assetStates(latest);
       const sheet = askInSheet(root.current, {
