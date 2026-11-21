@@ -514,6 +514,9 @@ export function createInboxPreferences(
       choose([profile], 'favorites', (stored) =>
         change(isFavoriteEntries(stored) ? stored : noFavorites),
       ),
+    // Whether storage failed the signed-in account's last read, so `sections` is undefined until a
+    // read succeeds.
+    unreadable: () => failed && signedIn() !== undefined,
     // `profile`'s Mailbox Connection sections, as last read; undefined until they are read and since
     // storage last failed to read them, so a muted connection stays muted. Signed out, none is hidden.
     sections: (profile: string): Sections | undefined => {

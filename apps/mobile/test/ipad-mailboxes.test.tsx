@@ -78,10 +78,12 @@ const account = {
 };
 
 // All Inboxes over Alex's shown account and another the Profile hides, neither loaded yet: Alex's
-// in `state`, the other in `otherState`.
+// in `state`, the other in `otherState`. Unless `read`, the preferences are not read yet and hide
+// nothing.
 async function hiddenAccount(
   state: 'connected' | 'authorization' = 'connected',
   otherState = state,
+  read = true,
 ) {
   const alex = syntheticMailboxes['alex@example.invalid'];
   const other = syntheticMailboxes['other@example.invalid'];
@@ -105,14 +107,17 @@ async function hiddenAccount(
     registration,
   );
   const kept = { revision: 0, document: null as string | null };
-  // While `reads.fail` is set, reading the preferences fails.
-  const reads = { fail: false };
+  // Reading the preferences waits for `reads.held`, then fails while `reads.fail` is set.
+  const reads = { fail: false, held: Promise.resolve() };
   const store = createInboxPreferences(
     {
-      openInboxPreferences: () =>
-        reads.fail
-          ? Promise.reject(new Error('Preferences unreadable'))
-          : Promise.resolve({ owner: 'synthetic-product-account', ...kept }),
+      openInboxPreferences: async () => {
+        await reads.held;
+        if (reads.fail) {
+          throw new Error('Preferences unreadable');
+        }
+        return { owner: 'synthetic-product-account', ...kept };
+      },
       commitInboxPreferences: (owner, expectedRevision, document) => {
         Object.assign(kept, { revision: expectedRevision + 1, document });
         return Promise.resolve({ owner, revision: kept.revision });
@@ -120,8 +125,10 @@ async function hiddenAccount(
     },
     registration,
   );
-  await store.load();
-  await store.showSection(defaultProfile, other, false);
+  if (read) {
+    await store.load();
+    await store.showSection(defaultProfile, other, false);
+  }
   const tree = (view: MailboxView) => (
     <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
       <InboxPreferencesContext value={store}>
@@ -404,6 +411,39 @@ describe('iPad Mailboxes', () => {
       empty,
       reread: screen.queryByText('No Mail'),
     }).toStrictEqual({ loading: null, empty: null, reread: null });
+    await app.unmount();
+  });
+
+  it('shows Loading Inbox while the preferences are first read, and Try Again once a read fails', async () => {
+    expect.hasAssertions();
+    const { shown, mailboxes, store, reads, tree } = await hiddenAccount(
+      'connected',
+      'connected',
+      false,
+    );
+    shown.deliver({ subject: 'Shown' });
+    await mailboxes.load();
+    const held = Promise.withResolvers<undefined>();
+    Object.assign(reads, { fail: true, held: held.promise });
+    const app = await render(tree({}));
+    let first = Promise.resolve();
+    await act(async () => {
+      first = store.load();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText('Loading Inbox')).toBeOnTheScreen();
+    held.resolve(undefined);
+    await act(() => first);
+    await expect(
+      screen.findByText(/^Mail saved on this device can’t be shown/u),
+    ).resolves.toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Try Again' })).toBeEnabled();
+    // Pulling down reads the preferences again.
+    reads.fail = false;
+    await act(async () => {
+      fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+    });
+    await expect(screen.findByText('Shown')).resolves.toBeOnTheScreen();
     await app.unmount();
   });
 

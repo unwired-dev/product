@@ -29,6 +29,13 @@ export function useReadSections(profile: string) {
   return useSyncExternalStore(store.subscribe, () => store.sections(profile));
 }
 
+// Whether the Inbox preferences failed their last read, so `useReadSections` stays undefined until a
+// read succeeds.
+export function usePreferencesUnreadable() {
+  const store = use(InboxPreferencesContext);
+  return useSyncExternalStore(store.subscribe, store.unreadable);
+}
+
 // `profile`'s sections as `useReadSections` gives them; until they are read, every connection shows.
 export function useSections(profile: string) {
   return useReadSections(profile) ?? noSections;
