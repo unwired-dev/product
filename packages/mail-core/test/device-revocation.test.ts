@@ -1,7 +1,8 @@
+import { trustedDevicesOf } from '@private-email/mail-core/registration';
+
 import type { Device, Setup } from './device-trust-fixture.ts';
 import type { RegistrationFlow } from './registration-flow-fixture.ts';
 
-import { trustedDevicesOf } from '../src/registration.ts';
 import { removeTrustedDevice } from '../src/testing/registration-vault.ts';
 import {
   account,

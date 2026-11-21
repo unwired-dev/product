@@ -365,8 +365,9 @@ prototype schemas are rejected.
 
 ## Listing Trusted Devices
 
-A device that holds the account keys lists the account's Trusted Devices, itself
-included. Each device reports its kind and when it was last active in a sealed
+A device that holds the account keys and has a backend session lists the
+account's Trusted Devices, itself included. After an Apple relaunch it lists none
+until its sign-in renews. Each device reports its kind and when it was last active in a sealed
 Trusted Device Record that the other Trusted Devices open and the backend cannot
 ([ADR 0079](adr/0079-report-trusted-device-kind-and-activity-in-sealed-records.md)).
 It writes the record when it synchronizes and its record is missing, unreadable,
