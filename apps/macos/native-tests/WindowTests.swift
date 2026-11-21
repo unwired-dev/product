@@ -2028,16 +2028,17 @@ final class WindowTests: XCTestCase {
     try audit(app, "Edit Favorites")
     spam.click()
     waitUntil { spam.value as? String == "Hidden" }
-    // Trash's handle, at the row's trailing end, drags it one row up, above Spam.
+    // Trash's handle, at the row's trailing end, drags it two rows up, above Spam and All Mail.
     let trash = window.buttons["Trash"]
+    let allMail = window.buttons["All Mail"]
     let handle = trash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
       .withOffset(CGVector(dx: -12, dy: 0))
-    handle.click(forDuration: 0.3, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -28)))
-    waitUntil { trash.frame.minY < spam.frame.minY }
-    attach("Spam hidden, Trash above it")
+    handle.click(forDuration: 0.3, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -56)))
+    waitUntil { trash.frame.minY < allMail.frame.minY }
+    attach("Spam hidden, Trash above All Mail")
     done.click()
     XCTAssertTrue(done.waitForNonExistence(timeout: 10))
-    let edited = ["All Inboxes", "Sent", "Archive", "All Mail", "Trash"]
+    let edited = ["All Inboxes", "Sent", "Archive", "Trash", "All Mail"]
     waitUntil { favorites() == edited }
     attach("Edited Favorites")
 

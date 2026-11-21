@@ -273,12 +273,15 @@ describe('synchronized Inbox preferences', () => {
   it("carries a Profile's Favorites, kept across a relaunch, to another device, keeping a row a newer build added", async () => {
     expect.hasAssertions();
     const { mac, phone } = devices();
-    // A newer build's row, which this one keeps in its place.
-    const hidden = toggleFavorite([{ row: 'UNREAD', shown: false }], 'SPAM');
-    const stored = await mac.store.setFavorites(
-      'work',
-      moveFavorite(hidden, 'TRASH', 1),
-    );
+    // Two edits sent before either is read both stand, and a newer build's row keeps its place.
+    const [stored] = await Promise.all([
+      mac.store.changeFavorites('work', (entries) =>
+        toggleFavorite([{ row: 'UNREAD', shown: false }, ...entries], 'SPAM'),
+      ),
+      mac.store.changeFavorites('work', (entries) =>
+        moveFavorite(entries, 'TRASH', 1),
+      ),
+    ]);
     const relaunched = mac.relaunch();
     await relaunched.load();
     await mac.store.synchronize();

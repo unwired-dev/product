@@ -25,7 +25,14 @@ import {
   profileStyle,
 } from '@private-email/mail-core/profile-windows';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { Fragment, use, useState, useSyncExternalStore } from 'react';
+import {
+  Fragment,
+  use,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { InboxMailbox } from './private-storage.ts';
@@ -434,8 +441,9 @@ function useFavorites(profile: string) {
   );
   return {
     entries,
-    choose: (next: typeof entries) => {
-      void store.setFavorites(profile, next);
+    // Applies `change` to the stored rows, so an edit made before the last one is read keeps it.
+    change: (change: (stored: typeof entries) => typeof entries) => {
+      void store.changeFavorites(profile, change);
     },
   };
 }
@@ -455,6 +463,7 @@ const editKeys = [
 function EditRow({
   row,
   shown,
+  moved,
   moves,
   offset,
   onToggle,
@@ -464,6 +473,8 @@ function EditRow({
 }: {
   readonly row: Favorite;
   readonly shown: boolean;
+  // How many times the keyboard or VoiceOver moved the row in a row, so it keeps focus.
+  readonly moved: number | undefined;
   // Which ways the row can move by one place.
   readonly moves: Readonly<{ up: boolean; down: boolean }>;
   // How far the pointer drags the row from where it shows, while it does.
@@ -480,6 +491,13 @@ function EditRow({
   const { title, icon } = favoriteRow(t, row);
   // Where the pointer pressed the handle, while it drags the row.
   const [start, setStart] = useState(0);
+  // Moving a row reinserts its view, which loses focus; give it back.
+  const ref = useRef<View>(null);
+  useEffect(() => {
+    if (moved !== undefined) {
+      ref.current?.focus();
+    }
+  }, [moved]);
   const move = (by: -1 | 1) => {
     if (by < 0 ? moves.up : moves.down) {
       onMove(by);
@@ -487,12 +505,11 @@ function EditRow({
   };
   return (
     <Pressable
+      ref={ref}
+      // AppKit titles each action by its name; VoiceOver's Press shows or hides the row.
       accessibilityActions={[
-        { name: 'activate' },
-        ...(moves.up ? [{ name: 'moveUp', label: t('mailboxes.moveUp') }] : []),
-        ...(moves.down
-          ? [{ name: 'moveDown', label: t('mailboxes.moveDown') }]
-          : []),
+        ...(moves.up ? [{ name: t('mailboxes.moveUp') }] : []),
+        ...(moves.down ? [{ name: t('mailboxes.moveDown') }] : []),
       ]}
       accessibilityLabel={title}
       accessibilityRole="button"
@@ -502,11 +519,7 @@ function EditRow({
       focusable
       keyDownEvents={editKeys}
       onAccessibilityAction={({ nativeEvent }) => {
-        if (nativeEvent.actionName === 'activate') {
-          onToggle();
-        } else {
-          move(nativeEvent.actionName === 'moveUp' ? -1 : 1);
-        }
+        move(nativeEvent.actionName === t('mailboxes.moveUp') ? -1 : 1);
       }}
       onBlur={() => {
         setFocused(false);
@@ -514,8 +527,8 @@ function EditRow({
       onFocus={() => {
         setFocused(true);
       }}
-      onKeyDown={({ nativeEvent: { key } }) => {
-        if (key === 'ArrowUp' || key === 'ArrowDown') {
+      onKeyDown={({ nativeEvent: { key, altKey, metaKey } }) => {
+        if (altKey && metaKey && (key === 'ArrowUp' || key === 'ArrowDown')) {
           move(key === 'ArrowUp' ? -1 : 1);
         }
       }}
@@ -590,6 +603,9 @@ function EditFavorites({
   readonly onMove: (row: Favorite, index: number) => void;
 }) {
   const [drag, setDrag] = useState<Readonly<{ row: Favorite; dy: number }>>();
+  // The row the keyboard or VoiceOver last moved, and how many times in a row.
+  const [moved, setMoved] =
+    useState<Readonly<{ row: Favorite; times: number }>>();
   // The place `dy` below row `from` falls on.
   const place = (from: number, dy: number) =>
     Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / rowHeight)));
@@ -608,6 +624,7 @@ function EditFavorites({
         key={row}
         row={row}
         shown={shown}
+        moved={moved?.row === row ? moved.times : undefined}
         moves={{ up: index > 0, down: index < rows.length - 1 }}
         offset={
           drag === undefined || row !== drag.row
@@ -618,9 +635,14 @@ function EditFavorites({
           onToggle(row);
         }}
         onMove={(by) => {
+          setMoved({
+            row,
+            times: moved?.row === row ? moved.times + 1 : 1,
+          });
           onMove(row, index + by);
         }}
         onDrag={(dy) => {
+          setMoved(undefined);
           setDrag({ row, dy });
         }}
         onDrop={(dy) => {
@@ -703,14 +725,13 @@ export function Mailboxes({
       return next;
     });
   };
-  const { entries, choose } = useFavorites(profile);
+  const { entries, change } = useFavorites(profile);
   const rows = favoriteRows(entries);
   const shownRows = rows.filter(({ shown }) => shown);
   // Hiding the selected Unified Mailbox selects the first row still shown.
   const showOrHide = (row: Favorite) => {
-    const next = toggleFavorite(entries, row);
-    choose(next);
-    const after = favoriteRows(next);
+    change((stored) => toggleFavorite(stored, row));
+    const after = favoriteRows(toggleFavorite(entries, row));
     if (
       view.unified === row &&
       after.some((entry) => entry.row === row && !entry.shown)
@@ -811,7 +832,7 @@ export function Mailboxes({
               rows={rows}
               onToggle={showOrHide}
               onMove={(row, index) => {
-                choose(moveFavorite(entries, row, index));
+                change((stored) => moveFavorite(stored, row, index));
               }}
             />
           ) : null}

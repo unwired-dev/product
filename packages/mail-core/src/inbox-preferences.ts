@@ -326,12 +326,13 @@ export function createInboxPreferences(
 
   const synchronize = preferencePasses('Inbox preference', pass, sync);
 
-  // Sets field `name` of each of `profiles` to `value`, after the value it replaces even when the
-  // clock went back. Resolves whether storage holds it, and then publishes it.
+  // Sets field `name` of each of `profiles` to `value`, or to what `value` makes of the stored
+  // value, after the value it replaces even when the clock went back. Resolves whether storage
+  // holds it, and then publishes it.
   const choose = async (
     profiles: readonly string[],
     name: string,
-    value: ListDensity | PreviewLines | FavoriteEntries,
+    value: ListDensity | PreviewLines | ((stored: unknown) => FavoriteEntries),
   ) => {
     const scopes = profiles.filter((profile) => profile !== '');
     if (scopes.length === 0) {
@@ -342,12 +343,14 @@ export function createInboxPreferences(
         scopes.reduce((next, profile) => {
           const fields = fieldsOf(next, profile);
           const field = fields[name];
-          return JSON.stringify(field?.value) === JSON.stringify(value)
+          const chosen =
+            typeof value === 'function' ? value(field?.value) : value;
+          return JSON.stringify(field?.value) === JSON.stringify(chosen)
             ? next
             : withFields(next, profile, {
                 ...fields,
                 [name]: {
-                  value,
+                  value: chosen,
                   at: Math.max(Date.now(), (field?.at ?? 0) + 1),
                 },
               });
@@ -419,9 +422,15 @@ export function createInboxPreferences(
           : undefined;
       return isFavoriteEntries(value) ? value : noFavorites;
     },
-    // Chooses `profile`'s Favorites rows, as `setListDensity` does.
-    setFavorites: (profile: string, entries: FavoriteEntries) =>
-      choose([profile], 'favorites', entries),
+    // Chooses `profile`'s Favorites rows as `change` makes them from the stored ones, as
+    // `setListDensity` does, so edits made before the last one is read keep each other.
+    changeFavorites: (
+      profile: string,
+      change: (entries: FavoriteEntries) => FavoriteEntries,
+    ) =>
+      choose([profile], 'favorites', (stored) =>
+        change(isFavoriteEntries(stored) ? stored : noFavorites),
+      ),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,

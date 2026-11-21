@@ -373,12 +373,12 @@ mise exec -- pnpm --filter @private-email/macos test:native \
 
 Edit Favorites… in the Favorites header's context menu shows the editable list with
 **Done**, which passes an accessibility audit. Clicking Spam hides it, and dragging
-Trash's handle one row up moves it above Spam. After Done the sidebar lists All
-Inboxes, Sent, Archive, All Mail and Trash, and after Quit and a relaunch it lists
-them again. Edit mode, the edited list and the relaunched sidebar are kept as
-attachments. Space, Return and the Move Up and Move Down actions are covered by the
-Mac Jest tests, and the Private Sync merge by the mail-core tests. VoiceOver speech is
-not covered.
+Trash's handle two rows up moves it above Spam and All Mail. After Done the sidebar
+lists All Inboxes, Sent, Archive, Trash and All Mail, and after Quit and a relaunch
+it lists them again. Edit mode, the edited list and the relaunched sidebar are kept as
+attachments. The Move Up and Move Down actions and Command-Option-Up and Down are
+covered by the Mac Jest tests, and the Private Sync merge by the mail-core tests.
+Space and Return, VoiceOver speech and keyboard focus after a move are not covered.
 
 ## Mac composer recovery journey
 
