@@ -3899,6 +3899,35 @@ describe('command palette', () => {
     ).toBeSelected();
   });
 
+  it('keeps the reader beside the list when Go To shows a Unified Mailbox in a regular-width window', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    await renderConnected(gmail.native, 'gmail', {
+      windowBar: createWindowBar(),
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Sent' }),
+      );
+    });
+    expect(screen.getByText('oliver@example.invalid')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Sent. In All Mailboxes' }),
+    ).toBeSelected();
+  });
+
   it('navigates Settings from the account page, keeps the palette there and returns to the Inbox from it', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

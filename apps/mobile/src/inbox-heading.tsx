@@ -21,6 +21,7 @@ import {
   usePaletteHeader,
 } from './command-palette.tsx';
 import { NavigationChrome } from './design.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { barInset, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { SidebarToggle, SidebarToggleContext } from './sidebar-toggle.tsx';
@@ -155,6 +156,8 @@ export function InboxHeading({
 }) {
   const { t } = useLocalization();
   const sidebar = use(SidebarToggleContext);
+  // The regular-width shell, whose list stays in view beside the reader and the composer.
+  const regular = use(WindowBarContext) !== undefined;
   const colors = usePalette();
   const header = usePaletteHeader();
   const inBar = bar === true && !searching;
@@ -193,13 +196,14 @@ export function InboxHeading({
           })
         }
       />
-      {/* Go To each Unified Mailbox, which stays reachable here when Favorites hides it; like
-        Search Mail, it first leaves a reader or composer that covers the list. */}
+      {/* Go To each Unified Mailbox, which stays reachable here when Favorites hides it. Where a
+        reader or composer covers the list, it leaves it first, as Search Mail does; beside them it
+        shows the mailbox, as its row does. */}
       <RegisterCommands
         offer={() =>
           sidebarCommands(t, {
             unified: async (role) => {
-              if (onClose !== undefined) {
+              if (!regular && onClose !== undefined) {
                 if (detail && !(await onLeave())) {
                   return;
                 }
