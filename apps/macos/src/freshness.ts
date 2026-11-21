@@ -3,9 +3,11 @@ import { previewInbox } from '@private-email/mail-core/registration-mode';
 import { AppState } from 'react-native';
 
 import {
+  followBadge,
   followWakes,
   freshness,
   gmailMailboxes,
+  notifications,
   wakes,
 } from './registration.ts';
 
@@ -14,11 +16,18 @@ import {
 // routed mailbox. While the app is active, the five-minute interval supplements them, so a dropped
 // wake is never left unread; otherwise it runs only while a usable mailbox has no current route,
 // and activation catches up on a wake that never arrived. IMAP servers that advertise IDLE report
-// new mail while the application runs.
+// new mail while the application runs. The Dock badge follows every Inbox, and permission changed
+// in System Settings while the app was away.
 export const keepGmailFresh = () => {
   if (!previewInbox) {
     gmailMailboxes.watch();
     followWakes();
+    followBadge();
+    AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void notifications.load();
+      }
+    });
     freshness.keepAlive(
       5,
       async () =>

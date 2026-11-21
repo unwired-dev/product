@@ -49,6 +49,7 @@ export const {
   errorReporting,
   start,
   followWakes,
+  followBadge,
   followNotificationActions,
   notifications,
 } = createHost(native, {

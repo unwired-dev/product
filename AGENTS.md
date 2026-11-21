@@ -19,6 +19,8 @@ skill.
 ## Coding principles
 
 - State the acceptance criteria and the checks that prove them before you start.
+- Answer your own questions with the global `council` skill instead of asking the
+  user; see [Decisions](docs/agents/implementation-review.md#decisions).
 - Make the smallest complete change. Match existing style, preserve unrelated
   working-tree changes and remove only code made unused by this task.
 - Packages are deep modules: read [packages/README.md](packages/README.md) before

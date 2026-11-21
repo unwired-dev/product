@@ -2,6 +2,10 @@ import CryptoKit
 import Foundation
 import os
 
+#if os(iOS)
+  import UIKit
+#endif
+
 // One stored Product Sync record as Convex returns it.
 struct StoredPayload: Codable, Equatable {
   let payloadIdentifier: String
@@ -452,6 +456,15 @@ extension RegistrationStore {
     return true
   }
 
+  // What kind of device this installation runs on, which its Trusted Device record reports.
+  static var deviceKind: String {
+    #if os(iOS)
+      UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+    #else
+      "mac"
+    #endif
+  }
+
   // What TypeScript reads of this device's Product Sync state: no key, credential or provider
   // subject. The Recovery Key and Enrollment Code cross only as text for display. Record
   // identifiers are the opaque names Product Sync stores descriptors under.
@@ -462,6 +475,7 @@ extension RegistrationStore {
       "pending": product.pending == true,
       "deviceKey": try keys.read(deviceKeyAccount(account)) != nil,
       "deviceId": product.trustedDeviceId,
+      "deviceKind": Self.deviceKind,
     ]
     if let initialized = product.productSyncMaterialInitialized {
       result["materialInitialized"] = initialized

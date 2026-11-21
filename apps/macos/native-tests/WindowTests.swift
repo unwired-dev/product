@@ -2699,6 +2699,67 @@ final class WindowTests: XCTestCase {
     choose("System")
   }
 
+  // #2605: Settings › Notifications' Dock badge pop-up chooses Unread in Inbox, asking for
+  // notification permission the first time. The runner cannot read the Dock tile's badge, so the
+  // count it draws is checked from the shell (docs/native-journeys.md).
+  func testDockBadge() throws {
+    try dockBadge(appearance: "Light")
+  }
+
+  func testDockBadgeDark() throws {
+    try dockBadge(appearance: "Dark")
+  }
+
+  private func dockBadge(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let path = try XCTUnwrap(environment["UNWIRED_APP_PATH"])
+    let app = XCUIApplication(url: URL(fileURLWithPath: path))
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    let settings = app.windows["settings-window"]
+    app.typeKey(",", modifierFlags: .command)
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.buttons["Appearance"].click()
+    let look = settings.otherElements[appearance]
+    XCTAssertTrue(look.waitForExistence(timeout: 10))
+    look.click()
+    waitUntil { look.value as? String == "radio button, checked" }
+    settings.buttons["Notifications"].click()
+    let badge = settings.popUpButtons["Dock badge"]
+    XCTAssertTrue(badge.waitForExistence(timeout: 15))
+    XCTAssertEqual(badge.value as? String, "Off")
+    // Each run's disposable identity asks for permission again. Another copy of the app shares
+    // its name, so the one request that appears after the choice is this run's.
+    let center = XCUIApplication(bundleIdentifier: "com.apple.notificationcenterui")
+    let requests = center.groups.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "“Unwired Mail” Notifications"))
+    XCTAssertEqual(requests.count, 0)
+    badge.click()
+    app.menuItems["Unread in Inbox"].click()
+    let request = requests.firstMatch
+    XCTAssertTrue(request.waitForExistence(timeout: 15))
+    XCTAssertEqual(requests.count, 1)
+    // The banner shows Options while the pointer is over it. Its menu (Allow, Don't Allow) is not
+    // in the accessibility tree, so Allow is chosen from the keyboard.
+    request.hover()
+    let options = request.menuButtons["Options"]
+    XCTAssertTrue(options.waitForExistence(timeout: 5))
+    options.click()
+    center.typeKey(.downArrow, modifierFlags: [])
+    center.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(text("Allowed", in: settings).waitForExistence(timeout: 30))
+    waitUntil { badge.value as? String == "Unread in Inbox" }
+    let attachment = XCTAttachment(screenshot: settings.screenshot())
+    attachment.name = "Settings › Notifications, Unread in Inbox (\(appearance))"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
   // #1538: a window switched to a Mail Profile that owns no mailbox shows No Mailboxes, with
   // Manage Mail Profiles… opening Settings › Mail Profiles, in each appearance.
   func testMailProfileWithoutMailboxes() throws {

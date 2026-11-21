@@ -1,3 +1,5 @@
+import { trustedDevicesOf } from '@private-email/mail-core/registration';
+
 import type { Device, Setup } from './device-trust-fixture.ts';
 import type { RegistrationFlow } from './registration-flow-fixture.ts';
 
@@ -78,7 +80,10 @@ describe('device revocation', () => {
     const listed = field(await flow.refreshPrivateSync(), 'trustedDevices');
     expect(listed).toContain(survivor.id);
     expect(listed).toContain(removed.id);
-    expect(listed).not.toContain(removerId);
+    // The remover lists itself as the device in hand, which it cannot remove.
+    expect(trustedDevicesOf({ trustedDevices: listed })).toContainEqual(
+      expect.objectContaining({ id: removerId, current: true }),
+    );
     const prompts = google.hints.length;
     const prepared = await flow.revokeTrustedDevice(removed.id);
     expect(google.hints).toHaveLength(prompts + 1);

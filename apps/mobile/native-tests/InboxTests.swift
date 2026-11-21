@@ -2319,6 +2319,23 @@ final class InboxTests: XCTestCase {
     let initialEntry = app.textFields["Last four characters"]
     enter(String(first.suffix(4)), into: initialEntry, in: app)
     app.buttons["Confirm Recovery Key"].tap()
+    // The device in hand is listed with its kind and Current Device as one element; the iPad has
+    // not reported its kind, so it shows when it was added.
+    let kind = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+    let rows = app.descendants(matching: .any)
+    XCTAssertTrue(
+      rows.matching(
+        NSPredicate(
+          format: "label BEGINSWITH %@ AND label ENDSWITH %@", "\(kind), ",
+          ", Current Device, This \(kind)")
+      ).firstMatch.waitForExistence(timeout: 15))
+    XCTAssertTrue(
+      rows.matching(NSPredicate(format: "label BEGINSWITH %@", "iPad, Added ")).firstMatch
+        .exists)
+    let rowsShot = XCTAttachment(screenshot: app.screenshot())
+    rowsShot.name = "Trusted Devices rows"
+    rowsShot.lifetime = .keepAlways
+    add(rowsShot)
     let proposed = app.staticTexts["revocation-recovery-key"]
     // The system alert explains removal; its Cancel keeps the device without preparing anything.
     func confirm(_ choice: String) {

@@ -44,6 +44,8 @@ describe('application-scoped Gmail freshness', () => {
       complete: true,
     };
     const completeWake = jest.fn<undefined, [string, string]>();
+    const setBadgeCount = jest.fn<Promise<null>, [number]>(async () => null);
+    const permission = { authorization: 'authorized' };
     const native = {
       getConstants: () => ({}),
       ...vault,
@@ -54,6 +56,13 @@ describe('application-scoped Gmail freshness', () => {
         .mockResolvedValue(null),
       mailboxRoutes: async () => routes,
       completeWake,
+      // The Dock badge counts unread Inbox mail.
+      notificationSettings: async () => ({
+        ...permission,
+        previews: false,
+        badge: 'inbox',
+      }),
+      setBadgeCount,
     };
     const bridge = jest
       .spyOn(TurboModuleRegistry, 'getEnforcing')
@@ -82,6 +91,29 @@ describe('application-scoped Gmail freshness', () => {
         expect(completeWake).toHaveBeenCalledWith('wake-1', 'synchronized');
       });
       expect(subjects(gmailMailboxes)).toStrictEqual(['Left to its wake']);
+      // The Dock badge counted the unread Inbox mail: none before the first listing, then the wake's
+      // arrival.
+      await waitFor(() => {
+        expect(setBadgeCount.mock.calls).toStrictEqual([[0], [1]]);
+      });
+      // Permission turned off in System Settings removes the badge when the app activates, and
+      // allowing it again brings the count back.
+      const activate = () => {
+        for (const [, listener] of jest.mocked(AppState.addEventListener).mock
+          .calls) {
+          listener('active');
+        }
+      };
+      permission.authorization = 'denied';
+      activate();
+      await waitFor(() => {
+        expect(setBadgeCount).toHaveBeenLastCalledWith(0);
+      });
+      permission.authorization = 'authorized';
+      activate();
+      await waitFor(() => {
+        expect(setBadgeCount).toHaveBeenLastCalledWith(1);
+      });
 
       // While the app is active the interval supplements wakes, which can be dropped or delayed.
       AppState.currentState = 'active';
