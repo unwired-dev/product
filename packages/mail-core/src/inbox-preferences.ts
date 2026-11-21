@@ -205,11 +205,17 @@ export function createInboxPreferences(
     account: string;
     profiles: readonly ProfilePreferences[];
   }> = { account: '', profiles: [] };
-  const show = (account: string, profiles: readonly ProfilePreferences[]) => {
-    shown = { account, profiles };
+  // Whether storage failed the last read, so which connections are muted is unknown.
+  let failed = false;
+  const notify = () => {
     for (const listener of listeners) {
       listener();
     }
+  };
+  const show = (account: string, profiles: readonly ProfilePreferences[]) => {
+    shown = { account, profiles };
+    failed = false;
+    notify();
   };
 
   // The preferences of `account`, the Product Account signed in when the action was called, so an
@@ -220,6 +226,13 @@ export function createInboxPreferences(
       const { owner, revision, document } = yield* native(
         storage.openInboxPreferences,
         OpenedSchema,
+      ).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            failed = true;
+            notify();
+          }),
+        ),
       );
       if (owner !== account || signedIn() !== account) {
         return yield* ownerMismatch();
@@ -405,21 +418,17 @@ export function createInboxPreferences(
       return isListDensity(value) ? value : 'comfortable';
     },
     // Reads the signed-in account's preferences for `listDensity`, `previewLines`, `favorites` and
-    // `sections`, and resolves whether they were read; signed out, there are none.
+    // `sections`; signed out, there are none.
     load: async () => {
       const account = signedIn();
-      if (account === undefined) {
-        return false;
-      }
-      const read = await runLogged(
-        changed(account, (profiles) => profiles).pipe(
-          Effect.as(true),
-          Effect.catchTag('DraftStorageFailure', (error) =>
-            report(error).pipe(Effect.as(false)),
+      if (account !== undefined) {
+        await runLogged(
+          changed(account, (profiles) => profiles).pipe(
+            Effect.asVoid,
+            Effect.catchTag('DraftStorageFailure', report),
           ),
-        ),
-      );
-      return read;
+        );
+      }
     },
     // `profile`'s preview length as last read; undefined until it is read, while storage cannot read
     // it, or when none was chosen.
@@ -455,10 +464,14 @@ export function createInboxPreferences(
       choose([profile], 'favorites', (stored) =>
         change(isFavoriteEntries(stored) ? stored : noFavorites),
       ),
-    // `profile`'s Mailbox Connection sections, as last read; undefined until they are read and while
-    // storage cannot read them, so a muted connection stays muted.
+    // `profile`'s Mailbox Connection sections, as last read; undefined until they are read and since
+    // storage last failed to read them, so a muted connection stays muted. Signed out, none is hidden.
     sections: (profile: string): Sections | undefined => {
-      if (shown.account !== signedIn()) {
+      const account = signedIn();
+      if (account === undefined) {
+        return noSections;
+      }
+      if (failed || shown.account !== account) {
         return undefined;
       }
       const fields = shown.profiles.find(

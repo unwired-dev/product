@@ -87,7 +87,7 @@ import {
   useInboxSearch,
 } from './inbox-search.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
-import { useSections } from './list-density.tsx';
+import { useReadSections } from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import { useListedMailbox } from './mailbox-folders.tsx';
 import { useNow } from './mailbox-state.ts';
@@ -810,8 +810,8 @@ const authorizer = (
       };
 
 // All Inboxes, and search there or widened to every Inbox, leave out every connection the Profile
-// hides: `unhidden` keeps the others, `inboxes` also the one the view scopes to, and `searched` is
-// what search covers of `shown`.
+// hides, and every one until the Profile's preferences are read: `unhidden` keeps the others,
+// `inboxes` also the one the view scopes to, and `searched` is what search covers of `shown`.
 function useShownInboxes({
   mailboxes,
   shown,
@@ -825,14 +825,21 @@ function useShownInboxes({
   scope: string | undefined;
   unified: MailboxView['unified'];
 }>) {
-  const sections = useSections(profile);
+  const sections = useReadSections(profile);
   const inboxes = useMemo(
     () =>
-      mailboxes.filter(({ id }) => id === scope || sectionShown(sections, id)),
+      mailboxes.filter(
+        ({ id }) =>
+          id === scope ||
+          (sections !== undefined && sectionShown(sections, id)),
+      ),
     [mailboxes, scope, sections],
   );
   const unhidden = useMemo(
-    () => inboxes.filter(({ id }) => sectionShown(sections, id)),
+    () =>
+      inboxes.filter(
+        ({ id }) => sections !== undefined && sectionShown(sections, id),
+      ),
     [inboxes, sections],
   );
   return {

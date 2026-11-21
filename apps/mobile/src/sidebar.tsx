@@ -782,7 +782,7 @@ function DragList<T>({
   const keys = items.map(keyOf);
   const order = keys.join('\n');
   // The dragged item, the place it started from, how far the finger and the list moved it, whether
-  // it has moved past `dragSlop`, and the items' order when it began.
+  // it has moved past `dragSlop`, the items' order when it began, and whether a new order ended it.
   const [held, setHeld] = useState<
     Readonly<{
       key: string;
@@ -791,14 +791,16 @@ function DragList<T>({
       scrolled: number;
       moved: boolean;
       order: string;
+      cancelled?: boolean;
     }>
   >();
-  const drag = held?.order === order ? held : undefined;
-  // A drag that ends, that the items' new order cancels, or whose list leaves stops scrolling the
-  // list and lets it scroll again.
+  const drag = held?.order === order && !held.cancelled ? held : undefined;
+  // A drag that ends, that the items' new order cancels for good, or whose list leaves stops
+  // scrolling the list and lets it scroll again.
   const stop = useEffectEvent(() => {
     edge.follow(undefined, () => undefined);
     onDragging(false);
+    setHeld((kept) => kept && { ...kept, cancelled: true });
   });
   const active = drag !== undefined;
   useEffect(
@@ -1073,21 +1075,25 @@ const shownFolders = <F extends Readonly<{ name: string }>>(
     shown ? folders.filter((folder) => folder.name === name) : [],
   );
 
+// Selects `next` in place of a row Edit hid in Mail Profile `profile`, when the window's selection
+// in that Profile is still one that `hidden` matches, however long the write took.
+type Hidden = (
+  profile: string,
+  hidden: (view: MailboxView) => boolean,
+  next: MailboxView,
+) => void;
+
 // The Profile's Mailbox Connections in Edit mode, in its order: a header's checkmark shows or hides
 // the connection and its handle drags it with its folders; a shown connection lists its folders to
-// show, hide and reorder, its Inbox staying shown. Hiding a connection or folder calls `onHidden`,
-// which selects All Inboxes when it was selected. A refused reorder says so.
+// show, hide and reorder, its Inbox staying shown. Hiding the selected connection or folder selects
+// All Inboxes. A refused reorder says so.
 function EditConnections({
   entries,
   onHidden,
   onDragging,
 }: {
   readonly entries: readonly SidebarEntry[];
-  readonly onHidden: (
-    profile: string,
-    connection: string,
-    folder?: string,
-  ) => void;
+  readonly onHidden: Hidden;
   readonly onDragging: (dragging: boolean) => void;
 }) {
   const colors = usePalette();
@@ -1097,7 +1103,13 @@ function EditConnections({
   const store = use(InboxPreferencesContext);
   const sections = useSections(profile);
   const leave = (connection: string, folder?: string) => {
-    onHidden(profile, connection, folder);
+    onHidden(
+      profile,
+      (selected) =>
+        selected.mailbox === connection &&
+        (folder === undefined || selected.folder === folder),
+      {},
+    );
   };
   const showOrHide = async (connection: string, shown: boolean) => {
     if ((await store.showSection(profile, connection, !shown)) && shown) {
@@ -1266,7 +1278,7 @@ function EditButton({
 function Favorites({
   view,
   onView,
-  onSelect,
+  onHidden,
   onOutbox,
   unread,
   allSelected,
@@ -1275,7 +1287,7 @@ function Favorites({
 }: {
   readonly view: MailboxView;
   readonly onView: (view: MailboxView) => void;
-  readonly onSelect: (view: MailboxView) => void;
+  readonly onHidden: Hidden;
   readonly onOutbox?: () => void;
   // All Inboxes' unread count, and whether it is selected.
   readonly unread: number;
@@ -1286,18 +1298,18 @@ function Favorites({
   const colors = usePalette();
   const { t } = useLocalization();
   const outbox = useProfileOutbox();
-  const { entries, change } = useFavorites(useProfile());
+  const profile = useProfile();
+  const { entries, change } = useFavorites(profile);
   const rows = favoriteRows(entries);
   const shownRows = rows.filter(({ shown }) => shown);
   // Hiding the selected Unified Mailbox selects the first row still shown.
   const showOrHide = async (row: Favorite) => {
     const after = await change((stored) => toggleFavorite(stored, row));
-    if (
-      view.unified === row &&
-      after?.some((entry) => entry.row === row && !entry.shown) === true
-    ) {
+    if (after?.some((entry) => entry.row === row && !entry.shown) === true) {
       const first = after.find(({ shown }) => shown)?.row;
-      onSelect(
+      onHidden(
+        profile,
+        (selected) => selected.unified === row,
         first === undefined || first === allInboxes ? {} : { unified: first },
       );
     }
@@ -1459,15 +1471,10 @@ export function Mailboxes({
   useLayoutEffect(() => {
     latest.current = { profile, view };
   });
-  // Selects All Inboxes when `connection` of `from`, or its folder `folder`, is still the selection.
-  const leave = (from: string, connection: string, folder?: string) => {
+  const leave: Hidden = (from, hidden, next) => {
     const { profile: now, view: selected } = latest.current;
-    if (
-      now === from &&
-      selected.mailbox === connection &&
-      (folder === undefined || selected.folder === folder)
-    ) {
-      onSelect({});
+    if (now === from && hidden(selected)) {
+      onSelect(next);
     }
   };
   const editButton = (
@@ -1608,142 +1615,142 @@ export function Mailboxes({
               </View>
             </View>
           ) : null}
-          <ScrollView
-            ref={list}
-            style={styles.fill}
-            scrollEnabled={!dragging}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            onContentSizeChange={onContentSizeChange}
-            onLayout={onLayout}
-            // A row takes its first tap while Search's keyboard is up, so one tap on Outbox ends
-            // the search.
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={[
-              styles.list,
-              compact && styles.compactList,
-              compact &&
-                onCompose !== undefined && {
-                  paddingBottom: styles.compactList.paddingBottom + bottom,
-                },
-            ]}>
-            <ProfileSwitcher
-              onProfile={onProfile}
-              onManage={() => {
-                openSettings('profiles');
-              }}
-            />
-            <SectionHeader label={t('mailboxes.favorites')} />
-            <Favorites
-              view={view}
-              onView={onView}
-              onSelect={onSelect}
-              unread={unread}
-              allSelected={sidebar.allSelected}
-              editing={editing}
-              onDragging={setDragging}
-              {...(onOutbox === undefined ? {} : { onOutbox })}
-            />
-            {editing ? (
-              <EdgeScrollContext value={edge}>
+          <EdgeScrollContext value={edge}>
+            <ScrollView
+              ref={list}
+              style={styles.fill}
+              scrollEnabled={!dragging}
+              onScroll={onScroll}
+              scrollEventThrottle={16}
+              onContentSizeChange={onContentSizeChange}
+              onLayout={onLayout}
+              // A row takes its first tap while Search's keyboard is up, so one tap on Outbox ends
+              // the search.
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={[
+                styles.list,
+                compact && styles.compactList,
+                compact &&
+                  onCompose !== undefined && {
+                    paddingBottom: styles.compactList.paddingBottom + bottom,
+                  },
+              ]}>
+              <ProfileSwitcher
+                onProfile={onProfile}
+                onManage={() => {
+                  openSettings('profiles');
+                }}
+              />
+              <SectionHeader label={t('mailboxes.favorites')} />
+              <Favorites
+                view={view}
+                onView={onView}
+                onHidden={leave}
+                unread={unread}
+                allSelected={sidebar.allSelected}
+                editing={editing}
+                onDragging={setDragging}
+                {...(onOutbox === undefined ? {} : { onOutbox })}
+              />
+              {editing ? (
                 <EditConnections
                   entries={sidebar.entries}
                   onHidden={leave}
                   onDragging={setDragging}
                 />
-              </EdgeScrollContext>
-            ) : (
-              shown.map((entry) => {
-                if ('section' in entry) {
-                  const { mailbox, folders } = entry.section;
-                  // Waiting out Gmail's usage limit is a pause the Sync Status Capsule reports.
-                  const problem = limited(mailbox.state)
-                    ? undefined
-                    : entry.section.problem;
-                  const name = mailbox.address ?? mailbox.id;
-                  const provider = t(
-                    `mailProviders.${mailbox.provider ?? 'gmail'}`,
-                  );
-                  const trouble = problemText(t, problem, {
-                    provider: mailbox.provider,
-                    name: provider,
-                  });
+              ) : (
+                shown.map((entry) => {
+                  if ('section' in entry) {
+                    const { mailbox, folders } = entry.section;
+                    // Waiting out Gmail's usage limit is a pause the Sync Status Capsule reports.
+                    const problem = limited(mailbox.state)
+                      ? undefined
+                      : entry.section.problem;
+                    const name = mailbox.address ?? mailbox.id;
+                    const provider = t(
+                      `mailProviders.${mailbox.provider ?? 'gmail'}`,
+                    );
+                    const trouble = problemText(t, problem, {
+                      provider: mailbox.provider,
+                      name: provider,
+                    });
+                    return (
+                      <Fragment key={mailbox.id}>
+                        <SectionHeader
+                          label={`${provider} · ${name}`}
+                          trouble={trouble}
+                        />
+                        {problem === 'authentication'
+                          ? signInNotice({
+                              provider,
+                              address: name,
+                              imap: mailbox.provider === 'imap',
+                              onSignIn: async () => {
+                                await account?.authorizeMailbox(mailbox.id);
+                                await mailbox.inbox.load();
+                              },
+                            })
+                          : null}
+                        <FolderRows
+                          mailbox={mailbox}
+                          folders={shownFolders(
+                            sectionFolders(sections, mailbox.id),
+                            folders,
+                          )}
+                          onView={onView}
+                        />
+                      </Fragment>
+                    );
+                  }
+                  const { connection, recovery, selected } = entry.waiting;
+                  const provider = t(`mailProviders.${connection.provider}`);
+                  const imap = recovery === 'account';
+                  const trouble = imap
+                    ? t('mailboxes.states.imap-authorization')
+                    : t('mailboxes.states.authorization', { provider });
                   return (
-                    <Fragment key={mailbox.id}>
+                    <Fragment key={connection.id}>
                       <SectionHeader
-                        label={`${provider} · ${name}`}
+                        label={`${provider} · ${connection.address}`}
                         trouble={trouble}
                       />
-                      {problem === 'authentication'
-                        ? signInNotice({
-                            provider,
-                            address: name,
-                            imap: mailbox.provider === 'imap',
-                            onSignIn: async () => {
-                              await account?.authorizeMailbox(mailbox.id);
-                              await mailbox.inbox.load();
-                            },
-                          })
-                        : null}
-                      <FolderRows
-                        mailbox={mailbox}
-                        folders={shownFolders(
-                          sectionFolders(sections, mailbox.id),
-                          folders,
-                        )}
-                        onView={onView}
-                      />
+                      {signInNotice({
+                        provider,
+                        address: connection.address,
+                        imap,
+                        onSignIn: () => authorize(connection.id),
+                      })}
+                      <View
+                        style={
+                          compact && [
+                            styles.group,
+                            { backgroundColor: colors.fillQuiet },
+                          ]
+                        }>
+                        <Item
+                          icon="tray"
+                          label={t('inbox.title')}
+                          accessibilityLabel={t('inbox.rowLabel_mailbox', {
+                            row: t('inbox.title'),
+                            mailbox: connection.address,
+                          })}
+                          selected={selected}
+                          onPress={() => {
+                            // IMAP needs its password entered again in Settings' Email Accounts.
+                            if (imap) {
+                              openSettings('mailboxes');
+                            } else {
+                              void authorize(connection.id);
+                            }
+                          }}
+                        />
+                      </View>
                     </Fragment>
                   );
-                }
-                const { connection, recovery, selected } = entry.waiting;
-                const provider = t(`mailProviders.${connection.provider}`);
-                const imap = recovery === 'account';
-                const trouble = imap
-                  ? t('mailboxes.states.imap-authorization')
-                  : t('mailboxes.states.authorization', { provider });
-                return (
-                  <Fragment key={connection.id}>
-                    <SectionHeader
-                      label={`${provider} · ${connection.address}`}
-                      trouble={trouble}
-                    />
-                    {signInNotice({
-                      provider,
-                      address: connection.address,
-                      imap,
-                      onSignIn: () => authorize(connection.id),
-                    })}
-                    <View
-                      style={
-                        compact && [
-                          styles.group,
-                          { backgroundColor: colors.fillQuiet },
-                        ]
-                      }>
-                      <Item
-                        icon="tray"
-                        label={t('inbox.title')}
-                        accessibilityLabel={t('inbox.rowLabel_mailbox', {
-                          row: t('inbox.title'),
-                          mailbox: connection.address,
-                        })}
-                        selected={selected}
-                        onPress={() => {
-                          // IMAP needs its password entered again in Settings' Email Accounts.
-                          if (imap) {
-                            openSettings('mailboxes');
-                          } else {
-                            void authorize(connection.id);
-                          }
-                        }}
-                      />
-                    </View>
-                  </Fragment>
-                );
-              })
-            )}
-          </ScrollView>
+                })
+              )}
+            </ScrollView>
+          </EdgeScrollContext>
           {compact && onCompose !== undefined ? (
             <FloatingBar
               bottomInset={bottom}

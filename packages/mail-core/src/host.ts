@@ -469,14 +469,14 @@ export function createHost(
     registration,
     {
       removed,
-      // A connection its Mail Profile hides in the sidebar is muted: it posts none, nor does any
-      // while the preferences cannot be read, even when an earlier read showed it.
+      // A connection its Mail Profile hides in the sidebar, here or on another device first, is
+      // muted: it posts none, nor does any while the preferences cannot be read.
       arrived: async (mailbox, messages, eligible) => {
-        const read = await inboxPreferences.load();
+        await inboxPreferences.synchronize();
+        await inboxPreferences.load();
         await notifications.arrived(mailbox, messages, () => {
           const sections = inboxPreferences.sections(mailbox.profile() ?? '');
           return (
-            read &&
             eligible() &&
             sections !== undefined &&
             sectionShown(sections, mailbox.connection)

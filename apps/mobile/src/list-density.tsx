@@ -23,13 +23,15 @@ export function useListDensity(profile: string) {
 const noSections: Sections = {};
 
 // `profile`'s Mailbox Connection sections: which it hides and its folders' order, which its other
-// Trusted Devices share. Until they are read, every connection shows.
-export function useSections(profile: string) {
+// Trusted Devices share; undefined until they are read and while they cannot be.
+export function useReadSections(profile: string) {
   const store = use(InboxPreferencesContext);
-  return useSyncExternalStore(
-    store.subscribe,
-    () => store.sections(profile) ?? noSections,
-  );
+  return useSyncExternalStore(store.subscribe, () => store.sections(profile));
+}
+
+// `profile`'s sections as `useReadSections` gives them; until they are read, every connection shows.
+export function useSections(profile: string) {
+  return useReadSections(profile) ?? noSections;
 }
 
 // Settings › Appearance › List density: Comfortable or Compact for the window's Mail Profile.

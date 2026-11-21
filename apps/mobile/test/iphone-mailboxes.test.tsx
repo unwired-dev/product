@@ -64,8 +64,10 @@ const account = {
 };
 
 // Inbox preferences kept for one signed-in Product Account, as native storage keeps them. While
-// `gate.held` is set, writes wait for it.
-const preferences = (gate: { held?: Promise<void> } = {}) => {
+// `gate.held` is set, writes wait for it, and while `gate.reading` is set, reads do.
+const preferences = (
+  gate: { held?: Promise<void>; reading?: Promise<void> } = {},
+) => {
   const kept = { revision: 0, document: null as string | null };
   const registration = {
     getSnapshot: () => ({
@@ -82,7 +84,10 @@ const preferences = (gate: { held?: Promise<void> } = {}) => {
   return () =>
     createInboxPreferences(
       {
-        openInboxPreferences: async () => ({ owner: 'account-1', ...kept }),
+        openInboxPreferences: async () => {
+          await gate.reading;
+          return { owner: 'account-1', ...kept };
+        },
         commitInboxPreferences: async (owner, expectedRevision, document) => {
           await gate.held;
           Object.assign(kept, { revision: expectedRevision + 1, document });
@@ -172,7 +177,11 @@ describe('iPhone Mailboxes', () => {
 
   it('hides, shows and reorders Favorites in Edit mode, and keeps them after a relaunch', async () => {
     expect.hasAssertions();
-    const relaunch = preferences();
+    const gate: { held?: Promise<void> } = {};
+    const relaunch = preferences(gate);
+    // The window's view, and how to select one as Go To would.
+    let selected: MailboxView = {};
+    let select: (view: MailboxView) => void = ignore;
     const launch = async (
       store: ReturnType<ReturnType<typeof preferences>>,
     ) => {
@@ -183,6 +192,8 @@ describe('iPhone Mailboxes', () => {
       await inbox.load();
       function Window() {
         const [view, setView] = useState<MailboxView>({ unified: 'SPAM' });
+        selected = view;
+        select = setView;
         return (
           <Mailboxes
             view={view}
@@ -279,6 +290,23 @@ describe('iPhone Mailboxes', () => {
     const again = await launch(relaunch());
     await fireEvent.press(again.getByRole('button', { name: 'Edit' }));
     expect(rows(again)).toStrictEqual(edited);
+    // Hiding the selected Trash, then Done and choosing Sent while the write is slow, keeps Sent.
+    await act(() => {
+      select({ unified: 'TRASH' });
+    });
+    const written = Promise.withResolvers<undefined>();
+    gate.held = written.promise;
+    await fireEvent.press(again.getByRole('button', { name: 'Trash' }));
+    await fireEvent.press(again.getByRole('button', { name: 'Done' }));
+    await act(() => {
+      select({ unified: 'SENT' });
+    });
+    delete gate.held;
+    await act(async () => {
+      written.resolve(undefined);
+      await written.promise;
+    });
+    expect(selected).toStrictEqual({ unified: 'SENT' });
     await again.unmount();
   });
 
@@ -506,7 +534,77 @@ describe('iPhone Mailboxes', () => {
     await app.unmount();
   });
 
-  it('scrolls the list while an account is dragged at its edge, but not while a handle is only held there', async () => {
+  it('lists no mail of a hidden account in All Inboxes after a relaunch, before or after its preferences are read', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'From Alex’s Inbox' });
+    const otherGmail = createSyntheticGmail({
+      address: 'other@example.invalid',
+    });
+    otherGmail.deliver({ subject: 'From the hidden account' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail, [other]: otherGmail }),
+      registration,
+    );
+    await mailboxes.load();
+    // Hidden before the relaunch; the relaunched app has yet to read its preferences.
+    const gate: { reading?: Promise<void> } = {};
+    const relaunch = preferences(gate);
+    const before = relaunch();
+    await before.load();
+    await before.showSection(defaultProfile, other, false);
+    const read = Promise.withResolvers<undefined>();
+    gate.reading = read.promise;
+    const store = relaunch();
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    // Until the read, All Inboxes lists no account's mail.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const unread = app.queryAllByRole('button', { name: /From /u });
+    await act(() => {
+      read.resolve(undefined);
+    });
+    await app.findByRole('button', { name: /From Alex’s Inbox/u });
+    expect([
+      unread,
+      app.queryAllByRole('button', { name: /hidden account/u }),
+    ]).toStrictEqual([[], []]);
+    await app.unmount();
+  });
+
+  it('scrolls the list while an account or a Favorites row is dragged at its edge, but not while a handle is only held there', async () => {
     expect.hasAssertions();
     const alex = syntheticMailboxes['alex@example.invalid'];
     const other = syntheticMailboxes['other@example.invalid'];
@@ -624,17 +722,37 @@ describe('iPhone Mailboxes', () => {
       arranged: [[defaultProfile, [other, alex], [alex, other]]],
     });
 
-    // Another device's order, arriving mid-drag, ends it: the list stops and scrolls again.
+    // Another device's order, arriving mid-drag, ends it: the list stops and scrolls again, and
+    // the drag stays ended when the order changes back.
     scrollTo.mockClear();
     await fireEvent(handle(), 'responderGrant', touch(280));
     await fireEvent(handle(), 'responderMove', touch(290));
     await step(1);
     await app.rerender(tree(connections.toReversed()));
-    expect([
-      frames.size,
-      scrollTo.mock.calls.length,
-      list().props.scrollEnabled,
-    ]).toStrictEqual([0, 1, true]);
+    const stopped = [frames.size, list().props.scrollEnabled];
+    await app.rerender(tree(connections));
+    await fireEvent(handle(), 'responderMove', touch(330));
+    await fireEvent(handle(), 'responderRelease', touch(330));
+    // A Favorites row dragged there scrolls the list too.
+    const sent = app
+      .getByRole('button', { name: 'Sent' })
+      .queryAll((node) => node.props.onResponderGrant !== undefined)
+      .at(0)!;
+    await fireEvent(sent, 'responderGrant', touch(280));
+    await fireEvent(sent, 'responderMove', touch(290));
+    const favorites = frames.size;
+    await fireEvent(sent, 'responderRelease', touch(290));
+    expect({
+      stopped,
+      scrolled: scrollTo.mock.calls.length,
+      arranged: arrangeMailboxes.mock.calls.length,
+      favorites,
+    }).toStrictEqual({
+      stopped: [0, true],
+      scrolled: 1,
+      arranged: 1,
+      favorites: 1,
+    });
     jest.restoreAllMocks();
     await app.unmount();
   });
