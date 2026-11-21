@@ -661,12 +661,16 @@ function inboxSections<M>({
 }
 
 // Whether the list's mailboxes have listed and are checking their servers. A hidden connection's
-// state stays out of All Inboxes, as its mail does; with every connection hidden, theirs still tell
-// when it has no mail.
+// state stays out of All Inboxes, as its mail does: once the preferences are read with every
+// connection hidden, it has no mail to wait for. Until then, theirs tell.
 const listState = (
   searched: readonly InboxMailbox[],
   shown: readonly InboxMailbox[],
+  read: boolean,
 ) => {
+  if (read && searched.length === 0 && shown.length > 0) {
+    return { ready: true, syncing: false };
+  }
   const stated = searched.length > 0 ? searched : shown;
   return {
     ready: stated.some(({ state }) => state.kind === 'ready'),
@@ -825,8 +829,8 @@ const authorizer = (
 
 // All Inboxes, its sign-in notices, and search there or widened to every Inbox, leave out every
 // connection the Profile hides, and every one until the Profile's preferences are read: `unhidden`
-// keeps the others, `inboxes` also the one the view scopes to, `waiting` is what of `waiting` the
-// list names, and `searched` is what of `shown` the list lists and refreshes, search covers,
+// keeps the others, `inboxes` also the one the view scopes to, `read` says whether the preferences
+// are read, `waiting` is what of `waiting` the list names, and `searched` is what of `shown` the list lists and refreshes, search covers,
 // Filters offers, the heading names and the list reports the state of.
 function useShownInboxes<W extends Readonly<{ id: string }>>({
   mailboxes,
@@ -863,6 +867,7 @@ function useShownInboxes<W extends Readonly<{ id: string }>>({
   return {
     inboxes,
     unhidden,
+    read: sections !== undefined,
     waiting:
       unified === undefined
         ? waiting.filter(
@@ -951,6 +956,7 @@ export function Inbox({
   const {
     inboxes,
     unhidden,
+    read,
     waiting,
     searched: searchedMailboxes,
   } = useShownInboxes({
@@ -1094,7 +1100,7 @@ export function Inbox({
     () => ({ selected, saved, composing }),
     [selected, saved, composing],
   );
-  const { ready, syncing } = listState(searchedMailboxes, shown);
+  const { ready, syncing } = listState(searchedMailboxes, shown, read);
   // A hidden connection's name stays out of All Inboxes, as its mail does.
   const scopeName = scopeOf(t, searchedMailboxes, {
     unified: view.unified !== undefined,

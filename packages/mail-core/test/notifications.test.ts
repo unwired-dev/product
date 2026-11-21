@@ -14,6 +14,7 @@ import {
 } from '../src/commands.ts';
 import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
+  createNotifications,
   followOpenedNotifications,
   openedTarget,
 } from '../src/notifications.ts';
@@ -232,5 +233,63 @@ describe('opening a tapped New Mail Notification', () => {
     expect(destinations).toStrictEqual([
       { id: '1a', mailbox: 'work', profile: 'p-work', reply: true },
     ]);
+  });
+});
+
+const unused = () => Promise.reject(new Error('Not used here'));
+
+describe('posting a New Mail Notification', () => {
+  it('checks the Profile the connection is in as it posts, after a move meanwhile', async () => {
+    expect.hasAssertions();
+    const posted: unknown[] = [];
+    let profile = 'shown';
+    const notifications = createNotifications(
+      {
+        notificationSettings: () =>
+          Promise.resolve({
+            authorization: 'authorized',
+            previews: true,
+            badge: 'off',
+          }),
+        postNotifications: (messages) => {
+          posted.push(...messages);
+          return Promise.resolve();
+        },
+        requestNotifications: unused,
+        setNotificationPreviews: unused,
+        setNotificationBadge: unused,
+        setBadgeCount: unused,
+        openNotificationSettings: unused,
+      },
+      () => english,
+    );
+    await notifications.arrived(
+      {
+        account: 'account',
+        connection: 'work',
+        epoch: 'epoch',
+        address: 'alex@example.invalid',
+        profile: () => profile,
+      },
+      [
+        {
+          id: 'message',
+          sender: 'Sam',
+          address: 'sam@example.invalid',
+          subject: 'Moved meanwhile',
+        },
+      ],
+      {
+        settle: () => {
+          // The connection moves to a Profile that hides it as the preferences settle.
+          queueMicrotask(() => {
+            profile = 'hidden';
+          });
+          return Promise.resolve();
+        },
+        eligible: (current) => current === 'shown',
+      },
+    );
+    expect(posted).toStrictEqual([]);
   });
 });

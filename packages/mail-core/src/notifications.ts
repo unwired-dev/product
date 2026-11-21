@@ -379,12 +379,19 @@ export function createNotifications(
           call(() => native.openNotificationSettings()),
         ),
       ),
-    // `eligible` is asked after reading the settings, just before posting: the connection may
-    // have been removed, turned off or hidden meanwhile.
+    // After the settings are read and `settle` has finished, `eligible` is asked about the Profile
+    // the connection is in then, in the same step that posts: the connection may have been
+    // removed, turned off, hidden or moved meanwhile.
     arrived: (
       { profile: currentProfile, address, ...mailbox }: Arrival,
       messages: readonly ArrivedMessage[],
-      eligible: () => Promise<boolean>,
+      {
+        settle,
+        eligible,
+      }: Readonly<{
+        settle: () => Promise<void>;
+        eligible: (profile: string) => boolean;
+      }>,
     ) =>
       runLogged(
         logged(
@@ -397,15 +404,15 @@ export function createNotifications(
             if (current.authorization !== 'authorized') {
               return yield* notPosted(`authorization ${current.authorization}`);
             }
-            if (!(yield* call(eligible))) {
-              return yield* notPosted(
-                'connection closed or turned off meanwhile',
-              );
-            }
-            // Read after `eligible`: the connection may have moved to another Profile meanwhile.
+            yield* call(settle);
             const profile = currentProfile();
             if (profile === undefined) {
               return yield* notPosted('Mail Profile unknown');
+            }
+            if (!eligible(profile)) {
+              return yield* notPosted(
+                'connection closed, turned off or hidden meanwhile',
+              );
             }
             const t = translate();
             yield* call(() =>

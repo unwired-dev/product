@@ -332,6 +332,35 @@ describe('iPad Mailboxes', () => {
     await app.unmount();
   });
 
+  it('shows No Mail and answers search in All Inboxes with every account hidden while none has listed', async () => {
+    expect.hasAssertions();
+    const { alex, shown, hidden, mailboxes, store, tree } =
+      await hiddenAccount();
+    await store.showSection(defaultProfile, alex, false);
+    const held = Promise.withResolvers<undefined>();
+    for (const gmail of [shown, hidden]) {
+      const request = gmail.native.gmailRequest;
+      gmail.native.gmailRequest = async (...args) => {
+        await held.promise;
+        return request(...args);
+      };
+    }
+    const app = await render(tree({}));
+    let first = Promise.resolve();
+    await act(async () => {
+      first = mailboxes.load();
+      await Promise.resolve();
+    });
+    await expect(screen.findByText('No Mail')).resolves.toBeOnTheScreen();
+    const field = screen.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Nothing like this');
+    await expect(screen.findByText('No Results')).resolves.toBeOnTheScreen();
+    held.resolve(undefined);
+    await act(() => first);
+    await app.unmount();
+  });
+
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {
     expect.hasAssertions();
     const inbox = createInboxStore(
