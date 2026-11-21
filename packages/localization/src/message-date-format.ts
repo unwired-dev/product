@@ -101,7 +101,9 @@ export function createMessageDateFormats(locale: string, timeZone: string) {
       clock
         .formatToParts(at)
         .map(({ type, value }) =>
-          type === 'hour' && value.length > zero.length && value.startsWith(zero)
+          type === 'hour' &&
+          value.length > zero.length &&
+          value.startsWith(zero)
             ? value.slice(zero.length)
             : value,
         )

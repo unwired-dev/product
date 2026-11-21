@@ -29,12 +29,15 @@ let shownMinute = currentMinute();
 let minuteTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 const tickMinute = () => {
   shownMinute = currentMinute();
-  minuteTimer = setTimeout(() => {
-    tickMinute();
-    for (const listener of minuteListeners) {
-      listener();
-    }
-  }, shownMinute + minute - Date.now());
+  minuteTimer = setTimeout(
+    () => {
+      tickMinute();
+      for (const listener of minuteListeners) {
+        listener();
+      }
+    },
+    shownMinute + minute - Date.now(),
+  );
 };
 const subscribeMinute = (notify: () => void) => {
   minuteListeners.add(notify);
