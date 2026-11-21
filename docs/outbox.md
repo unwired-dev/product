@@ -156,7 +156,8 @@ it.
   Mailboxes on iPhone ([#2589](https://github.com/unwired-dev/product/issues/2589)).
   Selecting it lists its messages under the heading **Outbox** and a subtitle such
   as **3 waiting · 1 needs attention**, counting the messages Not sent; a search
-  lists matching mail instead. **View in Outbox** opens it. The Inbox column lists
+  lists matching mail instead. **View in Outbox** opens it. On iPhone and iPad,
+  selecting it or View in Outbox ends a search. The Inbox column lists
   no Outbox, and when the last message leaves while the Outbox is selected, the
   list returns to All Inboxes. Each row names its
   subject and recipients and says where the message stands. On iPhone the row shows

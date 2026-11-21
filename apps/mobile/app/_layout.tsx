@@ -400,7 +400,8 @@ function MailShell() {
   const [inboxVisible, setInboxVisible] = useState(false);
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
-  // Set each time View in Outbox shows the Outbox, which ends a search that would list mail instead.
+  // Set each time View in Outbox or Mailboxes shows the Outbox, which ends a search that would list
+  // mail instead.
   const [outboxShown, setOutboxShown] = useState<object>();
 
   // A collapsed split view keeps showing a column until told otherwise, so leaving the reader
@@ -548,6 +549,11 @@ function MailShell() {
                         onView={(next) => {
                           setView(next);
                           // On iPhone a Mailbox opens its list; beside it, the list is already shown.
+                          splitView.current?.show('supplementary');
+                        }}
+                        onOutbox={() => {
+                          setView({ outbox: true });
+                          setOutboxShown({});
                           splitView.current?.show('supplementary');
                         }}
                         onCompose={compose}

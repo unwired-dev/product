@@ -925,9 +925,8 @@ export function Inbox({
         : messageDateSections(inboxRows, now),
     [searching, results, inboxRows, now],
   );
-  const outboxChosen = view.outbox === true;
   const outboxView = useOutboxView({
-    chosen: outboxChosen,
+    chosen: view.outbox === true,
     onEmptied: () => {
       onView(allInboxes);
     },
@@ -994,12 +993,6 @@ export function Inbox({
     scrolledFor.current = outboxShown;
     scrollToOutbox();
   }, [outboxShown, searching]);
-  // Choosing the Outbox ends a search, which would list mail instead.
-  useEffect(() => {
-    if (outboxChosen) {
-      closeSearch();
-    }
-  }, [outboxChosen]);
   // Rows render again when the selection or a result's saved state changes.
   const rows = useMemo(
     () => ({ selected, saved, composing }),

@@ -560,12 +560,15 @@ function FolderRows({
 export function Mailboxes({
   view,
   onView,
+  onOutbox,
   onProfile,
   onCompose,
   bar,
 }: {
   readonly view: MailboxView;
   readonly onView: (view: MailboxView) => void;
+  // Shows the Outbox, ending a search, each time it is chosen; Mailboxes without it offer none.
+  readonly onOutbox?: () => void;
   // Switches the window to another Mail Profile.
   readonly onProfile: (profile: string) => void;
   // Opens a new Draft's composer from iPhone's New Message; none where Mailboxes offers no composer.
@@ -763,16 +766,16 @@ export function Mailboxes({
                         onView({ unified: role });
                       }}
                     />
-                    {role === 'SENT' && outbox.length > 0 ? (
+                    {role === 'SENT' &&
+                    onOutbox !== undefined &&
+                    outbox.length > 0 ? (
                       <>
                         {separator}
                         <Item
                           icon="tray.and.arrow.up"
                           label={t('outbox.heading')}
                           selected={view.outbox === true}
-                          onPress={() => {
-                            onView({ outbox: true });
-                          }}
+                          onPress={onOutbox}
                         />
                       </>
                     ) : null}
