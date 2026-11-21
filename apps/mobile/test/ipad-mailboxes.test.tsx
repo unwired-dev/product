@@ -1,8 +1,21 @@
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { Platform } from 'react-native';
 
+import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
-import { singleMailbox } from '@private-email/mail-core/mailboxes';
-import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import {
+  createMailboxes,
+  singleMailbox,
+} from '@private-email/mail-core/mailboxes';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import {
+  createSyntheticGmail,
+  syntheticConnections,
+} from '@private-email/mail-core/testing/gmail-mailbox';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
 import {
   act,
   fireEvent,
@@ -14,6 +27,7 @@ import {
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
+import { InboxPreferencesContext } from '../src/list-density.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import {
@@ -141,6 +155,90 @@ describe('iPad Mailboxes', () => {
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
     ).toHaveAccessibilityValue({ text: '1 unread' });
     expect(screen.getByText('1 unread · Gmail needs sign-in')).toBeVisible();
+  });
+
+  it('leaves a hidden account out of the All Inboxes subtitle and Filters', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const shown = createSyntheticGmail({ address: 'alex@example.invalid' });
+    shown.deliver({ subject: 'Shown' });
+    const hidden = createSyntheticGmail({ address: 'other@example.invalid' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: shown, [other]: hidden }),
+      registration,
+    );
+    await mailboxes.load();
+    const kept = { revision: 0, document: null as string | null };
+    const store = createInboxPreferences(
+      {
+        openInboxPreferences: () =>
+          Promise.resolve({ owner: 'synthetic-product-account', ...kept }),
+        commitInboxPreferences: (owner, expectedRevision, document) => {
+          Object.assign(kept, { revision: expectedRevision + 1, document });
+          return Promise.resolve({ owner, revision: kept.revision });
+        },
+      },
+      registration,
+    );
+    await store.load();
+    await store.showSection(defaultProfile, other, false);
+    await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await screen.findByText('Shown');
+    // The hidden account is still checking its server.
+    const request = hidden.native.gmailRequest;
+    const held = Promise.withResolvers<undefined>();
+    hidden.native.gmailRequest = async (...args) => {
+      await held.promise;
+      return request(...args);
+    };
+    let synchronized = Promise.resolve();
+    await act(async () => {
+      synchronized = mailboxes.load();
+      await Promise.resolve();
+    });
+    // Its one shown account names the scope, and the hidden one leaves the status as it is.
+    await expect(
+      screen.findByText(/^alex@example\.invalid · 1 unread · Updated/u),
+    ).resolves.toBeVisible();
+
+    await fireEvent.press(screen.getByRole('togglebutton', { name: 'Filter' }));
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Filtered by Unread' }),
+    );
+    expect(screen.getByRole('header', { name: 'Filters' })).toBeVisible();
+    expect(screen.queryAllByText(/other@example\.invalid/u)).toStrictEqual([]);
+    held.resolve(undefined);
+    await act(() => synchronized);
   });
 
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {

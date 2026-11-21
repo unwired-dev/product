@@ -471,11 +471,12 @@ export function createHost(
       removed,
       // A connection its Mail Profile hides in the sidebar, here or on another device first, is
       // muted: it posts none, nor does any while the preferences cannot be read here or pulled
-      // from Private Sync.
-      arrived: async (mailbox, messages, eligible) => {
-        await inboxPreferences.synchronize();
-        await inboxPreferences.load();
-        await notifications.arrived(mailbox, messages, () => {
+      // from Private Sync. They are synchronized once the notification settings are read, so a
+      // hide that arrived meanwhile counts.
+      arrived: (mailbox, messages, eligible) =>
+        notifications.arrived(mailbox, messages, async () => {
+          await inboxPreferences.synchronize();
+          await inboxPreferences.load();
           const profile = mailbox.profile() ?? '';
           const sections = inboxPreferences.sections(profile);
           return (
@@ -484,8 +485,7 @@ export function createHost(
             sections !== undefined &&
             sectionShown(sections, mailbox.connection)
           );
-        });
-      },
+        }),
       screen: blockedSenders.screen,
       // A Pin follows its IMAP message to the ID a move gave it.
       relocated: (connection, from, to) => pins.move(connection, from, to),

@@ -548,9 +548,12 @@ describe('the host assembly', () => {
     expect(notified).toStrictEqual([]);
   });
 
-  it('mutes a connection another Trusted Device hid before its next new mail posts', async () => {
+  it('mutes a connection another Trusted Device hid while its next new mail waited to post', async () => {
     expect.hasAssertions();
-    const { host, native, gmail, notified } = syntheticHost(undefined, true);
+    const { host, native, gmail, notified, settingsGate } = syntheticHost(
+      undefined,
+      true,
+    );
     await host.registration.register('google');
     await host.registration.addMailbox();
     await host.gmailMailboxes.load();
@@ -563,7 +566,17 @@ describe('the host assembly', () => {
       expect(notified).toHaveLength(1);
     });
 
-    // Another device hides the connection; only Private Sync carries the hide here.
+    // Another device hides the connection while the notification settings are read; only
+    // Private Sync carries the hide here.
+    const settings = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    settingsGate.held = settings.promise;
+    settingsGate.started = () => {
+      reading.resolve(undefined);
+    };
+    gmail.deliver({ subject: 'Hidden elsewhere' });
+    const loading = host.gmailMailboxes.load();
+    await reading.promise;
     const preferences = JSON.stringify({
       profile: defaultProfile,
       fields: {
@@ -584,8 +597,9 @@ describe('the host assembly', () => {
         unreadable: [],
       }),
     );
-    gmail.deliver({ subject: 'Hidden elsewhere' });
-    await host.gmailMailboxes.load();
+    settingsGate.held = undefined;
+    settings.resolve(undefined);
+    await loading;
     expect(notified).toHaveLength(1);
   });
 

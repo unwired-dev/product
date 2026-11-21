@@ -812,7 +812,8 @@ const authorizer = (
 // All Inboxes, its sign-in notices, and search there or widened to every Inbox, leave out every
 // connection the Profile hides, and every one until the Profile's preferences are read: `unhidden`
 // keeps the others, `inboxes` also the one the view scopes to, `waiting` is what of `waiting` the
-// list names, and `searched` is what of `shown` search covers and the list reports the state of.
+// list names, and `searched` is what of `shown` search covers, Filters offers and the list reports
+// the state of.
 function useShownInboxes<W extends Readonly<{ id: string }>>({
   mailboxes,
   shown,
@@ -986,7 +987,12 @@ export function Inbox({
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
   const now = useNow();
-  const filtering = useInboxFilter({ scope, mailboxes, listed, now });
+  const filtering = useInboxFilter({
+    scope,
+    mailboxes: searchedMailboxes,
+    listed,
+    now,
+  });
   const inboxRows = filtering.rows;
   // Search keeps iPad's day groups beneath Top Results; iPhone lists matches without dividers.
   const dated = useMemo(
@@ -1087,7 +1093,7 @@ export function Inbox({
     waiting,
     chosen: chosenWaiting !== undefined,
   });
-  const status = statusOf(t, shown, {
+  const status = statusOf(t, searchedMailboxes, {
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,

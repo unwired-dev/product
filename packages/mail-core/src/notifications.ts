@@ -170,7 +170,7 @@ class NotificationNativeFailure extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()('NotificationNativeFailure', { cause: Schema.Defect() }) {}
 
-const call = (request: () => Promise<unknown>) =>
+const call = <A>(request: () => Promise<A>) =>
   Effect.tryPromise({
     try: request,
     catch: (cause) => new NotificationNativeFailure({ cause }),
@@ -379,12 +379,12 @@ export function createNotifications(
           call(() => native.openNotificationSettings()),
         ),
       ),
-    // `eligible` is checked again after reading the settings, just before posting: the
-    // connection may have been removed or turned off meanwhile.
+    // `eligible` is asked after reading the settings, just before posting: the connection may
+    // have been removed, turned off or hidden meanwhile.
     arrived: (
       { profile: currentProfile, address, ...mailbox }: Arrival,
       messages: readonly ArrivedMessage[],
-      eligible: () => boolean,
+      eligible: () => Promise<boolean>,
     ) =>
       runLogged(
         logged(
@@ -398,7 +398,7 @@ export function createNotifications(
             if (current.authorization !== 'authorized') {
               return yield* notPosted(`authorization ${current.authorization}`);
             }
-            if (!eligible()) {
+            if (!(yield* call(eligible))) {
               return yield* notPosted(
                 'connection closed or turned off meanwhile',
               );
