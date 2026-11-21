@@ -1159,6 +1159,22 @@ describe('profile-scoped mobile routes', () => {
         screen.findByRole('button', { name: 'Expand' }),
       ).resolves.toBeVisible();
       expect(sheet()).toBeNull();
+      // Another Draft replacing that card in a narrowed window opens as the sheet.
+      dimensions.mockReturnValue({
+        width: 393,
+        height: 852,
+        scale: 3,
+        fontScale: 1,
+      });
+      await app.rerender(view());
+      await fireEvent(
+        screen.getByTestId('mail-split', { includeHiddenElements: true }),
+        'collapse',
+      );
+      await act(() => {
+        route.router.setParams({ draft: 'missing-draft' });
+      });
+      expect(sheet()).toHaveProp('visible', true);
     } finally {
       await app.unmount();
       dimensions.mockRestore();

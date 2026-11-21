@@ -128,8 +128,10 @@ results never appear in the palette. The vocabulary lives in the
   header, the composer's top bar and the Account page's title row, and at the
   top of a reader, Thread or composer that is loading, cannot open its storage
   or has no message or Draft to show, so one is on screen in every size class,
-  including compact layouts that show only the reader or composer; tapping it
-  or the header swipe opens the palette. Command-K from a hardware keyboard is
+  including compact layouts that show only the reader. A compact window's
+  composer is the system sheet, which offers no palette, as on iPhone
+  ([#2645](https://github.com/unwired-dev/product/issues/2645)); tapping the
+  input or the header swipe opens the palette. Command-K from a hardware keyboard is
   deferred: React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen

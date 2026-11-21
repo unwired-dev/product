@@ -305,15 +305,16 @@ function ComposerSheet({
 // covers the window when it narrows.
 function useSheetHost(draft: string | undefined, regular: boolean) {
   const compact = !ipad || !regular;
-  const [sheet, setSheet] = useState(compact);
-  const [open, setOpen] = useState(draft !== undefined);
-  if (open !== (draft !== undefined)) {
-    setOpen(draft !== undefined);
-    if (draft !== undefined) {
-      setSheet(compact);
-    }
+  const [host, setHost] = useState({ draft, sheet: compact });
+  // A conflict copy replaces the open Draft in place, in the same host.
+  const [rebound, setRebound] = useState<string>();
+  if (draft !== host.draft) {
+    setHost({
+      draft,
+      sheet: draft === undefined || draft === rebound ? host.sheet : compact,
+    });
   }
-  return sheet;
+  return { sheet: host.sheet, rebind: setRebound };
 }
 
 // Whether the open Draft answers a message.
@@ -400,7 +401,7 @@ function MailShell() {
     folder?: string;
     draft?: string;
   }>();
-  const sheet = useSheetHost(draft, regular);
+  const { sheet, rebind } = useSheetHost(draft, regular);
   // The open Draft of the in-window composer.
   const overlay = sheet ? undefined : draft;
   const composerLayout = useMemo(
@@ -595,6 +596,7 @@ function MailShell() {
           }
         }}
         onRebind={(copy) => {
+          rebind(copy);
           recovery.follow(copy);
           composing.current = copy;
           router.setParams({ draft: copy });

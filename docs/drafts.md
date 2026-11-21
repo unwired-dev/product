@@ -561,11 +561,11 @@ This also applies to authored edits arriving after an empty Draft was closed;
 an empty late edit creates no copy. A completed explicit discard suppresses
 later events from the editor that discarded it.
 
-On iPhone the composer is the system page sheet over the Inbox or reader it was started from, so
-their system **Back** and edge swipe cannot leave it. Swiping the sheet down is **Close**: the
-system holds the sheet up while the composer decides, so an unchanged Draft closes, an empty one
-is removed, and changed content asks **Delete Draft** or **Save Draft** with the sheet still open
-(#2610). The sheet is React Native's page sheet, whose size, corners and motion are the system's;
+On iPhone and in a compact iPad window the composer is the system page sheet over the Inbox or
+reader it was started from, so their system **Back** and edge swipe cannot leave it. Swiping the
+sheet down is **Close**: the system holds the sheet up while the composer decides, so an unchanged
+Draft closes, an empty one is removed, and changed content asks **Delete Draft** or **Save Draft**
+with the sheet still open (#2610, #2645). The sheet is React Native's page sheet, whose size, corners and motion are the system's;
 it shows no grabber, which the frames draw, because that component offers none.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
