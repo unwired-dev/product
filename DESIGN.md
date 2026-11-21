@@ -822,9 +822,10 @@ app follows under the issue named:
   frames, wait for #2106.
 - **Message list header:** the iPhone frames' List/Chat toggle beside the title
   waits for #810. Their **…** menu waits for an issue that names what it offers.
-- **iPhone composer:** the frames draw the composer as a sheet, as
+- **Compact iPad composer:** the frames draw the composer in a compact iPad
+  window as the same sheet as on iPhone, as
   [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) now
-  decides. The app pushes it onto the navigation stack until #2113.
+  decides. The app covers the window with it until the rest of #2113.
 - **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); on
   iPhone and iPad it lists Remind Me to Send… (#2136). Send and Archive, Send
   Now and Send Later wait for #1673, #1674 and #1262.

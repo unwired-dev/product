@@ -508,6 +508,18 @@ iPhone's in the Format panel and iPad's on the format bar, is off there and **Ou
 Outdent moves the item out and one **Undo** nests it again. The capture "Nested list" is named with
 the appearance.
 
+## iPhone composer sheet journey
+
+`testComposerSheet` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testComposerSheet` on iPhone. It connects the synthetic Gmail mailbox and opens
+New Message as the system page sheet over the Inbox, whose rows are out of reach while it is up
+([#2610](https://github.com/unwired-dev/product/issues/2610)). Swiping the untouched sheet down
+closes it. With a Subject typed, the same swipe asks **Save Draft** while the sheet and its text
+stay, and no Command Palette opens; **Save Draft** closes it. A third New Message to
+`maya@example.invalid` keeps its fields above the keyboard and sends. The captures "Composer
+sheet", "Composer sheet asks before closing" and "Composer sheet with keyboard" are named with the
+appearance.
+
 ## iPhone and iPad Apple registration journey
 
 The Expo native journey for a `registration-apple` Release build signs in with
