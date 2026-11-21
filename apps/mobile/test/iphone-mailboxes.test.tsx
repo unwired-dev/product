@@ -604,6 +604,53 @@ describe('iPhone Mailboxes', () => {
     await app.unmount();
   });
 
+  it('names no hidden account in All Inboxes, even when it is the only one', async () => {
+    expect.hasAssertions();
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const gmail = createSyntheticGmail({ address: 'other@example.invalid' });
+    gmail.deliver({ subject: 'From the hidden account' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [other]: gmail }),
+      registration,
+    );
+    await mailboxes.load();
+    const store = preferences()();
+    await store.load();
+    await store.showSection(defaultProfile, other, false);
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await app.findByText('No Mail');
+    expect(app.queryAllByText(/other@example\.invalid/u)).toStrictEqual([]);
+    await app.unmount();
+  });
+
   it('scrolls the list while an account or a Favorites row is dragged at its edge, but not while a handle is only held there', async () => {
     expect.hasAssertions();
     const alex = syntheticMailboxes['alex@example.invalid'];

@@ -1059,7 +1059,8 @@ export function Inbox({
   );
   const ready = shown.some(({ state }) => state.kind === 'ready');
   const syncing = shown.some(({ state }) => checking(state));
-  const scopeName = scopeOf(t, shown, {
+  // A hidden connection's name stays out of All Inboxes, as its mail does.
+  const scopeName = scopeOf(t, inboxes, {
     unified: view.unified !== undefined,
     several,
     gmail,
