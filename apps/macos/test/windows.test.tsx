@@ -1609,6 +1609,38 @@ describe('mac window selection with the shared mock mailbox', () => {
     await fireEvent(handle, 'responderGrant', touch);
     await fireEvent(handle, 'responderRelease', touch);
     expect(editRows()).toStrictEqual(edited);
+    // A drag keeps the place it started from when another window reorders the rows before the
+    // first move: Trash, grabbed fifth, dragged one row up lands fourth.
+    const up = { ...touch, nativeEvent: { ...touch.nativeEvent, pageY: -28 } };
+    const moveAllMail = (actionName: string) =>
+      fireEvent(
+        app.getByRole('button', { name: 'All Mail' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName } },
+      );
+    await fireEvent(handle, 'responderGrant', touch);
+    await moveAllMail('Move Down');
+    await fireEvent(
+      handleOf(app.getByRole('button', { name: 'Trash' })),
+      'responderMove',
+      up,
+    );
+    await fireEvent(
+      handleOf(app.getByRole('button', { name: 'Trash' })),
+      'responderRelease',
+      up,
+    );
+    await waitFor(() => {
+      expect(editRows().slice(2, 5)).toStrictEqual([
+        'Archive Shown',
+        'Trash Shown',
+        'All Mail Shown',
+      ]);
+    });
+    await moveAllMail('Move Up');
+    await waitFor(() => {
+      expect(editRows()).toStrictEqual(edited);
+    });
     await fireEvent.press(app.getByRole('button', { name: 'Done' }));
     // Hiding the selected Spam selected the first row still shown.
     expect({
