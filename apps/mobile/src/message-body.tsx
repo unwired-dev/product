@@ -48,6 +48,7 @@ import {
 } from '@private-email/mail-core/link-inspection';
 import {
   decodeMessageContentSize,
+  decodeMessageFitShift,
   decodeRemoteImagePositions,
   labelImagePlaceholders,
 } from '@private-email/mail-core/message-body';
@@ -83,12 +84,18 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
-import { useMessageZoom, zoomedDocument } from './reading.ts';
+import {
+  fittedDocument,
+  useFitWideMessages,
+  useMessageZoom,
+  zoomedDocument,
+} from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
 
-// A taller document scrolls inside its view instead of the reader.
+// A taller document scrolls inside its view instead of the reader. The patched WebView's
+// measurement repeats this cap.
 const heightCap = 20_000;
 
 // A link awaiting confirmation, with the check that its body is still the one on screen and the
@@ -478,16 +485,18 @@ export function ReaderScrollView({
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
 // images within one viewport of the visible range are reported as they come near. The document
-// takes the reader's Message Zoom.
+// takes the reader's Message Zoom and, with `fit`, shrinks a wider document to the view's width.
 function RichDocument({
   rich,
   zoom,
+  fit,
   onChoose,
   onFailure,
   onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
   readonly zoom: number;
+  readonly fit: boolean;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
@@ -497,15 +506,16 @@ function RichDocument({
   // The laid-out width; a later different width lays the document out and measures it again.
   const [width, setWidth] = useState<number>();
   // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
-  const [source] = useState(() => ({
-    html: zoomedDocument(
+  const [source] = useState(() => {
+    const html = zoomedDocument(
       labelImagePlaceholders(
         rich.initialDocument,
         t('messageBody.imageNotLoaded'),
       ),
       zoom,
-    ),
-  }));
+    );
+    return { html: fit ? fittedDocument(html) : html };
+  });
   const container = useRef<ViewInstance>(null);
   const viewport = use(ReaderViewportContext);
   const [layout, setLayout] = useState(0);
@@ -516,6 +526,14 @@ function RichDocument({
   >([]);
   // How far the view has scrolled inside its document and its pinch zoom, and the check it reruns.
   const inner = useRef({ offset: 0, scale: 1 });
+  // The reader offset to restore once a refit's new height lays out.
+  const anchor = useRef<number>(undefined);
+  useLayoutEffect(() => {
+    if (anchor.current !== undefined) {
+      viewport?.scrollTo(anchor.current);
+      anchor.current = undefined;
+    }
+  });
   const near = useRef<() => void>(undefined);
   // The shown view's `layout`, advanced as soon as it is replaced so its late events are ignored.
   const live = useRef(0);
@@ -622,6 +640,8 @@ function RichDocument({
           allowsInlineMediaPlayback={false}
           allowsLinkPreview={false}
           cacheEnabled={false}
+          // iPad's desktop mode would zoom a wide document out itself and leave its height unscaled.
+          contentMode="mobile"
           dataDetectorTypes="none"
           incognito
           javaScriptCanOpenWindowsAutomatically={false}
@@ -630,11 +650,49 @@ function RichDocument({
           onContentProcessDidTerminate={onFailure}
           onContentSizeChange={(event: WebViewEvent): void => {
             const measured = decodeMessageContentSize(event.nativeEvent);
-            if (measured !== undefined && layout === live.current) {
+            if (measured === undefined || layout !== live.current) {
+              return;
+            }
+            const apply = () => {
               setPositions(decodeRemoteImagePositions(event.nativeEvent));
               setHeight(measured.height);
               setContentWidth(measured.width);
+            };
+            const shift = decodeMessageFitShift(event.nativeEvent);
+            const content = viewport?.content();
+            if (
+              shift === 0 ||
+              height === undefined ||
+              viewport === undefined ||
+              !content
+            ) {
+              apply();
+              return;
             }
+            // A refit to a new scale keeps the text at the top of the reader in place.
+            container.current?.measureLayout(content, (_left, top) => {
+              if (layout !== live.current) {
+                return;
+              }
+              const read = viewport.get().offset - top;
+              if (read > 0 && read < Math.min(height, heightCap)) {
+                const next =
+                  top +
+                  Math.max(
+                    0,
+                    Math.min(
+                      read + shift,
+                      Math.min(measured.height, heightCap),
+                    ),
+                  );
+                if (measured.height === height) {
+                  viewport.scrollTo(next);
+                } else {
+                  anchor.current = next;
+                }
+              }
+              apply();
+            });
           }}
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
@@ -689,6 +747,7 @@ export function Presentation({
   const { t } = useLocalization();
   const { rich, readable } = presentation;
   const zoom = useMessageZoom();
+  const fit = useFitWideMessages();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
     document: rich?.initialDocument,
@@ -738,9 +797,10 @@ export function Presentation({
       ) : (
         <>
           <RichDocument
-            key={`${richKey}:${zoom}`}
+            key={`${richKey}:${zoom}:${fit}`}
             rich={rich}
             zoom={zoom / 100}
+            fit={fit}
             onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {

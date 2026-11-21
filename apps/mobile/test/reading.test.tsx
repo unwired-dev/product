@@ -96,4 +96,28 @@ describe('settings › Reading', () => {
       kept: 150,
     });
   });
+
+  it('marks received formatted mail to fit the reader until the switch is turned off', async () => {
+    expect.hasAssertions();
+    await openReader();
+    // WebKit shrinks a document carrying the app's fit style to the reader's width.
+    const fits = async () => {
+      const webview = await screen.findByTestId('message-webview');
+      const html: string = webview.props.source.html;
+      return html.includes('<style>:root{--unwired-fit:1}');
+    };
+    const fitSwitch = screen.getByLabelText('Fit Wide Messages to the Screen');
+    const initial = { on: fitSwitch.props.value, fits: await fits() };
+    await fireEvent(fitSwitch, 'valueChange', false);
+
+    expect({
+      initial,
+      off: await fits(),
+      kept: Settings.get('UnwiredFitWideMessages'),
+    }).toStrictEqual({
+      initial: { on: true, fits: true },
+      off: false,
+      kept: false,
+    });
+  });
 });
