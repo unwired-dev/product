@@ -647,7 +647,8 @@ function EditFavorites({
         }}
         onDrop={(dy) => {
           setDrag(undefined);
-          if (dy !== undefined && place(start, dy) !== start) {
+          // Compared with the row's stored place, which another window may have changed.
+          if (dy !== undefined && place(start, dy) !== index) {
             onMove(row, () => place(start, dy));
           }
         }}
