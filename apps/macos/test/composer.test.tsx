@@ -1104,6 +1104,15 @@ describe('composing Drafts', () => {
         nativeEvent: { key: 'Tab', ctrlKey: true, metaKey: false },
       });
       shows(`• Plan\n${nesting}• Seats`);
+      // The text view reports no selection it was given, so the controls follow the moved caret:
+      // after Plan moves out, the caret stays on Plan's line, not Seats' third level.
+      await select(0, 16);
+      await press('Indent');
+      await select(8);
+      await tab(true);
+      shows(`• Plan\n${nesting}${nesting}• Seats`);
+      expect(level('Outdent')).toBeDisabled();
+      expect(offered()).toStrictEqual([false, true]);
       // A composer that goes away withdraws the menu items.
       await screen.unmount();
       expect(indents).toHaveBeenLastCalledWith(bodyID, false, false);

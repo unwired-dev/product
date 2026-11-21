@@ -3050,6 +3050,13 @@ function Editor({
   const selectionNow = useRef(selection);
   // Where the editor must place the caret after a change it did not type itself.
   const [placed, setPlaced] = useState<Selection>();
+  // The text view reports no selection the editor places, so the format controls follow it here.
+  const place = (next: Selection | undefined) => {
+    setPlaced(next);
+    if (next !== undefined) {
+      setSelection(next);
+    }
+  };
   const bodyInput = useRef<TextInput>(null);
   // The Link Editor's fields take focus from the body, which then drops its selection; the
   // selection is kept, and Escape, Apply or Remove Link put it back with focus.
@@ -3264,7 +3271,7 @@ function Editor({
     if (prepared.selection !== undefined) {
       caret.current = prepared.selection.start;
       selectionNow.current = prepared.selection;
-      setPlaced(prepared.selection);
+      place(prepared.selection);
     }
     for (const { asset, file } of prepared.imports) {
       void store.importAsset(asset, file.source);
@@ -3353,7 +3360,7 @@ function Editor({
     if (result.selection !== undefined) {
       caret.current = result.selection.start;
       selectionNow.current = result.selection;
-      setPlaced(result.selection);
+      place(result.selection);
     }
     recipientMenu.typed(
       result.document,
@@ -3397,7 +3404,7 @@ function Editor({
     change({ ...latest, body: result.document });
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
-    setPlaced(result.selection);
+    place(result.selection);
   };
   const closeCaptured = () => {
     if (
@@ -3445,7 +3452,7 @@ function Editor({
     const result = setBlockKind(latest.body, at, kind);
     change({ ...latest, body: result.document });
     selectionNow.current = result.selection ?? at;
-    setPlaced(result.selection);
+    place(result.selection);
   };
   const indent = (direction: IndentDirection) => {
     if (pausedNow.current) {
@@ -3459,7 +3466,7 @@ function Editor({
     }
     change({ ...latest, body: result.document });
     selectionNow.current = result.selection ?? at;
-    setPlaced(result.selection);
+    place(result.selection);
   };
   const editLink = (link: Link, text: string, href?: string) => {
     if (pausedNow.current) {
@@ -3470,7 +3477,7 @@ function Editor({
     change({ ...latest, body: result.document });
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
-    setPlaced(result.selection);
+    place(result.selection);
   };
   const insertTemplate = (template: MailTemplate) => {
     if (pausedNow.current) {
@@ -3485,7 +3492,7 @@ function Editor({
     });
     placeTyping(undefined);
     selectionNow.current = applied.edit.selection ?? selectionNow.current;
-    setPlaced(applied.edit.selection);
+    place(applied.edit.selection);
   };
   // Entries still being typed become recipients as one undoable correction; invalid text stays
   // in its field. Returns the finished Draft.
@@ -3686,7 +3693,7 @@ function Editor({
     placeTyping(undefined);
     caret.current = result.selection.start;
     selectionNow.current = result.selection;
-    setPlaced(result.selection);
+    place(result.selection);
     AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
   };
   const tabsIndent = listTabsOn(
