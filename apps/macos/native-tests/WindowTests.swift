@@ -2733,14 +2733,17 @@ final class WindowTests: XCTestCase {
     let badge = settings.popUpButtons["Dock Badge"]
     XCTAssertTrue(badge.waitForExistence(timeout: 15))
     XCTAssertEqual(badge.value as? String, "Off")
+    // Each run's disposable identity asks for permission again. Another copy of the app shares
+    // its name, so the one request that appears after the choice is this run's.
+    let center = XCUIApplication(bundleIdentifier: "com.apple.notificationcenterui")
+    let requests = center.groups.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "“Unwired Mail” Notifications"))
+    XCTAssertEqual(requests.count, 0)
     badge.click()
     app.menuItems["Unread in Inbox"].click()
-    // Each run's disposable identity asks for permission again; allow only this app's request.
-    let center = XCUIApplication(bundleIdentifier: "com.apple.notificationcenterui")
-    let request = center.groups.matching(
-      NSPredicate(format: "label BEGINSWITH %@", "“Unwired Mail” Notifications")
-    ).firstMatch
+    let request = requests.firstMatch
     XCTAssertTrue(request.waitForExistence(timeout: 15))
+    XCTAssertEqual(requests.count, 1)
     // The banner shows Options while the pointer is over it. Its menu (Allow, Don't Allow) is not
     // in the accessibility tree, so Allow is chosen from the keyboard.
     request.hover()
