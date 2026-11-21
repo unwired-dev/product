@@ -105,10 +105,14 @@ async function hiddenAccount(
     registration,
   );
   const kept = { revision: 0, document: null as string | null };
+  // While `reads.fail` is set, reading the preferences fails.
+  const reads = { fail: false };
   const store = createInboxPreferences(
     {
       openInboxPreferences: () =>
-        Promise.resolve({ owner: 'synthetic-product-account', ...kept }),
+        reads.fail
+          ? Promise.reject(new Error('Preferences unreadable'))
+          : Promise.resolve({ owner: 'synthetic-product-account', ...kept }),
       commitInboxPreferences: (owner, expectedRevision, document) => {
         Object.assign(kept, { revision: expectedRevision + 1, document });
         return Promise.resolve({ owner, revision: kept.revision });
@@ -135,7 +139,7 @@ async function hiddenAccount(
       </InboxPreferencesContext>
     </AccountContext>
   );
-  return { alex, other, shown, hidden, mailboxes, store, tree };
+  return { alex, other, shown, hidden, mailboxes, store, reads, tree };
 }
 
 describe('iPad Mailboxes', () => {
@@ -368,9 +372,9 @@ describe('iPad Mailboxes', () => {
     },
   );
 
-  it('takes no loading or No Mail from a hidden account while the only shown one waits for sign-in', async () => {
+  it('takes no loading or No Mail from a hidden account while the only shown one waits for sign-in, nor after a failed reread', async () => {
     expect.hasAssertions();
-    const { hidden, mailboxes, tree } = await hiddenAccount(
+    const { hidden, mailboxes, store, reads, tree } = await hiddenAccount(
       'authorization',
       'connected',
     );
@@ -392,10 +396,14 @@ describe('iPad Mailboxes', () => {
     const loading = screen.queryByLabelText('Loading Inbox');
     held.resolve(undefined);
     await act(() => first);
-    expect({ loading, empty: screen.queryByText('No Mail') }).toStrictEqual({
-      loading: null,
-      empty: null,
-    });
+    const empty = screen.queryByText('No Mail');
+    reads.fail = true;
+    await act(() => store.load());
+    expect({
+      loading,
+      empty,
+      reread: screen.queryByText('No Mail'),
+    }).toStrictEqual({ loading: null, empty: null, reread: null });
     await app.unmount();
   });
 
