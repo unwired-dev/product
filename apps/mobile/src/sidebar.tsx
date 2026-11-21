@@ -51,6 +51,7 @@ import { BarSpacer, FloatingBar, NewMessageButton } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-state.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
+import { useProfileOutbox } from './outbox.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { SidebarToggle } from './sidebar-toggle.tsx';
@@ -62,12 +63,14 @@ import {
   useProfilePalette,
 } from './theme.ts';
 
-// What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, or a
-// Unified Mailbox of every mailbox. The Inbox folder is the default of a mailbox.
+// What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, a
+// Unified Mailbox of every mailbox, or the Profile's Outbox. The Inbox folder is the default of a
+// mailbox.
 export type MailboxView = Readonly<{
   mailbox?: string | undefined;
   folder?: string | undefined;
   unified?: UnifiedRole | undefined;
+  outbox?: boolean | undefined;
 }>;
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
@@ -551,8 +554,9 @@ function FolderRows({
   );
 }
 
-// The Mailboxes of the window's Profile: every Inbox together, then each Mailbox Connection with
-// its folders, and Settings last.
+// The Mailboxes of the window's Profile: every Inbox together, the Unified Mailboxes with the
+// Outbox after Sent while it holds a message, then each Mailbox Connection with its folders, and
+// Settings last.
 export function Mailboxes({
   view,
   onView,
@@ -573,6 +577,7 @@ export function Mailboxes({
   const account = use(AccountContext);
   const profile = useProfile();
   const reload = useReloadMailboxes();
+  const outbox = useProfileOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
   const header = usePaletteHeader();
@@ -727,23 +732,25 @@ export function Mailboxes({
                 icon="tray.2"
                 label={t('inbox.allInboxes')}
                 count={sidebar.unread}
-                selected={sidebar.allSelected}
+                selected={sidebar.allSelected && view.outbox !== true}
                 onPress={() => {
                   onView({});
                 }}
               />
               {unifiedRoles.map((role) => {
                 const { title, icon } = unifiedRow(t, role);
+                // iPhone's grouped rows are divided by hairlines.
+                const separator = compact ? (
+                  <View
+                    style={[
+                      styles.separator,
+                      { backgroundColor: colors.separator },
+                    ]}
+                  />
+                ) : null;
                 return (
                   <Fragment key={role}>
-                    {compact ? (
-                      <View
-                        style={[
-                          styles.separator,
-                          { backgroundColor: colors.separator },
-                        ]}
-                      />
-                    ) : null}
+                    {separator}
                     <Item
                       icon={icon}
                       label={title}
@@ -756,6 +763,19 @@ export function Mailboxes({
                         onView({ unified: role });
                       }}
                     />
+                    {role === 'SENT' && outbox.length > 0 ? (
+                      <>
+                        {separator}
+                        <Item
+                          icon="tray.and.arrow.up"
+                          label={t('outbox.heading')}
+                          selected={view.outbox === true}
+                          onPress={() => {
+                            onView({ outbox: true });
+                          }}
+                        />
+                      </>
+                    ) : null}
                   </Fragment>
                 );
               })}

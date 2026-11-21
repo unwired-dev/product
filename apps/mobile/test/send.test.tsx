@@ -30,12 +30,15 @@ import {
 import { Profiler, useState } from 'react';
 import { AccessibilityInfo, Alert, AppState } from 'react-native';
 
+import type { MailboxView } from '../src/sidebar.tsx';
+
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AssistanceContext } from '../src/message-summary.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
+import { Mailboxes } from '../src/sidebar.tsx';
 import { remindFromSendMenu, sendMenuItem } from './send-menu.tsx';
 import { choose } from './system-menu.tsx';
 import {
@@ -111,6 +114,7 @@ function App({
   readonly listed?: ReturnType<typeof mailboxesOf>;
 }) {
   const [composing, setComposing] = useState<string>();
+  const [view, setView] = useState<MailboxView>({});
   return (
     <CommandPaletteProvider>
       <AccountContext
@@ -129,11 +133,18 @@ function App({
           mailboxes={sender.mailboxes}
           sendReminders={sender.reminders}
           outbox={sender.outbox}>
+          <Mailboxes
+            view={view}
+            onView={setView}
+            onProfile={() => undefined}
+          />
           <Inbox
             composing={composing}
             onCompose={setComposing}
             onSelect={() => undefined}
             selected={undefined}
+            view={view}
+            onView={setView}
           />
           {composing === undefined ? null : (
             <Composer
@@ -373,7 +384,13 @@ describe('sending a Draft', () => {
       await waitFor(() => {
         expect(sender.storage.recoveryRecords().size).toBe(0);
       });
+      // The message waits in the Outbox, which Mailboxes offers after Sent, not in the Inbox.
+      expect(
+        screen.queryByLabelText('Lunch. To sam@example.invalid. Sending soon'),
+      ).toBeNull();
+      await press('Outbox');
       expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
+      expect(screen.getByText('1 waiting')).toBeOnTheScreen();
       expect(
         screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),
       ).toBeOnTheScreen();
@@ -395,7 +412,12 @@ describe('sending a Draft', () => {
         kind: 'ready',
         drafts: [{ subject: 'Lunch' }],
       });
+      // The emptied Outbox leaves Mailboxes, and the list returns to All Inboxes.
       expect(screen.queryByRole('header', { name: 'Outbox' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Outbox' })).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'All Inboxes', selected: true }),
+      ).toBeOnTheScreen();
       await later(sender, 10_000);
       expect(sender.gmail.sends).toStrictEqual([]);
 
@@ -655,6 +677,7 @@ describe('sending a Draft', () => {
       await waitFor(() => {
         expect(screen.queryByLabelText('Subject')).toBeNull();
       });
+      await press('Outbox');
       expect(
         screen.getByLabelText('Lunch. To sam@example.invalid. Sending soon'),
       ).toBeOnTheScreen();
@@ -901,6 +924,7 @@ describe('sending a Draft', () => {
       });
       await render(<App sender={sender} />);
       expect(sender.drafts.getOutbox()).toHaveLength(100);
+      await press('Outbox');
       expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
       const mounted = screen.getAllByLabelText(/^Queued \d+\. To/u);
       expect(mounted.length).toBeLessThan(100);
@@ -989,6 +1013,7 @@ describe('sending a Draft', () => {
       await compose('Refused');
       await press('Send');
       await later(sender, 10_000);
+      await press('Outbox');
       expect(
         screen.getByLabelText(
           'Refused. To sam@example.invalid. Not sent. Gmail refused this message.',
@@ -1003,6 +1028,7 @@ describe('sending a Draft', () => {
       await compose('Unknown');
       await press('Send');
       await later(sender, 10_000);
+      await press('Outbox');
 
       // Gmail's Sent mailbox confirms the lost answer, which leaves the Outbox.
       expect(screen.queryByLabelText(/^Lost\./u)).toBeNull();
@@ -1132,6 +1158,7 @@ describe('sending a Draft', () => {
       await press('Send');
       // The admitted Draft leaves the store before Send settles, and the composer still closes.
       expect(screen.queryByText('This Draft is not available.')).toBeNull();
+      await press('Outbox');
       sender.storage.failNextCommit('locked');
       await press('Undo');
       // The row stays as it was, and the refusal is heard at once.
@@ -1179,6 +1206,7 @@ describe('sending a Draft', () => {
       await press('Send');
       // The admitted Draft leaves the store before Send settles, and the composer still closes.
       expect(screen.queryByText('This Draft is not available.')).toBeNull();
+      await press('Outbox');
       sender.storage.failNextCommit('locked');
       await press('Undo');
       expect(
@@ -1187,6 +1215,7 @@ describe('sending a Draft', () => {
         ),
       ).toBeOnTheScreen();
       await later(sender, 10_000);
+      await press('Outbox');
       // Returning it now needs the Edit Anyway warning, so the old Try Again does not come back.
       expect(
         screen.getByLabelText(
@@ -1226,6 +1255,7 @@ describe('sending a Draft', () => {
       await compose('Lisbon');
       await press('Send');
       await later(sender, 10_000);
+      await press('Outbox');
       expect(
         screen.getByLabelText(
           'Lisbon. To sam@example.invalid. Delivery unknown. Check Sent in Gmail before sending it again.',
@@ -1257,6 +1287,7 @@ describe('sending a Draft', () => {
       await compose('Unknown');
       await press('Send');
       await later(sender, 10_000);
+      await press('Outbox');
       // The mailbox is removed: nothing tells the person to look in Gmail.
       await rerender(
         <App
