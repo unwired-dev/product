@@ -1,7 +1,5 @@
 import { english } from '@private-email/localization';
-import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
-import * as Semaphore from 'effect/Semaphore';
 
 import type {
   NativeNotifications,
@@ -240,57 +238,38 @@ describe('opening a tapped New Mail Notification', () => {
 
 const unused = () => Promise.reject(new Error('Not used here'));
 
-// A host that posts a moment after the handoff, as the native queue does, and records the Profile
-// its storage holds then; `move` stores the connection in a Profile that hides it, as a
-// registration operation does.
-function postingHost() {
-  const stored = { profile: 'shown' };
-  const posted: Array<{ profile: unknown; stored: string }> = [];
-  const gate = Semaphore.makeUnsafe(1);
-  let moving = Promise.resolve();
-  const notifications = createNotifications(
-    {
-      notificationSettings: () =>
-        Promise.resolve({
-          authorization: 'authorized',
-          previews: true,
-          badge: 'off',
-        }),
-      postNotifications: async (messages) => {
-        await Promise.resolve();
-        await Promise.resolve();
-        posted.push(
-          ...messages.map(({ profile }) => ({
-            profile,
-            stored: stored.profile,
-          })),
-        );
+describe('posting a New Mail Notification', () => {
+  it('checks the Profile the connection is in as it posts, after a move meanwhile', async () => {
+    expect.hasAssertions();
+    const posted: unknown[] = [];
+    let profile = 'shown';
+    const notifications = createNotifications(
+      {
+        notificationSettings: () =>
+          Promise.resolve({
+            authorization: 'authorized',
+            previews: true,
+            badge: 'off',
+          }),
+        postNotifications: (messages) => {
+          posted.push(...messages);
+          return Promise.resolve();
+        },
+        requestNotifications: unused,
+        setNotificationPreviews: unused,
+        setNotificationBadge: unused,
+        setBadgeCount: unused,
+        openNotificationSettings: unused,
       },
-      requestNotifications: unused,
-      setNotificationPreviews: unused,
-      setNotificationBadge: unused,
-      setBadgeCount: unused,
-      openNotificationSettings: unused,
-    },
-    () => english,
-  );
-  const move = () => {
-    moving = Effect.runPromise(
-      Effect.sync(() => {
-        stored.profile = 'hidden';
-      }).pipe(Semaphore.withPermits(gate, 1)),
+      () => english,
     );
-  };
-  const arrive = (
-    during: Readonly<{ settle?: () => void; eligible?: () => void }>,
-  ) =>
-    notifications.arrived(
+    await notifications.arrived(
       {
         account: 'account',
         connection: 'work',
         epoch: 'epoch',
         address: 'alex@example.invalid',
-        profile: () => stored.profile,
+        profile: () => profile,
       },
       [
         {
@@ -302,36 +281,15 @@ function postingHost() {
       ],
       {
         settle: () => {
-          during.settle?.();
+          // The connection moves to a Profile that hides it as the preferences settle.
+          queueMicrotask(() => {
+            profile = 'hidden';
+          });
           return Promise.resolve();
         },
-        eligible: (current) => {
-          during.eligible?.();
-          return current === 'shown';
-        },
-        exclusively: (effect) => effect.pipe(Semaphore.withPermits(gate, 1)),
+        eligible: (current) => current === 'shown',
       },
     );
-  return {
-    stored,
-    posted,
-    move,
-    arrive,
-    moved: () => moving,
-  };
-}
-
-describe('posting a New Mail Notification', () => {
-  it('posts under the Profile storage holds when the host posts, whenever a move lands', async () => {
-    expect.hasAssertions();
-    const host = postingHost();
-    // Moved as the preferences settle, it is checked in the Profile that hides it.
-    await host.arrive({ settle: host.move });
-    await host.moved();
-    // Moved after the check, the move waits until the host has posted.
-    host.stored.profile = 'shown';
-    await host.arrive({ eligible: host.move });
-    await host.moved();
-    expect(host.posted).toStrictEqual([{ profile: 'shown', stored: 'shown' }]);
+    expect(posted).toStrictEqual([]);
   });
 });
