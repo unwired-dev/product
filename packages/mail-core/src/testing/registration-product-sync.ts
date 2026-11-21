@@ -208,6 +208,7 @@ export function createSyntheticSyncVault(
         : { materialInitialized: product.materialInitialized }),
       deviceKey: keys.deviceKey,
       deviceId: product.trustedDeviceId,
+      deviceKind: device.kind,
       ...(enrollment === undefined
         ? {}
         : {

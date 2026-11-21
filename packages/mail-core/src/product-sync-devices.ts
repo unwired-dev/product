@@ -73,6 +73,11 @@ const decodeRefusal = Schema.decodeUnknownOption(
 type Proposal = typeof KeyRotationProposal.Type;
 type Request = typeof PendingEnrollment.Type;
 type Device = typeof TrustedDeviceSummary.Type;
+// What each Trusted Device last reported in its sealed record, by its identifier.
+export type Reports = ReadonlyMap<
+  string,
+  Readonly<{ deviceKind: string; activeAt: number }>
+>;
 
 // A settled removal: its notice depends on the key epoch this device holds after synchronizing.
 export type Settlement = Readonly<{
@@ -135,13 +140,14 @@ const activation = (reply: typeof BackendReply.Type | undefined) =>
 // every key and the Recovery Key and Enrollment Code's key material; this decides each step.
 export function createDeviceTrustProgram(vault: NativeRegistrationVault) {
   const { native, step, saved, sync, convex } = nativeSteps(vault);
-  // Other devices' requests and the account's other Trusted Devices, as this process last listed
-  // them; a request or device acted on leaves the list.
+  // Other devices' requests and the account's Trusted Devices with what each last reported, as this
+  // process last listed them; a request or device acted on leaves the list.
   let listed:
     | {
         account: string;
         requests: readonly Request[];
         trustedDevices: readonly Device[];
+        reports: Reports;
       }
     | undefined = undefined;
 
@@ -165,6 +171,12 @@ export function createDeviceTrustProgram(vault: NativeRegistrationVault) {
   const forgetDevices = Effect.sync(() => {
     listed = undefined;
   });
+  const recordReports = (reports: Reports) =>
+    Effect.sync(() => {
+      if (listed !== undefined) {
+        listed = { ...listed, reports };
+      }
+    });
 
   const proposal = (id: string) =>
     convex(
@@ -304,10 +316,9 @@ export function createDeviceTrustProgram(vault: NativeRegistrationVault) {
     return false;
   });
 
-  // Other devices' requests and the account's other Trusted Devices, kept for approval and removal.
+  // Other devices' requests and the account's Trusted Devices, kept for approval and removal.
   const refreshDevices = Effect.gen(function* () {
     const value = yield* saved;
-    const state = yield* sync;
     const account = value.product?.productAccountId;
     if (account === undefined) {
       return yield* failWith('unavailable');
@@ -322,10 +333,12 @@ export function createDeviceTrustProgram(vault: NativeRegistrationVault) {
       },
       Schema.Array(PendingEnrollment),
     );
+    const reports = listedFor(value)?.reports ?? new Map();
     listed = {
       account,
       requests,
       trustedDevices: listedFor(value)?.trustedDevices ?? [],
+      reports,
     };
     const roster = yield* convex(
       {
@@ -337,11 +350,7 @@ export function createDeviceTrustProgram(vault: NativeRegistrationVault) {
       },
       Schema.Array(TrustedDeviceSummary),
     );
-    listed = {
-      account,
-      requests,
-      trustedDevices: roster.filter(({ id }) => id !== state.deviceId),
-    };
+    listed = { account, requests, trustedDevices: roster, reports };
   });
 
   // The account's recovery envelope as Convex stores it.
@@ -662,6 +671,7 @@ export function createDeviceTrustProgram(vault: NativeRegistrationVault) {
   return {
     listedFor,
     forgetDevices,
+    recordReports,
     adoptRotation,
     admit,
     refreshDevices,
