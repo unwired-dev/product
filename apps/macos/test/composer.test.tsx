@@ -1113,6 +1113,12 @@ describe('composing Drafts', () => {
       shows(`• Plan\n${nesting}${nesting}• Seats`);
       expect(level('Outdent')).toBeDisabled();
       expect(offered()).toStrictEqual([false, true]);
+      // Undo keeps the caret as far from the end as the text view does, so Tab nests Plan again.
+      await tab(false);
+      shows(`${nesting}• Plan\n${nesting}${nesting}• Seats`);
+      await press('Undo');
+      await tab(false);
+      shows(`${nesting}• Plan\n${nesting}${nesting}• Seats`);
       // A composer that goes away withdraws the menu items.
       await screen.unmount();
       expect(indents).toHaveBeenLastCalledWith(bodyID, false, false);

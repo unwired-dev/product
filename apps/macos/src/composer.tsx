@@ -3317,9 +3317,17 @@ function Editor({
     if (pausedNow.current) {
       return;
     }
+    const before = displayOf(authored.current.body).text.length;
     commitHistory((current) => keepIdentity(step(current)));
     placeTyping(undefined);
     update(historyNow.current.present);
+    // The text view keeps its caret as far from the end as before, without reporting it.
+    const after = displayOf(authored.current.body).text.length;
+    if (after !== before) {
+      const kept = Math.max(0, after - before + selectionNow.current.start);
+      selectionNow.current = { start: kept, end: kept };
+      setSelection(selectionNow.current);
+    }
   };
   const edit = (text: string) => {
     if (pausedNow.current) {
