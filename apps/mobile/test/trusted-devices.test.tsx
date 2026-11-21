@@ -1,7 +1,7 @@
 import { createMessageDateFormats, english } from '@private-email/localization';
 import { createRegistration } from '@private-email/mail-core/registration';
 import { createRegistrationScenario } from '@private-email/mail-core/testing/registration-scenarios';
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { Action } from '../src/action.tsx';
 import { localization } from '../src/localization.ts';
@@ -92,13 +92,22 @@ describe('trusted devices', () => {
     ]) {
       expect(screen.getByLabelText(label)).toBeVisible();
     }
-    // Only the other devices can be removed.
+    // Only the other devices can be removed, by their button or the row's VoiceOver action.
     expect(
       screen.getByRole('button', { name: 'Remove Mara’s MacBook Pro' }),
     ).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Remove Mara’s iPhone' }),
     ).toBeNull();
+    expect(
+      screen.getByLabelText(/^iPhone, Mara’s iPhone/u).props,
+    ).not.toHaveProperty('accessibilityActions', expect.anything());
+    await fireEvent(
+      screen.getByLabelText(/^Mac, Mara’s MacBook Pro/u),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'activate' } },
+    );
+    expect(screen.getByTestId('device-removal-confirmation')).toBeOnTheScreen();
     jest.useRealTimers();
   });
 });

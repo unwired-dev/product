@@ -33,14 +33,15 @@ export const DeviceKindSchema = Schema.Literals(['iphone', 'ipad', 'mac']);
 export type DeviceKind = typeof DeviceKindSchema.Type;
 
 // Milliseconds since 1970, within the JavaScript Date range used for display.
-const DisplayTime = Schema.Finite.check(
+export const DisplayTime = Schema.Finite.check(
   Schema.isBetween({
     minimum: -8_640_000_000_000_000,
     maximum: 8_640_000_000_000_000,
   }),
 );
-// The account's Trusted Devices, this one marked current. `kind` and `activeAt` are what a device
-// last reported in its sealed record; a device that has not reported has neither.
+// The account's Trusted Devices, this one marked current with its own kind. Another device's `kind`
+// and `activeAt` are what it last reported in its sealed record; one that has not reported has
+// neither.
 const TrustedDevicesSchema = Schema.fromJsonString(
   Schema.Array(
     Schema.Struct({

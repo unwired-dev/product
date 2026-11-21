@@ -272,6 +272,10 @@ export function TrustedDevices({
       )}
       {devices.map((device) => {
         const subtitle = detail(device);
+        const remove = t('revocation.remove', { name: device.name });
+        const confirm = () => {
+          setConfirming({ device, owner: store.getSnapshot().snapshot });
+        };
         return (
           <SettingsRow
             key={device.id}
@@ -300,16 +304,18 @@ export function TrustedDevices({
               subtitle,
             ]
               .filter((part) => part !== undefined)
-              .join(', ')}>
+              .join(', ')}
+            accessibilityAction={
+              device.current === true
+                ? undefined
+                : { label: remove, onActivate: confirm }
+            }>
             {device.current === true
               ? undefined
               : button(
-                  t('revocation.remove', { name: device.name }),
+                  remove,
                   async () => {
-                    setConfirming({
-                      device,
-                      owner: store.getSnapshot().snapshot,
-                    });
+                    confirm();
                   },
                   { title: t('settings.remove') },
                 )}

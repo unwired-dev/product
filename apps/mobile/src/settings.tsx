@@ -967,6 +967,7 @@ export function SettingsRow({
   minHeight,
   value,
   accessibilityLabel,
+  accessibilityAction,
   children,
 }: {
   readonly icon?: string | ReactElement | undefined;
@@ -985,6 +986,10 @@ export function SettingsRow({
   readonly value?: string | undefined;
   // Read as one element in place of the title, subtitle and value; trailing controls stay apart.
   readonly accessibilityLabel?: string | undefined;
+  // That element's action, which repeats a trailing control's.
+  readonly accessibilityAction?:
+    | Readonly<{ label: string; onActivate: () => void }>
+    | undefined;
   readonly children?: ReactNode;
 }) {
   const colors = usePalette();
@@ -1016,6 +1021,12 @@ export function SettingsRow({
       <View
         accessible={accessibilityLabel !== undefined}
         accessibilityLabel={accessibilityLabel}
+        accessibilityActions={
+          accessibilityAction === undefined
+            ? undefined
+            : [{ name: 'activate', label: accessibilityAction.label }]
+        }
+        onAccessibilityAction={accessibilityAction?.onActivate}
         style={[styles.rowText, disabled && { opacity: 0.4 }]}>
         <Text
           numberOfLines={titleNumberOfLines}

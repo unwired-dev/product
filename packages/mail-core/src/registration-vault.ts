@@ -20,6 +20,7 @@ import {
 } from './imap-setup.ts';
 import {
   DeviceKindSchema,
+  DisplayTime,
   MailProviderSchema,
 } from './registration-snapshot.ts';
 
@@ -136,7 +137,7 @@ export const DeviceRecordSchema = Schema.Struct({
   device: Schema.NonEmptyString,
   version: Version,
   deviceKind: Schema.NonEmptyString,
-  activeAt: Schema.Finite,
+  activeAt: DisplayTime,
 });
 export type DeviceRecord = typeof DeviceRecordSchema.Type;
 // Mail Profile definitions and connection ownership as this device last read them, and the

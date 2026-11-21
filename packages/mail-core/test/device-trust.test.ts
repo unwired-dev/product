@@ -198,6 +198,26 @@ describe('device trust', () => {
     });
   });
 
+  it('lists a Trusted Device whose record holds a time it cannot show as one that has not reported', async () => {
+    expect.hasAssertions();
+    const { flow, sync, trustedDevice, createKeys, recovered } = setup();
+    const other = await recovered(await createKeys());
+    // Every Trusted Device record holds such a time; this device writes its own again.
+    for (const sealed of [...sync.sealedProfiles.values()].filter(
+      ({ record }) => record.kind === 'device',
+    )) {
+      Object.assign(sealed.record, { activeAt: 9e15 });
+    }
+    const listed = await flow.refreshPrivateSync();
+    expect(
+      Option.getOrThrow(decodeDevices(field(listed, 'trustedDevices'))),
+    ).toContainEqual({
+      id: other.id,
+      name: `Device ${other.id}`,
+      registeredAt: trustedDevice(other.id).registeredAt,
+    });
+  });
+
   it('forgets the previous device list after signing out even when the new roster read fails', async () => {
     expect.hasAssertions();
     const { flow, vault, createKeys, recovered } = setup();

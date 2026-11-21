@@ -66,7 +66,9 @@ const KeyRing = Schema.Struct({
   deviceKey: Schema.NonEmptyString,
 });
 const Opened = Schema.Array(Schema.NullOr(MailboxDescriptorSchema));
-const OpenedDevices = Schema.Array(Schema.NullOr(DeviceRecordSchema));
+// Each Trusted Device record that opened; one that does not decode counts as not reported.
+const OpenedDevices = Schema.Array(Schema.Unknown);
+const isDeviceRecord = Schema.is(DeviceRecordSchema);
 const Sealed = Schema.Struct({
   payloadIdentifier: Schema.NonEmptyString,
   encryptedPayload: EncryptedPayload,
@@ -831,13 +833,11 @@ export function createProductSyncProgram(vault: NativeRegistrationVault) {
     if (opened.length !== records.length) {
       return yield* failWith('unavailable');
     }
-    const reports = new Map<string, { deviceKind: string; activeAt: number }>();
-    for (const record of opened) {
-      if (record !== null) {
-        reports.set(record.device, record);
-      }
-    }
-    const own = opened.find((record) => record?.device === deviceId);
+    const readable = opened.filter(isDeviceRecord);
+    const reports = new Map<string, { deviceKind: string; activeAt: number }>(
+      readable.map((record) => [record.device, record]),
+    );
+    const own = readable.find((record) => record.device === deviceId);
     const now = yield* Clock.currentTimeMillis;
     const last = reports.get(deviceId);
     if (
