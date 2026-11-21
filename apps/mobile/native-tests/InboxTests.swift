@@ -1500,8 +1500,11 @@ final class InboxTests: XCTestCase {
       add(stuck)
       XCTFail("The sent message stayed in the Outbox")
     }
-    // The emptied Outbox returns the list to All Inboxes and leaves Mailboxes.
-    XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 10))
+    // The emptied Outbox returns the list to All Inboxes and leaves Mailboxes. iPhone titles the list
+    // Inbox.
+    if UIDevice.current.userInterfaceIdiom == .pad {
+      XCTAssertTrue(app.staticTexts["All Inboxes"].firstMatch.waitForExistence(timeout: 10))
+    }
     revealSwitcher(app, app.buttons["All Inboxes"])
     XCTAssertTrue(app.buttons["Outbox"].waitForNonExistence(timeout: 10))
   }
@@ -3990,10 +3993,16 @@ final class InboxTests: XCTestCase {
     attachScreen("Send menu with Send Now", of: app, to: self)
     sendNow.tap()
     XCTAssertTrue(app.otherElements["composer-overlay"].waitForNonExistence(timeout: 15))
-    let waiting = app.descendants(matching: .any).matching(
-      NSPredicate(format: "label CONTAINS %@", "Sending soon"))
-    XCTAssertEqual(waiting.count, 0)
-    XCTAssertFalse(app.buttons["Undo"].exists)
+    // The Outbox, while Mailboxes still offers it, holds nothing waiting with Undo.
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    let outbox = app.buttons["Outbox"]
+    if outbox.exists {
+      outbox.tap()
+      let waiting = app.descendants(matching: .any).matching(
+        NSPredicate(format: "label CONTAINS %@", "Sending soon"))
+      XCTAssertEqual(waiting.count, 0)
+      XCTAssertFalse(app.buttons["Undo"].exists)
+    }
     attachScreen("After Send Now", of: app, to: self)
   }
 

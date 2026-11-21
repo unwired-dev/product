@@ -547,10 +547,6 @@ function MailShell() {
                         }}
                         onView={(next) => {
                           setView(next);
-                          // Choosing the Outbox ends a search, as View in Outbox does.
-                          if (next.outbox === true) {
-                            setOutboxShown({});
-                          }
                           // On iPhone a Mailbox opens its list; beside it, the list is already shown.
                           splitView.current?.show('supplementary');
                         }}

@@ -388,7 +388,15 @@ describe('sending a Draft', () => {
       expect(
         screen.queryByLabelText('Lunch. To sam@example.invalid. Sending soon'),
       ).toBeNull();
+      // Choosing the Outbox ends a search, which would list mail instead.
+      const field = screen.getByLabelText('Search senders and subjects');
+      await fireEvent(field, 'focus');
+      await fireEvent.changeText(field, 'lunch');
+      expect(
+        screen.getByRole('button', { name: 'Close Search' }),
+      ).toBeOnTheScreen();
       await press('Outbox');
+      expect(screen.queryByRole('button', { name: 'Close Search' })).toBeNull();
       expect(screen.getByRole('header', { name: 'Outbox' })).toBeOnTheScreen();
       expect(screen.getByText('1 waiting')).toBeOnTheScreen();
       expect(
