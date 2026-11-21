@@ -229,6 +229,14 @@ void UnwiredForgetComposerTyping(NSString *identifier)
   if ([identifier isEqualToString:composer]) forget(TypingAwaitingText);
 }
 
+// The key window's focused composer body, as its testID; nil when another view has focus.
+NSString *UnwiredFocusedComposerBody(void)
+{
+  id responder = NSApp.keyWindow.firstResponder;
+  if (![responder isKindOfClass:NSTextView.class] || [responder isFieldEditor]) return nil;
+  return composerOf(responder);
+}
+
 // The text view inside the view whose accessibility identifier is the body's testID.
 static NSTextView *textViewIn(NSView *view, NSString *identifier, BOOL inside)
 {

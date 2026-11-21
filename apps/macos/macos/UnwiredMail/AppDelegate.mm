@@ -16,6 +16,10 @@ extern "C" NSString *UnwiredGuardedWindow(void);
 // UnwiredCommands.m: the Mail Profile each Inbox window's JavaScript last reported.
 extern "C" NSString *UnwiredWindowProfile(NSString *identifier);
 extern "C" void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile);
+// UnwiredCommands.m: whether a composer body's selected list items allow Increase or Decrease Indent.
+extern "C" BOOL UnwiredComposerIndents(NSString *body, BOOL indent);
+// ComposerFormatting.m: the key window's focused composer body.
+extern "C" NSString *UnwiredFocusedComposerBody(void);
 // ComposerFormatting.m: the composer body shows formatting shortcuts before JavaScript renders them.
 extern "C" void UnwiredInstallComposerFormatting(void);
 
@@ -433,10 +437,34 @@ extern "C" void UnwiredInstallComposerFormatting(void);
 // text field or text view keeps Command-Z: the item is unavailable, so the key reaches the field.
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
+  if (item.action == @selector(increaseIndent:) || item.action == @selector(decreaseIndent:)) {
+    return UnwiredComposerIndents(UnwiredFocusedComposerBody(), item.action == @selector(increaseIndent:));
+  }
   if (item.action != @selector(undoOrganizing:)) return YES;
   NSWindow *window = NSApp.keyWindow;
   return [window.identifier hasPrefix:@"inbox-window-"] && window.sheetParent == nil &&
       window.attachedSheet == nil && ![window.firstResponder isKindOfClass:NSText.class];
+}
+
+// Format › Increase Indent and Decrease Indent nest the focused composer body's selected list
+// items, as its Indent and Outdent buttons do; its JavaScript listens for the body. They are
+// offered only while that body's selection allows them.
+- (void)increaseIndent:(id)sender
+{
+  [self indentComposer:@"indent"];
+}
+
+- (void)decreaseIndent:(id)sender
+{
+  [self indentComposer:@"outdent"];
+}
+
+- (void)indentComposer:(NSString *)direction
+{
+  NSString *body = UnwiredFocusedComposerBody();
+  if (body == nil) return;
+  [NSNotificationCenter.defaultCenter postNotificationName:@"UnwiredIndent" object:body
+                                                  userInfo:@{@"direction": direction}];
 }
 
 // Command-R synchronizes the key Inbox window's mailboxes; its JavaScript listens for the window.
@@ -625,6 +653,14 @@ extern "C" void UnwiredInstallComposerFormatting(void);
   [edit addItemWithTitle:UnwiredNativeText(@"copy") action:@selector(copy:) keyEquivalent:@"c"];
   [edit addItemWithTitle:UnwiredNativeText(@"paste") action:@selector(paste:) keyEquivalent:@"v"];
   [edit addItemWithTitle:UnwiredNativeText(@"selectAll") action:@selector(selectAll:) keyEquivalent:@"a"];
+
+  NSMenuItem *formatItem = [main addItemWithTitle:UnwiredNativeText(@"format") action:nil keyEquivalent:@""];
+  NSMenu *format = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"format")];
+  formatItem.submenu = format;
+  NSMenuItem *increase = [format addItemWithTitle:UnwiredNativeText(@"increaseIndent") action:@selector(increaseIndent:) keyEquivalent:@"]"];
+  increase.target = self;
+  NSMenuItem *decrease = [format addItemWithTitle:UnwiredNativeText(@"decreaseIndent") action:@selector(decreaseIndent:) keyEquivalent:@"["];
+  decrease.target = self;
 
   NSMenuItem *viewItem = [main addItemWithTitle:UnwiredNativeText(@"view") action:nil keyEquivalent:@""];
   NSMenu *view = [[NSMenu alloc] initWithTitle:UnwiredNativeText(@"view")];

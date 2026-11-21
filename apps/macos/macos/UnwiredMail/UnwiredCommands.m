@@ -10,6 +10,9 @@ NSNotificationName const UnwiredRefresh = @"UnwiredRefresh";
 NSNotificationName const UnwiredNewMessage = @"UnwiredNewMessage";
 // Edit › Undo, Command-Z, tells an Inbox window's JavaScript to undo its last organizing action.
 NSNotificationName const UnwiredUndo = @"UnwiredUndo";
+// Format › Increase Indent and Decrease Indent tell a composer body's JavaScript to nest its
+// selected list items.
+NSNotificationName const UnwiredIndent = @"UnwiredIndent";
 // Closing a window whose composer holds unsaved edits asks its JavaScript first.
 NSNotificationName const UnwiredWindowShouldClose = @"UnwiredWindowShouldClose";
 
@@ -48,6 +51,20 @@ void UnwiredRecordWindowProfile(NSString *identifier, NSString *profile)
   if (identifier != nil && profile != nil) windowProfiles()[identifier] = profile;
 }
 
+// Which of Decrease Indent and Increase Indent each composer body's selected list items allow.
+static NSMutableDictionary<NSString *, NSArray<NSNumber *> *> *composerIndents(void)
+{
+  static NSMutableDictionary<NSString *, NSArray<NSNumber *> *> *indents;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ indents = [NSMutableDictionary dictionary]; });
+  return indents;
+}
+
+BOOL UnwiredComposerIndents(NSString *body, BOOL indent)
+{
+  return body != nil && [composerIndents()[body][indent ? 1 : 0] boolValue];
+}
+
 NSString *UnwiredGuardedWindow(void)
 {
   for (NSWindow *window in NSApp.windows) {
@@ -73,7 +90,7 @@ RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup { return YES; }
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
-- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"newMessage", @"undo", @"windowShouldClose", @"settingsClosed"]; }
+- (NSArray<NSString *> *)supportedEvents { return @[@"openCommandPalette", @"refresh", @"newMessage", @"undo", @"indent", @"windowShouldClose", @"settingsClosed"]; }
 
 - (void)startObserving
 {
@@ -85,6 +102,8 @@ RCT_EXPORT_MODULE()
       name:UnwiredNewMessage object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(undo:)
       name:UnwiredUndo object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(indent:)
+      name:UnwiredIndent object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(windowShouldClose:)
       name:UnwiredWindowShouldClose object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(settingsClosed:)
@@ -114,6 +133,12 @@ RCT_EXPORT_MODULE()
 - (void)undo:(NSNotification *)notification
 {
   [self sendEventWithName:@"undo" body:@{@"window": notification.object ?: @""}];
+}
+
+- (void)indent:(NSNotification *)notification
+{
+  [self sendEventWithName:@"indent" body:@{@"body": notification.object,
+      @"direction": notification.userInfo[@"direction"]}];
 }
 
 - (void)windowShouldClose:(NSNotification *)notification
@@ -249,6 +274,16 @@ RCT_EXPORT_METHOD(showComposerSelection:(NSString *)identifier selection:(NSDict
 }
 
 NSDictionary *UnwiredComposerCharacterFrame(NSString *identifier, NSUInteger index);
+
+// The composer reports what its body's selected list items allow, and nothing once it closes.
+RCT_EXPORT_METHOD(setComposerIndents:(NSString *)body outdent:(BOOL)outdent indent:(BOOL)indent)
+{
+  if (outdent || indent) {
+    composerIndents()[body] = @[@(outdent), @(indent)];
+  } else {
+    [composerIndents() removeObjectForKey:body];
+  }
+}
 
 // Where the body shows a character, for a menu opened under it; null once it is gone.
 RCT_EXPORT_METHOD(composerCharacterFrame:(NSString *)identifier index:(double)index resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
