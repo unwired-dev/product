@@ -82,6 +82,7 @@
     "received": "{{date}} UTC",
     "today": "Today, {{time}}",
     "yesterday": "Yesterday, {{time}}",
+    "dated": "{{date}}, {{time}}",
     "labels": "Labels: {{labels}}",
     "to": "To: {{recipients}}",
     "cc": "Cc: {{recipients}}",

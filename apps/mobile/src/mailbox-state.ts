@@ -21,10 +21,22 @@ export function useAllMailboxes() {
 
 // The minute freshness and the list's dividers read by, so a day ends at midnight while it is open.
 const minute = 60_000;
+// One timer for every reader of the minute, so the list and an open reader change day together.
+const minuteListeners = new Set<() => void>();
+let minuteTimer: ReturnType<typeof setInterval> | undefined = undefined;
 const subscribeMinute = (notify: () => void) => {
-  const timer = setInterval(notify, minute);
+  minuteListeners.add(notify);
+  minuteTimer ??= setInterval(() => {
+    for (const listener of minuteListeners) {
+      listener();
+    }
+  }, minute);
   return () => {
-    clearInterval(timer);
+    minuteListeners.delete(notify);
+    if (minuteListeners.size === 0) {
+      clearInterval(minuteTimer);
+      minuteTimer = undefined;
+    }
   };
 };
 export const useNow = () =>

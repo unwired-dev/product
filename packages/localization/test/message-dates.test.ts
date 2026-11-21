@@ -29,9 +29,7 @@ describe('message list days', () => {
   it('formats a row time, a weekday and a month that names its year once it is not this one', () => {
     expect.hasAssertions();
     const formats = createMessageDateFormats('en-GB', 'UTC');
-    expect(formats.time.format(new Date('2026-10-13T09:41:00Z'))).toMatch(
-      /^0?9:41$/u,
-    );
+    expect(formats.time.format(new Date('2026-10-13T09:41:00Z'))).toBe('9:41');
     expect(
       [
         '2026-10-12T12:00:00Z',
@@ -128,10 +126,25 @@ describe('message header dates', () => {
     ).toBe('So., 11. Okt., 21:14');
     expect(
       createMessageDateFormats('cs-CZ', zone).header(english, sunday, now),
-    ).toBe('ne 11. 10. 21:14');
+    ).toBe('ne 11. 10., 21:14');
     expect(createMessageDateFormats('cs-CZ', zone).full.format(sunday)).toBe(
       'neděle 11. října 2026 v 21:14',
     );
+  });
+
+  // Apple's formatter pads a 24-hour clock, as ICU does for the Hebrew calendar; the years
+  // 5786 and 5787 change in September.
+  it('writes the hour unpadded and names a year of the display calendar', () => {
+    expect.hasAssertions();
+    const hebrew = createMessageDateFormats('en-GB-u-ca-hebrew', 'UTC');
+    expect(hebrew.time.format(new Date('2026-10-13T07:12:00Z'))).toBe('7:12');
+    expect(
+      hebrew.header(
+        english,
+        new Date('2026-09-01T12:00:00Z'),
+        Date.parse('2026-10-13T12:00:00Z'),
+      ),
+    ).toMatch(/ 5786, 12:00$/u);
   });
 });
 

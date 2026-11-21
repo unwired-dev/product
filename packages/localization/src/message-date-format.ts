@@ -16,7 +16,7 @@ export function createMessageDateFormat(locale: string) {
 const dayLength = 86_400_000;
 const calendars = new Map<string, Intl.DateTimeFormat>();
 
-// The calendar date `at` falls on in `timeZone`: its days since the epoch, its year and its month.
+// The Gregorian calendar date `at` falls on in `timeZone`: its days since the epoch and its month.
 function calendarDate(at: number, timeZone: string) {
   let format = calendars.get(timeZone);
   if (format === undefined) {
@@ -35,7 +35,6 @@ function calendarDate(at: number, timeZone: string) {
   const month = parts.get('month') ?? 1;
   return {
     days: Date.UTC(year, month - 1, parts.get('day') ?? 1) / dayLength,
-    year,
     month: `${year}-${month}`,
   };
 }
@@ -71,23 +70,34 @@ export const messageMonth = (receivedAt: string, timeZone: string) =>
 export function createMessageDateFormats(locale: string, timeZone: string) {
   const format = (options: Readonly<Intl.DateTimeFormatOptions>) =>
     new Intl.DateTimeFormat(locale, { ...options, timeZone });
-  const clock = { hour: 'numeric', minute: '2-digit' } as const;
+  const clock = format({ hour: 'numeric', minute: '2-digit' });
+  // An unpadded hour, as `hour: 'numeric'` asks: Apple's formatter, which Hermes uses there, writes
+  // 07:12 in 24-hour locales.
+  const time = {
+    format: (at: Date | number) =>
+      clock
+        .formatToParts(at)
+        .map(({ type, value }) =>
+          type === 'hour' ? value.replace(/^0(?=\d)/u, '') : value,
+        )
+        .join(''),
+  };
   const shortDate = {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
   } as const;
-  const time = format(clock);
   const thisYear = format({ month: 'long' });
   const otherYear = format({ month: 'long', year: 'numeric' });
-  const dated = format({ ...shortDate, ...clock });
-  const datedYear = format({ ...shortDate, year: 'numeric', ...clock });
+  const dated = format(shortDate);
+  const datedYear = format({ ...shortDate, year: 'numeric' });
   const weekday = format({ weekday: 'long' });
   const shortWeekday = format({ weekday: 'short' });
   const date = format({ month: 'short', day: 'numeric' });
+  // Years of the display calendar, which System default takes from the device.
+  const year = format({ year: 'numeric' });
   const sameYear = (at: Date, now: number) =>
-    calendarDate(at.getTime(), timeZone).year ===
-    calendarDate(now, timeZone).year;
+    year.format(at) === year.format(now);
   // A row's time: the clock today, Yesterday, the day's name within the last week and the date
   // before that.
   const row =
@@ -126,19 +136,24 @@ export function createMessageDateFormats(locale: string, timeZone: string) {
       now: number,
     ) {
       const days = daysBefore(at.getTime(), now, timeZone);
+      const clockTime = time.format(at);
       if (days <= 1) {
         return t(days <= 0 ? 'message.today' : 'message.yesterday', {
-          time: time.format(at),
+          time: clockTime,
         });
       }
-      return (sameYear(at, now) ? dated : datedYear).format(at);
+      return t('message.dated', {
+        date: (sameYear(at, now) ? dated : datedYear).format(at),
+        time: clockTime,
+      });
     },
     full: format({
       weekday: 'long',
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-      ...clock,
+      hour: 'numeric',
+      minute: '2-digit',
     }),
   };
 }

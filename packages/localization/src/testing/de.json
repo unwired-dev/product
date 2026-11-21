@@ -50,6 +50,7 @@
     "more": "Mehr",
     "today": "Heute, {{time}}",
     "yesterday": "Gestern, {{time}}",
+    "dated": "{{date}}, {{time}}",
     "to": "An: {{recipients}}",
     "cc": "Kopie: {{recipients}}",
     "reply": "Antworten",

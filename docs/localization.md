@@ -19,7 +19,11 @@ Dates and attachment sizes use the device's regional format under System default
 including explicit calendar, numbering-system, and 12/24-hour preferences, and the
 selected language's format under an override. Message dates use the device's time
 zone, which the native settings report and refresh when it changes; the date a
-response quotes for a message without a Date header stays a full UTC date. Message senders, subjects, previews, bodies, attachment names, Gmail label
+response quotes for a message without a Date header stays a full UTC date. Times
+leave the hour unpadded (`8:12`), as `hour: 'numeric'` asks, although Apple's
+formatter, which Hermes uses, pads a 24-hour clock; a message header joins its date and
+time with the translatable `message.dated` string and adds the year once it differs in the
+display calendar. Message senders, subjects, previews, bodies, attachment names, Gmail label
 names, mailbox addresses, device names, and Draft subjects, recipients and bodies are
 content and are never treated as translation keys.
 
