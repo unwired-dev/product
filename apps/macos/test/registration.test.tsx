@@ -1925,6 +1925,82 @@ describe('product registration', () => {
     });
   });
 
+  it('keeps the saved Dock Badge choice, dimmed, while notifications are denied and saves a new one once they are allowed', async () => {
+    expect.hasAssertions();
+    const { synthetic, setup } = await signedIn();
+    await setup.addMailbox();
+    const store = createRegistration(synthetic.vault);
+    const mailboxes = gmailMailboxes(store, {
+      [alex]: { native: createSyntheticGmail({ messages: 1 }).native },
+    });
+    // Unread in Inbox was chosen on this Mac before notifications were turned off.
+    const device = { authorization: 'denied', previews: false, badge: 'inbox' };
+    const notifications = createNotifications(
+      {
+        notificationSettings: () => Promise.resolve({ ...device }),
+        requestNotifications: () => Promise.resolve({ ...device }),
+        setNotificationPreviews: () => Promise.resolve({ ...device }),
+        setNotificationBadge: (badge) => {
+          device.badge = badge;
+          return Promise.resolve({ ...device });
+        },
+        setBadgeCount: () => Promise.resolve(null),
+        openNotificationSettings: () => Promise.resolve(null),
+        postNotifications: () => Promise.resolve(null),
+      },
+      () => english,
+    );
+    await render(
+      <NotificationsContext value={notifications}>
+        <MacWindows store={store}>
+          <CommandPaletteProvider windowId="account">
+            <RegistrationGate
+              store={started(store)}
+              preview={false}>
+              <InboxProvider mailboxes={mailboxes}>
+                <Shell
+                  onSelect={() => undefined}
+                  selected={undefined}
+                />
+              </InboxProvider>
+            </RegistrationGate>
+          </CommandPaletteProvider>
+        </MacWindows>
+      </NotificationsContext>,
+    );
+    await openAccount();
+    await settings('Notifications');
+    const badge = () =>
+      settingsWindow().getByRole('button', { name: 'Dock Badge' });
+    await settingsWindow().findByText(
+      'Your choices are kept and apply as soon as notifications are allowed.',
+    );
+    const denied = {
+      disabled: badge().props.accessibilityState?.disabled,
+      value: badge().props.accessibilityValue?.text,
+    };
+    // The person allows notifications in System Settings and comes back.
+    device.authorization = 'authorized';
+    await act(() => notifications.load());
+    await act(async () => {
+      await fireEvent(badge(), 'select', { nativeEvent: { id: 'off' } });
+    });
+    expect({
+      denied,
+      allowed: badge().props.accessibilityState?.disabled,
+      value: badge().props.accessibilityValue?.text,
+      saved: device.badge,
+      footer:
+        settingsWindow().queryByText('Counts unread mail in Inbox.') !== null,
+    }).toStrictEqual({
+      denied: { disabled: true, value: 'Unread in Inbox' },
+      allowed: false,
+      value: 'Off',
+      saved: 'off',
+      footer: true,
+    });
+  });
+
   it('lists the Profile’s Blocked Senders in Settings, newest first with their moves, and unblocks the selected one', async () => {
     expect.hasAssertions();
     const { synthetic, setup } = await signedIn();

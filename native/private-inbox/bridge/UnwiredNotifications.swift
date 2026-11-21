@@ -305,12 +305,21 @@ extension UnwiredRegistration {
     }
   }
 
-  // Shows `count` on the application's icon; 0 removes the badge.
+  // Shows `count` on the application's icon; 0 removes the badge. The Mac draws it on the Dock tile,
+  // which needs no badge permission, so a Mac that allowed notifications before the Dock badge
+  // existed shows it too.
   @objc(setBadgeCount:resolver:rejecter:)
   func setBadgeCount(
     _ count: Double, resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
+    #if os(macOS)
+      Task { @MainActor in
+        NSApp.dockTile.badgeLabel = count >= 1 ? String(Int(count)) : nil
+        resolve(NSNull())
+      }
+      return
+    #endif
     Task {
       do {
         try await UNUserNotificationCenter.current().setBadgeCount(max(0, Int(count)))

@@ -1765,6 +1765,7 @@
     "previews": "Show Sender and Subject",
     "previewsDetail": "Sender and subject appear only on this device after you choose them.",
     "badge": "App Icon Badge",
+    "dockBadge": "Dock Badge",
     "badges": {
       "off": "Off",
       "inbox": "Unread in Inbox"

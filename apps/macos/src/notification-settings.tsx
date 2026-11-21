@@ -8,6 +8,7 @@ import { AppState, Switch } from 'react-native';
 
 import type { SettingsButton } from './settings.tsx';
 
+import { PopUp } from './composer-controls.tsx';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { notifications } from './registration.ts';
@@ -53,6 +54,52 @@ function Authorization({
     undetermined: () => button(t('notifications.allow'), device.request),
   };
   return settings === undefined ? null : shown[settings.authorization]();
+}
+
+// What the Dock badge counts. While notifications are off, the choice stays, dimmed, until they
+// are allowed again.
+function DockBadge({
+  device,
+  settings,
+}: {
+  readonly device: NotificationSettingsStore;
+  readonly settings: DeviceSettings;
+}) {
+  const { t } = useLocalization();
+  const denied = settings?.authorization === 'denied';
+  return (
+    <SettingsGroup
+      footer={t(
+        denied ? 'notifications.badgeKept' : 'notifications.badgeDetail',
+      )}>
+      <SettingsRow
+        title={t('notifications.dockBadge')}
+        disabled={denied}>
+        {settings === undefined ? null : (
+          <PopUp
+            variant="inline"
+            accessibilityLabel={t('notifications.dockBadge')}
+            label={t(`notifications.badges.${settings.badge}`)}
+            disabled={denied}
+            items={(['off', 'inbox'] as const).map((badge) => ({
+              key: badge,
+              title: t(`notifications.badges.${badge}`),
+              checked: badge === settings.badge,
+              run: () => {
+                if (
+                  badge === 'inbox' &&
+                  settings.authorization === 'undetermined'
+                ) {
+                  void device.request();
+                }
+                void device.setBadge(badge);
+              },
+            }))}
+          />
+        )}
+      </SettingsRow>
+    </SettingsGroup>
+  );
 }
 
 // One connection's synchronized switch; turning it on asks for permission the first time.
@@ -137,8 +184,8 @@ function PerMailbox({
   );
 }
 
-// This device's notification permission and previews, which never synchronize, then each
-// connection's synchronized New Mail Notification switch.
+// This device's notification permission, previews and Dock badge, which never synchronize, then
+// each connection's synchronized New Mail Notification switch.
 export function NotificationSettings({
   button,
   mailboxes,
@@ -188,6 +235,10 @@ export function NotificationSettings({
           />
         </SettingsRow>
       </SettingsGroup>
+      <DockBadge
+        device={device}
+        settings={settings}
+      />
       <PerMailbox
         mailboxes={mailboxes}
         device={device}
