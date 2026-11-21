@@ -103,9 +103,9 @@ what the device has listed is not counted, so a mailbox whose provider holds mor
 unread mail than the device listed shows fewer. Every change to a listed Inbox updates
 the badge, whether it came from the reader, a notification action, the foreground
 poll, a push wake or a background refresh. Asking for permission requests the badge with
-alerts and sounds. The Mac draws the count on its Dock tile, which needs no badge permission
-of its own, so a Mac that allowed notifications before the Dock badge existed shows it too;
-it still removes the badge while notifications are not allowed.
+alerts and sounds, and the system shows the count only while the app's badge setting in the
+system's notification settings is on; a Mac that allowed notifications before the Dock badge
+existed turns it on there.
 
 The badge is removed when the choice is **Off**, when notifications are not allowed,
 when no Inbox can open (after the last connection is removed or the person signs out)
