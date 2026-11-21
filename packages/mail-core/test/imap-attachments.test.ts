@@ -162,6 +162,25 @@ describe('imap received attachments', () => {
     expect(imap.files.savedFiles.size).toBe(0);
   });
 
+  it('downloads again a file saved before the mailbox reopened in a new generation', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, open } = await setup();
+    const { id, release } = await open('Report');
+    await inbox.downloadAttachment(id, '0.1');
+    const [old] = imap.files.savedFiles.keys();
+    // Mailbox access was renewed, as after the vault locked, so the open generation changed.
+    imap.cache.generation = 'generation-2';
+    await inbox.load();
+
+    // Forward downloads before it reads the saved file; a stale file is not current.
+    await inbox.downloadAttachment(id, '0.1');
+    expect(inbox.attachmentFile(id, '0.1')).toMatchObject({
+      generation: 'generation-2',
+    });
+    expect([...imap.files.savedFiles.keys()]).not.toContain(old);
+    release();
+  });
+
   it('says why a download failed and downloads after Try Again', async () => {
     expect.hasAssertions();
     const { imap, inbox, open } = await setup();

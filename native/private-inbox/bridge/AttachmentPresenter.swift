@@ -196,14 +196,17 @@ import Foundation
       window.makeMain()
       let preview = controller(for: window)
       preview.show(url, ended: nil)
+      // A hidden panel adopts no controller, so it is shown before the check.
+      let wasVisible = panel.isVisible
+      panel.makeKeyAndOrderFront(nil)
       panel.updateController()
       guard (panel.currentController as AnyObject?) === preview else {
+        if !wasVisible { panel.orderOut(nil) }
         preview.show(nil, ended: nil)
         return false
       }
       preview.show(url) { ended(nil) }
       panel.reloadData()
-      panel.makeKeyAndOrderFront(nil)
       return true
     }
   }
