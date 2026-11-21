@@ -1143,8 +1143,8 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   seconds after they arrived on `imap.mail.me.com` 993 (TLS). A message submitted to
   Seznam Email, which does not offer IDLE, appeared 3 minutes 4 seconds after it arrived
   on `imap.seznam.cz` 993 (TLS), with no interaction, as the five-minute poll allows.
-  Another was still not listed 32 seconds after its arrival and appeared within 10
-  seconds of **View › Refresh**. The app was then quit, and a message was submitted to
+  Another was still not listed 32 seconds after its arrival and was first seen 10
+  seconds after **View › Refresh**. The app was then quit, and a message was submitted to
   each mailbox while it was not running. After launch, one Inbox window opened, both
   connections opened without asking for a password, and the Inbox listed the earlier run
   messages; the new iCloud Mail message was listed 12 seconds after launch and the new
@@ -1155,7 +1155,8 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   returned the app to Welcome, and the run's caches and HTTP storage were removed from
   the app's container. Limitations: the operator drove the app through the macOS
   accessibility interface and synthesized keyboard and mouse input, and checked the list
-  every 3 to 4 seconds, so each delay includes up to that much. A first **Sign in with
+  every 3 to 4 seconds while waiting for a message, so those delays include up to that
+  much. A first **Sign in with
   Google** pressed through accessibility while the app was not the active application
   failed with "Setup could not finish"; pressed again with the app active, it showed the
   system prompt. The Keychain records were not inspected directly. In Email Accounts, the
