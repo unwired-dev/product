@@ -695,6 +695,9 @@ describe('profile-scoped mobile routes', () => {
         'select',
         { nativeEvent: { id: 'profile\nwork' } },
       );
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Keep Editing' }),
+      );
       expect(screen.getByLabelText('Profile, Primary Profile')).toBeVisible();
       expect(screen.getByLabelText('To')).toHaveProp('value', 'unfinished');
       await fireEvent.press(screen.getByRole('button', { name: 'Expand' }));
@@ -726,7 +729,8 @@ describe('profile-scoped mobile routes', () => {
       expect(screen.getByLabelText('Message body')).toHaveTextContent(
         'Keep this draft.',
       );
-      // Selecting a message asks about the changed Draft; its unfinished recipient keeps it open.
+      // Close asks about the changed Draft; its unfinished recipient keeps it open.
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Save Draft' }));
       expect(
         screen.getByText(
@@ -1002,9 +1006,9 @@ describe('profile-scoped mobile routes', () => {
         'Keep this draft.',
       );
       await swipeDown();
-      expect(screen.getByLabelText('Message body')).toHaveTextContent(
-        'Keep this draft.',
-      );
+      expect(
+        screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      ).toHaveTextContent('Keep this draft.');
       await act(async () => {
         await fireEvent.press(
           screen.getByRole('button', { name: 'Save Draft' }),

@@ -159,7 +159,7 @@ describe('evaluation composer lifetime', () => {
     });
     expect(allowed).toBeUndefined();
     await simulatedPage().report({ frozen: true });
-    await press('Close');
+    await press('Keep Editing');
     await waitFor(() => {
       expect({ allowed }).toStrictEqual({ allowed: false });
     });
@@ -261,7 +261,7 @@ describe('evaluation composer lifetime', () => {
     {
       size: 'compact',
       menus: [
-        ['Close', 'Save Draft', 'Close'],
+        ['Close', 'Save Draft', 'Keep Editing'],
         ['Add files', 'Attach File', 'Add files'],
         ['Writing tools', 'Rewrite the message body', 'Writing tools'],
         ['Format', 'Close Format', 'Close Format'],
@@ -270,7 +270,7 @@ describe('evaluation composer lifetime', () => {
     {
       size: 'regular',
       menus: [
-        ['Close', 'Save Draft', 'Close'],
+        ['Close', 'Save Draft', 'Keep Editing'],
         ['Writing tools', 'Rewrite the message body', 'Writing tools'],
       ],
     },

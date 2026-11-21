@@ -2285,7 +2285,7 @@ export function CloseButton({
 }
 
 // Delete Draft and Save Draft open over the header's Close (`anchor`) and grow out of it, as a
-// system menu does; a tap outside them keeps editing.
+// system menu does; a tap outside them (Keep Editing) keeps editing.
 export function CloseQuestion({
   open,
   anchor,
@@ -2341,21 +2341,22 @@ export function CloseQuestion({
   return (
     <View
       ref={layer}
+      accessibilityViewIsModal={open}
+      onAccessibilityEscape={onCancel}
       pointerEvents={open ? 'auto' : 'none'}
       style={styles.closeQuestion}>
       {open ? (
+        // Outside the question, as UIKit's menus offer VoiceOver a way out too.
         <Pressable
-          testID="close-question-outside"
-          accessible={false}
+          accessibilityLabel={t('drafts.keepEditing')}
+          accessibilityRole="button"
           onPress={onCancel}
           style={StyleSheet.absoluteFill}
         />
       ) : null}
       <View
         accessibilityRole="menu"
-        accessibilityViewIsModal={open}
         accessibilityElementsHidden={!open}
-        onAccessibilityEscape={onCancel}
         pointerEvents="box-none"
         style={[styles.closeQuestionPlace, at]}>
         <GlassPanel
