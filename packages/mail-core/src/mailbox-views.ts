@@ -430,14 +430,17 @@ export const favoriteRows = (entries: FavoriteEntries) =>
     isFavorite(row) ? [{ row, shown: shown || row === allInboxes }] : [],
   );
 
-// `entries` with `row` shown when `shown`, hidden otherwise. All Inboxes stays shown, so for it
-// there is nothing to write.
+// `entries` with `row` shown when `shown`, hidden otherwise; undefined, to write nothing, when that
+// changes nothing, as for All Inboxes, which stays shown.
 export const showFavorite = (
   entries: FavoriteEntries,
   row: Favorite,
   shown: boolean,
 ): FavoriteEntries | undefined =>
-  row === allInboxes
+  row === allInboxes ||
+  !completed(entries).some(
+    (entry) => entry.row === row && entry.shown !== shown,
+  )
     ? undefined
     : completed(entries).map((entry) =>
         entry.row === row ? { row, shown } : entry,
@@ -530,14 +533,17 @@ const changedFolders = (
   ...folders.filter(({ name }) => !names.includes(name)),
 ];
 
-// `folders` with folder `name` of `names` shown when `shown`, hidden otherwise. The Inbox stays
-// shown, so for it there is nothing to write.
+// `folders` with folder `name` of `names` shown when `shown`, hidden otherwise; undefined, to write
+// nothing, when that changes nothing, as for the Inbox, which stays shown.
 export const showFolder = (
   folders: SectionFolders,
   names: readonly string[],
   { name, shown }: Readonly<{ name: string; shown: boolean }>,
 ) =>
-  name === inboxFolder
+  name === inboxFolder ||
+  !folderRows(folders, names).some(
+    (row) => row.name === name && row.shown !== shown,
+  )
     ? undefined
     : changedFolders(folders, names, (rows) =>
         rows.map((row) => (row.name === name ? { name, shown } : row)),

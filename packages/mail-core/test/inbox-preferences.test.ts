@@ -2,7 +2,10 @@ import type {
   NativeInboxPreferenceSync,
   NativeInboxPreferences,
 } from '@private-email/mail-core/inbox-preferences';
-import type { FavoriteEntries } from '@private-email/mail-core/mailboxes';
+import type {
+  FavoriteEntries,
+  SectionFolders,
+} from '@private-email/mail-core/mailboxes';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
 import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
@@ -405,6 +408,39 @@ describe('synchronized Inbox preferences', () => {
       same: sections,
       home: {},
     });
+  });
+
+  it("writes nothing for a tap that changes nothing, so another device's newer hide stands", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Travel', 'Archive'];
+    const hide =
+      (name: string, listed: readonly string[]) => (folders: SectionFolders) =>
+        showFolder(folders, listed, { name, shown: false });
+    await mac.store.changeFolders('work', 'gmail', hide('Travel', names));
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    vi.setSystemTime(november8 + 1000);
+    await mac.store.changeFolders('work', 'gmail', hide('Archive', names));
+    await mac.store.synchronize();
+    // The phone, which also lists New and has yet to pull the Archive hide, hides Travel again.
+    vi.setSystemTime(november8 + 2000);
+    await phone.store.changeFolders(
+      'work',
+      'gmail',
+      hide('Travel', [...names, 'New']),
+    );
+    await phone.store.synchronize();
+    expect(
+      folderRows(
+        sectionFolders({ ...phone.store.sections('work') }, 'gmail'),
+        names,
+      ),
+    ).toStrictEqual([
+      { name: 'INBOX', shown: true },
+      { name: 'Travel', shown: false },
+      { name: 'Archive', shown: false },
+    ]);
   });
 
   it("writes nothing for an All Inboxes tap, so another device's Favorites hide stands", async () => {
