@@ -11,10 +11,10 @@ import {
   folderRows,
   moveFavorite,
   moveFolder,
+  sectionFolders,
   sectionShown,
   toggleFavorite,
   toggleFolder,
-  toggleSection,
 } from '@private-email/mail-core/mailboxes';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -320,53 +320,48 @@ describe('synchronized Inbox preferences', () => {
     });
   });
 
-  it("carries a Profile's hidden accounts and its folders' order to another device; an Inbox stays shown and a folder another device lists keeps its place", async () => {
+  it("carries a Profile's hidden accounts and its folders' order to another device; edits each device made before either pulled all stand, an Inbox stays shown and a folder another device lists keeps its place", async () => {
     expect.hasAssertions();
     const { mac, phone } = devices();
-    const gmail = {
-      connection: 'gmail',
-      names: ['INBOX', 'Archive', 'Receipts', 'Travel'],
-    };
-    // Edits sent before any is read all stand.
-    const [, stored] = await Promise.all([
-      // A folder only another device lists.
-      mac.store.changeSections('work', (entries) => [
-        ...entries,
-        {
-          connection: 'gmail',
-          shown: true,
-          folders: [{ name: 'Elsewhere', shown: false }],
-        },
-      ]),
-      mac.store.changeSections('work', (entries) =>
-        toggleSection(entries, 'fastmail'),
-      ),
-      mac.store.changeSections('work', (entries) =>
-        toggleFolder(entries, gmail, 'Travel'),
-      ),
-      mac.store.changeSections('work', (entries) =>
-        toggleFolder(entries, gmail, 'INBOX'),
-      ),
-      mac.store.changeSections('work', (entries) =>
-        moveFolder(entries, gmail, { name: 'Receipts', to: () => 0 }),
+    const names = ['INBOX', 'Archive', 'Receipts', 'Travel'];
+    // Before either pulls, the phone hides an account and one of its folders while the Mac edits
+    // the other account's folders, hiding one that only it lists.
+    const [stored] = await Promise.all([
+      phone.store.showSection('work', 'fastmail', false),
+      phone.store.changeFolders('work', 'fastmail', (folders) =>
+        toggleFolder(folders, ['INBOX', 'Spam'], 'Spam'),
       ),
     ]);
+    await Promise.all([
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        toggleFolder(folders, ['Elsewhere'], 'Elsewhere'),
+      ),
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        toggleFolder(folders, names, 'Travel'),
+      ),
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        toggleFolder(folders, names, 'INBOX'),
+      ),
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        moveFolder(folders, names, { name: 'Receipts', to: () => 0 }),
+      ),
+    ]);
+    await phone.store.synchronize();
     await mac.store.synchronize();
     await phone.store.synchronize();
-    const entries = phone.store.sections('work');
+    const sections = { ...mac.store.sections('work') };
     expect({
       stored,
-      shown: ['gmail', 'fastmail'].map((id) => sectionShown(entries, id)),
-      folders: folderRows(entries, {
-        connection: 'gmail',
-        names: [...gmail.names, 'New'],
-      }),
-      kept: entries
-        .find(({ connection }) => connection === 'gmail')
-        ?.folders.at(-1),
+      unread: phone.relaunch().sections('work'),
+      shown: ['gmail', 'fastmail'].map((id) => sectionShown(sections, id)),
+      folders: folderRows(sectionFolders(sections, 'gmail'), [...names, 'New']),
+      kept: sectionFolders(sections, 'gmail').at(-1),
+      fastmail: sectionFolders(sections, 'fastmail'),
+      same: phone.store.sections('work'),
       home: phone.store.sections('home'),
     }).toStrictEqual({
       stored: true,
+      unread: undefined,
       shown: [true, false],
       folders: [
         { name: 'Receipts', shown: true },
@@ -376,7 +371,12 @@ describe('synchronized Inbox preferences', () => {
         { name: 'New', shown: true },
       ],
       kept: { name: 'Elsewhere', shown: false },
-      home: [],
+      fastmail: [
+        { name: 'INBOX', shown: true },
+        { name: 'Spam', shown: false },
+      ],
+      same: sections,
+      home: {},
     });
   });
 

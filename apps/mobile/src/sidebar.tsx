@@ -2,9 +2,8 @@ import type { Translate } from '@private-email/localization';
 import type {
   Favorite,
   FavoriteEntries,
-  FolderScope,
   MailboxProblem,
-  SectionEntries,
+  SectionFolders,
   UnifiedRole,
 } from '@private-email/mail-core/mailboxes';
 import type {
@@ -12,6 +11,7 @@ import type {
   MailProvider,
 } from '@private-email/mail-core/registration';
 import type { ReactNode } from 'react';
+import type { LayoutChangeEvent, ScrollViewInstance } from 'react-native';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
@@ -34,10 +34,10 @@ import {
   moveFavorite,
   moveFolder,
   profileMailboxes,
+  sectionFolders,
   sectionShown,
   toggleFavorite,
   toggleFolder,
-  toggleSection,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -51,8 +51,17 @@ import {
   spacing,
   typography,
 } from '@private-email/mail-core/theme';
-import { Fragment, use, useRef, useState, useSyncExternalStore } from 'react';
 import {
+  createContext,
+  Fragment,
+  use,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -654,14 +663,99 @@ type Draggable = Readonly<{
   lifted: boolean;
   moves: Readonly<{ up: boolean; down: boolean }>;
   onMove: (by: -1 | 1) => void;
-  // How far the finger moved since the drag began.
-  onDrag: (dy: number) => void;
+  // How far the finger moved since the drag began, and where it is in the window.
+  onDrag: (dy: number, pageY: number) => void;
   // How far from where the drag began the finger let go; undefined when the drag was cancelled.
   onDrop: (dy: number | undefined) => void;
 }>;
 
+// Scrolls the sidebar while a row is dragged near its top or bottom edge, as a table's reorder
+// does, so a place past a tall account stays in reach. `follow` takes the finger's place in the
+// window, or undefined once the drag ends, and gives `scrolled` how far the list has scrolled since
+// the drag began.
+type EdgeScroll = Readonly<{
+  follow: (pageY: number | undefined, scrolled: (by: number) => void) => void;
+}>;
+const EdgeScrollContext = createContext<EdgeScroll>({
+  follow: () => undefined,
+});
+// How near an edge, in points, a dragged row scrolls the list, and the most it scrolls a frame.
+const edgeBand = 64;
+const edgeSpeed = 14;
+
+function useEdgeScroll() {
+  const list = useRef<ScrollViewInstance>(null);
+  // The list's offset, content height and place in the window.
+  const frame = useRef({ offset: 0, content: 0, top: 0, height: 0 });
+  // The drag being followed: the offset it began at, the finger and the next scroll step.
+  const held = useRef<{
+    origin: number;
+    pageY: number;
+    scrolled: (by: number) => void;
+    step?: number | undefined;
+  }>(undefined);
+  const step = () => {
+    const drag = held.current;
+    if (drag === undefined) {
+      return;
+    }
+    drag.step = undefined;
+    const { offset, content, top, height } = frame.current;
+    const above = drag.pageY - top;
+    const below = top + height - drag.pageY;
+    const pace =
+      height === 0
+        ? 0
+        : edgeSpeed *
+          (Math.max(0, 1 - below / edgeBand) -
+            Math.max(0, 1 - above / edgeBand));
+    const next = Math.max(0, Math.min(content - height, offset + pace));
+    if (Math.abs(next - offset) >= 0.5) {
+      frame.current.offset = next;
+      list.current?.scrollTo({ y: next, animated: false });
+      drag.scrolled(next - drag.origin);
+      drag.step = requestAnimationFrame(step);
+    }
+  };
+  const follow: EdgeScroll['follow'] = (pageY, scrolled) => {
+    if (pageY === undefined) {
+      if (held.current?.step !== undefined) {
+        cancelAnimationFrame(held.current.step);
+      }
+      held.current = undefined;
+      return;
+    }
+    if (held.current === undefined) {
+      held.current = { origin: frame.current.offset, pageY, scrolled };
+      list.current?.measureInWindow((_x, y) => {
+        frame.current.top = y;
+      });
+    }
+    Object.assign(held.current, { pageY, scrolled });
+    held.current.step ??= requestAnimationFrame(step);
+  };
+  return {
+    list,
+    edge: { follow },
+    onScroll: ({
+      nativeEvent,
+    }: Readonly<{
+      nativeEvent: Readonly<{ contentOffset: { y: number } }>;
+    }>) => {
+      frame.current.offset = nativeEvent.contentOffset.y;
+    },
+    onContentSizeChange: (_width: number, height: number) => {
+      frame.current.content = height;
+    },
+    onLayout: ({ nativeEvent }: LayoutChangeEvent) => {
+      frame.current.height = nativeEvent.layout.height;
+    },
+  };
+}
+
 // Items an Edit mode list reorders: one dragged by its handle moves to where it is dropped, the
-// items it passes giving way, each as tall as it lays out.
+// items it passes giving way, each as tall as it lays out. A drag ends without a move when the
+// items change order meanwhile, as when another device reorders them.
 function DragList<T>({
   items,
   keyOf,
@@ -680,13 +774,24 @@ function DragList<T>({
   readonly onDragging: (dragging: boolean) => void;
   readonly render: (item: T, drag: Draggable) => ReactNode;
 }) {
-  // The dragged item, the place it started from and how far the finger moved it.
-  const [drag, setDrag] =
-    useState<Readonly<{ key: string; from: number; dy: number }>>();
+  const edge = use(EdgeScrollContext);
+  const keys = items.map(keyOf);
+  const order = keys.join('\n');
+  // The dragged item, the place it started from, how far the finger and the list moved it, and
+  // the items' order when it began.
+  const [held, setHeld] = useState<
+    Readonly<{
+      key: string;
+      from: number;
+      dy: number;
+      scrolled: number;
+      order: string;
+    }>
+  >();
+  const drag = held?.order === order ? held : undefined;
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(
     new Map(),
   );
-  const keys = items.map(keyOf);
   const height = (index: number) => heights.get(keys[index] ?? '') ?? 0;
   // The place `dy` from item `from` falls on: past each laid-out item whose middle it crosses.
   const place = (from: number, dy: number) => {
@@ -700,7 +805,8 @@ function DragList<T>({
     return to;
   };
   const from = drag?.from ?? -1;
-  const to = drag === undefined ? from : place(from, drag.dy);
+  const dy = drag === undefined ? 0 : drag.dy + drag.scrolled;
+  const to = drag === undefined ? from : place(from, dy);
   // How far the items the dragged one passed reach.
   let passed = 0;
   for (
@@ -712,11 +818,11 @@ function DragList<T>({
   }
   const dragged = items.find((item) => keyOf(item) === drag?.key);
   const rest = items.filter((item) => item !== dragged);
-  const order =
+  const shown =
     dragged === undefined
       ? items
       : [...rest.slice(0, to), dragged, ...rest.slice(to)];
-  return order.map((item, position) => {
+  return shown.map((item, position) => {
     const key = keyOf(item);
     const index = keys.indexOf(key);
     // Where this item's drag began, or its place now when no drag of it has rendered yet, such
@@ -736,9 +842,7 @@ function DragList<T>({
           style={
             lifted && {
               zIndex: 1,
-              transform: [
-                { translateY: drag.dy - (to < from ? -passed : passed) },
-              ],
+              transform: [{ translateY: dy - (to < from ? -passed : passed) }],
             }
           }>
           {render(item, {
@@ -747,16 +851,32 @@ function DragList<T>({
             onMove: (by) => {
               onMove(key, (stored) => stored + by);
             },
-            onDrag: (dy) => {
+            onDrag: (finger, pageY) => {
+              if (held !== undefined && drag === undefined) {
+                return;
+              }
               onDragging(true);
-              setDrag({ key, from: begin, dy });
+              setHeld({
+                key,
+                from: begin,
+                dy: finger,
+                scrolled: drag?.scrolled ?? 0,
+                order,
+              });
+              edge.follow(pageY, (by) => {
+                setHeld((kept) => kept && { ...kept, scrolled: by });
+              });
             },
-            onDrop: (dy) => {
+            onDrop: (finger) => {
+              edge.follow(undefined, () => undefined);
               onDragging(false);
-              setDrag(undefined);
-              // Compared with the item's stored place, which another device may have changed.
-              if (dy !== undefined && place(begin, dy) !== index) {
-                onMove(key, () => place(begin, dy));
+              setHeld(undefined);
+              const at =
+                finger === undefined || drag === undefined
+                  ? index
+                  : place(begin, finger + drag.scrolled);
+              if (at !== index) {
+                onMove(key, () => at);
               }
             },
           })}
@@ -861,10 +981,10 @@ function EditRow({
         onResponderTerminationRequest={() => false}
         onResponderGrant={({ nativeEvent }) => {
           start.current = nativeEvent.pageY;
-          drag.onDrag(0);
+          drag.onDrag(0, nativeEvent.pageY);
         }}
         onResponderMove={({ nativeEvent }) => {
-          drag.onDrag(nativeEvent.pageY - start.current);
+          drag.onDrag(nativeEvent.pageY - start.current, nativeEvent.pageY);
         }}
         onResponderRelease={({ nativeEvent }) => {
           drag.onDrop(nativeEvent.pageY - start.current);
@@ -917,21 +1037,20 @@ const connectionNames = (t: Translate, entry: SidebarEntry) => {
 
 // `folders` of `connection` in the Profile's order, without those it hides.
 const shownFolders = <F extends Readonly<{ name: string }>>(
-  sections: SectionEntries,
-  connection: string,
+  stored: SectionFolders,
   folders: readonly F[],
 ) =>
-  folderRows(sections, {
-    connection,
-    names: folders.map(({ name }) => name),
-  }).flatMap(({ name, shown }) =>
+  folderRows(
+    stored,
+    folders.map(({ name }) => name),
+  ).flatMap(({ name, shown }) =>
     shown ? folders.filter((folder) => folder.name === name) : [],
   );
 
 // The Profile's Mailbox Connections in Edit mode, in its order: a header's checkmark shows or hides
 // the connection and its handle drags it with its folders; a shown connection lists its folders to
-// show, hide and reorder, its Inbox staying shown. Hiding the selected connection selects All
-// Inboxes, and hiding the selected folder selects its connection's Inbox.
+// show, hide and reorder, its Inbox staying shown. Hiding the selected connection or folder selects
+// All Inboxes. A refused reorder says so.
 function EditConnections({
   entries,
   view,
@@ -949,34 +1068,56 @@ function EditConnections({
   const profile = useProfile();
   const store = use(InboxPreferencesContext);
   const sections = useSections(profile);
-  // Applies `change` to the stored sections; resolves the sections stored, or undefined when
-  // storage failed.
-  const change = async (edit: (stored: SectionEntries) => SectionEntries) =>
-    (await store.changeSections(profile, edit))
-      ? store.sections(profile)
-      : undefined;
-  const showOrHide = async (connection: string) => {
-    const after = await change((stored) => toggleSection(stored, connection));
+  // The window's Profile and selection now, which a slow write may have outlived.
+  const latest = useRef({ profile, view });
+  useLayoutEffect(() => {
+    latest.current = { profile, view };
+  });
+  // Selects All Inboxes when `connection`, or its folder `folder`, is still the selection.
+  const leave = (connection: string, folder?: string) => {
+    const { profile: now, view: selected } = latest.current;
     if (
-      after !== undefined &&
-      view.mailbox === connection &&
-      !sectionShown(after, connection)
+      now === profile &&
+      selected.mailbox === connection &&
+      (folder === undefined || selected.folder === folder)
     ) {
       onSelect({});
     }
   };
-  const showOrHideFolder = async (scope: FolderScope, name: string) => {
-    const after = await change((stored) => toggleFolder(stored, scope, name));
-    const hidden = folderRows(after ?? [], scope).some(
-      (row) => row.name === name && !row.shown,
+  const showOrHide = async (connection: string, shown: boolean) => {
+    if ((await store.showSection(profile, connection, !shown)) && shown) {
+      leave(connection);
+    }
+  };
+  const showOrHideFolder = async (
+    connection: string,
+    names: readonly string[],
+    name: string,
+  ) => {
+    const stored = await store.changeFolders(profile, connection, (folders) =>
+      toggleFolder(folders, names, name),
     );
-    if (hidden && view.mailbox === scope.connection && view.folder === name) {
-      onSelect({ mailbox: scope.connection });
+    const hidden = folderRows(
+      sectionFolders(store.sections(profile) ?? {}, connection),
+      names,
+    ).some((row) => row.name === name && !row.shown);
+    if (stored && hidden) {
+      leave(connection, name);
     }
   };
   const connections = profileMailboxes(account?.mailboxes ?? [], profile).map(
     ({ id }) => id,
   );
+  const arrange = async (order: readonly string[]) => {
+    if (
+      account?.arrangeMailboxes !== undefined &&
+      !(await account.arrangeMailboxes(profile, order))
+    ) {
+      Alert.alert(t('mailboxes.orderFailed'), t('mailboxes.orderTryAgain'), [
+        { text: t('common.ok') },
+      ]);
+    }
+  };
   return (
     <DragList
       items={entries}
@@ -985,19 +1126,16 @@ function EditConnections({
         const order = connections.filter((id) => id !== key);
         const place = to(connections.indexOf(key));
         order.splice(Math.max(0, Math.min(place, order.length)), 0, key);
-        void account?.arrangeMailboxes?.(profile, order);
+        void arrange(order);
       }}
       onDragging={onDragging}
       render={(entry, drag) => {
         const { id } = entry;
         const mailbox = 'section' in entry ? entry.section.mailbox : undefined;
-        const scope = {
-          connection: id,
-          names:
-            'section' in entry
-              ? entry.section.folders.map(({ name }) => name)
-              : [inboxFolder],
-        };
+        const names =
+          'section' in entry
+            ? entry.section.folders.map(({ name }) => name)
+            : [inboxFolder];
         const shown = sectionShown(sections, id);
         const { title, address } = connectionNames(t, entry);
         return (
@@ -1007,7 +1145,7 @@ function EditConnections({
               shown={shown}
               drag={drag}
               onToggle={() => {
-                void showOrHide(id);
+                void showOrHide(id, shown);
               }}
             />
             {shown ? (
@@ -1019,12 +1157,12 @@ function EditConnections({
                   ]
                 }>
                 <DragList
-                  items={folderRows(sections, scope)}
+                  items={folderRows(sectionFolders(sections, id), names)}
                   keyOf={({ name }) => name}
                   separator={<EditSeparator />}
                   onMove={(name, to) => {
-                    void change((stored) =>
-                      moveFolder(stored, scope, { name, to }),
+                    void store.changeFolders(profile, id, (folders) =>
+                      moveFolder(folders, names, { name, to }),
                     );
                   }}
                   onDragging={onDragging}
@@ -1038,7 +1176,7 @@ function EditConnections({
                       shown={folder.shown}
                       drag={folderDrag}
                       onToggle={() => {
-                        void showOrHideFolder(scope, folder.name);
+                        void showOrHideFolder(id, names, folder.name);
                       }}
                     />
                   )}
@@ -1299,6 +1437,8 @@ export function Mailboxes({
     0,
   );
   const [dragging, setDragging] = useState(false);
+  const { list, edge, onScroll, onContentSizeChange, onLayout } =
+    useEdgeScroll();
   const editButton = (
     <EditButton
       editing={editing}
@@ -1438,8 +1578,13 @@ export function Mailboxes({
             </View>
           ) : null}
           <ScrollView
+            ref={list}
             style={styles.fill}
             scrollEnabled={!dragging}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            onContentSizeChange={onContentSizeChange}
+            onLayout={onLayout}
             // A row takes its first tap while Search's keyboard is up, so one tap on Outbox ends
             // the search.
             keyboardShouldPersistTaps="handled"
@@ -1469,12 +1614,14 @@ export function Mailboxes({
               {...(onOutbox === undefined ? {} : { onOutbox })}
             />
             {editing ? (
-              <EditConnections
-                entries={sidebar.entries}
-                view={view}
-                onSelect={onSelect}
-                onDragging={setDragging}
-              />
+              <EdgeScrollContext value={edge}>
+                <EditConnections
+                  entries={sidebar.entries}
+                  view={view}
+                  onSelect={onSelect}
+                  onDragging={setDragging}
+                />
+              </EdgeScrollContext>
             ) : (
               shown.map((entry) => {
                 if ('section' in entry) {
@@ -1510,7 +1657,10 @@ export function Mailboxes({
                         : null}
                       <FolderRows
                         mailbox={mailbox}
-                        folders={shownFolders(sections, mailbox.id, folders)}
+                        folders={shownFolders(
+                          sectionFolders(sections, mailbox.id),
+                          folders,
+                        )}
                         onView={onView}
                       />
                     </Fragment>

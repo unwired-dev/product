@@ -469,20 +469,18 @@ export function createHost(
     registration,
     {
       removed,
-      // A connection its Mail Profile hides in the sidebar is muted: it posts none. A background
-      // launch reads the preferences first.
+      // A connection its Mail Profile hides in the sidebar is muted: it posts none, nor does any
+      // while the preferences cannot be read. A background launch reads them first.
       arrived: async (mailbox, messages, eligible) => {
         await inboxPreferences.load();
-        await notifications.arrived(
-          mailbox,
-          messages,
-          () =>
+        await notifications.arrived(mailbox, messages, () => {
+          const sections = inboxPreferences.sections(mailbox.profile() ?? '');
+          return (
             eligible() &&
-            sectionShown(
-              inboxPreferences.sections(mailbox.profile() ?? ''),
-              mailbox.connection,
-            ),
-        );
+            sections !== undefined &&
+            sectionShown(sections, mailbox.connection)
+          );
+        });
       },
       screen: blockedSenders.screen,
       // A Pin follows its IMAP message to the ID a move gave it.

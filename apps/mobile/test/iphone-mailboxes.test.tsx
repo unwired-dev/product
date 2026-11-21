@@ -23,6 +23,7 @@ import {
   waitFor,
 } from '@testing-library/react-native';
 import { useState } from 'react';
+import { Alert } from 'react-native';
 
 import type { MailboxView } from '../src/sidebar.tsx';
 
@@ -62,8 +63,9 @@ const account = {
   chooseFolders: () => Promise.resolve(true),
 };
 
-// Inbox preferences kept for one signed-in Product Account, as native storage keeps them.
-const preferences = () => {
+// Inbox preferences kept for one signed-in Product Account, as native storage keeps them. While
+// `gate.held` is set, writes wait for it.
+const preferences = (gate: { held?: Promise<void> } = {}) => {
   const kept = { revision: 0, document: null as string | null };
   const registration = {
     getSnapshot: () => ({
@@ -82,6 +84,7 @@ const preferences = () => {
       {
         openInboxPreferences: async () => ({ owner: 'account-1', ...kept }),
         commitInboxPreferences: async (owner, expectedRevision, document) => {
+          await gate.held;
           Object.assign(kept, { revision: expectedRevision + 1, document });
           return { owner, revision: kept.revision };
         },
@@ -301,6 +304,7 @@ describe('iPhone Mailboxes', () => {
     };
     const gmail = createSyntheticGmail();
     gmail.deliver({ subject: 'From Alex’s Inbox' });
+    gmail.archive(gmail.deliver({ subject: 'Second look' }));
     const otherGmail = createSyntheticGmail({
       address: 'other@example.invalid',
     });
@@ -311,11 +315,19 @@ describe('iPhone Mailboxes', () => {
       registration,
     );
     await mailboxes.load();
-    const store = preferences()();
+    const gate: { held?: Promise<void> } = {};
+    const store = preferences(gate)();
     await store.load();
-    const arrangeMailboxes = jest.fn(() => Promise.resolve());
+    // The account order is refused, as offline.
+    const arrangeMailboxes = jest.fn(() => Promise.resolve(false));
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    // The window's view, and how to select one as Go To would.
+    let selected: MailboxView = {};
+    let select: (view: MailboxView) => void = ignore;
     function Window() {
       const [view, setView] = useState<MailboxView>({ mailbox: other });
+      selected = view;
+      select = setView;
       return (
         <Mailboxes
           view={view}
@@ -324,11 +336,13 @@ describe('iPhone Mailboxes', () => {
         />
       );
     }
-    const app = await render(
+    const connections = mailboxesOf(registration.getSnapshot().snapshot);
+    // The window, with the Profile's connections in `order`.
+    const tree = (order: typeof connections) => (
       <AccountContext
         value={{
           ...account,
-          mailboxes: mailboxesOf(registration.getSnapshot().snapshot),
+          mailboxes: order,
           arrangeMailboxes,
         }}>
         <InboxPreferencesContext value={store}>
@@ -345,8 +359,9 @@ describe('iPhone Mailboxes', () => {
             </CommandPaletteProvider>
           </InboxProvider>
         </InboxPreferencesContext>
-      </AccountContext>,
+      </AccountContext>
     );
+    const app = await render(tree(connections));
     const allInboxes = () => app.getByRole('button', { name: 'All Inboxes' });
     // The rows after Favorites: each account's header and its folders, with whether each shows.
     const rows = () =>
@@ -370,10 +385,25 @@ describe('iPhone Mailboxes', () => {
     expect(app.getByText('Second')).toBeVisible();
 
     await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
-    // Hiding the selected account; Alex's Inbox stays shown.
+    // Hiding the selected account while a slow write lets Alex's Inbox be selected keeps that
+    // choice; hiding the selected Spam selects All Inboxes. Alex's Inbox stays shown.
+    const written = Promise.withResolvers<undefined>();
+    gate.held = written.promise;
     await fireEvent.press(
       app.getByRole('button', { name: 'Gmail · other@example.invalid' }),
     );
+    await act(() => {
+      select({ mailbox: alex });
+    });
+    delete gate.held;
+    await act(async () => {
+      written.resolve(undefined);
+      await written.promise;
+    });
+    expect(selected).toStrictEqual({ mailbox: alex });
+    await act(() => {
+      select({ mailbox: alex, folder: 'SPAM' });
+    });
     await fireEvent.press(
       app.getByRole('button', { name: 'Spam. In alex@example.invalid' }),
     );
@@ -400,6 +430,29 @@ describe('iPhone Mailboxes', () => {
         'Gmail · other@example.invalid Hidden',
       ]);
     });
+    // Alex's header handle, released where it was pressed, and dragged past the other account
+    // while another device reorders them, arranges nothing.
+    const header = () =>
+      app
+        .getByRole('button', { name: 'Gmail · alex@example.invalid' })
+        .queryAll((node) => node.props.onResponderGrant !== undefined)
+        .at(0)!;
+    for (const name of [
+      'Gmail · alex@example.invalid',
+      'Gmail · other@example.invalid',
+    ]) {
+      await fireEvent(app.getByRole('button', { name }), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 370, height: 52 } },
+      });
+    }
+    await fireEvent(header(), 'responderGrant', touch(0));
+    await fireEvent(header(), 'responderRelease', touch(10));
+    await fireEvent(header(), 'responderGrant', touch(100));
+    await fireEvent(header(), 'responderMove', touch(110));
+    await app.rerender(tree(connections.toReversed()));
+    await fireEvent(header(), 'responderMove', touch(20));
+    await fireEvent(header(), 'responderRelease', touch(20));
+    await app.rerender(tree(connections));
 
     await fireEvent.press(app.getByRole('button', { name: 'Done' }));
     expect({
@@ -407,6 +460,7 @@ describe('iPhone Mailboxes', () => {
       unread: allInboxes().props.accessibilityValue?.text,
       selected: allInboxes().props.accessibilityState?.selected,
       arranged: arrangeMailboxes.mock.calls,
+      refused: alert.mock.calls.map(([title, message]) => [title, message]),
       listed: app.queryByText('Second'),
     }).toStrictEqual({
       rows: [
@@ -418,9 +472,28 @@ describe('iPhone Mailboxes', () => {
       unread: '1 unread',
       selected: true,
       arranged: [[defaultProfile, [other, alex]]],
-      // All Inboxes lists only the shown account's mail.
+      refused: [
+        [
+          'The accounts couldn’t be reordered',
+          'They keep their order on every device. Check your connection and try again.',
+        ],
+      ],
+      // All Inboxes lists only the shown account's mail, and searches only its server.
       listed: null,
     });
+    const field = app.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Second');
+    await fireEvent.press(
+      await app.findByRole('button', {
+        name: 'Search Mail Servers for “Second”',
+      }),
+    );
+    await app.findByRole('button', { name: /Second look/u });
+    expect(
+      app.queryAllByRole('button', { name: /Second(?! look)/u }),
+    ).toStrictEqual([]);
+    alert.mockRestore();
     await app.unmount();
   });
 });

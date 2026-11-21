@@ -1,3 +1,5 @@
+import type { Sections } from '@private-email/mail-core/mailboxes';
+
 import { createContext, use, useEffect, useSyncExternalStore } from 'react';
 import { Pressable } from 'react-native';
 
@@ -18,11 +20,16 @@ export function useListDensity(profile: string) {
   );
 }
 
+const noSections: Sections = {};
+
 // `profile`'s Mailbox Connection sections: which it hides and its folders' order, which its other
-// Trusted Devices share.
+// Trusted Devices share. Until they are read, every connection shows.
 export function useSections(profile: string) {
   const store = use(InboxPreferencesContext);
-  return useSyncExternalStore(store.subscribe, () => store.sections(profile));
+  return useSyncExternalStore(
+    store.subscribe,
+    () => store.sections(profile) ?? noSections,
+  );
 }
 
 // Settings › Appearance › List density: Comfortable or Compact for the window's Mail Profile.

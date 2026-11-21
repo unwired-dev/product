@@ -112,11 +112,12 @@ export const AccountContext = createContext<
         connection: string,
         folders: ChosenFolders,
       ) => Promise<boolean>;
-      // Arranges every connection of Mail Profile `profile` in `order`, on every Trusted Device.
+      // Arranges every connection of Mail Profile `profile` in `order`, on every Trusted Device;
+      // resolves whether it was arranged.
       arrangeMailboxes?: (
         profile: string,
         order: readonly string[],
-      ) => Promise<void>;
+      ) => Promise<boolean>;
     }>
   | undefined
 >(undefined);
@@ -239,7 +240,10 @@ function RegistrationGateContent({
         return store.getSnapshot().profileFailure;
       },
       chooseFolders: store.chooseFolders,
-      arrangeMailboxes: store.arrangeMailboxes,
+      arrangeMailboxes: async (profile: string, order: readonly string[]) => {
+        await store.arrangeMailboxes(profile, order);
+        return store.getSnapshot().orderFailure !== profile;
+      },
     }),
     [store, screen.mailboxes, choices, profiles],
   );

@@ -2,10 +2,7 @@ import type { NativeErrorReporting } from '@private-email/mail-core/error-report
 import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
-import {
-  toggleSection,
-  unifiedFolders,
-} from '@private-email/mail-core/mailboxes';
+import { unifiedFolders } from '@private-email/mail-core/mailboxes';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 
 import type { NativeHostModule } from '../src/host.ts';
@@ -146,11 +143,12 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     revision: 0,
     document: null as string | null,
   };
-  // The signed-in account's stored Inbox preferences.
+  // The signed-in account's stored Inbox preferences; while `locked`, reads reject.
   const preferenceStorage = {
     owner: 'account-synthetic-product-subject',
     revision: 0,
     document: null as string | null,
+    locked: false,
   };
   // While set, settings reads wait for it, as a slow native reply would.
   const settingsGate: { held?: Promise<void>; started?: () => void } = {};
@@ -213,7 +211,14 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     pullBlockedSenders: (owner) =>
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushBlockedSenders: (owner) => Promise.resolve({ owner, committed: false }),
-    openInboxPreferences: () => Promise.resolve({ ...preferenceStorage }),
+    openInboxPreferences: () =>
+      preferenceStorage.locked
+        ? Promise.reject(new Error('locked'))
+        : Promise.resolve({
+            owner: preferenceStorage.owner,
+            revision: preferenceStorage.revision,
+            document: preferenceStorage.document,
+          }),
     commitInboxPreferences: (owner, expectedRevision, document) => {
       Object.assign(preferenceStorage, {
         owner,
@@ -306,6 +311,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     cancelled,
     counts,
     notified,
+    preferenceStorage,
     titles,
     badges,
     badgeWrites,
@@ -469,9 +475,7 @@ describe('the host assembly', () => {
     });
 
     // Hidden in the sidebar, the connection is muted.
-    await host.inboxPreferences.changeSections(defaultProfile, (entries) =>
-      toggleSection(entries, connection),
-    );
+    await host.inboxPreferences.showSection(defaultProfile, connection, false);
     gmail.deliver({ subject: 'While hidden' });
     await host.gmailMailboxes.load();
     expect(notified).toHaveLength(2);
@@ -481,6 +485,32 @@ describe('the host assembly', () => {
     gmail.deliver({ subject: 'After notifications' });
     await host.gmailMailboxes.load();
     expect(notified).toHaveLength(2);
+  });
+
+  it('posts nothing while the Inbox preferences that could mute a connection cannot be read, as at a cold launch', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, preferenceStorage } = syntheticHost(
+      undefined,
+      true,
+    );
+    preferenceStorage.locked = true;
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    gmail.deliver({ subject: 'While unread' });
+    await host.gmailMailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    // Read, a connection its Profile shows posts again.
+    preferenceStorage.locked = false;
+    gmail.deliver({ subject: 'Once read' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toMatchObject([{ body: 'New mail' }]);
+    });
   });
 
   it('keeps the App Icon Badge on the unread Inbox count while it is chosen and allowed', async () => {

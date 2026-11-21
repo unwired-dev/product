@@ -5,7 +5,11 @@ import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { FavoriteEntries, SectionEntries } from './mailbox-views.ts';
+import type {
+  FavoriteEntries,
+  SectionFolders,
+  Sections,
+} from './mailbox-views.ts';
 import type { Registration } from './registration.ts';
 
 import { runLogged } from './diagnostics.ts';
@@ -18,7 +22,7 @@ import {
 import { ownerOf } from './drafts.ts';
 import {
   FavoriteEntriesSchema,
-  SectionEntriesSchema,
+  SectionFoldersSchema,
 } from './mailbox-views.ts';
 
 // How tightly a Thread list lays out its rows. Comfortable is the default.
@@ -30,10 +34,15 @@ export const PreviewLinesSchema = Schema.Literals([0, 1, 2, 3]);
 export type PreviewLines = typeof PreviewLinesSchema.Type;
 const isPreviewLines = Schema.is(PreviewLinesSchema);
 const isFavoriteEntries = Schema.is(FavoriteEntriesSchema);
-const isSectionEntries = Schema.is(SectionEntriesSchema);
-// The same empty Favorites and sections every read, so a React snapshot of none stays equal.
+const isSectionFolders = Schema.is(SectionFoldersSchema);
+// The same empty Favorites and folders every read, so a React snapshot of none stays equal.
 const noFavorites: FavoriteEntries = [];
-const noSections: SectionEntries = [];
+const noFolders: SectionFolders = [];
+const noSections: Sections = {};
+// Each Mailbox Connection's section keeps whether it shows and its folders in fields of their own,
+// so a device that hides one and another that reorders its folders keep both edits.
+const shownField = (connection: string) => `sectionShown:${connection}`;
+const foldersField = (connection: string) => `sectionFolders:${connection}`;
 
 // One preference's latest value and when it was chosen, in milliseconds since the epoch. A field
 // this build does not know is kept and published as it was.
@@ -188,6 +197,8 @@ export function createInboxPreferences(
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
+  // Each Profile's sections as last read, kept while its fields stay, so a React snapshot stays equal.
+  const sectionsRead = new WeakMap<Fields, Sections>();
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The preferences last read or written, and the Product Account they belong to.
   let shown: Readonly<{
@@ -340,7 +351,8 @@ export function createInboxPreferences(
     value:
       | ListDensity
       | PreviewLines
-      | ((stored: unknown) => FavoriteEntries | SectionEntries),
+      | boolean
+      | ((stored: unknown) => FavoriteEntries | SectionFolders),
   ) => {
     const scopes = profiles.filter((profile) => profile !== '');
     if (scopes.length === 0) {
@@ -439,23 +451,52 @@ export function createInboxPreferences(
       choose([profile], 'favorites', (stored) =>
         change(isFavoriteEntries(stored) ? stored : noFavorites),
       ),
-    // `profile`'s Mailbox Connection sections, as last read; none until they are read, while
-    // storage cannot read them, or when none were chosen.
-    sections: (profile: string): SectionEntries => {
-      const value =
-        shown.account === signedIn()
-          ? fieldsOf(shown.profiles, profile).sections?.value
-          : undefined;
-      return isSectionEntries(value) ? value : noSections;
+    // `profile`'s Mailbox Connection sections, as last read; undefined until they are read and while
+    // storage cannot read them, so a muted connection stays muted.
+    sections: (profile: string): Sections | undefined => {
+      if (shown.account !== signedIn()) {
+        return undefined;
+      }
+      const fields = shown.profiles.find(
+        (kept) => kept.profile === profile,
+      )?.fields;
+      if (fields === undefined) {
+        return noSections;
+      }
+      const cached = sectionsRead.get(fields);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const sections: Record<string, Sections[string]> = {};
+      for (const [name, { value }] of Object.entries(fields)) {
+        const [kind, connection] = name.split(/:(?<connection>.*)/su);
+        if (connection !== undefined) {
+          const section = sections[connection] ?? {
+            shown: true,
+            folders: noFolders,
+          };
+          if (kind === 'sectionShown' && typeof value === 'boolean') {
+            sections[connection] = { ...section, shown: value };
+          } else if (kind === 'sectionFolders' && isSectionFolders(value)) {
+            sections[connection] = { ...section, folders: value };
+          }
+        }
+      }
+      sectionsRead.set(fields, sections);
+      return sections;
     },
-    // Chooses `profile`'s sections as `change` makes them from the stored ones, as
+    // Shows or hides `connection`'s section of `profile`, as `setListDensity` chooses.
+    showSection: (profile: string, connection: string, visible: boolean) =>
+      choose([profile], shownField(connection), visible),
+    // Chooses `connection`'s folders of `profile` as `change` makes them from the stored ones, as
     // `changeFavorites` does.
-    changeSections: (
+    changeFolders: (
       profile: string,
-      change: (entries: SectionEntries) => SectionEntries,
+      connection: string,
+      change: (folders: SectionFolders) => SectionFolders,
     ) =>
-      choose([profile], 'sections', (stored) =>
-        change(isSectionEntries(stored) ? stored : noSections),
+      choose([profile], foldersField(connection), (stored) =>
+        change(isSectionFolders(stored) ? stored : noFolders),
       ),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.

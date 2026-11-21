@@ -79,15 +79,16 @@ export {
   toggleFavorite,
   folderRows,
   moveFolder,
+  sectionFolders,
   sectionShown,
   toggleFolder,
-  toggleSection,
 } from './mailbox-views.ts';
 export type {
   Favorite,
   FavoriteEntries,
-  FolderScope,
-  SectionEntries,
+  Section,
+  SectionFolders,
+  Sections,
   UnifiedRole,
 } from './mailbox-views.ts';
 export {

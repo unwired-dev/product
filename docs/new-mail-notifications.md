@@ -37,6 +37,11 @@ matches content, grouping and actions to the design.
   locally, including older saved policies without their record identifier. Changes
   wait until the synchronized records can be read; unreadable ciphertext is never
   replaced. Without a connection, the group says to add a mailbox.
+- A Mailbox Connection its Mail Profile hides in Edit on iPhone or iPad is muted on every
+  Trusted Device, the Mac included, whatever its switch says
+  ([#2611](https://github.com/unwired-dev/product/issues/2611)). Until this device has read the
+  Profile's Inbox preferences, and while they cannot be read, no connection posts, so a muted one
+  never does. Showing it again restores its switch's choice.
 
 ## What notifies
 
@@ -221,7 +226,7 @@ On a connected device, Console.app filtered to those subsystems shows them; on a
 `packages/mail-core/test/gmail-inbox.test.ts`, `imap.test.ts` and
 `microsoft-notifications.test.ts` cover each provider's arrival classification and commit
 ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
-`host.test.ts` covers gating, background completion, permission and generic and preview
+`host.test.ts` covers gating, a connection its Profile hides and preferences that cannot be read, background completion, permission and generic and preview
 content, the App Icon Badge count and when it clears, and that its diagnostics name no message or connection. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark

@@ -4022,8 +4022,9 @@ final class InboxTests: XCTestCase {
     attachScreen("After Send Now", of: app, to: self)
   }
 
-  // #2611: Edit hides a Favorites row and reorders two, and hides a folder of the Gmail mailbox;
-  // Mailboxes keeps them after a relaunch.
+  // #2611: Edit hides a Favorites row and reorders two, hides and shows the Gmail mailbox, drags its
+  // Trash folder above its Inbox and hides its Spam folder; Mailboxes keeps them after a relaunch.
+  // Hiding the selected folder selects All Inboxes.
   func testEditFavorites() throws {
     continueAfterFailure = false
     let environment = ProcessInfo.processInfo.environment
@@ -4070,13 +4071,39 @@ final class InboxTests: XCTestCase {
       forDuration: 0.5, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -2 * trash.frame.height)))
     waitUntil { trash.frame.minY < allMail.frame.minY }
     attachScreen("Spam hidden, Trash above All Mail", of: app, to: self)
-    // The Gmail mailbox's own Spam folder, beneath its header.
-    let folderSpam = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Spam. In "))
+    // The Gmail mailbox's header and its own folders beneath it.
+    func folder(_ name: String) -> XCUIElement {
+      app.buttons.matching(
+        NSPredicate(
+          format: "label BEGINSWITH %@ AND NOT label CONTAINS %@", "\(name). In ", "All Mailboxes")
+      ).firstMatch
+    }
+    let header = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Gmail · "))
       .firstMatch
+    let folderSpam = folder("Spam")
+    let folderInbox = folder("Inbox")
+    let folderTrash = folder("Trash")
+    // Hidden, the mailbox lists no folders; shown again, it lists them as before.
+    XCTAssertEqual(header.value as? String, "Shown")
+    header.tap()
+    waitUntil { header.value as? String == "Hidden" }
+    XCTAssertTrue(folderInbox.waitForNonExistence(timeout: 10))
+    attachScreen("Edit Mailboxes, Gmail hidden", of: app, to: self)
+    header.tap()
+    waitUntil { header.value as? String == "Shown" }
+    XCTAssertTrue(folderInbox.waitForExistence(timeout: 10))
     XCTAssertEqual(folderSpam.value as? String, "Shown")
     folderSpam.tap()
     waitUntil { folderSpam.value as? String == "Hidden" }
-    attachScreen("Edit Mailboxes, Spam folder hidden", of: app, to: self)
+    // Trash's handle drags it above the Inbox, which cannot be hidden but moves.
+    let trashHandle = folderTrash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+      .withOffset(CGVector(dx: ipad ? -18 : -31, dy: 0))
+    trashHandle.press(
+      forDuration: 0.5,
+      thenDragTo: trashHandle.withOffset(
+        CGVector(dx: 0, dy: folderInbox.frame.minY - folderTrash.frame.midY - 4)))
+    waitUntil { folderTrash.frame.minY < folderInbox.frame.minY }
+    attachScreen("Edit Mailboxes, Spam folder hidden, Trash above Inbox", of: app, to: self)
     done.tap()
     XCTAssertTrue(app.buttons["Spam"].waitForNonExistence(timeout: 10))
     XCTAssertTrue(folderSpam.waitForNonExistence(timeout: 10))
@@ -4091,7 +4118,19 @@ final class InboxTests: XCTestCase {
     revealSwitcher(app, app.buttons["All Inboxes"])
     waitUntil { favorites() == edited }
     XCTAssertFalse(folderSpam.exists)
+    XCTAssertLessThan(folderTrash.frame.minY, folderInbox.frame.minY)
     attachScreen("Edited Favorites after a relaunch", of: app, to: self)
+    // Hiding the selected Trash folder selects All Inboxes.
+    folderTrash.tap()
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    waitUntil { edit() != nil }
+    edit()?.tap()
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    folderTrash.tap()
+    waitUntil { folderTrash.value as? String == "Hidden" }
+    done.tap()
+    XCTAssertTrue(folderTrash.waitForNonExistence(timeout: 10))
+    waitUntil { app.buttons["All Inboxes"].isSelected }
     // The iPad frames draw Edit mode in Landscape, whose sidebar is wider than Portrait's.
     if ipad {
       rotate(app, to: .landscapeLeft)

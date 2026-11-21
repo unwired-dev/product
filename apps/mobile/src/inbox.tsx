@@ -809,6 +809,37 @@ const authorizer = (
         })();
       };
 
+// All Inboxes, and search there or widened to every Inbox, leave out every connection the Profile
+// hides: `inboxes` keeps the others and the one the view scopes to, and `searched` is what search
+// covers of `shown`.
+function useShownInboxes({
+  mailboxes,
+  shown,
+  profile,
+  scope,
+  unified,
+}: Readonly<{
+  mailboxes: readonly InboxMailbox[];
+  shown: readonly InboxMailbox[];
+  profile: string;
+  scope: string | undefined;
+  unified: MailboxView['unified'];
+}>) {
+  const sections = useSections(profile);
+  const inboxes = useMemo(
+    () =>
+      mailboxes.filter(({ id }) => id === scope || sectionShown(sections, id)),
+    [mailboxes, scope, sections],
+  );
+  return {
+    inboxes,
+    searched:
+      unified === undefined
+        ? shown.filter((mailbox) => inboxes.includes(mailbox))
+        : shown,
+  };
+}
+
 export function Inbox({
   visible,
   selected,
@@ -875,17 +906,16 @@ export function Inbox({
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
-  // All Inboxes leaves out every connection the Profile hides.
-  const shownSections = useSections(profile);
+  const { inboxes, searched: searchedMailboxes } = useShownInboxes({
+    mailboxes,
+    shown,
+    profile,
+    scope,
+    unified: view.unified,
+  });
   const inboxListed = useMemo(
-    () =>
-      inboxMessages(
-        mailboxes.filter(
-          ({ id }) => scope !== undefined || sectionShown(shownSections, id),
-        ),
-        scoped,
-      ),
-    [mailboxes, scoped, scope, shownSections],
+    () => inboxMessages(inboxes, scoped),
+    [inboxes, scoped],
   );
   const {
     folder,
@@ -900,8 +930,8 @@ export function Inbox({
     showOlder,
   } = useListedMailbox(shown, inboxListed, { view, onView });
   const searchState = useInboxSearch(search, {
-    mailboxes,
-    shown,
+    mailboxes: inboxes,
+    shown: searchedMailboxes,
     listed,
     profile,
     scoped,

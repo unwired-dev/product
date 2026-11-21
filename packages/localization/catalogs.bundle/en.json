@@ -352,6 +352,8 @@
     "hidden": "Hidden",
     "moveUp": "Move Up",
     "moveDown": "Move Down",
+    "orderFailed": "The accounts couldn’t be reordered",
+    "orderTryAgain": "They keep their order on every device. Check your connection and try again.",
     "collapsed": "Collapsed",
     "allMail": "All Mail",
     "spam": "Spam",
