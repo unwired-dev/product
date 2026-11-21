@@ -971,8 +971,11 @@ Send…. It sends as Send does, through the same Outbox checks and refusals, but
 admits the message with no Undo Send Window, so it is ready for delivery at once,
 under the usual Outbox claim and retry rules, and offers no Undo. It asks for no confirmation, and plain Send keeps its window.
 While Send can't send, Send Now is dimmed; while a file is still being added it
-also names that file ("Waiting for terms.pdf to finish"). The Mac gets Send Now
-in a later #1674 slice.
+also names that file ("Waiting for terms.pdf to finish"). On the Mac
+([#2594](https://github.com/unwired-dev/product/issues/2594)), Send's menu (a
+right click on Send) offers Send Now after Send, subtitled "No Undo", and behaves
+the same; while a file is still being added its dimmed row reads
+"Send Now — waiting for terms.pdf".
 
 Reminders are not synchronized and schedule no notification yet, and a reminder
 whose Draft is deleted elsewhere, or whose removal storage refused after Send or

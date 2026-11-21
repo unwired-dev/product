@@ -41,7 +41,7 @@ import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
 import { chooseMenuItem } from './native-menu.ts';
-import { remindFromSendMenu } from './send-menu.tsx';
+import { remindFromSendMenu, sendMenuItem } from './send-menu.tsx';
 
 const alex = syntheticMailboxes['alex@example.invalid'];
 const account = 'synthetic-product-account';
@@ -683,6 +683,59 @@ describe('sending a Draft', () => {
       expect(screen.queryByRole('alert', { name: waiting })).toBeNull();
       expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
       expect(announce).not.toHaveBeenCalledWith(waiting);
+    } finally {
+      sender.storage.release();
+      sender.outbox.dispose();
+    }
+  });
+
+  it('sends at once with Send Now, which waits for a file still being added', async () => {
+    expect.hasAssertions();
+    const sender = device();
+    try {
+      await act(async () => {
+        await sender.mailboxes.load();
+      });
+      await render(<App sender={sender} />);
+      await compose('Lunch');
+
+      // While a file is still being added, Send Now names it and can't be chosen.
+      sender.storage.holdImports();
+      sender.storage.addFile('file:///terms.pdf', 'terms');
+      sender.storage.pickNext('files', [
+        {
+          uri: 'file:///terms.pdf',
+          name: 'terms.pdf',
+          type: 'application/pdf',
+        },
+      ]);
+      await press('Attach Files…');
+      await screen.findByLabelText('terms.pdf, Adding…');
+      expect(sendMenuItem('sendNow')).toMatchObject({
+        title: 'Send Now — waiting for terms.pdf',
+        subtitle: undefined,
+        disabled: true,
+      });
+      await act(async () => {
+        sender.storage.releaseImports();
+      });
+      await screen.findByLabelText('terms.pdf, 5 bytes');
+
+      // Once it is added, Send Now hands the message over without the Undo Send Window.
+      const sendNow = sendMenuItem('sendNow');
+      expect(sendNow).toMatchObject({
+        title: 'Send Now',
+        subtitle: 'No Undo',
+        disabled: false,
+      });
+      await sendNow.choose();
+      await waitFor(() => {
+        expect(screen.queryByLabelText('Subject')).toBeNull();
+      });
+      await later(sender, 0);
+      expect(sender.gmail.sends).toHaveLength(1);
+      expect(sender.gmail.sends[0]?.raw).toContain('Subject: Lunch');
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     } finally {
       sender.storage.release();
       sender.outbox.dispose();

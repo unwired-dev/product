@@ -255,6 +255,14 @@ Blocked Senders then lists the address as `0 since`, and selecting it and choosi
 − leaves **No Blocked Senders**. The sheet and both Settings states are kept as
 attachments. It sets Light; `testBlockSenderDark` runs it in Dark.
 
+`testSendNow` uses the same build and sign-in
+([#2594](https://github.com/unwired-dev/product/issues/2594)). It writes a New
+Message to `jordan@example.invalid`, opens Send's menu with a right click and
+chooses **Send Now**. The composer closes and the window shows no `Sending soon`
+row. The menu and the window after Send Now are kept as attachments. It sets
+Light; `testSendNowDark` runs it in Dark. The dimmed state while a file is still
+being added is covered by Jest.
+
 `testPinThread` uses the same build and sign-in
 ([#2280](https://github.com/unwired-dev/product/issues/2280)). It opens Gmail
 update 001 and chooses **Pin** in the reader's toolbar; the row then reads

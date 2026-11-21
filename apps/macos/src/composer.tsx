@@ -3740,8 +3740,8 @@ function Editor({
     }
   };
   // Stores and admits the Draft as this editor shows it to the Outbox, then closes; a refusal
-  // keeps it open.
-  const send = async () => {
+  // keeps it open. Send Now gives a `delay` of 0, with no Undo Send Window.
+  const send = async (delay?: number) => {
     if (discarded.current || lifetime.current.finishing > 0) {
       return;
     }
@@ -3772,6 +3772,7 @@ function Editor({
           ...(authored.current.conflict ? { conflict: true as const } : {}),
         }),
         setCheck,
+        delay,
       );
       // A refused Send still stored the version shown, unless the store declined it; Close asks
       // only if saving it failed.
@@ -3935,8 +3936,14 @@ function Editor({
     <SendMenu
       disabled={closing === 'saving'}
       sendable={blocked === undefined}
+      waiting={
+        unsendableAssets(draft).find(({ state }) => state === 'importing')?.name
+      }
       onSend={() => {
         void send();
+      }}
+      onSendNow={() => {
+        void send(0);
       }}
       onRemind={(dueAt, timeZone) => {
         void remind(dueAt, timeZone);

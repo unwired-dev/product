@@ -85,17 +85,23 @@ function useReminderMenu(onRemind: (dueAt: number, timeZone: string) => void) {
   };
 }
 
-// Send: a click sends, and a right click opens the Send menu, whose Remind Me to Send… opens the
-// reminder menu from Send. A Draft that cannot be sent yet can still get a reminder.
+// Send: a click sends, and a right click opens the Send menu. Its Send Now sends without the Undo
+// Send Window, and Remind Me to Send… opens the reminder menu from Send. A Draft that cannot be
+// sent yet can still get a reminder.
 export function SendMenu({
   disabled,
   sendable,
+  waiting,
   onSend,
+  onSendNow,
   onRemind,
 }: {
   readonly disabled: boolean;
   readonly sendable: boolean;
+  // The file Send Now waits for while it is still being added.
+  readonly waiting: string | undefined;
   readonly onSend: () => void;
+  readonly onSendNow: () => void;
   readonly onRemind: (dueAt: number, timeZone: string) => void;
 }) {
   const { t } = useLocalization();
@@ -112,6 +118,21 @@ export function SendMenu({
               symbol: '',
               disabled: disabled || !sendable,
               run: onSend,
+            },
+            // While a file is still being added, Send is unavailable too.
+            {
+              key: 'sendNow',
+              ...(waiting === undefined
+                ? {
+                    title: t('drafts.sendNow.title'),
+                    subtitle: t('drafts.sendNow.detail'),
+                  }
+                : {
+                    title: t('drafts.sendNow.waitingTitle', { name: waiting }),
+                  }),
+              symbol: '',
+              disabled: disabled || !sendable,
+              run: onSendNow,
             },
           ],
         },
