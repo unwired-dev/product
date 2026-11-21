@@ -178,6 +178,20 @@ const touch = {
   nativeEvent: { pageX: 0, pageY: 0, locationX: 0, locationY: 0, timestamp: 0 },
 };
 
+// The views inside `node` that take the pointer, such as an Edit Favorites row's drag handle.
+type Node = Parameters<typeof fireEvent.press>[0];
+function grabbed(node: Node): Node[] {
+  return node.children.flatMap((child) => {
+    if (typeof child === 'string') {
+      return [];
+    }
+    return child.props.onResponderGrant === undefined
+      ? grabbed(child)
+      : [child];
+  });
+}
+const handleOf = (node: Node) => grabbed(node).at(0) ?? node;
+
 // Selection fills drawn in a Settings row: its own and any stacked over it.
 function fills(row: Parameters<typeof fireEvent.press>[0]) {
   const filled = (node: typeof row) =>
@@ -1590,6 +1604,11 @@ describe('mac window selection with the shared mock mailbox', () => {
     await waitFor(() => {
       expect(editRows()).toStrictEqual(edited);
     });
+    // Pressing Trash's drag handle and letting go without moving it leaves it in place.
+    const handle = handleOf(app.getByRole('button', { name: 'Trash' }));
+    await fireEvent(handle, 'responderGrant', touch);
+    await fireEvent(handle, 'responderRelease', touch);
+    expect(editRows()).toStrictEqual(edited);
     await fireEvent.press(app.getByRole('button', { name: 'Done' }));
     // Hiding the selected Spam selected the first row still shown.
     expect({

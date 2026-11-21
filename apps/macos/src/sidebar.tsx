@@ -559,6 +559,7 @@ function EditRow({
         onStartShouldSetResponder={() => true}
         onResponderGrant={({ nativeEvent }) => {
           setStart(nativeEvent.pageY);
+          onDrag(0);
         }}
         onResponderMove={({ nativeEvent }) => {
           onDrag(nativeEvent.pageY - start);
