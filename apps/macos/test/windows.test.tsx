@@ -1562,19 +1562,31 @@ describe('mac window selection with the shared mock mailbox', () => {
     await waitFor(() => {
       expect(editRows()).toStrictEqual(edited);
     });
-    // From the keyboard, Command-Option-Down and Up move a row and back; Down alone does not.
-    const key = async (direction: string, modifiers = true) => {
-      await fireEvent(app.getByRole('button', { name: 'Trash' }), 'keyDown', {
-        nativeEvent: { key: direction, altKey: modifiers, metaKey: modifiers },
-      });
+    // From the keyboard, Command-Option-Down and Up move a row two places and back; Down alone
+    // does not.
+    const keys = async (direction: string, times: number, modifiers = true) => {
+      for (let pressed = 0; pressed < times; pressed += 1) {
+        await fireEvent(app.getByRole('button', { name: 'Sent' }), 'keyDown', {
+          nativeEvent: {
+            key: direction,
+            altKey: modifiers,
+            metaKey: modifiers,
+          },
+        });
+      }
     };
-    await key('ArrowDown', false);
+    await keys('ArrowDown', 1, false);
     expect(editRows()).toStrictEqual(edited);
-    await key('ArrowDown');
+    await keys('ArrowDown', 2);
     await waitFor(() => {
-      expect(editRows().slice(4)).toStrictEqual(['Spam Hidden', 'Trash Shown']);
+      expect(editRows().slice(0, 4)).toStrictEqual([
+        'All Inboxes Shown',
+        'Archive Shown',
+        'All Mail Shown',
+        'Sent Shown',
+      ]);
     });
-    await key('ArrowUp');
+    await keys('ArrowUp', 2);
     await waitFor(() => {
       expect(editRows()).toStrictEqual(edited);
     });

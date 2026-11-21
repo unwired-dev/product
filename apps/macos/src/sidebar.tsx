@@ -442,9 +442,11 @@ function useFavorites(profile: string) {
   return {
     entries,
     // Applies `change` to the stored rows, so an edit made before the last one is read keeps it.
-    change: (change: (stored: typeof entries) => typeof entries) => {
-      void store.changeFavorites(profile, change);
-    },
+    // Resolves the rows it stored, or undefined when storage failed.
+    change: async (change: (stored: typeof entries) => typeof entries) =>
+      (await store.changeFavorites(profile, change))
+        ? favoriteRows(store.favorites(profile))
+        : undefined,
   };
 }
 
@@ -473,8 +475,9 @@ function EditRow({
 }: {
   readonly row: Favorite;
   readonly shown: boolean;
-  // How many times the keyboard or VoiceOver moved the row in a row, so it keeps focus.
-  readonly moved: number | undefined;
+  // While the keyboard or VoiceOver moves the row, a token that changes with each move and each
+  // place the row is shown at, so it keeps focus.
+  readonly moved: string | undefined;
   // Which ways the row can move by one place.
   readonly moves: Readonly<{ up: boolean; down: boolean }>;
   // How far the pointer drags the row from where it shows, while it does.
@@ -600,7 +603,8 @@ function EditFavorites({
 }: {
   readonly rows: ReadonlyArray<Readonly<{ row: Favorite; shown: boolean }>>;
   readonly onToggle: (row: Favorite) => void;
-  readonly onMove: (row: Favorite, index: number) => void;
+  // Moves `row` to the place `to` gives for its stored place.
+  readonly onMove: (row: Favorite, to: (index: number) => number) => void;
 }) {
   const [drag, setDrag] = useState<Readonly<{ row: Favorite; dy: number }>>();
   // The row the keyboard or VoiceOver last moved, and how many times in a row.
@@ -624,7 +628,11 @@ function EditFavorites({
         key={row}
         row={row}
         shown={shown}
-        moved={moved?.row === row ? moved.times : undefined}
+        moved={
+          moved?.row === row
+            ? `${String(moved.times)} ${String(index)}`
+            : undefined
+        }
         moves={{ up: index > 0, down: index < rows.length - 1 }}
         offset={
           drag === undefined || row !== drag.row
@@ -639,7 +647,7 @@ function EditFavorites({
             row,
             times: moved?.row === row ? moved.times + 1 : 1,
           });
-          onMove(row, index + by);
+          onMove(row, (stored) => stored + by);
         }}
         onDrag={(dy) => {
           setMoved(undefined);
@@ -648,7 +656,7 @@ function EditFavorites({
         onDrop={(dy) => {
           setDrag(undefined);
           if (dy !== undefined && place(index, dy) !== index) {
-            onMove(row, place(index, dy));
+            onMove(row, () => place(index, dy));
           }
         }}
       />
@@ -729,12 +737,11 @@ export function Mailboxes({
   const rows = favoriteRows(entries);
   const shownRows = rows.filter(({ shown }) => shown);
   // Hiding the selected Unified Mailbox selects the first row still shown.
-  const showOrHide = (row: Favorite) => {
-    change((stored) => toggleFavorite(stored, row));
-    const after = favoriteRows(toggleFavorite(entries, row));
+  const showOrHide = async (row: Favorite) => {
+    const after = await change((stored) => toggleFavorite(stored, row));
     if (
       view.unified === row &&
-      after.some((entry) => entry.row === row && !entry.shown)
+      after?.some((entry) => entry.row === row && !entry.shown) === true
     ) {
       const first = after.find(({ shown }) => shown)?.row;
       onView(
@@ -830,9 +837,21 @@ export function Mailboxes({
           {editing ? (
             <EditFavorites
               rows={rows}
-              onToggle={showOrHide}
-              onMove={(row, index) => {
-                change((stored) => moveFavorite(stored, row, index));
+              onToggle={(row) => {
+                void showOrHide(row);
+              }}
+              onMove={(row, to) => {
+                void change((stored) =>
+                  moveFavorite(
+                    stored,
+                    row,
+                    to(
+                      favoriteRows(stored).findIndex(
+                        (entry) => entry.row === row,
+                      ),
+                    ),
+                  ),
+                );
               }}
             />
           ) : null}
