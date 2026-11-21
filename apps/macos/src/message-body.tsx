@@ -50,6 +50,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
+import { useWindowIdentifier } from './command-palette.tsx';
 import {
   AnnouncedAlert,
   askInSheet,
@@ -64,6 +65,7 @@ import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
 import { useRemoteImages } from './remote-content.tsx';
+import { windowHost } from './settings-window-client.ts';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
 
@@ -742,6 +744,7 @@ function AttachmentRow({
   const colors = usePalette();
   const attach = use(AttachContext);
   const report = use(SaveOutcomeContext);
+  const window = useWindowIdentifier();
   const { t, settings } = useLocalization();
   const sizeFormat = useMemo(
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
@@ -805,6 +808,8 @@ function AttachmentRow({
         return;
       }
       const shown = report();
+      // The save panel opens on the key window, and a context menu also opens in one that is not.
+      windowHost()?.focusWindow(window);
       void (async () => {
         const saved = await inbox.saveAttachmentCopy(id, locator);
         if (saved === 'cancelled') {

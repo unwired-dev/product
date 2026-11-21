@@ -464,25 +464,29 @@ const openSaving = async () => {
   return { gmail, inbox, id, app, items, save };
 };
 
-// Only the native Show in Finder boundary is substituted; returns what it was asked to reveal.
+// Only the native window host is substituted; returns the windows it brought forward and the
+// files it was asked to reveal.
 const finderHost = () => {
   const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+  const focusWindow = jest.fn<undefined, [string]>();
   const showInFinder = jest.fn<undefined, [string]>();
-  const host: TurboModule & Readonly<{ showInFinder: typeof showInFinder }> = {
-    showInFinder,
-  };
+  const host: TurboModule &
+    Readonly<{
+      focusWindow: typeof focusWindow;
+      showInFinder: typeof showInFinder;
+    }> = { focusWindow, showInFinder };
   jest
     .spyOn(TurboModuleRegistry, 'get')
     .mockImplementation((name) =>
       name === 'UnwiredCommands' ? host : get(name),
     );
-  return showInFinder;
+  return host;
 };
 
 describe('saving a received attachment with Save As…', () => {
-  it('offers Save As… between Quick Look and Share, and names the saved copy and its folder with Show in Finder', async () => {
+  it('offers Save As… between Quick Look and Share, brings its window forward, and names the saved copy and its folder with Show in Finder', async () => {
     expect.hasAssertions();
-    const showInFinder = finderHost();
+    const { focusWindow, showInFinder } = finderHost();
     const { gmail, app, items, save } = await openSaving();
     jest
       .spyOn(gmail.native, 'presentAttachment')
@@ -500,9 +504,14 @@ describe('saving a received attachment with Save As…', () => {
       await fireEvent.press(
         screen.getByLabelText('Show notes 2.txt in Finder'),
       );
-      expect(showInFinder.mock.calls).toStrictEqual([
-        ['file:///Users/person/Downloads/notes%202.txt'],
-      ]);
+      expect({
+        focused: focusWindow.mock.calls,
+        revealed: showInFinder.mock.calls,
+      }).toStrictEqual({
+        // The palette's default window, as this reader renders outside an Inbox window.
+        focused: [['inbox-window-']],
+        revealed: [['file:///Users/person/Downloads/notes%202.txt']],
+      });
     } finally {
       await app.unmount();
       jest.restoreAllMocks();
