@@ -48,6 +48,8 @@
     "count_other": "{{count}} Nachrichten",
     "back": "Zurück",
     "more": "Mehr",
+    "today": "Heute, {{time}}",
+    "yesterday": "Gestern, {{time}}",
     "to": "An: {{recipients}}",
     "cc": "Kopie: {{recipients}}",
     "reply": "Antworten",

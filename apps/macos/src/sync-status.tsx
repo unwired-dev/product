@@ -24,7 +24,7 @@ import {
   useOutcomeAnnouncement,
 } from './design.tsx';
 import { Label } from './label.tsx';
-import { useLocalization, useMessageListDateFormats } from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { textStyles, usePalette } from './theme.ts';
 
 // The Sync Status Capsule floating above the Inbox search bar, and the popover it opens, from the
@@ -411,7 +411,7 @@ function SyncStatusDetails({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const { time } = useMessageListDateFormats();
+  const { time } = useMessageDateFormats();
   const synchronizedAt = shown.flatMap(({ state }) =>
     state.kind === 'ready' &&
     'synchronizedAt' in state &&

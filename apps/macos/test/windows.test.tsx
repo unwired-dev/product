@@ -2799,11 +2799,12 @@ describe('mac windows over a connected Gmail mailbox', () => {
       });
       expect(copy).toHaveBeenCalledWith('oliver@example.invalid');
       const message = contextMenuOf(sender);
-      const received = within(message).getByLabelText(/UTC$/u);
+      // VoiceOver reads the full date; the header shows the short one.
+      const received = within(message).getByLabelText(/\d{4} at \d/u);
       // Selectable native date text consumes secondary clicks before the message menu.
       expect({
         selectableDate:
-          within(received).getByText(/UTC$/u).props.selectable === true,
+          within(received).getByText(/\d:\d\d/u).props.selectable === true,
       }).toStrictEqual({ selectableDate: false });
       expect(menuSections(message)).toStrictEqual([
         ['Mark as Unread', 'Pin'],

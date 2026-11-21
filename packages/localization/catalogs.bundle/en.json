@@ -80,6 +80,8 @@
     "backUnread": "Back, {{count}} unread",
     "more": "More",
     "received": "{{date}} UTC",
+    "today": "Today, {{time}}",
+    "yesterday": "Yesterday, {{time}}",
     "labels": "Labels: {{labels}}",
     "to": "To: {{recipients}}",
     "cc": "Cc: {{recipients}}",

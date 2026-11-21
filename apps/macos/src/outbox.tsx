@@ -16,7 +16,7 @@ import {
 
 import { Action } from './action.tsx';
 import { Button, MenuPresence, SFSymbol } from './design.tsx';
-import { useLocalization, useMessageListDateFormats } from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { useOutbox, useOutboxEntries, useProfile } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, usePalette } from './theme.ts';
@@ -378,7 +378,7 @@ function ResponseRow({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const formats = useMessageListDateFormats();
+  const formats = useMessageDateFormats();
   const { subject, recipients } = summaryOf(t, entry);
   const { status, unconfirmed } = outboxCopy(t, entry, 'imap');
   const [symbol, tone] = responseSymbols[entry.state];

@@ -19,7 +19,8 @@ import {
 import { useBlockSender } from './block-sender.tsx';
 import { usePaletteHeader } from './command-palette.tsx';
 import { ContextMenu, Monogram, NavigationChrome } from './design.tsx';
-import { useLocalization, useMessageDateFormat } from './localization.ts';
+import { useLocalization, useMessageDateFormats } from './localization.ts';
+import { useNow } from './mailbox-state.ts';
 import { useInbox, useMailbox } from './mailbox.tsx';
 import { textStyles, useLargeText, usePalette } from './theme.ts';
 
@@ -200,8 +201,8 @@ export function MessageHeader({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const dateFormat = useMessageDateFormat();
-  const fullDateFormat = useMessageDateFormat(true);
+  const dates = useMessageDateFormats();
+  const now = useNow();
   const connection = useMailbox()?.id ?? '';
   const block = useBlockSender();
   const blockItems = block.items(message.address, connection, message.id);
@@ -293,16 +294,12 @@ export function MessageHeader({
       </ContextMenu>
       {block.alert}
       <Text
-        accessibilityLabel={t('message.received', {
-          date: fullDateFormat.format(new Date(message.receivedAt)),
-        })}
+        accessibilityLabel={dates.full.format(new Date(message.receivedAt))}
         style={[secondary, { color: colors.textSecondary }]}>
-        {/* iPhone's compact header leaves the time zone to the spoken date. */}
+        {/* iPhone's compact header names the day as its list row does. */}
         {ipad
-          ? t('message.received', {
-              date: dateFormat.format(new Date(message.receivedAt)),
-            })
-          : dateFormat.format(new Date(message.receivedAt))}
+          ? dates.header(t, new Date(message.receivedAt), now)
+          : dates.row(t, message.receivedAt, now, true)}
       </Text>
     </View>
   );

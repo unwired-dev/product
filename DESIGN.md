@@ -847,8 +847,6 @@ app follows under the issue named:
 - **Outbox:** the frames draw the conditional Outbox as a sidebar row after Sent,
   without a count. The Mac does (#2421); iPhone and iPad list its rows at the top
   of the Inbox column until the rest of #2101.
-- **Reader date:** the frames write `Today, 8:12`. The app writes a full UTC date
-  until #2102.
 - **Trusted Devices:** the rows' device symbol, Current Device, last activity and
   disclosure chevron wait for #2107.
 - **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for

@@ -17,8 +17,9 @@ catalog and saved preference, including before JavaScript starts.
 
 Dates and attachment sizes use the device's regional format under System default,
 including explicit calendar, numbering-system, and 12/24-hour preferences, and the
-selected language's format under an override. Message dates keep their existing UTC
-time zone. Message senders, subjects, previews, bodies, attachment names, Gmail label
+selected language's format under an override. Message dates use the device's time
+zone, which the native settings report and refresh when it changes; the date a
+response quotes for a message without a Date header stays a full UTC date. Message senders, subjects, previews, bodies, attachment names, Gmail label
 names, mailbox addresses, device names, and Draft subjects, recipients and bodies are
 content and are never treated as translation keys.
 

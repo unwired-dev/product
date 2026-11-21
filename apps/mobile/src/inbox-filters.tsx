@@ -389,10 +389,13 @@ export function useInboxFilter<M extends Filtered>({
   );
   // A filter is off once it leaves nothing out here, as when a view drops the connections it excluded.
   const active = on && narrows(filter, connections);
+  const { timeZone } = useLocalization().settings;
   const rows = useMemo(
     () =>
-      active ? filterMessages(listed, { filter, connections, now }) : listed,
-    [active, filter, connections, listed, now],
+      active
+        ? filterMessages(listed, { filter, connections, now, timeZone })
+        : listed,
+    [active, filter, connections, listed, now, timeZone],
   );
   return {
     filter,

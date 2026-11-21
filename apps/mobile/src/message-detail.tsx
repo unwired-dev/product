@@ -552,7 +552,7 @@ function ResponseActions({
   const account = use(AccountContext);
   const mailbox = useMailbox();
   const { t } = useLocalization();
-  const dateFormat = useMessageDateFormat(true);
+  const dateFormat = useMessageDateFormat();
   const mounted = useRef(true);
   const starting = useRef(false);
   const [pending, setPending] = useState<ResponseKind | undefined>();

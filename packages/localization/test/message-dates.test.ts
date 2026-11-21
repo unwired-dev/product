@@ -1,37 +1,41 @@
 import {
   createLocalization,
-  createMessageListDateFormats,
+  createMessageDateFormats,
+  english,
   lastUpdated,
   messageDay,
+  messageMonth,
 } from '../src/index.ts';
 
-// The list groups rows by the UTC day they arrived, the day their listed times use.
+// The list groups rows by the calendar day they arrived in the device's time zone, the day their
+// listed times and the reader's header use.
 describe('message list days', () => {
   const now = Date.parse('2026-10-13T09:41:00Z');
 
   it('names each arrival day relative to now and keeps the week before the earlier months', () => {
     expect.hasAssertions();
-    expect(messageDay('2026-10-13T00:00:00Z', now)).toBe('today');
-    expect(messageDay('2026-10-13T23:59:59Z', now)).toBe('today');
-    expect(messageDay('2026-10-12T23:59:59Z', now)).toBe('yesterday');
-    expect(messageDay('2026-10-07T00:00:00Z', now)).toBe('lastWeek');
-    expect(messageDay('2026-10-06T23:59:59Z', now)).toBe('earlier');
+    expect(messageDay('2026-10-13T00:00:00Z', now, 'UTC')).toBe('today');
+    expect(messageDay('2026-10-13T23:59:59Z', now, 'UTC')).toBe('today');
+    expect(messageDay('2026-10-12T23:59:59Z', now, 'UTC')).toBe('yesterday');
+    expect(messageDay('2026-10-07T00:00:00Z', now, 'UTC')).toBe('lastWeek');
+    expect(messageDay('2026-10-06T23:59:59Z', now, 'UTC')).toBe('earlier');
   });
 
   it('keeps a message dated ahead of this device clock in today', () => {
     expect.hasAssertions();
-    expect(messageDay('2026-10-14T01:00:00Z', now)).toBe('today');
+    expect(messageDay('2026-10-14T01:00:00Z', now, 'UTC')).toBe('today');
   });
 
   it('formats a row time, a weekday and a month that names its year once it is not this one', () => {
     expect.hasAssertions();
-    const formats = createMessageListDateFormats('en-GB');
+    const formats = createMessageDateFormats('en-GB', 'UTC');
     expect(formats.time.format(new Date('2026-10-13T09:41:00Z'))).toMatch(
       /^0?9:41$/u,
     );
-    expect(formats.weekday.format(new Date('2026-10-08T12:00:00Z'))).toBe(
-      'Thursday',
-    );
+    expect(formats.row(english, '2026-10-08T12:00:00Z', now)).toBe('Thursday');
+    expect(formats.row(english, '2026-10-08T12:00:00Z', now, true)).toBe('Thu');
+    expect(formats.row(english, '2026-10-12T12:00:00Z', now)).toBe('Yesterday');
+    expect(formats.row(english, '2026-09-03T12:00:00Z', now)).toBe('3 Sept');
     expect(formats.month(new Date('2026-09-03T12:00:00Z'), now)).toBe(
       'September',
     );
@@ -41,11 +45,77 @@ describe('message list days', () => {
   });
 });
 
+// A message header says when the message arrived as the rest of the interface does, on the
+// device's clocks: 9:30 on 13 October in Prague is 7:30 UTC.
+describe('message header dates', () => {
+  const zone = 'Europe/Prague';
+  const now = Date.parse('2026-10-13T07:30:00Z');
+  const formats = createMessageDateFormats('en-GB', zone);
+  const header = (at: string, current = now) =>
+    formats.header(english, new Date(at), current);
+
+  it('names today, yesterday, an earlier date this year and a date of another year', () => {
+    expect.hasAssertions();
+    expect(header('2026-10-13T06:12:00Z')).toBe('Today, 8:12');
+    expect(header('2026-10-12T19:14:00Z')).toBe('Yesterday, 21:14');
+    expect(header('2026-10-11T19:14:00Z')).toBe('Sun 11 Oct, 21:14');
+    expect(header('2025-10-11T19:14:00Z')).toBe('Sat, 11 Oct 2025, 21:14');
+    expect(formats.full.format(new Date('2026-10-13T06:12:00Z'))).toBe(
+      'Tuesday, 13 October 2026 at 8:12',
+    );
+  });
+
+  it('reads the day on both sides of midnight in the device time zone, as the list does', () => {
+    expect.hasAssertions();
+    // 00:30 on 13 October in Prague is still 12 October in UTC.
+    expect(header('2026-10-12T22:30:00Z')).toBe('Today, 0:30');
+    expect(formats.day('2026-10-12T22:30:00Z', now)).toBe('today');
+    expect(messageDay('2026-10-12T22:30:00Z', now, 'UTC')).toBe('yesterday');
+    expect(header('2026-10-12T21:59:00Z')).toBe('Yesterday, 23:59');
+    expect(formats.day('2026-10-12T21:59:00Z', now)).toBe('yesterday');
+    // West of UTC the day ends earlier: 3:00 UTC is 23:00 the day before in New York.
+    expect(messageDay('2026-10-13T03:00:00Z', now, 'America/New_York')).toBe(
+      'yesterday',
+    );
+    expect(messageMonth('2026-09-30T22:30:00Z', zone)).toBe('2026-10');
+    expect(messageMonth('2026-09-30T22:30:00Z', 'UTC')).toBe('2026-9');
+  });
+
+  it('moves a header to Yesterday once midnight passes, and follows a new time zone', () => {
+    expect.hasAssertions();
+    const afterMidnight = Date.parse('2026-10-13T22:05:00Z');
+    expect(header('2026-10-13T06:12:00Z', afterMidnight)).toBe(
+      'Yesterday, 8:12',
+    );
+    expect(
+      createMessageDateFormats('en-GB', 'Asia/Tokyo').header(
+        english,
+        new Date('2026-10-13T06:12:00Z'),
+        now,
+      ),
+    ).toBe('Today, 15:12');
+  });
+
+  it('writes German and Czech dates by their own conventions', () => {
+    expect.hasAssertions();
+    const sunday = new Date('2026-10-11T19:14:00Z');
+    expect(
+      createMessageDateFormats('de-DE', zone).header(english, sunday, now),
+    ).toBe('So., 11. Okt., 21:14');
+    expect(
+      createMessageDateFormats('cs-CZ', zone).header(english, sunday, now),
+    ).toBe('ne 11. 10. 21:14');
+    expect(createMessageDateFormats('cs-CZ', zone).full.format(sunday)).toBe(
+      'neděle 11. října 2026 v 21:14',
+    );
+  });
+});
+
 // The Inbox subtitle names when the shown Inboxes were last all brought up to date.
 describe('last update', () => {
   const now = Date.parse('2026-10-27T09:41:30Z');
   const { t } = createLocalization(
-    { preference: null, language: 'en', locale: 'en-GB' },
+    { preference: null, language: 'en', locale: 'en-GB', timeZone: 'UTC' },
     { getSettings: async () => undefined, setLanguage: async () => undefined },
   ).i18n;
 
