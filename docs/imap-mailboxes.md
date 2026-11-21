@@ -1190,8 +1190,9 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   download continued. The next check, about 11 minutes after that launch, found the
   capsule faded, and a further launch showed each connection checking its server and then
   up to date, with no history download. The Mailboxes list showed the three run folders.
-  Afterwards the run folders were deleted from both mailboxes, leaving their earlier
-  message counts, and the simulator was deleted. Limitations: the iCloud Mail download and
+  Afterwards the run folders were deleted from both mailboxes, and an IMAP count then
+  found each mailbox's original totals; the run folders were not counted again between
+  the download and their deletion. The simulator was deleted. Limitations: the iCloud Mail download and
   the first Seznam Email download finished too quickly to interrupt, so resumption after
   termination was observed for Seznam Email only. Sync Status closes with the capsule and
   shows no completed history, so no final downloaded count was on screen: completion is
