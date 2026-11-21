@@ -273,8 +273,12 @@ export function TrustedDevices({
       {devices.map((device) => {
         const subtitle = detail(device);
         const remove = t('revocation.remove', { name: device.name });
+        // Like the button, which is disabled while registration is busy.
         const confirm = () => {
-          setConfirming({ device, owner: store.getSnapshot().snapshot });
+          const { snapshot, busy } = store.getSnapshot();
+          if (!busy) {
+            setConfirming({ device, owner: snapshot });
+          }
         };
         return (
           <SettingsRow
@@ -306,7 +310,7 @@ export function TrustedDevices({
               .filter((part) => part !== undefined)
               .join(', ')}
             accessibilityAction={
-              device.current === true
+              device.current === true || store.getSnapshot().busy
                 ? undefined
                 : { label: remove, onActivate: confirm }
             }>

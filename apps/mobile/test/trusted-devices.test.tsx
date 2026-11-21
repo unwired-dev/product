@@ -36,6 +36,7 @@ describe('trusted devices', () => {
     jest.setSystemTime(now);
     const synthetic = await createRegistrationScenario('registration-success');
     const store = createRegistration(synthetic.vault);
+    await store.restore();
     const today = new Date(2026, 10, 21, 9, 12);
     const earlier = new Date(2026, 10, 13, 8, 0);
     const registeredAt = Date.UTC(2026, 8, 1);
