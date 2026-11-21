@@ -25,6 +25,8 @@ skill.
   working-tree changes and remove only code made unused by this task.
 - Packages are deep modules: read [packages/README.md](packages/README.md) before
   adding a package, an entry point or a cross-package import.
+- Before implementing or reviewing React, React Native or Expo code, load
+  `vercel-react-native-skills` and `vercel-composition-patterns`.
 - For React, React Native or Expo UI, use the provided component first; see
   [native component selection](docs/agents/native-components.md). Animation,
   gestures, press feedback and haptics load the

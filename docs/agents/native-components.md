@@ -112,10 +112,9 @@ sizes a `Form` to its content.
 
 ## Skills
 
-For React, React Native or Expo implementation and review, load
-`vercel-react-native-skills` and `vercel-composition-patterns` before editing;
-apply composition patterns only to the components the task needs. Then select by
-task:
+Follow the [React skill requirements](../../AGENTS.md#coding-principles). Apply
+composition patterns only to the components the task needs. Load additional
+skills by task:
 
 - Expo controls and presenters: the project-local [expo-ui skill](../../.agents/skills/expo-ui/SKILL.md).
 - Expo routes, native stacks, headers, search and sheets: the project-local [expo-router skill](../../.agents/skills/expo-router/SKILL.md).
