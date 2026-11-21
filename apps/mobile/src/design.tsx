@@ -813,6 +813,7 @@ export function Toast({
   open,
   symbol,
   message,
+  messageLabel,
   detail,
   action,
   accessibilityLabel,
@@ -821,6 +822,8 @@ export function Toast({
   readonly open: boolean;
   readonly symbol: string;
   readonly message: string;
+  // What VoiceOver reads for the message, when the toast shows a shorter one.
+  readonly messageLabel?: string | undefined;
   readonly detail?: string | undefined;
   readonly action: string;
   // The action's spoken name, when its label alone does not say what it acts on.
@@ -848,7 +851,11 @@ export function Toast({
         />
       </View>
       <View style={styles.toastText}>
-        <Text style={[styles.toastMessage, ink]}>{message}</Text>
+        <Text
+          accessibilityLabel={messageLabel}
+          style={[styles.toastMessage, ink]}>
+          {message}
+        </Text>
         {detail === undefined ? null : (
           <Text style={[styles.toastDetail, ink]}>{detail}</Text>
         )}

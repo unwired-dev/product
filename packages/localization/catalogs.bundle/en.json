@@ -1432,6 +1432,8 @@
     "edit": "Edit",
     "refused": "“{{subject}}” wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.",
     "refusedShort": "The message wasn’t returned to Drafts. It’s still in the Outbox. Choose Try Again to return it.",
+    "notReturned": "Couldn’t return “{{subject}}” to Drafts.",
+    "notReturnedShort": "Couldn’t return the message to Drafts.",
     "tryAgain": "Try Again",
     "inSent": "{{subject}} is in Sent.",
     "invitation": {
