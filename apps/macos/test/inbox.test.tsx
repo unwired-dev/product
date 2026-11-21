@@ -167,6 +167,43 @@ describe('message list', () => {
     }
   });
 
+  it('keeps the search subtitle while one mailbox needs sign-in and another is offline', async () => {
+    expect.hasAssertions();
+    const work = createSyntheticGmail({ address: 'work@example.invalid' });
+    const home = createSyntheticGmail({ address: 'home@example.invalid' });
+    work.deliver({ subject: 'Saved work mail' });
+    home.deliver({ subject: 'Saved home mail' });
+    const workInbox = createInboxStore(work.native);
+    const homeInbox = createInboxStore(home.native);
+    await render(
+      <InboxProvider mailboxes={twoMailboxes(workInbox, homeInbox)}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+        />
+      </InboxProvider>,
+    );
+    try {
+      await screen.findByText('Saved home mail');
+      work.fail({ status: 401 });
+      home.fail({ code: 'unavailable' });
+      await act(async () => {
+        await Promise.all([workInbox.load(), homeInbox.load()]);
+      });
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'Saved',
+      );
+      await expect(
+        screen.findByRole('header', { name: /^Search\. .* · Offline$/u }),
+      ).resolves.toBeVisible();
+    } finally {
+      await cleanup();
+      workInbox.forget();
+      homeInbox.forget();
+    }
+  });
+
   it('names the searched folder when a search in it finds nothing, until a mail server search fails', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

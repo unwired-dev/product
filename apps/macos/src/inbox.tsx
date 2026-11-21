@@ -918,7 +918,7 @@ function headingOf(
     return {
       title,
       subtitle:
-        signIn === undefined
+        signIn === undefined || results !== undefined
           ? t('inbox.subtitleLabel', { scope: scopeName, status })
           : t('inbox.statusSignIn', {
               status,
