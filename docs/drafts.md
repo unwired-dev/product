@@ -531,8 +531,7 @@ saves as Mail does:
 On iPhone and iPad editing leaves the stored Draft unchanged and no save status is shown, as in
 Mail: the Draft is stored only on **Save Draft** or **Send**. **Close** removes an
 empty Draft and closes an unchanged one at once; otherwise **Delete Draft** and
-**Save Draft** grow out of **Close** in the system action sheet, and **Cancel**, or a tap outside
-it, keeps editing.
+**Save Draft** grow out of **Close**, and pressing **Close** again keeps editing.
 **Save Draft** first turns any address still being typed into a recipient; text that
 is not a valid address keeps the composer open until it is corrected or removed. It
 then closes once the Draft is stored; when that fails the composer stays open with

@@ -579,9 +579,10 @@ content.
   4pt, on Mac and `radius.badgeTouch`, 8pt, on iPhone and iPad.
 - The iPhone compose Format panel uses `radius.formatPanel`, 34pt. Its inset
   control groups use 22pt corners and 18pt inset selections.
-- The iPhone and iPad composer Close question (Delete Draft / Save Draft) is the
-  system action sheet, anchored to Close so it grows out of it, also when the iPhone
-  sheet's swipe asks ([#2610](https://github.com/unwired-dev/product/issues/2610)).
+- The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
+  220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
+  between 48pt `fill/quiet` capsules with centred Body labels. It grows out of
+  Close from a fifth of its size.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac

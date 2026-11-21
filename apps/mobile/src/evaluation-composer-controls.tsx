@@ -22,7 +22,6 @@ import { use } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { LinkEditorState } from './composer-controls.tsx';
-import type { CloseAnswers } from './composer.tsx';
 
 import { Action } from './action.tsx';
 import { CommandInput, usePaletteHeader } from './command-palette.tsx';
@@ -538,7 +537,6 @@ export function EditorHeader({
   subject,
   busy,
   closeOpen,
-  closeAnswers,
   sender,
   expanded = false,
   onExpand,
@@ -549,7 +547,6 @@ export function EditorHeader({
   // Save Draft, Delete Draft or Send is running.
   readonly busy: boolean;
   readonly closeOpen: boolean;
-  readonly closeAnswers: CloseAnswers;
   readonly sender: ReactNode;
   readonly expanded?: boolean | undefined;
   readonly onExpand?: (() => void) | undefined;
@@ -578,7 +575,6 @@ export function EditorHeader({
           <CloseButton
             disabled={busy}
             expanded={closeOpen}
-            answers={closeAnswers}
             onPress={onClose}
           />
           <Text

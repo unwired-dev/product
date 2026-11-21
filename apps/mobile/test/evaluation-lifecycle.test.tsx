@@ -261,6 +261,7 @@ describe('evaluation composer lifetime', () => {
     {
       size: 'compact',
       menus: [
+        ['Close', 'Save Draft', 'Close'],
         ['Add files', 'Attach File', 'Add files'],
         ['Writing tools', 'Rewrite the message body', 'Writing tools'],
         ['Format', 'Close Format', 'Close Format'],
@@ -268,7 +269,10 @@ describe('evaluation composer lifetime', () => {
     },
     {
       size: 'regular',
-      menus: [['Writing tools', 'Rewrite the message body', 'Writing tools']],
+      menus: [
+        ['Close', 'Save Draft', 'Close'],
+        ['Writing tools', 'Rewrite the message body', 'Writing tools'],
+      ],
     },
   ] as const)(
     'keeps dismissed $size panels mounted, hidden and untouchable until their exit ends',

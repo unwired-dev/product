@@ -4067,11 +4067,19 @@ final class InboxTests: XCTestCase {
     app.buttons["New Message"].tap()
     XCTAssertTrue(subject.waitForExistence(timeout: 15))
     focus(subject) { self.hasFocus(subject) }
-    type("Venue for the offsite", into: subject)
+    // Taps the keyboard's keys, as a person types: `typeText` lowers and raises the keyboard around
+    // each character, which the recording showed.
+    let keyboard = app.keyboards.firstMatch
+    XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+    for letter in "venue for the offsite" {
+      let key = letter == " " ? "space" : String(letter)
+      keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", key)).firstMatch.tap()
+    }
+    waitUntil { subject.value as? String == "Venue for the offsite" }
     swipeDown()
     let save = app.buttons["Save Draft"]
     XCTAssertTrue(save.waitForExistence(timeout: 10))
-    // The system action sheet grows out of Close, at the top, rather than rising from the bottom.
+    // The question grows out of Close, at the top.
     XCTAssertLessThan(save.frame.minY, app.frame.midY)
     XCTAssertTrue(composer.exists)
     XCTAssertEqual(subject.value as? String, "Venue for the offsite")
