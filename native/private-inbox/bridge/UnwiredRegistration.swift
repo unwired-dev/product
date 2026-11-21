@@ -123,6 +123,15 @@ final class UnwiredRegistration: NSObject {
     let budget = RemoteContentBudget()
     var requests: [String: Task<Void, Never>] = [:]
   }
+  // Save to Files stages Recovery Key files here. Each launch removes any that an app ended with
+  // the picker open left behind, since the system purges temporary files only when it chooses.
+  static let recoveryKeyExports = FileManager.default.temporaryDirectory
+    .appendingPathComponent("RecoveryKeyExports", isDirectory: true)
+
+  override init() {
+    super.init()
+    try? FileManager.default.removeItem(at: Self.recoveryKeyExports)
+  }
 
   @MainActor private func store() async throws -> RegistrationStore {
     if let store = Self.sharedStore { return store }
@@ -2413,6 +2422,55 @@ extension UnwiredRegistration {
       "folder": FileManager.default.displayName(atPath: folder.path),
       "show": show.url?.absoluteString ?? "",
     ]
+  }
+
+  // Copy on the Recovery Key step: the key stays off Universal Clipboard and leaves the
+  // pasteboard after two minutes. The Mac copies through its own slice of #2108.
+  @objc(copyRecoveryKey:resolver:rejecter:)
+  func copyRecoveryKey(
+    _ key: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      #if os(iOS)
+        UIPasteboard.general.setItems(
+          [["public.utf8-plain-text": key]],
+          options: [.localOnly: true, .expirationDate: Date(timeIntervalSinceNow: 120)])
+        resolve(NSNull())
+      #else
+        reject("unavailable", nil, nil)
+      #endif
+    }
+  }
+
+  // Save to Files on the Recovery Key step: the system picker saves a copy of a plain-text file
+  // where the person chooses, and the app's temporary file is deleted once the picker closes.
+  // Resolves "saved" or "cancelled".
+  @objc(saveRecoveryKey:contents:resolver:rejecter:)
+  func saveRecoveryKey(
+    _ name: String, contents: String, resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async {
+      let origin = AttachmentPresenter.origin()
+      let folder = Self.recoveryKeyExports
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+      let discard = { _ = try? FileManager.default.removeItem(at: folder) }
+      do {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent((name as NSString).lastPathComponent)
+        try Data(contents.utf8).write(
+          to: file, options: [.withoutOverwriting, .completeFileProtection])
+        let presented = AttachmentPresenter.present(file, action: .save, from: origin) { saved in
+          discard()
+          resolve(saved == nil ? "cancelled" : "saved")
+        }
+        guard presented else { throw RegistrationError.unavailable }
+      } catch {
+        discard()
+        reject("unavailable", nil, nil)
+      }
+    }
   }
 
   // Native Draft sync's Product Sync calls; each carries the device proof, and Convex sees only

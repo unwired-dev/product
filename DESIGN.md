@@ -295,6 +295,7 @@ Graphite neutrals with a single warm seal.
 | Monogram          | `brand/monogram`           | `#15171B`     | `#6A6E78`     | Account monograms; a Mail Profile in Graphite                  |
 | Brand well        | `brand/well`               | white 8%      | white 8%      | Recovery Key's well, iPad tile and iPad field on brand deep    |
 | Brand well border | `brand/well-border`        | white 16%     | white 16%     | The Recovery Key well's outline                                |
+| Brand action      | `brand/action`             | white 12%     | white 12%     | iPhone Recovery Key Copy and Save to Files on brand deep       |
 | Profile Blue      | `profile/blue`             | `#0A58CA`     | `#3B6FD6`     | A Mail Profile monogram in this Color                          |
 | Profile Indigo    | `profile/indigo`           | `#3634A3`     | `#5E5CE6`     | A Mail Profile monogram in this Color                          |
 | Profile Purple    | `profile/purple`           | `#8944AB`     | `#9558BB`     | A Mail Profile monogram in this Color                          |
@@ -849,8 +850,8 @@ app follows under the issue named:
   Device and last activity (#2607), with the exact time where the iPhone frame
   draws "3 days ago". The Mac rows and the disclosure chevron wait for the rest
   of #2107.
-- **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for
-  #2108.
+- **Recovery Key:** the Mac's Copy, Print… and Save to Passwords… wait for
+  #2108; iPhone and iPad have Copy and Save to Files (#2616).
 - **Copy:** one name per action, Spam and Thread wait for #2083. The iPhone
   heading's "All read" waits for #2068.
 - **Reader loading:** the reader's states for a message that is loading, failed

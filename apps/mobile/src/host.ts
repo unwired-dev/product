@@ -18,6 +18,12 @@ interface RegistrationModule
   // Background time for admitted Sends; resolves true after a release, false when denied or expired.
   readonly holdDelivery: () => Promise<unknown>;
   readonly releaseDelivery: () => void;
+  // The Recovery Key step's Copy, and its Save to Files, which resolves 'saved' or 'cancelled'.
+  readonly copyRecoveryKey: (key: string) => Promise<unknown>;
+  readonly saveRecoveryKey: (
+    name: string,
+    contents: string,
+  ) => Promise<unknown>;
 }
 
 interface ReportingModule extends TurboModule, NativeErrorReporting {
