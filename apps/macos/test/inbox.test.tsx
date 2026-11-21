@@ -150,6 +150,23 @@ describe('message list', () => {
     }
   });
 
+  it('names a connection that needs sign-in after the count, in place of the scope and update time', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox } = await renderGmailInbox();
+    try {
+      gmail.fail({ status: 401 });
+      await act(inbox.load);
+      expect(
+        screen.getByRole('header', {
+          name: 'All Inboxes. 1 unread · Gmail needs sign-in',
+        }),
+      ).toBeVisible();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
   it('names the searched folder when a search in it finds nothing, until a mail server search fails', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail();

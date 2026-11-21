@@ -304,9 +304,9 @@ completed synchronization and taking the oldest of them. Each mailbox saves that
 with its cache after every successful synchronization, even when no mail changed,
 so it survives relaunch and failed attempts. iPhone's one-line subtitle leaves the time
 out. With nothing unread, iPhone's subtitle says **All read**, and iPad and Mac say
-**No unread messages**. On iPad, while a shown mailbox needs sign-in again, the subtitle names it after the
+**No unread messages**. On iPad and Mac, while a shown mailbox needs sign-in again, the subtitle names it after the
 count in place of the mailboxes and the time, such as **12 unread · Gmail needs sign-in**
-([#2243](https://github.com/unwired-dev/product/issues/2243)); the mailbox's sidebar header
+([#2243](https://github.com/unwired-dev/product/issues/2243), [#2647](https://github.com/unwired-dev/product/issues/2647)); the mailbox's sidebar header
 shows a warning triangle that VoiceOver reads with the header, and its Inbox row keeps its
 unread count. iPhone's Mailboxes shows the same triangle beside the connection's header,
 and while the connection needs sign-in again, a banner above its folders says so and offers
