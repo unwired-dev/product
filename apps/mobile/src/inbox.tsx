@@ -919,10 +919,10 @@ function useShownInboxes<W extends Readonly<{ id: string }>>({
     unhidden,
     reading: waits && !unreadable,
     unreadable: waits && unreadable,
-    // A pull reads the preferences again when the last read failed, and refreshes the mailboxes
-    // they then show.
+    // A pull while All Inboxes waits for the preferences reads them again, and refreshes the
+    // mailboxes they then show.
     reread: async () => {
-      if (!(waits && unreadable)) {
+      if (!waits) {
         return searched;
       }
       await preferences.load();

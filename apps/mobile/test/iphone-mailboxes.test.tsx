@@ -662,6 +662,8 @@ describe('iPhone Mailboxes', () => {
       app.queryAllByRole('button', { name: /From /u }),
       accounts(),
     ];
+    // Edit waits for the read, so it edits no row it has not read.
+    expect(app.getByRole('button', { name: 'Edit' })).toBeDisabled();
     await act(() => {
       read.resolve(undefined);
     });

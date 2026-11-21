@@ -220,20 +220,27 @@ describe('stored Inbox preferences', () => {
   it('reports a failed read as unreadable for its own account only, until a read succeeds', async () => {
     expect.hasAssertions();
     const { state, store } = storage();
+    await store.load();
     state.locked = true;
     await store.load();
     const failed = [store.unreadable(), store.sections('work')];
     state.account = 'account-2';
     const signedOver = store.unreadable();
+    // Another account's failure keeps this one's, so its earlier read stays unused.
+    await store.load();
+    state.account = 'account-1';
+    const back = [store.unreadable(), store.sections('work')];
     state.locked = false;
     await store.load();
     expect({
       failed,
       signedOver,
+      back,
       read: [store.unreadable(), store.sections('work')],
     }).toStrictEqual({
       failed: [true, undefined],
       signedOver: false,
+      back: [true, undefined],
       read: [false, {}],
     });
   });

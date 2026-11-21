@@ -18,6 +18,7 @@ import {
   buttonBorderShape,
   buttonStyle,
   controlSize,
+  disabled,
   labelStyle,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
@@ -1240,11 +1241,21 @@ function EditConnections({
 
 // Edit, beside Account on iPhone and the sidebar toggle on iPad, and Done, which replaces both on
 // iPhone: the system's buttons, as the frames draw them. Mailboxes without an account offer none.
+// Whether Mailboxes is in Edit mode: never while the Profile's preferences are unread, so no write
+// starts from rows not read.
+function useEditing(readable: boolean) {
+  const [editing, setEditing] = useState(false);
+  return { editing: editing && readable, setEditing };
+}
+
+// Edit waits for the Profile's preferences, so it never edits rows it has not read.
 function EditButton({
   editing,
+  available,
   onEditing,
 }: {
   readonly editing: boolean;
+  readonly available: boolean;
   readonly onEditing: (editing: boolean) => void;
 }) {
   const colors = usePalette();
@@ -1283,6 +1294,7 @@ function EditButton({
             buttonStyle(compact ? 'glass' : 'borderless'),
             controlSize(compact ? 'large' : 'regular'),
             tint(colors.textPrimary),
+            disabled(!available),
           ]}
           onPress={() => {
             onEditing(true);
@@ -1483,7 +1495,7 @@ export function Mailboxes({
   // preferences are read, as All Inboxes lists none. Edit mode lists every one.
   const read = useReadSections(profile);
   // Edit Favorites, and whether a row is being dragged, while the list must not scroll.
-  const [editing, setEditing] = useState(false);
+  const { editing, setEditing } = useEditing(read !== undefined);
   const shown = sidebar.entries.filter(
     ({ id }) => read !== undefined && sectionShown(read, id),
   );
@@ -1508,6 +1520,7 @@ export function Mailboxes({
   const editButton = (
     <EditButton
       editing={editing}
+      available={read !== undefined}
       onEditing={setEditing}
     />
   );

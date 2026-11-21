@@ -227,9 +227,9 @@ export function createInboxPreferences(
     account: string;
     profiles: readonly ProfilePreferences[];
   }> = { account: '', profiles: [] };
-  // The Product Account whose last read storage failed, so which of its connections are muted is
+  // The Product Accounts whose last read storage failed, so which of their connections are muted is
   // unknown.
-  let failed: string | undefined = undefined;
+  const failed = new Set<string | undefined>();
   // The Profiles the last pass asked Private Sync about for `account`, and those whose records it
   // could not read, once a pass merged what it pulled and no other device's write overtook it;
   // none since a pass failed or was overtaken.
@@ -247,7 +247,7 @@ export function createInboxPreferences(
   };
   const show = (account: string, profiles: readonly ProfilePreferences[]) => {
     shown = { account, profiles };
-    failed = undefined;
+    failed.delete(account);
     notify();
   };
 
@@ -262,7 +262,7 @@ export function createInboxPreferences(
       ).pipe(
         Effect.tapError(() =>
           Effect.sync(() => {
-            failed = account;
+            failed.add(account);
             notify();
           }),
         ),
@@ -517,7 +517,10 @@ export function createInboxPreferences(
       ),
     // Whether storage failed the signed-in account's last read, so `sections` is undefined until a
     // read succeeds.
-    unreadable: () => failed !== undefined && failed === signedIn(),
+    unreadable: () => {
+      const account = signedIn();
+      return account !== undefined && failed.has(account);
+    },
     // `profile`'s Mailbox Connection sections, as last read; undefined until they are read and since
     // storage last failed to read them, so a muted connection stays muted. Signed out, none is hidden.
     sections: (profile: string): Sections | undefined => {
@@ -525,7 +528,7 @@ export function createInboxPreferences(
       if (account === undefined) {
         return noSections;
       }
-      if (failed === account || shown.account !== account) {
+      if (failed.has(account) || shown.account !== account) {
         return undefined;
       }
       const fields = shown.profiles.find(

@@ -448,6 +448,29 @@ describe('iPad Mailboxes', () => {
     await app.unmount();
   });
 
+  it('synchronizes the accounts the preferences show when pulled while they are first read', async () => {
+    expect.hasAssertions();
+    const { shown, mailboxes, reads, tree } = await hiddenAccount(
+      'connected',
+      'connected',
+      false,
+    );
+    const held = Promise.withResolvers<undefined>();
+    reads.held = held.promise;
+    const app = await render(tree({}));
+    await act(() => mailboxes.load());
+    shown.deliver({ subject: 'Arrived' });
+    await act(async () => {
+      fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
+      await Promise.resolve();
+    });
+    await act(() => {
+      held.resolve(undefined);
+    });
+    await expect(screen.findByText('Arrived')).resolves.toBeOnTheScreen();
+    await app.unmount();
+  });
+
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {
     expect.hasAssertions();
     const inbox = createInboxStore(
