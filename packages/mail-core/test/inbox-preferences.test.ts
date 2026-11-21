@@ -14,7 +14,7 @@ import {
   sectionFolders,
   sectionShown,
   toggleFavorite,
-  toggleFolder,
+  showFolder,
 } from '@private-email/mail-core/mailboxes';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -357,16 +357,16 @@ describe('synchronized Inbox preferences', () => {
     const stored = await phone.store.showSection('work', 'fastmail', false);
     await Promise.all([
       mac.store.changeFolders('work', 'fastmail', (folders) =>
-        toggleFolder(folders, ['INBOX', 'Spam'], 'Spam'),
+        showFolder(folders, ['INBOX', 'Spam'], { name: 'Spam', shown: false }),
       ),
       mac.store.changeFolders('work', 'gmail', (folders) =>
-        toggleFolder(folders, ['Elsewhere'], 'Elsewhere'),
+        showFolder(folders, ['Elsewhere'], { name: 'Elsewhere', shown: false }),
       ),
       mac.store.changeFolders('work', 'gmail', (folders) =>
-        toggleFolder(folders, names, 'Travel'),
+        showFolder(folders, names, { name: 'Travel', shown: false }),
       ),
       mac.store.changeFolders('work', 'gmail', (folders) =>
-        toggleFolder(folders, names, 'INBOX'),
+        showFolder(folders, names, { name: 'INBOX', shown: false }),
       ),
       mac.store.changeFolders('work', 'gmail', (folders) =>
         moveFolder(folders, names, { name: 'Receipts', to: () => 0 }),

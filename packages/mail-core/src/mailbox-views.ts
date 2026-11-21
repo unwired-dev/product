@@ -430,15 +430,25 @@ export const favoriteRows = (entries: FavoriteEntries) =>
     isFavorite(row) ? [{ row, shown: shown || row === allInboxes }] : [],
   );
 
+// `entries` with `row` shown when `shown`, hidden otherwise. All Inboxes stays shown.
+export const showFavorite = (
+  entries: FavoriteEntries,
+  row: Favorite,
+  shown: boolean,
+): FavoriteEntries =>
+  completed(entries).map((entry) =>
+    entry.row === row && row !== allInboxes ? { row, shown } : entry,
+  );
+
 // `entries` with `row` shown or hidden. All Inboxes stays shown.
 export const toggleFavorite = (
   entries: FavoriteEntries,
   row: Favorite,
 ): FavoriteEntries =>
-  completed(entries).map((entry) =>
-    entry.row === row && row !== allInboxes
-      ? { row, shown: !entry.shown }
-      : entry,
+  showFavorite(
+    entries,
+    row,
+    !completed(entries).some((entry) => entry.row === row && entry.shown),
   );
 
 // `entries` with `row` moved to place `index` among the rows this build knows. Rows it does not know
@@ -517,17 +527,16 @@ const changedFolders = (
   ...folders.filter(({ name }) => !names.includes(name)),
 ];
 
-// `folders` with folder `name` of `names` shown or hidden. The Inbox stays shown.
-export const toggleFolder = (
+// `folders` with folder `name` of `names` shown when `shown`, hidden otherwise. The Inbox stays
+// shown.
+export const showFolder = (
   folders: SectionFolders,
   names: readonly string[],
-  name: string,
+  { name, shown }: Readonly<{ name: string; shown: boolean }>,
 ) =>
   changedFolders(folders, names, (rows) =>
     rows.map((row) =>
-      row.name === name && name !== inboxFolder
-        ? { name, shown: !row.shown }
-        : row,
+      row.name === name && name !== inboxFolder ? { name, shown } : row,
     ),
   );
 

@@ -37,8 +37,8 @@ import {
   profileMailboxes,
   sectionFolders,
   sectionShown,
-  toggleFavorite,
-  toggleFolder,
+  showFavorite,
+  showFolder,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -1132,13 +1132,15 @@ function EditConnections({
       leave(connection);
     }
   };
+  // A tap stores the opposite of what the row showed, whatever another write stored meanwhile.
   const showOrHideFolder = async (
     connection: string,
     names: readonly string[],
-    name: string,
+    folder: Readonly<{ name: string; shown: boolean }>,
   ) => {
+    const { name } = folder;
     const stored = await store.changeFolders(profile, connection, (folders) =>
-      toggleFolder(folders, names, name),
+      showFolder(folders, names, { name, shown: !folder.shown }),
     );
     const hidden = folderRows(
       sectionFolders(store.sections(profile) ?? {}, connection),
@@ -1225,7 +1227,7 @@ function EditConnections({
                       shown={folder.shown}
                       drag={folderDrag}
                       onToggle={() => {
-                        void showOrHideFolder(id, names, folder.name);
+                        void showOrHideFolder(id, names, folder);
                       }}
                     />
                   )}
@@ -1336,8 +1338,8 @@ function Favorites({
   const rows = favoriteRows(entries);
   const shownRows = rows.filter(({ shown }) => shown);
   // Hiding the selected Unified Mailbox selects the first row still shown.
-  const showOrHide = async (row: Favorite) => {
-    const after = await change((stored) => toggleFavorite(stored, row));
+  const showOrHide = async (row: Favorite, showing: boolean) => {
+    const after = await change((stored) => showFavorite(stored, row, !showing));
     if (after?.some((entry) => entry.row === row && !entry.shown) === true) {
       const first = after.find(({ shown }) => shown)?.row;
       onHidden(
@@ -1384,7 +1386,7 @@ function Favorites({
               shown={shown}
               drag={drag}
               onToggle={() => {
-                void showOrHide(row);
+                void showOrHide(row, shown);
               }}
             />
           )}

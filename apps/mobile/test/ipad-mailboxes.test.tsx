@@ -471,6 +471,33 @@ describe('iPad Mailboxes', () => {
     await app.unmount();
   });
 
+  it('drops a leaving row of an account hidden while it leaves All Inboxes', async () => {
+    expect.hasAssertions();
+    // Animation frames would finish the motion between inputs.
+    const frames = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockReturnValue(0);
+    const { alex, shown, mailboxes, store, tree } = await hiddenAccount();
+    shown.deliver({ subject: 'Leaving' });
+    const app = await render(tree({}));
+    await act(() => mailboxes.load());
+    await act(async () => {
+      await fireEvent(
+        await screen.findByRole('button', { name: /Leaving/u }),
+        'accessibilityAction',
+        { nativeEvent: { actionName: 'archive' } },
+      );
+    });
+    // Rows still on screen only while they leave, hidden from VoiceOver and touch.
+    const leaving = () =>
+      screen.queryAllByText('Leaving', { includeHiddenElements: true }).length;
+    const archived = leaving();
+    await act(() => store.showSection(defaultProfile, alex, false));
+    expect([archived, leaving()]).toStrictEqual([1, 0]);
+    await app.unmount();
+    frames.mockRestore();
+  });
+
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {
     expect.hasAssertions();
     const inbox = createInboxStore(

@@ -1118,13 +1118,14 @@ export function Inbox({
       searchState.searchesAll,
       filtering.on,
       filtering.filter,
-      ...shown.map(({ inbox }) => inbox),
-      ...shown.map(({ state }) => state.kind === 'ready'),
+      // Hiding a connection, or a failed read, leaves its rows out at once.
+      ...searchedMailboxes.map(({ inbox }) => inbox),
+      ...searchedMailboxes.map(({ state }) => state.kind === 'ready'),
     ],
     keyOf: rowKey,
     contentOf: rowContent,
     selected,
-    ...organizingWork(shown),
+    ...organizingWork(searchedMailboxes),
     visible: visible !== false,
   });
   // The rows the list shows, with leaving rows beside their former neighbours.

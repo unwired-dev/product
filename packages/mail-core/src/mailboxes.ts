@@ -76,12 +76,13 @@ export {
   allInboxes,
   favoriteRows,
   moveFavorite,
+  showFavorite,
   toggleFavorite,
   folderRows,
   moveFolder,
   sectionFolders,
   sectionShown,
-  toggleFolder,
+  showFolder,
 } from './mailbox-views.ts';
 export type {
   Favorite,

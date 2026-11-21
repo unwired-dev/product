@@ -5,6 +5,7 @@ import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   createMailboxes,
   moveFavorite,
+  showFolder,
   singleMailbox,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -519,6 +520,27 @@ describe('iPhone Mailboxes', () => {
       'Gmail · other@example.invalid Hidden',
     ]);
     await act(() => store.changeFolders(defaultProfile, alex, () => kept));
+    // Hiding All Mail while another device's hide of it is still being stored keeps it hidden.
+    const hiding = Promise.withResolvers<undefined>();
+    gate.held = hiding.promise;
+    const hidden = store.changeFolders(defaultProfile, alex, (folders) =>
+      showFolder(
+        folders,
+        folders.map(({ name }) => name),
+        { name: 'ALL_MAIL', shown: false },
+      ),
+    );
+    await fireEvent.press(
+      app.getByRole('button', { name: 'All Mail. In alex@example.invalid' }),
+    );
+    delete gate.held;
+    await act(async () => {
+      hiding.resolve(undefined);
+      await hidden;
+      await store.changeFolders(defaultProfile, alex, () => undefined);
+    });
+    const hiddenStays = rows().find((row) => row.startsWith('All Mail.'));
+    await act(() => store.changeFolders(defaultProfile, alex, () => kept));
     // Alex's header handle, released where it was pressed, and dragged past the other account
     // while another device reorders them, arranges nothing.
     const header = () =>
@@ -546,6 +568,7 @@ describe('iPhone Mailboxes', () => {
     await fireEvent.press(app.getByRole('button', { name: 'Done' }));
     expect({
       rows: rows(),
+      hiddenStays,
       unread: allInboxes().props.accessibilityValue?.text,
       selected: allInboxes().props.accessibilityState?.selected,
       arranged: arrangeMailboxes.mock.calls,
@@ -558,6 +581,7 @@ describe('iPhone Mailboxes', () => {
         'All Mail. In alex@example.invalid',
         'Trash. In alex@example.invalid',
       ],
+      hiddenStays: 'All Mail. In alex@example.invalid Hidden',
       unread: '1 unread',
       selected: true,
       arranged: [[defaultProfile, [other, alex], [alex, other]]],
