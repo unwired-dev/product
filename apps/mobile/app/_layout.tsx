@@ -313,6 +313,7 @@ function useSheetHost(draft: string | undefined, regular: boolean) {
       draft,
       sheet: draft === undefined || draft === rebound ? host.sheet : compact,
     });
+    setRebound(undefined);
   }
   return { sheet: host.sheet, rebind: setRebound };
 }
