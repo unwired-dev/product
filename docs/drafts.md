@@ -235,9 +235,11 @@ transport and known native exit gaps.
   the marker; one **Undo** restores the literal marker. Return continues a list,
   quote or code block, and deleting into a list marker turns the item into a
   paragraph. List markers are shown, never stored. Lists nest three levels deep:
-  on iPhone and iPad, **Outdent** and **Indent** follow the list buttons in the
-  Format panel and the format bar, and a hardware keyboard's Tab and Shift-Tab
-  do the same inside a list. They move every selected list item one level and
+  **Outdent** and **Indent** follow the list buttons, in the Format panel on
+  iPhone and on the format bar on iPad and Mac, and a hardware keyboard's Tab
+  and Shift-Tab do the same inside a list. On Mac, **Format › Increase Indent**
+  (Command-]) and **Decrease Indent** (Command-[) do too, while the body has
+  focus. They move every selected list item one level and
   leave other blocks alone; each is one Undo step, and each switches off when a
   selected item is already at the first or the third level. A nested item shows
   its marker one indent further in, numbered items count per level, and sent

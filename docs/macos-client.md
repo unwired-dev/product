@@ -205,6 +205,9 @@ nothing while that button is unavailable. Chosen in Settings or a New Message
 window, it first brings an Inbox window forward as Show Inbox does; with no
 Inbox window it opens one, which starts the Draft once its New Message is
 available. While a sheet is open on either window, answer it first.
+Format › Increase Indent (Command-]) and Decrease Indent (Command-[) nest the
+focused composer body's selected list items, as its Indent and Outdent buttons
+do; each is available only while those buttons are.
 Command-P is kept for Print
 ([#854](https://github.com/unwired-dev/product/issues/854)). Native menus use AppKit accessibility. Message buttons expose labels and selected
 state, support keyboard focus, and show a focus border. React Native macOS 0.83.0 does

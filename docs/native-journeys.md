@@ -384,6 +384,28 @@ same there. Neither covers the record's removal on sign-out, account removal or 
 Product Account change, which [#1989](https://github.com/unwired-dev/product/issues/1989)
 still needs.
 
+## Mac list indent journey
+
+The `testListIndent` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2597](https://github.com/unwired-dev/product/issues/2597)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testListIndent
+```
+
+A New Message body gets a two-item bulleted list with the caret in the second
+item. The format bar's **Outdent** is off and **Indent** on. Command-] nests the
+item one level and **Format › Increase Indent** a second; at the third level
+Indent and Increase Indent are off and Decrease Indent on. One Command-Z takes
+back one level, then Shift-Tab, Tab and Command-[ move the item out, in and out.
+The captures "List Indent" and "List Indent third level" are named with the
+appearance. Indenting several selected items and sent HTML are covered by the
+mail-core tests.
+
 ## iPhone and iPad IMAP Spam and Trash folder journey
 
 The Expo native journey for a `registration-imap-folders` Release build signs in

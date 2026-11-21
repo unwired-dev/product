@@ -313,7 +313,13 @@ const menuHost = () => {
       addListener: typeof ignore;
       removeListeners: typeof ignore;
       guardClose: typeof ignore;
-    }> = { addListener: ignore, removeListeners: ignore, guardClose: ignore };
+      setComposerIndents: typeof ignore;
+    }> = {
+    addListener: ignore,
+    removeListeners: ignore,
+    guardClose: ignore,
+    setComposerIndents: ignore,
+  };
   return windowHostWith(host);
 };
 
@@ -992,6 +998,118 @@ describe('composing Drafts', () => {
     expect(shownBody()).toStrictEqual(atEnd);
     await press('Undo');
     expect(body()).toHaveTextContent('• aa');
+  });
+
+  // Outdent and Indent follow the list buttons; Format › Increase Indent and Decrease Indent
+  // (Command-] and Command-[) and Tab and Shift-Tab do the same inside a list.
+  it('indents and outdents list items within three levels, each as one Undo step', async () => {
+    expect.hasAssertions();
+    const indents = jest.fn<undefined, [string, boolean, boolean]>();
+    const host: TurboModule &
+      Readonly<{
+        addListener: typeof ignore;
+        removeListeners: typeof ignore;
+        guardClose: typeof ignore;
+        forgetComposerTyping: typeof ignore;
+        setComposerIndents: typeof indents;
+      }> = {
+      addListener: ignore,
+      removeListeners: ignore,
+      guardClose: ignore,
+      forgetComposerTyping: ignore,
+      setComposerIndents: indents,
+    };
+    const modules = windowHostWith(host);
+    try {
+      const registration = account(connected(['alex@example.invalid']));
+      const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+      await render(
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />,
+      );
+      await press('New Message');
+      const body = () => screen.getByLabelText('Message body');
+      const bodyID: unknown = body().props.testID;
+      const select = async (start: number, end = start) => {
+        await fireEvent(body(), 'selectionChange', {
+          nativeEvent: { selection: { start, end } },
+        });
+      };
+      const level = (name: string) => screen.getByRole('button', { name });
+      const offered = () => indents.mock.calls.at(-1)?.slice(1);
+      const tab = async (shiftKey: boolean) => {
+        await fireEvent(body(), 'keyDown', {
+          nativeEvent: { key: 'Tab', shiftKey, metaKey: false },
+        });
+      };
+      const tabKeys = () =>
+        body().props.keyDownEvents.filter(
+          ({ key }: { key: string }) => key === 'Tab',
+        );
+      await fireEvent.changeText(body(), 'Plan\nSeats');
+      // Outside a list neither applies, and Tab stays the text view's.
+      await select(6);
+      expect(level('Indent')).toBeDisabled();
+      expect(level('Outdent')).toBeDisabled();
+      expect(offered()).toStrictEqual([false, false]);
+      expect(tabKeys()).toStrictEqual([]);
+      await select(0, 10);
+      await press('Bulleted List');
+      // At the first level only Indent applies.
+      await select(9);
+      expect(level('Outdent')).toBeDisabled();
+      expect(level('Indent')).toBeEnabled();
+      expect(offered()).toStrictEqual([false, true]);
+      expect(tabKeys()).toHaveLength(2);
+      const nesting = '\u2003\u2002';
+      const shows = (text: string) => {
+        expect(body()).toHaveTextContent(text, {
+          normalizer: (shown) => shown,
+        });
+      };
+      await press('Indent');
+      shows(`• Plan\n${nesting}• Seats`);
+      expect(level('Outdent')).toBeEnabled();
+      // Increase Indent in the menu bar reaches the focused body by its identifier only.
+      await act(async () => {
+        DeviceEventEmitter.emit('indent', {
+          body: 'composer-body-another',
+          direction: 'indent',
+        });
+      });
+      shows(`• Plan\n${nesting}• Seats`);
+      await act(async () => {
+        DeviceEventEmitter.emit('indent', {
+          body: bodyID,
+          direction: 'indent',
+        });
+      });
+      shows(`• Plan\n${nesting}${nesting}• Seats`);
+      // At the third level Indent switches off, and Tab changes nothing.
+      expect(level('Indent')).toBeDisabled();
+      expect(offered()).toStrictEqual([true, false]);
+      await tab(false);
+      shows(`• Plan\n${nesting}${nesting}• Seats`);
+      // Each change is one Undo step, and Shift-Tab outdents.
+      await press('Undo');
+      shows(`• Plan\n${nesting}• Seats`);
+      await tab(true);
+      shows('• Plan\n• Seats');
+      await tab(false);
+      shows(`• Plan\n${nesting}• Seats`);
+      // Command-Tab and other modified Tabs leave the list alone.
+      await fireEvent(body(), 'keyDown', {
+        nativeEvent: { key: 'Tab', ctrlKey: true, metaKey: false },
+      });
+      shows(`• Plan\n${nesting}• Seats`);
+      // A composer that goes away withdraws the menu items.
+      await screen.unmount();
+      expect(indents).toHaveBeenLastCalledWith(bodyID, false, false);
+    } finally {
+      modules.mockRestore();
+    }
   });
 
   it('closes an empty composer without deleting content saved by another window', async () => {
@@ -2205,12 +2323,14 @@ describe('composing Drafts', () => {
         removeListeners: typeof ignore;
         guardClose: typeof ignore;
         forgetComposerTyping: typeof ignore;
+        setComposerIndents: typeof ignore;
         composerCharacterFrame: typeof frame;
       }> = {
       addListener: ignore,
       removeListeners: ignore,
       guardClose: ignore,
       forgetComposerTyping: ignore,
+      setComposerIndents: ignore,
       composerCharacterFrame: frame,
     };
     const modules = windowHostWith(host);
@@ -2357,6 +2477,7 @@ describe('composing Drafts', () => {
         removeListeners: typeof ignore;
         guardClose: typeof ignore;
         forgetComposerTyping: typeof ignore;
+        setComposerIndents: typeof ignore;
         composerCharacterFrame: () => Promise<
           Readonly<{ x: number; y: number; width: number; height: number }>
         >;
@@ -2365,6 +2486,7 @@ describe('composing Drafts', () => {
       removeListeners: ignore,
       guardClose: ignore,
       forgetComposerTyping: ignore,
+      setComposerIndents: ignore,
       composerCharacterFrame: async () => ({
         x: 0,
         y: 0,
@@ -3686,11 +3808,13 @@ describe('composing Drafts', () => {
         addListener: typeof ignore;
         removeListeners: typeof ignore;
         guardClose: typeof ignore;
+        setComposerIndents: typeof ignore;
         finishClose: ReturnType<typeof jest.fn>;
       }> = {
       addListener: ignore,
       removeListeners: ignore,
       guardClose: ignore,
+      setComposerIndents: ignore,
       finishClose: jest.fn(),
     };
     const modules = windowHostWith(host);

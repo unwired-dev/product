@@ -94,6 +94,9 @@ import {
   imageCharacter,
   imagesOf,
   editableLinkAt,
+  indentList,
+  isListKind,
+  listIndentAt,
   marksAt,
   clip,
   previewOf,
@@ -137,11 +140,12 @@ import {
   Text,
   TextInput,
   View,
+  NativeEventEmitter,
   processColor,
   useColorScheme,
 } from 'react-native';
 
-import type { PopUpItem } from './composer-controls.tsx';
+import type { IndentDirection, PopUpItem } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
 import { RegisterCommands, useCloseGuard } from './command-palette.tsx';
@@ -756,6 +760,23 @@ const choosingKeys = ['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].map(
   (key) => ({ key, ...plainKey }),
 );
 const closingKeys = [{ key: 'Escape', ...plainKey }];
+const noIndents = { outdent: false, indent: false };
+// In a list, Tab and Shift-Tab indent and outdent its items.
+const listTabs = [
+  { key: 'Tab', ...plainKey },
+  { key: 'Tab', ...plainKey, shiftKey: true },
+];
+// In a list, Tab and Shift-Tab indent and outdent its items, unless Tab chooses a Recipient
+// Suggestion.
+const listTabsOn = (choosing: boolean, kind: BlockKind) =>
+  !choosing && isListKind(kind);
+// The keys the body takes from the text view: formatting shortcuts, Recipient Suggestions' keys
+// and, in a list, Tab and Shift-Tab.
+const bodyKeys = (recipientKeys: typeof choosingKeys, tabs: boolean) => [
+  ...shortcuts,
+  ...recipientKeys,
+  ...(tabs ? listTabs : []),
+];
 
 // Recipient Suggestions in a glass menu, Recent then Contacts, with the active one highlighted;
 // `empty` shows when none matches, and `note` beneath them.
@@ -2766,6 +2787,8 @@ function useBodyRecipients(
   return {
     shown,
     keys,
+    // Typed Return and Tab choose the highlighted suggestion while any shows.
+    choosing: keys === choosingKeys,
     close,
     placeBody: ({ x, y }: Readonly<{ x: number; y: number }>) => {
       setBody({ x, y });
@@ -2844,6 +2867,44 @@ function BodyRecipientMenu({
       onAccept={onAccept}
     />
   );
+}
+
+// Format › Increase Indent and Decrease Indent (Command-] and Command-[) offer what the body's
+// selected list items allow while it takes edits, and run `run` for this body.
+function useIndentMenu(
+  body: string,
+  allowed: Readonly<Record<IndentDirection, boolean>>,
+  run: (direction: IndentDirection) => void,
+) {
+  const runNow = useRef(run);
+  useLayoutEffect(() => {
+    runNow.current = run;
+  });
+  const { outdent, indent } = allowed;
+  useEffect(() => {
+    windowHost()?.setComposerIndents(body, outdent, indent);
+  }, [body, outdent, indent]);
+  useEffect(() => {
+    const host = windowHost();
+    if (host === null) {
+      return undefined;
+    }
+    const subscription = new NativeEventEmitter(host).addListener(
+      'indent',
+      (event: {
+        readonly body: string;
+        readonly direction: IndentDirection;
+      }) => {
+        if (event.body === body) {
+          runNow.current(event.direction);
+        }
+      },
+    );
+    return () => {
+      subscription.remove();
+      host.setComposerIndents(body, false, false);
+    };
+  }, [body]);
 }
 
 function Editor({
@@ -3386,6 +3447,20 @@ function Editor({
     selectionNow.current = result.selection ?? at;
     setPlaced(result.selection);
   };
+  const indent = (direction: IndentDirection) => {
+    if (pausedNow.current) {
+      return;
+    }
+    const at = selectionNow.current;
+    const latest = authored.current;
+    const result = indentList(latest.body, at, direction);
+    if (result.document === latest.body) {
+      return;
+    }
+    change({ ...latest, body: result.document });
+    selectionNow.current = result.selection ?? at;
+    setPlaced(result.selection);
+  };
   const editLink = (link: Link, text: string, href?: string) => {
     if (pausedNow.current) {
       return;
@@ -3614,12 +3689,26 @@ function Editor({
     setPlaced(result.selection);
     AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
   };
+  const tabsIndent = listTabsOn(
+    recipientMenu.choosing,
+    blockKindAt(draft.body, selection.start),
+  );
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     deletion.current = undefined;
     if (pausedNow.current) {
       return;
     }
     recipientMenu.keyDown(nativeEvent, chooseRecipient);
+    if (
+      nativeEvent.key === 'Tab' &&
+      tabsIndent &&
+      !nativeEvent.altKey &&
+      !nativeEvent.ctrlKey &&
+      !nativeEvent.metaKey
+    ) {
+      indent(nativeEvent.shiftKey ? 'outdent' : 'indent');
+      return;
+    }
     if (nativeEvent.key === 'Delete') {
       deletion.current = 'forward';
     } else if (nativeEvent.key === 'Backspace') {
@@ -3910,6 +3999,11 @@ function Editor({
       : title;
   const active = typing ?? marksAt(draft.body, selection);
   const kind = blockKindAt(draft.body, selection.start);
+  const indents = listIndentAt(draft.body, selection);
+  useIndentMenu(bodyID, paused ? noIndents : indents, (direction) => {
+    fromControl();
+    indent(direction);
+  });
   // Discard asks first, from the toolbar and the Command Palette alike.
   const askDiscard = () => {
     if (!pausedNow.current && lifetime.current.finishing === 0) {
@@ -4040,10 +4134,15 @@ function Editor({
       <FormatBar
         active={active}
         kind={kind}
+        indents={indents}
         disabled={paused}
         onBlock={(next) => {
           fromControl();
           block(next);
+        }}
+        onIndent={(direction) => {
+          fromControl();
+          indent(direction);
         }}
         onMark={(mark) => {
           fromControl();
@@ -4225,7 +4324,7 @@ function Editor({
             },
             pastedTypes: ['fileUrl', 'image', 'string'],
           } satisfies TextInputMacOSProps)}
-          keyDownEvents={[...shortcuts, ...recipientMenu.keys]}
+          keyDownEvents={bodyKeys(recipientMenu.keys, tabsIndent)}
           multiline
           onBlur={() => {
             recipientMenu.close();

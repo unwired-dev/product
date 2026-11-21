@@ -98,6 +98,84 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(token.count, 0)
   }
 
+  // #2597: Outdent and Indent follow the list buttons; Format › Increase Indent (Command-]) and
+  // Decrease Indent (Command-[) and Tab and Shift-Tab nest the item three levels deep, Indent
+  // switches off at the third, and each change is one Undo step.
+  func testListIndent() throws {
+    try listIndent(appearance: "Light")
+  }
+
+  func testListIndentDark() throws {
+    try listIndent(appearance: "Dark")
+  }
+
+  private func listIndent(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments +=
+      ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+      + (appearance == "Dark"
+        ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"])
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    window.buttons["New Message"].click()
+    let body = window.textViews.firstMatch
+    XCTAssertTrue(body.waitForExistence(timeout: 15))
+    XCTAssertTrue(window.buttons["Undo"].waitForExistence(timeout: 30))
+    body.click()
+    body.typeText("Plan")
+    app.typeKey(.return, modifierFlags: [])
+    app.typeText("Seats")
+    app.typeKey("a", modifierFlags: .command)
+    window.buttons["Bulleted List"].click()
+    app.typeKey(.rightArrow, modifierFlags: [])
+    let nesting = "\u{2003}\u{2002}"
+    func shows(_ levels: Int) {
+      waitUntil {
+        body.value as? String == "• Plan\n\(String(repeating: nesting, count: levels))• Seats"
+      }
+    }
+    shows(0)
+    let outdent = window.buttons["Outdent"]
+    let indent = window.buttons["Indent"]
+    XCTAssertFalse(outdent.isEnabled)
+    XCTAssertTrue(indent.isEnabled)
+    let format = app.menuBars.menuBarItems["Format"]
+    func menuItem(_ title: String) -> XCUIElement { format.menuItems[title] }
+    app.typeKey("]", modifierFlags: .command)
+    shows(1)
+    XCTAssertTrue(outdent.isEnabled)
+    attach("List Indent")
+    format.click()
+    menuItem("Increase Indent").click()
+    shows(2)
+    XCTAssertFalse(indent.isEnabled)
+    format.click()
+    XCTAssertFalse(menuItem("Increase Indent").isEnabled)
+    XCTAssertTrue(menuItem("Decrease Indent").isEnabled)
+    app.typeKey(.escape, modifierFlags: [])
+    attach("List Indent third level")
+    // One Undo takes back one level; Shift-Tab and Tab outdent and indent; Command-[ outdents.
+    app.typeKey("z", modifierFlags: .command)
+    shows(1)
+    app.typeKey(.tab, modifierFlags: .shift)
+    shows(0)
+    app.typeKey(.tab, modifierFlags: [])
+    shows(1)
+    app.typeKey("[", modifierFlags: .command)
+    shows(0)
+  }
+
   // #2350: Send stays unavailable until the Draft has a complete recipient, and To says why.
   func testSendBlockedReason() throws {
     try sendBlockedReason(appearance: "Light")
