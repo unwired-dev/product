@@ -1078,8 +1078,9 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   or Move to Spam, and the Command Palette showed Archive as not available and found no
   command for "spam". After those steps, one message was appended over IMAP to the same
   folder without a role in each mailbox. A search for a word only in their subjects found
-  no saved mail in All Inboxes, and **Search Mail Servers** then listed both under **From
-  mail servers**; each opened in the reader with its text. Afterwards no run message
+  no saved mail in All Inboxes, a search that covers only the Inbox copies saved on the
+  device; whether the app had saved those two folders was not checked. **Search Mail
+  Servers** then listed both under **From mail servers**, from the servers; each opened in the reader with its text. Afterwards no run message
   remained in any folder of either mailbox, **Sign Out of This Device** removed the
   account's keys, Keychain records and mailbox access from the Mac and returned the app to
   Welcome, and the run's caches, HTTP storage and saved window state were removed from
