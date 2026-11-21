@@ -11,6 +11,7 @@ import {
   ownerOf,
 } from '@private-email/mail-core/drafts';
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
+import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import {
   createMailboxes,
@@ -64,6 +65,7 @@ import type { usePalette } from '../src/theme.ts';
 import { BlockedSendersContext } from '../src/blocked-senders.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { PinsContext } from '../src/pins.tsx';
+import { InboxPreferencesContext } from '../src/preview-lines.tsx';
 import { profileChoices } from '../src/profile-choices.ts';
 import { AccountContext, RegistrationGate } from '../src/registration-gate.tsx';
 import {
@@ -175,6 +177,20 @@ const touch = {
   currentTarget: 1,
   nativeEvent: { pageX: 0, pageY: 0, locationX: 0, locationY: 0, timestamp: 0 },
 };
+
+// The views inside `node` that take the pointer, such as an Edit Favorites row's drag handle.
+type Node = Parameters<typeof fireEvent.press>[0];
+function grabbed(node: Node): Node[] {
+  return node.children.flatMap((child) => {
+    if (typeof child === 'string') {
+      return [];
+    }
+    return child.props.onResponderGrant === undefined
+      ? grabbed(child)
+      : [child];
+  });
+}
+const handleOf = (node: Node) => grabbed(node).at(0) ?? node;
 
 // Selection fills drawn in a Settings row: its own and any stacked over it.
 function fills(row: Parameters<typeof fireEvent.press>[0]) {
@@ -1465,6 +1481,201 @@ describe('mac window selection with the shared mock mailbox', () => {
     });
   });
 
+  it('edits Favorites: hides the selected mailbox, reorders rows and keeps them across a relaunch', async () => {
+    expect.hasAssertions();
+    // Inbox preferences kept in memory for one signed-in Product Account, without Private Sync.
+    const kept = { revision: 0, document: null as string | null };
+    const store = () =>
+      createInboxPreferences(
+        {
+          openInboxPreferences: () =>
+            Promise.resolve({ owner: 'account-1', ...kept }),
+          commitInboxPreferences: (owner, revision, document) => {
+            Object.assign(kept, { revision: revision + 1, document });
+            return Promise.resolve({ owner, revision: kept.revision });
+          },
+        },
+        {
+          getSnapshot: () => ({
+            snapshot: {
+              kind: 'connected',
+              productAccountId: 'account-1',
+              signInProvider: 'google',
+              mailboxes: '[]',
+            },
+            busy: false,
+            failed: false,
+          }),
+        },
+      );
+    const launch = (preferences: ReturnType<typeof store>) =>
+      render(
+        <InboxPreferencesContext value={preferences}>
+          <Windows
+            first
+            second={false}
+          />
+        </InboxPreferencesContext>,
+      );
+    const names = new Set([
+      'All Inboxes',
+      'Sent',
+      'Archive',
+      'All Mail',
+      'Spam',
+      'Trash',
+    ]);
+    // The Favorites rows in order, by name.
+    const favorites = (app: Awaited<ReturnType<typeof launch>>) =>
+      app
+        .getAllByRole('button')
+        .map((button) =>
+          String(button.props.accessibilityLabel).replace(
+            '. In All Mailboxes',
+            '',
+          ),
+        )
+        .filter((label) => names.has(label));
+    const app = await launch(store());
+    await app.findByRole('button', { name: 'All Inboxes' });
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Spam. In All Mailboxes' }),
+    );
+    // Edit Favorites… in the Favorites header's menu.
+    const menu = contextMenuOf(app.getByRole('button', { name: 'Favorites' }));
+    expect(menuSections(menu)).toStrictEqual([
+      ['Edit Favorites…'],
+      ['Collapse Favorites'],
+    ]);
+    await chooseFromMenu(menu, 'Edit Favorites…');
+    // The Edit rows in order, with whether each is shown.
+    const editRows = () =>
+      app
+        .getAllByRole('button')
+        .filter(({ props }) => names.has(String(props.accessibilityLabel)))
+        .map(
+          ({ props }) =>
+            `${String(props.accessibilityLabel)} ${String(props.accessibilityValue.text)}`,
+        );
+    const edited = [
+      'All Inboxes Shown',
+      'Sent Shown',
+      'Archive Shown',
+      'All Mail Shown',
+      'Trash Shown',
+      'Spam Hidden',
+    ];
+    await fireEvent.press(app.getByRole('button', { name: 'Spam' }));
+    // All Inboxes stays shown.
+    await fireEvent.press(app.getByRole('button', { name: 'All Inboxes' }));
+    await fireEvent(
+      app.getByRole('button', { name: 'Trash' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'Move Up' } },
+    );
+    await waitFor(() => {
+      expect(editRows()).toStrictEqual(edited);
+    });
+    // From the keyboard, Command-Option-Down and Up move a row two places and back; Down alone
+    // does not.
+    const keys = async (direction: string, times: number, modifiers = true) => {
+      for (let pressed = 0; pressed < times; pressed += 1) {
+        await fireEvent(app.getByRole('button', { name: 'Sent' }), 'keyDown', {
+          nativeEvent: {
+            key: direction,
+            altKey: modifiers,
+            metaKey: modifiers,
+          },
+        });
+      }
+    };
+    await keys('ArrowDown', 1, false);
+    expect(editRows()).toStrictEqual(edited);
+    await keys('ArrowDown', 2);
+    await waitFor(() => {
+      expect(editRows().slice(0, 4)).toStrictEqual([
+        'All Inboxes Shown',
+        'Archive Shown',
+        'All Mail Shown',
+        'Sent Shown',
+      ]);
+    });
+    await keys('ArrowUp', 2);
+    await waitFor(() => {
+      expect(editRows()).toStrictEqual(edited);
+    });
+    // Pressing Trash's drag handle and letting go without moving it leaves it in place.
+    const handle = handleOf(app.getByRole('button', { name: 'Trash' }));
+    await fireEvent(handle, 'responderGrant', touch);
+    await fireEvent(handle, 'responderRelease', touch);
+    // Also when the press and release arrive in one event batch, away from the last press.
+    const below = {
+      ...touch,
+      nativeEvent: { ...touch.nativeEvent, pageY: 240 },
+    };
+    await act(() => {
+      handle.props.onResponderGrant(below);
+      handle.props.onResponderRelease(below);
+    });
+    expect(editRows()).toStrictEqual(edited);
+    // A drag keeps the place it started from when another window reorders the rows before the
+    // first move: Trash, grabbed fifth, dragged one row up lands fourth.
+    const up = { ...touch, nativeEvent: { ...touch.nativeEvent, pageY: -28 } };
+    const moveAllMail = (actionName: string) =>
+      fireEvent(
+        app.getByRole('button', { name: 'All Mail' }),
+        'accessibilityAction',
+        { nativeEvent: { actionName } },
+      );
+    await fireEvent(handle, 'responderGrant', touch);
+    await moveAllMail('Move Down');
+    await fireEvent(
+      handleOf(app.getByRole('button', { name: 'Trash' })),
+      'responderMove',
+      up,
+    );
+    await fireEvent(
+      handleOf(app.getByRole('button', { name: 'Trash' })),
+      'responderRelease',
+      up,
+    );
+    await waitFor(() => {
+      expect(editRows().slice(2, 5)).toStrictEqual([
+        'Archive Shown',
+        'Trash Shown',
+        'All Mail Shown',
+      ]);
+    });
+    await moveAllMail('Move Up');
+    await waitFor(() => {
+      expect(editRows()).toStrictEqual(edited);
+    });
+    await fireEvent.press(app.getByRole('button', { name: 'Done' }));
+    // Hiding the selected Spam selected the first row still shown.
+    expect({
+      favorites: favorites(app),
+      selected: app.getByRole('button', { name: 'All Inboxes' }).props
+        .accessibilityState?.selected,
+    }).toStrictEqual({
+      favorites: ['All Inboxes', 'Sent', 'Archive', 'All Mail', 'Trash'],
+      selected: true,
+    });
+    await app.unmount();
+
+    const relaunched = store();
+    await relaunched.load();
+    const again = await launch(relaunched);
+    await again.findByRole('button', { name: 'All Inboxes' });
+    expect(favorites(again)).toStrictEqual([
+      'All Inboxes',
+      'Sent',
+      'Archive',
+      'All Mail',
+      'Trash',
+    ]);
+    await again.unmount();
+  });
+
   it("asks AppKit to show or hide the window's sidebar and names the toggle after its collapse", async () => {
     expect.hasAssertions();
     const app = await render(
@@ -1652,6 +1863,7 @@ describe('mac window selection with the shared mock mailbox', () => {
         'Move to…. Not available for this message',
         'Mark as Unread',
         'Search Mail',
+        'Edit Favorites',
         'Inbox',
       ];
       for (const [index, name] of names.entries()) {
@@ -1668,21 +1880,26 @@ describe('mac window selection with the shared mock mailbox', () => {
         nativeEvent: { layout: { y: 0, height: 80 } },
       });
       const input = app.getByPlaceholderText('Type a command');
-      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
-      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+      for (let step = 0; step < 3; step += 1) {
+        await fireEvent(input, 'keyDown', {
+          nativeEvent: { key: 'ArrowDown' },
+        });
+      }
       expect(palette.getByRole('button', { name: 'Inbox' })).toBeSelected();
-      // Inbox ends at 280pt, below the visible 80pt, so the list scrolls until it is the last row.
-      expect(scrollTo).toHaveBeenLastCalledWith({ y: 200, animated: false });
-      // The wheel then scrolls Search Mail, which starts at 200pt, out of view above.
+      // Inbox ends at 320pt, below the visible 80pt, so the list scrolls until it is the last row.
+      expect(scrollTo).toHaveBeenLastCalledWith({ y: 240, animated: false });
+      // The wheel then scrolls Edit Favorites, which starts at 240pt, out of view above.
       await fireEvent(list, 'scroll', {
-        nativeEvent: { contentOffset: { y: 240 } },
+        nativeEvent: { contentOffset: { y: 280 } },
       });
-      // Up scrolls until Search Mail is the first row; the first enabled command then brings back
+      // Up scrolls until each row above is the first; the first enabled command then brings back
       // the top, with its header and the unavailable commands.
       scrollTo.mockClear();
-      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
-      await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
+      for (let step = 0; step < 3; step += 1) {
+        await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowUp' } });
+      }
       expect(scrollTo.mock.calls).toStrictEqual([
+        [{ y: 240, animated: false }],
         [{ y: 200, animated: false }],
         [{ y: 0, animated: false }],
       ]);
@@ -1751,6 +1968,8 @@ describe('mac window selection with the shared mock mailbox', () => {
     expect(app.queryByRole('button', { name: 'Inbox' })).toBeNull();
     await fireEvent.changeText(input, '');
     // Down selects the next command that can run; Return runs it and closes the palette.
+    await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
+    expect(app.getByRole('button', { name: 'Edit Favorites' })).toBeSelected();
     await fireEvent(input, 'keyDown', { nativeEvent: { key: 'ArrowDown' } });
     expect(app.getByRole('button', { name: 'Inbox' })).toBeSelected();
     await fireEvent(input, 'submitEditing');

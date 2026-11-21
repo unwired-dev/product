@@ -817,8 +817,9 @@ One frame size differs from the device on purpose. Here the system wins:
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
 
-- **Edit Favorites:** the sidebar's Edit mode, and **Edit** beside Account in the
-  iPhone Mailboxes frames, wait for #2106.
+- **Edit Favorites:** the Mac sidebar's Edit mode is built (#2593). The iPad
+  sidebar's Edit mode, and **Edit** beside Account in the iPhone Mailboxes
+  frames, wait for #2106.
 - **Message list header:** the iPhone frames' List/Chat toggle beside the title
   waits for #810. Their **…** menu waits for an issue that names what it offers.
 - **iPhone composer:** the frames draw the composer as a sheet, as

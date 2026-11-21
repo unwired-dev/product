@@ -358,6 +358,28 @@ and the header still names the problem; clicking it again expands it. The expand
 and collapsed sidebars are kept as attachments. The Inbox row's unread count is
 covered by the Mac Jest tests. VoiceOver speech is not covered.
 
+## Mac Edit Favorites journey
+
+The `testEditFavorites` journey and its `Dark` variant use the same
+`registration-performance` `Testing` build and sign-in as the
+[performance journey](#mac-performance-journey)
+([#2593](https://github.com/unwired-dev/product/issues/2593)):
+
+```sh
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testEditFavorites
+```
+
+Edit Favorites… in the Favorites header's context menu shows the editable list with
+**Done**, which passes an accessibility audit. Clicking Spam hides it, and dragging
+Trash's handle two rows up moves it above Spam and All Mail. After Done the sidebar
+lists All Inboxes, Sent, Archive, Trash and All Mail, and after Quit and a relaunch
+it lists them again. Edit mode, the edited list and the relaunched sidebar are kept as
+attachments. The Move Up and Move Down actions and Command-Option-Up and Down are
+covered by the Mac Jest tests, and the Private Sync merge by the mail-core tests.
+Space and Return, VoiceOver speech and keyboard focus after a move are not covered.
+
 ## Mac composer recovery journey
 
 The `testComposerRecoveryAfterForceQuit` journey uses the same
