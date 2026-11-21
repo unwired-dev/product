@@ -3365,7 +3365,7 @@ describe('adding files and images to Drafts', () => {
       await navigation.attachReceived(drafts, {
         mailbox: personal.id,
         mailboxes: listed,
-        saved,
+        saved: () => Promise.resolve(saved),
       }),
       'a Draft in the personal Profile',
     );
@@ -3389,7 +3389,7 @@ describe('adding files and images to Drafts', () => {
       navigation.attachReceived(drafts, {
         mailbox: personal.id,
         mailboxes: session.mailboxes(),
-        saved,
+        saved: () => Promise.resolve(saved),
       }),
     ).resolves.toBeUndefined();
     expect(draftsOf(drafts.getSnapshot())).toHaveLength(count);
@@ -3564,6 +3564,50 @@ describe('adding files and images to Drafts', () => {
     await expect(choosing).resolves.toStrictEqual([]);
   });
 
+  it('keeps a Draft chosen while a received attachment downloads again', async () => {
+    expect.hasAssertions();
+    const { drafts, id } = await opened();
+    const navigation = createComposerNavigation();
+    const count = draftsOf(drafts.getSnapshot()).length;
+    let started: () => void = () => undefined;
+    let downloaded: () => void = () => undefined;
+    // oxlint-disable-next-line promise/avoid-new -- Signals when the download starts after leaving.
+    const downloading = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    // oxlint-disable-next-line promise/avoid-new -- Holds the download until a Draft is chosen.
+    const finished = new Promise<void>((resolve) => {
+      downloaded = resolve;
+    });
+    const creating = navigation.attachReceived(drafts, {
+      mailbox: alex.id,
+      mailboxes: [
+        {
+          ...alex,
+          provider: 'gmail',
+          state: 'connected' as const,
+          profile: defaultProfile,
+        },
+      ],
+      saved: async () => {
+        started();
+        await finished;
+        return {
+          name: 'invoice.pdf',
+          type: 'application/pdf',
+          address: alex.address,
+          generation: 'generation-2',
+          file: 'downloaded-file',
+        };
+      },
+    });
+    await downloading;
+    await expect(navigation.leave(id)).resolves.toBe(true);
+    downloaded();
+    await expect(creating).resolves.toBeUndefined();
+    expect(draftsOf(drafts.getSnapshot())).toHaveLength(count);
+  });
+
   it('keeps later navigation after received-attachment preparation and fences account replacement', async () => {
     expect.hasAssertions();
     const { session, storage, drafts } = await opened();
@@ -3600,7 +3644,7 @@ describe('adding files and images to Drafts', () => {
           profile: defaultProfile,
         },
       ],
-      saved,
+      saved: () => Promise.resolve(saved),
     });
     await prepared;
     await navigation.leave();
@@ -3624,7 +3668,7 @@ describe('adding files and images to Drafts', () => {
           profile: defaultProfile,
         },
       ],
-      saved,
+      saved: () => Promise.resolve(saved),
     });
     await secondPrepared;
     session.change(connected('account-b'));

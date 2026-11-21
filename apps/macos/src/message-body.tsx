@@ -695,9 +695,10 @@ type AttachmentSource = Pick<
   | 'presentAttachment'
   | 'attachmentFile'
 >;
-// Starts a new message with a Downloaded Attachment, where the reader can open a composer.
+// Starts a new message with a Downloaded Attachment, where the reader can open a composer. The
+// file is resolved only after leaving an open composer.
 export const AttachContext = createContext<
-  ((attachment: SavedAttachment) => void) | undefined
+  ((saved: () => Promise<SavedAttachment | undefined>) => void) | undefined
 >(undefined);
 
 // One received attachment: its name and size, and what can be done with it now.
@@ -763,11 +764,12 @@ function AttachmentRow({
       }
     };
     // A file saved before the mailbox generation changed is downloaded again first.
-    const attachNew = async () => {
-      await inbox.downloadAttachment(id, locator);
-      const saved = inbox.attachmentFile(id, locator);
-      if (current() && saved !== undefined) {
-        attach?.(saved);
+    const attachNew = () => {
+      if (current()) {
+        attach?.(async () => {
+          await inbox.downloadAttachment(id, locator);
+          return current() ? inbox.attachmentFile(id, locator) : undefined;
+        });
       }
     };
     menu = [
@@ -808,9 +810,7 @@ function AttachmentRow({
           <Action
             label={t('attachment.attachToNew')}
             accessibilityLabel={t('attachment.attachToNewLabel', { name })}
-            onPress={() => {
-              void attachNew();
-            }}
+            onPress={attachNew}
           />
         )}
       </>

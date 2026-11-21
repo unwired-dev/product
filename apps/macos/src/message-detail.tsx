@@ -207,7 +207,7 @@ function AttachToNewMessage({
       mounted.current = false;
     };
   }, []);
-  const attach = async (saved: SavedAttachment) => {
+  const attach = async (saved: () => Promise<SavedAttachment | undefined>) => {
     if (!mounted.current || attaching.current) {
       return;
     }
