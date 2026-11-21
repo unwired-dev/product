@@ -1010,6 +1010,13 @@ describe('profile-scoped mobile routes', () => {
           screen.getByRole('button', { name: 'Save Draft' }),
         );
       });
+      ok(sheet() === null);
+      // A Draft that cannot open closes by the same swipe, as its Close does.
+      await act(() => {
+        route.router.setParams({ draft: 'missing-draft' });
+      });
+      await screen.findByText('This Draft is not available.');
+      await swipeDown();
       expect(sheet()).toBeNull();
     } finally {
       await app.unmount();

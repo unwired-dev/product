@@ -5278,8 +5278,8 @@ function Editor({
   );
 }
 
-// A composer whose Draft is loading or cannot open. It still covers the Inbox on iPhone, so it
-// keeps the palette entry the editor's header has.
+// A composer whose Draft is loading or cannot open. It keeps the palette entry the editor's
+// header has, and leaving closes it as its Close does, which the iPhone sheet's swipe asks.
 function ComposerFallback({
   kind,
   onClose,
@@ -5291,6 +5291,13 @@ function ComposerFallback({
   const colors = usePalette();
   const { t } = useLocalization();
   const paletteHeader = usePaletteHeader();
+  const navigation = useComposerNavigation();
+  useLayoutEffect(() =>
+    navigation.register(() => {
+      onClose();
+      return Promise.resolve(true);
+    }),
+  );
   return (
     <SafeAreaView
       edges={{ top: true, bottom: true, left: true, right: true }}

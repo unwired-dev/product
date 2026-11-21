@@ -4066,6 +4066,8 @@ final class InboxTests: XCTestCase {
     attachScreen("Composer sheet with keyboard", of: app, to: self)
     app.buttons["Send"].tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 15))
+    // Send admitted the message: its Undo Send window is open.
+    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 15))
   }
 
   // #2465: in a list, Tab and Shift-Tab nest its items up to three levels, and Outdent and Indent,
