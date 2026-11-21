@@ -655,9 +655,13 @@ final class InboxTests: XCTestCase {
       ).firstMatch.waitForExistence(timeout: 15))
     try profileSwitcherJourney(app)
     profileIsolationJourney(app)
+    // iPhone's reader header summarizes the recipients where iPad shows the sender's address.
+    let jordanHeader = app.staticTexts[
+      UIDevice.current.userInterfaceIdiom == .pad
+        ? "jordan@example.invalid" : "to casey@example.invalid"]
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
-    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(jordanHeader.waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     verifyCompactReaderBack(app)
     if UIDevice.current.userInterfaceIdiom == .phone {
@@ -763,7 +767,7 @@ final class InboxTests: XCTestCase {
       add(popover)
       app.otherElements["PopoverDismissRegion"].tap()
       XCTAssertTrue(search.waitForNonExistence(timeout: 5))
-      XCTAssertTrue(app.staticTexts["jordan@example.invalid"].exists)
+      XCTAssertTrue(jordanHeader.exists)
       XCUIDevice.shared.orientation = .portrait
       app.buttons["More"].tap()
       let moveTo = app.buttons["Move to…"]
@@ -785,7 +789,7 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
-    XCTAssertTrue(app.staticTexts["jordan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(jordanHeader.waitForExistence(timeout: 10))
     XCTAssertTrue(text("Agenda for Thursday.", in: app).waitForExistence(timeout: 15))
     verifyCompactReaderBack(app)
     let shot = XCTAttachment(screenshot: app.screenshot())
