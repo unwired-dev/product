@@ -198,7 +198,7 @@ export const profilePalette = {
 const style = (
   fontSize: number,
   lineHeight: number,
-  fontWeight: '400' | '600' | '700',
+  fontWeight: '400' | '500' | '600' | '700',
 ) => ({ fontSize, lineHeight, fontWeight });
 
 export const typography = {
@@ -209,6 +209,7 @@ export const typography = {
     bodyEmphasized: style(13, 16, '600'),
     subheadline: style(11, 14, '400'),
     subheadlineEmphasized: style(11, 14, '600'),
+    caption1Emphasized: style(10, 13, '500'),
   },
   ios: {
     largeTitle: style(34, 41, '700'),

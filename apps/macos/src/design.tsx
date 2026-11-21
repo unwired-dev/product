@@ -183,6 +183,25 @@ const styles = StyleSheet.create({
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
   noticeMessageText: { flex: 1 },
+  toast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    paddingHorizontal: spacing.l,
+    paddingVertical: 10,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+  },
+  toastMessage: { flexShrink: 1 },
+  // A 28pt target around the 16pt label, inside the toast's own height.
+  toastAction: {
+    minHeight: 28,
+    marginVertical: -6,
+    justifyContent: 'center',
+    outlineWidth: 2,
+    borderRadius: radius.control,
+  },
+  toastActionLabel: { ...textStyles.bodyEmphasized },
   noticeWithDetail: {
     marginHorizontal: -spacing.s,
     paddingLeft: 22,
@@ -676,6 +695,74 @@ export function MenuPresence({
       style={[style, motion.style, { transformOrigin: origin }]}>
       {children}
     </AnimatedPanel>
+  );
+}
+
+// The deep graphite toast above the search bar, with its symbol, message and one action. The Mac
+// draws it until its glass toast (#2104).
+export function Toast({
+  open,
+  symbol,
+  message,
+  action,
+  actionLabel = action,
+  onAction,
+}: {
+  readonly open: boolean;
+  readonly symbol: string;
+  readonly message: string;
+  readonly action: string;
+  // What VoiceOver says for the action, when its title alone is not enough.
+  readonly actionLabel?: string;
+  readonly onAction: () => void;
+}) {
+  const colors = usePalette();
+  const [focused, setFocused] = useState(false);
+  return (
+    <MenuPresence
+      open={open}
+      origin="bottom"
+      style={[
+        styles.toast,
+        { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
+      ]}>
+      {/* React Native's legacy view interop mounts a nested native view without its offset,
+          so the symbol sits in a plain view inside the toast's padding. */}
+      <View collapsable={false}>
+        <SFSymbol
+          name={symbol}
+          color={colors.brandOnDeep}
+        />
+      </View>
+      <View
+        accessible
+        accessibilityLabel={message}
+        style={styles.toastMessage}>
+        <Text style={[textStyles.body, { color: colors.brandOnDeep }]}>
+          {message}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel={actionLabel}
+        accessibilityRole="button"
+        enableFocusRing={false}
+        focusable
+        onBlur={() => {
+          setFocused(false);
+        }}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onPress={onAction}
+        style={[
+          styles.toastAction,
+          { outlineColor: focused ? colors.brandOnDeep : 'transparent' },
+        ]}>
+        <Text style={[styles.toastActionLabel, { color: colors.brandOnDeep }]}>
+          {action}
+        </Text>
+      </Pressable>
+    </MenuPresence>
   );
 }
 

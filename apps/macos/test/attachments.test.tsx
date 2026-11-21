@@ -1,13 +1,21 @@
+import type { TurboModule } from 'react-native';
+
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useLayoutEffect } from 'react';
+import { AccessibilityInfo, TurboModuleRegistry } from 'react-native';
 
+import {
+  SaveFailedNotice,
+  SaveOutcomeToast,
+  useSaveOutcome,
+} from '../src/attachment-save.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
-import { MessageBody } from '../src/message-body.tsx';
+import { MessageBody, SaveOutcomeContext } from '../src/message-body.tsx';
 
 // The application callback behind a rendered control, as delayed native input would invoke it.
 const pressHandler = (
@@ -374,6 +382,200 @@ describe('received attachments in the reader', () => {
       expect(gmail.savedFiles.size).toBe(1);
     } finally {
       await app.unmount();
+    }
+  });
+});
+
+// The native context menu around a rendered control.
+const contextMenuOf = (element: Parameters<typeof fireEvent.press>[0]) => {
+  let node = element.parent;
+  while (node !== null && node.type !== 'UnwiredContextMenu') {
+    node = node.parent;
+  }
+  if (node === null) {
+    throw new Error('Expected a context menu');
+  }
+  return node;
+};
+
+// A Mac reader's Save As… outcomes around one message body.
+function SavingReader({
+  inbox,
+  id,
+  readable = true,
+}: {
+  readonly inbox: ReturnType<typeof createInboxStore>;
+  readonly id: string;
+  // False while storage is locked.
+  readonly readable?: boolean;
+}) {
+  const saving = useSaveOutcome(id, readable);
+  return (
+    <SaveOutcomeContext value={saving.start}>
+      <SaveFailedNotice shown={saving.shown} />
+      <MessageBody
+        inbox={inbox}
+        id={id}
+      />
+      <SaveOutcomeToast shown={saving.shown} />
+    </SaveOutcomeContext>
+  );
+}
+
+// The save panel's reply for a copy saved as Downloads/notes 2.txt.
+const savedInDownloads = {
+  name: 'notes 2.txt',
+  folder: 'Downloads',
+  show: 'file:///Users/person/Downloads/notes%202.txt',
+};
+
+// Renders a reader around one downloaded notes.txt, with its context menu and Save As… item.
+const openSaving = async () => {
+  const gmail = createSyntheticGmail();
+  const id = gmail.deliver({ content: { text: 'Notes attached.' } });
+  const inbox = createInboxStore(gmail.native);
+  await inbox.load();
+  const app = await render(
+    <SavingReader
+      inbox={inbox}
+      id={id}
+    />,
+  );
+  await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
+  const menu = contextMenuOf(await screen.findByLabelText('Open notes.txt'));
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ id: string; title: string }>;
+  }> = menu.props.sections;
+  const items = sections.flatMap((section) => section.items);
+  const save = async () => {
+    const item = items.find(({ title }) => title === 'Save As…');
+    await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
+  };
+  return { gmail, inbox, id, app, items, save };
+};
+
+describe('saving a received attachment with Save As…', () => {
+  it('offers Save As… between Quick Look and Share, and names the saved copy and its folder with Show in Finder', async () => {
+    expect.hasAssertions();
+    const get = TurboModuleRegistry.get.bind(TurboModuleRegistry);
+    const host = { showInFinder: jest.fn() } as unknown as TurboModule;
+    jest
+      .spyOn(TurboModuleRegistry, 'get')
+      .mockImplementation((name) =>
+        name === 'UnwiredCommands' ? host : get(name),
+      );
+    const { gmail, app, items, save } = await openSaving();
+    jest
+      .spyOn(gmail.native, 'presentAttachment')
+      .mockResolvedValueOnce(savedInDownloads);
+    try {
+      expect(items.map(({ title }) => title)).toStrictEqual([
+        'Quick Look',
+        'Save As…',
+        'Share…',
+      ]);
+      await save();
+      await expect(
+        screen.findByText('Saved “notes 2.txt” to Downloads'),
+      ).resolves.toBeOnTheScreen();
+      await fireEvent.press(
+        screen.getByLabelText('Show notes 2.txt in Finder'),
+      );
+      expect(host).toHaveProperty('showInFinder.mock.calls', [
+        ['file:///Users/person/Downloads/notes%202.txt'],
+      ]);
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('says nothing when the person cancels the save panel', async () => {
+    expect.hasAssertions();
+    const { gmail, app, save } = await openSaving();
+    try {
+      gmail.cancelSave();
+      await save();
+      expect({
+        presentations: gmail.presentations,
+        failed: screen.queryByText('Couldn’t save “notes.txt”'),
+        saved: screen.queryByText(/^Saved/u),
+      }).toStrictEqual({
+        presentations: [{ name: 'notes.txt', action: 'save' }],
+        failed: null,
+        saved: null,
+      });
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('reports nothing for a save that finishes after storage locked and unlocked again', async () => {
+    expect.hasAssertions();
+    const { gmail, inbox, id, app, save } = await openSaving();
+    // React Native's preset mock keeps the calls earlier tests made.
+    const announce = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockClear();
+    const panel = Promise.withResolvers<unknown>();
+    jest
+      .spyOn(gmail.native, 'presentAttachment')
+      .mockReturnValueOnce(panel.promise);
+    try {
+      await save();
+      await app.rerender(
+        <SavingReader
+          inbox={inbox}
+          id={id}
+          readable={false}
+        />,
+      );
+      await app.rerender(
+        <SavingReader
+          inbox={inbox}
+          id={id}
+        />,
+      );
+      await act(async () => {
+        panel.resolve(savedInDownloads);
+      });
+      expect({
+        saved: screen.queryByText('Saved “notes 2.txt” to Downloads'),
+        announced: announce.mock.calls,
+      }).toStrictEqual({ saved: null, announced: [] });
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('names the chosen folder when writing there fails, and the file when no panel could open', async () => {
+    expect.hasAssertions();
+    const { gmail, app, save } = await openSaving();
+    jest
+      .spyOn(gmail.native, 'presentAttachment')
+      .mockResolvedValueOnce({ failed: 'Home' });
+    try {
+      await save();
+      await expect(
+        screen.findByLabelText('Couldn’t save to Home The file was not saved.'),
+      ).resolves.toBeOnTheScreen();
+      jest.restoreAllMocks();
+      gmail.failPresent('unavailable');
+      await save();
+      await expect(
+        screen.findByLabelText(
+          'Couldn’t save “notes.txt” The file was not saved.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      expect(
+        screen.queryByLabelText(
+          'Couldn’t save to Home The file was not saved.',
+        ),
+      ).not.toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
     }
   });
 });

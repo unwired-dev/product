@@ -602,7 +602,7 @@ open message's header lists Reply, Reply All and Forward, its read state,
 the reader's Move to, and **Delete** outside Trash and Spam; its sender offers **Copy Address** and, for one plain address, **Block Sender…** ([#2166](https://github.com/unwired-dev/product/issues/2166)). A link in the reader's link list
 offers **Open Link**, which asks for the same confirmation, and **Copy Link**. A
 downloaded attachment's menu is titled with its file name and offers **Quick Look**, then
-**Save to Files…** (iPhone and iPad) and **Share…**. Links inside a rich
+**Save to Files…** (iPhone and iPad) or **Save As…** (Mac) and **Share…**. Links inside a rich
 message body and plain-text link spans have no app context menu yet.
 
 A change shows at once with **Saving the change on this device…** until local
@@ -1563,9 +1563,20 @@ attachment descriptors.
   its result only during the same uninterrupted visit to the readable message that
   started the save. Leaving the message, the message disappearing, closing the reader
   or a storage lock ends that visit and drops the result, but never undoes a copy
-  already saved. The
-  Mac, and **Save to Downloads** to a folder remembered for the Profile, follow in
-  #1681.
+  already saved.
+- **Save As.** On the Mac the attachment's menu offers **Save As…**
+  ([#2625](https://github.com/unwired-dev/product/issues/2625), a slice of
+  [#1681](https://github.com/unwired-dev/product/issues/1681)). It opens the system save
+  panel (`NSSavePanel`) as a sheet on the reader's window, named after the attachment;
+  the panel confirms replacing a file already there. The app writes the copy, which the
+  person owns like a copy saved to Files, and the toast above the search bar names the
+  copy and its folder, with **Show in Finder**, which selects it in Finder. Cancelling
+  says nothing. When writing to the chosen folder fails, the reader shows **Couldn’t save
+  to** that folder beneath its header, or **Couldn’t save “name”** when no panel could
+  open, with **The file was not saved.**; **Save As…** stays in the menu to try again,
+  and a file that is gone offers **Download** again. The result follows the same visit
+  rule as on iPhone and iPad. **Save to Downloads** to a folder remembered for the
+  Profile, with its name-collision alert, follows in #1681.
 
 Downloaded Attachments are plaintext so the system can preview them. They are
 written under the app's private Application Support directory, in a folder per Mailbox Connection,

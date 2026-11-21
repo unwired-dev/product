@@ -699,7 +699,11 @@
     "show": "Show",
     "showLabel": "Show {{name}} in Files",
     "saveFailed": "Couldn’t save “{{name}}”",
-    "saveFailedDetail": "The file was not saved."
+    "saveFailedDetail": "The file was not saved.",
+    "saveAs": "Save As…",
+    "showInFinder": "Show in Finder",
+    "showInFinderLabel": "Show {{name}} in Finder",
+    "saveFailedIn": "Couldn’t save to {{folder}}"
   },
   "invitation": {
     "heading": "Invitation",

@@ -42,6 +42,8 @@ interface WindowHost extends TurboModule {
   // Sizes a sheet to its content's height, and ends it.
   readonly fitSheet: (sheet: string, height: number) => void;
   readonly closeSheet: (sheet: string) => void;
+  // Reveals a saved file's `file://` URL in Finder.
+  readonly showInFinder: (url: string) => void;
   // Shows or hides the Inbox window's sidebar, as its Show Sidebar / Hide Sidebar button does.
   readonly toggleSidebar: (window: string) => void;
   // Ends the marks the composer body shows for typing before a render, after a control edits it;

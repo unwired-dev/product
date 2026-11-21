@@ -4,6 +4,7 @@ import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type {
   GmailInbox,
   ReceivedAttachment,
+  SavedCopy,
 } from '@private-email/mail-core/inbox-store';
 import type {
   BodyLink,
@@ -90,6 +91,18 @@ export const withoutLinkFrom =
 
 export const LinkConfirmationContext = createContext<
   Dispatch<SetStateAction<PendingLink | undefined>> | undefined
+>(undefined);
+
+// What Save As… did for one of the reader's attachments: the copy it saved, or nothing saved, in
+// the chosen folder when known.
+export type SaveOutcome =
+  | Readonly<{ kind: 'saved'; copy: SavedCopy }>
+  | Readonly<{ kind: 'failed'; name: string; folder: string | undefined }>;
+
+// Starts a save in the reader showing the message, returning how to report its outcome; none
+// outside a reader.
+export const SaveOutcomeContext = createContext<
+  (() => (outcome: SaveOutcome) => void) | undefined
 >(undefined);
 
 async function openLink(href: string) {
@@ -693,6 +706,7 @@ type AttachmentSource = Pick<
   | 'downloadAttachment'
   | 'cancelAttachment'
   | 'presentAttachment'
+  | 'saveAttachmentCopy'
   | 'attachmentFile'
 >;
 // Starts a new message with a Downloaded Attachment, where the reader can open a composer. The
@@ -719,6 +733,7 @@ function AttachmentRow({
 }) {
   const colors = usePalette();
   const attach = use(AttachContext);
+  const report = use(SaveOutcomeContext);
   const { t, settings } = useLocalization();
   const sizeFormat = useMemo(
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
@@ -775,6 +790,26 @@ function AttachmentRow({
         });
       }
     };
+    // Saves a copy where the person chooses, and tells the reader what happened unless they
+    // cancelled; the reader drops a result once it stopped showing the message.
+    const save = () => {
+      if (!current() || report === undefined) {
+        return;
+      }
+      const shown = report();
+      void (async () => {
+        const saved = await inbox.saveAttachmentCopy(id, locator);
+        if (saved === 'cancelled') {
+          return;
+        }
+        if (saved === 'failed' || 'failedIn' in saved) {
+          const folder = saved === 'failed' ? undefined : saved.failedIn;
+          shown({ kind: 'failed', name, folder });
+          return;
+        }
+        shown({ kind: 'saved', copy: saved });
+      })();
+    };
     menu = [
       {
         items: [
@@ -786,6 +821,20 @@ function AttachmentRow({
           },
         ],
       },
+      ...(report === undefined
+        ? []
+        : [
+            {
+              items: [
+                {
+                  key: 'saveAs',
+                  title: t('attachment.saveAs'),
+                  symbol: 'square.and.arrow.down',
+                  run: save,
+                },
+              ],
+            },
+          ]),
       {
         items: [
           {

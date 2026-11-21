@@ -31,6 +31,11 @@ import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import { Action } from './action.tsx';
+import {
+  SaveFailedNotice,
+  SaveOutcomeToast,
+  useSaveOutcome,
+} from './attachment-save.tsx';
 import { useBlockSender } from './block-sender.ts';
 import {
   inputHeight,
@@ -59,6 +64,7 @@ import {
   AttachContext,
   MessageBody,
   ReaderScrollView,
+  SaveOutcomeContext,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions, MessageActionsNotice } from './organize.tsx';
@@ -609,6 +615,10 @@ function MailboxMessage({
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
+  const saving = useSaveOutcome(
+    id,
+    state.kind === 'ready' && message !== undefined,
+  );
   const applied = new Set(
     message !== undefined && 'labels' in message ? message.labels : [],
   );
@@ -795,18 +805,22 @@ function MailboxMessage({
                   )}
                 </View>
               </MessageMenu>
+              <SaveFailedNotice shown={saving.shown} />
               <MessageActionsNotice id={message.id} />
               <ResponseStatusNotice
                 status={responseStatus}
                 id={message.id}
               />
-              <ReaderBody
-                key={message.id}
-                inbox={actions}
-                message={message}
-                connection={mailbox?.id}
-              />
+              <SaveOutcomeContext value={saving.start}>
+                <ReaderBody
+                  key={message.id}
+                  inbox={actions}
+                  message={message}
+                  connection={mailbox?.id}
+                />
+              </SaveOutcomeContext>
             </ReaderScrollView>
+            <SaveOutcomeToast shown={saving.shown} />
           </>
         )}
       </View>

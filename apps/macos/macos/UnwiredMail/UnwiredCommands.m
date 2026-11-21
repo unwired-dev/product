@@ -303,6 +303,13 @@ RCT_EXPORT_METHOD(focusInbox)
   [NSApp sendAction:NSSelectorFromString(@"focusInbox:") to:NSApp.delegate from:nil];
 }
 
+// Show in Finder for a copy the person saved: Finder opens its folder with the file selected.
+RCT_EXPORT_METHOD(showInFinder:(NSString *)url)
+{
+  NSURL *file = [NSURL URLWithString:url];
+  if (file.isFileURL) [NSWorkspace.sharedWorkspace activateFileViewerSelectingURLs:@[ file ]];
+}
+
 RCT_EXPORT_METHOD(setWindowProfile:(NSString *)identifier profile:(NSString *)profile)
 {
   windowProfiles()[identifier] = profile;

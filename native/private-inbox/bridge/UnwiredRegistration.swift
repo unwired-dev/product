@@ -2397,7 +2397,13 @@ extension UnwiredRegistration {
       let url = try await $0.attachmentFile(
         connection: connection, address: address, generation: generation, file: file)
       Self.presentedAttachments[file, default: 0] += 1
-      let presented = AttachmentPresenter.present(url, action: action, from: origin) { saved in
+      let presented = AttachmentPresenter.present(
+        url, action: action, from: origin,
+        failed: { folder in
+          Self.endPresentation(file)
+          resolve(["failed": FileManager.default.displayName(atPath: folder.path)])
+        }
+      ) { saved in
         Self.endPresentation(file)
         if save { resolve(saved.map(Self.savedCopy) ?? ["cancelled": true]) }
       }
@@ -2409,18 +2415,23 @@ extension UnwiredRegistration {
     }
   }
 
-  // A saved copy as the reader reports it: its actual name, the folder's name as Files shows it,
-  // and the Files link that opens it there.
+  // A saved copy as the reader reports it: its actual name, the folder's name as Files or Finder
+  // shows it, and the Files link that opens it there, or on the Mac its file URL for Finder.
   private static func savedCopy(_ url: URL) -> [String: Any] {
     let folder = url.deletingLastPathComponent()
-    var show = URLComponents()
-    show.scheme = "shareddocuments"
-    show.host = ""
-    show.path = url.path
+    #if os(macOS)
+      let show = url.absoluteString
+    #else
+      var link = URLComponents()
+      link.scheme = "shareddocuments"
+      link.host = ""
+      link.path = url.path
+      let show = link.url?.absoluteString ?? ""
+    #endif
     return [
       "name": url.lastPathComponent,
       "folder": FileManager.default.displayName(atPath: folder.path),
-      "show": show.url?.absoluteString ?? "",
+      "show": show,
     ]
   }
 
