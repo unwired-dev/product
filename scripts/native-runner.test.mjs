@@ -356,6 +356,7 @@ for (const [name, end] of [
       readFileSync(file, 'utf8'),
       /booted simulators: unavailable \(timed out\)/u,
     );
+    assert.equal(fixture().length, 2);
     // Killed children are reaped by launchd shortly after the group is stopped.
     const deadline = Date.now() + 5000;
     while (fixture().some(running) && Date.now() < deadline) {
