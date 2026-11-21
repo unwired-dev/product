@@ -846,8 +846,10 @@ app follows under the issue named:
   and #2118.
 - **Toasts:** the frames draw glass toasts. iPhone and iPad do (#2591); the Mac
   draws a deep graphite toast until the rest of #2104.
-- **Trusted Devices:** the rows' device symbol, Current Device, last activity and
-  disclosure chevron wait for #2107.
+- **Trusted Devices:** iPhone and iPad rows show the device symbol, Current
+  Device and last activity (#2607), with the exact time where the iPhone frame
+  draws "3 days ago". The Mac rows and the disclosure chevron wait for the rest
+  of #2107.
 - **Recovery Key:** Copy, Save to Files, Print… and Save to Passwords… wait for
   #2108.
 - **Copy:** one name per action, Spam and Thread wait for #2083. The iPhone

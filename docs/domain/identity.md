@@ -75,6 +75,10 @@ _Avoid_: unverified Trusted Device, registered device
 A one-time code shown on a device waiting for **Private Sync** keys. A person enters it on a **Trusted Device** to approve that device, and the backend never receives it.
 _Avoid_: pairing code, verification code, PIN
 
+**Trusted Device Record**:
+A sealed **Private Sync** record in which one **Trusted Device** reports its kind and when it was last active, for the account's other Trusted Devices to show ([ADR 0079](../adr/0079-report-trusted-device-kind-and-activity-in-sealed-records.md)).
+_Avoid_: device heartbeat, last seen
+
 **Trusted Device Credential**:
 An unlisted device-only secret that proves a request comes from one **Trusted Device**.
 _Avoid_: Trusted Device ID, Apple identity token

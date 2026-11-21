@@ -38,6 +38,14 @@ export const registrationScenarios = [
 ] as const;
 export type RegistrationScenario = (typeof registrationScenarios)[number];
 
+// This device as the account's Trusted Devices list it after it registers first.
+export const syntheticCurrentDevice = {
+  id: 'device-synthetic-installation-1',
+  name: 'Device device-synthetic-installation-1',
+  registeredAt: 1001,
+  current: true,
+  kind: 'iphone',
+} as const;
 // Other Trusted Devices of the account, which this device can remove.
 export const syntheticTrustedDevice = {
   id: 'synthetic-ipad',

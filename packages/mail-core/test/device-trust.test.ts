@@ -147,7 +147,7 @@ describe('device trust', () => {
 
   // Replaces the device lists of the retired "lists other Trusted Devices and the newest
   // enrollment request …" test.
-  it('lists the newest enrollment request and the other Trusted Devices', async () => {
+  it('lists the newest enrollment request and the Trusted Devices with what each reported', async () => {
     expect.hasAssertions();
     const { flow, sync, trustedDevice, createKeys, install, recovered } =
       setup();
@@ -165,14 +165,57 @@ describe('device trust', () => {
     expect(
       Option.getOrThrow(decodeDevices(field(listed, 'trustedDevices'))),
     ).toStrictEqual([
+      expect.objectContaining({ current: true, kind: 'iphone' }),
       {
         id: other.id,
         name: `Device ${other.id}`,
         registeredAt: trustedDevice(other.id).registeredAt,
+        kind: 'iphone',
+        activeAt: expect.any(Number),
       },
     ]);
     // No encryption key or credential reaches the status.
     expect(field(listed, 'trustedDevices')).not.toMatch(/device-key/u);
+  });
+
+  it('lists a Trusted Device whose record does not open as one that has not reported', async () => {
+    expect.hasAssertions();
+    const { flow, sync, keys, trustedDevice, createKeys, recovered } = setup();
+    const other = await recovered(await createKeys());
+    // The stored Trusted Device records no longer open, as records sealed for another account.
+    for (const [, stored] of [...keys().records].filter(([identifier]) =>
+      identifier.startsWith('device.'),
+    )) {
+      sync.sealedProfiles.delete(stored.encryptedPayload.ciphertextBase64);
+    }
+    const listed = await flow.refreshPrivateSync();
+    expect(
+      Option.getOrThrow(decodeDevices(field(listed, 'trustedDevices'))),
+    ).toContainEqual({
+      id: other.id,
+      name: `Device ${other.id}`,
+      registeredAt: trustedDevice(other.id).registeredAt,
+    });
+  });
+
+  it('lists a Trusted Device whose record holds a time it cannot show as one that has not reported', async () => {
+    expect.hasAssertions();
+    const { flow, sync, trustedDevice, createKeys, recovered } = setup();
+    const other = await recovered(await createKeys());
+    // Every Trusted Device record holds such a time; this device writes its own again.
+    for (const sealed of [...sync.sealedProfiles.values()].filter(
+      ({ record }) => record.kind === 'device',
+    )) {
+      Object.assign(sealed.record, { activeAt: 9e15 });
+    }
+    const listed = await flow.refreshPrivateSync();
+    expect(
+      Option.getOrThrow(decodeDevices(field(listed, 'trustedDevices'))),
+    ).toContainEqual({
+      id: other.id,
+      name: `Device ${other.id}`,
+      registeredAt: trustedDevice(other.id).registeredAt,
+    });
   });
 
   it('forgets the previous device list after signing out even when the new roster read fails', async () => {

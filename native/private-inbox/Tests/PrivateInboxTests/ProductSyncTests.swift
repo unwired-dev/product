@@ -603,6 +603,58 @@ extension PrivateInboxTests {
     #expect(try store.registration()?["productSync"] as? String == "unreadable")
   }
 
+  // A Trusted Device's kind and last activity open only under the identifier of the device they
+  // name, and the Product Sync state reports this installation's kind (ADR 0079).
+  @Test @MainActor func trustedDeviceRecordsOpenOnlyUnderTheirDevicesIdentifier() async throws {
+    let keys = device()
+    let account = "account-synthetic-product-subject"
+    defer { remove(keys, accounts: [account]) }
+    let google = SyntheticGoogleRegistrationProvider()
+    google.scopes = [RegistrationStore.gmailScope]
+    let backend = SyntheticProductSyncBackend()
+    let store = backend.store(keys: keys, google: google)
+    _ = try await store.signInIdentity(.google, hint: false)
+    try store.saveIdentity(replacing: true)
+    try await store.connectIdentity(.establish)
+    _ = try store.createKeyRing()
+    try store.recordInitialization(true)
+    let ring = try #require(try store.loadVault(account)).ring
+    let state = try #require(try store.registration()?["productSync"] as? [String: Any])
+    #if os(macOS)
+      #expect(state["deviceKind"] as? String == "mac")
+    #else
+      #expect(["iphone", "ipad"].contains(state["deviceKind"] as? String ?? ""))
+    #endif
+
+    let record: [String: Any] = [
+      "kind": "device", "device": "device-1", "version": 1.0, "deviceKind": "ipad",
+      "activeAt": 1_795_000_000_000.0,
+    ]
+    let sealed = try store.sealProfileRecord(record)
+    #expect(sealed["payloadIdentifier"] as? String == (try ring.identifier("device", "device-1")))
+    let opened = try store.openProfileRecords([
+      sealed,
+      // Served as another device's record, it opens nowhere.
+      [
+        "payloadIdentifier": try ring.identifier("device", "device-2"),
+        "encryptedPayload": sealed["encryptedPayload"] as Any,
+      ],
+    ])
+    let open = try #require(opened[0] as? [String: Any])
+    #expect(open["kind"] as? String == "device" && open["deviceKind"] as? String == "ipad")
+    #expect(open["activeAt"] as? Double == 1_795_000_000_000)
+    #expect(opened[1] is NSNull)
+    for malformed: [String: Any] in [
+      ["kind": "device", "device": "device-1", "version": 1.0, "deviceKind": "ipad"],
+      [
+        "kind": "device", "device": "", "version": 1.0, "deviceKind": "ipad",
+        "activeAt": 1.0,
+      ],
+    ] {
+      #expect(throws: RegistrationError.unavailable) { try store.sealProfileRecord(malformed) }
+    }
+  }
+
   // The native half of Mail Profile synchronization, which TypeScript sequences
   // (packages/mail-core/test/mail-profiles.test.ts): a definition or ownership opens only under the
   // identifier its own Profile or connection determines, and the Profile state TypeScript records

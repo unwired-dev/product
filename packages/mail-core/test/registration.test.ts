@@ -19,6 +19,7 @@ import {
 import {
   createRegistrationScenario,
   registrationScenarios,
+  syntheticCurrentDevice,
   syntheticTrustedDevice,
 } from '../src/testing/registration-scenarios.ts';
 import {
@@ -386,6 +387,11 @@ describe('product registration', () => {
     google: { privateSyncMailboxes: 'other@example.invalid' },
     apple: { privateSyncPending: 'mailbox' },
   } as const;
+  // Apple lists the Trusted Devices again only once its sign-in renews.
+  const listedAfterRelaunch = {
+    google: { trustedDevices: JSON.stringify([syntheticCurrentDevice]) },
+    apple: {},
+  } as const;
 
   it.each(
     (['google', 'apple'] as const).flatMap((provider) =>
@@ -415,9 +421,12 @@ describe('product registration', () => {
       });
       const relaunched = createRegistration(synthetic.relaunch());
       await relaunched.restore();
-      expect(relaunched.getSnapshot().snapshot).toStrictEqual(
-        first.getSnapshot().snapshot,
-      );
+      expect(relaunched.getSnapshot().snapshot).toStrictEqual({
+        kind: 'mailbox-needed',
+        signInProvider: provider,
+        ...accounts[provider],
+        ...listedAfterRelaunch[provider],
+      });
       await relaunched.addMailbox('gmail', true);
       expect(relaunched.getSnapshot().snapshot).toStrictEqual({
         kind: 'connected',
@@ -425,6 +434,7 @@ describe('product registration', () => {
         ...accounts[provider],
         mailboxes: connectedTo('other@example.invalid'),
         ...savedAfterRelaunch[provider],
+        ...listedAfterRelaunch[provider],
       });
     },
   );
@@ -501,6 +511,7 @@ describe('product registration', () => {
         ...accounts.google,
         signInProvider: 'google',
         privateSyncMailboxes: 'alex@example.invalid',
+        trustedDevices: JSON.stringify([syntheticCurrentDevice]),
       },
       busy: false,
       failed: true,
@@ -542,6 +553,7 @@ describe('product registration', () => {
         signInProvider: 'google',
         mailboxes: connectedTo('alex@example.invalid'),
         privateSyncMailboxes: 'alex@example.invalid',
+        trustedDevices: JSON.stringify([syntheticCurrentDevice]),
       },
       busy: false,
       failed: false,
@@ -740,6 +752,7 @@ describe('product registration', () => {
       alternateSignIn: 'google',
       mailboxes: connectedTo('alex@example.invalid'),
       privateSyncMailboxes: 'alex@example.invalid',
+      trustedDevices: JSON.stringify([syntheticCurrentDevice]),
     };
     expect(store.getSnapshot()).toStrictEqual({
       snapshot: linked,
@@ -748,7 +761,9 @@ describe('product registration', () => {
     });
     const relaunched = createRegistration(synthetic.relaunch());
     await relaunched.restore();
-    expect(relaunched.getSnapshot().snapshot).toStrictEqual(linked);
+    // Apple lists the Trusted Devices again only once its sign-in renews.
+    const { trustedDevices: _listed, ...unlisted } = linked;
+    expect(relaunched.getSnapshot().snapshot).toStrictEqual(unlisted);
     await relaunched.register('google');
     expect(relaunched.getSnapshot().snapshot).toStrictEqual({
       ...linked,
@@ -786,6 +801,7 @@ describe('product registration', () => {
         privateSync: 'ready',
         mailboxes: connectedTo('alex@example.invalid'),
         privateSyncMailboxes: 'alex@example.invalid',
+        trustedDevices: JSON.stringify([syntheticCurrentDevice]),
       },
       busy: false,
       failed: false,
@@ -955,6 +971,12 @@ describe('product registration', () => {
   it('unlocks a new device with the Recovery Key only after a wrong key and an interruption leave it unchanged', async () => {
     expect.hasAssertions();
     vi.spyOn(console, 'error').mockReturnValue(undefined);
+    const now = Date.UTC(2026, 10, 21, 9, 12);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const synthetic = await createRegistrationScenario('registration-success');
     const lost = createRegistration(synthetic.vault);
     await lost.register('google');
@@ -994,12 +1016,21 @@ describe('product registration', () => {
         signInProvider: 'google',
         privateSync: 'ready',
         privateSyncMailboxes: 'alex@example.invalid',
-        // The lost device remains a Trusted Device of the account.
+        // The lost device remains a Trusted Device of the account, with the activity it reported.
         trustedDevices: JSON.stringify([
           {
             id: 'device-synthetic-installation-1',
             name: 'Device device-synthetic-installation-1',
             registeredAt: 1001,
+            kind: 'iphone',
+            activeAt: now,
+          },
+          {
+            id: 'device-synthetic-installation-2',
+            name: 'Device device-synthetic-installation-2',
+            registeredAt: 1004,
+            current: true,
+            kind: 'iphone',
           },
         ]),
       },
@@ -1143,7 +1174,10 @@ describe('product registration', () => {
           kind: 'mailbox-needed',
           signInProvider: 'google',
           ...accounts.google,
-          trustedDevices: JSON.stringify([syntheticTrustedDevice]),
+          trustedDevices: JSON.stringify([
+            syntheticCurrentDevice,
+            syntheticTrustedDevice,
+          ]),
         },
         busy: false,
         failed: false,
@@ -1201,7 +1235,10 @@ describe('product registration', () => {
           kind: 'mailbox-needed',
           signInProvider: 'google',
           ...accounts.google,
-          trustedDevices: JSON.stringify([syntheticTrustedDevice]),
+          trustedDevices: JSON.stringify([
+            syntheticCurrentDevice,
+            syntheticTrustedDevice,
+          ]),
         }),
       );
     },
@@ -1354,7 +1391,7 @@ describe('product registration', () => {
       confirmed,
       cancelled: revocationState(store),
     }).toStrictEqual({
-      devices: [syntheticTrustedDevice],
+      devices: [syntheticCurrentDevice, syntheticTrustedDevice],
       prepared: {
         snapshot: listed,
         revocationFailure: 'prepare-failed',
@@ -1394,7 +1431,10 @@ describe('product registration', () => {
     } as const;
     const ready = {
       ...remaining,
-      trustedDevices: JSON.stringify([syntheticTrustedDevice]),
+      trustedDevices: JSON.stringify([
+        syntheticCurrentDevice,
+        syntheticTrustedDevice,
+      ]),
     };
     expect(store.getSnapshot()).toStrictEqual(settled(ready));
     await store.revokeTrustedDevice(syntheticTrustedDevice.id);
@@ -1430,13 +1470,20 @@ describe('product registration', () => {
       revocationNotice: 'renewed',
     } as const;
     expect(store.getSnapshot()).toStrictEqual(settled(renewed));
-    expect(trustedDevicesOf(renewed)).toStrictEqual([syntheticTrustedDevice]);
+    expect(trustedDevicesOf(renewed)).toStrictEqual([
+      syntheticCurrentDevice,
+      syntheticTrustedDevice,
+    ]);
     // Confirming the discarded key does not count.
     await store.confirmRevocation(prepared.slice(-4));
     expect(store.getSnapshot().revocationFailure).toBe('mismatch');
     await store.confirmRevocation(` ${renewedKey.slice(-4).toLowerCase()}`);
     expect(store.getSnapshot()).toStrictEqual(
-      settled({ ...remaining, revocationNotice: 'removed' }),
+      settled({
+        ...remaining,
+        trustedDevices: JSON.stringify([syntheticCurrentDevice]),
+        revocationNotice: 'removed',
+      }),
     );
   });
 
@@ -1457,7 +1504,10 @@ describe('product registration', () => {
       signInProvider: 'google',
       productAccountId: 'account-synthetic-product-subject',
       privateSync: 'ready',
-      trustedDevices: JSON.stringify([syntheticTrustedDevice]),
+      trustedDevices: JSON.stringify([
+        syntheticCurrentDevice,
+        syntheticTrustedDevice,
+      ]),
       revocationDevice: syntheticTrustedDevice.id,
       revocationRecoveryKey: replacement,
     } as const;
@@ -1475,6 +1525,7 @@ describe('product registration', () => {
     // Another device removed the target first; its key never became current.
     const superseded = {
       ...discarded,
+      trustedDevices: JSON.stringify([syntheticCurrentDevice]),
       revocationNotice: 'superseded',
     } as const;
     synthetic.sync.failActivationBeforeCommit = true;
