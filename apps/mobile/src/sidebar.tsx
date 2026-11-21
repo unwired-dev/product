@@ -1247,7 +1247,12 @@ function EditConnections({
 // starts from rows not read.
 function useEditing(readable: boolean) {
   const [editing, setEditing] = useState(false);
-  return { editing: editing && readable, setEditing };
+  return {
+    editing: editing && readable,
+    setEditing: (next: boolean) => {
+      setEditing(next && readable);
+    },
+  };
 }
 
 // Edit waits for the Profile's preferences, so it never edits rows it has not read.

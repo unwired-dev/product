@@ -498,6 +498,79 @@ describe('iPad Mailboxes', () => {
     frames.mockRestore();
   });
 
+  it('keeps Edit Favorites from the Command Palette closed while the preferences are unread, even once read', async () => {
+    expect.hasAssertions();
+    const inbox = createInboxStore(
+      createSyntheticGmail({ address: 'alex@example.invalid' }).native,
+    );
+    await inbox.load();
+    const read = Promise.withResolvers<undefined>();
+    const store = createInboxPreferences(
+      {
+        openInboxPreferences: async () => {
+          await read.promise;
+          return {
+            owner: 'synthetic-product-account',
+            revision: 0,
+            document: null,
+          };
+        },
+        commitInboxPreferences: () => Promise.reject(new Error('Unused')),
+      },
+      {
+        getSnapshot: () => ({
+          snapshot: {
+            kind: 'connected',
+            productAccountId: 'synthetic-product-account',
+            signInProvider: 'google',
+            mailboxes: '[]',
+          } satisfies RegistrationSnapshot,
+          busy: false,
+          failed: false,
+        }),
+      },
+    );
+    const loaded = store.load();
+    await render(
+      <AccountContext value={account}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider
+            mailboxes={singleMailbox(inbox, 'alex@example.invalid')}>
+            <CommandPaletteProvider>
+              <SidebarToggleContext value={{ shown: true, toggle: ignore }}>
+                <Mailboxes
+                  view={{}}
+                  onView={ignore}
+                  onProfile={ignore}
+                />
+                <Inbox
+                  onClose={ignore}
+                  onSelect={ignore}
+                  onView={ignore}
+                  selected={undefined}
+                  view={{}}
+                />
+              </SidebarToggleContext>
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(
+      within(screen.getByTestId('command-palette')).getByRole('button', {
+        name: 'Edit Favorites',
+      }),
+    );
+    await act(async () => {
+      read.resolve(undefined);
+      await loaded;
+    });
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull();
+  });
+
   it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {
     expect.hasAssertions();
     const inbox = createInboxStore(

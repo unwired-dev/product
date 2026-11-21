@@ -451,12 +451,15 @@ function scopeOf(
   {
     unified,
     several,
+    everyHidden,
     gmail,
     waiting,
   }: Readonly<{
     // Whether the list is a Unified Mailbox, which spans every mailbox.
     unified: boolean;
     several: boolean;
+    // Whether the Profile hides every connection, so All Inboxes names none, not even its provider.
+    everyHidden: boolean;
     gmail: boolean;
     // The chosen connection while it waits for authorization, which has no Inbox to show.
     waiting: Readonly<{ address: string }> | undefined;
@@ -472,7 +475,7 @@ function scopeOf(
   if (shown.length === 1 && only?.address !== undefined) {
     return only.address;
   }
-  if (several) {
+  if (several || everyHidden) {
     return t('inbox.allInboxes');
   }
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
@@ -1171,6 +1174,7 @@ export function Inbox({
   const scopeName = scopeOf(t, searchedMailboxes, {
     unified: view.unified !== undefined,
     several,
+    everyHidden,
     gmail,
     waiting: chosenWaiting,
   });

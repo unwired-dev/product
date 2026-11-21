@@ -700,6 +700,50 @@ describe('iPhone Mailboxes', () => {
     await app.unmount();
   });
 
+  it('names All Inboxes, not the provider, with the only account hidden', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail() }),
+      {
+        getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+        subscribe: () => () => undefined,
+      },
+    );
+    const store = preferences()();
+    await store.load();
+    await store.showSection(defaultProfile, alex, false);
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await expect(
+      app.findByText('New messages in All Inboxes will appear here.'),
+    ).resolves.toBeOnTheScreen();
+    await app.unmount();
+  });
+
   it('names no hidden account in All Inboxes, even the only one connected, one needing sign-in or one waiting for it', async () => {
     expect.hasAssertions();
     const alex = syntheticMailboxes['alex@example.invalid'];
