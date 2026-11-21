@@ -1608,10 +1608,14 @@ describe('mac window selection with the shared mock mailbox', () => {
     const handle = handleOf(app.getByRole('button', { name: 'Trash' }));
     await fireEvent(handle, 'responderGrant', touch);
     await fireEvent(handle, 'responderRelease', touch);
-    // Also when the press and release arrive in one event batch.
+    // Also when the press and release arrive in one event batch, away from the last press.
+    const below = {
+      ...touch,
+      nativeEvent: { ...touch.nativeEvent, pageY: 240 },
+    };
     await act(() => {
-      handle.props.onResponderGrant(touch);
-      handle.props.onResponderRelease(touch);
+      handle.props.onResponderGrant(below);
+      handle.props.onResponderRelease(below);
     });
     expect(editRows()).toStrictEqual(edited);
     // A drag keeps the place it started from when another window reorders the rows before the

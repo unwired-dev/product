@@ -484,7 +484,7 @@ function EditRow({
   const [focused, setFocused] = useState(false);
   const { title, icon } = favoriteRow(t, row);
   // Where the pointer pressed the handle, while it drags the row.
-  const [start, setStart] = useState(0);
+  const start = useRef(0);
   // Moving a row reinserts its view, which loses focus; give it back.
   const ref = useRef<View>(null);
   useEffect(() => {
@@ -558,14 +558,14 @@ function EditRow({
       <View
         onStartShouldSetResponder={() => true}
         onResponderGrant={({ nativeEvent }) => {
-          setStart(nativeEvent.pageY);
+          start.current = nativeEvent.pageY;
           onDrag(0);
         }}
         onResponderMove={({ nativeEvent }) => {
-          onDrag(nativeEvent.pageY - start);
+          onDrag(nativeEvent.pageY - start.current);
         }}
         onResponderRelease={({ nativeEvent }) => {
-          onDrop(nativeEvent.pageY - start);
+          onDrop(nativeEvent.pageY - start.current);
         }}
         onResponderTerminate={() => {
           onDrop(undefined);
