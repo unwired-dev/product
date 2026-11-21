@@ -250,6 +250,11 @@ export const createBarOffset = () => {
   };
 };
 
+// Shows the reader's toast with the bar's notices, or none.
+export const ReaderToastContext = createContext<
+  ((toast: ReactNode) => void) | undefined
+>(undefined);
+
 // The floating glass bar over the panes: search on the mail saved on this device, and New Message.
 export function FloatingBar({
   hidden = false,

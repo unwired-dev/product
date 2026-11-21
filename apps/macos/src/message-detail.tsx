@@ -31,6 +31,11 @@ import type { SavedAttachment } from './message-body.tsx';
 import type { InboxStore } from './private-storage.ts';
 
 import { Action } from './action.tsx';
+import {
+  SaveFailedNotice,
+  SaveOutcomeToast,
+  useSaveOutcome,
+} from './attachment-save.tsx';
 import { useBlockSender } from './block-sender.ts';
 import {
   inputHeight,
@@ -59,6 +64,7 @@ import {
   AttachContext,
   MessageBody,
   ReaderScrollView,
+  SaveOutcomeContext,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
 import { MessageActions, MessageActionsNotice } from './organize.tsx';
@@ -348,6 +354,10 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
+// Whether the reader shows a message storage can read, which a save's result belongs to.
+const readable = (state: ReturnType<typeof useInbox>, message: unknown) =>
+  state.kind === 'ready' && message !== undefined;
+
 // The response controls live in the fixed toolbar; their progress and failure show in the
 // reader's scrolling content, for the message they belong to.
 type ResponseStatus =
@@ -609,6 +619,7 @@ function MailboxMessage({
     'openFolder' in actions ? actions.message(id) : undefined,
   );
   const message = folderMessage ?? shownMessage(state, id);
+  const saving = useSaveOutcome(id, readable(state, message));
   const applied = new Set(
     message !== undefined && 'labels' in message ? message.labels : [],
   );
@@ -795,18 +806,22 @@ function MailboxMessage({
                   )}
                 </View>
               </MessageMenu>
+              <SaveFailedNotice shown={saving.shown} />
               <MessageActionsNotice id={message.id} />
               <ResponseStatusNotice
                 status={responseStatus}
                 id={message.id}
               />
-              <ReaderBody
-                key={message.id}
-                inbox={actions}
-                message={message}
-                connection={mailbox?.id}
-              />
+              <SaveOutcomeContext value={saving.start}>
+                <ReaderBody
+                  key={message.id}
+                  inbox={actions}
+                  message={message}
+                  connection={mailbox?.id}
+                />
+              </SaveOutcomeContext>
             </ReaderScrollView>
+            <SaveOutcomeToast shown={saving.shown} />
           </>
         )}
       </View>

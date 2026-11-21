@@ -6,16 +6,10 @@ import { invitationChoiceKeys } from '@private-email/mail-core/invitations';
 import { outboxCopy } from '@private-email/mail-core/outbox';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import { use, useEffect, useRef, useState } from 'react';
-import {
-  AccessibilityInfo,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 
 import { Action } from './action.tsx';
-import { Button, MenuPresence, SFSymbol } from './design.tsx';
+import { Button, SFSymbol, Toast } from './design.tsx';
 import { useLocalization, useMessageDateFormats } from './localization.ts';
 import { useOutbox, useOutboxEntries, useProfile } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
@@ -37,25 +31,6 @@ const styles = StyleSheet.create({
   detail: { ...textStyles.body },
   recovery: { flexBasis: '100%', gap: 4 },
   actions: { flexDirection: 'row', gap: spacing.s },
-  toast: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.m,
-    paddingHorizontal: spacing.l,
-    paddingVertical: 10,
-    borderRadius: radius.card,
-    borderCurve: 'continuous',
-  },
-  toastMessage: { flexShrink: 1 },
-  // A 28pt target around the 16pt label, inside the toast's own height.
-  toastAction: {
-    minHeight: 28,
-    marginVertical: -6,
-    justifyContent: 'center',
-    outlineWidth: 2,
-    borderRadius: radius.control,
-  },
-  toastActionLabel: { ...textStyles.bodyEmphasized },
   response: {
     gap: 2,
     paddingTop: 10,
@@ -132,68 +107,6 @@ export function forgetRetired(entries: readonly OutboxSnapshotEntry[]) {
   }
 }
 
-// The deep graphite toast saying storage refused to return a message to the Drafts. It stays until
-// Try Again or the next Outbox action, and while the message can still return.
-function RefusedToast({
-  open,
-  message,
-  onTryAgain,
-}: {
-  readonly open: boolean;
-  readonly message: string;
-  readonly onTryAgain: () => void;
-}) {
-  const colors = usePalette();
-  const { t } = useLocalization();
-  const [focused, setFocused] = useState(false);
-  return (
-    <MenuPresence
-      open={open}
-      origin="bottom"
-      style={[
-        styles.toast,
-        { backgroundColor: colors.brandDeep, boxShadow: colors.toastShadow },
-      ]}>
-      {/* React Native's legacy view interop mounts a nested native view without its offset,
-          so the symbol sits in a plain view inside the toast's padding. */}
-      <View collapsable={false}>
-        <SFSymbol
-          name="exclamationmark.triangle.fill"
-          color={colors.brandOnDeep}
-        />
-      </View>
-      <View
-        accessible
-        accessibilityLabel={message}
-        style={styles.toastMessage}>
-        <Text style={[textStyles.body, { color: colors.brandOnDeep }]}>
-          {message}
-        </Text>
-      </View>
-      <Pressable
-        accessibilityLabel={t('outbox.tryAgain')}
-        accessibilityRole="button"
-        enableFocusRing={false}
-        focusable
-        onBlur={() => {
-          setFocused(false);
-        }}
-        onFocus={() => {
-          setFocused(true);
-        }}
-        onPress={onTryAgain}
-        style={[
-          styles.toastAction,
-          { outlineColor: focused ? colors.brandOnDeep : 'transparent' },
-        ]}>
-        <Text style={[styles.toastActionLabel, { color: colors.brandOnDeep }]}>
-          {t('outbox.tryAgain')}
-        </Text>
-      </Pressable>
-    </MenuPresence>
-  );
-}
-
 // Whether a message is still in the Outbox and not yet handed to its provider.
 const returnable = (entry: OutboxSnapshotEntry | undefined) =>
   entry !== undefined && entry.state !== 'sending' && entry.state !== 'filing';
@@ -262,10 +175,13 @@ export function useOutboxActions(onOpen: (id: string) => Promise<void>) {
   };
   const toast =
     refused === undefined ? null : (
-      <RefusedToast
+      // It stays until Try Again or the next Outbox action, and while the message can still return.
+      <Toast
+        symbol="exclamationmark.triangle.fill"
         message={refused.message}
         open={refused.open}
-        onTryAgain={() => {
+        action={t('outbox.tryAgain')}
+        onAction={() => {
           if (current !== undefined) {
             returnToDrafts(current);
           }
