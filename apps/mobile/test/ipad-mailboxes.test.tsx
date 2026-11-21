@@ -3,12 +3,23 @@ import type { Platform } from 'react-native';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { singleMailbox } from '@private-email/mail-core/mailboxes';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { act, render, renderHook, screen } from '@testing-library/react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  within,
+} from '@testing-library/react-native';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
-import { useSidebarToggle } from '../src/sidebar-toggle.tsx';
+import { AccountContext } from '../src/registration-gate.tsx';
+import {
+  SidebarToggleContext,
+  useSidebarToggle,
+} from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 
 // Set the device boundary before the sidebar's platform-specific modules load.
@@ -37,6 +48,17 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const ignore = () => undefined;
+
+const account = {
+  mailboxes: [],
+  openAccount: ignore,
+  authorizeMailbox: () => Promise.resolve(),
+  refreshInbox: (load: () => Promise<void>) => load(),
+  account: 'synthetic-product-account',
+  profiles: [],
+  createProfile: () => Promise.resolve(undefined),
+  chooseFolders: () => Promise.resolve(true),
+};
 
 describe('iPad Mailboxes', () => {
   it('hides Mailboxes again after a swipe shows them over the Portrait default', async () => {
@@ -119,5 +141,55 @@ describe('iPad Mailboxes', () => {
       screen.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
     ).toHaveAccessibilityValue({ text: '1 unread' });
     expect(screen.getByText('1 unread · Gmail needs sign-in')).toBeVisible();
+  });
+
+  it('offers Edit Favorites in the Command Palette only while the sidebar shows', async () => {
+    expect.hasAssertions();
+    const inbox = createInboxStore(
+      createSyntheticGmail({ address: 'alex@example.invalid' }).native,
+    );
+    await inbox.load();
+    const window = (shown: boolean) => (
+      <AccountContext value={account}>
+        <InboxProvider mailboxes={singleMailbox(inbox, 'alex@example.invalid')}>
+          <CommandPaletteProvider>
+            <SidebarToggleContext value={{ shown, toggle: ignore }}>
+              <Mailboxes
+                view={{}}
+                onView={ignore}
+                onProfile={ignore}
+              />
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </SidebarToggleContext>
+          </CommandPaletteProvider>
+        </InboxProvider>
+      </AccountContext>
+    );
+    const palette = async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      return within(screen.getByTestId('command-palette'));
+    };
+    const app = await render(window(false));
+    const hidden = await palette();
+    expect(hidden.queryByRole('button', { name: 'Edit Favorites' })).toBeNull();
+    await app.unmount();
+
+    await render(window(true));
+    const shown = await palette();
+    await fireEvent.press(
+      shown.getByRole('button', { name: 'Edit Favorites' }),
+    );
+    expect(screen.getByRole('button', { name: 'Done' })).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Spam' }),
+    ).toHaveAccessibilityValue({ text: 'Shown' });
   });
 });
