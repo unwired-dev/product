@@ -1202,13 +1202,66 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   ([#2571](https://github.com/unwired-dev/product/issues/2571)). iCloud Mail resumption
   after termination, iPad and Mac backfill, background refresh and push wakes, IDLE
   interruption, password and connection recovery and offline queueing stay on #632.
+- **2026-11-21, Mac large-folder history
+  ([#2627](https://github.com/unwired-dev/product/issues/2627)).** Target, toolchain and
+  operator as in the Mac connect record. Build: the app source of
+  `818137bf6b0f643e3649fd7809872a5058dc6d61`. Before the app connected, a run folder of
+  6,000 small synthetic messages was appended over IMAP to each certification mailbox,
+  with no SMTP submission. Read over IMAP before the app connected, the server counted
+  6,001 messages across iCloud Mail's selectable folders and 6,002 across Seznam Email's.
+  Google Product Sign-In found the certification Product Account, and the Mac was unlocked
+  with its Recovery Key. Result: partial. Each mailbox resumed after the app was quit,
+  both histories completed, and a message opened in the reader during a download. No
+  sampled iCloud Mail row showed a total, so that check stays outstanding. Times below are
+  the operator's one-second Sync Status readings. **iCloud Mail** connected over
+  `imap.mail.me.com` 993 (TLS). Sync Status showed **Downloading history · 5,001
+  messages** at its first reading, 51 seconds after **Connect**, and **6,001 messages** 7
+  seconds later; the capsule faded 2 seconds after that, too soon to quit the app.
+  **Seznam Email** was then added in **Settings › Email Accounts** over `imap.seznam.cz`
+  993 (TLS). Sync Status showed **Downloading history · 502 of 6,002 messages** 12 seconds
+  after **Connect**, and the app was quit with **Quit Unwired Mail** at **1,502 of
+  6,002**, 14 seconds after **Connect**. Launched again 9 seconds later, the app opened
+  both connections without asking for a password, and Sync Status showed **1,502 of
+  6,002** at its first reading, 7 seconds after launch, then **6,002 of 6,002** 25 seconds
+  after launch, and the capsule faded. To interrupt iCloud Mail, the operator removed its
+  connection with **Remove…** in Email Accounts and connected it again, entering its
+  password in the connect form. Reconnecting started a fresh backfill, and the operator
+  quit the app at **1,501 messages**, about 28 seconds after **Connect**. Launched again,
+  the app showed **1,501 messages** at its first reading, about 7 seconds after launch,
+  without asking for a password. An iCloud Inbox message opened in the reader with its
+  body, with remote images held back, while the download continued; Sync Status first read
+  **6,001 messages** about 45 seconds after launch, and the capsule faded. On a further
+  launch, Sync Status showed each connection checking its mail server and then nothing for
+  the next minute: no history download. Read over IMAP after the app run, the server still
+  counted 6,001 and 6,002 messages, and the Mailboxes list showed both run folders.
+  Afterwards the run folders were deleted from both mailboxes, and an IMAP count then
+  found each mailbox's original totals. **Sign Out of This Device** returned the app to
+  Welcome, and the run's caches and HTTP storage were removed from the app's container.
+  Limitations: Sync Status shows a connection's total only once every folder has begun. No
+  sampled iCloud Mail row showed a total. iCloud Mail lists the run folder before its Sent
+  and Drafts folders and Seznam Email lists it last, which may explain the difference, but
+  the run did not confirm it. As on iPhone, Sync Status closes with the capsule, so
+  completion is read from the capsule fading and from the next launch downloading nothing.
+  iCloud Mail's resume was measured on the second, fresh backfill after its connection was
+  removed and connected again. Readings were sampled about once a second, so the times are
+  approximate. The Sync Status readings and server counts were captured by the operator's
+  scripts; Product Sign-In, the Recovery Key unlock, sign-out and the container cleanup
+  are operator observations without a captured record. The operator drove the app through
+  the macOS accessibility interface and synthesized keyboard and mouse input. As in the
+  Mac IDLE record, the first **Sign in with Google** failed with "Setup could not finish",
+  and a second press showed the system prompt. The Keychain records were not inspected
+  directly. After the reconnection, iCloud Mail's row read **Downloading history · 1
+  messages** for about 8 seconds
+  ([#2642](https://github.com/unwired-dev/product/issues/2642)). iPad backfill, iCloud
+  Mail resumption on iPhone, background refresh and push wakes, IDLE interruption,
+  password and connection recovery and offline queueing stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
-hosts, and backfilling large real IMAP folders on iPad and Mac and resuming an iCloud
-Mail backfill on iPhone. Registration Mock Mail Sessions connect any
+hosts, and backfilling large real IMAP folders on iPad, resuming an iCloud Mail
+backfill on iPhone and showing an iCloud Mail backfill total on the Mac. Registration Mock Mail Sessions connect any
 IMAP login to a synthetic server that marks only its Sent folder, which the
 [Mac](native-journeys.md#mac-imap-spam-and-trash-folder-journey) and
 [iPhone and iPad](native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey)
