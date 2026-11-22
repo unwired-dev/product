@@ -294,7 +294,8 @@ Numbered List, Quote, Code Block) and, after a separator, **Insert** (Attach
 File…, Insert Image…), then, with Mail Assistance on, the format bar's
 Writing tools that apply in their untitled groups: Generate a Draft…, Suggest
 Reply in a Draft that admits one, and the text tools from Rewrite to Make More
-Neutral while the body has text besides the query. Each row is led by its icon;
+Neutral while the body has text besides the query. Each row but Suggest Reply
+is led by its icon;
 the menu is 320pt wide and scrolls
 inside the room above the keyboard and the format pill, or over the line when
 more room is there. VoiceOver hears **Slash commands** as it opens. Typing after

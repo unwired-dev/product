@@ -1334,7 +1334,7 @@ describe('entering Draft recipients', () => {
     expect(slashCommands('file', titleOf)).toStrictEqual(['attachFile']);
     expect(slashCommands('x', titleOf)).toStrictEqual([]);
     // The writing tools that apply follow Insert and filter the same way.
-    const tools = slashTools(body, { start: 5, end: 8, text: 'he' }, false);
+    const tools = slashTools(body, { start: 5, end: 8 }, false);
     expect(slashCommands('', titleOf, tools).slice(10)).toStrictEqual([
       'generate',
       'rewrite',
@@ -1354,11 +1354,7 @@ describe('entering Draft recipients', () => {
     expect(
       slashTools(
         [block('paragraph', ' /'), block('paragraph', '')],
-        {
-          start: 1,
-          end: 2,
-          text: '',
-        },
+        { start: 1, end: 2 },
         true,
       ),
     ).toStrictEqual(['generate', 'reply']);

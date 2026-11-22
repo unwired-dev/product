@@ -2,7 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
-import type { BodyRecipientQuery, Draft, Recipient } from './drafts.ts';
+import type { Draft, Recipient } from './draft-model.ts';
 import type { ReadableBody } from './readable-text.ts';
 import type { Selection, SemanticDocument } from './semantic-document.ts';
 
@@ -601,7 +601,7 @@ export type SlashTool = (typeof slashToolGroups)[number][number];
 // has authored text besides the query.
 export function slashTools(
   body: Draft['body'],
-  query: BodyRecipientQuery,
+  query: Selection,
   reply: boolean,
 ): readonly SlashTool[] {
   const caret = { start: query.start, end: query.start };
