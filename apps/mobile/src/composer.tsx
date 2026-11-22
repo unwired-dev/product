@@ -1310,6 +1310,7 @@ export function Recipients({
   editable,
   trailing,
   required = false,
+  revealed,
   ref,
 }: {
   readonly draft: Draft;
@@ -1320,6 +1321,8 @@ export function Recipients({
   readonly editable: boolean;
   // Whether Send waits for a recipient, which this field then asks for.
   readonly required?: boolean;
+  // The entry a blocked Send was pressed over, which says why while it is still being typed.
+  readonly revealed?: string | undefined;
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
   readonly onCaretMove: () => void;
@@ -1369,7 +1372,8 @@ export function Recipients({
     text: entryOf(draft, field),
     all: true,
   }).text;
-  const incomplete = !entering && entry !== '';
+  const incomplete =
+    (!entering || entryOf(draft, field) === revealed) && entry !== '';
   const requiredReason = required ? t('drafts.recipient.required') : undefined;
   const reason = incomplete
     ? t('drafts.recipient.incomplete', { address: entry })
@@ -4102,6 +4106,10 @@ function useFieldsBelowBody({
   const toRef = useRef<TextInputInstance>(null);
   const ccRef = useRef<TextInputInstance>(null);
   const bccRef = useRef<TextInputInstance>(null);
+  const [revealed, setRevealed] = useState<{
+    readonly field: RecipientField;
+    readonly entry: string;
+  }>();
   const phone = !regular && !ipad;
   const filled = phone && visibleHeight > 0;
   const quoted = shown.quoted !== undefined;
@@ -4138,7 +4146,10 @@ function useFieldsBelowBody({
               });
             }
             input?.focus();
+            setRevealed({ field: waiting, entry: entryOf(shown, waiting) });
           },
+    revealed: (field: RecipientField) =>
+      revealed?.field === field ? revealed.entry : undefined,
     measureVisible: setVisibleHeight,
     measureFields: setFieldsHeight,
     measureContent: (height: number) => {
@@ -5157,14 +5168,21 @@ function Editor({
     change({ ...next, copies: true }, word, field);
   };
   const blocked = useBlockedSend({ shown: history.present, draft, docked });
-  const { scrollRef, toRef, ccRef, bccRef, onBlockedPress, ...below } =
-    useFieldsBelowBody({
-      regular,
-      pillShown,
-      shown: history.present,
-      blocked: blocked.blocked,
-      saving: closing === 'saving',
-    });
+  const {
+    scrollRef,
+    toRef,
+    ccRef,
+    bccRef,
+    onBlockedPress,
+    revealed,
+    ...below
+  } = useFieldsBelowBody({
+    regular,
+    pillShown,
+    shown: history.present,
+    blocked: blocked.blocked,
+    saving: closing === 'saving',
+  });
 
   const sender = (
     <SendingMailbox
@@ -5813,6 +5831,7 @@ function Editor({
                 getDraft={getDraft}
                 editable={!sending}
                 ref={toRef}
+                revealed={revealed('to')}
                 field="to"
                 required={blocked.blocked === 'recipients' && !docked}
                 onChange={change}
@@ -5838,6 +5857,7 @@ function Editor({
                     getDraft={getDraft}
                     editable={!sending}
                     ref={ccRef}
+                    revealed={revealed('cc')}
                     field="cc"
                     onChange={changeCopies}
                     onCaretMove={breakTyping}
@@ -5847,6 +5867,7 @@ function Editor({
                     getDraft={getDraft}
                     editable={!sending}
                     ref={bccRef}
+                    revealed={revealed('bcc')}
                     field="bcc"
                     onChange={changeCopies}
                     onCaretMove={breakTyping}

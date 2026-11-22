@@ -1137,7 +1137,7 @@ describe('composing Drafts', () => {
       });
       expect(focused()).toStrictEqual(['To']);
       expect(screen.getByText('Add a recipient to send.')).toBeOnTheScreen();
-      // Unfinished text in Cc: Send focuses Cc.
+      // Unfinished text still being typed in Cc: Send focuses Cc, which then says why.
       await fireEvent.changeText(
         screen.getByLabelText('To'),
         'sam@example.invalid',
@@ -1145,17 +1145,20 @@ describe('composing Drafts', () => {
       await fireEvent(screen.getByLabelText('To'), 'submitEditing');
       await press('Show Cc and Bcc');
       await fireEvent.changeText(screen.getByLabelText('Cc'), 'kim@example');
-      await fireEvent(screen.getByLabelText('Cc'), 'blur');
       // A valid address still being typed in To leaves Cc the field Send waits for.
       await fireEvent.changeText(
         screen.getByLabelText('To'),
         'lee@example.invalid',
       );
+      const incomplete =
+        '“kim@example” is not a complete address. Correct it to send.';
+      expect(screen.queryByText(incomplete)).toBeNull();
       focus.mockClear();
       await act(async () => {
         await fireEvent.press(send());
       });
       expect(focused()).toStrictEqual(['Cc']);
+      expect(screen.getByText(incomplete)).toBeOnTheScreen();
     } finally {
       focus.mockRestore();
       outbox.dispose();
