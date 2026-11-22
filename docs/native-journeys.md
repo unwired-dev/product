@@ -521,8 +521,8 @@ the appearance.
 `testSlashMenu` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testSlashMenu`.
 In a New Message body, a `/` typed first in a block opens the Slash Command Menu's Basic Blocks
 ([#2656](https://github.com/unwired-dev/product/issues/2656)). Command-period, the simulator's
-Escape, closes it and keeps the `/`. Typing `/he` filters the rows to the headings with Heading 1
-selected; Down selects Heading 2 and Return makes the block a Heading 2 without the typed text, and
+Escape, closes it and keeps the `/`. Typing `/he` on the next line filters the rows to the headings
+with Heading 1 selected; Down selects Heading 2 and Return makes the block a Heading 2 without the typed text, and
 one **Undo** restores `/he`. The captures "Slash Command Menu", "Slash Command Menu filtered" and
 "Heading 2 from the Slash Command Menu" are named with the appearance. VoiceOver speech and the
 other blocks are covered by Jest and the mail-core tests.

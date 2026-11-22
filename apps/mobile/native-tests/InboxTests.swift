@@ -4208,12 +4208,11 @@ final class InboxTests: XCTestCase {
     }
     attachScreen("Slash Command Menu", of: app, to: self)
     // Command-period reaches key commands as Escape on the simulator (#1396); it closes the menu
-    // and keeps the /, and a / typed again reopens it.
+    // and keeps the /, and a / first on the next line opens it again. A synthesized Delete does not
+    // edit the body, so deleting the / is left to Jest.
     app.typeKey(".", modifierFlags: .command)
     waitUntil({ !menu.exists && body.value as? String == "Hi\n/" }, timeout: 60)
-    type(XCUIKeyboardKey.delete.rawValue)
-    waitUntil({ body.value as? String == "Hi\n" }, timeout: 60)
-    type("/he")
+    type("\n/he")
     XCTAssertTrue(menu.waitForExistence(timeout: 60))
     waitUntil({ !row("Text").exists && row("Heading 3").exists }, timeout: 60)
     XCTAssertTrue(row("Heading 1").isSelected)
@@ -4221,10 +4220,10 @@ final class InboxTests: XCTestCase {
     app.typeKey(.downArrow, modifierFlags: [])
     waitUntil({ row("Heading 2").isSelected }, timeout: 60)
     press("\n", in: app)
-    waitUntil({ !menu.exists && body.value as? String == "Hi\n" }, timeout: 60)
+    waitUntil({ !menu.exists && body.value as? String == "Hi\n/\n" }, timeout: 60)
     attachScreen("Heading 2 from the Slash Command Menu", of: app, to: self)
     formatControl("Undo", in: app).tap()
-    waitUntil({ body.value as? String == "Hi\n/he" }, timeout: 60)
+    waitUntil({ body.value as? String == "Hi\n/\n/he" }, timeout: 60)
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {
