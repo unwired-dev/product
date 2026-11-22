@@ -4,6 +4,7 @@ import type { ImapInbox } from '@private-email/mail-core/imap-inbox';
 import type {
   GmailInbox,
   ReceivedAttachment,
+  SavedCopy,
 } from '@private-email/mail-core/inbox-store';
 import type {
   BodyLink,
@@ -49,6 +50,7 @@ import {
 import { WebView } from 'react-native-webview';
 
 import { Action } from './action.tsx';
+import { useWindowIdentifier } from './command-palette.tsx';
 import {
   AnnouncedAlert,
   askInSheet,
@@ -63,6 +65,7 @@ import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
 import { useRemoteImages } from './remote-content.tsx';
+import { windowHost } from './settings-window-client.ts';
 import { usePalette } from './theme.ts';
 import { MessageTranslation, TranslationContext } from './translation.tsx';
 
@@ -90,6 +93,18 @@ export const withoutLinkFrom =
 
 export const LinkConfirmationContext = createContext<
   Dispatch<SetStateAction<PendingLink | undefined>> | undefined
+>(undefined);
+
+// What Save As… did for one of the reader's attachments: the copy it saved, or nothing saved, in
+// the chosen folder when known.
+export type SaveOutcome =
+  | Readonly<{ kind: 'saved'; copy: SavedCopy }>
+  | Readonly<{ kind: 'failed'; name: string; folder: string | undefined }>;
+
+// Starts a save in the reader showing the message, returning how to report its outcome; none
+// outside a reader.
+export const SaveOutcomeContext = createContext<
+  (() => (outcome: SaveOutcome) => void) | undefined
 >(undefined);
 
 async function openLink(href: string) {
@@ -353,11 +368,16 @@ interface ReaderViewport {
   readonly content: () =>
     | ReturnType<ScrollView['getNativeScrollRef']>
     | undefined;
+  // Scrolls back to the header, where the reader's notices show.
+  readonly top: () => void;
 }
 
 const ReaderViewportContext = createContext<ReaderViewport | undefined>(
   undefined,
 );
+
+// Scrolls the reader back to its header; nothing outside a reader.
+export const useReaderTop = () => use(ReaderViewportContext)?.top;
 
 // The reader's scrolling content, reporting its visible range to the documents inside it.
 export function ReaderScrollView({
@@ -378,6 +398,9 @@ export function ReaderScrollView({
       },
       get: () => visible,
       content: () => scroll.current?.getNativeScrollRef(),
+      top: () => {
+        scroll.current?.scrollTo({ y: 0 });
+      },
       update: (next: Partial<typeof visible>) => {
         visible = { ...visible, ...next };
         for (const listener of listeners) {
@@ -693,6 +716,7 @@ type AttachmentSource = Pick<
   | 'downloadAttachment'
   | 'cancelAttachment'
   | 'presentAttachment'
+  | 'saveAttachmentCopy'
   | 'attachmentFile'
 >;
 // Starts a new message with a Downloaded Attachment, where the reader can open a composer. The
@@ -719,6 +743,8 @@ function AttachmentRow({
 }) {
   const colors = usePalette();
   const attach = use(AttachContext);
+  const report = use(SaveOutcomeContext);
+  const window = useWindowIdentifier();
   const { t, settings } = useLocalization();
   const sizeFormat = useMemo(
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
@@ -775,6 +801,28 @@ function AttachmentRow({
         });
       }
     };
+    // Saves a copy where the person chooses, and tells the reader what happened unless they
+    // cancelled; the reader drops a result once it stopped showing the message.
+    const save = () => {
+      if (!current() || report === undefined) {
+        return;
+      }
+      const shown = report();
+      // The save panel opens on the key window, and a context menu also opens in one that is not.
+      windowHost()?.focusWindow(window);
+      void (async () => {
+        const saved = await inbox.saveAttachmentCopy(id, locator);
+        if (saved === 'cancelled') {
+          return;
+        }
+        if (saved === 'failed' || 'failedIn' in saved) {
+          const folder = saved === 'failed' ? undefined : saved.failedIn;
+          shown({ kind: 'failed', name, folder });
+          return;
+        }
+        shown({ kind: 'saved', copy: saved });
+      })();
+    };
     menu = [
       {
         items: [
@@ -786,6 +834,20 @@ function AttachmentRow({
           },
         ],
       },
+      ...(report === undefined
+        ? []
+        : [
+            {
+              items: [
+                {
+                  key: 'saveAs',
+                  title: t('attachment.saveAs'),
+                  symbol: 'square.and.arrow.down',
+                  run: save,
+                },
+              ],
+            },
+          ]),
       {
         items: [
           {
