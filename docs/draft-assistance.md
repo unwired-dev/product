@@ -35,6 +35,11 @@ results for changed details on Mac, and on iPhone and iPad.
   text into paragraphs; **Expand Text** and **Shorten Text** change its length;
   the tone tools change only its tone. The `registration-draft-editor` evaluation
   editor still offers only **Rewrite** on iPhone and iPad.
+- On iPhone and iPad the body's **Slash Command Menu** also lists the Writing
+  tools that apply at the slash query, in the same groups after Insert, without
+  Translate, which reads only a selection. Choosing one removes the query and
+  runs it as the menu item does
+  ([#2687](https://github.com/unwired-dev/product/issues/2687)).
 - On regular-width iPad, choosing a text tool takes the composer over the whole
   window, as **Expand** does, so its progress, review and outcome show full screen
   without dimming; **Collapse** returns it

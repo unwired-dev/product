@@ -795,6 +795,35 @@ applied, the iOS suite passed with only the iCloud Mail exception still active.
 
 Each record holds only non-secret facts: no addresses, passwords or mail content.
 
+On an iPhone or iPad Simulator the operator never types a credential, because the XCTest
+runner that drives the Simulator writes the text it types, also when it is read from
+standard input, to its own diagnostic log on the Mac
+([#2685](https://github.com/unwired-dev/product/issues/2685)). Each address, password and
+Recovery Key goes through the Simulator's pasteboard instead, read at run time from the
+password manager by running
+`native/private-inbox/integration/simulator-credentials.zsh` under
+`op run --env-file <file outside the repository>`:
+
+1. `simulator-credentials.zsh copy <udid> <variable>` puts the value on that Simulator's
+   pasteboard. Keep **Automatically Sync Pasteboard** in Simulator's Edit menu off, or
+   Simulator closed, so the value does not reach the Mac's pasteboard.
+2. Long-press the app's field and press **Paste** in the edit menu.
+3. `simulator-credentials.zsh clear <udid>` empties the pasteboard at once.
+4. When the field shows its text, as **Recovery Key** does, nothing may read the screen
+   while it holds the credential: screenshots, accessibility snapshots and agent-device
+   commands that wait, settle or target a ref or selector keep what they read in files on
+   the Mac. Take the snapshot before pasting, then press the field's action, such as
+   **Unlock with Recovery Key**, at the coordinates that snapshot gave, and wait a few
+   seconds. Before the next read, empty the field with `fill <x> <y> ""` at its
+   coordinates, unless the operator watching the Simulator saw the field go.
+5. After the run, with the Simulator deleted,
+   `simulator-credentials.zsh scan <variable>... -- <path>...` lists each file under the
+   paths that holds any of the passwords or the Recovery Key, also inside compressed
+   result bundles. Scan at least `~/.agent-device`, `~/Library/Logs`, Xcode's DerivedData,
+   the shell history, the temporary directory, the repository's `artifacts` and the
+   operator's scratch files and session transcripts. A match fails the run's credential
+   criterion.
+
 - **2026-11-19, iPhone connect and read
   ([#2444](https://github.com/unwired-dev/product/issues/2444)).** Target: Expo client,
   Release build without a Mock Mail Session, iPhone 18 Pro Simulator on iOS 27.0, with the
@@ -1467,6 +1496,28 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   found none left. Background refresh and push wakes,
   password recovery, Seznam Email outages and connection loss on iPad and Mac stay on
   #632.
+- **2026-11-22, iPhone credential entry through the pasteboard
+  ([#2685](https://github.com/unwired-dev/product/issues/2685)).** Target, toolchain and
+  operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0, with
+  Simulator closed. Build: the Release app of the #2663 record. Result: the sign-in
+  passed and no file this run wrote held a credential, but the Mac was not clean (see
+  the limitations). Every credential was entered with pasteboard steps 1 to 3 above, and
+  nothing was typed: the Google address and password in the Google sign-in sheet, with
+  no paste permission prompt, the Recovery Key, then the iCloud Mail address and
+  app-specific password and the Seznam Email address and mail-client password in
+  **Connect your mail** and **Other IMAP Account**. Google Product Sign-In found the certification Product Account, **Unlock
+  with Recovery Key** unlocked the device, and Email Accounts showed both mailboxes
+  **Updated just now**. The Mac's pasteboard did not change. **Sign Out of This Device**
+  returned the app to Welcome, and the Simulator was deleted. The scan then covered
+  `~/.agent-device`, including this run's runner result bundle, `~/Library/Logs`,
+  Xcode's DerivedData, the shell history, the temporary directory, the repository's
+  `artifacts`, the operator's scratch files and the agents' session transcripts and
+  state on this Mac. No file this run wrote held a password or the Recovery Key.
+  Limitations: the scan found the Recovery Key, and in one session the iCloud Mail
+  password, in agent session transcripts, their logs and T3 Code's state database,
+  all written by earlier runs, the latest about 80 minutes before this one. The scan
+  criterion of #2685 waits on their removal and a clean rescan
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)).
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

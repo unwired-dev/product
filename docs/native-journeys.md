@@ -543,15 +543,19 @@ Outdent moves the item out and one **Undo** nests it again. The capture "Nested 
 the appearance.
 
 `testSlashMenu` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testSlashMenu`.
-In a New Message body, a `/` typed first in a block opens the Slash Command Menu's Basic Blocks
+It turns Mail Assistance on in Privacy & Data, then in a New Message body a `/` typed first in a block opens the Slash Command Menu's Basic Blocks
 ([#2656](https://github.com/unwired-dev/product/issues/2656)). Command-period, the simulator's
 Escape, closes it and keeps the `/`. Typing `/he` on the next line filters the rows to the headings
 with Heading 1 selected; Down selects Heading 2 and Return makes the block a Heading 2 without the typed text, and
 one **Undo** restores `/he`. On a new last line, nine Down presses reach **Insert Image…** under
 Insert ([#2668](https://github.com/unwired-dev/product/issues/2668)) with both Insert rows in view,
-and typing `im` filters to it. The captures "Slash Command Menu", "Slash Command Menu filtered",
-"Heading 2 from the Slash Command Menu", "Slash Command Menu Insert" and "Slash Command Menu Insert
-filtered" are named with the appearance. VoiceOver speech and the
+and typing `im` filters to it. On another new line, seventeen Down presses reach **Make More
+Neutral**, the last Writing tools row ([#2687](https://github.com/unwired-dev/product/issues/2687)),
+typing `sho` filters to **Shorten Text**, and Return runs it on the body through the build's
+synthetic model, whose review panel opens. The captures "Slash Command Menu", "Slash Command Menu
+filtered", "Heading 2 from the Slash Command Menu", "Slash Command Menu Insert", "Slash Command Menu
+Insert filtered", "Slash Command Menu Writing tools", "Slash Command Menu Writing tools filtered"
+and "Shorten Text from the Slash Command Menu" are named with the appearance. VoiceOver speech and the
 other blocks are covered by Jest and the mail-core tests.
 
 ## iPhone composer sheet journey

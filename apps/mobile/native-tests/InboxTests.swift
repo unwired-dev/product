@@ -2339,6 +2339,25 @@ final class InboxTests: XCTestCase {
     item.tap()
   }
 
+  // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
+  // iPad's sidebar opens Settings; iPhone's account page is one Back away, in the Mailboxes column.
+  private func enableAssistance(_ app: XCUIApplication) {
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let account = app.buttons[phone ? "Account" : "Settings"]
+    if !phone { showSidebar(app) }
+    if phone && (!account.waitForExistence(timeout: 5) || !account.isHittable) {
+      app.buttons["Back to Mailboxes"].tap()
+    }
+    XCTAssertTrue(account.waitForExistence(timeout: 10))
+    account.tap()
+    openSettings("Privacy & Data", in: app)
+    let assistance = app.switches["Mail Assistance"]
+    XCTAssertTrue(assistance.waitForExistence(timeout: 15))
+    assistance.tap()
+    XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
+    app.buttons[settingsExit].tap()
+  }
+
   // This device created the keys; removing the account's iPad first proposes a replacement
   // Recovery Key, and only its confirmation removes the device and rotates the keys.
   private func revocationJourney(_ app: XCUIApplication) {
@@ -2520,22 +2539,7 @@ final class InboxTests: XCTestCase {
     app.buttons["Confirm Recovery Key"].tap()
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
-    // Assistance in the editor needs Mail Assistance Enablement; this build's model is synthetic.
-    // iPad's sidebar opens Settings; iPhone's account page is one Back away, in the Mailboxes column.
-    let phone = UIDevice.current.userInterfaceIdiom == .phone
-    let account = app.buttons[phone ? "Account" : "Settings"]
-    if !phone { showSidebar(app) }
-    if phone && (!account.waitForExistence(timeout: 5) || !account.isHittable) {
-      app.buttons["Back to Mailboxes"].tap()
-    }
-    XCTAssertTrue(account.waitForExistence(timeout: 10))
-    account.tap()
-    openSettings("Privacy & Data", in: app)
-    let assistance = app.switches["Mail Assistance"]
-    XCTAssertTrue(assistance.waitForExistence(timeout: 15))
-    assistance.tap()
-    XCTAssertTrue(app.staticTexts["On-device assistance is on."].waitForExistence(timeout: 15))
-    app.buttons[settingsExit].tap()
+    enableAssistance(app)
     // The disposable Draft belongs to this run's synthetic Product Account only.
     app.buttons["New Message"].tap()
     let body = app.webViews.textViews["Message body"]
@@ -4374,6 +4378,8 @@ final class InboxTests: XCTestCase {
     connectGmail(app)
     XCTAssertTrue(
       app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    // The Writing tools rows need Mail Assistance (#2687).
+    enableAssistance(app)
     app.buttons["New Message"].tap()
     let subject = app.textFields["Subject"]
     XCTAssertTrue(subject.waitForExistence(timeout: 15))
@@ -4440,6 +4446,28 @@ final class InboxTests: XCTestCase {
     waitUntil({ !row("Text").exists && !row("Attach File…").exists }, timeout: 60)
     XCTAssertTrue(row("Insert Image…").isSelected)
     attachScreen("Slash Command Menu Insert filtered", of: app, to: self)
+    // The Writing tools follow Insert (#2687): Down reaches Make More Neutral, the last row, and
+    // typing filters to Shorten Text, which Return runs on the body through the synthetic model.
+    app.typeKey(".", modifierFlags: .command)
+    waitUntil({ !menu.exists }, timeout: 60)
+    type("\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for _ in 0..<17 { app.typeKey(.downArrow, modifierFlags: []) }
+    waitUntil(
+      {
+        row("Make More Neutral").isSelected && row("Make More Neutral").isHittable
+          && row("Shorten Text").isHittable
+      }, timeout: 60)
+    attachScreen("Slash Command Menu Writing tools", of: app, to: self)
+    type("sho")
+    waitUntil({ !row("Text").exists && row("Shorten Text").isSelected }, timeout: 60)
+    attachScreen("Slash Command Menu Writing tools filtered", of: app, to: self)
+    press("\n", in: app)
+    let keep = app.buttons["Keep your text and close this suggestion"]
+    XCTAssertTrue(keep.waitForExistence(timeout: 60))
+    XCTAssertFalse(menu.exists)
+    attachScreen("Shorten Text from the Slash Command Menu", of: app, to: self)
+    keep.tap()
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {

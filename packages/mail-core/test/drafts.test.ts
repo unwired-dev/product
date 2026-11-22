@@ -13,6 +13,7 @@ import type {
   SemanticDocument,
 } from '../src/semantic-document.ts';
 
+import { slashTools } from '../src/assistance.ts';
 import { createComposerNavigation } from '../src/composer-navigation.ts';
 import {
   acceptRecipient,
@@ -1303,6 +1304,15 @@ describe('entering Draft recipients', () => {
       code: 'Code Block',
       attachFile: 'Attach File…',
       insertImage: 'Insert Image…',
+      generate: 'Generate a Draft…',
+      rewrite: 'Rewrite',
+      reply: 'Suggest Reply',
+      proofread: 'Proofread',
+      paragraphs: 'Break into Paragraphs',
+      expand: 'Expand Text',
+      shorten: 'Shorten Text',
+      friendly: 'Make More Friendly',
+      neutral: 'Make More Neutral',
     };
     const titleOf = (command: SlashCommand) => titles[command];
     expect(slashCommands('', titleOf)).toHaveLength(10);
@@ -1323,6 +1333,31 @@ describe('entering Draft recipients', () => {
     expect(slashCommands('i', titleOf)).toStrictEqual(['insertImage']);
     expect(slashCommands('file', titleOf)).toStrictEqual(['attachFile']);
     expect(slashCommands('x', titleOf)).toStrictEqual([]);
+    // The writing tools that apply follow Insert and filter the same way.
+    const tools = slashTools(body, { start: 5, end: 8 }, false);
+    expect(slashCommands('', titleOf, tools).slice(10)).toStrictEqual([
+      'generate',
+      'rewrite',
+      'proofread',
+      'paragraphs',
+      'expand',
+      'shorten',
+      'friendly',
+      'neutral',
+    ]);
+    expect(slashCommands('more', titleOf, tools)).toStrictEqual([
+      'friendly',
+      'neutral',
+    ]);
+    expect(slashCommands('re', titleOf, ['reply'])).toStrictEqual(['reply']);
+    // Without authored text besides the query only Generate a Draft and Suggest Reply apply.
+    expect(
+      slashTools(
+        [block('paragraph', ' /'), block('paragraph', '')],
+        { start: 1, end: 2 },
+        true,
+      ),
+    ).toStrictEqual(['generate', 'reply']);
 
     // Applying removes the query and sets the caret's block; its kind already set stays.
     const query = { start: 5, end: 8, text: 'he' };
