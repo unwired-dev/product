@@ -143,7 +143,9 @@ results never appear in the palette. The vocabulary lives in the
   opens the palette attached to the sheet's top, as on iPhone, even over a
   window palette left open beneath the sheet. The sheet covers the window its
   commands act on, such as Account, so a command chosen there first leaves the
-  composer, as the swipe does, and runs once the composer has closed. The
+  composer, as the swipe does, and runs once the composer has closed, unless
+  another destination was chosen meanwhile, such as the same Draft opened
+  again from its notification. The
   sheet sliding away still shows the closed composer, which no longer asks
   about leaving. Elsewhere, tapping the input or
   the header swipe opens the palette. Command-K from a hardware keyboard is

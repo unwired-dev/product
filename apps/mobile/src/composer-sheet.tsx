@@ -5,7 +5,7 @@ import { Modal, StyleSheet, View } from 'react-native';
 
 import { InSheet, SheetPalette } from './command-palette.tsx';
 import { ComposerPresentedContext } from './composer.tsx';
-import { useLeaveComposer } from './mailbox.tsx';
+import { useComposerNavigation } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({ fill: { flex: 1 } });
@@ -13,7 +13,8 @@ const styles = StyleSheet.create({ fill: { flex: 1 } });
 // On iPhone and in a compact iPad window the composer is the system sheet over the mail. Its
 // dismissal gesture leaves the composer as Close does: the sheet stays up while the composer asks
 // about changes. The sheet sliding away still shows the composer it closed, so a command chosen in
-// its palette runs once the composer has closed.
+// its palette runs once the composer has closed, unless another destination was chosen meanwhile,
+// such as the same Draft opened again.
 export function ComposerSheet({
   draft,
   onLeave,
@@ -24,7 +25,7 @@ export function ComposerSheet({
   composer: (draft: string) => ReactNode;
 }>) {
   const colors = usePalette();
-  const leaveComposer = useLeaveComposer();
+  const navigation = useComposerNavigation();
   const [shown, setShown] = useState(draft);
   if (draft !== undefined && draft !== shown) {
     setShown(draft);
@@ -33,6 +34,7 @@ export function ComposerSheet({
   const open = useRef(presented);
   // Commands waiting for the composer to close; one left when the sheet goes away never runs.
   const closed = useRef<Array<(left: boolean) => void>>([]);
+  const removed = useRef(false);
   useEffect(() => {
     open.current = presented;
     if (!presented) {
@@ -43,19 +45,27 @@ export function ComposerSheet({
   }, [presented]);
   useEffect(
     () => () => {
+      removed.current = true;
       for (const resolve of closed.current.splice(0)) {
         resolve(false);
       }
     },
     [],
   );
-  const leave = async () =>
-    (await leaveComposer()) &&
-    (!open.current ||
-      // oxlint-disable-next-line promise/avoid-new -- The command waits for the composer to close.
-      new Promise<boolean>((resolve) => {
-        closed.current.push(resolve);
-      }));
+  const leave = async () => {
+    if (!(await navigation.leave())) {
+      return false;
+    }
+    const turn = navigation.navigations();
+    const left =
+      !removed.current &&
+      (!open.current ||
+        // oxlint-disable-next-line promise/avoid-new -- The command waits for the composer to close.
+        (await new Promise<boolean>((resolve) => {
+          closed.current.push(resolve);
+        })));
+    return left && navigation.navigations() === turn;
+  };
   return (
     <Modal
       testID="composer-sheet"

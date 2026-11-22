@@ -196,8 +196,8 @@ function Reader({
   // Whether the route reopens a closed Draft at once, as its Open Draft notification can in the
   // same batch, so the composer stays.
   readonly reopen?: boolean;
-  // Hands over opening a Draft's composer, as its route does.
-  readonly onOpen?: (open: (draft: string) => void) => void;
+  // Hands over opening or closing a Draft's composer, as its route does.
+  readonly onOpen?: (open: (draft: string | undefined) => void) => void;
 }) {
   const [composing, setComposing] = useState<string>();
   onOpen(setComposing);
@@ -652,7 +652,7 @@ describe('iPad reader', () => {
       onAccount?: () => void;
       onInbox?: () => void;
       reopen?: boolean;
-      onOpen?: (open: (draft: string) => void) => void;
+      onOpen?: (open: (draft: string | undefined) => void) => void;
     }> = {},
   ) => {
     const snapshot: RegistrationSnapshot = {
@@ -868,7 +868,7 @@ describe('iPad reader', () => {
   it('swipes away an unchanged Draft opened again while its sheet slides away', async () => {
     expect.hasAssertions();
     const slid = holdSheetDismissal();
-    let open: (draft: string) => void = ignore;
+    let open: (draft: string | undefined) => void = ignore;
     const drafts = await replyFromReader(true, {
       onOpen: (opening) => {
         open = opening;
@@ -890,6 +890,48 @@ describe('iPad reader', () => {
     expect(
       screen.queryByLabelText('Message body', { includeHiddenElements: true }),
     ).not.toBeOnTheScreen();
+  });
+
+  it('drops a composer sheet’s command when its route reopens the Draft as it closes', async () => {
+    expect.hasAssertions();
+    const account = jest.fn<undefined, []>();
+    let leaveComposer: ReturnType<typeof useLeaveComposer> = () =>
+      Promise.resolve(true);
+    let open: (draft: string | undefined) => void = ignore;
+    await replyFromReader(true, {
+      onAccount: account,
+      onLeave: (leave) => {
+        leaveComposer = leave;
+      },
+      onOpen: (opening) => {
+        open = opening;
+      },
+      reopen: true,
+    });
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      'Friday works.',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Account',
+        includeHiddenElements: true,
+      }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Save Draft' }),
+    );
+    // A tapped Open Draft notification leaves and opens the Draft again in the same commit.
+    await act(async () => {
+      await leaveComposer();
+    });
+    await act(() => {
+      open(undefined);
+    });
+    expect(account).not.toHaveBeenCalled();
   });
 
   it('asks again about a Draft its route reopens as it closes', async () => {
