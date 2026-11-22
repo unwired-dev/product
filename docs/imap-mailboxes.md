@@ -247,7 +247,7 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   prior list and cached mail for a later retry. A server may refuse a LIST of another
   user's or a shared namespace, for its root or for the folders under it, and SwiftMail
   then skips it and merges the rest without saying which it skipped. The cached mail and
-  views of a folder that such a LIST would match, in any letter case and reading `*` and
+  views of a folder the listing leaves out that such a LIST would match, in any letter case and reading `*` and
   `%` as wildcards, therefore stay, so folders of other users' and shared namespaces stay
   cached after they are removed ([#2690](https://github.com/unwired-dev/product/issues/2690)).
   Only the listing names folders and their roles, so such a folder leaves the folder list

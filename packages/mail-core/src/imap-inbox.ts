@@ -485,35 +485,27 @@ const failureKinds: Readonly<Record<string, ImapFailure['kind']>> = {
 
 // Whether a LIST pattern matches a folder name in any letter case. IMAP's `*` and `%` match any run
 // of characters, `%` only up to a hierarchy delimiter: matching `%` like `*` keeps more folders,
-// never fewer. Only the latest wildcard backtracks, so a match takes at most pattern × name steps.
+// never fewer. The text between wildcards is found leftmost and in order, so no part is retried.
 const listMatches = (pattern: string, name: string) => {
-  const glob = pattern.toLowerCase();
   const text = name.toLowerCase();
-  const wildcard = (at: number) => glob[at] === '*' || glob[at] === '%';
-  let at = 0;
-  let read = 0;
-  let star = -1;
-  let resume = 0;
-  while (read < text.length) {
-    if (wildcard(at)) {
-      star = at;
-      resume = read;
-      at += 1;
-    } else if (at < glob.length && glob[at] === text[read]) {
-      at += 1;
-      read += 1;
-    } else if (star === -1) {
+  const [first = '', ...parts] = pattern.toLowerCase().split(/[*%]/u);
+  const last = parts.pop();
+  if (last === undefined) {
+    return text === first;
+  }
+  let at = first.length;
+  for (const part of parts) {
+    const found = text.indexOf(part, at);
+    if (found === -1) {
       return false;
-    } else {
-      at = star + 1;
-      resume += 1;
-      read = resume;
     }
+    at = found + part.length;
   }
-  while (wildcard(at)) {
-    at += 1;
-  }
-  return at === glob.length;
+  return (
+    text.startsWith(first) &&
+    text.length - last.length >= at &&
+    text.endsWith(last)
+  );
 };
 const call = (operation: () => Promise<unknown>) =>
   Effect.tryPromise({
@@ -1509,8 +1501,8 @@ export function createImapInbox(
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
   // pruning stops keeping their bodies. The Inbox always stays, and so do the cache and views of a
-  // folder that a LIST the native listing may have skipped would match; only listed folders carry
-  // roles.
+  // folder the listing leaves out that a LIST the native listing may have skipped would match; only
+  // listed folders carry roles.
   const acceptListing = Effect.fnUntraced(function* (
     current: ImapDocument,
     {
@@ -1524,13 +1516,15 @@ export function createImapInbox(
       } & ImapCapabilities
     >,
   ) {
+    const listed = new Set(folders.map(({ name }) => name));
     const offered = new Set(
       folders.filter(({ selectable }) => selectable).map(({ name }) => name),
     );
     const kept = (name: string) =>
       name === inboxFolder ||
       offered.has(name) ||
-      skippable.some((pattern) => listMatches(pattern, name));
+      (!listed.has(name) &&
+        skippable.some((pattern) => listMatches(pattern, name)));
     const next: ImapDocument = {
       ...current,
       folders,

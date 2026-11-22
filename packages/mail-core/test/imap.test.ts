@@ -1359,6 +1359,20 @@ describe('connecting IMAP mailboxes', () => {
     expect(names()).toStrictEqual(['INBOX']);
     expect(firstMessage(inbox.folder('Shared/Team')).subject).toBe('Team');
     expect(inbox.folder('Shared')).toStrictEqual({ kind: 'loading' });
+    // A listing that names the folder as no longer selectable retires it all the same.
+    listing.mockResolvedValueOnce({
+      folders: [
+        { name: 'INBOX', attributes: [], delimiter: '/' },
+        {
+          name: 'Shared/Team',
+          attributes: [String.raw`\Noselect`],
+          delimiter: '/',
+        },
+      ],
+      skippable: ['Shared/*'],
+    });
+    await inbox.load();
+    expect(inbox.folder('Shared/Team')).toStrictEqual({ kind: 'loading' });
   });
 
   it.each([
