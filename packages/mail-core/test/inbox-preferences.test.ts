@@ -37,6 +37,16 @@ const decodePulled = Schema.decodeUnknownSync(
     ),
   }),
 );
+const decodeFields = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      fields: Schema.Record(
+        Schema.String,
+        Schema.Record(Schema.String, Schema.Unknown),
+      ),
+    }),
+  ),
+);
 const openRecord = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
@@ -517,6 +527,195 @@ describe('synchronized Inbox preferences', () => {
       { name: 'INBOX', shown: true },
       { name: 'Travel', shown: false },
     ]);
+  });
+
+  it('gives way to an order another device published after the one a move was made from', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Archive', 'Receipts'];
+    const order = (device: typeof mac) => ({
+      favorites: favoriteRows(device.store.favorites('work')).map(
+        ({ row }) => row,
+      ),
+      folders: folderRows(
+        sectionFolders({ ...device.store.sections('work') }, 'gmail'),
+        names,
+      ).map(({ name }) => name),
+    });
+    await mac.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'TRASH', 1),
+    );
+    await mac.store.changeFolders('work', 'gmail', (folders) =>
+      moveFolder(folders, names, { name: 'Receipts', to: () => 0 }),
+    );
+    await mac.store.synchronize();
+    // Later, before it pulls, the phone moves rows of the orders it still shows.
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'ARCHIVE', 1),
+    );
+    await phone.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'SPAM', 1),
+    );
+    await phone.store.changeFolders('work', 'gmail', (folders) =>
+      moveFolder(folders, names, { name: 'Archive', to: () => 2 }),
+    );
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    const stale = [order(mac), order(phone)];
+    // A move made from the order the phone now shows stands.
+    vi.setSystemTime(november8 + 2000);
+    await phone.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'ARCHIVE', 1),
+    );
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    const macOrder = {
+      favorites: [
+        'ALL_INBOXES',
+        'TRASH',
+        'SENT',
+        'ARCHIVE',
+        'ALL_MAIL',
+        'SPAM',
+      ],
+      folders: ['Receipts', 'INBOX', 'Archive'],
+    };
+    const moved = {
+      ...macOrder,
+      favorites: [
+        'ALL_INBOXES',
+        'ARCHIVE',
+        'TRASH',
+        'SENT',
+        'ALL_MAIL',
+        'SPAM',
+      ],
+    };
+    expect({ stale, moved: [order(mac), order(phone)] }).toStrictEqual({
+      stale: [macOrder, macOrder],
+      moved: [moved, moved],
+    });
+  });
+
+  it('keeps every move one device makes, even one made while an earlier one is published', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const push = mac.sync!.pushInboxPreferences;
+    const pushes = vi.spyOn(mac.sync!, 'pushInboxPreferences');
+    pushes.mockImplementationOnce(async (owner, record) => {
+      const pushed = await push(owner, record);
+      await mac.store.changeFavorites('work', (entries) =>
+        moveFavorite(entries, 'SPAM', 2),
+      );
+      return pushed;
+    });
+    await mac.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'TRASH', 1),
+    );
+    await mac.store.synchronize();
+    vi.setSystemTime(november8 + 1000);
+    await mac.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'SENT', 5),
+    );
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    expect({
+      // Private Sync holds what an older build reads: each field's value and when it was chosen.
+      published: [
+        ...new Set(
+          pushes.mock.calls.flatMap(([, { preferences }]) =>
+            Object.values(decodeFields(preferences).fields).map((field) =>
+              Object.keys(field).join(','),
+            ),
+          ),
+        ),
+      ],
+      phone: favoriteRows(phone.store.favorites('work')).map(({ row }) => row),
+    }).toStrictEqual({
+      published: ['value,at'],
+      phone: ['ALL_INBOXES', 'TRASH', 'SPAM', 'ARCHIVE', 'ALL_MAIL', 'SENT'],
+    });
+  });
+
+  it('gives way to another order chosen at the same instant while the clocks run behind it', async () => {
+    expect.hasAssertions();
+    const { server, mac, phone } = devices();
+    const ahead = november8 + 120_000;
+    const rows = (device: typeof mac) =>
+      favoriteRows(device.store.favorites('work')).map(({ row }) => row);
+    vi.setSystemTime(ahead);
+    await mac.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'TRASH', 1),
+    );
+    await mac.store.synchronize();
+    vi.setSystemTime(november8);
+    await phone.store.synchronize();
+    // Both devices choose `ahead + 1`. The Mac publishes between the phone's read and its write,
+    // and the phone moves again before it retries.
+    const push = phone.sync!.pushInboxPreferences;
+    vi.spyOn(phone.sync!, 'pushInboxPreferences').mockImplementationOnce(
+      async (owner, record) => {
+        await mac.store.changeFavorites('work', (entries) =>
+          moveFavorite(entries, 'ARCHIVE', 1),
+        );
+        await mac.store.synchronize();
+        const pushed = await push(owner, record);
+        await phone.store.changeFavorites('work', (entries) =>
+          moveFavorite(entries, 'SPAM', 2),
+        );
+        return pushed;
+      },
+    );
+    await phone.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'SENT', 5),
+    );
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    const raced = [rows(mac), rows(phone)];
+
+    // An older build replaces the order at the instant of the one the phone then moves a row of.
+    const at = ahead + 1;
+    const older = [
+      'ALL_INBOXES',
+      'SPAM',
+      'ARCHIVE',
+      'TRASH',
+      'SENT',
+      'ALL_MAIL',
+    ].map((row) => ({ row, shown: true }));
+    server.replace(
+      'account-1',
+      `${prefix}work`,
+      server.seal(
+        'account-1',
+        `${prefix}work`,
+        JSON.stringify({
+          id: 'work',
+          version: 9,
+          preferences: JSON.stringify({
+            profile: 'work',
+            fields: { favorites: { value: older, at } },
+          }),
+        }),
+      ),
+    );
+    await phone.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'SENT', 1),
+    );
+    await phone.store.synchronize();
+    const macOrder = [
+      'ALL_INBOXES',
+      'ARCHIVE',
+      'TRASH',
+      'SENT',
+      'ALL_MAIL',
+      'SPAM',
+    ];
+    expect({ raced, replaced: rows(phone) }).toStrictEqual({
+      raced: [macOrder, macOrder],
+      replaced: older.map(({ row }) => row),
+    });
   });
 
   it.each([
