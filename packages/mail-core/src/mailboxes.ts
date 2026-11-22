@@ -856,6 +856,14 @@ export function createMailboxes(
     if (repairedImap !== undefined) {
       reloadRepaired(repairedImap, held);
     }
+    // An explicit change loads its Inbox itself.
+    if (mailboxLoading === 'automatic') {
+      for (const entry of inboxes.values()) {
+        if (entry.provider !== 'imap') {
+          entry.inbox.resume();
+        }
+      }
+    }
     if (
       closed ||
       opened ||

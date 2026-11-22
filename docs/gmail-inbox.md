@@ -1685,10 +1685,10 @@ Every Gmail request, cache and body call names its mailbox and that mailbox's
 current generation. Removing a mailbox, or verifying it again, invalidates its work
 already in progress; stale work cannot read Gmail or repopulate a cache. An
 Inbox whose synchronization a foreground restore invalidated keeps its mail shown
-and synchronizes once registration verifies its connection again, unless another
-synchronization has started by then, so a restore that no Inbox load follows, as
-when a new connection's Inbox opens while the app becomes active again, cannot
-leave it checking forever. One
+and synchronizes again at registration's next change, such as the restore's end,
+unless another synchronization has started by then, so a restore that no Inbox
+load follows, as when a new connection's Inbox opens while the app becomes active
+again, cannot leave it checking forever. This adds no provider verification. One
 mailbox's work never reaches another's credential or cache, including another
 Google account that reuses the same address, which is a separate mailbox.
 
