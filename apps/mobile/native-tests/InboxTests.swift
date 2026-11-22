@@ -4094,15 +4094,31 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    // #2119: the body fills the sheet, and Subject, To and Cc follow it below the fold.
     app.buttons["New Message"].tap()
     let to = app.textFields["To"]
     XCTAssertTrue(to.waitForExistence(timeout: 15))
-    focus(to) { self.hasFocus(to) }
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    focus(body) { keyboard.exists }
+    for letter in "seats" {
+      keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", String(letter))).firstMatch.tap()
+    }
+    waitUntil { (body.value as? String)?.lowercased().hasPrefix("seats") == true }
+    XCTAssertGreaterThanOrEqual(subject.frame.minY, keyboard.frame.minY)
+    attachScreen("Composer body fills the sheet", of: app, to: self)
+    // Send without a recipient brings To into view above the keyboard, focused, with its reason.
+    app.buttons["Send"].tap()
+    waitForFocus(to)
+    XCTAssertLessThanOrEqual(to.frame.maxY, keyboard.frame.minY)
+    let reason = app.staticTexts["Add a recipient to send."].firstMatch
+    XCTAssertLessThanOrEqual(reason.frame.maxY, keyboard.frame.minY)
+    attachScreen("Composer Send asks for a recipient", of: app, to: self)
     type("maya@example.invalid", into: to)
     focus(subject) { self.hasFocus(subject) }
     type("Seats for the offsite", into: subject)
     // The fields stay clear of the keyboard inside the sheet.
-    XCTAssertLessThanOrEqual(subject.frame.maxY, app.keyboards.firstMatch.frame.minY)
+    XCTAssertLessThanOrEqual(subject.frame.maxY, keyboard.frame.minY)
     attachScreen("Composer sheet with keyboard", of: app, to: self)
     app.buttons["Send"].tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 15))

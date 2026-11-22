@@ -36,7 +36,7 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 import type { SendReminder } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { ComponentProps, ReactNode, RefObject } from 'react';
+import type { ComponentProps, ReactNode, Ref, RefObject } from 'react';
 import type {
   StyleProp,
   ScrollViewInstance,
@@ -189,6 +189,7 @@ import {
   ToolbarButton,
 } from './design.tsx';
 import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
+import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceProfileContext,
@@ -242,6 +243,8 @@ export const assetPickers = [
   ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
 ] as const;
 
+// The space the floating pill takes at the bottom of the iPhone editor.
+const pillReserve = 44 + 2 * spacing.xs + 2 * spacing.s;
 // On iPhone the body and fields sit 20pt in, with an 80pt right-aligned label column.
 const inset = 20;
 const fieldInset = 16;
@@ -279,7 +282,11 @@ const styles = StyleSheet.create({
   pillGroup: { borderRadius: 26 },
   // The Format pill is 104pt wide in the frame: its two 44pt buttons sit 8pt from each end.
   formatPill: { paddingHorizontal: spacing.s },
-  pillInset: { paddingBottom: 44 + 2 * spacing.xs + 2 * spacing.s },
+  pillInset: { paddingBottom: pillReserve },
+  // Up to the pill's space between the Draft and the fields, so the last attachment clears it.
+  pillClear: { flexGrow: 1000, maxHeight: pillReserve },
+  // The iPhone body, or the space after its quoted text, takes the rest of the visible area.
+  filling: { flexGrow: 1 },
   // Open menus stack header over From over the format bar, whose layout-only rows Fabric
   // flattens into this column, so each menu opens over the rows that follow it.
   header: {
@@ -1284,10 +1291,13 @@ export function Recipients({
   editable,
   trailing,
   required = false,
+  ref,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
   readonly field: RecipientField;
+  // The field's entry, which Send focuses when it waits for this field.
+  readonly ref?: Ref<TextInputInstance>;
   readonly editable: boolean;
   // Whether Send waits for a recipient, which this field then asks for.
   readonly required?: boolean;
@@ -1455,6 +1465,7 @@ export function Recipients({
           ))}
           <View style={[styles.entry, sized.entry]}>
             <TextInput
+              ref={ref}
               accessibilityLabel={name}
               accessibilityHint={incomplete ? reason : undefined}
               editable={editable}
@@ -2381,6 +2392,7 @@ export function SendButton({
   hint,
   titled = false,
   onPress,
+  onBlockedPress,
 }: {
   readonly disabled: boolean;
   // Why Send is unavailable, read after its name.
@@ -2388,6 +2400,8 @@ export function SendButton({
   // iPad names Send in a rounded button; iPhone keeps the arrow circle.
   readonly titled?: boolean;
   readonly onPress: () => void;
+  // A press while Send is unavailable, which shows the person what it waits for.
+  readonly onBlockedPress?: (() => void) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -2396,10 +2410,13 @@ export function SendButton({
       accessibilityLabel={t('drafts.send')}
       accessibilityHint={hint}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
+      // Pressable treats a disabled state as unpressable, so one that shows its reason is not.
+      accessibilityState={{
+        disabled: disabled && onBlockedPress === undefined,
+      }}
+      disabled={disabled && onBlockedPress === undefined}
       hitSlop={titled ? (44 - titledSendHeight) / 2 : undefined}
-      onPress={onPress}
+      onPress={disabled ? onBlockedPress : onPress}
       style={({ pressed }) => [
         titled ? styles.sendTitled : styles.circle,
         disabled
@@ -3697,6 +3714,60 @@ function BodyRecipientMenu({
 const listTabs = (kind: BlockKind, choosing: boolean) =>
   !choosing && isListKind(kind);
 
+// On iPhone the Draft fills the editor's visible area and Subject, To and Cc follow below it: the
+// body, or the space after quoted text, grows until the fields start below the fold, and up to the
+// floating pill's space keeps the last attachment clear of the pill. Pressing Send while it waits
+// for a recipient focuses the field it waits for, which brings that field and its reason into view.
+function useFieldsBelowBody({
+  regular,
+  pillShown,
+  draft,
+  blocked,
+  saving,
+}: {
+  readonly regular: boolean;
+  readonly pillShown: boolean;
+  readonly draft: Draft;
+  readonly blocked: SendRefusal | undefined;
+  readonly saving: boolean;
+}) {
+  const [visibleHeight, setVisibleHeight] = useState(0);
+  const [fieldsHeight, setFieldsHeight] = useState(0);
+  const toRef = useRef<TextInputInstance>(null);
+  const ccRef = useRef<TextInputInstance>(null);
+  const bccRef = useRef<TextInputInstance>(null);
+  const phone = !regular && !ipad;
+  const filled = phone && visibleHeight > 0;
+  const quoted = draft.quoted !== undefined;
+  const waiting =
+    phone && !saving && (blocked === 'recipients' || blocked === 'entries')
+      ? ((['to', 'cc', 'bcc'] as const).find(
+          (field) => entryOf(draft, field) !== '',
+        ) ?? 'to')
+      : undefined;
+  return {
+    toRef,
+    ccRef,
+    bccRef,
+    onBlockedPress:
+      waiting === undefined
+        ? undefined
+        : () => {
+            const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
+            inputs[waiting].current?.focus();
+          },
+    measureVisible: setVisibleHeight,
+    measureFields: setFieldsHeight,
+    content: filled && {
+      minHeight:
+        visibleHeight + fieldsHeight + (pillShown ? pillReserve : spacing.s),
+    },
+    body: filled && !quoted && styles.filling,
+    afterQuoted: filled && quoted && styles.filling,
+    pillClear: filled && pillShown && styles.pillClear,
+  };
+}
+
 function Editor({
   initial,
   opening,
@@ -4655,6 +4726,15 @@ function Editor({
     change({ ...next, copies: true }, word, field);
   };
   const blocked = useBlockedSend({ shown: history.present, draft, docked });
+  const { toRef, ccRef, bccRef, onBlockedPress, ...below } = useFieldsBelowBody(
+    {
+      regular,
+      pillShown,
+      draft,
+      blocked: blocked.blocked,
+      saving: closing === 'saving',
+    },
+  );
 
   const sender = (
     <SendingMailbox
@@ -4695,6 +4775,7 @@ function Editor({
         onPress={() => {
           void sendAsking();
         }}
+        onBlockedPress={onBlockedPress}
       />
     </SendMenu>
   );
@@ -5014,7 +5095,10 @@ function Editor({
         {regular ? formatBar : null}
         <View
           ref={viewport}
-          onLayout={() => placeSuggestions.current?.()}
+          onLayout={({ nativeEvent }) => {
+            below.measureVisible(nativeEvent.layout.height);
+            placeSuggestions.current?.();
+          }}
           style={styles.fill}>
           <ScrollView
             onScroll={() => placeSuggestions.current?.()}
@@ -5024,6 +5108,7 @@ function Editor({
               sized.content,
               parts.content,
               pillShown && styles.pillInset,
+              below.content,
             ]}
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled">
@@ -5142,6 +5227,7 @@ function Editor({
                   styles.body,
                   sized.body,
                   parts.body,
+                  below.body,
                   { color: colors.textPrimary },
                 ]}
                 textAlignVertical="top">
@@ -5189,6 +5275,7 @@ function Editor({
             {draft.quoted === undefined ? null : (
               <QuotedText quoted={draft.quoted} />
             )}
+            <View style={below.afterQuoted} />
             <DraftAssets
               draft={draft}
               editable={!sending}
@@ -5200,7 +5287,12 @@ function Editor({
               onRemove={removeAsset}
               onResize={resizeAsset}
             />
-            <View style={[styles.fields, sized.fields]}>
+            <View style={below.pillClear} />
+            <View
+              onLayout={({ nativeEvent }) => {
+                below.measureFields(nativeEvent.layout.height);
+              }}
+              style={[styles.fields, sized.fields]}>
               <View
                 style={[
                   styles.field,
@@ -5261,6 +5353,7 @@ function Editor({
                 draft={draft}
                 getDraft={getDraft}
                 editable={!sending}
+                ref={toRef}
                 field="to"
                 required={blocked.blocked === 'recipients' && !docked}
                 onChange={change}
@@ -5285,6 +5378,7 @@ function Editor({
                     draft={draft}
                     getDraft={getDraft}
                     editable={!sending}
+                    ref={ccRef}
                     field="cc"
                     onChange={changeCopies}
                     onCaretMove={breakTyping}
@@ -5293,6 +5387,7 @@ function Editor({
                     draft={draft}
                     getDraft={getDraft}
                     editable={!sending}
+                    ref={bccRef}
                     field="bcc"
                     onChange={changeCopies}
                     onCaretMove={breakTyping}
