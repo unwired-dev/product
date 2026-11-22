@@ -981,10 +981,9 @@ describe('sending a Draft', () => {
       await press('New Message');
 
       // Send waits for a recipient, and To says so before anything is pressed; VoiceOver reads
-      // the reason with Send.
+      // the reason with Send, which on iPhone takes the person to To (#2119).
       const required = 'Add a recipient to send.';
       const send = () => screen.getByRole('button', { name: 'Send' });
-      expect(send()).toBeDisabled();
       expect(send()).toHaveProp('accessibilityHint', required);
       expect(screen.getByText(required)).toBeOnTheScreen();
       await fireEvent.changeText(screen.getByLabelText('To'), 'sam@example');
@@ -997,7 +996,6 @@ describe('sending a Draft', () => {
         incomplete,
       );
       expect(screen.queryByText(required)).toBeNull();
-      expect(send()).toBeDisabled();
       expect(send()).toHaveProp('accessibilityHint', incomplete);
       await fireEvent.changeText(
         screen.getByLabelText('To'),
@@ -1009,7 +1007,7 @@ describe('sending a Draft', () => {
       expect(send().props.accessibilityHint).toBeUndefined();
       await press('To: sam@example.invalid');
       expect(screen.getByText(required)).toBeOnTheScreen();
-      expect(send()).toBeDisabled();
+      expect(send()).toHaveProp('accessibilityHint', required);
       // On iPhone, Undo is in the Format panel.
       await press('Format');
       await press('Undo');
