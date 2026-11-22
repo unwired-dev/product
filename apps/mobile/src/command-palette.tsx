@@ -342,7 +342,8 @@ export function CommandPaletteProvider({
       opened,
       anchor,
       open: (from?: Anchor, sheet = false) => {
-        if (opened !== undefined) {
+        // A sheet's input takes over a window palette left open beneath the sheet.
+        if (opened !== undefined && (!sheet || inSheet)) {
           return;
         }
         setAnchor(from);
@@ -365,7 +366,7 @@ export function CommandPaletteProvider({
         previous.current = null;
       },
     }),
-    [registry, opened, anchor, t],
+    [registry, opened, anchor, inSheet, t],
   );
   const palette =
     motion.shown && shown !== undefined ? (
@@ -406,6 +407,18 @@ export function SheetPalette() {
     [],
   );
   return palette;
+}
+
+// Closes the palette a system sheet shows, as the sheet's swipe asks to dismiss it: the swipe then
+// leaves the composer, which may ask about its changes. Other ways of leaving keep the palette.
+export function useCloseSheetPalette() {
+  const { close } = useCommandPalette();
+  const shown = use(SheetPaletteContext) !== null;
+  return () => {
+    if (shown) {
+      close();
+    }
+  };
 }
 
 // The palette's frame: on iPad a popover beneath the command input that opened it, its field in

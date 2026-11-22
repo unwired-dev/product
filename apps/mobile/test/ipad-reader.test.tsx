@@ -1,4 +1,7 @@
+import { ok } from 'node:assert';
+
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+import type { ReactNode } from 'react';
 import type { Platform } from 'react-native';
 
 import {
@@ -24,15 +27,16 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Dimensions, View } from 'react-native';
+import { Dimensions, Modal, View } from 'react-native';
 
 import {
   CommandPaletteProvider,
   InSheet,
   SheetPalette,
+  useCloseSheetPalette,
 } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
-import { InboxProvider } from '../src/mailbox.tsx';
+import { InboxProvider, useLeaveComposer } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { PinsContext } from '../src/pins.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
@@ -75,6 +79,38 @@ function isScrollable(
 
 const ignore = () => undefined;
 
+// The composer's host, swiped away as the app's composer sheet is: the swipe closes the palette the
+// sheet shows, then leaves the composer, which may ask about its changes first.
+function ComposerHost({
+  children,
+  onLeft,
+}: {
+  readonly children: ReactNode;
+  readonly onLeft: () => void;
+}) {
+  const leave = useLeaveComposer();
+  const closePalette = useCloseSheetPalette();
+  const leaveSheet = async () => {
+    if (await leave()) {
+      onLeft();
+    }
+  };
+  return (
+    <Modal
+      testID="composer-sheet"
+      onRequestClose={() => {
+        closePalette();
+        void leaveSheet();
+      }}>
+      <View
+        testID="sheet-content"
+        style={{ flex: 1 }}>
+        {children}
+      </View>
+    </Modal>
+  );
+}
+
 function Reader({
   inbox,
   drafts,
@@ -101,20 +137,19 @@ function Reader({
             onCompose={setComposing}
           />
         ) : (
-          <View
-            testID="sheet-content"
-            style={{ flex: 1 }}>
+          <ComposerHost
+            onLeft={() => {
+              setComposing(undefined);
+            }}>
             <InSheet value={sheet}>
               <Composer
                 id={composing}
-                onClose={() => {
-                  setComposing(undefined);
-                }}
+                onClose={ignore}
                 onRebind={setComposing}
               />
             </InSheet>
             <SheetPalette />
-          </View>
+          </ComposerHost>
         )}
       </CommandPaletteProvider>
     </InboxProvider>
@@ -585,23 +620,32 @@ describe('iPad reader', () => {
           screen.getByTestId('sheet-content', { includeHiddenElements: true }),
         ).queryAllByTestId('command-palette'),
       ).toHaveLength(palettes);
-      // Leaving the composer, as the sheet's swipe does, asks about changes in place of the
-      // palette, and leaves no palette open behind it.
+      // Swiping away a composer with changes asks about them in place of the sheet's palette, and
+      // leaves no palette open behind the sheet.
       await fireEvent.changeText(
         screen.getByLabelText('Message body', { includeHiddenElements: true }),
         'Friday works.',
       );
-      await fireEvent.press(
-        screen.getByRole('button', {
-          name: 'Close',
-          includeHiddenElements: true,
-        }),
-      );
+      await act(async () => {
+        await fireEvent(
+          screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
+          'requestClose',
+        );
+      });
       await waitFor(() => {
-        expect(screen.queryByTestId('command-palette')).toBeNull();
+        expect(
+          within(
+            screen.getByTestId('sheet-content', {
+              includeHiddenElements: true,
+            }),
+          ).queryAllByTestId('command-palette'),
+        ).toHaveLength(0);
       });
       await fireEvent.press(
-        screen.getByRole('button', { name: 'Delete Draft' }),
+        screen.getByRole('button', {
+          name: 'Delete Draft',
+          includeHiddenElements: true,
+        }),
       );
       await fireEvent.press(
         await screen.findByRole('button', {
@@ -610,6 +654,25 @@ describe('iPad reader', () => {
         }),
       );
       expect(screen.getByTestId('command-palette')).toBeOnTheScreen();
+      // A sheet that opens over the window's palette still opens its own. The reader's Reply
+      // precedes the palette's.
+      const [reply] = screen.getAllByRole('button', {
+        name: 'Reply',
+        includeHiddenElements: true,
+      });
+      ok(reply);
+      await fireEvent.press(reply);
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Open Command Palette',
+          includeHiddenElements: true,
+        }),
+      );
+      expect(
+        within(
+          screen.getByTestId('sheet-content', { includeHiddenElements: true }),
+        ).queryAllByTestId('command-palette'),
+      ).toHaveLength(palettes);
     },
   );
 });

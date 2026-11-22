@@ -44,6 +44,7 @@ import {
   CommandPaletteProvider,
   InSheet,
   SheetPalette,
+  useCloseSheetPalette,
   useCommandRegistry,
   useCommandPalette,
 } from '../src/command-palette.tsx';
@@ -272,6 +273,7 @@ function ComposerSheet({
   composer: (draft: string) => ReactNode;
 }>) {
   const colors = usePalette();
+  const closePalette = useCloseSheetPalette();
   const [shown, setShown] = useState(draft);
   if (draft !== undefined && draft !== shown) {
     setShown(draft);
@@ -289,7 +291,10 @@ function ComposerSheet({
         'landscape-left',
         'landscape-right',
       ]}
-      onRequestClose={onLeave}
+      onRequestClose={() => {
+        closePalette();
+        onLeave();
+      }}
       onDismiss={() => {
         setShown(draft);
       }}>
