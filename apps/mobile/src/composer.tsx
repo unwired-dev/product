@@ -4165,10 +4165,10 @@ function useFieldsBelowBody({
         ) ?? 'to')
       : undefined;
   const revealAgain = () => {
-    if (
-      pending.current?.draft === shown &&
-      inputs[pending.current.field].current?.isFocused() === true
-    ) {
+    // An edit ends it for good, so Undo back to the Draft does not bring it back.
+    if (pending.current?.draft !== shown) {
+      pending.current = undefined;
+    } else if (inputs[pending.current.field].current?.isFocused() === true) {
       reveal(pending.current.field);
     }
   };
