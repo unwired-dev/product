@@ -1582,12 +1582,15 @@ RCT_EXPORT_METHOD(refresh)
 // A hardware keyboard's Up and Down Arrow while `enabled`, ahead of the text view inside, which
 // would move its caret: the iPad body's Recipient Suggestions move their highlight with them. Tab
 // and Shift-Tab while `tabs`, ahead of the text view, which would type a tab: they indent and
-// outdent list items.
+// outdent list items. Escape, or Command-period, while `escape`: it closes the body's Slash
+// Command Menu.
 @interface UnwiredArrowKeysView : UIView
 @property (nonatomic) BOOL enabled;
 @property (nonatomic) BOOL tabs;
+@property (nonatomic) BOOL escape;
 @property (nonatomic, copy) RCTDirectEventBlock onArrow;
 @property (nonatomic, copy) RCTDirectEventBlock onTab;
+@property (nonatomic, copy) RCTDirectEventBlock onEscape;
 @end
 
 @implementation UnwiredArrowKeysView
@@ -1608,7 +1611,17 @@ RCT_EXPORT_METHOD(refresh)
       [commands addObject:command];
     }
   }
+  if (self.escape) {
+    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:UIKeyInputEscape modifierFlags:0 action:@selector(escapeKey:)];
+    command.wantsPriorityOverSystemBehavior = YES;
+    [commands addObject:command];
+  }
   return commands;
+}
+
+- (void)escapeKey:(UIKeyCommand *)command
+{
+  if (self.onEscape) self.onEscape(@{});
 }
 
 - (void)arrow:(UIKeyCommand *)command
@@ -1633,6 +1646,8 @@ RCT_EXPORT_VIEW_PROPERTY(enabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onArrow, RCTDirectEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(tabs, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(onTab, RCTDirectEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(escape, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(onEscape, RCTDirectEventBlock)
 - (UIView *)view { return [UnwiredArrowKeysView new]; }
 @end
 #endif

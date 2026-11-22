@@ -31,6 +31,8 @@ import type {
 import type { Registration } from './registration.ts';
 import type {
   Asset,
+  BlockKind,
+  Edit,
   Selection,
   SemanticDocument,
 } from './semantic-document.ts';
@@ -71,12 +73,14 @@ import { withoutComments } from './message-body.ts';
 import { defaultProfile, mailboxesOf } from './registration-snapshot.ts';
 import { canOpenInbox } from './registration.ts';
 import {
+  blockKindAt,
   emptyDocument,
   clip,
   displayOf,
   insertImage,
   marksAt,
   replaceSelection,
+  setBlockKind,
   withImage,
 } from './semantic-document.ts';
 
@@ -467,6 +471,78 @@ export const bodyRecipientSuggestions = (
   query: BodyRecipientQuery,
   options: SuggestionOptions,
 ) => suggestionsFor(draft, query.text.toLowerCase(), options);
+
+// Slash Command Menu ----------------------------------------------------------------------------
+
+// A / typed as the first non-whitespace character of a body block outside code, and the text after
+// it up to the caret, in display offsets as a Body Recipient query has them.
+export function slashQuery(
+  body: SemanticDocument,
+  selection: Selection,
+): BodyRecipientQuery | undefined {
+  if (selection.start !== selection.end) {
+    return undefined;
+  }
+  const { lines, text } = displayOf(body);
+  const before = text.slice(0, selection.end);
+  const lineStart = before.lastIndexOf('\n') + 1;
+  const line = lines[before.slice(0, lineStart).split('\n').length - 1];
+  if (line === undefined || line.kind === 'code') {
+    return undefined;
+  }
+  const typed = /^\s*\/(?<typed>.*)$/u.exec(
+    before.slice(lineStart + line.marker.length),
+  )?.groups?.typed;
+  if (typed === undefined) {
+    return undefined;
+  }
+  const start = selection.end - typed.length - 1;
+  return marksAt(body, { start: start + 1, end: start + 1 }).includes('code')
+    ? undefined
+    : { start, end: selection.end, text: typed };
+}
+
+// The Basic Blocks the menu offers, in its order.
+const slashBlockKinds: readonly BlockKind[] = [
+  'paragraph',
+  'heading1',
+  'heading2',
+  'heading3',
+  'bulleted',
+  'numbered',
+  'quote',
+  'code',
+];
+
+// The blocks whose title, or a word of it, starts with the typed text, ignoring case.
+export function slashBlocks(
+  typed: string,
+  titleOf: (kind: BlockKind) => string,
+): readonly BlockKind[] {
+  const wanted = typed.trimStart().toLocaleLowerCase();
+  return slashBlockKinds.filter((kind) => {
+    const title = titleOf(kind).toLocaleLowerCase();
+    return title
+      .split(' ')
+      .some((_, index, words) =>
+        words.slice(index).join(' ').startsWith(wanted),
+      );
+  });
+}
+
+// The slash query removed and the caret's block set to `kind`, as one edit; a block that is
+// already `kind` keeps it.
+export function applySlashBlock(
+  body: SemanticDocument,
+  query: BodyRecipientQuery,
+  kind: BlockKind,
+): Edit {
+  const removed = replaceSelection(body, query, '');
+  const at = removed.selection ?? { start: query.start, end: query.start };
+  return blockKindAt(removed.document, at.start) === kind
+    ? removed
+    : setBlockKind(removed.document, at, kind);
+}
 
 // The name a greeting uses: the given name Apple Contacts records for the address, otherwise the
 // display name; none for an unnamed person. Never derived from the address.
