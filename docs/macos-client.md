@@ -453,7 +453,8 @@ pop-up of Safari's page zoom levels from 50% to 300%, 100% by default. The reade
 applies the zoom to the mounted sanitized document as the app's own CSS `zoom`
 (the patched WebView's `messageZoom`, set by the isolated client-world measurement),
 so the stored message and Drafts never change, and an open reader follows a change
-in place, keeping its selection and scroll. A larger zoom makes a document taller,
+in place, keeping its selection; keeping the reading position follows in
+[#2684](https://github.com/unwired-dev/product/issues/2684). A larger zoom makes a document taller,
 so more messages pass the reader's 20,000-point cap and scroll inside the view;
 WebKit reports that scroll, so remote images there still load as they come near
 ([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content)). The zoom is a
