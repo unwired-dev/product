@@ -181,12 +181,12 @@ const ListedFolderSchema = Schema.Struct({
   attributes: Schema.Array(Schema.String),
   delimiter: Schema.optionalKey(Schema.NonEmptyString),
 });
-// `unlisted` holds the LIST patterns of other users' and shared namespaces that matched no folder,
-// a namespace root or a prefix ending in `*`: a server may refuse such a LIST, which SwiftMail skips.
+// `skippable` holds the LIST patterns of other users' and shared namespaces, a namespace root or a
+// prefix ending in `*`: SwiftMail skips one the server refuses without saying which.
 export const decodeListedFolders = Schema.decodeUnknownEffect(
   Schema.Struct({
     folders: Schema.Array(ListedFolderSchema),
-    unlisted: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+    skippable: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
   }),
 );
 

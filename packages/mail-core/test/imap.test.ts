@@ -1324,7 +1324,7 @@ describe('connecting IMAP mailboxes', () => {
     expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
   });
 
-  it('keeps the cached folders a refused namespace LIST would list until a listing leaves them out', async () => {
+  it('keeps the cached folders a skippable namespace LIST would match until a listing leaves them out', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.addFolder('Shared');
@@ -1337,21 +1337,22 @@ describe('connecting IMAP mailboxes', () => {
     await inbox.openFolder('Shared/Team');
     const names = () =>
       ready(inbox.getSnapshot()).folders.map(({ name }) => name);
-    // The server refuses the namespace root's LIST, then its subtree's; SwiftMail skips each.
+    // The server may have refused the namespace root's LIST, then its subtree's, which a server
+    // permitting another letter case may name differently and whose prefix may hold a wildcard.
     const listing = vi.spyOn(imap.native, 'imapListFolders');
     listing.mockResolvedValueOnce({
       folders: [
         { name: 'INBOX', attributes: [], delimiter: '/' },
         { name: 'Shared/Team', attributes: [], delimiter: '/' },
       ],
-      unlisted: ['Shared'],
+      skippable: ['Shared'],
     });
     await inbox.load();
     expect(names()).toStrictEqual(['INBOX', 'Shared/Team', 'Shared']);
     expect(firstMessage(inbox.folder('Shared')).subject).toBe('Root');
     listing.mockResolvedValueOnce({
       folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
-      unlisted: ['Shared/*'],
+      skippable: ['SH%/*'],
     });
     await inbox.load();
     expect(names()).toStrictEqual(['INBOX', 'Shared/Team']);

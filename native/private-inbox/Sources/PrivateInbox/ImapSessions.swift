@@ -13,12 +13,11 @@ struct ImapListedFolder: Sendable, Equatable {
 }
 
 // Every folder the server lists. SwiftMail skips a LIST of another user's or a shared namespace
-// that the server refuses and merges the rest, so only a listed name no other LIST matches shows
-// that one answered; `unlisted` holds each such pattern nothing shows answered, a namespace root or
-// a prefix ending in `*`, whose cached folders may still exist.
+// that the server refuses and merges the rest without saying which it skipped; `skippable` holds
+// those LIST patterns, a namespace root or a prefix ending in `*`, whose folders may be missing.
 struct ImapListing: Sendable, Equatable {
   let folders: [ImapListedFolder]
-  var unlisted: [String] = []
+  var skippable: [String] = []
 }
 
 // What a folder search looks for: a short text anywhere in the message, or the Message-ID header of
@@ -112,14 +111,11 @@ enum ImapStoredFlag: String, Sendable {
         } catch is ExceededListResponseLimitError {
           throw RegistrationError.unavailable
         }
-        let patterns = await server.namespaces?.listingPatterns(for: "*") ?? []
-        let personal = await server.namespaces.map {
-          NamespaceResponse(personal: $0.personal, otherUsers: [], shared: [])
-            .listingPatterns(for: "*")
-        } ?? []
-        func matches(_ pattern: String, _ name: String) -> Bool {
-          pattern.hasSuffix("*") ? name.hasPrefix(pattern.dropLast()) : name == pattern
-        }
+        let skippable: Set<String> = await server.namespaces.map { namespaces in
+          let personal = NamespaceResponse(personal: namespaces.personal, otherUsers: [], shared: [])
+          return Set(namespaces.listingPatterns(for: "*"))
+            .subtracting(personal.listingPatterns(for: "*"))
+        } ?? Set()
         return ImapListing(
           folders: listed.map { info in
             ImapListedFolder(
@@ -127,13 +123,7 @@ enum ImapStoredFlag: String, Sendable {
               attributes: Self.attributes.filter { info.attributes.contains($0.0) }.map(\.1),
               delimiter: info.hierarchyDelimiter)
           },
-          unlisted: patterns.filter { pattern in
-            !personal.contains(pattern)
-              && !listed.contains { info in
-                matches(pattern, info.name)
-                  && !patterns.contains { $0 != pattern && matches($0, info.name) }
-              }
-          }.sorted())
+          skippable: skippable.sorted())
       }
     }
 
@@ -400,7 +390,7 @@ extension RegistrationStore {
         folder["delimiter"] = $0.delimiter
         return folder
       },
-      "unlisted": listing.unlisted,
+      "skippable": listing.skippable,
     ]
   }
 

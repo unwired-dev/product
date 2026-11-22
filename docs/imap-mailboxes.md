@@ -246,11 +246,10 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   unavailable namespace discovery or more than 1,000 LIST responses, preserves the
   prior list and cached mail for a later retry. A server may refuse a LIST of another
   user's or a shared namespace, for its root or for the folders under it, and SwiftMail
-  then skips it and merges the rest. Only a listed folder that no other LIST matches shows
-  that such a LIST answered, so until one does, a cached folder it would have matched
-  stays. With a personal namespace whose prefix is empty, whose `*` LIST matches every
-  name, folders of other users' and shared namespaces therefore stay cached after they
-  are removed. Listing stops reading at the 1,001st
+  then skips it and merges the rest without saying which it skipped. A cached folder that
+  such a LIST would match, in any letter case and reading `*` and `%` as wildcards,
+  therefore stays, so folders of other users' and shared namespaces stay cached after
+  they are removed ([#2690](https://github.com/unwired-dev/product/issues/2690)). Listing stops reading at the 1,001st
   LIST response the server sends, across all namespaces and before duplicate names
   merge, and closes that session. Case
   variants of the reserved `INBOX` name share that spelling; other folder names

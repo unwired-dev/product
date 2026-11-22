@@ -175,8 +175,8 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
-  // Resolves `{ folders: [{ name, attributes, delimiter? }], unlisted? }`, every folder the server
-  // lists and the LIST patterns of other users' and shared namespaces that matched none.
+  // Resolves `{ folders: [{ name, attributes, delimiter? }], skippable? }`, every folder the server
+  // lists and the LIST patterns of other users' and shared namespaces it may have skipped.
   readonly imapListFolders: (
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
@@ -1476,32 +1476,36 @@ export function createImapInbox(
   }
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
-  // pruning stops keeping their bodies. The Inbox always stays, and so do the folders a namespace
-  // LIST that matched none would have listed: the server may have refused it.
+  // pruning stops keeping their bodies. The Inbox always stays, and so does each folder that a LIST
+  // the native listing may have skipped would match, in any letter case the server may permit.
   const acceptListing = Effect.fnUntraced(function* (
     current: ImapDocument,
     {
       folders: listed,
-      unlisted,
+      skippable,
       ...capabilities
     }: Readonly<
       {
         folders: ImapDocument['folders'];
-        unlisted: readonly string[];
+        skippable: readonly string[];
       } & ImapCapabilities
     >,
   ) {
     const names = new Set(listed.map(({ name }) => name));
+    // IMAP's `*` and `%` match any run of characters, `%` only up to a hierarchy delimiter: matching
+    // `%` like `*` keeps more folders, never fewer.
+    const patterns = skippable.map(
+      (pattern) =>
+        new RegExp(
+          `^${pattern.replaceAll(/[$()+.?[\\\]^{|}]/gu, String.raw`\$&`).replaceAll(/[*%]/gu, '.*')}$`,
+          'isu',
+        ),
+    );
     const folders = [
       ...listed,
       ...current.folders.filter(
         ({ name }) =>
-          !names.has(name) &&
-          unlisted.some((pattern) =>
-            pattern.endsWith('*')
-              ? name.startsWith(pattern.slice(0, -1))
-              : name === pattern,
-          ),
+          !names.has(name) && patterns.some((pattern) => pattern.test(name)),
       ),
     ];
     const offered = new Set(
@@ -2344,7 +2348,7 @@ export function createImapInbox(
                   ).pipe(Effect.mapError(malformed));
                   return {
                     ...folderListing(listed.folders, advertised.capabilities),
-                    unlisted: listed.unlisted ?? [],
+                    skippable: listed.skippable ?? [],
                   };
                 }),
               );

@@ -702,8 +702,8 @@ extension PrivateInboxTests {
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespaced"}"#.utf8))
     let (shared, sharedCapabilities) = try await listed(namespaced)
     #expect(shared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
-    // SwiftMail skips a refused namespace LIST; one whose names `*` also matches may have been.
-    #expect(shared.unlisted == ["Shared", "Shared/*"])
+    // SwiftMail skips a refused LIST of another user's or a shared namespace without saying so.
+    #expect(shared.skippable == ["Shared", "Shared/*"])
     func refusing(_ user: String) async throws -> ImapListing {
       try await listed(
         try JSONDecoder().decode(
@@ -713,14 +713,14 @@ extension PrivateInboxTests {
     }
     let unshared = try await refusing("shared-wildcard")
     #expect(unshared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
-    #expect(unshared.unlisted == ["Shared", "Shared/*"])
+    #expect(unshared.skippable == ["Shared", "Shared/*"])
     let rootless = try await refusing("shared-root")
     #expect(rootless.folders.map(\.name) == shared.folders.map(\.name))
-    #expect(rootless.unlisted == ["Shared", "Shared/*"])
-    // The listed root `~` matches the refused `~*` too, so it does not show that `~*` answered.
+    #expect(rootless.skippable == ["Shared", "Shared/*"])
+    // The listed root `~` also matches the refused `~*`.
     let tilde = try await refusing("tilde")
     #expect(tilde.folders.map(\.name).last == "~")
-    #expect(tilde.unlisted == ["~", "~*"])
+    #expect(tilde.skippable == ["~", "~*"])
     #expect(Set(sharedCapabilities.map { $0.uppercased() }).isDisjoint(with: ["MOVE", "UIDPLUS", "IDLE"]))
     // One session examines folders and reads their envelopes and flags, as a synchronization
     // does.
