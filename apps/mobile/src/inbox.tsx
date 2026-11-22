@@ -924,17 +924,18 @@ function useShownInboxes<W extends Readonly<{ id: string }>>({
     searchable: sections === undefined ? undefined : unhidden,
     reading: waits && !unreadable,
     unreadable: waits && unreadable,
-    // A pull while All Inboxes waits for the preferences reads them again, and refreshes the
-    // mailboxes they then show.
+    // A pull while the preferences are unread, as All Inboxes or search widened from an Inbox waits
+    // for them, reads them again, and refreshes the mailboxes they then show and the scoped one.
     reread: async () => {
-      if (!waits) {
+      if (unified !== undefined || sections !== undefined) {
         return searched;
       }
       await preferences.load();
       const read = preferences.sections(profile);
-      return read === undefined
-        ? []
-        : shown.filter(({ id }) => sectionShown(read, id));
+      return shown.filter(
+        ({ id }) =>
+          id === scope || (read !== undefined && sectionShown(read, id)),
+      );
     },
     everyHidden:
       unified === undefined &&
