@@ -1234,6 +1234,11 @@
       "noMatches": "No Matches",
       "contactsUnsearchable": "Contacts couldn’t be searched. Showing people from recent mail."
     },
+    "slashMenu": {
+      "title": "Slash commands",
+      "basicBlocks": "Basic Blocks",
+      "text": "Text"
+    },
     "sending": {
       "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",
       "authorization_microsoft": "This mailbox needs Microsoft access again before it can send. Allow access or choose another mailbox.",

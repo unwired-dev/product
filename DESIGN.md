@@ -847,8 +847,10 @@ app follows under the issue named:
   on the composer's From row waits for #2133.
 - **iPhone composer body:** the body fills the sheet and the fields are below
   the fold, which waits for #2119.
-- **Slash Command Menu:** the menu and Show Formatting Toolbar wait for #2117
-  and #2118.
+- **Slash Command Menu:** iPad and iPhone show its Basic Blocks (#2656); the
+  Insert group, the writing tools and the Mac menu wait for #2117, and Show
+  Formatting Toolbar for #2118. The touch menus draw Heading 1 to 3 with the
+  format bar's H1–H3 glyphs and Quote with the `text.quote` symbol.
 - **Toasts:** the frames draw glass toasts. iPhone and iPad do (#2591); the Mac
   draws a deep graphite toast until the rest of #2104.
 - **Trusted Devices:** iPhone and iPad rows show the device symbol, Current
