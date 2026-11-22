@@ -913,15 +913,16 @@ function DragList<T>({
             },
             onDrop: (finger) => {
               edge.follow(undefined, () => undefined);
-              onDragging(false);
               setHeld(undefined);
               const at =
                 finger === undefined || drag === undefined
                   ? index
                   : place(begin, finger + drag.scrolled);
+              // The drop moves the row before the drag ends, so it moves from where the drag began.
               if (at !== index) {
                 onMove(key, () => at);
               }
+              onDragging(false);
             },
           })}
         </View>
@@ -1187,14 +1188,8 @@ function EditConnections({
         void arrange(order, from);
       }}
       onDragging={(dragging) => {
-        // Each step of a drag reports it; its drop moves the row before this clears.
-        if (dragging) {
-          began.current ??= connections;
-        } else {
-          queueMicrotask(() => {
-            began.current = undefined;
-          });
-        }
+        // Each step of a drag reports it; its drop moves the row before it ends.
+        began.current = dragging ? (began.current ?? connections) : undefined;
         onDragging(dragging);
       }}
       render={(entry, drag) => {

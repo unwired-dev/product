@@ -825,13 +825,16 @@ describe('iPhone Mailboxes', () => {
     await fireEvent(field, 'focus');
     await fireEvent.changeText(field, 'other account');
     await fireEvent.press(app.getByRole('tab', { name: 'All Mailboxes' }));
-    // Until the read, which Inboxes the search covers is unknown, so it has not answered.
-    const unread = app.queryByText('No Results');
+    // Until the read, which Inboxes the search covers is unknown, so it has not answered and loads.
+    const unread = {
+      noResults: app.queryByText('No Results'),
+      loading: app.queryByLabelText('Loading Inbox') !== null,
+    };
     await act(() => {
       read.resolve(undefined);
     });
     await app.findByRole('button', { name: /From the other account/u });
-    expect(unread).toBeNull();
+    expect(unread).toStrictEqual({ noResults: null, loading: true });
     await app.unmount();
   });
 

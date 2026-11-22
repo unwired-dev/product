@@ -278,18 +278,23 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
   );
 }
 
-// Search widened to every Inbox waits for the preferences, so a failed read offers Try Again there
-// as All Inboxes does.
+// Search widened to every Inbox waits for the preferences, so it shows they load and, after a failed
+// read, offers Try Again, as All Inboxes does.
 function WidenedPreferencesNotice({
   widened,
   read,
 }: Readonly<{ widened: boolean; read: boolean }>) {
   const unreadable = usePreferencesUnreadable();
-  return (
+  if (!widened || read) {
+    return null;
+  }
+  return unreadable ? (
     <PreferencesNotice
-      unreadable={widened && !read && unreadable}
+      unreadable
       outbox={false}
     />
+  ) : (
+    <SkeletonRows />
   );
 }
 
