@@ -70,6 +70,8 @@ colors:
   separator-dark: 'rgba(255, 255, 255, 0.1)'
   scrim-touch: 'rgba(0, 0, 0, 0.22)'
   scrim-touch-dark: 'rgba(0, 0, 0, 0.4)'
+  scrim-mac: 'rgba(0, 0, 0, 0.18)'
+  scrim-mac-dark: 'rgba(0, 0, 0, 0.4)'
   status-warning: '#9A5B00'
   status-warning-dark: '#FFB340'
   status-destructive: '#D70015'
@@ -361,6 +363,7 @@ Graphite neutrals with a single warm seal.
 | Track             | `fill/track`               | black 9%      | white 16%     | Off switch track                                               |
 | Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                               |
 | Scrim             | `scrim/touch`              | black 22%     | black 40%     | iPad composer and setup sheet; link alert backdrops on touch   |
+| Mac scrim         | `scrim/mac`                | black 18%     | black 40%     | The Mac frames' backdrop behind alerts and sheets              |
 | Warning           | `status/warning`           | `#9A5B00`     | `#FFB340`     | Authorization needed, Pin indicator                            |
 | Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Unwired Account, Delete                                 |
 
