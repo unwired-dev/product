@@ -4211,7 +4211,7 @@ final class InboxTests: XCTestCase {
     // and keeps the /, and a / typed again reopens it.
     app.typeKey(".", modifierFlags: .command)
     waitUntil({ !menu.exists && body.value as? String == "Hi\n/" }, timeout: 60)
-    app.typeKey(.delete, modifierFlags: [])
+    type(XCUIKeyboardKey.delete.rawValue)
     waitUntil({ body.value as? String == "Hi\n" }, timeout: 60)
     type("/he")
     XCTAssertTrue(menu.waitForExistence(timeout: 60))
