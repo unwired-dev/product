@@ -524,14 +524,15 @@ separate circular New Message button; it has no **More**, because the Reply shee
 the same actions. Mail without Reply, such as IMAP mail or mail in a mailbox that cannot send,
 keeps **More** after **Folders**. It opens the system menu iPad's **More** opens, titled
 as the row menu titles its actions: **Mark as Read** or **Mark as Unread**,
-**Move to…**; then **Move to Inbox**, **Move to Spam** and **Labels** for Gmail;
-and last, since the iPhone toolbar has no Delete, **Delete**. Dismissing the
+**Move to Spam** (**Not Spam** in Spam) and **Move to…**, as iPad's approved More
+Menu frame orders them ([#2662](https://github.com/unwired-dev/product/issues/2662));
+then **Move to Inbox** in Trash and **Labels** for Gmail; and last, since the iPhone toolbar has no Delete, **Delete**. Dismissing the
 menu runs nothing. Reply
 opens a native sheet on the opaque content surface: the sender's initials, name and
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — read state, then
-Move, **Labels** for Gmail, Move to Spam and Delete, offering only what the provider
-supports. **Labels** opens the label checkboxes in a glass panel above the toolbar; a tap
+Move, **Labels** for Gmail, Move to Spam (**Not Spam** in Spam, **Move to Inbox** in
+Trash) and Delete, offering only what the provider supports. **Labels** opens the label checkboxes in a glass panel above the toolbar; a tap
 outside it or VoiceOver's escape gesture closes it.
 The system owns Reply's presentation, dismissal and swipe-down gesture. Choosing an
 action closes the sheet before running it. For every
@@ -585,7 +586,8 @@ changing the view, search or Filter never move rows, and new mail keeps the topm
 of a scrolled list in place. VoiceOver also offers read, archive, trash and spam as actions on each
 Inbox row, and announces each outcome once, however many Mac windows show it. **Labels** lists the mailbox's own labels, read from Gmail once per
 synchronization and kept with the cache. In Trash or Spam, **Move to Inbox**
-takes the place of Archive, Delete and Move to Spam, and **Undo** of the
+takes the place of Archive, Delete and Move to Spam (the iPhone and iPad reader
+names it **Not Spam** in Spam), and **Undo** of the
 latest removal also restores. **Move to** from a label removes that label instead
 of the Inbox, keeping the message's other labels; from Trash or Spam it takes the
 message out of them. A message that leaves the view it was opened in closes the

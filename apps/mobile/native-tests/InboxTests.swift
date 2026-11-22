@@ -311,15 +311,20 @@ final class InboxTests: XCTestCase {
     add(spamMenu)
     moveToSpam.tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
+    XCTAssertTrue(text("Reported as spam", in: app).exists)
     assertGmailActionsSettled(app)
-    XCTAssertTrue(starred.waitForNonExistence(timeout: 10))
+    // The message left the Inbox, which closes the reader. Its row may read as unread here.
+    let row = app.buttons.matching(
+      NSPredicate(format: "label ENDSWITH %@", "Rowan Hale. Garden plans for spring")
+    ).firstMatch
+    XCTAssertTrue(row.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Reply"].waitForNonExistence(timeout: 10))
     app.buttons["Undo"].tap()
-    XCTAssertTrue(starred.waitForExistence(timeout: 15))
+    XCTAssertTrue(row.waitForExistence(timeout: 15))
     assertGmailActionsSettled(app)
-    if !subject.exists {
-      starred.tap()
-      XCTAssertTrue(subject.waitForExistence(timeout: 10))
-    }
+    // Opening it again reads it.
+    row.tap()
+    XCTAssertTrue(subject.waitForExistence(timeout: 10))
     app.buttons["Archive"].tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)

@@ -461,8 +461,8 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
     trash: [t('contextMenu.trash'), 'trash'],
   }) as const;
 
-// More: the system menu the iPad frames draw: read state, Move to Spam (or Not Spam, or Move to
-// Inbox from Trash) and Move to…, then Gmail's Labels, which toggle in place in More's panel. The
+// More: the system menu the iPad frames draw: read state, Move to Spam (Not Spam in Spam) and
+// Move to…, then Trash's Move to Inbox and Gmail's Labels, which toggle in place in More's panel. The
 // iPhone toolbar has no Delete or Pin, so its menu ends with Delete and starts with Pin.
 function MoreButton({
   more,
@@ -507,7 +507,6 @@ function MoreButton({
               ...(compact ? (['pin', 'unpin'] as const) : []),
               'read',
               'unread',
-              'restore',
               'notSpam',
               'spam',
             ]),
@@ -525,6 +524,7 @@ function MoreButton({
         },
         {
           items: [
+            ...items(['restore']),
             ...(more.labels === undefined
               ? []
               : [

@@ -7934,9 +7934,12 @@ describe('replying to and forwarding from the reader', () => {
     expect(draft?.response).not.toHaveProperty('thread');
   });
 
-  it.each(['TRASH', 'SPAM'])(
+  it.each([
+    ['TRASH', 'Move to Inbox'],
+    ['SPAM', 'Not Spam'],
+  ])(
     'restores mail from %s through the iPhone Reply sheet',
-    async (folder) => {
+    async (folder, restore) => {
       expect.hasAssertions();
       const registration = account(connected(['alex@example.invalid']));
       const storage = createSyntheticDrafts(() => 'synthetic-product-account');
@@ -7963,7 +7966,7 @@ describe('replying to and forwarding from the reader', () => {
       expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Move to Spam' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
-      await press('Move to Inbox');
+      await press(restore);
       await waitFor(() => {
         expect(gmail.labelsOf(message)).toContain('INBOX');
         expect(gmail.labelsOf(message)).not.toContain(folder);
