@@ -4419,6 +4419,27 @@ final class InboxTests: XCTestCase {
     attachScreen("Heading 2 from the Slash Command Menu", of: app, to: self)
     formatControl("Undo", in: app).tap()
     waitUntil({ body.value as? String == "Hi\n/\n/he" }, timeout: 60)
+    // Close Format resumes typing on iPhone.
+    if app.buttons["Close Format"].exists {
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(app.buttons["Format"].waitForExistence(timeout: 10))
+    }
+    // The Insert commands follow the Basic Blocks: Down reaches Insert Image…, scrolling both Insert
+    // rows into view, and typing filters to it. Choosing one opens a system picker, left to Jest.
+    app.typeKey(.downArrow, modifierFlags: .command)
+    type("\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for _ in 0..<9 { app.typeKey(.downArrow, modifierFlags: []) }
+    waitUntil(
+      {
+        row("Insert Image…").isSelected && row("Insert Image…").isHittable
+          && row("Attach File…").isHittable
+      }, timeout: 60)
+    attachScreen("Slash Command Menu Insert", of: app, to: self)
+    type("im")
+    waitUntil({ !row("Text").exists && !row("Attach File…").exists }, timeout: 60)
+    XCTAssertTrue(row("Insert Image…").isSelected)
+    attachScreen("Slash Command Menu Insert filtered", of: app, to: self)
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {

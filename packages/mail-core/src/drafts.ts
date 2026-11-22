@@ -514,14 +514,21 @@ const slashBlockKinds: readonly BlockKind[] = [
   'code',
 ];
 
-// The blocks whose title, or a word of it, starts with the typed text, ignoring case.
-export function slashBlocks(
+// The Insert commands the menu offers after the Basic Blocks, in its order.
+export const slashInserts = ['attachFile', 'insertImage'] as const;
+export type SlashInsert = (typeof slashInserts)[number];
+// A row of the menu: a Basic Block or an Insert command.
+export type SlashCommand = BlockKind | SlashInsert;
+
+// The commands, Basic Blocks then Insert, whose title, or a word of it, starts with the typed
+// text, ignoring case.
+export function slashCommands(
   typed: string,
-  titleOf: (kind: BlockKind) => string,
-): readonly BlockKind[] {
+  titleOf: (command: SlashCommand) => string,
+): readonly SlashCommand[] {
   const wanted = typed.trimStart().toLocaleLowerCase();
-  return slashBlockKinds.filter((kind) => {
-    const title = titleOf(kind).toLocaleLowerCase();
+  return [...slashBlockKinds, ...slashInserts].filter((command) => {
+    const title = titleOf(command).toLocaleLowerCase();
     return title
       .split(' ')
       .some((_, index, words) =>
