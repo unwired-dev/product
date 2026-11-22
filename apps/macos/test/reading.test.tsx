@@ -60,7 +60,7 @@ describe('settings › Reading', () => {
         initial,
         offered,
         zoomed: zoomed.zoom,
-        // The mounted navigation stays, so its selection and scroll do too; the message is unchanged.
+        // The mounted navigation stays, so its selection does too; the message is unchanged.
         mounted: zoomed.source === initial.document.source,
         message: zoomed.source.html.includes('<b>48 000 CZK</b>'),
         unstyled: zoomed.source.html.includes('zoom'),

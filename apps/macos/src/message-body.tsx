@@ -441,7 +441,7 @@ export function ReaderScrollView({
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
 // images within one viewport of the visible range are reported as they come near. The mounted
-// document takes the reader's Message Zoom in place, keeping its selection and scroll.
+// document takes the reader's Message Zoom in place, keeping its selection.
 function RichDocument({
   rich,
   zoom,
