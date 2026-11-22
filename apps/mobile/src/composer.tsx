@@ -60,6 +60,7 @@ import {
   addBodyRecipient,
   addingAsset,
   addRecipients,
+  applySlashBlock,
   assetStates,
   bodyRecipientQuery,
   bodyRecipientSuggestions,
@@ -76,6 +77,8 @@ import {
   sameContent,
   sendingMailboxes,
   sendingStateOf,
+  slashBlocks,
+  slashQuery,
   unsendableAssets,
   prepareFiles,
   withAsset,
@@ -540,6 +543,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.touchMenuItem,
   },
   monogramAddress: { ...textStyles.subheadline },
+  // The Slash Command Menu, 320pt from the caret's line, its rows led by a 25pt icon slot.
+  slashMenu: {
+    marginLeft: inset - spacing.s,
+    width: 320,
+    maxWidth: '100%',
+    marginTop: spacing.xs,
+    padding: spacing.s,
+  },
+  slashRow: {
+    gap: 10,
+    paddingHorizontal: 17,
+    borderRadius: radius.touchMenuItem,
+  },
+  slashIcon: { width: 25, alignItems: 'flex-start' },
+  slashGlyph: { ...textStyles.caption1, fontWeight: '700' },
   // The whole 44pt row height removes the recipient; its chip stays compact.
   token: { minHeight: 44, justifyContent: 'center' },
   tokenFill: {
@@ -3565,22 +3583,25 @@ function useBodyRecipients(
   };
 }
 
-// The body's Recipient Suggestions while they show, under the query's line: a transparent copy of
-// the body up to that line, in the body's place and style, holds them there. They end `reserve`
-// above the bottom of the editor's `viewport`, scrolling inside when taller, and open over the line
-// when it sits too low for them and more room is above. The editor calls `placeRef` as it scrolls or
-// resizes.
-function BodyRecipientMenu({
-  shown,
+// A menu under the line of the body's query at `start`: a transparent copy of the body up to that
+// line, in the body's place and style, holds it there. It ends `reserve` above the bottom of the
+// editor's `viewport`, scrolling inside when taller, and opens over the line when it sits too low
+// for it and more room is above. The editor calls `placeRef` as it scrolls or resizes. `children`
+// draws the menu from where it grows, the height it may take and a report of its rows' height.
+function BodyMenuAnchor({
+  start,
+  end,
   display,
   top,
   bodyStyle,
   viewport,
   reserve,
   placeRef,
-  onAccept,
+  children,
 }: {
-  readonly shown: ReturnType<typeof useBodyRecipients>['shown'];
+  readonly start: number;
+  // The caret, where the query and the copied line end.
+  readonly end: number;
   readonly display: ReturnType<typeof displayOf>;
   // Where the body starts.
   readonly top: number;
@@ -3588,9 +3609,14 @@ function BodyRecipientMenu({
   readonly viewport: Readonly<{ current: ViewInstance | null }>;
   readonly reserve: number;
   readonly placeRef: { current: (() => void) | undefined };
-  readonly onAccept: (recipient: Recipient) => void;
+  readonly children: (
+    place: Readonly<{
+      origin: string;
+      maxHeight: number | undefined;
+      onContentHeight: (height: number) => void;
+    }>,
+  ) => ReactNode;
 }) {
-  const { size } = use(ComposerLayoutContext);
   const appearance = useAppearance();
   const queryLine = useRef<ViewInstance>(null);
   const [room, setRoom] =
@@ -3618,13 +3644,22 @@ function BodyRecipientMenu({
       placeRef.current = undefined;
     };
   });
-  if (shown === undefined) {
-    return null;
-  }
-  const lines = display.lines.slice(
-    0,
-    display.text.slice(0, shown.sections.query.start).split('\n').length,
-  );
+  // The lines up to the caret: text after it may wrap below the line the menu hangs from.
+  const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
+  const lines = display.lines
+    .slice(0, display.text.slice(0, start).split('\n').length)
+    .map((line, index, all) => {
+      if (index < all.length - 1) {
+        return line;
+      }
+      let left = end - lineStart - line.marker.length;
+      const spans = line.spans.flatMap((span) => {
+        const text = span.text.slice(0, Math.max(left, 0));
+        left -= span.text.length;
+        return text === '' ? [] : [{ ...span, text }];
+      });
+      return { ...line, spans };
+    });
   const copy = (each: typeof lines) =>
     each.map((line, index) => (
       <Text
@@ -3672,25 +3707,351 @@ function BodyRecipientMenu({
             ? [styles.bodySuggestionsAbove, { bottom: room.lift }]
             : null
         }>
-        <SuggestionMenu
-          {...shown}
-          onAccept={onAccept}
-          origin={above ? 'bottom left' : 'top left'}
-          monograms={size === 'compact'}
-          style={layoutStyles[size].bodySuggestions}
-          scroll={{
-            query: shown.sections.query.text,
-            maxHeight:
-              room === undefined
-                ? undefined
-                : Math.max(above ? room.above : room.below, 0),
-            onContentHeight: setRows,
-          }}
-        />
+        {children({
+          origin: above ? 'bottom left' : 'top left',
+          maxHeight:
+            room === undefined
+              ? undefined
+              : Math.max(above ? room.above : room.below, 0),
+          onContentHeight: setRows,
+        })}
       </View>
     </View>
   );
 }
+
+// The body's Recipient Suggestions while they show, under the query's line.
+function BodyRecipientMenu({
+  shown,
+  onAccept,
+  ...anchor
+}: Omit<ComponentProps<typeof BodyMenuAnchor>, 'start' | 'end' | 'children'> & {
+  readonly shown: ReturnType<typeof useBodyRecipients>['shown'];
+  readonly onAccept: (recipient: Recipient) => void;
+}) {
+  const { size } = use(ComposerLayoutContext);
+  if (shown === undefined) {
+    return null;
+  }
+  return (
+    <BodyMenuAnchor
+      start={shown.sections.query.start}
+      end={shown.sections.query.end}
+      {...anchor}>
+      {({ origin, maxHeight, onContentHeight }) => (
+        <SuggestionMenu
+          {...shown}
+          onAccept={onAccept}
+          origin={origin}
+          monograms={size === 'compact'}
+          style={layoutStyles[size].bodySuggestions}
+          scroll={{
+            query: shown.sections.query.text,
+            maxHeight,
+            onContentHeight,
+          }}
+        />
+      )}
+    </BodyMenuAnchor>
+  );
+}
+
+// The Slash Command Menu in an editor's body. Typing / as the first non-whitespace character of a
+// body block opens its Basic Blocks at the caret; typing filters them. An empty result, a caret
+// move, leaving the body, Escape or a choice closes it, keeping the typed text.
+function useSlashMenu(
+  draft: Draft,
+  selection: Selection,
+  {
+    paused,
+    pausedNow,
+  }: Readonly<{
+    paused: boolean;
+    // Ahead of rendering, as native events can arrive before a pause commits.
+    pausedNow: Readonly<{ current: boolean }>;
+  }>,
+) {
+  const { t } = useLocalization();
+  const titleOf = useCallback(
+    (kind: BlockKind) =>
+      kind === 'paragraph'
+        ? t('drafts.slashMenu.text')
+        : t(`drafts.blocks.${kind}`),
+    [t],
+  );
+  // Where the / that opened the menu is.
+  const [armed, setArmed] = useState<number>();
+  const armedNow = useRef(armed);
+  // The block a hardware keyboard highlighted, ahead of rendering as native events can arrive
+  // before it commits; Return takes the first one without it.
+  const [chosen, setChosen] = useState<BlockKind>();
+  const chosenNow = useRef(chosen);
+  const choose = useCallback((kind: BlockKind | undefined) => {
+    chosenNow.current = kind;
+    setChosen(kind);
+  }, []);
+  const arm = useCallback(
+    (at: number | undefined) => {
+      armedNow.current = at;
+      setArmed(at);
+      choose(undefined);
+    },
+    [choose],
+  );
+  const close = useCallback(() => {
+    arm(undefined);
+  }, [arm]);
+  // The query and the blocks it lists for a body and caret, while the menu is open for it.
+  const listed = (
+    body: SemanticDocument,
+    at: Selection,
+    start: number | undefined,
+  ) => {
+    const query = slashQuery(body, at);
+    return query === undefined || query.start !== start
+      ? undefined
+      : { query, kinds: slashBlocks(query.text, titleOf) };
+  };
+  const current = paused ? undefined : listed(draft.body, selection, armed);
+  const kinds = current?.kinds ?? [];
+  const active = kinds.find((kind) => kind === chosen) ?? kinds[0];
+  const latest = (body: SemanticDocument, at: Selection) =>
+    pausedNow.current ? undefined : listed(body, at, armedNow.current);
+  return {
+    shown:
+      current === undefined || active === undefined
+        ? undefined
+        : {
+            query: current.query,
+            kinds,
+            active,
+            // The frames highlight the row Return takes once the person filters or moves.
+            highlighted: chosen !== undefined || current.query.text !== '',
+          },
+    close,
+    titleOf,
+    // After a body edit inserting `inserted`: typing / first in a block opens the menu, and leaving
+    // its query or filtering out every block closes it.
+    typed: (next: SemanticDocument, caret: Selection, inserted: string) => {
+      const typed = slashQuery(next, caret);
+      if (inserted === '/' && typed?.text === '') {
+        arm(typed.start);
+        AccessibilityInfo.announceForAccessibility(t('drafts.slashMenu.title'));
+      } else if (
+        typed !== undefined &&
+        typed.start === armedNow.current &&
+        slashBlocks(typed.text, titleOf).length > 0
+      ) {
+        // The list changed, so the highlight starts over.
+        choose(undefined);
+      } else if (armedNow.current !== undefined) {
+        arm(undefined);
+      }
+    },
+    // A hardware keyboard's Up and Down Arrow move the highlight while two or more show.
+    moving: kinds.length > 1,
+    // Typed Return and Tab choose the highlighted block while any shows.
+    choosing: kinds.length > 0,
+    move: (key: string, body: SemanticDocument, at: Selection) => {
+      const each = latest(body, at)?.kinds ?? [];
+      const chosenKind = chosenNow.current;
+      const index =
+        chosenKind === undefined ? 0 : Math.max(each.indexOf(chosenKind), 0);
+      const step = { ArrowDown: 1, ArrowUp: -1 }[key] ?? 0;
+      const next = each[Math.min(Math.max(index + step, 0), each.length - 1)];
+      choose(next);
+      // Focus stays in the body, so VoiceOver hears the highlighted block.
+      if (next !== undefined && next !== chosenKind) {
+        AccessibilityInfo.announceForAccessibility(titleOf(next));
+      }
+    },
+    // The query and the block a choice of `kind`, or Return without one, applies for the latest
+    // body and caret, while the menu lists it.
+    choice: (body: SemanticDocument, at: Selection, kind?: BlockKind) => {
+      const open = latest(body, at);
+      const picked =
+        kind ??
+        open?.kinds.find((each) => each === chosenNow.current) ??
+        open?.kinds[0];
+      return open === undefined ||
+        picked === undefined ||
+        !open.kinds.includes(picked)
+        ? undefined
+        : { query: open.query, kind: picked };
+    },
+  };
+}
+
+// The leading icon of each Basic Block: the format bar's heading glyphs, else an SF Symbol.
+const slashIcons: Readonly<Record<BlockKind, string>> = {
+  paragraph: 'textformat',
+  heading1: 'H1',
+  heading2: 'H2',
+  heading3: 'H3',
+  bulleted: 'list.bullet',
+  numbered: 'list.number',
+  quote: 'text.quote',
+  code: 'curlybraces',
+};
+
+// The body's Slash Command Menu while it shows, under the query's line: a glass menu of Basic
+// Blocks, the highlighted one filled.
+function BodySlashMenu({
+  shown,
+  titleOf,
+  onChoose,
+  ...anchor
+}: Omit<ComponentProps<typeof BodyMenuAnchor>, 'start' | 'end' | 'children'> & {
+  readonly shown: ReturnType<typeof useSlashMenu>['shown'];
+  readonly titleOf: (kind: BlockKind) => string;
+  readonly onChoose: (kind: BlockKind) => void;
+}) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const { size } = use(ComposerLayoutContext);
+  const sized = layoutStyles[size];
+  const list = useRef<ScrollViewInstance>(null);
+  const rowEnds = useRef(new Map<BlockKind, number>());
+  const maxHeightNow = useRef<number>(undefined);
+  // Scrolls as far as the highlighted row needs to show, as the highlight moves or its row lays out.
+  const reveal = useCallback((end: number | undefined) => {
+    const maxHeight = maxHeightNow.current;
+    if (end !== undefined && maxHeight !== undefined) {
+      list.current?.scrollTo({
+        y: Math.max(end - maxHeight, 0),
+        animated: false,
+      });
+    }
+  }, []);
+  const active = shown?.active;
+  useEffect(() => {
+    if (active !== undefined) {
+      reveal(rowEnds.current.get(active));
+    }
+  }, [active, reveal]);
+  if (shown === undefined) {
+    return null;
+  }
+  const compact = size === 'compact';
+  return (
+    <BodyMenuAnchor
+      start={shown.query.start}
+      end={shown.query.end}
+      {...anchor}>
+      {({ origin, maxHeight, onContentHeight }) => {
+        maxHeightNow.current = maxHeight;
+        return (
+          <GlassPanel
+            open
+            origin={origin}
+            cornerRadius={radius.touchMenu}
+            style={compact ? styles.slashMenu : sized.bodySuggestions}>
+            <ScrollView
+              accessibilityLabel={t('drafts.slashMenu.title')}
+              keyboardShouldPersistTaps="always"
+              ref={list}
+              style={{ maxHeight }}
+              // A new height, as the keyboard moves, keeps the highlighted row in view.
+              onLayout={() => {
+                reveal(rowEnds.current.get(shown.active));
+              }}
+              onContentSizeChange={(_width, height) => {
+                onContentHeight(height);
+                reveal(rowEnds.current.get(shown.active));
+              }}>
+              <Text
+                style={[
+                  styles.suggestionSection,
+                  sized.suggestionSection,
+                  styles.monogramSection,
+                  { color: colors.textSecondary },
+                ]}>
+                {t('drafts.slashMenu.basicBlocks')}
+              </Text>
+              {shown.kinds.map((kind) => {
+                const chosen = shown.highlighted && kind === shown.active;
+                const filled = chosen && !compact;
+                const ink = filled ? colors.accentOnFill : colors.textPrimary;
+                const icon = slashIcons[kind];
+                let highlight = null;
+                if (chosen) {
+                  highlight = {
+                    backgroundColor: compact
+                      ? colors.fillQuiet
+                      : colors.accentFill,
+                  };
+                }
+                return (
+                  <Pressable
+                    key={kind}
+                    accessibilityLabel={titleOf(kind)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: chosen }}
+                    onLayout={({ nativeEvent: { layout } }) => {
+                      const end = layout.y + layout.height;
+                      rowEnds.current.set(kind, end);
+                      if (kind === shown.active) {
+                        reveal(end);
+                      }
+                    }}
+                    onPress={() => {
+                      onChoose(kind);
+                    }}
+                    style={({ pressed }) => [
+                      styles.suggestion,
+                      styles.slashRow,
+                      pressed
+                        ? { backgroundColor: colors.accentSelectionSubtle }
+                        : null,
+                      highlight,
+                    ]}>
+                    <View style={styles.slashIcon}>
+                      {/^H\d$/u.test(icon) ? (
+                        <Text style={[styles.slashGlyph, { color: ink }]}>
+                          {icon}
+                        </Text>
+                      ) : (
+                        <SFSymbol
+                          name={icon}
+                          color={ink}
+                          size={15}
+                        />
+                      )}
+                    </View>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.suggestionName,
+                        sized.suggestionName,
+                        { flex: 1, color: ink },
+                      ]}>
+                      {titleOf(kind)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </GlassPanel>
+        );
+      }}
+    </BodyMenuAnchor>
+  );
+}
+
+// The body's hardware keys for whichever menu shows, Recipient Suggestions or the Slash Command
+// Menu: Up and Down Arrow while either moves, Return and Tab while either chooses, and Escape for the
+// Slash Command Menu.
+const bodyMenuKeys = (
+  recipients: Pick<ReturnType<typeof useBodyRecipients>, 'moving' | 'choosing'>,
+  slash: Pick<
+    ReturnType<typeof useSlashMenu>,
+    'moving' | 'choosing' | 'shown' | 'close'
+  >,
+) => ({
+  moving: recipients.moving || slash.moving,
+  choosing: recipients.choosing || slash.choosing,
+  handleEscape: slash.shown === undefined ? undefined : slash.close,
+});
 
 // In a list, a hardware keyboard's Tab and Shift-Tab indent and outdent its items, unless Tab
 // chooses a Recipient Suggestion.
@@ -3876,6 +4237,8 @@ function Editor({
   };
   // The Format panel takes the pill's place too.
   const pillShown = !regular && !formatting;
+  // On iPhone the body's menus end 8pt above the floating pill's 44pt buttons, 10pt off the bottom.
+  const menuReserve = pillShown ? 10 + 44 + spacing.s : spacing.s;
   const bodyInput = useRef<TextInputInstance>(null);
   // While Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [sending, setSending] = useState(false);
@@ -3942,6 +4305,11 @@ function Editor({
     paused: sending,
     pausedNow: sendingNow,
   });
+  const slashMenu = useSlashMenu(draft, selection, {
+    paused: sending,
+    pausedNow: sendingNow,
+  });
+  const menuKeys = bodyMenuKeys(recipientMenu, slashMenu);
   // Where the body starts, for the Recipient Suggestions under its query.
   const [bodyTop, setBodyTop] = useState(0);
   // The editor's visible area, which those suggestions stay inside, and their placing in it.
@@ -4139,6 +4507,39 @@ function Editor({
     setPlaced(result.selection);
     AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
   };
+  // Choosing a block in the Slash Command Menu removes its query and sets the caret's block, as one
+  // edit, so one Undo restores the text as typed.
+  const chooseBlock = (kind?: BlockKind) => {
+    const latest = authored.current;
+    const choice = slashMenu.choice(latest.body, selectionNow.current, kind);
+    if (sendingNow.current || choice === undefined) {
+      return;
+    }
+    const result = applySlashBlock(latest.body, choice.query, choice.kind);
+    const at = result.selection ?? {
+      start: choice.query.start,
+      end: choice.query.start,
+    };
+    slashMenu.close();
+    change({ ...latest, body: result.document });
+    placeTyping(undefined);
+    caret.current = at.start;
+    selectionNow.current = at;
+    setPlaced(at);
+  };
+  // Takes the Recipient Suggestion or block a menu highlights, if one does.
+  const chooseHighlighted = (latest: Draft, at: Selection) => {
+    const highlighted = recipientMenu.highlighted(latest, at);
+    if (highlighted !== undefined) {
+      chooseRecipient(highlighted);
+      return true;
+    }
+    if (slashMenu.choice(latest.body, at) === undefined) {
+      return false;
+    }
+    chooseBlock();
+    return true;
+  };
   const edit = (text: string) => {
     if (sendingNow.current) {
       return;
@@ -4155,18 +4556,16 @@ function Editor({
     );
     const key = pressed.current;
     pressed.current = undefined;
-    // Typed Return and Tab choose the highlighted Recipient Suggestion instead of their character.
-    const highlighted =
+    // Typed Return and Tab choose the highlighted Recipient Suggestion or block instead of their
+    // character.
+    const choosing =
       (inserted === '\n' && key === 'Enter') ||
-      (inserted === '\t' && key === 'Tab')
-        ? recipientMenu.highlighted(latest, at)
-        : undefined;
-    if (highlighted !== undefined) {
+      (inserted === '\t' && key === 'Tab');
+    if (choosing && chooseHighlighted(latest, at)) {
       replaced.current = after ?? {
         start: at.start + 1,
         end: at.start + 1,
       };
-      chooseRecipient(highlighted);
       return;
     }
     // Forward deletion leaves the caret in place. Backspace moves it, even without a key event.
@@ -4208,6 +4607,11 @@ function Editor({
       setPlaced(result.selection);
     }
     recipientMenu.typed(
+      result.document,
+      { start: typedTo, end: typedTo },
+      inserted,
+    );
+    slashMenu.typed(
       result.document,
       { start: typedTo, end: typedTo },
       inserted,
@@ -5086,11 +5490,24 @@ function Editor({
             )}
             <ArrowKeys
               style={styles.bodyKeys}
-              enabled={recipientMenu.moving}
+              enabled={menuKeys.moving}
               onArrow={(key) => {
-                recipientMenu.move(key, authored.current, selectionNow.current);
+                if (slashMenu.moving) {
+                  slashMenu.move(
+                    key,
+                    authored.current.body,
+                    selectionNow.current,
+                  );
+                } else {
+                  recipientMenu.move(
+                    key,
+                    authored.current,
+                    selectionNow.current,
+                  );
+                }
               }}
-              tabs={listTabs(kind, recipientMenu.choosing)}
+              tabs={listTabs(kind, menuKeys.choosing)}
+              onEscape={menuKeys.handleEscape}
               onTab={(shift) => {
                 indent(shift ? 'outdent' : 'indent');
               }}
@@ -5105,6 +5522,7 @@ function Editor({
                 multiline
                 onBlur={() => {
                   recipientMenu.close();
+                  slashMenu.close();
                 }}
                 onChange={({ nativeEvent }) => {
                   changedSelection.current = nativeEvent.selection;
@@ -5128,6 +5546,7 @@ function Editor({
                     placeTyping(undefined);
                     commitHistory((current) => ({ ...current, typing: false }));
                     recipientMenu.close();
+                    slashMenu.close();
                   }
                   caret.current = undefined;
                   setPlaced(undefined);
@@ -5182,9 +5601,19 @@ function Editor({
               bodyStyle={[styles.body, sized.body, parts.body]}
               viewport={viewport}
               placeRef={placeSuggestions}
-              // On iPhone they end 8pt above the floating pill's 44pt buttons, 10pt off the bottom.
-              reserve={pillShown ? 10 + 44 + spacing.s : spacing.s}
+              reserve={menuReserve}
               onAccept={chooseRecipient}
+            />
+            <BodySlashMenu
+              shown={slashMenu.shown}
+              titleOf={slashMenu.titleOf}
+              display={display}
+              top={bodyTop}
+              bodyStyle={[styles.body, sized.body, parts.body]}
+              viewport={viewport}
+              placeRef={placeSuggestions}
+              reserve={menuReserve}
+              onChoose={chooseBlock}
             />
             {draft.quoted === undefined ? null : (
               <QuotedText quoted={draft.quoted} />
