@@ -200,8 +200,7 @@ const styles = StyleSheet.create({
   },
   input: { ...textStyles.body, flex: 1, paddingVertical: 0 },
   chip: {
-    ...textStyles.subheadline,
-    fontWeight: '600',
+    ...textStyles.subheadlineEmphasized,
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: radius.chip,

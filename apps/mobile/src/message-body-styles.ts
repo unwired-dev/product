@@ -60,7 +60,7 @@ export const styles = StyleSheet.create({
   // The Schedule Banner recipe, which the iPad frame draws at 1.15×.
   // The iPhone frames draw it 8pt from the screen's edges, wider than the reader's 24pt column.
   banner: {
-    marginHorizontal: 8 - 24,
+    marginHorizontal: spacing.s - spacing.xxl,
     alignItems: 'flex-start',
     gap: spacing.xs,
     padding: spacing.m,

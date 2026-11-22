@@ -210,7 +210,7 @@ export const styles = StyleSheet.create({
   },
   noResultsGlyph: { marginBottom: 18 },
   noResultsTitle: { marginBottom: ipad ? 4 : 10 },
-  searchingIndicator: { marginBottom: ipad ? 10 : 24 },
+  searchingIndicator: { marginBottom: ipad ? 10 : spacing.xxl },
   // iPhone's lines wrap at the frames' 300pt.
   searchStateText: ipad ? {} : { maxWidth: 300 },
   notices: { gap: spacing.s, paddingHorizontal: spacing.l },
