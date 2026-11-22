@@ -409,8 +409,8 @@ export function SheetPalette() {
   return palette;
 }
 
-// Closes the palette a system sheet shows, as the sheet's swipe asks to dismiss it: the swipe then
-// leaves the composer, which may ask about its changes. Other ways of leaving keep the palette.
+// Closes the palette a system sheet shows, so the question its composer asks about changes is not
+// covered. A window's palette stays.
 export function useCloseSheetPalette() {
   const { close } = useCommandPalette();
   const shown = use(SheetPaletteContext) !== null;

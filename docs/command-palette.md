@@ -136,8 +136,8 @@ results never appear in the palette. The vocabulary lives in the
   moves the bar's input out of the layout React measures. The composer there is the system sheet
   ([#2645](https://github.com/unwired-dev/product/issues/2645)). Its
   downward swipe leaves the composer, as Close does, asking Save Draft or
-  Delete Draft when the Draft has changes, and closes the sheet's palette
-  first. Its header offers no palette swipe; the input ends the From row as
+  Delete Draft when the Draft has changes. That question, however leaving
+  asks it, closes the sheet's palette first. Its header offers no palette swipe; the input ends the From row as
   the command symbol alone, a 44pt target labelled Open Command Palette, which
   opens the palette attached to the sheet's top, as on iPhone, even over a
   window palette left open beneath the sheet. Elsewhere, tapping the input or

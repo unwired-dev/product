@@ -117,17 +117,29 @@ function ComposerHost({
   );
 }
 
+// Hands over the shared leave guard a tapped notification waits on before it navigates.
+function LeaveGuard({
+  onLeave,
+}: {
+  readonly onLeave: (leave: ReturnType<typeof useLeaveComposer>) => void;
+}) {
+  onLeave(useLeaveComposer());
+  return null;
+}
+
 function Reader({
   inbox,
   drafts,
   message,
   sheet = false,
+  onLeave = ignore,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly message: string;
   // Whether the composer opens in the compact window's system sheet.
   readonly sheet?: boolean;
+  readonly onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
 }) {
   const [composing, setComposing] = useState<string>();
   return (
@@ -135,6 +147,7 @@ function Reader({
       drafts={drafts}
       mailboxes={singleMailbox(inbox, alex)}>
       <CommandPaletteProvider>
+        <LeaveGuard onLeave={onLeave} />
         {composing === undefined ? (
           <MessageDetail
             mailbox={alex}
@@ -559,7 +572,10 @@ describe('iPad reader', () => {
 
   // A reader whose responses open the composer in the compact window's sheet, or the regular
   // window's card, with its Reply's composer open.
-  const replyFromReader = async (sheet: boolean) => {
+  const replyFromReader = async (
+    sheet: boolean,
+    onLeave: (leave: ReturnType<typeof useLeaveComposer>) => void = ignore,
+  ) => {
     const snapshot: RegistrationSnapshot = {
       kind: 'connected',
       productAccountId: 'synthetic-product-account',
@@ -597,6 +613,7 @@ describe('iPad reader', () => {
           drafts={drafts}
           message={message}
           sheet={sheet}
+          onLeave={onLeave}
         />
       </AccountContext>,
     );
@@ -657,15 +674,11 @@ describe('iPad reader', () => {
     },
   );
 
-  it('swipes a changed composer sheet to its Save or Delete question in place of its palette', async () => {
+  it('swipes a composer sheet away with the palette it showed', async () => {
     expect.hasAssertions();
     await replyFromReader(true);
     await fireEvent.press(
       screen.getByRole('button', { name: 'Open Command Palette' }),
-    );
-    await fireEvent.changeText(
-      screen.getByLabelText('Message body', { includeHiddenElements: true }),
-      'Friday works.',
     );
     await act(async () => {
       await fireEvent(
@@ -673,13 +686,34 @@ describe('iPad reader', () => {
         'requestClose',
       );
     });
-    await waitFor(() => {
-      expect(palettesInComposer()).toHaveLength(0);
-    });
-    await fireEvent.press(screen.getByRole('button', { name: 'Delete Draft' }));
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Open Command Palette' }),
     );
     expect(screen.getByTestId('command-palette')).toBeOnTheScreen();
+  });
+
+  it('asks a changed composer sheet’s Save or Delete question in place of its palette', async () => {
+    expect.hasAssertions();
+    let leaveComposer: ReturnType<typeof useLeaveComposer> = () =>
+      Promise.resolve(true);
+    await replyFromReader(true, (leave) => {
+      leaveComposer = leave;
+    });
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      'Friday works.',
+    );
+    // A tapped notification waits on the composer's question.
+    await act(() => {
+      void leaveComposer();
+    });
+    await waitFor(() => {
+      expect(palettesInComposer()).toHaveLength(0);
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Delete Draft' }));
+    expect(screen.queryByLabelText('Message body')).not.toBeOnTheScreen();
   });
 });

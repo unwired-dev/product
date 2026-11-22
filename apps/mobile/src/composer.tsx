@@ -161,7 +161,12 @@ import type {
 } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { CommandInput, InSheet, usePaletteHeader } from './command-palette.tsx';
+import {
+  CommandInput,
+  InSheet,
+  useCloseSheetPalette,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -5084,6 +5089,7 @@ function Editor({
     });
   // Close asks to save or delete changes, including ones a failed Save Draft left unsaved; an
   // empty Draft is removed and an unchanged one closes.
+  const closeSheetPalette = useCloseSheetPalette();
   const close = () =>
     finish(async () => {
       if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
@@ -5102,6 +5108,8 @@ function Editor({
         return true;
       }
       setClosing(undefined);
+      // The question takes the place of a palette the sheet showed over it.
+      closeSheetPalette();
       setAsking(true);
       asked.current = true;
       return false;

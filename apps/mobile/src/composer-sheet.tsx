@@ -3,11 +3,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 
-import {
-  InSheet,
-  SheetPalette,
-  useCloseSheetPalette,
-} from './command-palette.tsx';
+import { InSheet, SheetPalette } from './command-palette.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({ fill: { flex: 1 } });
@@ -25,7 +21,6 @@ export function ComposerSheet({
   composer: (draft: string) => ReactNode;
 }>) {
   const colors = usePalette();
-  const closePalette = useCloseSheetPalette();
   const [shown, setShown] = useState(draft);
   if (draft !== undefined && draft !== shown) {
     setShown(draft);
@@ -43,10 +38,7 @@ export function ComposerSheet({
         'landscape-left',
         'landscape-right',
       ]}
-      onRequestClose={() => {
-        closePalette();
-        onLeave();
-      }}
+      onRequestClose={onLeave}
       onDismiss={() => {
         setShown(draft);
       }}>

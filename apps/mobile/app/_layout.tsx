@@ -135,13 +135,18 @@ function OpenedNotifications() {
   const leave = useLeaveComposer();
   const registry = useCommandRegistry();
   const { close } = useCommandPalette();
+  // The palette's `close` changes as it opens; a pending tap or Open Draft outlives that.
+  const closing = useRef(close);
+  useLayoutEffect(() => {
+    closing.current = close;
+  }, [close]);
   useEffect(() => {
     if (!previewInbox) {
       return followOpenedNotifications(native(), '', {
         snapshot: () => registration.getSnapshot().snapshot,
         leave,
         open: (target, reply, current) => {
-          close();
+          closing.current();
           router.navigate({
             pathname: '/message/[id]',
             params: {
@@ -163,12 +168,7 @@ function OpenedNotifications() {
         },
       });
     }
-  }, [leave, registry, close]);
-  // The palette's `close` changes as it opens; a pending Open Draft outlives that.
-  const closing = useRef(close);
-  useLayoutEffect(() => {
-    closing.current = close;
-  }, [close]);
+  }, [leave, registry]);
   useEffect(() => {
     let stopped = false;
     const stop = followOpenedDrafts((draft, profile) => {
