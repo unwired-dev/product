@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 
 import { InSheet, SheetPalette } from './command-palette.tsx';
@@ -27,15 +27,6 @@ export function ComposerSheet({
   if (draft !== undefined && draft !== shown) {
     setShown(draft);
   }
-  // Each opening is a fresh composer, even of the Draft the sheet is still sliding away with.
-  const [previous, setPrevious] = useState(draft);
-  const [opening, setOpening] = useState(0);
-  if (draft !== previous) {
-    setPrevious(draft);
-    if (previous === undefined) {
-      setOpening(opening + 1);
-    }
-  }
   return (
     <Modal
       testID="composer-sheet"
@@ -58,9 +49,7 @@ export function ComposerSheet({
           testID="composer-overlay"
           pointerEvents={draft === undefined ? 'none' : 'auto'}
           style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-          <InSheet value>
-            <Fragment key={opening}>{composer(shown)}</Fragment>
-          </InSheet>
+          <InSheet value>{composer(shown)}</InSheet>
           <SheetPalette leave={leave} />
         </View>
       )}

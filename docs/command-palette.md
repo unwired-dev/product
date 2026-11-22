@@ -175,7 +175,7 @@ From the root:
 
 ```sh
 mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/commands.test.ts
-mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx test/profile-routing.test.tsx test/composer.test.tsx
+mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx test/profile-routing.test.tsx test/composer.test.tsx test/ipad-reader.test.tsx
 mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx test/registration.test.tsx test/composer.test.tsx
 ```
 

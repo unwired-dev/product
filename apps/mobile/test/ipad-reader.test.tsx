@@ -163,7 +163,7 @@ function Reader({
   onLeave = ignore,
   onAccount = ignore,
   onInbox = ignore,
-  onReopen = ignore,
+  reopen = false,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
@@ -173,18 +173,11 @@ function Reader({
   readonly onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
   readonly onAccount?: () => void;
   readonly onInbox?: () => void;
-  // Hands over a reopening of the last Draft, as its Open Draft notification does.
-  readonly onReopen?: (reopen: () => void) => void;
+  // Whether the route reopens a closed Draft at once, as its Open Draft notification can in the
+  // same batch, so the composer stays.
+  readonly reopen?: boolean;
 }) {
   const [composing, setComposing] = useState<string>();
-  const [last, setLast] = useState<string>();
-  const compose = (draft: string) => {
-    setLast(draft);
-    setComposing(draft);
-  };
-  onReopen(() => {
-    setComposing(last);
-  });
   return (
     <InboxProvider
       drafts={drafts}
@@ -200,7 +193,7 @@ function Reader({
             mailbox={alex}
             id={message}
             onClose={ignore}
-            onCompose={compose}
+            onCompose={setComposing}
           />
         ) : null}
         {/* The sheet stays mounted while it slides away, as the app's does. */}
@@ -209,9 +202,11 @@ function Reader({
             draft={composing}
             sheet={sheet}
             onLeft={() => {
-              setComposing(undefined);
+              if (!reopen) {
+                setComposing(undefined);
+              }
             }}
-            onRebind={compose}
+            onRebind={setComposing}
           />
         ) : null}
       </CommandPaletteProvider>
@@ -627,12 +622,12 @@ describe('iPad reader', () => {
       onLeave = ignore,
       onAccount = ignore,
       onInbox = ignore,
-      onReopen = ignore,
+      reopen = false,
     }: Readonly<{
       onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
       onAccount?: () => void;
       onInbox?: () => void;
-      onReopen?: (reopen: () => void) => void;
+      reopen?: boolean;
     }> = {},
   ) => {
     const snapshot: RegistrationSnapshot = {
@@ -675,7 +670,7 @@ describe('iPad reader', () => {
           onLeave={onLeave}
           onAccount={onAccount}
           onInbox={onInbox}
-          onReopen={onReopen}
+          reopen={reopen}
         />
       </AccountContext>,
     );
@@ -835,18 +830,15 @@ describe('iPad reader', () => {
     });
   });
 
-  it('asks again about a Draft reopened while its sheet slides away', async () => {
+  it('asks again about a Draft its route reopens as it closes', async () => {
     expect.hasAssertions();
     let leaveComposer: ReturnType<typeof useLeaveComposer> = () =>
       Promise.resolve(true);
-    let reopen: () => void = ignore;
     await replyFromReader(true, {
       onLeave: (leave) => {
         leaveComposer = leave;
       },
-      onReopen: (open) => {
-        reopen = open;
-      },
+      reopen: true,
     });
     const edit = async (text: string) => {
       await fireEvent.changeText(
@@ -861,10 +853,6 @@ describe('iPad reader', () => {
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Save Draft' }),
     );
-    // Its Open Draft notification reopens it before the sheet finishes sliding away.
-    await act(() => {
-      reopen();
-    });
     await edit('Saturday works.');
     let left: boolean | undefined = undefined;
     await act(() => {
