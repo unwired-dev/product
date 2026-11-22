@@ -1356,12 +1356,54 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   another new simulator is not counted: it had no reading before termination. An iCloud Mail
   backfill total on the Mac, background refresh and push wakes, IDLE interruption,
   password and connection recovery and offline queueing stay on #632.
+- **2026-11-22, Mac iCloud Mail history total
+  ([#2674](https://github.com/unwired-dev/product/issues/2674)).** Target, toolchain and
+  operator as in the Mac connect record, on macOS 27.2.1. Build: the app source of
+  `b179e944beeadfc1998bd0e93093af210e15182e`. Before the app connected, the iCloud Mail
+  certification mailbox held 1 message across its six selectable folders. A run folder
+  of 6,000 small synthetic messages was then added over IMAP, with no SMTP submission,
+  and the server counted 6,001. Google Product Sign-In found the certification Product
+  Account, and the Mac was unlocked with its Recovery Key. Result: pass. A later download,
+  after a second run folder was added, showed a total that matched the server, a message
+  opened in the reader during it, and the history completed. Times below come from the
+  operator's Sync Status readings. **iCloud Mail** connected over `imap.mail.me.com` 993
+  (TLS). Sync Status showed **Downloading history · 501 messages** 26 seconds after
+  **Connect** and **6,001 messages** 54 seconds after it, with no total, and the capsule
+  faded 3 seconds later. With the app quit, a second run folder of 6,000 messages was
+  copied on the server, which then counted 12,001 across eight folders. Launched again,
+  the app showed **Checking the mail server…** 5 seconds after launch and **6,001
+  messages** 8 seconds after launch, then **6,501 of 12,001 messages** 20 seconds after
+  launch, when the new folder had begun, and **11,501 of 12,001** 50 seconds after launch;
+  then Sync Status closed as the capsule faded. An Inbox message was clicked 32 seconds
+  after launch, while the capsule read **Updating 1 account · 70%**, and 9 seconds later
+  the reader showed its body, with remote images held back, at **83%**. On the next
+  launch, Sync Status showed **Checking the mail server…** and then nothing for the next
+  65 seconds: no history download. Read over IMAP after the app run, the server still
+  counted 12,001 messages, and the Mailboxes list showed both run folders. Afterwards both
+  run folders were deleted, an IMAP count found the mailbox's original folders and total,
+  **Sign Out of This Device** returned the app to Welcome, and the run's caches and HTTP
+  storage were removed from the app's container. Limitations: as in the earlier Mac
+  record, the first download showed no total, because Sync Status shows one only once
+  every folder has begun. As on the other hosts, Sync Status closes with the capsule, so
+  the final count of 12,001 was not on screen; completion comes from the capsule fading
+  and the next launch downloading nothing. The operator's accessibility reads were
+  sampled every 1 to 3 seconds, so the times are approximate. The first run folder was
+  filled with 2,177 appended messages and then copied within itself on the server, because
+  iCloud Mail slowed the appends; copies share their originals' Message-IDs. iCloud Mail
+  answered the second folder's copy with NO while it went on filling the folder to 6,000
+  over about 3 minutes, and kept that folder at 5,900 messages for over a minute after
+  reporting its deletion complete; it was gone after a second deletion. As in the Mac
+  IDLE record, the first **Sign in with Google** failed with "Setup could not finish",
+  and a second press showed the system prompt. The operator drove the app through the
+  macOS accessibility interface and synthesized mouse and keyboard input. Background
+  refresh and push wakes, IDLE interruption, password and connection recovery and offline
+  queueing stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
 ([#632](https://github.com/unwired-dev/product/issues/632)), as do native Mac
 controlled-TLS reads and complete native IMAP setup/open/relaunch journeys on both
-hosts, and showing an iCloud Mail backfill total on the Mac. Registration Mock Mail Sessions connect any
+hosts. Registration Mock Mail Sessions connect any
 IMAP login to a synthetic server that marks only its Sent folder, which the
 [Mac](native-journeys.md#mac-imap-spam-and-trash-folder-journey) and
 [iPhone and iPad](native-journeys.md#iphone-and-ipad-imap-spam-and-trash-folder-journey)
