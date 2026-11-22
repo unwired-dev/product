@@ -666,10 +666,10 @@ function useFavorites(profile: string) {
   };
 }
 
-// The order of Favorites or folder rows, to compare.
+// The order of Favorites or folder rows, to compare; JSON keeps a folder name's newline apart.
 const orderOf = (
   rows: ReadonlyArray<Readonly<{ row: string }> | Readonly<{ name: string }>>,
-) => rows.map((row) => ('row' in row ? row.row : row.name)).join('\n');
+) => JSON.stringify(rows.map((row) => ('row' in row ? row.row : row.name)));
 
 // What a DragList gives each of its items: whether the item is lifted by a drag, which ways it can
 // move by one place, and how to move it so or drag it by its handle.
@@ -792,7 +792,7 @@ function DragList<T>({
 }) {
   const edge = use(EdgeScrollContext);
   const keys = items.map(keyOf);
-  const order = keys.join('\n');
+  const order = JSON.stringify(keys);
   // The dragged item, the place it started from, how far the finger and the list moved it, whether
   // it has moved past `dragSlop`, the items' order when it began, and whether a new order ended it.
   const [held, setHeld] = useState<

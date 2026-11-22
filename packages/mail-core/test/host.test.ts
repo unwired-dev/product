@@ -580,7 +580,16 @@ describe('the host assembly', () => {
     const preferences = JSON.stringify({
       profile: defaultProfile,
       fields: {
-        [`sectionShown:${connection}`]: { value: false, at: Date.now() },
+        [`sectionShown:${connection}`]: {
+          value: {
+            epoch: required(
+              required(mailboxesOf(host.registration.getSnapshot().snapshot)[0])
+                .epoch,
+            ),
+            shown: false,
+          },
+          at: Date.now(),
+        },
       },
     });
     vi.spyOn(native, 'pullInboxPreferences').mockImplementation((owner) =>
