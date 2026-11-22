@@ -1379,6 +1379,11 @@ describe('connecting IMAP mailboxes', () => {
     { pattern: 'ΟΣ*', name: 'ΟΣΑ', reason: 'a final sigma in any letter case' },
     { pattern: 'STRAẞE/*', name: 'Straße/Team', reason: 'a capital sharp s' },
     {
+      pattern: 'İstanbul/*',
+      name: 'istanbul/Team',
+      reason: 'a Turkish dotted capital I',
+    },
+    {
       pattern: `*${'a'.repeat(5000)}b`,
       name: 'a'.repeat(4000),
       reason: 'matching past its budget',

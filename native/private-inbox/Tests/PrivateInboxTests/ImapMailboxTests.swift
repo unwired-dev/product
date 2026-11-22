@@ -63,8 +63,8 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
 }
 
 // A controlled session: it lists the Inbox, records each change command and its close. With `hold`,
-// a listing waits for `release()`, as SwiftMail's command waits for the server's reply even after
-// the session closes. IDLE on the Inbox reports new mail; on any other folder it waits until the
+// a listing waits for `release()`, a controlled late completion that shows a closed handle ignores
+// the result. IDLE on the Inbox reports new mail; on any other folder it waits until the
 // session closes.
 final class ControlledImapSession: ImapSession, @unchecked Sendable {
   private let lock = NSLock()
