@@ -4,4 +4,4 @@
 '@private-email/mobile': patch
 ---
 
-On iPad and iPhone, the Slash Command Menu lists Attach File… and Insert Image… under Insert, after the Basic Blocks. Typing filters both sections. Choosing one removes the typed command and opens the same picker as the format bar; an inserted image goes where the `/` was (#2668).
+On iPad and iPhone, the Slash Command Menu lists Attach File… and Insert Image… under Insert, after the Basic Blocks. Typing filters both sections. Choosing one removes the typed command and opens the same picker as the format bar, which places an inserted image at the caret when it returns (#2668).
