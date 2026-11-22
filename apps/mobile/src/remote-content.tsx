@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
-    paddingLeft: 40,
+    paddingLeft: spacing.xxxl,
     paddingRight: spacing.m,
     paddingBottom: 10,
   },

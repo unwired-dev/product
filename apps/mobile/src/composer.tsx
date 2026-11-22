@@ -575,7 +575,7 @@ const styles = StyleSheet.create({
 
 // Each layout's additions to the shared styles. On both, the body grows to push its attachments
 // and fields to the bottom. iPad scales the Mac recipe by 1.15: the body 36.8pt in, in the Mac
-// composer's 15/22 at that scale; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt
+// composer's 15/22 at that scale, rounded to 17/25; the fields 27.6pt in, 41.4pt rows of list type with a 73.6pt
 // label column.
 export const layoutStyles = {
   // iPhone's fields are 44pt rows of Body text beneath 1pt rules, 10pt from their labels, with
@@ -633,8 +633,8 @@ export const layoutStyles = {
       flexGrow: 1,
       paddingTop: 20 * ipadListScale,
       paddingHorizontal: padInset,
-      fontSize: 15 * ipadListScale,
-      lineHeight: 22 * ipadListScale,
+      fontSize: 17,
+      lineHeight: 25,
     },
     quoted: { marginHorizontal: padInset },
     assets: { paddingHorizontal: padFieldInset },

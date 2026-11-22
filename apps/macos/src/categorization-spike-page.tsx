@@ -49,7 +49,7 @@ import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   content: {
-    paddingHorizontal: 40,
+    paddingHorizontal: spacing.xxxl,
     paddingTop: 72,
     paddingBottom: 96,
     gap: 10,

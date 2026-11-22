@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
     gap: settingsColumns ? 14 * ipadListScale : 14,
     paddingHorizontal: settingsColumns ? spacing.l * ipadListScale : spacing.l,
     paddingVertical: settingsColumns ? 14 * ipadListScale : spacing.m,
-    borderRadius: settingsColumns ? radius.card : radius.insetGroup,
+    borderRadius: settingsColumns ? radius.card : radius.mailboxGroup,
     borderCurve: 'continuous',
   },
   // Account & Devices' own card on iPhone, as its frame draws it.
@@ -923,7 +923,7 @@ export function SettingsGroup({
         <View
           style={[
             styles.group,
-            variant === 'navigation' && { borderRadius: radius.insetGroup },
+            variant === 'navigation' && { borderRadius: radius.mailboxGroup },
             { backgroundColor: colors.fillQuiet },
           ]}>
           {/* Each cell draws a hairline above itself; this hides the first one. */}

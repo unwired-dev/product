@@ -62,7 +62,7 @@ Figma file define how the maintained clients look and behave.
   one differs from DESIGN.md, a product requirement or a feature guide, the
   frame wins: build what it shows, correct the document in the same PR and list
   the difference there.
-- Three limits on that rule: for the frame size listed first under
+- Three limits on that rule: for the frame sizes listed first under
   [Known frame differences](DESIGN.md#known-frame-differences) the system wins;
   a provided native component
   keeps its [own size and motion](docs/agents/native-components.md#native-behavior-and-design);

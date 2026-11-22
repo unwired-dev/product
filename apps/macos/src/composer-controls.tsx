@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   // where the frames centre theirs; Text Style keeps AppKit's own fit. Its 28pt target takes a 20pt
   // line.
   inlinePopUp: { height: 28, marginVertical: -4 },
-  inlineSizing: { paddingLeft: 3, paddingRight: 24 },
+  inlineSizing: { paddingLeft: 3, paddingRight: spacing.xxl },
   inlineSymbolSizing: { paddingLeft: 25, paddingRight: 17 },
   // AppKit's split button is 75pt wider than its label, for the symbol, insets and arrow, and
   // 14pt more than a name beside the arrow.

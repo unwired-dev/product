@@ -41,7 +41,7 @@ const securities = ['tls', 'starttls'] as const;
 const formStyles = StyleSheet.create({
   group: {
     overflow: 'hidden',
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.mailboxGroup,
     borderCurve: 'continuous',
   },
   groupTitle: { ...textStyles.footnote, paddingHorizontal: spacing.l },

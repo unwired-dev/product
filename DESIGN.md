@@ -7,6 +7,8 @@ colors:
   accent-on-fill: '#FFFFFF'
   accent-ink: '#3A3D44'
   accent-ink-dark: '#C8CBD2'
+  accent-unread: '#3A3D44'
+  accent-unread-dark: '#7A7E88'
   accent-selection-subtle: 'rgba(58, 61, 68, 0.12)'
   accent-selection-subtle-dark: 'rgba(200, 203, 210, 0.16)'
   accent-focus-ring: 'rgba(58, 61, 68, 0.32)'
@@ -23,6 +25,7 @@ colors:
   brand-monogram-dark: '#6A6E78'
   brand-well: 'rgba(255, 255, 255, 0.08)'
   brand-well-border: 'rgba(255, 255, 255, 0.16)'
+  brand-action: 'rgba(255, 255, 255, 0.12)'
   profile-blue: '#0A58CA'
   profile-blue-dark: '#3B6FD6'
   profile-indigo: '#3634A3'
@@ -67,7 +70,7 @@ colors:
   separator-dark: 'rgba(255, 255, 255, 0.1)'
   scrim-touch: 'rgba(0, 0, 0, 0.22)'
   scrim-touch-dark: 'rgba(0, 0, 0, 0.4)'
-  status-warning: '#C93400'
+  status-warning: '#9A5B00'
   status-warning-dark: '#FFB340'
   status-destructive: '#D70015'
   status-destructive-dark: '#FF6961'
@@ -97,6 +100,36 @@ typography:
     fontSize: '11px'
     fontWeight: 400
     lineHeight: '14px'
+  macos-subheadline-emphasized:
+    fontFamily: 'SF Pro'
+    fontSize: '11px'
+    fontWeight: 600
+    lineHeight: '14px'
+  macos-caption-1-emphasized:
+    fontFamily: 'SF Pro'
+    fontSize: '10px'
+    fontWeight: 500
+    lineHeight: '13px'
+  ipad-list-title-3-emphasized:
+    fontFamily: 'SF Pro'
+    fontSize: '17px'
+    fontWeight: 600
+    lineHeight: '23px'
+  ipad-list-body:
+    fontFamily: 'SF Pro'
+    fontSize: '15px'
+    fontWeight: 400
+    lineHeight: '18px'
+  ipad-list-subheadline:
+    fontFamily: 'SF Pro'
+    fontSize: '13px'
+    fontWeight: 400
+    lineHeight: '16px'
+  ipad-title-1:
+    fontFamily: 'SF Pro'
+    fontSize: '25px'
+    fontWeight: 400
+    lineHeight: '30px'
   reading-subject:
     fontFamily: 'SF Pro'
     fontSize: '20px'
@@ -149,7 +182,7 @@ rounded:
   bubble: '20px'
   window: '16px'
   mailbox-group: '22px'
-  settings-detail: '16.923076629638672px'
+  settings-detail: '17px'
   format-panel: '34px'
   touch-card: '18px'
   badge-mac: '4px'
@@ -158,12 +191,21 @@ rounded:
   ipad-sheet: '25.3px'
   profile-switcher: '14px'
   close-question: '36px'
+  menu: '12px'
+  alert-mac: '22px'
+  alert-touch: '32px'
+  touch-menu: '24px'
+  touch-menu-item: '14px'
+  chip: '14px'
+  search-field: '18px'
 spacing:
   xs: '4px'
   s: '8px'
   m: '12px'
   l: '16px'
   xl: '20px'
+  xxl: '24px'
+  xxxl: '40px'
 components:
   button-primary:
     backgroundColor: '{colors.accent-fill}'
@@ -270,8 +312,8 @@ content without the marker.
 **Key characteristics:**
 
 - Native macOS 27 and iOS 27 structure, controls and type.
-- Liquid Glass only on the navigation layer: sidebar, toolbar groups, the search
-  bar, menus, sheets and toasts. Content surfaces stay opaque.
+- Liquid Glass only on the navigation layer, on the surfaces
+  [Elevation & Depth](#elevation--depth) lists. Content surfaces stay opaque.
 - One accent, used sparingly; meaning is never carried by color alone.
 - Light and Dark are designed as separate modes, not an inversion.
 
@@ -281,8 +323,9 @@ Graphite neutrals with a single warm seal.
 
 | Role              | Token                      | Light         | Dark          | Use                                                            |
 | ----------------- | -------------------------- | ------------- | ------------- | -------------------------------------------------------------- |
-| Accent fill       | `accent/fill`              | `#3A3D44`     | `#6A6E78`     | Selected message row, primary button, unread dot, sent bubble  |
+| Accent fill       | `accent/fill`              | `#3A3D44`     | `#6A6E78`     | Selected message row, primary button, sent bubble              |
 | On accent         | `accent/on-fill`           | `#FFFFFF`     | `#FFFFFF`     | Text and icons on the accent fill                              |
+| Unread            | `accent/unread`            | `#3A3D44`     | `#7A7E88`     | Unread dot; Dark is lighter than the fill for contrast         |
 | Accent ink        | `accent/ink`               | `#3A3D44`     | `#C8CBD2`     | Links, tinted sidebar icons, New Message                       |
 | Subtle selection  | `accent/selection-subtle`  | `#3A3D44` 12% | `#C8CBD2` 16% | Selected sidebar item, pressed controls                        |
 | Focus ring        | `accent/focus-ring`        | `#3A3D44` 32% | `#6A6E78` 28% | iPad Command Palette outline around the focused query          |
@@ -318,7 +361,7 @@ Graphite neutrals with a single warm seal.
 | Track             | `fill/track`               | black 9%      | white 16%     | Off switch track                                               |
 | Separator         | `separator`                | black 10%     | white 10%     | Hairlines between rows and panes                               |
 | Scrim             | `scrim/touch`              | black 22%     | black 40%     | iPad composer and setup sheet; link alert backdrops on touch   |
-| Warning           | `status/warning`           | `#C93400`     | `#FFB340`     | Authorization needed, Pin indicator                            |
+| Warning           | `status/warning`           | `#9A5B00`     | `#FFB340`     | Authorization needed, Pin indicator                            |
 | Destructive       | `status/destructive`       | `#D70015`     | `#FF6961`     | Delete Unwired Account, Delete                                 |
 
 Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
@@ -333,14 +376,14 @@ Contrast (WCAG 2.x, AA is 4.5:1 for text and 3:1 for non-text):
 | Secondary text on panel            | 7.67  | 8.06  |
 | Secondary text on bubble           | 7.22  | 6.45  |
 | On device ink on on device surface | 6.11  | 7.22  |
-| Warning on content                 | 5.28  | 9.35  |
+| Warning on content                 | 5.43  | 9.35  |
 | Destructive on content             | 5.38  | 5.91  |
 | White on brand deep                | 17.94 | 17.94 |
 | White on brand well                | 14.46 | 14.46 |
 | White on brand seal                | 5.14  | 5.14  |
 | White on monogram                  | 17.94 | 5.10  |
 | White on Profile Colors (lowest)   | 5.36  | 4.62  |
-| Unread dot (non-text) on content   | 10.88 | 3.27  |
+| Unread dot (non-text) on content   | 10.88 | 4.10  |
 
 `text/secondary` uses the solid colours approved for #1195. The ratios above use
 the opaque surface tokens. In Dark, the Mac Inbox and Settings sidebars lay
@@ -367,14 +410,13 @@ styles) so the file stays editable.
   timestamps and section headers; Title 3 Emphasized 15/20 for list and page
   titles.
 - **iPad message list:** the Inbox frames use the Mac recipe at 1.15× in both
-  orientations: Body 14.95/18.4, Subheadline 12.65/16.1 and Title 3 Emphasized
-  17.25/23. Row insets, unread indicators and dividers use the same scale;
-  interactive controls retain at least 44pt touch targets.
-- **iPad reader:** the Reading pane recipe at the same 1.15×: Reading Body
-  17.25/25.3 and Reading Subject 23/28.75.
+  orientations, with type rounded to whole points: Body 15/18, Subheadline 13/16
+  and Title 3 Emphasized 17/23. Row insets, unread indicators and dividers use
+  the same scale; interactive controls retain at least 44pt touch targets.
+- **iPad reader and composer:** the Reading pane recipe at the same 1.15×,
+  rounded: Reading Body 17/25 and Reading Subject 23/29.
 - **iPad onboarding:** Welcome, Sign In and the Recovery Key use the same 1.15×:
-  Title 1 25.3/29.9, Body 14.95/18.4, and 41.4pt and 46pt buttons with 6.9pt
-  corners.
+  Title 1 25/30, Body 15/18, and 41.4pt and 46pt buttons with 6.9pt corners.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
   long-form reading) and Reading Subject 20/25 bold for the Thread subject. These
   reference sizes respect the [reader's accessibility sizing](docs/gmail-inbox.md#presentation-accessibility-and-fallback).
@@ -383,6 +425,9 @@ styles) so the file stays editable.
   Footnote 13/18 for supporting labels,
   Caption 1 12/16 for the inline title's subtitle and Title 3 Emphasized 20/25
   for empty-state titles.
+- **Emphasis:** Subheadline Emphasized 11/14 semibold and Caption 1 Emphasized
+  10/13 medium on the Mac; banner titles are Footnote (iPad: list Body) in
+  medium.
 - UI emphasis comes from weight, not size. Never set long UI text in bold.
   Received message content retains permitted sender formatting, including fonts,
   sizes and emphasis, under the [sanitization contract](docs/gmail-inbox.md#sanitization-contract).
@@ -426,35 +471,8 @@ styles) so the file stays editable.
   [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior)
   set. On iPhone the title and subtitle sit centered in the system navigation bar,
   whose Back returns to Mailboxes; the bar hides while searching.
-- **Search bar:** search and New Message share one floating glass bar at the
-  bottom of the window, as the [organization requirements](docs/product/organization.md)
-  specify. The search field is 400pt wide and centered, with New Message pinned to
-  the trailing edge. On iPad with the sidebar shown, a filtered Inbox's "Filtered
-  by" control, an 8pt gap and the field center together, the control starting no
-  further left than the list's content, and the Filters popover opens with its
-  leading edge on the control's. On compact layouts it spans the screen width and
-  sits 4pt above the bottom safe area, or 12pt above the software keyboard. Rows
-  scroll under it behind a 72pt scroll edge fade. On iPhone, Filter, the system
-  search field and New Message are items of the system toolbar instead, which
-  UIKit places and lifts above the software keyboard: 48pt glass with its bottom
-  edge 28pt above the screen's bottom and 28pt from each side, a 226pt field and
-  12pt gaps. The Quick Look, Select Messages and Ask About Calendar bars sit on the
-  same line. Whether it shows while composing
-  follows [Drafts](docs/drafts.md#composing).
-- **Command Palette:** on the Mac a glass command input (command symbol,
-  "Commands", ⌘K key cap) sits in the window's toolbar row: 36pt at the leading
-  end of the Inbox reader's row, beside its glass groups, and 32pt at the trailing
-  end of the Settings title row and in the New Message toolbar, where it is 75pt
-  wide and drops the "Commands" label so the window title has room; open,
-  it becomes the focused query with an esc key cap and a 460pt glass panel with
-  the menu shadow beneath it.
-  Rows are 28pt with an SF Symbol, the name, a disabled reason in secondary text
-  or a chevron for a picker, highlighted in the accent fill; section headers read
-  Selected Message · subject, App and Go To, and a footer names the keys. iPhone
-  and iPad show a panel attached to the top with the input, Cancel and 44pt rows;
-  iPad keeps the command input in the Inbox heading and in the reader and
-  composer headers too. The [Command Palette guide](docs/command-palette.md) owns
-  its entry points, including iPhone's header swipe.
+- **Floating controls and panels:** the Search Bar, Command Palette, reader
+  Toolbar and Compose placement are described under [Components](#components).
 - **Synchronization status:** a bottom-anchored overlay whose states, progress
   and controls follow the
   [sync-status requirements](docs/product/privacy-and-sync.md#local-storage-and-background-freshness).
@@ -472,48 +490,6 @@ styles) so the file stays editable.
   targets it.
   Received attachments sit below their message body, with availability and actions
   following the [received-attachment contract](docs/gmail-inbox.md#received-attachments).
-- **Toolbar:** one fixed reader toolbar of glass button groups over the reading
-  pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
-  safe area, and the reading pane runs to the screen's bottom edge beneath them,
-  its text fading out behind a 140pt scroll edge fade (clear, then 85% and 97%
-  of the surface). A regular-width iPhone keeps the window bar's fade instead.
-  On Mac and iPad it holds Archive, Delete, Move, Reply, Reply All, Forward, Pin,
-  Snooze and More; on iPhone Archive, Move and Reply. More holds Mark as Unread,
-  Mute Thread and Move to Spam, and the multi-select Category control sits in
-  the reader header;
-  the [conversation reader requirements](docs/product/messages-and-delivery.md#thread-identity-and-reader-behavior)
-  and [Thread Snooze requirements](docs/product/organization.md#snooze-and-follow-up-notes)
-  set what each targets.
-- **Compose:** the
-  [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation)
-  and [Drafts](docs/drafts.md#composing) own its states, Expand, Close, Discard,
-  interactivity beside it and save behavior.
-  On the Mac it opens as a bottom-anchored overlay docked across the reading
-  pane's full width, as the inline composer frame shows, at 70% of the available
-  height, clamped from 420 to 720pt. On regular-width iPad a reply or forward
-  docks across the reading column's lower two thirds, at most 720pt tall as the
-  Portrait Compose Inline frame draws it, and a new message opens as
-  a card centred on the window, at most 874pt wide. Expand covers the app window on iPad and moves the Draft into
-  its own New Message window on the Mac
-  ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).
-  Compact
-  layouts present the composer as a sheet. Order: body, attachments,
-  Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
-  field reveals together. The sender is a From pop-up beside Send. The Send
-  button's menu, a long press on iPhone and iPad and a right click on the Mac,
-  lists Remind Me to Send… after Send Later; no composer carries a reminder bell.
-  The Mac New Message window has no composer header or bottom row: its toolbar
-  row holds the window controls, the "New Message" title, the Command Input, the
-  From pop-up, the Compose actions overflow and Send.
-  In the approved compose design ([iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140),
-  [iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=295-50811),
-  [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=297-46535)),
-  which the Tiptap evaluation editor follows and the regular composer adopts in
-  [#991](https://github.com/unwired-dev/product/issues/991), iPad also uses the glass
-  close cross, and Delete Draft and Save Draft grow out of Close on iPhone and
-  iPad; the Mac asks in an alert sheet. iPhone moves the format bar into a floating Liquid Glass
-  pill (Aa and paperclip) with a separate Writing tools button above the keyboard;
-  Aa replaces the keyboard with the glass Format panel.
 - **Settings:** the Mac reference is a 900×732 independent window, opened with
   `Command-,`, with a glass sidebar grouped as Accounts, Mail, Composing,
   Automation and Application, and grouped forms on the right. iPad uses an in-app
@@ -535,7 +511,8 @@ styles) so the file stays editable.
   Searches and Mail Profile names, and mail content, stay as written. Where a
   longer string does not fit, the neighbouring control gives up width, the text
   wraps, or it truncates with an ellipsis, as the German frames show.
-- **Spacing scale:** 4, 8, 12, 16, 20pt. Hit targets are at least 28pt on the Mac
+- **Spacing scale:** 4, 8, 12, 16, 20, 24 and 40pt. Sizes off the scale, such as
+  the iPad's 1.15× insets, are fixed layout sizes. Hit targets are at least 28pt on the Mac
   and 44pt on iPhone.
 
 ## Elevation & Depth
@@ -543,15 +520,21 @@ styles) so the file stays editable.
 Depth comes from Apple's Liquid Glass and opaque layering, not from shadows on
 content.
 
-- Liquid Glass is reserved for the navigation layer: sidebar, toolbar groups,
-  search bar, menus, popovers, sheets and toasts. Use the macOS 27 and iOS 27 kit
+- Liquid Glass is reserved for the navigation layer: the sidebar, toolbar groups,
+  the search bar, menus, popovers, sheets and toasts, and the controls that float
+  above content: the iPhone compose pill, the Writing tools button and the Format
+  panel. Message content, cards and the iPad and Mac compose format bar never
+  take glass. This is the one list; other sections link here. Use the macOS 27 and iOS 27 kit
   material ("Liquid Glass - Medium") in its Light or Dark variant. On iPhone
   and iPad, toolbar control groups use interactive system glass with their
   controls inside the material and no opaque backing fill; menus, sheets and
   structural surfaces keep passive material.
 - Small glass controls (48pt or less) use a soft shadow: 8pt blur, 2pt down, 8%
   black in Light and 30% in Dark. Large glass (sidebar) uses 16pt blur, 4pt
-  down. Menus and sheets keep a deeper 24pt shadow so they read as floating.
+  down. Menus and sheets keep a deeper shadow so they read as floating: 8pt down
+  with 24pt blur at 16% black in Light; in Dark, 18pt down with 48pt blur at 45%,
+  and 8pt down with 24pt blur at 40% under the Mac's glass menu panels, such as
+  the Command Palette.
   A toast keeps the glass material's own shadow.
 - Content rows are transparent so the list surface and edge effects show
   through. Never stack glass on glass.
@@ -561,9 +544,9 @@ content.
 ## Shapes
 
 - Controls 6pt, message rows 7pt, cards and banners 10pt, windows 16pt.
-- iPhone Settings root groups and account cards use the 22pt inset-group token.
-  Settings detail groups use `radius.settingsDetail`, 16.923076629638672pt,
-  matching their Light and Dark reference frames. Mac and iPad keep 10pt groups.
+- iPhone Settings root groups, account cards and other inset groups use
+  `radius.mailboxGroup`, 22pt. Settings detail groups use
+  `radius.settingsDetail`, 17pt, as their reference frames draw them. Mac and iPad keep 10pt groups.
 - iPhone sheets have 34pt top corners. A floating sheet also rounds its bottom
   corners, concentric with the screen's; the system sheet draws both.
 - iPad popovers, such as Filters, are system popovers and keep the iOS corner
@@ -582,11 +565,8 @@ content.
   control groups use 22pt corners and 18pt inset selections.
 - The iPhone and iPad composer Close question (Delete Draft / Save Draft) is a
   220pt glass panel with `radius.closeQuestion`, 36pt, 12pt padding and 8pt gaps
-  between 48pt `fill/quiet` capsules with centred Body labels. It opens over
-  Close, its corner on Close's, and grows out of Close from a fifth of its size,
-  as a system menu opens over its button; a tap outside it keeps editing. The
-  approved frames still draw it beneath Close; the owner chose the placement over
-  Close ([#2610](https://github.com/unwired-dev/product/issues/2610)).
+  between 48pt `fill/quiet` capsules with centred Body labels;
+  [Components](#components) describes how it opens.
 - Monograms and avatars are circles. A Mail Profile monogram fills the circle
   with its Profile Color (Graphite is `brand/monogram`) and shows its Icon, an SF
   Symbol at regular weight, or its name's first letter in `brand/on-deep`. On Mac
@@ -689,6 +669,82 @@ form accessories, keyboards, status bar).
   states with recovery controls after the toast ends. On iPhone the reason shows
   in full and the controls are 44pt `fill/quiet` capsules on a line under it. Its
   refusal state follows the [Outbox delivery rules](docs/outbox.md#delivery-rules).
+- **Search Bar:** search and New Message share one floating glass bar at the
+  bottom of the window, as the [organization requirements](docs/product/organization.md)
+  specify. The search field is 400pt wide and centered, with New Message pinned to
+  the trailing edge. On iPad with the sidebar shown, a filtered Inbox's "Filtered
+  by" control, an 8pt gap and the field center together, the control starting no
+  further left than the list's content, and the Filters popover opens with its
+  leading edge on the control's. On compact layouts it spans the screen width and
+  sits 4pt above the bottom safe area, or 12pt above the software keyboard. Rows
+  scroll under it behind a 72pt scroll edge fade. On iPhone, Filter, the system
+  search field and New Message are items of the system toolbar instead, which
+  UIKit places and lifts above the software keyboard: 48pt glass with its bottom
+  edge 28pt above the screen's bottom and 28pt from each side, a 226pt field and
+  12pt gaps. The Quick Look, Select Messages and Ask About Calendar bars sit on the
+  same line. Whether it shows while composing
+  follows [Drafts](docs/drafts.md#composing).
+- **Command Palette:** on the Mac a glass command input (command symbol,
+  "Commands", ⌘K key cap) sits in the window's toolbar row: 36pt at the leading
+  end of the Inbox reader's row, beside its glass groups, and 32pt at the trailing
+  end of the Settings title row and in the New Message toolbar, where it is 75pt
+  wide and drops the "Commands" label so the window title has room; open,
+  it becomes the focused query with an esc key cap and a 460pt glass panel with
+  the menu shadow beneath it.
+  Rows are 28pt with an SF Symbol, the name, a disabled reason in secondary text
+  or a chevron for a picker, highlighted in the accent fill; section headers read
+  Selected Message · subject, App and Go To, and a footer names the keys. iPhone
+  and iPad show a panel attached to the top with the input, Cancel and 44pt rows;
+  iPad keeps the command input in the Inbox heading and in the reader and
+  composer headers too. The [Command Palette guide](docs/command-palette.md) owns
+  its entry points, including iPhone's header swipe.
+- **Toolbar:** one fixed reader toolbar of glass button groups over the reading
+  pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
+  safe area, and the reading pane runs to the screen's bottom edge beneath them,
+  its text fading out behind a 140pt scroll edge fade (clear, then 85% and 97%
+  of the surface). A regular-width iPhone keeps the window bar's fade instead.
+  On Mac and iPad it holds Archive, Delete, Move, Reply, Reply All, Forward, Pin,
+  Snooze and More; on iPhone Archive, Move and Reply. More holds Mark as Unread,
+  Mute Thread and Move to Spam, and the multi-select Category control sits in
+  the reader header;
+  the [conversation reader requirements](docs/product/messages-and-delivery.md#thread-identity-and-reader-behavior)
+  and [Thread Snooze requirements](docs/product/organization.md#snooze-and-follow-up-notes)
+  set what each targets.
+- **Compose presentation:** the
+  [composer presentation requirements](docs/product/messages-and-delivery.md#prototype-composer-presentation)
+  and [Drafts](docs/drafts.md#composing) own its states, Expand, Close, Discard,
+  interactivity beside it and save behavior.
+  On the Mac it opens as a bottom-anchored overlay docked across the reading
+  pane's full width, as the inline composer frame shows, at 70% of the available
+  height, clamped from 420 to 720pt. On regular-width iPad a reply or forward
+  docks across the reading column's lower two thirds, at most 720pt tall as the
+  Portrait Compose Inline frame draws it, and a new message opens as
+  a card centred on the window, at most 874pt wide. Expand covers the app window on iPad and moves the Draft into
+  its own New Message window on the Mac
+  ([38 · #1058](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=528-66002)).
+  Compact
+  layouts present the composer as a sheet. Order: body, attachments,
+  Subject, To, then Cc and Bcc, which a trailing "Cc/Bcc" control on the To
+  field reveals together. The sender is a From pop-up beside Send. The Send
+  button's menu, a long press on iPhone and iPad and a right click on the Mac,
+  lists Remind Me to Send… after Send Later; no composer carries a reminder bell.
+  The Mac New Message window has no composer header or bottom row: its toolbar
+  row holds the window controls, the "New Message" title, the Command Input, the
+  From pop-up, the Compose actions overflow and Send.
+  In the approved compose design ([iPhone](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=279-19140),
+  [iPad](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=295-50811),
+  [Mac](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T?node-id=297-46535)),
+  which the Tiptap evaluation editor follows and the regular composer adopts in
+  [#991](https://github.com/unwired-dev/product/issues/991), iPad also uses the glass
+  close cross, and Delete Draft and Save Draft grow out of Close on iPhone and
+  iPad; the Mac asks in an alert sheet. iPhone moves the format bar into a floating Liquid Glass
+  pill (Aa and paperclip) with a separate Writing tools button above the keyboard;
+  Aa replaces the keyboard with the glass Format panel.
+- **Close question:** the composer's Delete Draft / Save Draft panel on iPhone
+  and iPad opens over Close, its corner on Close's, and grows out of Close from a
+  fifth of its size, as a system menu opens over its button; a tap outside it
+  keeps editing. The approved frames still draw it beneath Close; the owner chose
+  the placement over Close ([#2610](https://github.com/unwired-dev/product/issues/2610)).
 - **Compose:** Compose Format Bar (text style, bold, italic, underline,
   strikethrough, inline code, lists, link, the Writing tools sparkles menu with
   Rewrite, Suggest Reply, Proofread, Break into Paragraphs, Translate, Expand
@@ -800,10 +856,8 @@ form accessories, keyboards, status bar).
   communicate meaning by color alone.
 - **Do** design Light and Dark explicitly, and check AA contrast in both.
   **Don't** invert one mode to get the other.
-- **Do** keep glass on the navigation layer. **Don't** put glass on message
-  content, cards or the iPad and Mac compose format bar; toasts, the iPhone
-  compose pill, Writing tools button and Format panel float above content as
-  controls.
+- **Do** keep glass on the surfaces [Elevation & Depth](#elevation--depth)
+  lists. **Don't** put glass on message content or cards.
 - **Do** keep hit targets at 28pt on the Mac and 44pt on iPhone, and test layouts
   with German strings.
 - **Don't** generate initials avatars or add hover actions in message list rows.
@@ -813,11 +867,15 @@ form accessories, keyboards, status bar).
 Everywhere else the frames win over this document, as the
 [frames rule](AGENTS.md#design) says.
 
-One frame size differs from the device on purpose. Here the system wins:
+Two frame sizes differ from the device on purpose. Here the system wins:
 
 - **iPad Settings height:** frames whose Settings sidebar lists more rows than
   the screen holds are drawn 912pt tall to show the whole list. On the device
   the sidebar scrolls.
+- **iPad type:** the iPad frames scale Mac and iPhone components by 1.15, so
+  their text is 14.95pt, 12.65pt or 17.25pt. The app rounds each size to a whole
+  point, as [Typography](#typography) lists
+  ([#2650](https://github.com/unwired-dev/product/issues/2650)).
 
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
