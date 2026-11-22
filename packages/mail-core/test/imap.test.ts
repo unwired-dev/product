@@ -1377,6 +1377,7 @@ describe('connecting IMAP mailboxes', () => {
 
   it.each([
     { pattern: 'ΟΣ*', name: 'ΟΣΑ', reason: 'a final sigma in any letter case' },
+    { pattern: 'STRAẞE/*', name: 'Straße/Team', reason: 'a capital sharp s' },
     {
       pattern: `*${'a'.repeat(5000)}b`,
       name: 'a'.repeat(4000),

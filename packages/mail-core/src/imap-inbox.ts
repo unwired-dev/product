@@ -483,11 +483,12 @@ const failureKinds: Readonly<Record<string, ImapFailure['kind']>> = {
   unavailable: 'retry',
 };
 
-// Letter case folded one character at a time, so a final sigma reads as any other.
+// Letter case folded one character at a time, as Unicode case folding equates it: lowering,
+// raising and lowering again reads a final sigma as any other and a capital sharp s as `ss`.
 const folded = (text: string) =>
-  Array.from(text, (character) => character.toUpperCase().toLowerCase()).join(
-    '',
-  );
+  Array.from(text, (character) =>
+    character.toLowerCase().toUpperCase().toLowerCase(),
+  ).join('');
 // Whether a folded LIST pattern matches a folded folder name. IMAP's `*` and `%` match any run of
 // characters, `%` only up to a hierarchy delimiter: matching `%` like `*` keeps more folders, never
 // fewer. The text between wildcards is found leftmost and in order, so no part is retried.
