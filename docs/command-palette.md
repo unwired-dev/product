@@ -127,8 +127,8 @@ results never appear in the palette. The vocabulary lives in the
 - **iPad:** the command input stays visible in the Inbox heading, the reader's
   header, the composer's top bar and the Account page's title row, and at the
   top of a reader, Thread or composer that is loading, cannot open its storage
-  or has no message or Draft to show, so one is on screen in every size class.
-  In a compact window
+  or has no message or Draft to show, so one is on screen in every size class
+  (a composer sheet's loading or failed state shows none). In a compact window
   ([#2133](https://github.com/unwired-dev/product/issues/2133)) a reader or
   Thread shown alone puts it in the centre of the navigation bar, beside the
   system Back with the mailbox's unread count, and the subject keeps its own
@@ -136,7 +136,8 @@ results never appear in the palette. The vocabulary lives in the
   ([#2645](https://github.com/unwired-dev/product/issues/2645)), whose
   downward swipe closes it: its header offers no palette, and the input ends
   the From row as the command symbol alone, a 44pt target labelled Open
-  Command Palette. Tapping the input or the header swipe opens the palette. Command-K from a hardware keyboard is
+  Command Palette, which opens the palette attached to the sheet's top, as on
+  iPhone. Tapping the input or the header swipe opens the palette. Command-K from a hardware keyboard is
   deferred: React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen

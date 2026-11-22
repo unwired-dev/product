@@ -24,9 +24,13 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Dimensions } from 'react-native';
+import { Dimensions, View } from 'react-native';
 
-import { CommandPaletteProvider, InSheet } from '../src/command-palette.tsx';
+import {
+  CommandPaletteProvider,
+  InSheet,
+  SheetPalette,
+} from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -97,13 +101,18 @@ function Reader({
             onCompose={setComposing}
           />
         ) : (
-          <InSheet value={sheet}>
-            <Composer
-              id={composing}
-              onClose={ignore}
-              onRebind={setComposing}
-            />
-          </InSheet>
+          <View
+            testID="sheet-content"
+            style={{ flex: 1 }}>
+            <InSheet value={sheet}>
+              <Composer
+                id={composing}
+                onClose={ignore}
+                onRebind={setComposing}
+              />
+            </InSheet>
+            <SheetPalette />
+          </View>
         )}
       </CommandPaletteProvider>
     </InboxProvider>
@@ -513,11 +522,11 @@ describe('iPad reader', () => {
   // The compact window's composer sheet owns the downward swipe; its Command input ends the From
   // row as the command symbol alone (#2133).
   it.each([
-    { sheet: false, labels: 1 },
-    { sheet: true, labels: 0 },
+    { sheet: false, labels: 1, palettes: 0 },
+    { sheet: true, labels: 0, palettes: 1 },
   ])(
     'offers one Command input in a compact composer, symbol-only in the sheet (sheet=$sheet)',
-    async ({ sheet, labels }) => {
+    async ({ sheet, labels, palettes }) => {
       expect.hasAssertions();
       const snapshot: RegistrationSnapshot = {
         kind: 'connected',
@@ -564,10 +573,16 @@ describe('iPad reader', () => {
         await screen.findByRole('button', { name: 'Reply' }),
       );
       await screen.findByLabelText('Subject');
-      expect(
-        screen.getByRole('button', { name: 'Open Command Palette' }),
-      ).toBeOnTheScreen();
       expect(screen.queryAllByText('Commands')).toHaveLength(labels);
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      // A sheet covers the window, so the palette its input opens shows over the sheet itself.
+      expect(
+        within(
+          screen.getByTestId('sheet-content', { includeHiddenElements: true }),
+        ).queryAllByTestId('command-palette'),
+      ).toHaveLength(palettes);
     },
   );
 });

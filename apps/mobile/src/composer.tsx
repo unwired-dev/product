@@ -271,7 +271,6 @@ export const fieldSlop = {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1 },
-  trailing: { marginLeft: 'auto' },
   // The same 44-point target as the format bar's icon buttons.
   menuControl: { minWidth: 44, minHeight: 44, alignItems: 'center' },
   // iPhone's controls float at the trailing edge above the keyboard; the editor scrolls its last
@@ -375,7 +374,14 @@ const styles = StyleSheet.create({
     borderRadius: 24,
   },
   closeChoiceText: { ...textStyles.body },
-  fromRow: { zIndex: 2, paddingHorizontal: inset, paddingBottom: spacing.xs },
+  fromRow: {
+    zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: inset,
+    paddingBottom: spacing.xs,
+  },
   alerts: {
     gap: spacing.s,
     paddingHorizontal: fieldInset,
@@ -2913,13 +2919,8 @@ const placeSender = ({
         row: (
           <>
             <View style={[styles.fromRow, rowStyle]}>
-              <View style={styles.bar}>
-                {sender}
-                <CommandInput
-                  sheet
-                  style={styles.trailing}
-                />
-              </View>
+              <View style={[styles.bar, styles.grow]}>{sender}</View>
+              <CommandInput sheet />
             </View>
             {signIn}
           </>

@@ -71,6 +71,7 @@ import {
 } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { ScrollEdge, WindowBarContext } from './inbox-bar.tsx';
+import { barInset } from './inbox-styles.ts';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -133,6 +134,8 @@ const usePortrait = () => {
 };
 const usePortraitInset = () => (usePortrait() ? portraitInset : undefined);
 const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
+// The compact iPad window frame's command input in the navigation bar.
+const barTitleWidth = 200;
 // iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the toolbar's
 // glass.
 const readerEdgeHeight = 140;
@@ -148,6 +151,7 @@ const clearsBottom = (bar: boolean, inset: number) => ({
 });
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  barTitle: { position: 'absolute' },
   // The regular-width toolbar: glass groups at the pane's trailing edge. Groups that wrap in a
   // narrow pane push the content down.
   topToolbar: {
@@ -485,6 +489,7 @@ function RegularHeader({ subject }: { readonly subject: string }) {
   const header = usePaletteHeader();
   const besideList = use(SidebarToggleContext) !== undefined;
   const inset = usePortraitInset();
+  const { width } = useWindowDimensions();
   return (
     <View
       style={[styles.header, inset]}
@@ -503,7 +508,15 @@ function RegularHeader({ subject }: { readonly subject: string }) {
       </View>
       {besideList || compact ? null : (
         <ReaderBar>
-          <CommandInput />
+          {/* The bar takes one native view at its own size as its title. */}
+          <View
+            collapsable={false}
+            style={[
+              styles.barTitle,
+              { width: Math.min(barTitleWidth, width - 2 * barInset) },
+            ]}>
+            <CommandInput />
+          </View>
         </ReaderBar>
       )}
     </View>

@@ -62,7 +62,7 @@ const PaletteContext = createContext<
     opened: readonly Command[] | undefined;
     // Where the iPad command input that opens the palette sits in the window.
     anchor: Anchor | undefined;
-    open: (from?: Anchor) => void;
+    open: (from?: Anchor, sheet?: boolean) => void;
     close: () => void;
   }>
 >({
@@ -72,6 +72,9 @@ const PaletteContext = createContext<
   open: () => undefined,
   close: () => undefined,
 });
+
+// The palette opened from inside a system sheet, which the sheet shows over its own content.
+const SheetPaletteContext = createContext<ReactNode>(null);
 
 // An iPad command input's frame in the window. The palette opens as a popover beneath it, its
 // field taking the input's place, as the iPad Palette frames draw it.
@@ -318,6 +321,8 @@ export function CommandPaletteProvider({
   const motion = useMenuMotion(opened !== undefined, 'drop');
   const [shown, setShown] = useState(opened);
   const [openings, setOpenings] = useState(0);
+  // Opened from a system sheet, which covers the window: the sheet shows the palette itself.
+  const [inSheet, setInSheet] = useState(false);
   if (opened !== undefined && opened !== shown) {
     setShown(opened);
   }
@@ -335,11 +340,12 @@ export function CommandPaletteProvider({
       registry,
       opened,
       anchor,
-      open: (from?: Anchor) => {
+      open: (from?: Anchor, sheet = false) => {
         if (opened !== undefined) {
           return;
         }
         setAnchor(from);
+        setInSheet(sheet);
         void hint.dismiss();
         previous.current = TextInput.State.currentlyFocusedInput();
         const placeholders = expectedCommands(t, {
@@ -360,22 +366,32 @@ export function CommandPaletteProvider({
     }),
     [registry, opened, anchor, t],
   );
+  const palette =
+    motion.shown && shown !== undefined ? (
+      <Palette
+        key={openings}
+        anchor={pad ? anchor : undefined}
+        motion={motion}
+        open={opened !== undefined}
+        opened={shown}
+      />
+    ) : null;
   return (
     <PaletteContext value={value}>
-      <View style={styles.fill}>
-        {children}
-        {motion.shown && shown !== undefined ? (
-          <Palette
-            key={openings}
-            anchor={pad ? anchor : undefined}
-            motion={motion}
-            open={opened !== undefined}
-            opened={shown}
-          />
-        ) : null}
-      </View>
+      <SheetPaletteContext value={inSheet ? palette : null}>
+        <View style={styles.fill}>
+          {children}
+          {inSheet ? null : palette}
+        </View>
+      </SheetPaletteContext>
     </PaletteContext>
   );
+}
+
+// The palette opened from inside a system sheet, shown over the sheet's content as on iPhone; the
+// window's palette lies beneath the sheet.
+export function SheetPalette() {
+  return use(SheetPaletteContext);
 }
 
 // The palette's frame: on iPad a popover beneath the command input that opened it, its field in
@@ -891,7 +907,8 @@ export function CommandInput({
         });
       }}
       onPress={() => {
-        open(frame.current);
+        // In a sheet the palette is attached to the sheet's top, as on iPhone.
+        open(sheet ? undefined : frame.current, sheet);
       }}
       style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
       <Glass cornerRadius={18} />

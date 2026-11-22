@@ -43,6 +43,7 @@ import { CategorizationSpike } from '../src/categorization-spike.ts';
 import {
   CommandPaletteProvider,
   InSheet,
+  SheetPalette,
   useCommandRegistry,
   useCommandPalette,
 } from '../src/command-palette.tsx';
@@ -298,6 +299,7 @@ function ComposerSheet({
           pointerEvents={draft === undefined ? 'none' : 'auto'}
           style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
           <InSheet value>{composer(shown)}</InSheet>
+          <SheetPalette />
         </View>
       )}
     </Modal>
