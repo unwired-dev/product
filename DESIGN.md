@@ -428,8 +428,8 @@ styles) so the file stays editable.
   the same scale; interactive controls retain at least 44pt touch targets.
 - **iPad composer:** the body is the Mac composer's 15/22 at 1.15×, rounded to
   17/25.
-- **iPad reader:** the frames draw Reading Body 17/25 and Reading Subject
-  23/28.75; the app renders the Reading pane styles, 15/22 and 20/25.
+- **iPad reader:** Reading Body 17/25 and Reading Subject 23/29, the Reading pane
+  recipe at 1.15× rounded.
 - **iPad onboarding:** Welcome, Sign In and the Recovery Key use the same 1.15×:
   Title 1 25/30, Body 15/18, and 41.4pt and 46pt buttons with 6.9pt corners.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
@@ -896,6 +896,8 @@ Two frame sizes differ from the device on purpose. Here the system wins:
 These frames show a decision the app has not built yet. The frame wins, and the
 app follows under the issue named:
 
+- **iPad reader type:** the frames draw Reading Body 17/25 and Reading Subject
+  23/29; the app renders the Reading pane's 15/22 and 20/25 until #2654.
 - **Edit Favorites:** the Mac sidebar's Edit mode is built (#2593). The iPad
   sidebar's Edit mode, and **Edit** beside Account in the iPhone Mailboxes
   frames, wait for #2106.
