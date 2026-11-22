@@ -4118,8 +4118,11 @@ function useFieldsBelowBody({
   const ccBlock = useRef<ViewInstance>(null);
   const bccBlock = useRef<ViewInstance>(null);
   // The field a blocked Send revealed, scrolled to again as its reason and the keyboard resize the
-  // editor, while Send waits for it, it keeps focus and the person has not scrolled.
-  const pending = useRef<RecipientField>(undefined);
+  // editor, while the Draft is unchanged, the field keeps focus and the person has not scrolled.
+  const pending = useRef<{
+    readonly field: RecipientField;
+    readonly draft: Draft;
+  }>(undefined);
   const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
   const blocks = { to: toBlock, cc: ccBlock, bcc: bccBlock };
   // Focus alone leaves a field that already has it where it is: scroll its entry to the top with
@@ -4163,11 +4166,10 @@ function useFieldsBelowBody({
       : undefined;
   const revealAgain = () => {
     if (
-      pending.current !== undefined &&
-      pending.current === waiting &&
-      inputs[pending.current].current?.isFocused() === true
+      pending.current?.draft === shown &&
+      inputs[pending.current.field].current?.isFocused() === true
     ) {
-      reveal(pending.current);
+      reveal(pending.current.field);
     }
   };
   return {
@@ -4180,7 +4182,7 @@ function useFieldsBelowBody({
       waiting === undefined
         ? undefined
         : () => {
-            pending.current = waiting;
+            pending.current = { field: waiting, draft: shown };
             reveal(waiting);
             inputs[waiting].current?.focus();
             setRevealed({ field: waiting, entry: entryOf(shown, waiting) });
