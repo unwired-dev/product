@@ -35,18 +35,7 @@ export const PreviewLinesSchema = Schema.Literals([0, 1, 2, 3]);
 export type PreviewLines = typeof PreviewLinesSchema.Type;
 const isPreviewLines = Schema.is(PreviewLinesSchema);
 const isFavoriteEntries = Schema.is(FavoriteEntriesSchema);
-// A connection's section choices name the incarnation they were made for, so a connection removed
-// and added again starts shown with its folders in the server's order.
-const ShownChoiceSchema = Schema.Struct({
-  epoch: Schema.String,
-  shown: Schema.Boolean,
-});
-const FoldersChoiceSchema = Schema.Struct({
-  epoch: Schema.String,
-  folders: SectionFoldersSchema,
-});
-const isShownChoice = Schema.is(ShownChoiceSchema);
-const isFoldersChoice = Schema.is(FoldersChoiceSchema);
+const isSectionFolders = Schema.is(SectionFoldersSchema);
 // The same empty Favorites and folders every read, so a React snapshot of none stays equal.
 const noFavorites: FavoriteEntries = [];
 const noFolders: SectionFolders = [];
@@ -97,12 +86,9 @@ const PulledSchema = Schema.Struct({
 // Native code accepts a Private Sync record identifier of at most 200 characters.
 const publishable = (profile: string) => profile.length <= 200;
 
-// The Mailbox Connection sections `fields` keep for each connection's incarnation in `epochs`; a
-// connection they name is shown, with its folders in their own order, unless they say otherwise.
-const sectionsOf = (
-  fields: Fields,
-  epochs: ReadonlyMap<string, string>,
-): Sections => {
+// The Mailbox Connection sections `fields` keep; a connection they name is shown, with its folders
+// in their own order, unless they say otherwise.
+const sectionsOf = (fields: Fields): Sections => {
   const sections: Record<string, Sections[string]> = {};
   for (const [name, { value }] of Object.entries(fields)) {
     const [kind, connection] = name.split(/:(?<connection>.*)/su);
@@ -111,19 +97,10 @@ const sectionsOf = (
         shown: true,
         folders: noFolders,
       };
-      const epoch = epochs.get(connection) ?? 'legacy';
-      if (
-        kind === 'sectionShown' &&
-        isShownChoice(value) &&
-        value.epoch === epoch
-      ) {
-        sections[connection] = { ...section, shown: value.shown };
-      } else if (
-        kind === 'sectionFolders' &&
-        isFoldersChoice(value) &&
-        value.epoch === epoch
-      ) {
-        sections[connection] = { ...section, folders: value.folders };
+      if (kind === 'sectionShown' && typeof value === 'boolean') {
+        sections[connection] = { ...section, shown: value };
+      } else if (kind === 'sectionFolders' && isSectionFolders(value)) {
+        sections[connection] = { ...section, folders: value };
       }
     }
   }
@@ -242,22 +219,9 @@ export function createInboxPreferences(
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
-  // Each Profile's sections as last read, kept while its fields and the connections' incarnations
-  // stay, so a React snapshot stays equal.
-  const sectionsRead = new WeakMap<
-    Fields,
-    Readonly<{ epochs: string; sections: Sections }>
-  >();
+  // Each Profile's sections as last read, kept while its fields stay, so a React snapshot stays equal.
+  const sectionsRead = new WeakMap<Fields, Sections>();
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
-  // Each listed connection's incarnation; one listed before epochs, or not listed, is the legacy one.
-  const epochs = () =>
-    new Map(
-      mailboxesOf(registration.getSnapshot().snapshot).map(({ id, epoch }) => [
-        id,
-        epoch ?? 'legacy',
-      ]),
-    );
-  const epochOf = (connection: string) => epochs().get(connection) ?? 'legacy';
   // The preferences last read or written, and the Product Account they belong to.
   let shown: Readonly<{
     account: string;
@@ -449,10 +413,8 @@ export function createInboxPreferences(
     value:
       | ListDensity
       | PreviewLines
-      | typeof ShownChoiceSchema.Type
-      | ((
-          stored: unknown,
-        ) => FavoriteEntries | typeof FoldersChoiceSchema.Type | undefined),
+      | boolean
+      | ((stored: unknown) => FavoriteEntries | SectionFolders | undefined),
   ) => {
     const scopes = profiles.filter((profile) => profile !== '');
     if (scopes.length === 0) {
@@ -575,14 +537,8 @@ export function createInboxPreferences(
       if (fields === undefined) {
         return noSections;
       }
-      const listed = epochs();
-      const key = JSON.stringify([...listed]);
-      const read = sectionsRead.get(fields);
-      if (read?.epochs === key) {
-        return read.sections;
-      }
-      const sections = sectionsOf(fields, listed);
-      sectionsRead.set(fields, { epochs: key, sections });
+      const sections = sectionsRead.get(fields) ?? sectionsOf(fields);
+      sectionsRead.set(fields, sections);
       return sections;
     },
     // Whether this device holds what Private Sync last had for `profile`: the last pass asked for
@@ -595,10 +551,7 @@ export function createInboxPreferences(
         !pulled.unreadable.has(profile)),
     // Shows or hides `connection`'s section of `profile`, as `setListDensity` chooses.
     showSection: (profile: string, connection: string, visible: boolean) =>
-      choose([profile], shownField(connection), {
-        epoch: epochOf(connection),
-        shown: visible,
-      }),
+      choose([profile], shownField(connection), visible),
     // Chooses `connection`'s folders of `profile` as `change` makes them from the stored ones, as
     // `changeFavorites` does.
     changeFolders: (
@@ -606,15 +559,9 @@ export function createInboxPreferences(
       connection: string,
       change: (folders: SectionFolders) => SectionFolders | undefined,
     ) =>
-      choose([profile], foldersField(connection), (stored) => {
-        const epoch = epochOf(connection);
-        const folders = change(
-          isFoldersChoice(stored) && stored.epoch === epoch
-            ? stored.folders
-            : noFolders,
-        );
-        return folders === undefined ? undefined : { epoch, folders };
-      }),
+      choose([profile], foldersField(connection), (stored) =>
+        change(isSectionFolders(stored) ? stored : noFolders),
+      ),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.
     synchronize,

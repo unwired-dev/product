@@ -117,14 +117,7 @@ const storage = (server?: SyntheticProductSync) => {
     owner?: string;
     document?: string;
     commits: number;
-    mailboxes: string;
-  } = {
-    account: 'account-1',
-    locked: false,
-    revision: 0,
-    commits: 0,
-    mailboxes: '[]',
-  };
+  } = { account: 'account-1', locked: false, revision: 0, commits: 0 };
   const refuse = (code: string) =>
     Promise.reject(Object.assign(new Error(code), { code }));
   const native: NativeInboxPreferences = {
@@ -157,7 +150,7 @@ const storage = (server?: SyntheticProductSync) => {
         kind: 'connected',
         productAccountId: state.account,
         signInProvider: 'google',
-        mailboxes: state.mailboxes,
+        mailboxes: '[]',
       } satisfies RegistrationSnapshot,
       busy: false,
       failed: false,
@@ -414,56 +407,6 @@ describe('synchronized Inbox preferences', () => {
       ],
       same: sections,
       home: {},
-    });
-  });
-
-  it("starts a connection removed and added again shown, with its folders in the server's order", async () => {
-    expect.hasAssertions();
-    const { state, store } = storage();
-    const names = ['INBOX', 'Travel'];
-    // The connection's incarnation; removing it and adding it again gives it a new epoch.
-    const listed = (epoch: string) => {
-      state.mailboxes = JSON.stringify([
-        {
-          id: 'gmail',
-          address: 'alex@example.invalid',
-          provider: 'gmail',
-          state: 'connected',
-          epoch,
-          profile: 'work',
-        },
-      ]);
-    };
-    const section = () => {
-      const sections = { ...store.sections('work') };
-      return {
-        shown: sectionShown(sections, 'gmail'),
-        folders: folderRows(sectionFolders(sections, 'gmail'), names),
-      };
-    };
-    listed('first');
-    await store.load();
-    await store.showSection('work', 'gmail', false);
-    await store.changeFolders('work', 'gmail', (folders) =>
-      showFolder(folders, names, { name: 'Travel', shown: false }),
-    );
-    const hidden = section();
-    listed('second');
-    expect({ hidden, recreated: section() }).toStrictEqual({
-      hidden: {
-        shown: false,
-        folders: [
-          { name: 'INBOX', shown: true },
-          { name: 'Travel', shown: false },
-        ],
-      },
-      recreated: {
-        shown: true,
-        folders: [
-          { name: 'INBOX', shown: true },
-          { name: 'Travel', shown: true },
-        ],
-      },
     });
   });
 
