@@ -2172,8 +2172,8 @@ describe('connected Gmail Inbox', () => {
     // On iPhone, More is the system menu iPad's frames draw, starting with Pin and ending with
     // Delete.
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
-      ['Pin', 'Mark as Unread', 'Move to…'],
-      ['Move to Spam', 'Labels'],
+      ['Pin', 'Mark as Unread', 'Move to Spam', 'Move to…'],
+      ['Labels'],
       ['Delete'],
     ]);
     // The provider's star is offered only by the Command Palette (#2084).
@@ -2523,7 +2523,7 @@ describe('connected Gmail Inbox', () => {
     expect(labels.getByRole('button', { name: 'Cancel' })).toBeEnabled();
   });
 
-  it('browses a Gmail label and Trash from Mailboxes and moves trashed mail back to the Inbox', async () => {
+  it('browses a Gmail label, Trash and Spam from Mailboxes and moves their mail back to the Inbox', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
     const travel = gmail.createLabel('Travel');
@@ -2534,6 +2534,9 @@ describe('connected Gmail Inbox', () => {
     const receipt = gmail.deliver({ subject: 'Old receipt' });
     gmail.setLabel(receipt, 'TRASH', true);
     gmail.setLabel(receipt, 'INBOX', false);
+    const offer = gmail.deliver({ subject: 'Seed catalogue' });
+    gmail.setLabel(offer, 'SPAM', true);
+    gmail.setLabel(offer, 'INBOX', false);
     await renderConnected(gmail.native);
     await screen.findByRole('button', { name: /Lunch on Friday/u });
     // Each label follows the Inbox, then All Mail, Spam and Trash.
@@ -2556,6 +2559,31 @@ describe('connected Gmail Inbox', () => {
       screen.getByRole('button', { name: /Flight to Zagreb/u }),
     );
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+
+    // Mail in Spam goes back with Not Spam, where Move to Spam sits (#2662).
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Spam. In alex@example.invalid' }),
+      );
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: /Seed catalogue/u }),
+    );
+    expect(menuSections(screen.getByLabelText('More'))[0]).toStrictEqual([
+      'Pin',
+      'Mark as Unread',
+      'Not Spam',
+      'Move to…',
+    ]);
+    await chooseFromMenu(screen.getByLabelText('More'), 'Not Spam');
+    expect(
+      screen.getByText('Moved back to the Inbox: “Seed catalogue”.'),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /Seed catalogue/u }),
+    ).toBeNull();
+    expect(gmail.labelsOf(offer)).toContain('INBOX');
+    expect(gmail.labelsOf(offer)).not.toContain('SPAM');
 
     await act(async () => {
       await fireEvent.press(
@@ -2892,8 +2920,7 @@ describe('connected Gmail Inbox', () => {
     ).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
     expect(menuSections(screen.getByLabelText('More'))).toStrictEqual([
-      ['Pin', 'Mark as Unread', 'Move to…'],
-      ['Move to Spam'],
+      ['Pin', 'Mark as Unread', 'Move to Spam', 'Move to…'],
       ['Delete'],
     ]);
 
@@ -4378,6 +4405,7 @@ describe('pinning', () => {
     expect(menuSections(screen.getByLabelText('More'))[0]).toStrictEqual([
       'Unpin',
       'Mark as Unread',
+      'Move to Spam',
       'Move to…',
     ]);
     // The provider's star and labels stay as they were.

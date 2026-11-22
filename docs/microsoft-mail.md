@@ -153,7 +153,8 @@ Microsoft.
 The [organizing actions](#organizing-and-searching) apply in every folder: Delete,
 Move to Spam and Move to take a message out of the folder it is listed in, and
 Archive stays an Inbox action. In Deleted Items and Junk Email, **Move to Inbox**
-replaces Delete and Move to Spam, and restores the message to the Inbox.
+replaces Delete and Move to Spam, and restores the message to the Inbox; the iPhone
+and iPad reader names it **Not Spam** in Junk Email.
 
 ## Organizing and searching
 
