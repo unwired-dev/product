@@ -645,7 +645,7 @@ form accessories, keyboards, status bar).
 - **Category Control:** the reader's multi-select control shows Apply, Cancel and
   Add New, per the
   [Category control requirements](docs/product/organization.md#category-controls).
-- **On Device Marker / Summary Card:** the cinnabar lock with "On device" marks
+- **On Device Marker / Summary Card:** the cinnabar `cpu` symbol with "On device" marks
   Mail Assistance output while it is a summary, an incoming translation, or a
   preview or suggestion awaiting acceptance. On a result it heads the card as
   "<Kind> · On device" (Summary · On device, Shorten Text · On device), never a

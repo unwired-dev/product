@@ -1113,7 +1113,7 @@ export function OnDeviceMarker({
       accessibilityRole={header ? 'header' : undefined}
       style={styles.marker}>
       <SFSymbol
-        name="lock.fill"
+        name="cpu"
         color={colors.onDeviceInk}
       />
       <Text
