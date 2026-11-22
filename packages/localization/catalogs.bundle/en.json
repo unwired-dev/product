@@ -1241,7 +1241,10 @@
     "slashMenu": {
       "title": "Slash commands",
       "basicBlocks": "Basic Blocks",
-      "text": "Text"
+      "text": "Text",
+      "insert": "Insert",
+      "attachFile": "Attach File…",
+      "insertImage": "Insert Image…"
     },
     "sending": {
       "authorization": "This mailbox needs Gmail access again before it can send. Allow access or choose another mailbox.",

@@ -15,6 +15,8 @@ import type {
   RecipientField,
   RecipientNotice,
   Recovery,
+  SlashCommand,
+  SlashInsert,
 } from '@private-email/mail-core/drafts';
 import type {
   MailTemplate,
@@ -77,7 +79,8 @@ import {
   sameContent,
   sendingMailboxes,
   sendingStateOf,
-  slashBlocks,
+  slashCommands,
+  slashInserts,
   slashQuery,
   unsendableAssets,
   prepareFiles,
@@ -565,6 +568,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.touchMenuItem,
   },
   slashIcon: { width: 25, alignItems: 'flex-start' },
+  // The 1pt line between the menu's sections, 8pt in, centred in 11pt.
+  slashSeparator: { height: 1, marginVertical: 5, marginHorizontal: 8 },
   slashGlyph: { ...textStyles.caption1, fontWeight: '700' },
   // The whole 44pt row height removes the recipient; its chip stays compact.
   token: { minHeight: 44, justifyContent: 'center' },
@@ -3781,9 +3786,20 @@ function BodyRecipientMenu({
   );
 }
 
+const isSlashInsert = (kind: SlashCommand): kind is SlashInsert =>
+  slashInserts.some((each) => each === kind);
+
+// The picker each Insert command opens, as the format bar's Attach File and Insert Image do.
+const slashPickers: Readonly<
+  Record<SlashInsert, readonly [PickSource, boolean]>
+> = {
+  attachFile: ['files', false],
+  insertImage: ['photos', true],
+};
+
 // The Slash Command Menu in an editor's body. Typing / as the first non-whitespace character of a
-// body block opens its Basic Blocks at the caret; typing filters them. An empty result, a caret
-// move, leaving the body, Escape or a choice closes it, keeping the typed text.
+// body block opens its Basic Blocks and Insert commands at the caret; typing filters them. An empty
+// result, a caret move, leaving the body, Escape or a choice closes it, keeping the typed text.
 function useSlashMenu(
   draft: Draft,
   selection: Selection,
@@ -3798,20 +3814,24 @@ function useSlashMenu(
 ) {
   const { t } = useLocalization();
   const titleOf = useCallback(
-    (kind: BlockKind) =>
-      kind === 'paragraph'
-        ? t('drafts.slashMenu.text')
-        : t(`drafts.blocks.${kind}`),
+    (kind: SlashCommand) => {
+      if (kind === 'paragraph') {
+        return t('drafts.slashMenu.text');
+      }
+      return isSlashInsert(kind)
+        ? t(`drafts.slashMenu.${kind}`)
+        : t(`drafts.blocks.${kind}`);
+    },
     [t],
   );
   // Where the / that opened the menu is.
   const [armed, setArmed] = useState<number>();
   const armedNow = useRef(armed);
-  // The block a hardware keyboard highlighted, ahead of rendering as native events can arrive
+  // The row a hardware keyboard highlighted, ahead of rendering as native events can arrive
   // before it commits; Return takes the first one without it.
-  const [chosen, setChosen] = useState<BlockKind>();
+  const [chosen, setChosen] = useState<SlashCommand>();
   const chosenNow = useRef(chosen);
-  const choose = useCallback((kind: BlockKind | undefined) => {
+  const choose = useCallback((kind: SlashCommand | undefined) => {
     chosenNow.current = kind;
     setChosen(kind);
   }, []);
@@ -3835,7 +3855,7 @@ function useSlashMenu(
     const query = slashQuery(body, at);
     return query === undefined || query.start !== start
       ? undefined
-      : { query, kinds: slashBlocks(query.text, titleOf) };
+      : { query, kinds: slashCommands(query.text, titleOf) };
   };
   const current = paused ? undefined : listed(draft.body, selection, armed);
   const kinds = current?.kinds ?? [];
@@ -3865,7 +3885,7 @@ function useSlashMenu(
       } else if (
         typed !== undefined &&
         typed.start === armedNow.current &&
-        slashBlocks(typed.text, titleOf).length > 0
+        slashCommands(typed.text, titleOf).length > 0
       ) {
         // The list changed, so the highlight starts over.
         choose(undefined);
@@ -3875,7 +3895,7 @@ function useSlashMenu(
     },
     // A hardware keyboard's Up and Down Arrow move the highlight while two or more show.
     moving: kinds.length > 1,
-    // Typed Return and Tab choose the highlighted block while any shows.
+    // Typed Return and Tab choose the highlighted row while any shows.
     choosing: kinds.length > 0,
     move: (key: string, body: SemanticDocument, at: Selection) => {
       const each = latest(body, at)?.kinds ?? [];
@@ -3890,9 +3910,9 @@ function useSlashMenu(
         AccessibilityInfo.announceForAccessibility(titleOf(next));
       }
     },
-    // The query and the block a choice of `kind`, or Return without one, applies for the latest
+    // The query and the row a choice of `kind`, or Return without one, applies for the latest
     // body and caret, while the menu lists it.
-    choice: (body: SemanticDocument, at: Selection, kind?: BlockKind) => {
+    choice: (body: SemanticDocument, at: Selection, kind?: SlashCommand) => {
       const open = latest(body, at);
       const picked =
         kind ??
@@ -3907,8 +3927,8 @@ function useSlashMenu(
   };
 }
 
-// The leading icon of each Basic Block: the format bar's heading glyphs, else an SF Symbol.
-const slashIcons: Readonly<Record<BlockKind, string>> = {
+// The leading icon of each row: the format bar's heading glyphs, else an SF Symbol.
+const slashIcons: Readonly<Record<SlashCommand, string>> = {
   paragraph: 'textformat',
   heading1: 'H1',
   heading2: 'H2',
@@ -3917,10 +3937,12 @@ const slashIcons: Readonly<Record<BlockKind, string>> = {
   numbered: 'list.number',
   quote: 'text.quote',
   code: 'curlybraces',
+  attachFile: 'paperclip',
+  insertImage: 'photo.on.rectangle',
 };
 
 // The body's Slash Command Menu while it shows, under the query's line: a glass menu of Basic
-// Blocks, the highlighted one filled.
+// Blocks, then Insert commands, the highlighted row filled.
 function BodySlashMenu({
   shown,
   titleOf,
@@ -3928,15 +3950,15 @@ function BodySlashMenu({
   ...anchor
 }: Omit<ComponentProps<typeof BodyMenuAnchor>, 'start' | 'end' | 'children'> & {
   readonly shown: ReturnType<typeof useSlashMenu>['shown'];
-  readonly titleOf: (kind: BlockKind) => string;
-  readonly onChoose: (kind: BlockKind) => void;
+  readonly titleOf: (kind: SlashCommand) => string;
+  readonly onChoose: (kind: SlashCommand) => void;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
   const { size } = use(ComposerLayoutContext);
   const sized = layoutStyles[size];
   const list = useRef<ScrollViewInstance>(null);
-  const rowEnds = useRef(new Map<BlockKind, number>());
+  const rowEnds = useRef(new Map<SlashCommand, number>());
   const maxHeightNow = useRef<number>(undefined);
   // Scrolls as far as the highlighted row needs to show, as the highlight moves or its row lays out.
   const reveal = useCallback((end: number | undefined) => {
@@ -3984,77 +4006,105 @@ function BodySlashMenu({
                 onContentHeight(height);
                 reveal(rowEnds.current.get(shown.active));
               }}>
-              <Text
-                style={[
-                  styles.suggestionSection,
-                  sized.suggestionSection,
-                  styles.monogramSection,
-                  { color: colors.textSecondary },
-                ]}>
-                {t('drafts.slashMenu.basicBlocks')}
-              </Text>
-              {shown.kinds.map((kind) => {
-                const chosen = shown.highlighted && kind === shown.active;
-                const filled = chosen && !compact;
-                const ink = filled ? colors.accentOnFill : colors.textPrimary;
-                const icon = slashIcons[kind];
-                let highlight = null;
-                if (chosen) {
-                  highlight = {
-                    backgroundColor: compact
-                      ? colors.fillQuiet
-                      : colors.accentFill,
-                  };
-                }
-                return (
-                  <Pressable
-                    key={kind}
-                    accessibilityLabel={titleOf(kind)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: chosen }}
-                    onLayout={({ nativeEvent: { layout } }) => {
-                      const end = layout.y + layout.height;
-                      rowEnds.current.set(kind, end);
-                      if (kind === shown.active) {
-                        reveal(end);
-                      }
-                    }}
-                    onPress={() => {
-                      onChoose(kind);
-                    }}
-                    style={({ pressed }) => [
-                      styles.suggestion,
-                      styles.slashRow,
-                      pressed
-                        ? { backgroundColor: colors.accentSelectionSubtle }
-                        : null,
-                      highlight,
-                    ]}>
-                    <View style={styles.slashIcon}>
-                      {/^H\d$/u.test(icon) ? (
-                        <Text style={[styles.slashGlyph, { color: ink }]}>
-                          {icon}
-                        </Text>
-                      ) : (
-                        <SFSymbol
-                          name={icon}
-                          color={ink}
-                          size={15}
-                        />
-                      )}
-                    </View>
+              {[
+                {
+                  title: t('drafts.slashMenu.basicBlocks'),
+                  kinds: shown.kinds.filter((kind) => !isSlashInsert(kind)),
+                },
+                {
+                  title: t('drafts.slashMenu.insert'),
+                  kinds: shown.kinds.filter(isSlashInsert),
+                },
+              ]
+                .filter((section) => section.kinds.length > 0)
+                .map((section, index) => (
+                  // Rows stay the list's own children, so their layout places the highlight.
+                  <Fragment key={section.title}>
+                    {index === 0 ? null : (
+                      <View
+                        style={[
+                          styles.slashSeparator,
+                          { backgroundColor: colors.separator },
+                        ]}
+                      />
+                    )}
                     <Text
-                      numberOfLines={1}
                       style={[
-                        styles.suggestionName,
-                        sized.suggestionName,
-                        { flex: 1, color: ink },
+                        styles.suggestionSection,
+                        sized.suggestionSection,
+                        styles.monogramSection,
+                        { color: colors.textSecondary },
                       ]}>
-                      {titleOf(kind)}
+                      {section.title}
                     </Text>
-                  </Pressable>
-                );
-              })}
+                    {section.kinds.map((kind) => {
+                      const chosen = shown.highlighted && kind === shown.active;
+                      const filled = chosen && !compact;
+                      const ink = filled
+                        ? colors.accentOnFill
+                        : colors.textPrimary;
+                      const icon = slashIcons[kind];
+                      let highlight = null;
+                      if (chosen) {
+                        highlight = {
+                          backgroundColor: compact
+                            ? colors.fillQuiet
+                            : colors.accentFill,
+                        };
+                      }
+                      return (
+                        <Pressable
+                          key={kind}
+                          accessibilityLabel={titleOf(kind)}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: chosen }}
+                          onLayout={({ nativeEvent: { layout } }) => {
+                            const end = layout.y + layout.height;
+                            rowEnds.current.set(kind, end);
+                            if (kind === shown.active) {
+                              reveal(end);
+                            }
+                          }}
+                          onPress={() => {
+                            onChoose(kind);
+                          }}
+                          style={({ pressed }) => [
+                            styles.suggestion,
+                            styles.slashRow,
+                            pressed
+                              ? {
+                                  backgroundColor: colors.accentSelectionSubtle,
+                                }
+                              : null,
+                            highlight,
+                          ]}>
+                          <View style={styles.slashIcon}>
+                            {/^H\d$/u.test(icon) ? (
+                              <Text style={[styles.slashGlyph, { color: ink }]}>
+                                {icon}
+                              </Text>
+                            ) : (
+                              <SFSymbol
+                                name={icon}
+                                color={ink}
+                                size={15}
+                              />
+                            )}
+                          </View>
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.suggestionName,
+                              sized.suggestionName,
+                              { flex: 1, color: ink },
+                            ]}>
+                            {titleOf(kind)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </Fragment>
+                ))}
             </ScrollView>
           </GlassPanel>
         );
@@ -4664,14 +4714,20 @@ function Editor({
     AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
   };
   // Choosing a block in the Slash Command Menu removes its query and sets the caret's block, as one
-  // edit, so one Undo restores the text as typed.
-  const chooseBlock = (kind?: BlockKind) => {
+  // edit, so one Undo restores the text as typed. Choosing an Insert command removes the query and
+  // opens its picker, which places an inline image where the query was.
+  const chooseBlock = (kind?: SlashCommand) => {
     const latest = authored.current;
     const choice = slashMenu.choice(latest.body, selectionNow.current, kind);
     if (sendingNow.current || choice === undefined) {
       return;
     }
-    const result = applySlashBlock(latest.body, choice.query, choice.kind);
+    const picker = isSlashInsert(choice.kind)
+      ? slashPickers[choice.kind]
+      : undefined;
+    const result = isSlashInsert(choice.kind)
+      ? replaceSelection(latest.body, choice.query, '')
+      : applySlashBlock(latest.body, choice.query, choice.kind);
     const at = result.selection ?? {
       start: choice.query.start,
       end: choice.query.start,
@@ -4682,8 +4738,11 @@ function Editor({
     caret.current = at.start;
     selectionNow.current = at;
     setPlaced(at);
+    if (picker !== undefined) {
+      void choose(...picker);
+    }
   };
-  // Takes the Recipient Suggestion or block a menu highlights, if one does.
+  // Takes the Recipient Suggestion or command a menu highlights, if one does.
   const chooseHighlighted = (latest: Draft, at: Selection) => {
     const highlighted = recipientMenu.highlighted(latest, at);
     if (highlighted !== undefined) {

@@ -541,8 +541,11 @@ In a New Message body, a `/` typed first in a block opens the Slash Command Menu
 ([#2656](https://github.com/unwired-dev/product/issues/2656)). Command-period, the simulator's
 Escape, closes it and keeps the `/`. Typing `/he` on the next line filters the rows to the headings
 with Heading 1 selected; Down selects Heading 2 and Return makes the block a Heading 2 without the typed text, and
-one **Undo** restores `/he`. The captures "Slash Command Menu", "Slash Command Menu filtered" and
-"Heading 2 from the Slash Command Menu" are named with the appearance. VoiceOver speech and the
+one **Undo** restores `/he`. On a new last line, eight Down presses reach **Attach File…** under
+Insert ([#2668](https://github.com/unwired-dev/product/issues/2668)), and typing `im` filters to
+**Insert Image…**. The captures "Slash Command Menu", "Slash Command Menu filtered",
+"Heading 2 from the Slash Command Menu", "Slash Command Menu Insert" and "Slash Command Menu Insert
+filtered" are named with the appearance. VoiceOver speech and the
 other blocks are covered by Jest and the mail-core tests.
 
 ## iPhone composer sheet journey

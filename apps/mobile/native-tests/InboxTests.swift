@@ -3424,7 +3424,7 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(app.buttons["Expand"].waitForExistence(timeout: 10))
     }
     focus(subject) { self.hasFocus(subject) }
-    app.typeKey(.rightArrow, modifierFlags: .command)
+    app.typeKey(.downArrow, modifierFlags: .command)
     press(" by keyboard", in: app)
     waitUntil { subject.value as? String == "Re: Outlook update 003 by keyboard" }
     press("\t", in: app)
@@ -4389,6 +4389,17 @@ final class InboxTests: XCTestCase {
     attachScreen("Heading 2 from the Slash Command Menu", of: app, to: self)
     formatControl("Undo", in: app).tap()
     waitUntil({ body.value as? String == "Hi\n/\n/he" }, timeout: 60)
+    // The Insert commands follow the Basic Blocks: Down reaches Attach File…, and typing filters to
+    // Insert Image…. Choosing one opens a system picker, which is left to Jest.
+    app.typeKey(.downArrow, modifierFlags: .command)
+    type("\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for _ in 0..<8 { app.typeKey(.downArrow, modifierFlags: []) }
+    waitUntil({ row("Attach File…").isSelected && row("Insert Image…").exists }, timeout: 60)
+    attachScreen("Slash Command Menu Insert", of: app, to: self)
+    type("im")
+    waitUntil({ !row("Text").exists && row("Insert Image…").isSelected }, timeout: 60)
+    attachScreen("Slash Command Menu Insert filtered", of: app, to: self)
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {

@@ -4,7 +4,7 @@ import { setImmediate } from 'node:timers/promises';
 import { createLocalization, english } from '@private-email/localization';
 import * as Schema from 'effect/Schema';
 
-import type { Draft, DraftsState } from '../src/drafts.ts';
+import type { Draft, DraftsState, SlashCommand } from '../src/drafts.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 import type {
   Asset,
@@ -28,7 +28,7 @@ import {
   prepareFiles,
   recipientSuggestions,
   recipientSummary,
-  slashBlocks,
+  slashCommands,
   slashQuery,
   draftOf,
   draftsOf,
@@ -1290,8 +1290,9 @@ describe('entering Draft recipients', () => {
     ).toBeUndefined();
     expect(slashQuery(body, { start: 5, end: 8 })).toBeUndefined();
 
-    // Typing filters by the title or a word of it, ignoring case.
-    const titles: Record<BlockKind, string> = {
+    // Typing filters the Basic Blocks, then the Insert commands, by the title or a word of it,
+    // ignoring case.
+    const titles: Record<SlashCommand, string> = {
       paragraph: 'Text',
       heading1: 'Heading 1',
       heading2: 'Heading 2',
@@ -1300,20 +1301,28 @@ describe('entering Draft recipients', () => {
       numbered: 'Numbered List',
       quote: 'Quote',
       code: 'Code Block',
+      attachFile: 'Attach File…',
+      insertImage: 'Insert Image…',
     };
-    const titleOf = (kind: BlockKind) => titles[kind];
-    expect(slashBlocks('', titleOf)).toHaveLength(8);
-    expect(slashBlocks('He', titleOf)).toStrictEqual([
+    const titleOf = (command: SlashCommand) => titles[command];
+    expect(slashCommands('', titleOf)).toHaveLength(10);
+    expect(slashCommands('', titleOf).slice(-2)).toStrictEqual([
+      'attachFile',
+      'insertImage',
+    ]);
+    expect(slashCommands('He', titleOf)).toStrictEqual([
       'heading1',
       'heading2',
       'heading3',
     ]);
-    expect(slashBlocks('list', titleOf)).toStrictEqual([
+    expect(slashCommands('list', titleOf)).toStrictEqual([
       'bulleted',
       'numbered',
     ]);
-    expect(slashBlocks('heading 2', titleOf)).toStrictEqual(['heading2']);
-    expect(slashBlocks('x', titleOf)).toStrictEqual([]);
+    expect(slashCommands('heading 2', titleOf)).toStrictEqual(['heading2']);
+    expect(slashCommands('i', titleOf)).toStrictEqual(['insertImage']);
+    expect(slashCommands('file', titleOf)).toStrictEqual(['attachFile']);
+    expect(slashCommands('x', titleOf)).toStrictEqual([]);
 
     // Applying removes the query and sets the caret's block; its kind already set stays.
     const query = { start: 5, end: 8, text: 'he' };

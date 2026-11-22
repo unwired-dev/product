@@ -290,17 +290,22 @@ evaluation editor's Link control behaves the same way.
 On iPad and iPhone, typing `/` as the first non-whitespace character of a body
 block outside a code block opens the **Slash Command Menu** under the caret's
 line: a glass menu of **Basic Blocks** (Text, Heading 1 to 3, Bulleted List,
-Numbered List, Quote, Code Block), each led by its icon, 320pt wide and scrolling
+Numbered List, Quote, Code Block) and, after a separator, **Insert** (Attach
+File…, Insert Image…), each led by its icon, 320pt wide and scrolling
 inside the room above the keyboard and the format pill, or over the line when
 more room is there. VoiceOver hears **Slash commands** as it opens. Typing after
-the `/` filters the rows by their title or a word of it; the first match shows
-highlighted, and a result with none closes the menu and leaves the typed text.
+the `/` filters the rows by their title or a word of it, hiding a section with
+no match; the first match shows highlighted, and a result with none closes the
+menu and leaves the typed text.
 Moving the caret, leaving the body or deleting the `/` closes it too. A tap, or
 Return or Tab, which then type nothing, sets the caret's block to the chosen
 kind and removes the slash query as one Undo step; a block already of that kind
-keeps it. With an iPad hardware keyboard, Up and Down Arrow move the highlight
-and Escape or Command-period closes the menu. The Insert group, the writing
-tools and the Mac menu are later slices
+keeps it. Choosing Attach File… or Insert Image… removes the slash query as
+its own Undo step and opens the same picker as the format bar's Attach File
+or Insert Image; an inline image goes where the `/` was. With an iPad hardware
+keyboard, Up and Down Arrow move the highlight through both sections and Escape
+or Command-period closes the menu. Insert Template…, the writing tools and the
+Mac menu are later slices
 ([#2117](https://github.com/unwired-dev/product/issues/2117)).
 
 Each block can also be centered, right-aligned or justified; a block without an

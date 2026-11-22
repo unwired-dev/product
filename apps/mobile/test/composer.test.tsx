@@ -2349,13 +2349,15 @@ describe('composing Drafts', () => {
       }
     };
     const menu = () => screen.queryByLabelText('Slash commands');
-    const rows = (options: Readonly<{ selected?: boolean }> = {}) => {
+    const inMenu = () => {
       const shown = menu();
       ok(shown !== null);
-      return within(shown)
+      return within(shown);
+    };
+    const rows = (options: Readonly<{ selected?: boolean }> = {}) =>
+      inMenu()
         .queryAllByRole('button', options)
         .map(({ props }) => props.accessibilityLabel);
-    };
     const lines = () =>
       shownLines().map(
         ({ marker, spans }) => marker + spans.map(({ text }) => text).join(''),
@@ -2370,7 +2372,8 @@ describe('composing Drafts', () => {
         );
     const keys = () => arrowKeysAround(body());
 
-    // A / first in a block opens the Basic Blocks, unhighlighted, and VoiceOver hears it open.
+    // A / first in a block opens the Basic Blocks and Insert commands, unhighlighted, and VoiceOver
+    // hears it open.
     await typeEach('', 'Hi\n/');
     expect(rows()).toStrictEqual([
       'Text',
@@ -2381,7 +2384,10 @@ describe('composing Drafts', () => {
       'Numbered List',
       'Quote',
       'Code Block',
+      'Attach File…',
+      'Insert Image…',
     ]);
+    expect(inMenu().getByText('Insert')).toBeOnTheScreen();
     expect(rows({ selected: true })).toStrictEqual([]);
     expect(AccessibilityInfo.announceForAccessibility).toHaveBeenLastCalledWith(
       'Slash commands',
@@ -2454,6 +2460,47 @@ describe('composing Drafts', () => {
     expect(
       screen.queryAllByText('/', { includeHiddenElements: true }),
     ).not.toHaveLength(0);
+
+    // Typing filters the Insert commands too, hiding the Basic Blocks without a match.
+    await type('Hi');
+    await typeEach('Hi', '\n/im');
+    expect(rows()).toStrictEqual(['Insert Image…']);
+    expect(inMenu().queryByText('Basic Blocks')).toBeNull();
+
+    // Insert Image… removes the query and opens the photo picker, whose image goes at the /.
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('photos', [
+      { uri: 'file:///chart.png', name: 'chart.png', type: 'image/png' },
+    ]);
+    await press('Insert Image…');
+    await screen.findByLabelText('Inline image chart.png');
+    expect(menu()).toBeNull();
+    expect(lines()).toStrictEqual(['Hi', '￼']);
+
+    // Down Arrow moves on from the Basic Blocks into Insert, and Return opens Attach File…'s picker.
+    await type('Hi');
+    await typeEach('Hi', '\n/');
+    for (let step = 0; step < 8; step += 1) {
+      await fireEvent(keys(), 'arrow', { nativeEvent: { key: 'ArrowDown' } });
+    }
+    expect(rows({ selected: true })).toStrictEqual(['Attach File…']);
+    storage.addFile('file:///plan.pdf', 'plan');
+    storage.pickNext('files', [
+      { uri: 'file:///plan.pdf', name: 'plan.pdf', type: 'application/pdf' },
+    ]);
+    await act(async () => {
+      body().props.onKeyPress({ nativeEvent: { key: 'Enter' } });
+      body().props.onChangeText('Hi\n/\n');
+      body().props.onSelectionChange({
+        nativeEvent: { selection: { start: 5, end: 5 } },
+      });
+      await Promise.resolve();
+    });
+    await expect(
+      screen.findByLabelText('plan.pdf, 4 bytes'),
+    ).resolves.toBeOnTheScreen();
+    expect(menu()).toBeNull();
+    expect(lines()).toStrictEqual(['Hi', '']);
   });
 
   it('stores edits made while retrying a refused Save Draft', async () => {
