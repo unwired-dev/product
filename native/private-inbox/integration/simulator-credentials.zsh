@@ -40,13 +40,14 @@ case ${1:-} in
     # grep reports a match as 0, none as 1 and a read error as 2.
     result=0
     LC_ALL=C grep -rlaFs -D skip -f <(print -rl -- $secrets) -- $paths || result=$?
-    # Result bundles keep their data zstd-compressed, out of reach of a plain search. grep reads
-    # the whole stream, so an early match cannot end zstd with SIGPIPE; a blob zstd cannot read
-    # counts as a read error.
-    bundles=(${^paths}/**/*.xcresult(ND/) ${(M)paths:#*.xcresult})
+    # Result bundles keep most of their data zstd-compressed, out of reach of a plain search;
+    # the search above already read the rest. grep reads the whole stream, so an early match
+    # cannot end zstd with SIGPIPE; a frame zstd cannot decode counts as a read error.
+    bundles=(${^paths}/**/*.xcresult(ND/) ${(M)${paths:A}:#*.xcresult})
     set +e
     for blob in ${^bundles}/Data/*(N.); do
-      zstd -dcqf -- $blob 2> /dev/null | LC_ALL=C grep -aF -f <(print -rl -- $secrets) > /dev/null
+      [[ $(head -c 4 -- $blob | xxd -p) == 28b52ffd ]] || continue
+      zstd -dcq -- $blob 2> /dev/null | LC_ALL=C grep -aF -f <(print -rl -- $secrets) > /dev/null
       codes=($pipestatus)
       if (( codes[2] == 0 )); then
         print -r -- $blob

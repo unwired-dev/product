@@ -798,11 +798,13 @@ password manager by running
    Simulator closed, so the value does not reach the Mac's pasteboard.
 2. Long-press the app's field and press **Paste** in the edit menu.
 3. `simulator-credentials.zsh clear <udid>` empties the pasteboard at once.
-4. When the field shows its text, as **Recovery Key** does, take no screenshot or
-   accessibility snapshot while it holds the credential: both keep what the screen shows
-   in files on the Mac. Press its action, such as **Unlock with Recovery Key**, and wait
-   until the field is gone, for example with agent-device's `wait absent` on the field.
-   If it stays, empty it with an empty `fill` before reading the screen.
+4. When the field shows its text, as **Recovery Key** does, nothing may read the screen
+   while it holds the credential: screenshots, accessibility snapshots and agent-device
+   commands that wait, settle or target a ref or selector keep what they read in files on
+   the Mac. Take the snapshot before pasting, then press the field's action, such as
+   **Unlock with Recovery Key**, at the coordinates that snapshot gave, and wait a few
+   seconds. Before the next read, empty the field with `fill <x> <y> ""` at its
+   coordinates, unless the operator watching the Simulator saw the field go.
 5. After the run, with the Simulator deleted,
    `simulator-credentials.zsh scan <variable>... -- <path>...` lists each file under the
    paths that holds any of the passwords or the Recovery Key, also inside compressed
@@ -1488,7 +1490,7 @@ password manager by running
   operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0, with
   Simulator closed. Build: the Release app of the #2663 record. Result: the sign-in
   passed and no file this run wrote held a credential, but the Mac was not clean (see
-  the limitations). Every credential was entered with the pasteboard steps above, and
+  the limitations). Every credential was entered with pasteboard steps 1 to 3 above, and
   nothing was typed: the Google address and password in the Google sign-in sheet, with
   no paste permission prompt, the Recovery Key, then the iCloud Mail address and
   app-specific password and the Seznam Email address and mail-client password in
