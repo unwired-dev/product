@@ -3735,6 +3735,9 @@ function useFieldsBelowBody({
 }) {
   const [visibleHeight, setVisibleHeight] = useState(0);
   const [fieldsHeight, setFieldsHeight] = useState(0);
+  // Where the fields start in the scrolled content, and how tall that content is.
+  const fieldsTop = useRef(0);
+  const contentHeight = useRef(0);
   const scrollRef = useRef<ScrollViewInstance>(null);
   const toRef = useRef<TextInputInstance>(null);
   const ccRef = useRef<TextInputInstance>(null);
@@ -3760,12 +3763,24 @@ function useFieldsBelowBody({
         ? undefined
         : () => {
             const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
-            // Focus alone leaves a field that already has it where it is.
-            scrollRef.current?.scrollToEnd();
+            // Focus alone leaves a field that already has it where it is: scroll to the fields,
+            // as far as the content goes.
+            scrollRef.current?.scrollTo({
+              y: Math.min(
+                fieldsTop.current,
+                contentHeight.current - visibleHeight,
+              ),
+            });
             inputs[waiting].current?.focus();
           },
     measureVisible: setVisibleHeight,
-    measureFields: setFieldsHeight,
+    measureFields: ({ y, height }: { y: number; height: number }) => {
+      fieldsTop.current = y;
+      setFieldsHeight(height);
+    },
+    measureContent: (height: number) => {
+      contentHeight.current = height;
+    },
     content: filled && {
       minHeight:
         visibleHeight + fieldsHeight + (pillShown ? pillReserve : spacing.s),
@@ -5111,6 +5126,9 @@ function Editor({
           style={styles.fill}>
           <ScrollView
             ref={scrollRef}
+            onContentSizeChange={(_width, height) => {
+              below.measureContent(height);
+            }}
             onScroll={() => placeSuggestions.current?.()}
             scrollEventThrottle={16}
             contentContainerStyle={[
@@ -5300,7 +5318,7 @@ function Editor({
             <View style={below.pillClear} />
             <View
               onLayout={({ nativeEvent }) => {
-                below.measureFields(nativeEvent.layout.height);
+                below.measureFields(nativeEvent.layout);
               }}
               style={[styles.fields, sized.fields]}>
               <View
