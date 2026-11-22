@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 
 import { InSheet, SheetPalette } from './command-palette.tsx';
+import { ComposerPresentedContext } from './composer.tsx';
 import { useLeaveComposer } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
@@ -12,7 +13,7 @@ const styles = StyleSheet.create({ fill: { flex: 1 } });
 // On iPhone and in a compact iPad window the composer is the system sheet over the mail. Its
 // dismissal gesture leaves the composer as Close does: the sheet stays up while the composer asks
 // about changes. The sheet sliding away still shows the composer it closed, so a command chosen in
-// its palette runs once the sheet is gone, and not at all when the sheet opens a Draft again.
+// its palette runs once the composer has closed.
 export function ComposerSheet({
   draft,
   onLeave,
@@ -28,18 +29,33 @@ export function ComposerSheet({
   if (draft !== undefined && draft !== shown) {
     setShown(draft);
   }
-  const gone = useRef<Array<(dismissed: boolean) => void>>([]);
+  const presented = draft !== undefined;
+  const open = useRef(presented);
+  // Commands waiting for the composer to close; one left when the sheet goes away never runs.
+  const closed = useRef<Array<(left: boolean) => void>>([]);
   useEffect(() => {
-    for (const resolve of gone.current.splice(0)) {
-      resolve(shown === undefined);
+    open.current = presented;
+    if (!presented) {
+      for (const resolve of closed.current.splice(0)) {
+        resolve(true);
+      }
     }
-  }, [shown]);
+  }, [presented]);
+  useEffect(
+    () => () => {
+      for (const resolve of closed.current.splice(0)) {
+        resolve(false);
+      }
+    },
+    [],
+  );
   const leave = async () =>
     (await leaveComposer()) &&
-    // oxlint-disable-next-line promise/avoid-new -- The command waits for the sheet to go.
-    new Promise<boolean>((resolve) => {
-      gone.current.push(resolve);
-    });
+    (!open.current ||
+      // oxlint-disable-next-line promise/avoid-new -- The command waits for the composer to close.
+      new Promise<boolean>((resolve) => {
+        closed.current.push(resolve);
+      }));
   return (
     <Modal
       testID="composer-sheet"
@@ -62,7 +78,11 @@ export function ComposerSheet({
           testID="composer-overlay"
           pointerEvents={draft === undefined ? 'none' : 'auto'}
           style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-          <InSheet value>{composer(shown)}</InSheet>
+          <InSheet value>
+            <ComposerPresentedContext value={presented}>
+              {composer(shown)}
+            </ComposerPresentedContext>
+          </InSheet>
           <SheetPalette leave={leave} />
         </View>
       )}

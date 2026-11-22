@@ -235,6 +235,10 @@ export const ComposerLayoutContext = createContext<{
   readonly top: number;
 }>({ size: 'compact', avoidKeyboard: true, top: 0 });
 
+// Whether the composer is open: a system sheet sliding away still shows the composer it closed,
+// which no longer guards leaving.
+export const ComposerPresentedContext = createContext(true);
+
 // The docked iPad reply's title: the kind of response it is.
 const responseTitles = {
   reply: 'message.reply',
@@ -5116,8 +5120,12 @@ function Editor({
     });
   // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
-  useLayoutEffect(() =>
-    navigation.register(async () => {
+  const presented = use(ComposerPresentedContext);
+  useLayoutEffect(() => {
+    if (!presented) {
+      return undefined;
+    }
+    return navigation.register(async () => {
       asked.current = false;
       if (await close()) {
         return true;
@@ -5134,8 +5142,8 @@ function Editor({
       return new Promise<boolean>((resolve) => {
         leaving.current = resolve;
       });
-    }),
-  );
+    });
+  });
   useEffect(() => {
     if (!asking && lifetime.current.finishing === 0) {
       answerLeave(false);

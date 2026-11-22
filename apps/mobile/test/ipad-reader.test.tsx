@@ -1,7 +1,7 @@
 import { ok } from 'node:assert';
 
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
-import type { Platform } from 'react-native';
+import type { ModalProps, Platform } from 'react-native';
 
 import { inboxCommands } from '@private-email/mail-core/commands';
 import {
@@ -27,7 +27,7 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Dimensions, View } from 'react-native';
+import { Dimensions, Modal, View } from 'react-native';
 
 import {
   CommandPaletteProvider,
@@ -79,6 +79,30 @@ function isScrollable(
 
 const ignore = () => undefined;
 
+// iOS keeps a dismissed sheet's content until it has slid away; the returned call ends the slide.
+function holdSheetDismissal() {
+  const { render } = Modal.prototype;
+  let dismiss: (() => void) | undefined = undefined;
+  const shown = jest
+    .spyOn(Modal.prototype, 'render')
+    .mockImplementation(function (this: { readonly props: ModalProps }) {
+      if (this.props.visible === false) {
+        dismiss = this.props.onDismiss;
+      }
+      return render.call({ props: { ...this.props, visible: true } });
+    });
+  const dismissing = jest
+    .spyOn(Modal.prototype, 'componentDidUpdate')
+    .mockImplementation(ignore);
+  return async () => {
+    shown.mockRestore();
+    dismissing.mockRestore();
+    await act(() => {
+      dismiss?.();
+    });
+  };
+}
+
 // The composer's host: the compact window's sheet, whose swipe leaves the composer as the app's
 // does, or the regular window's card.
 function ComposerHost({
@@ -93,11 +117,6 @@ function ComposerHost({
   readonly onRebind: (draft: string) => void;
 }) {
   const leave = useLeaveComposer();
-  const leaveSheet = async () => {
-    if (await leave()) {
-      onLeft();
-    }
-  };
   const composer = (id: string) => (
     <Composer
       id={id}
@@ -110,7 +129,7 @@ function ComposerHost({
       <ComposerSheet
         draft={draft}
         onLeave={() => {
-          void leaveSheet();
+          void leave();
         }}
         composer={composer}
       />
@@ -164,6 +183,7 @@ function Reader({
   onAccount = ignore,
   onInbox = ignore,
   reopen = false,
+  onOpen = ignore,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
@@ -176,8 +196,11 @@ function Reader({
   // Whether the route reopens a closed Draft at once, as its Open Draft notification can in the
   // same batch, so the composer stays.
   readonly reopen?: boolean;
+  // Hands over opening a Draft's composer, as its route does.
+  readonly onOpen?: (open: (draft: string) => void) => void;
 }) {
   const [composing, setComposing] = useState<string>();
+  onOpen(setComposing);
   return (
     <InboxProvider
       drafts={drafts}
@@ -623,11 +646,13 @@ describe('iPad reader', () => {
       onAccount = ignore,
       onInbox = ignore,
       reopen = false,
+      onOpen = ignore,
     }: Readonly<{
       onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
       onAccount?: () => void;
       onInbox?: () => void;
       reopen?: boolean;
+      onOpen?: (open: (draft: string) => void) => void;
     }> = {},
   ) => {
     const snapshot: RegistrationSnapshot = {
@@ -671,12 +696,14 @@ describe('iPad reader', () => {
           onAccount={onAccount}
           onInbox={onInbox}
           reopen={reopen}
+          onOpen={onOpen}
         />
       </AccountContext>,
     );
     await act(inbox.load);
     await fireEvent.press(await screen.findByRole('button', { name: 'Reply' }));
     await screen.findByLabelText('Subject');
+    return drafts;
   };
   const palettesInComposer = () =>
     within(
@@ -806,6 +833,7 @@ describe('iPad reader', () => {
 
   it('goes to the Inbox from a changed composer sheet once Delete Draft answers', async () => {
     expect.hasAssertions();
+    const slid = holdSheetDismissal();
     const inbox = jest.fn<undefined, []>();
     await replyFromReader(true, { onInbox: inbox });
     await fireEvent.changeText(
@@ -824,10 +852,44 @@ describe('iPad reader', () => {
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Delete Draft' }),
     );
-    // The command runs once the sheet that showed the closed composer is gone.
+    // The command runs once the composer has closed, while the sheet still slides away with it.
     await waitFor(() => {
       expect(inbox).toHaveBeenCalledWith();
     });
+    expect(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+    await slid();
+    expect(
+      screen.queryByLabelText('Message body', { includeHiddenElements: true }),
+    ).not.toBeOnTheScreen();
+  });
+
+  it('swipes away an unchanged Draft opened again while its sheet slides away', async () => {
+    expect.hasAssertions();
+    const slid = holdSheetDismissal();
+    let open: (draft: string) => void = ignore;
+    const drafts = await replyFromReader(true, {
+      onOpen: (opening) => {
+        open = opening;
+      },
+    });
+    const [draft] = draftsOf(drafts.getSnapshot());
+    ok(draft);
+    await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    await act(() => {
+      open(draft.id);
+    });
+    await act(async () => {
+      await fireEvent(
+        screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
+        'requestClose',
+      );
+    });
+    await slid();
+    expect(
+      screen.queryByLabelText('Message body', { includeHiddenElements: true }),
+    ).not.toBeOnTheScreen();
   });
 
   it('asks again about a Draft its route reopens as it closes', async () => {
