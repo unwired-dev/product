@@ -700,6 +700,68 @@ describe('iPhone Mailboxes', () => {
     await app.unmount();
   });
 
+  it('answers search widened from an account’s Inbox only once the preferences are read', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'From Alex’s Inbox' });
+    const otherGmail = createSyntheticGmail({
+      address: 'other@example.invalid',
+    });
+    otherGmail.deliver({ subject: 'From the other account' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail, [other]: otherGmail }),
+      registration,
+    );
+    await mailboxes.load();
+    const gate: { reading?: Promise<void> } = {};
+    const read = Promise.withResolvers<undefined>();
+    gate.reading = read.promise;
+    const store = preferences(gate)();
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Inbox
+              onClose={ignore}
+              onSelect={ignore}
+              onView={ignore}
+              selected={undefined}
+              view={{ mailbox: alex }}
+            />
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await app.findByRole('button', { name: /From Alex’s Inbox/u });
+    const field = app.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'other account');
+    await fireEvent.press(app.getByRole('tab', { name: 'All Mailboxes' }));
+    // Until the read, which Inboxes the search covers is unknown, so it has not answered.
+    const unread = app.queryByText('No Results');
+    await act(() => {
+      read.resolve(undefined);
+    });
+    await app.findByRole('button', { name: /From the other account/u });
+    expect(unread).toBeNull();
+    await app.unmount();
+  });
+
   it('names All Inboxes, not the provider, with the only account hidden', async () => {
     expect.hasAssertions();
     const alex = syntheticMailboxes['alex@example.invalid'];

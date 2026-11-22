@@ -410,6 +410,37 @@ describe('synchronized Inbox preferences', () => {
     });
   });
 
+  it('keeps a folder this device has yet to list in its stored place when it hides another', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Receipts', 'Project'];
+    await mac.store.changeFolders('work', 'gmail', (folders) =>
+      moveFolder(folders, names, { name: 'Project', to: () => 0 }),
+    );
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    // The phone has yet to list Project.
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.changeFolders('work', 'gmail', (folders) =>
+      showFolder(folders, ['INBOX', 'Receipts'], {
+        name: 'Receipts',
+        shown: false,
+      }),
+    );
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    expect(
+      folderRows(
+        sectionFolders({ ...mac.store.sections('work') }, 'gmail'),
+        names,
+      ),
+    ).toStrictEqual([
+      { name: 'Project', shown: true },
+      { name: 'INBOX', shown: true },
+      { name: 'Receipts', shown: false },
+    ]);
+  });
+
   it("writes nothing for a tap that changes nothing, so another device's newer hide stands", async () => {
     expect.hasAssertions();
     const { mac, phone } = devices();

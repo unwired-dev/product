@@ -494,7 +494,8 @@ export function SearchFooter({
   folderName,
 }: {
   readonly search: ReturnType<typeof useInboxSearch>;
-  readonly mailboxes: readonly InboxMailbox[];
+  // What search widened to every Inbox covers; undefined while that is unknown, so it has not answered.
+  readonly mailboxes: readonly InboxMailbox[] | undefined;
   readonly shown: readonly InboxMailbox[];
   readonly ready: boolean;
   // The listed folder or view is still opening or could not be read, so it has not answered.
@@ -509,7 +510,8 @@ export function SearchFooter({
     ready &&
     results?.length === 0 &&
     !(searchesAll
-      ? mailboxes.some(({ state }) => inboxUnlisted(state))
+      ? mailboxes === undefined ||
+        mailboxes.some(({ state }) => inboxUnlisted(state))
       : unlisted);
   const noResults =
     answered &&
@@ -524,7 +526,7 @@ export function SearchFooter({
       search={search}
       scope={searchingScope(t, {
         searchesAll,
-        searched: searchesAll ? mailboxes : shown,
+        searched: searchesAll ? (mailboxes ?? []) : shown,
         scopeName,
         more: search.found,
       })}

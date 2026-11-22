@@ -920,6 +920,8 @@ function useShownInboxes<W extends Readonly<{ id: string }>>({
   return {
     inboxes,
     unhidden,
+    // The Inboxes search widened to every Inbox covers; undefined until the preferences are read.
+    searchable: sections === undefined ? undefined : unhidden,
     reading: waits && !unreadable,
     unreadable: waits && unreadable,
     // A pull while All Inboxes waits for the preferences reads them again, and refreshes the
@@ -1018,6 +1020,7 @@ export function Inbox({
   const {
     inboxes,
     unhidden,
+    searchable,
     reading,
     unreadable,
     reread,
@@ -1339,7 +1342,7 @@ export function Inbox({
     footer: searching ? (
       <SearchFooter
         search={searchState}
-        mailboxes={unhidden}
+        mailboxes={searchable}
         shown={searchedMailboxes}
         ready={ready}
         unlisted={unlisted}

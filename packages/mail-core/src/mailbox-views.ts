@@ -533,21 +533,29 @@ const changedFolders = (
   ...folders.filter(({ name }) => !names.includes(name)),
 ];
 
-// `folders` with folder `name` of `names` shown when `shown`, hidden otherwise; undefined, to write
-// nothing, when that changes nothing, as for the Inbox, which stays shown.
+// `folders` with folder `name` of `names` shown when `shown`, hidden otherwise, every other folder
+// keeping its stored place, even one this device has yet to list; undefined, to write nothing, when
+// that changes nothing, as for the Inbox, which stays shown.
 export const showFolder = (
   folders: SectionFolders,
   names: readonly string[],
   { name, shown }: Readonly<{ name: string; shown: boolean }>,
-) =>
-  name === inboxFolder ||
-  !folderRows(folders, names).some(
-    (row) => row.name === name && row.shown !== shown,
-  )
-    ? undefined
-    : changedFolders(folders, names, (rows) =>
-        rows.map((row) => (row.name === name ? { name, shown } : row)),
-      );
+) => {
+  if (
+    name === inboxFolder ||
+    !folderRows(folders, names).some(
+      (row) => row.name === name && row.shown !== shown,
+    )
+  ) {
+    return undefined;
+  }
+  const stored = (row: Readonly<{ name: string }>) =>
+    folders.some((folder) => folder.name === row.name);
+  return [
+    ...folders,
+    ...folderRows([], names).filter((row) => !stored(row)),
+  ].map((row) => (row.name === name ? { name, shown } : row));
+};
 
 // `folders` with folder `name` of `names` moved to the place `to` gives for its stored place.
 export const moveFolder = (
