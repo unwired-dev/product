@@ -1,7 +1,7 @@
 // The DESIGN.md tokens ("Graphite & Cinnabar"); each client picks its platform's type ramp.
-export const spacing = { xs: 4, s: 8, m: 12, l: 16, xl: 20 };
+export const spacing = { xs: 4, s: 8, m: 12, l: 16, xl: 20, xxl: 24, xxxl: 40 };
 
-// The iPad Inbox frames scale the Mac list recipe by 1.15.
+// The iPad Inbox frames scale the Mac list recipe by 1.15; type rounds to whole points.
 export const ipadListScale = 1.15;
 
 export const radius = {
@@ -31,11 +31,9 @@ export const radius = {
   mailboxGroup: 22,
   // iPhone's Profile Switcher above the Mailboxes groups.
   profileSwitcher: 14,
-  // iPhone's Move to… sheet: its top corners, search field and inset row groups.
-  sheet: 38,
+  // iPhone's Move to… sheet: its search field.
   searchField: 18,
-  insetGroup: 22,
-  settingsDetail: 16.923076629638672,
+  settingsDetail: 17,
 };
 
 export const palette = {
@@ -43,6 +41,8 @@ export const palette = {
     accentFill: '#3A3D44',
     accentOnFill: '#FFFFFF',
     accentInk: '#3A3D44',
+    // The unread dot; Dark lifts it above the fill for non-text contrast on the content surface.
+    accentUnread: '#3A3D44',
     accentSelectionSubtle: 'rgba(58, 61, 68, 0.12)',
     // The iPad Palette frames' outline around the focused command query.
     focusRing: 'rgba(58, 61, 68, 0.32)',
@@ -100,7 +100,7 @@ export const palette = {
     fillControl: 'rgba(0, 0, 0, 0.08)',
     fillTrack: 'rgba(0, 0, 0, 0.09)',
     separator: 'rgba(0, 0, 0, 0.1)',
-    statusWarning: '#C93400',
+    statusWarning: '#9A5B00',
     statusDestructive: '#D70015',
     // Glass controls of 48pt or less.
     smallGlassShadow: '0px 2px 8px rgba(0, 0, 0, 0.08)',
@@ -109,6 +109,8 @@ export const palette = {
     // The Mac frames' glass menu panels, such as the Command Palette.
     macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
     scrimTouch: 'rgba(0, 0, 0, 0.22)',
+    // The Mac frames' backdrop behind alerts and sheets, which AppKit draws itself.
+    scrimMac: 'rgba(0, 0, 0, 0.18)',
     // Menus, popovers and sheets, which float above the content.
     menuShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
     // The deep graphite toast above the floating search bar, alike in Light and Dark.
@@ -118,6 +120,7 @@ export const palette = {
     accentFill: '#6A6E78',
     accentOnFill: '#FFFFFF',
     accentInk: '#C8CBD2',
+    accentUnread: '#7A7E88',
     accentSelectionSubtle: 'rgba(200, 203, 210, 0.16)',
     focusRing: 'rgba(106, 110, 120, 0.28)',
     onDeviceInk: '#FF9E88',
@@ -166,6 +169,7 @@ export const palette = {
     macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.4)',
     // The iPad Compose frames dim the #1E1E1E content to #121212.
     scrimTouch: 'rgba(0, 0, 0, 0.4)',
+    scrimMac: 'rgba(0, 0, 0, 0.4)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
     toastShadow: '0px 6px 9px rgba(0, 0, 0, 0.18)',
   },
@@ -216,14 +220,16 @@ export const typography = {
     headline: style(17, 22, '600'),
     body: style(17, 22, '400'),
     subheadline: style(15, 20, '400'),
+    subheadlineEmphasized: style(15, 20, '600'),
     footnote: style(13, 18, '400'),
     caption1: style(12, 16, '400'),
+    caption1Emphasized: style(12, 16, '600'),
     title3Emphasized: style(20, 25, '600'),
   },
   ipadList: {
-    title3Emphasized: style(17.25, 23, '600'),
-    body: style(14.95, 18.4, '400'),
-    subheadline: style(12.65, 16.1, '400'),
+    title3Emphasized: style(17, 23, '600'),
+    body: style(15, 18, '400'),
+    subheadline: style(13, 16, '400'),
   },
   reading: {
     subject: style(20, 25, '700'),

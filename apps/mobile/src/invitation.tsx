@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   label: { ...textStyles.subheadline, minWidth: 76 },
   value: { flexGrow: 1, flexShrink: 1, flexBasis: 160, gap: 2 },
   text: { ...textStyles.subheadline },
-  emphasized: { ...textStyles.subheadline, fontWeight: '600' },
+  emphasized: { ...textStyles.subheadlineEmphasized },
   smallEmphasized: { ...textStyles.footnote, fontWeight: '600' },
   status: {
     gap: 10,

@@ -33,10 +33,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 160,
     paddingTop: 124,
-    paddingBottom: 40,
+    paddingBottom: spacing.xxxl,
   },
   welcomeContent: { maxWidth: 520 },
-  seal: { width: 18, height: 18, borderRadius: 9, marginBottom: 24 },
+  seal: { width: 18, height: 18, borderRadius: 9, marginBottom: spacing.xxl },
   headline: {
     fontSize: 52,
     lineHeight: 58,
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     paddingHorizontal: spacing.l,
     paddingTop: 250,
-    paddingBottom: 40,
+    paddingBottom: spacing.xxxl,
   },
   // The rest of the frame's 200pt inset, from the pane's free width only.
   formInset: { flexGrow: 1, maxWidth: 200 - spacing.l },

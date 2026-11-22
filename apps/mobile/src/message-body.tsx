@@ -1290,7 +1290,7 @@ export function BodyUnavailable({
             <SwiftUIText
               modifiers={[
                 ipad
-                  ? font({ size: 13 * scale, weight: 'semibold' })
+                  ? font({ size: 15, weight: 'semibold' })
                   : font({ textStyle: 'footnote', weight: 'semibold' }),
                 foregroundStyle(colors.textPrimary),
                 padding({

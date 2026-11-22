@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filteredBy: { flexShrink: 1, minHeight: barHeight, justifyContent: 'center' },
-  filteredByCaption: { ...textStyles.caption1, fontWeight: '600' },
+  filteredByCaption: { ...textStyles.caption1Emphasized },
   filteredByValue: {
     flexDirection: 'row',
     alignItems: 'center',

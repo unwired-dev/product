@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
   sheet: {
     paddingTop: 28,
     paddingHorizontal: spacing.xl,
-    paddingBottom: 40,
+    paddingBottom: spacing.xxxl,
     gap: 14,
   },
   popover: {

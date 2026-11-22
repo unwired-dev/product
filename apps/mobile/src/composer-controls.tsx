@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   linkSheetTitle: { ...textStyles.headline, flex: 1, textAlign: 'center' },
-  linkGroup: { borderRadius: radius.insetGroup, borderCurve: 'continuous' },
+  linkGroup: { borderRadius: radius.mailboxGroup, borderCurve: 'continuous' },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   formatTitle: { ...textStyles.title3Emphasized, flex: 1 },
-  formatClose: { borderRadius: radius.insetGroup },
+  formatClose: { borderRadius: radius.mailboxGroup },
   formatRow: {
     flexDirection: 'row',
     gap: spacing.s,
@@ -216,13 +216,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 2,
     padding: spacing.xs,
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.mailboxGroup,
   },
   formatStyle: { minHeight: 40, borderRadius: 18 },
   formatGroup: {
     flex: 1,
     flexDirection: 'row',
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.mailboxGroup,
     overflow: 'hidden',
   },
   formatGlyph: { fontSize: 17, lineHeight: 20 },
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.insetGroup - spacing.xs,
+    borderRadius: radius.mailboxGroup - spacing.xs,
   },
   popUp: {
     flexDirection: 'row',

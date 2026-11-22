@@ -20,7 +20,7 @@ import {
   registrationScreen,
 } from '@private-email/mail-core/registration';
 import { previewInbox } from '@private-email/mail-core/registration-mode';
-import { radius } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import {
   Fragment,
   createContext,
@@ -111,6 +111,13 @@ export const AccountContext = createContext<
       chooseFolders: (
         connection: string,
         folders: ChosenFolders,
+      ) => Promise<boolean>;
+      // Arranges every connection of Mail Profile `profile` in `order`, on every Trusted Device,
+      // unless another device changed the order it was made `from`; resolves false when refused.
+      arrangeMailboxes?: (
+        profile: string,
+        order: readonly string[],
+        from: readonly string[],
       ) => Promise<boolean>;
     }>
   | undefined
@@ -234,6 +241,14 @@ function RegistrationGateContent({
         return store.getSnapshot().profileFailure;
       },
       chooseFolders: store.chooseFolders,
+      arrangeMailboxes: async (
+        profile: string,
+        order: readonly string[],
+        from: readonly string[],
+      ) => {
+        await store.arrangeMailboxes(profile, order, from);
+        return store.getSnapshot().orderFailure !== profile;
+      },
     }),
     [store, screen.mailboxes, choices, profiles],
   );
@@ -723,7 +738,10 @@ function RegistrationPage({
       <View
         style={[
           styles.padBackdrop,
-          { backgroundColor: colors.scrimTouch, paddingTop: insets.top + 40 },
+          {
+            backgroundColor: colors.scrimTouch,
+            paddingTop: insets.top + spacing.xxxl,
+          },
         ]}>
         <View style={[styles.padSheet, { boxShadow: colors.menuShadow }]}>
           <Glass cornerRadius={radius.ipadSheet} />
@@ -740,8 +758,8 @@ function RegistrationPage({
       contentContainerStyle={[
         styles.scroll,
         {
-          paddingLeft: insets.left + 24,
-          paddingRight: insets.right + 24,
+          paddingLeft: insets.left + spacing.xxl,
+          paddingRight: insets.right + spacing.xxl,
           paddingTop: insets.top + 62,
           paddingBottom: insets.bottom + 26,
         },

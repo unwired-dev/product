@@ -26,7 +26,7 @@ import {
 import { useState } from 'react';
 import { Dimensions } from 'react-native';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { CommandPaletteProvider, InSheet } from '../src/command-palette.tsx';
 import { Composer } from '../src/composer.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -75,10 +75,13 @@ function Reader({
   inbox,
   drafts,
   message,
+  sheet = false,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
   readonly message: string;
+  // Whether the composer opens in the compact window's system sheet.
+  readonly sheet?: boolean;
 }) {
   const [composing, setComposing] = useState<string>();
   return (
@@ -94,11 +97,13 @@ function Reader({
             onCompose={setComposing}
           />
         ) : (
-          <Composer
-            id={composing}
-            onClose={ignore}
-            onRebind={setComposing}
-          />
+          <InSheet value={sheet}>
+            <Composer
+              id={composing}
+              onClose={ignore}
+              onRebind={setComposing}
+            />
+          </InSheet>
         )}
       </CommandPaletteProvider>
     </InboxProvider>
@@ -498,4 +503,63 @@ describe('iPad reader', () => {
     },
   );
   /* oxlint-enable vitest/max-expects */
+
+  // The compact window's composer sheet owns the downward swipe and offers no palette.
+  it.each([
+    { sheet: false, inputs: 1 },
+    { sheet: true, inputs: 0 },
+  ])(
+    'offers the Command input in a compact composer unless it is the sheet (sheet=$sheet)',
+    async ({ sheet, inputs }) => {
+      expect.hasAssertions();
+      const snapshot: RegistrationSnapshot = {
+        kind: 'connected',
+        productAccountId: 'synthetic-product-account',
+        signInProvider: 'google',
+        mailboxes: JSON.stringify([
+          { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        ]),
+      };
+      const account = { snapshot, busy: false, failed: false };
+      const drafts = createDrafts(
+        createSyntheticDrafts(() => 'synthetic-product-account').native,
+        { getSnapshot: () => account, subscribe: () => ignore },
+      );
+      const gmail = createSyntheticGmail({ messages: 0 });
+      const message = gmail.deliver({
+        from: 'Maya Chen <maya@example.invalid>',
+        subject: 'iPad plans',
+        content: { text: 'Shall we meet on Friday?' },
+      });
+      const inbox = createInboxStore(gmail.native);
+      await render(
+        <AccountContext
+          value={{
+            mailboxes: mailboxesOf(snapshot),
+            openAccount: ignore,
+            authorizeMailbox: () => Promise.resolve(),
+            refreshInbox: (load) => load(),
+            account: 'synthetic-product-account',
+            profiles: [],
+            createProfile: () => Promise.resolve(undefined),
+            chooseFolders: () => Promise.resolve(true),
+          }}>
+          <Reader
+            inbox={inbox}
+            drafts={drafts}
+            message={message}
+            sheet={sheet}
+          />
+        </AccountContext>,
+      );
+      await act(inbox.load);
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Reply' }),
+      );
+      await screen.findByLabelText('Subject');
+      expect(
+        screen.queryAllByRole('button', { name: 'Open Command Palette' }),
+      ).toHaveLength(inputs);
+    },
+  );
 });

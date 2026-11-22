@@ -2,14 +2,23 @@ import type {
   NativeInboxPreferenceSync,
   NativeInboxPreferences,
 } from '@private-email/mail-core/inbox-preferences';
-import type { FavoriteEntries } from '@private-email/mail-core/mailboxes';
+import type {
+  FavoriteEntries,
+  SectionFolders,
+} from '@private-email/mail-core/mailboxes';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 
 import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import {
   favoriteRows,
+  folderRows,
   moveFavorite,
+  moveFolder,
+  sectionFolders,
+  sectionShown,
+  showFavorite,
   toggleFavorite,
+  showFolder,
 } from '@private-email/mail-core/mailboxes';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
@@ -211,6 +220,34 @@ describe('stored Inbox preferences', () => {
       logged: [],
     });
   });
+
+  it('reports a failed read as unreadable for its own account only, until a read succeeds', async () => {
+    expect.hasAssertions();
+    const { state, store } = storage();
+    await store.load();
+    state.locked = true;
+    await store.load();
+    const failed = [store.unreadable(), store.sections('work')];
+    state.account = 'account-2';
+    const signedOver = store.unreadable();
+    // Another account's failure keeps this one's, so its earlier read stays unused.
+    await store.load();
+    state.account = 'account-1';
+    const back = [store.unreadable(), store.sections('work')];
+    state.locked = false;
+    await store.load();
+    expect({
+      failed,
+      signedOver,
+      back,
+      read: [store.unreadable(), store.sections('work')],
+    }).toStrictEqual({
+      failed: [true, undefined],
+      signedOver: false,
+      back: [true, undefined],
+      read: [false, {}],
+    });
+  });
 });
 
 describe('synchronized Inbox preferences', () => {
@@ -313,6 +350,173 @@ describe('synchronized Inbox preferences', () => {
       ],
       home: [],
     });
+  });
+
+  it("carries a Profile's hidden accounts and its folders' order to another device; edits each device made before either pulled all stand, an Inbox stays shown and a folder another device lists keeps its place", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Archive', 'Receipts', 'Travel'];
+    // Before either pulls, the phone hides an account while the Mac hides one of that account's
+    // folders and edits the other account's, hiding one that only it lists.
+    const stored = await phone.store.showSection('work', 'fastmail', false);
+    await Promise.all([
+      mac.store.changeFolders('work', 'fastmail', (folders) =>
+        showFolder(folders, ['INBOX', 'Spam'], { name: 'Spam', shown: false }),
+      ),
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        showFolder(folders, ['Elsewhere'], { name: 'Elsewhere', shown: false }),
+      ),
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        showFolder(folders, names, { name: 'Travel', shown: false }),
+      ),
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        showFolder(folders, names, { name: 'INBOX', shown: false }),
+      ),
+      mac.store.changeFolders('work', 'gmail', (folders) =>
+        moveFolder(folders, names, { name: 'Receipts', to: () => 0 }),
+      ),
+    ]);
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    const sections = { ...mac.store.sections('work') };
+    expect({
+      stored,
+      unread: phone.relaunch().sections('work'),
+      shown: ['gmail', 'fastmail'].map((id) => sectionShown(sections, id)),
+      folders: folderRows(sectionFolders(sections, 'gmail'), [...names, 'New']),
+      kept: sectionFolders(sections, 'gmail').at(-1),
+      fastmail: sectionFolders(sections, 'fastmail'),
+      same: phone.store.sections('work'),
+      home: phone.store.sections('home'),
+    }).toStrictEqual({
+      stored: true,
+      unread: undefined,
+      shown: [true, false],
+      folders: [
+        { name: 'Receipts', shown: true },
+        { name: 'INBOX', shown: true },
+        { name: 'Archive', shown: true },
+        { name: 'Travel', shown: false },
+        { name: 'New', shown: true },
+      ],
+      kept: { name: 'Elsewhere', shown: false },
+      fastmail: [
+        { name: 'INBOX', shown: true },
+        { name: 'Spam', shown: false },
+      ],
+      same: sections,
+      home: {},
+    });
+  });
+
+  it('keeps a folder this device has yet to list in its stored place when it hides another', async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Receipts', 'Project'];
+    await mac.store.changeFolders('work', 'gmail', (folders) =>
+      moveFolder(folders, names, { name: 'Project', to: () => 0 }),
+    );
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    // The phone has yet to list Project.
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.changeFolders('work', 'gmail', (folders) =>
+      showFolder(folders, ['INBOX', 'Receipts'], {
+        name: 'Receipts',
+        shown: false,
+      }),
+    );
+    await phone.store.synchronize();
+    await mac.store.synchronize();
+    expect(
+      folderRows(
+        sectionFolders({ ...mac.store.sections('work') }, 'gmail'),
+        names,
+      ),
+    ).toStrictEqual([
+      { name: 'Project', shown: true },
+      { name: 'INBOX', shown: true },
+      { name: 'Receipts', shown: false },
+    ]);
+  });
+
+  it("writes nothing for a tap that changes nothing, so another device's newer hide stands", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Travel', 'Archive'];
+    const hide =
+      (name: string, listed: readonly string[]) => (folders: SectionFolders) =>
+        showFolder(folders, listed, { name, shown: false });
+    await mac.store.changeFolders('work', 'gmail', hide('Travel', names));
+    await mac.store.synchronize();
+    await phone.store.synchronize();
+    vi.setSystemTime(november8 + 1000);
+    await mac.store.changeFolders('work', 'gmail', hide('Archive', names));
+    await mac.store.synchronize();
+    // The phone, which also lists New and has yet to pull the Archive hide, hides Travel again.
+    vi.setSystemTime(november8 + 2000);
+    await phone.store.changeFolders(
+      'work',
+      'gmail',
+      hide('Travel', [...names, 'New']),
+    );
+    await phone.store.synchronize();
+    expect(
+      folderRows(
+        sectionFolders({ ...phone.store.sections('work') }, 'gmail'),
+        names,
+      ),
+    ).toStrictEqual([
+      { name: 'INBOX', shown: true },
+      { name: 'Travel', shown: false },
+      { name: 'Archive', shown: false },
+    ]);
+  });
+
+  it("writes nothing for an All Inboxes tap, so another device's Favorites hide stands", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    await mac.store.changeFavorites('work', (entries) =>
+      showFavorite(entries, 'SPAM', false),
+    );
+    await mac.store.synchronize();
+    // The phone has yet to pull the hide when its All Inboxes row is tapped, later.
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.changeFavorites('work', (entries) =>
+      showFavorite(entries, 'ALL_INBOXES', false),
+    );
+    await phone.store.synchronize();
+    expect(
+      favoriteRows(phone.store.favorites('work')).find(
+        ({ row }) => row === 'SPAM',
+      ),
+    ).toStrictEqual({ row: 'SPAM', shown: false });
+  });
+
+  it("writes nothing for an Inbox tap, so another device's folder hide stands", async () => {
+    expect.hasAssertions();
+    const { mac, phone } = devices();
+    const names = ['INBOX', 'Travel'];
+    await mac.store.changeFolders('work', 'gmail', (folders) =>
+      showFolder(folders, names, { name: 'Travel', shown: false }),
+    );
+    await mac.store.synchronize();
+    // The phone has yet to pull the hide when its Inbox row is tapped, later.
+    vi.setSystemTime(november8 + 1000);
+    await phone.store.changeFolders('work', 'gmail', (folders) =>
+      showFolder(folders, names, { name: 'INBOX', shown: false }),
+    );
+    await phone.store.synchronize();
+    expect(
+      folderRows(
+        sectionFolders({ ...phone.store.sections('work') }, 'gmail'),
+        names,
+      ),
+    ).toStrictEqual([
+      { name: 'INBOX', shown: true },
+      { name: 'Travel', shown: false },
+    ]);
   });
 
   it.each([

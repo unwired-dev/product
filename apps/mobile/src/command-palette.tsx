@@ -200,8 +200,7 @@ const styles = StyleSheet.create({
   },
   input: { ...textStyles.body, flex: 1, paddingVertical: 0 },
   chip: {
-    ...textStyles.subheadline,
-    fontWeight: '600',
+    ...textStyles.subheadlineEmphasized,
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: radius.chip,
@@ -229,7 +228,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   backText: { ...textStyles.subheadline },
-  choosing: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  choosing: { ...textStyles.subheadlineEmphasized, flex: 1 },
   // iPad's commands sit 8pt inside their panel, beneath 32pt group headers, in the list's type.
   list: { paddingHorizontal: pad ? spacing.s : spacing.m },
   section: {
@@ -293,7 +292,7 @@ const styles = StyleSheet.create({
   hintStacked: { flexDirection: 'column', alignItems: 'flex-start' },
   hintTextStacked: { flex: 0, alignSelf: 'stretch' },
   dismissStacked: { alignSelf: 'flex-end' },
-  hintTitle: { ...textStyles.subheadline, fontWeight: '600' },
+  hintTitle: { ...textStyles.subheadlineEmphasized },
   hintDetail: { ...textStyles.footnote },
   dismiss: {
     width: 44,
@@ -856,7 +855,12 @@ function CommandRow({
   );
 }
 
-// The visible command input of iPad layouts; iPhone opens the palette by gesture alone.
+// Inside a system sheet, which owns the downward swipe, headers offer no palette, as the app's
+// other sheets do not.
+export const InSheet = createContext(false);
+
+// The visible command input of iPad layouts; iPhone opens the palette by gesture alone, and a
+// sheet offers none.
 export function CommandInput({
   style,
 }: {
@@ -868,7 +872,7 @@ export function CommandInput({
   const input = useRef<ViewInstance>(null);
   // Measured as the press begins, so the popover opens beneath the input wherever it has moved.
   const frame = useRef<Anchor>(undefined);
-  if (!pad) {
+  if (!pad || use(InSheet)) {
     return null;
   }
   return (
@@ -912,10 +916,6 @@ export function CommandInputRow() {
 }
 
 const swipe = 24;
-
-// Inside a system sheet, which owns the downward swipe, headers offer no palette, as the app's
-// other sheets do not.
-export const InSheet = createContext(false);
 
 // Opens the palette from a header. `swipe` goes on the header's whole area: a downward swipe
 // starting on it opens the palette, while swipes that start in the content below scroll it as

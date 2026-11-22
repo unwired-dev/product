@@ -21,7 +21,7 @@ import { SettingsGroup, SettingsRow } from './settings.tsx';
 import { textStyles, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
-  sheet: { gap: spacing.m, padding: 24 },
+  sheet: { gap: spacing.m, padding: spacing.xxl },
   title: textStyles.title3Emphasized,
   text: textStyles.body,
   value: textStyles.body,

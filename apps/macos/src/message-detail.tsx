@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 760,
     alignSelf: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: spacing.xxxl,
     paddingTop: spacing.xl,
     // Clear of the floating search bar across the panes' bottom edge and its scroll edge fade.
     paddingBottom: 72,

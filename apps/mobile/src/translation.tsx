@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  title: { ...textStyles.subheadline, fontWeight: '600' },
+  title: { ...textStyles.subheadlineEmphasized },
   text: { ...textStyles.reading.body },
   secondary: { ...textStyles.subheadline },
   // The reader's panel is the frames' Translation Banner: the quiet fill without a border. iPad

@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: spacing.xs,
     paddingVertical: 14,
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.mailboxGroup,
     borderCurve: 'continuous',
     alignItems: 'center',
   },
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
   replyLabel: { ...textStyles.subheadline, textAlign: 'center' },
   actionGroup: {
     overflow: 'hidden',
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.mailboxGroup,
     borderCurve: 'continuous',
   },
   actionRow: {
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
     minHeight: 50,
     paddingHorizontal: 18,
     paddingVertical: 14,
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.mailboxGroup,
   },
   actionLabel: { ...textStyles.body, flex: 1 },
   // Hairlines span the group.

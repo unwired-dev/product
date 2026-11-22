@@ -25,8 +25,8 @@ import { textStyles, usePalette } from './theme.ts';
 
 const ipad = Platform.OS === 'ios' && Platform.isPad;
 const phone = Platform.OS === 'ios' && !Platform.isPad;
-// The frames' 17.25/23 Title 3 is set without the system font's own -0.43pt tracking at that size.
-const ipadTitle3 = { fontSize: 17.25, lineHeight: 23, letterSpacing: 0.43 };
+// The frames' 17.25/23 Title 3, rounded to 17/23, is set without the system font's own -0.43pt tracking at that size.
+const ipadTitle3 = { fontSize: 17, lineHeight: 23, letterSpacing: 0.43 };
 // The benefits' SF Symbols are as wide as the frames draw them, at 18.4pt on iPad and 18pt on
 // iPhone, so each label follows its own symbol.
 const symbolWidths: Readonly<Record<string, number>> = ipad
@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
   welcome: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: ipad ? 140 : 24,
+    paddingHorizontal: ipad ? 140 : spacing.xxl,
     paddingVertical: spacing.l,
   },
   // The iPad frames set Welcome's content 13.5pt below the centre of the safe area.
@@ -66,8 +66,8 @@ const styles = StyleSheet.create({
   // ink sits 2pt higher in the line than the frames', so it moves down without moving the rest.
   ipadHeadline: {
     top: 2,
-    fontSize: 59.8,
-    lineHeight: 66.7,
+    fontSize: 60,
+    lineHeight: 67,
     fontWeight: '400',
     letterSpacing: -1.196 - 0.25,
   },
@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
     marginTop: 23,
     opacity: 0.78,
   },
-  ipadStatus: { fontSize: 17.25, lineHeight: 23, opacity: 0.78 },
+  ipadStatus: { fontSize: 17, lineHeight: 23, opacity: 0.78 },
   // Launch progress takes the headline's place; Welcome's content stays laid out beneath it.
   status: { position: 'absolute', top: 0, left: 0, right: 0 },
   hidden: { opacity: 0 },
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
   },
   // The iPhone frames end Welcome's Continue 24pt and Sign In's fine print 36pt above the home
   // indicator.
-  welcomeFooter: { paddingBottom: 24 },
+  welcomeFooter: { paddingBottom: spacing.xxl },
   signInFooter: { paddingBottom: 36 },
   split: {
     flex: 1,
@@ -140,7 +140,12 @@ const styles = StyleSheet.create({
     gap: spacing.m * ipadListScale,
   },
   // The iPhone frames start the heading 36pt below Back.
-  compactForm: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 36, gap: 10 },
+  compactForm: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.xxl,
+    paddingTop: 36,
+    gap: 10,
+  },
   back: {
     width: 44,
     height: 44,
@@ -155,7 +160,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   title: { ...textStyles.largeTitle },
-  regularTitle: { fontSize: 25.3, lineHeight: 29.9 },
+  regularTitle: { fontSize: 25, lineHeight: 30 },
   description: { ...textStyles.body },
   regularDescription: { ...typography.ipadList.body },
   finePrint: { ...textStyles.footnote, textAlign: 'center' },
@@ -196,7 +201,7 @@ const styles = StyleSheet.create({
   ipadAppleLabel: { ...typography.ipadList.title3Emphasized },
   providers: {
     overflow: 'hidden',
-    borderRadius: radius.insetGroup,
+    borderRadius: radius.mailboxGroup,
     borderCurve: 'continuous',
   },
   // iPad's providers sit in the setup sheet as the Mac's bordered list at 1.15×.
@@ -254,7 +259,11 @@ const styles = StyleSheet.create({
   },
   // The brand card follows the iPhone Recovery Key frame: content 24pt from the window's edges,
   // 8pt inside the card's own 16pt inset, with 14pt gaps and a 16pt tile.
-  brandCard: { gap: 14, paddingHorizontal: spacing.s, paddingVertical: 24 },
+  brandCard: {
+    gap: 14,
+    paddingHorizontal: spacing.s,
+    paddingVertical: spacing.xxl,
+  },
   brandCardHeader: { alignItems: 'flex-start', gap: 14 },
   brandIconTile: { borderRadius: 16 },
   cardTitle: { ...textStyles.headline, textAlign: 'center' },
@@ -269,7 +278,7 @@ const styles = StyleSheet.create({
     borderRadius: spacing.m * ipadListScale,
     backgroundColor: palette.dark.brandWell,
   },
-  ipadBrandTitle: { fontSize: 25.3, lineHeight: 29.9, fontWeight: '400' },
+  ipadBrandTitle: { fontSize: 25, lineHeight: 30, fontWeight: '400' },
   ipadBrandDescription: { ...typography.ipadList.body, opacity: 0.8 },
 });
 

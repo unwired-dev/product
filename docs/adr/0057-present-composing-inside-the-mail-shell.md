@@ -45,6 +45,14 @@ storage, ownership, encryption and delivery are unchanged.
 [the Draft guide](../drafts.md#composing) owns the observable contract once it
 ships.
 
+Clarified on 22 November 2026
+([#2645](https://github.com/unwired-dev/product/issues/2645)): a composer keeps
+the presentation it opened in until it closes. A sheet opened in a compact iPad
+window stays a compact sheet when the window widens, and an overlay opened at
+regular width covers the window when it narrows. Moving an open composer
+between the sheet and the window would remount its editor and lose its
+selection and Undo history.
+
 ## Crash recovery amendment, 2026-11-11
 
 [ADR 0077](0077-remove-friction-that-privacy-does-not-require.md) supersedes the Mac saving amendment's acceptance below that edits are lost if

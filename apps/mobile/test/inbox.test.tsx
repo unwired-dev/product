@@ -1013,8 +1013,11 @@ async function renderConnected(
     windowBar,
     pinsFor,
     toolbar = false,
+    covered = false,
   }: Readonly<{
     windowBar?: ReturnType<typeof createWindowBar>;
+    // The composer, expanded to the regular-width window, covers the list.
+    covered?: boolean;
     // iPhone's system toolbar in place of the floating bar.
     toolbar?: boolean;
     // Pin storage for the registered Product Account, instead of the host's.
@@ -1078,6 +1081,7 @@ async function renderConnected(
               onView={setView}
               selected={selected}
               view={view}
+              covered={covered}
               {...(toolbar ? { bar: true, onCompose: () => undefined } : {})}
             />
             <MessageDetail
@@ -3635,6 +3639,10 @@ describe('organizing motion', () => {
   });
 });
 
+// The palette's Archive for the open message, listed before Go To's Archive.
+const messageArchive = () =>
+  openedPalette().getAllByRole('button', { name: 'Archive' })[0]!;
+
 describe('command palette', () => {
   it('opens by swipe and accessibility action while search replaces the Inbox heading', async () => {
     expect.hasAssertions();
@@ -3801,9 +3809,7 @@ describe('command palette', () => {
     expect(headers.indexOf('App')).toBeLessThan(headers.indexOf('Go To'));
     const input = screen.getByPlaceholderText('Type a command');
     await fireEvent.changeText(input, 'arch');
-    expect(
-      openedPalette().getByRole('button', { name: 'Archive' }),
-    ).toBeVisible();
+    expect(messageArchive()).toBeVisible();
     expect(openedPalette().queryByRole('button', { name: 'Reply' })).toBeNull();
     await fireEvent.changeText(input, '');
 
@@ -3852,9 +3858,7 @@ describe('command palette', () => {
     await openPalette(
       await screen.findByRole('header', { name: 'Saturday, by the river?' }),
     );
-    expect(
-      openedPalette().getByRole('button', { name: 'Archive' }),
-    ).toBeEnabled();
+    expect(messageArchive()).toBeEnabled();
     // Meanwhile the message is archived elsewhere and the reader closes.
     const store = connected.store();
     await act(async () => {
@@ -3862,9 +3866,7 @@ describe('command palette', () => {
     });
     expect(screen.queryByText('oliver@example.invalid')).toBeNull();
     const organize = jest.spyOn(store, 'organize');
-    await fireEvent.press(
-      openedPalette().getByRole('button', { name: 'Archive' }),
-    );
+    await fireEvent.press(messageArchive());
     expect(
       openedPalette().getByRole('button', {
         name: 'Archive. No longer available',
@@ -3899,6 +3901,92 @@ describe('command palette', () => {
     expect(screen.queryByPlaceholderText('Type a command')).toBeNull();
     expect(screen.queryByText('oliver@example.invalid')).toBeNull();
     expect(screen.getByRole('search')).toBeVisible();
+  });
+
+  it('leaves the reader before Go To a Unified Mailbox shows it', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    await renderConnected(gmail.native);
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Sent' }),
+      );
+    });
+    expect(screen.queryByText('oliver@example.invalid')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Sent. In All Mailboxes' }),
+    ).toBeSelected();
+  });
+
+  it('keeps the reader beside the list when Go To shows a Unified Mailbox in a regular-width window', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    await renderConnected(gmail.native, 'gmail', {
+      windowBar: createWindowBar(),
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Sent' }),
+      );
+    });
+    expect(screen.getByText('oliver@example.invalid')).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Sent. In All Mailboxes' }),
+    ).toBeSelected();
+  });
+
+  it('leaves the reader when Go To shows a Unified Mailbox behind the expanded composer', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+    gmail.deliver({
+      from: 'Oliver Park <oliver@example.invalid>',
+      subject: 'Saturday, by the river?',
+    });
+    await renderConnected(gmail.native, 'gmail', {
+      windowBar: createWindowBar(),
+      covered: true,
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', {
+        name: 'Unread. Oliver Park. Saturday, by the river?',
+      }),
+    );
+    await openPalette(
+      await screen.findByRole('header', { name: 'Saturday, by the river?' }),
+    );
+    await act(async () => {
+      await fireEvent.press(
+        openedPalette().getByRole('button', { name: 'Sent' }),
+      );
+    });
+    expect(screen.queryByText('oliver@example.invalid')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Sent. In All Mailboxes' }),
+    ).toBeSelected();
   });
 
   it('navigates Settings from the account page, keeps the palette there and returns to the Inbox from it', async () => {

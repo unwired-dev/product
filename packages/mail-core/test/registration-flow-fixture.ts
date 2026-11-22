@@ -45,8 +45,8 @@ export const createRegistrationFlow = (
       Effect.runPromise(flow.notifyMailbox(connection, enabled)),
     chooseFolders: (connection, folders) =>
       Effect.runPromise(flow.chooseFolders(connection, folders)),
-    arrangeMailboxes: (profile, order) =>
-      Effect.runPromise(flow.arrangeMailboxes(profile, order)),
+    arrangeMailboxes: (profile, order, from) =>
+      Effect.runPromise(flow.arrangeMailboxes(profile, order, from)),
     colorMailbox: (connection, color) =>
       Effect.runPromise(flow.colorMailbox(connection, color)),
     chooseSendingDefault: (profile, connection) =>

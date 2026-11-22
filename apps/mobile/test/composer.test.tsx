@@ -5,7 +5,13 @@ import type { Draft } from '@private-email/mail-core/drafts';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { StyleProp, TextStyle, useColorScheme } from 'react-native';
+import type { Component } from 'react';
+import type {
+  StyleProp,
+  TextInputProps,
+  TextStyle,
+  useColorScheme,
+} from 'react-native';
 
 import { captureDraftText } from '@private-email/mail-core/assistance';
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
@@ -1080,6 +1086,81 @@ describe('composing Drafts', () => {
       expect(screen.queryByText(reason)).toBeNull();
       expect(send()).not.toBeDisabled();
     } finally {
+      outbox.dispose();
+    }
+  });
+
+  it('takes a Send that waits for a recipient to the field it waits for on iPhone', async () => {
+    expect.hasAssertions();
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
+    // The fields focused, by name: each call's receiver is the mocked input.
+    const focused = () =>
+      focus.mock.contexts.map(
+        (input: Component<TextInputProps>) => input.props.accessibilityLabel,
+      );
+    try {
+      await render(
+        <ComposerLayoutContext
+          value={{ size: 'compact', avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            mailboxes={mailboxes}
+            outbox={outbox}
+            registration={registration}
+          />
+        </ComposerLayoutContext>,
+      );
+      await press('New Message');
+      await screen.findByLabelText('To');
+      const send = () => screen.getByRole('button', { name: 'Send' });
+      // Send is dimmed and names the reason, and pressing it focuses To, which says it too.
+      expect(send()).toHaveProp(
+        'accessibilityHint',
+        'Add a recipient to send.',
+      );
+      focus.mockClear();
+      await act(async () => {
+        await fireEvent.press(send());
+      });
+      expect(focused()).toStrictEqual(['To']);
+      expect(screen.getByText('Add a recipient to send.')).toBeOnTheScreen();
+      // Unfinished text still being typed in Cc: Send focuses Cc, which then says why.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      await press('Show Cc and Bcc');
+      await fireEvent.changeText(screen.getByLabelText('Cc'), 'kim@example');
+      // A valid address still being typed in To leaves Cc the field Send waits for.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'lee@example.invalid',
+      );
+      const incomplete =
+        '“kim@example” is not a complete address. Correct it to send.';
+      expect(screen.queryByText(incomplete)).toBeNull();
+      focus.mockClear();
+      await act(async () => {
+        await fireEvent.press(send());
+      });
+      expect(focused()).toStrictEqual(['Cc']);
+      expect(screen.getByText(incomplete)).toBeOnTheScreen();
+    } finally {
+      focus.mockRestore();
       outbox.dispose();
     }
   });

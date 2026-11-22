@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { inboxCommands } from '@private-email/mail-core/commands';
+import {
+  inboxCommands,
+  sidebarCommands,
+} from '@private-email/mail-core/commands';
 import { use } from 'react';
 import {
   Platform,
@@ -10,12 +13,15 @@ import {
   View,
 } from 'react-native';
 
+import type { MailboxView } from './sidebar.tsx';
+
 import {
   CommandInput,
   RegisterCommands,
   usePaletteHeader,
 } from './command-palette.tsx';
 import { NavigationChrome } from './design.tsx';
+import { WindowBarContext } from './inbox-bar.tsx';
 import { barInset, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { SidebarToggle, SidebarToggleContext } from './sidebar-toggle.tsx';
@@ -129,6 +135,8 @@ export function InboxHeading({
   searching,
   onLeave,
   onSearch,
+  onView,
+  covered,
 }: {
   // The title, or search's scope while searching.
   readonly children: ReactNode;
@@ -144,9 +152,15 @@ export function InboxHeading({
   readonly onLeave: () => Promise<boolean>;
   // Opens search; absent until the Inbox can search.
   readonly onSearch: (() => void) | undefined;
+  // Shows another mailbox in the list.
+  readonly onView: (view: MailboxView) => void;
+  // Whether the composer, expanded to the regular-width window, covers the list.
+  readonly covered: boolean | undefined;
 }) {
   const { t } = useLocalization();
   const sidebar = use(SidebarToggleContext);
+  // The regular-width shell, whose list stays in view beside the reader and the composer.
+  const regular = use(WindowBarContext) !== undefined;
   const colors = usePalette();
   const header = usePaletteHeader();
   const inBar = bar === true && !searching;
@@ -182,6 +196,24 @@ export function InboxHeading({
                 : () => {
                     account.openAccount();
                   },
+          })
+        }
+      />
+      {/* Go To each Unified Mailbox, which stays reachable here when Favorites hides it. Where a
+        reader or composer covers the list, it leaves it first, as Search Mail does; beside them it
+        shows the mailbox, as its row does. */}
+      <RegisterCommands
+        offer={() =>
+          sidebarCommands(t, {
+            unified: async (role) => {
+              if ((!regular || covered === true) && onClose !== undefined) {
+                if (detail && !(await onLeave())) {
+                  return;
+                }
+                onClose();
+              }
+              onView({ unified: role });
+            },
           })
         }
       />

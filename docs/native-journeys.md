@@ -516,6 +516,24 @@ with no Outbox row "Sending soon" and no **Undo**. The captures "Send menu with 
 "After Send Now" are named with the appearance. The dimmed state while a file is still being
 added is covered by Jest.
 
+`testEditFavorites` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testEditFavorites`, once with `UNWIRED_APPEARANCE=light` and once with `dark`
+([#2611](https://github.com/unwired-dev/product/issues/2611)). It connects the synthetic Gmail
+mailbox, shows Mailboxes and taps **Edit**, beside Account on iPhone and the sidebar toggle on iPad.
+Tapping Spam hides it, and dragging Trash's handle two rows up moves it above Spam and All Mail.
+Tapping the Gmail mailbox's header hides its folders and tapping it again shows them, tapping its
+own Spam folder hides it, and dragging its Trash folder's handle moves it above its Inbox. After
+**Done** Mailboxes lists All Inboxes, Sent, Archive, Trash and All Mail without the Spam folder and
+with Trash above the Inbox, and after a relaunch it lists them again. Selecting the Trash folder,
+which Mailboxes then shows selected, and hiding it in Edit selects All Inboxes. Edit mode, the edited list and the relaunched
+Mailboxes are kept as attachments named with the appearance. Move Up and Move Down, moving a
+connection between two, a drag that another device's reorder overtakes, a slow write that the
+selection outlives past Done, a refused connection order, scrolling near the list's edge during a
+drag but not while a handle is only held there, and All Inboxes and its search leaving out a hidden
+connection are covered by Jest, and the Private Sync merge, a connection order another device
+changed first, one dropped during foreground verification and the muted notifications by the
+mail-core tests. VoiceOver speech is not covered.
+
 `testListIndent` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testListIndent`.
 It connects the synthetic Gmail mailbox and, in a New Message body, types a bulleted list whose
 items Tab nests three levels deep ([#2465](https://github.com/unwired-dev/product/issues/2465)).
@@ -536,15 +554,22 @@ other blocks are covered by Jest and the mail-core tests.
 ## iPhone composer sheet journey
 
 `testComposerSheet` runs on a `registration-declined` Release build with
-`UNWIRED_JOURNEY=testComposerSheet` on iPhone. It connects the synthetic Gmail mailbox and opens
+`UNWIRED_JOURNEY=testComposerSheet` on iPhone; a compact iPad window presents the same sheet
+([#2645](https://github.com/unwired-dev/product/issues/2645)). It connects the synthetic Gmail mailbox and opens
 New Message as the system page sheet over the Inbox, whose rows are out of reach while it is up
 ([#2610](https://github.com/unwired-dev/product/issues/2610)). The sheet turns to landscape and
 back with the device. Swiping the untouched sheet down closes it. With a Subject typed, the same swipe asks **Save Draft** over **Close** while the sheet and its text
 stay, and no Command Palette opens; **Keep Editing**, outside the question, keeps the text, and
-on the next swipe **Save Draft** closes it. A third New Message to
-`maya@example.invalid` keeps its fields above the keyboard and sends, and the Outbox then offers its **Undo**. The captures "Composer
-sheet", "Composer sheet asks before closing" and "Composer sheet with keyboard" are named with the
-appearance.
+on the next swipe **Save Draft** closes it. In a third New Message the body fills the sheet: with
+text typed in it, Subject starts below the keyboard
+([#2119](https://github.com/unwired-dev/product/issues/2119)). **Send** with no recipient focuses
+To and brings it, with **Add a recipient to send.**, into view above the keyboard; that Draft is
+then deleted. In a fourth, scrolling past the body brings the fields into view; addressed to
+`maya@example.invalid` with a Subject, the message keeps its fields above the keyboard and sends,
+and the Outbox then offers its **Undo**. The editor's bottom, not the keyboard element, marks the
+fold: the keyboard's typing predictions sit above that element. The captures "Composer sheet", "Composer sheet asks before
+closing", "Composer body fills the sheet", "Composer Send asks for a recipient" and "Composer sheet
+with keyboard" are named with the appearance.
 
 ## iPhone and iPad Apple registration journey
 
