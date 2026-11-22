@@ -771,7 +771,11 @@ records the accepted decision. On the Mac, the patch also lets keys the page
 leaves unhandled continue to the WebView's host without aborting the app
 ([#1217](https://github.com/unwired-dev/product/issues/1217)). Remove that override once React Native macOS
 skips keyboard events for untagged views or the wrapper's Mac view stops
-subclassing `RCTView`. The reader passes `javaScriptEnabled={false}`, `incognito`,
+subclassing `RCTView`. WebKit scrolls inside the Mac view
+without a scroll view, so a listener in the same isolated client world reports the
+document's scroll offset to a handler registered only in that world, as `onScroll`
+([#2678](https://github.com/unwired-dev/product/issues/2678)); page JavaScript
+cannot reach it. The reader passes `javaScriptEnabled={false}`, `incognito`,
 `allowsLinkPreview={false}`, no base URL, and `originWhitelist={['*']}`. With that
 origin list, every navigation reaches the reader, which cancels it; otherwise the
 wrapper would open unlisted origins itself. It also turns data detectors off. The
@@ -1104,8 +1108,7 @@ sources, including plain HTTP and internationalized host names, stay placeholder
 - **Viewport.** Under every policy, loading starts only for images within the
   visible range or one viewport above or below it. Queued work rechecks current
   eligibility before starting. A document taller than the 20,000-point view scrolls inside it, and only
-  images inside the view count: on iPhone and iPad, scrolling inside it brings later
-  images near; on Mac, images below its first view stay placeholders.
+  images inside the view count, and scrolling inside it brings later images near.
 - **Requests** run six at a time per message and twelve across the account. Native
   code owns the isolated HTTPS fetch outside WebKit, with no cookies, credentials,
   referrer, user agent or shared session. Any literal or resolved answer that is

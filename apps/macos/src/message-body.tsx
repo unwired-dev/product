@@ -64,6 +64,7 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
+import { useMessageZoom } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { windowHost } from './settings-window-client.ts';
 import { usePalette } from './theme.ts';
@@ -439,14 +440,17 @@ export function ReaderScrollView({
 // The sanitized document in an isolated WebKit view: no page JavaScript, non-persistent data,
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
-// images within one viewport of the visible range are reported as they come near.
+// images within one viewport of the visible range are reported as they come near. The mounted
+// document takes the reader's Message Zoom in place, keeping its selection.
 function RichDocument({
   rich,
+  zoom,
   onChoose,
   onFailure,
   onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
+  readonly zoom: number;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
@@ -470,6 +474,20 @@ function RichDocument({
   const [positions, setPositions] = useState<
     ReturnType<typeof decodeRemoteImagePositions>
   >([]);
+  // How far the view has scrolled inside its document, and the check it reruns.
+  const inner = useRef(0);
+  const near = useRef<() => void>(undefined);
+  // An outgoing document, such as one replaced by a Message Zoom change, withdraws its images.
+  const withdraw = useRef(onNear);
+  useEffect(() => {
+    withdraw.current = onNear;
+  });
+  useEffect(
+    () => () => {
+      withdraw.current([]);
+    },
+    [],
+  );
   useEffect(() => {
     if (
       viewport === undefined ||
@@ -492,22 +510,29 @@ function RichDocument({
         if (!active || revision !== measurement) {
           return;
         }
-        // A document taller than its view scrolls inside it; only its first view is placed.
+        // A document taller than its view scrolls inside it; only images inside the view count.
+        const start = top - inner.current;
+        const bottom = top + Math.min(height, heightCap);
         const urls = positions
-          .filter(
-            (position) =>
-              position.top < heightCap &&
-              top + position.bottom >= offset - visible &&
-              top + position.top <= offset + 2 * visible,
-          )
+          .filter((position) => {
+            const upper = Math.max(start + position.top, top);
+            const lower = Math.min(start + position.bottom, bottom);
+            return (
+              upper < lower &&
+              lower >= offset - visible &&
+              upper <= offset + 2 * visible
+            );
+          })
           .flatMap(({ index }) => rich.remote.images[index] ?? []);
         onNear(urls);
       });
     };
     request();
+    near.current = request;
     const unsubscribe = viewport.subscribe(request);
     return () => {
       active = false;
+      near.current = undefined;
       unsubscribe();
     };
   }, [viewport, height, positions, rich, onNear]);
@@ -531,6 +556,7 @@ function RichDocument({
       onLayout={({ nativeEvent }: LayoutChangeEvent) => {
         const next = Math.round(nativeEvent.layout.width);
         if (width !== undefined && width !== next) {
+          inner.current = 0;
           setHeight(undefined);
           setLayout((count) => count + 1);
         }
@@ -564,6 +590,10 @@ function RichDocument({
           }}
           onError={onFailure}
           onShouldStartLoadWithRequest={choose}
+          onScroll={({ nativeEvent }) => {
+            inner.current = nativeEvent.contentOffset.y;
+            near.current?.();
+          }}
           // Every URL reaches `choose`; the wrapper would otherwise open unlisted origins itself.
           originWhitelist={['*']}
           // Without bounce, the view keeps only sideways wheel scrolling; vertical scrolling of a
@@ -572,7 +602,12 @@ function RichDocument({
           scrollEnabled={height !== undefined && (height > heightCap || wide)}
           setSupportMultipleWindows={false}
           source={source}
-          nativeConfig={{ props: { remoteImageUpdates: rich.remote.updates } }}
+          nativeConfig={{
+            props: {
+              remoteImageUpdates: rich.remote.updates,
+              messageZoom: zoom,
+            },
+          }}
           style={[
             styles.rich,
             {
@@ -606,6 +641,7 @@ export function Presentation({
   const colors = usePalette();
   const { t } = useLocalization();
   const { rich, readable } = presentation;
+  const zoom = useMessageZoom();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
     document: rich?.initialDocument,
@@ -657,6 +693,7 @@ export function Presentation({
           <RichDocument
             key={richKey}
             rich={rich}
+            zoom={zoom / 100}
             onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {

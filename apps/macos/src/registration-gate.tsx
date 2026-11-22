@@ -54,6 +54,7 @@ import {
 import { AssistanceContext, nativeAssistance } from './message-summary.tsx';
 import { Restoring, TrustCard } from './onboarding.tsx';
 import { PreviewLinesSettings } from './preview-lines.tsx';
+import { ReadingSettings } from './reading-settings.tsx';
 import { FirstMailbox, SignedOutPage } from './registration-onboarding.tsx';
 import { registrationStyles as styles } from './registration-styles.ts';
 import {
@@ -505,6 +506,7 @@ function SettingsPage({
             />
           </>
         ) : null}
+        {destination === 'reading' ? <ReadingSettings /> : null}
         {destination === 'language' ? <LanguageSettings /> : null}
         <ErrorReportingDestination
           destination={destination}

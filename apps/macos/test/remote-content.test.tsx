@@ -60,7 +60,7 @@ const settingsWith = (stored: string | null) =>
   });
 
 const measured = (top: number) => ({
-  contentSize: { width: 320, height: 400 },
+  contentSize: { width: 320, height: 4000 },
   remoteImages: [{ index: 0, top, bottom: top + 100 }],
 });
 
@@ -206,6 +206,59 @@ describe('remote message content in the reader', () => {
       });
       expect(gmail.remoteFetches).toStrictEqual([source]);
       expect(screen.getByRole('button', { name: 'Load Images' })).toBeVisible();
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('loads an image past the height cap once WebKit scrolls it near inside the view', async () => {
+    expect.hasAssertions();
+    placeDocument();
+    const settings = settingsWith(null);
+    await settings.load();
+    const later = 'https://images.example/later.png';
+    const { gmail, app, scroll } = await openReader(
+      settings,
+      `<p>Weekly news</p><img src="${source}" alt="Photo"><img src="${later}" alt="Later">`,
+    );
+    gmail.serveRemote(later, { data: photo });
+    try {
+      const webview = await screen.findByTestId('message-webview');
+      // A zoomed document taller than the 20,000-point view; the later image is past its cap.
+      await act(() => {
+        fireEvent(webview, 'contentSizeChange', {
+          nativeEvent: {
+            contentSize: { width: 320, height: 30_000 },
+            remoteImages: [
+              { index: 0, top: 0, bottom: 100 },
+              { index: 1, top: 25_000, bottom: 25_100 },
+            ],
+          },
+        });
+      });
+      await act(() => {
+        fireEvent.press(screen.getByRole('button', { name: 'Load Images' }));
+      });
+      const first = [...gmail.remoteFetches];
+      // WebKit scrolls its 30,000-point document to the end of the 20,000-point view, and the
+      // reader brings that view's lower part near.
+      await act(() => {
+        fireEvent.scroll(webview, {
+          nativeEvent: { contentOffset: { x: 0, y: 10_000 } },
+        });
+      });
+      await act(() => {
+        fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y: 14_600 },
+            layoutMeasurement: { height: 600 },
+          },
+        });
+      });
+      expect({ first, scrolled: gmail.remoteFetches }).toStrictEqual({
+        first: [source],
+        scrolled: [source, later],
+      });
     } finally {
       await app.unmount();
     }

@@ -1,10 +1,6 @@
+import { messageZooms } from '@private-email/mail-core/message-body';
 import { useSyncExternalStore } from 'react';
 import { Settings } from 'react-native';
-
-// Safari's page zoom levels, in percent.
-export const messageZooms = [
-  50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300,
-] as const;
 
 // A choice kept in user defaults under `key`, on this device only, read once and then followed.
 const deviceSetting = <A>(key: string, read: (stored: unknown) => A) => {

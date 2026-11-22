@@ -443,6 +443,24 @@ follow macOS's sidebar icon size (System Settings › Appearance), read from
 `NSTableViewDefaultSizeMode` at launch: as AppKit's sidebar rows do, a row is
 4pt shorter at Small and 4pt taller at Large than at Medium.
 
+## Reading
+
+Settings' **Reading** page ([#2678](https://github.com/unwired-dev/product/issues/2678),
+a slice of [#1728](https://github.com/unwired-dev/product/issues/1728)), in its own
+Mail group, zooms received formatted mail on this Mac. **Text Size** reads Follows
+macOS: app text and plain-text messages are unaffected. **Message zoom** is a native
+pop-up of Safari's page zoom levels from 50% to 300%, 100% by default. The reader
+applies the zoom to the mounted sanitized document as the app's own CSS `zoom`
+(the patched WebView's `messageZoom`, set by the isolated client-world measurement),
+so the stored message and Drafts never change, and an open reader follows a change
+in place, keeping its selection; keeping the reading position follows in
+[#2684](https://github.com/unwired-dev/product/issues/2684). A larger zoom makes a document taller,
+so more messages pass the reader's 20,000-point cap and scroll inside the view;
+WebKit reports that scroll, so remote images there still load as they come near
+([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content)). The zoom is a
+Device-Local Preference in this Mac's user defaults (`UnwiredMessageZoom`), never
+synced. Fit wide messages to the screen follows separately.
+
 ## Settings
 
 Settings is one 900×720 AppKit window. The app menu's **Settings…** (Command-,),

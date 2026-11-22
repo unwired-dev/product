@@ -29,6 +29,11 @@ export {
   presentation,
 } from './message-presentation.ts';
 
+// Safari's page zoom levels, in percent, which Message Zoom offers.
+export const messageZooms = [
+  50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300,
+] as const;
+
 // One part of a Gmail `format=full` or `format=metadata` message.
 export interface GmailPart {
   readonly mimeType?: string;

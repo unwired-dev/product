@@ -107,14 +107,17 @@
     "appText": "App text",
     "textSize": "Text Size",
     "followsSystem": "Follows iOS",
+    "followsSystem_mac": "Follows macOS",
     "received": "Received messages",
     "zoom_iphone": "Message Zoom",
     "zoom_ipad": "Message zoom",
+    "zoom_mac": "Message zoom",
     "fitWide_iphone": "Fit Wide Messages to the Screen",
     "fitWide_ipad": "Fit wide messages to the screen",
     "percent": "{{value}}%",
     "footer_iphone": "Zooms formatted mail as you read it on this iPhone. The message and your Drafts don’t change.",
-    "footer_ipad": "Zooms formatted mail as you read it on this iPad. The message and your Drafts don’t change."
+    "footer_ipad": "Zooms formatted mail as you read it on this iPad. The message and your Drafts don’t change.",
+    "footer_mac": "Zooms formatted mail as you read it on this Mac. The message and your Drafts don’t change."
   },
   "listDensity": {
     "title": "List density",
