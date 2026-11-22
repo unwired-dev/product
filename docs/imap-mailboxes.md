@@ -417,7 +417,7 @@ Local search reports a prefetched body as saved on this device.
 
 The 20-UID request limit and 256 KiB per-literal limit do not bound aggregate
 memory when a server sends extra or repeated replies, or several individually
-legal literals per message. The owner accepted this residual SwiftMail 1.16.0 risk
+legal literals per message. The owner accepted this residual SwiftMail risk
 for [PR #1185](https://github.com/unwired-dev/product/pull/1185), with receive-time
 aggregate refusal tracked in [#1187](https://github.com/unwired-dev/product/issues/1187).
 Prefetch is not qualified against that server behavior.
@@ -553,8 +553,8 @@ waits to send until the connection's folder list has been read.
 
 ## Engine and dependencies
 
-The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) at a main-branch
-revision after 1.16.0. Its exact revisions and linked products are owned by
+The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) 1.18.0, pinned
+by its tag's commit. Its exact revisions and linked products are owned by
 [`native/private-inbox/Package.swift`](../native/private-inbox/Package.swift), with the
 resolved dependency graph in [`Package.resolved`](../native/private-inbox/Package.resolved).
 Both hosts must build that graph and pass their `verify:bundle` gate. Incremental
@@ -575,7 +575,8 @@ folder without UIDVALIDITY), and envelopes or flags of that folder's messages by
 from a UID onward or by the newest sequence numbers. A search examines one folder and
 returns its newest matching UIDs and how many matched in all, refusing a folder the
 server no longer selects, one without UIDVALIDITY and a query in a charset the server
-cannot search; it matches either text or a Sent copy's Message-ID header. Seznam
+cannot search, and failing when the server completes it without reporting the matches
+or an ESEARCH item it was asked for; it matches either text or a Sent copy's Message-ID header. Seznam
 Email's server drops the connection on a Content-Type header search in a folder
 that holds messages ([#2402](https://github.com/unwired-dev/product/issues/2402)),
 so a Sent copy is not looked up by its MIME boundary. An append stores an outgoing message, read, in a folder: native

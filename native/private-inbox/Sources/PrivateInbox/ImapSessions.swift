@@ -552,8 +552,7 @@ extension RegistrationStore {
       handle.command = nil
       handle.used = .now
     }
-    // Closing answers the caller at once. SwiftMail 1.16 cannot abort a command on the wire, so
-    // the connection closes once that command answers or times out.
+    // Closing answers the caller at once and cancels the command, which closes its transport.
     let value: Value = try await withCheckedThrowingContinuation {
       (continuation: CheckedContinuation<Value, any Error>) in
       let reply = ImapReply<Value>(continuation)

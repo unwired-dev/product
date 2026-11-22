@@ -52,9 +52,9 @@ observable close contract.
 
 Closing removes the handle and answers its in-flight caller once with
 `mailbox-invalidated`; the command's later result cannot resume that caller.
-SwiftMail 1.16.0 queues `disconnect()` behind an active command, whose NIO response
-wait does not observe task cancellation. The connection therefore closes only
-when that command answers or times out. Wire-level abort remains #1184. The
+Closing also cancels that command. In SwiftMail 1.18.0, cancelling an active
+command closes its transport, and `disconnect()` no longer waits behind it; the
+product's proof that a closed session stops its command on the wire remains #1184. The
 TypeScript IDLE interruption test verifies handle cleanup when a watch stops;
 the controlled native session test verifies that closing during IDLE answers
 the caller at once. The hosted TLS test covers the real primitive's change,
@@ -149,13 +149,12 @@ Forward uses the existing attachment downloads. The operational
 The header preflight requests at most 20 UIDs and configures a 256 KiB BODY
 literal limit. That bounds the requested header payload to 5 MiB when the server
 returns one literal per requested UID,
-not the command's aggregate allocation. The pinned SwiftMail 1.16.0
-`FetchMessageInfoHandler` accumulates every FETCH, including unsolicited and
-repeated responses, before returning. Neither the UID request cap nor the parser's
-working-buffer limit bounds that collection. Its public stream wraps the same
-buffered command, and command execution and handlers are internal. A receive-time
-aggregate/count bound needs an upstream capability or an explicitly authorized
-dependency/adapter change. On 2026-10-22, the owner accepted this residual risk for
+not the command's aggregate allocation. SwiftMail's `FetchMessageInfoHandler`
+accumulates every FETCH, including unsolicited and repeated responses, before
+returning. Neither the UID request cap nor the parser's working-buffer limit bounds
+that collection. SwiftMail 1.18.0 adds opt-in per-call `FetchReceiveLimits` (a reply
+count and declared streamed-section bytes) to its metadata FETCH calls; the adapter
+does not pass them yet. On 2026-10-22, the owner accepted this residual risk for
 [PR #1185](https://github.com/unwired-dev/product/pull/1185) and assigned the
 receive-time bound to [#1187](https://github.com/unwired-dev/product/issues/1187),
 separately from the LIST-response limitation tracked by #888.

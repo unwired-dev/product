@@ -302,10 +302,11 @@ const answerChange = (socket, session, { tag, command }) => {
     );
   } else if (/^UID SEARCH .*UID \d+:\d+ ALL$/u.test(command)) {
     // History reads search bounded UID windows; the reply overstates them with a billions-wide range.
+    // An ESEARCH reply carries every item SwiftMail asks for: COUNT, MIN, MAX and ALL.
     assert.equal(session.user, 'history');
     operations.add('history-search');
     socket.write(
-      `* ESEARCH (TAG "${tag}") UID ALL 1:3,7,11:4000000000\r\n${tag} OK Completed\r\n`,
+      `* ESEARCH (TAG "${tag}") UID COUNT 3999999994 MIN 1 MAX 4000000000 ALL 1:3,7,11:4000000000\r\n${tag} OK Completed\r\n`,
     );
   } else if (command.startsWith('UID SEARCH ')) {
     assert.match(command, /TEXT "?Controlled"?$/u);
@@ -313,7 +314,7 @@ const answerChange = (socket, session, { tag, command }) => {
     if (session.user === 'large-search') {
       operations.add('large-search');
       socket.write(
-        `* ESEARCH (TAG "${tag}") UID ALL 1:4000000000\r\n${tag} OK Completed\r\n`,
+        `* ESEARCH (TAG "${tag}") UID COUNT 4000000000 MIN 1 MAX 4000000000 ALL 1:4000000000\r\n${tag} OK Completed\r\n`,
       );
     } else {
       socket.write(`* SEARCH 11\r\n${tag} OK Completed\r\n`);
