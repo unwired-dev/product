@@ -304,7 +304,7 @@ kept as attachments.
 
 Before archiving that message, the journey chooses **Move to Spam**
 ([#2662](https://github.com/unwired-dev/product/issues/2662)): from More on iPad,
-where it follows Mark as Unread, and from the Reply sheet on iPhone. The row
+where it follows the read state, and from the Reply sheet on iPhone. The row
 leaves the Inbox, **Undo** brings it back, and the journey reopens it to archive
 and undo again. The menu or sheet listing **Move to Spam** is kept as an attachment.
 

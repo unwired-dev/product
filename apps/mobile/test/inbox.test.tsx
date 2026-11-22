@@ -2556,29 +2556,6 @@ describe('connected Gmail Inbox', () => {
     );
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
 
-    await act(async () => {
-      await fireEvent.press(
-        screen.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
-      );
-    });
-    const trashed = await screen.findByRole('button', { name: /Old receipt/u });
-    // Downloaded history leaves out Spam and Trash, so their older mail stays in Gmail.
-    expect(
-      screen.getByText(
-        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
-      ),
-    ).toBeVisible();
-    await fireEvent.press(trashed);
-    // Trashed mail moves back to the Inbox instead of being archived again.
-    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
-    await chooseFromMenu(screen.getByLabelText('More'), 'Move to Inbox');
-    expect(
-      screen.getByText('Moved back to the Inbox: “Old receipt”.'),
-    ).toBeVisible();
-    expect(screen.queryByRole('button', { name: /Old receipt/u })).toBeNull();
-    expect(gmail.labelsOf(receipt)).toContain('INBOX');
-    expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
-
     // Mail in Spam goes back with Not Spam, where Move to Spam sits (#2662).
     await act(async () => {
       await fireEvent.press(
@@ -2603,6 +2580,29 @@ describe('connected Gmail Inbox', () => {
     ).toBeNull();
     expect(gmail.labelsOf(offer)).toContain('INBOX');
     expect(gmail.labelsOf(offer)).not.toContain('SPAM');
+
+    await act(async () => {
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
+      );
+    });
+    const trashed = await screen.findByRole('button', { name: /Old receipt/u });
+    // Downloaded history leaves out Spam and Trash, so their older mail stays in Gmail.
+    expect(
+      screen.getByText(
+        'Only the newest mail here is saved on this device. Older mail stays in Gmail.',
+      ),
+    ).toBeVisible();
+    await fireEvent.press(trashed);
+    // Trashed mail moves back to the Inbox instead of being archived again.
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    await chooseFromMenu(screen.getByLabelText('More'), 'Move to Inbox');
+    expect(
+      screen.getByText('Moved back to the Inbox: “Old receipt”.'),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Old receipt/u })).toBeNull();
+    expect(gmail.labelsOf(receipt)).toContain('INBOX');
+    expect(gmail.labelsOf(receipt)).not.toContain('TRASH');
 
     // Online search from Trash still returns ordinary Inbox mail with Inbox actions.
     const field = screen.getByLabelText('Search senders and subjects');

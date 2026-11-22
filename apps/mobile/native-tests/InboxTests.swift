@@ -295,7 +295,7 @@ final class InboxTests: XCTestCase {
       app.buttons["Close"].tap()
       XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
     }
-    // #2662: Move to Spam from the reader, then Undo. iPad's More lists it after Mark as Unread;
+    // #2662: Move to Spam from the reader, then Undo. iPad's More lists it after the read state;
     // iPhone's Reply sheet lists it with the actions that move the message.
     if phone {
       app.buttons["Reply"].tap()
