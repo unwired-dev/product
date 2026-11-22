@@ -138,7 +138,7 @@ results never appear in the palette. The vocabulary lives in the
   the From row as the command symbol alone, a 44pt target labelled Open
   Command Palette, which opens the palette attached to the sheet's top, as on
   iPhone. Tapping the input or the header swipe opens the palette. Command-K from a hardware keyboard is
-  deferred: React Native exposes no key commands on iOS without a native
+  deferred to [#2670](https://github.com/unwired-dev/product/issues/2670): React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen
   with the input focused, the software keyboard shown when needed, and the

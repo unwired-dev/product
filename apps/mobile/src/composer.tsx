@@ -161,7 +161,12 @@ import type {
 } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { CommandInput, InSheet, usePaletteHeader } from './command-palette.tsx';
+import {
+  CommandInput,
+  InSheet,
+  useCommandPalette,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -4388,6 +4393,7 @@ function Editor({
   // Whether Delete Draft and Save Draft show under Close, and whether the last Close showed them.
   const [asking, setAsking] = useState(false);
   const asked = useRef(false);
+  const palette = useCommandPalette();
   // Why the last Send left this Draft here.
   const [refused, setRefused] = useState<SendRefusal>();
   // iPad keeps the format bar at the top; iPhone floats its controls above the keyboard, and its
@@ -5102,6 +5108,8 @@ function Editor({
         return true;
       }
       setClosing(undefined);
+      // A sheet's swipe asks with the sheet's palette still open over the question.
+      palette.close();
       setAsking(true);
       asked.current = true;
       return false;

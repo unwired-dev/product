@@ -929,7 +929,7 @@ app follows under the issue named:
 - **Compact iPad window:** the reader's navigation bar holds Back and the
   Command input (#2133); the frame's Previous and Next wait for an issue that
   names them. The input there and on the composer's From row has no ⌘K key cap
-  until #1993 gives iPad the shortcut, so the From row shows the command symbol
+  until #2670 gives iPad the shortcut, so the From row shows the command symbol
   alone. A downward swipe on the composer sheet's header closes the sheet, as
   the system sheet does, rather than opening the palette.
 - **iPhone composer body:** the body fills the sheet and the fields are below

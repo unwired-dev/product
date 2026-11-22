@@ -585,12 +585,23 @@ describe('iPad reader', () => {
           screen.getByTestId('sheet-content', { includeHiddenElements: true }),
         ).queryAllByTestId('command-palette'),
       ).toHaveLength(palettes);
-      // Leaving the composer, as the sheet's swipe does, leaves no palette open behind it.
+      // Leaving the composer, as the sheet's swipe does, asks about changes in place of the
+      // palette, and leaves no palette open behind it.
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body', { includeHiddenElements: true }),
+        'Friday works.',
+      );
       await fireEvent.press(
         screen.getByRole('button', {
           name: 'Close',
           includeHiddenElements: true,
         }),
+      );
+      await waitFor(() => {
+        expect(screen.queryByTestId('command-palette')).toBeNull();
+      });
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Delete Draft' }),
       );
       await fireEvent.press(
         await screen.findByRole('button', {
