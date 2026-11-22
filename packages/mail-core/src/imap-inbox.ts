@@ -484,17 +484,27 @@ const failureKinds: Readonly<Record<string, ImapFailure['kind']>> = {
 };
 
 // Letter case folded one character at a time, as Unicode case folding equates it: lowering,
-// raising and lowering again reads a final sigma as any other and a capital sharp s as `ss`. The
-// combining dot above drops, so a dotted capital I reads as `i`, as Turkish folds it; matching more
-// keeps more folders, never fewer. Folding each character alone keeps every match it had.
-const folded = (text: string) =>
-  Array.from(text, (character) =>
-    character
-      .toLowerCase()
-      .toUpperCase()
-      .toLowerCase()
-      .replaceAll('\u0307', ''),
-  ).join('');
+// raising and lowering again reads a final sigma as any other and a capital sharp s as `ss`.
+// Decomposed and stripped of combining marks, canonically equivalent spellings and a Turkish dotted
+// capital I read alike; matching more keeps more folders, never fewer. Folding each character alone
+// keeps every match it had; ASCII other than capitals is its own fold.
+const folded = (text: string) => {
+  const folds = new Map<string, string>();
+  return text.replaceAll(/[A-Z]|[^\0-\u007F]/gu, (character) => {
+    let fold = folds.get(character);
+    if (fold === undefined) {
+      fold = character
+        .normalize('NFD')
+        .toLowerCase()
+        .toUpperCase()
+        .toLowerCase()
+        .normalize('NFD')
+        .replaceAll(/\p{M}/gu, '');
+      folds.set(character, fold);
+    }
+    return fold;
+  });
+};
 // Whether a folded LIST pattern matches a folded folder name. IMAP's `*` and `%` match any run of
 // characters, `%` only up to a hierarchy delimiter: matching `%` like `*` keeps more folders, never
 // fewer. The text between wildcards is found leftmost and in order, so no part is retried.
