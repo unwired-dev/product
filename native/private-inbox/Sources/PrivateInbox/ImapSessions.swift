@@ -12,9 +12,10 @@ struct ImapListedFolder: Sendable, Equatable {
   let delimiter: String?
 }
 
-// Every folder the server lists. SwiftMail skips another user's or a shared namespace whose LIST
-// the server refuses, which looks the same as one holding no folders; `unlisted` names the prefixes
-// of those namespaces, whose cached folders may still exist.
+// Every folder the server lists. SwiftMail skips a LIST of another user's or a shared namespace
+// that the server refuses, which looks the same as one that matches no folder; `unlisted` holds
+// each such pattern that matched none, a namespace root or a prefix ending in `*`, whose cached
+// folders may still exist.
 struct ImapListing: Sendable, Equatable {
   let folders: [ImapListedFolder]
   var unlisted: [String] = []
@@ -111,7 +112,11 @@ enum ImapStoredFlag: String, Sendable {
         } catch is ExceededListResponseLimitError {
           throw RegistrationError.unavailable
         }
-        let others = await server.namespaces.map { $0.otherUsers + $0.shared } ?? []
+        let skippable: Set<String> = await server.namespaces.map { namespaces in
+          let personal = NamespaceResponse(personal: namespaces.personal, otherUsers: [], shared: [])
+          return Set(namespaces.listingPatterns(for: "*"))
+            .subtracting(personal.listingPatterns(for: "*"))
+        } ?? Set()
         return ImapListing(
           folders: listed.map { info in
             ImapListedFolder(
@@ -119,9 +124,11 @@ enum ImapStoredFlag: String, Sendable {
               attributes: Self.attributes.filter { info.attributes.contains($0.0) }.map(\.1),
               delimiter: info.hierarchyDelimiter)
           },
-          unlisted: others.map(\.prefix).filter { prefix in
-            !prefix.isEmpty && !listed.contains { $0.name.hasPrefix(prefix) }
-          })
+          unlisted: skippable.filter { pattern in
+            !listed.contains {
+              pattern.hasSuffix("*") ? $0.name.hasPrefix(pattern.dropLast()) : $0.name == pattern
+            }
+          }.sorted())
       }
     }
 

@@ -181,8 +181,8 @@ const ListedFolderSchema = Schema.Struct({
   attributes: Schema.Array(Schema.String),
   delimiter: Schema.optionalKey(Schema.NonEmptyString),
 });
-// `unlisted` names the prefixes of other users' and shared namespaces that listed no folder: a
-// server may refuse such a namespace's LIST, which SwiftMail skips.
+// `unlisted` holds the LIST patterns of other users' and shared namespaces that matched no folder,
+// a namespace root or a prefix ending in `*`: a server may refuse such a LIST, which SwiftMail skips.
 export const decodeListedFolders = Schema.decodeUnknownEffect(
   Schema.Struct({
     folders: Schema.Array(ListedFolderSchema),

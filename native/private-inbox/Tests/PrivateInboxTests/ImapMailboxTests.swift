@@ -702,14 +702,21 @@ extension PrivateInboxTests {
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespaced"}"#.utf8))
     let (shared, sharedCapabilities) = try await listed(namespaced)
     #expect(shared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
-    #expect(shared.unlisted.isEmpty)
-    // SwiftMail skips a namespace whose LIST the server refuses; its folders may still exist.
-    let refused = try JSONDecoder().decode(
-      ImapAccount.self,
-      from: Data(#"{"host":"localhost","port":\#(port),"username":"shared-wildcard"}"#.utf8))
-    let unshared = try await listed(refused).0
+    // A namespace LIST that matches no folder may have been refused, which SwiftMail skips.
+    #expect(shared.unlisted == ["Shared"])
+    func refusing(_ user: String) async throws -> ImapListing {
+      try await listed(
+        try JSONDecoder().decode(
+          ImapAccount.self,
+          from: Data(#"{"host":"localhost","port":\#(port),"username":"\#(user)"}"#.utf8))
+      ).0
+    }
+    let unshared = try await refusing("shared-wildcard")
     #expect(unshared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
-    #expect(unshared.unlisted == ["Shared/"])
+    #expect(unshared.unlisted == ["Shared", "Shared/*"])
+    let rootless = try await refusing("shared-root")
+    #expect(rootless.folders.map(\.name) == shared.folders.map(\.name))
+    #expect(rootless.unlisted == ["Shared"])
     #expect(Set(sharedCapabilities.map { $0.uppercased() }).isDisjoint(with: ["MOVE", "UIDPLUS", "IDLE"]))
     // One session examines folders and reads their envelopes and flags, as a synchronization
     // does.

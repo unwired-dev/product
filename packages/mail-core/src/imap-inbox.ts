@@ -176,7 +176,7 @@ export interface NativeImapMailbox
     session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
   // Resolves `{ folders: [{ name, attributes, delimiter? }], unlisted? }`, every folder the server
-  // lists and the prefixes of other users' and shared namespaces that listed none.
+  // lists and the LIST patterns of other users' and shared namespaces that matched none.
   readonly imapListFolders: (
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
@@ -1476,8 +1476,8 @@ export function createImapInbox(
   }
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
-  // pruning stops keeping their bodies. The Inbox always stays, and so do the folders of a
-  // namespace that listed none: the server may have refused its LIST.
+  // pruning stops keeping their bodies. The Inbox always stays, and so do the folders a namespace
+  // LIST that matched none would have listed: the server may have refused it.
   const acceptListing = Effect.fnUntraced(function* (
     current: ImapDocument,
     {
@@ -1491,10 +1491,17 @@ export function createImapInbox(
       } & ImapCapabilities
     >,
   ) {
+    const names = new Set(listed.map(({ name }) => name));
     const folders = [
       ...listed,
-      ...current.folders.filter(({ name }) =>
-        unlisted.some((prefix) => name.startsWith(prefix)),
+      ...current.folders.filter(
+        ({ name }) =>
+          !names.has(name) &&
+          unlisted.some((pattern) =>
+            pattern.endsWith('*')
+              ? name.startsWith(pattern.slice(0, -1))
+              : name === pattern,
+          ),
       ),
     ];
     const offered = new Set(

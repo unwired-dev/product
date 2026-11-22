@@ -229,6 +229,11 @@ const organize = (socket, tag, command) => {
     assert.fail(`Unexpected organizing command: ${command}`);
   }
 };
+// The shared namespace LIST a user's server refuses: its subtree or its root.
+const refusedLists = {
+  'shared-wildcard': /Shared\/\*/u,
+  'shared-root': /Shared"?$/u,
+};
 // The user name a LOGIN presents, which chooses the synthetic server's variation.
 const userOf = (command) =>
   /^LOGIN "?(?<name>[\w-]+)"? /u.exec(command)?.groups?.name ?? '';
@@ -442,7 +447,6 @@ const server = tls.createServer(
     let listed = folders;
     let namespaces = false;
     let namespaceFailure = false;
-    let sharedRefused = false;
     let user = '';
     const session = {
       user: '',
@@ -500,22 +504,21 @@ const server = tls.createServer(
             ? foldersAtLimit
             : folders;
           namespaceFailure = command.includes('namespace-failure');
-          sharedRefused = command.includes('shared-wildcard');
           namespaces = [
             'namespace-failure',
             'namespaced',
             'shared-wildcard',
+            'shared-root',
           ].some((name) => command.includes(name));
           ok();
         }
       } else if (command === 'NAMESPACE') {
         discoverNamespaces(socket, tag, namespaceFailure);
       } else if (
-        sharedRefused &&
         command.startsWith('LIST ') &&
-        command.includes('Shared/')
+        refusedLists[user]?.test(command)
       ) {
-        // Zimbra refuses a wildcard in its other users' namespace.
+        // Zimbra refuses a wildcard in its other users' namespace, for one.
         operations.add('shared-refused');
         socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
       } else if (command.startsWith('LIST ')) {

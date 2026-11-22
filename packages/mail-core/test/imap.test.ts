@@ -1324,27 +1324,39 @@ describe('connecting IMAP mailboxes', () => {
     expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
   });
 
-  it('keeps the cached folders of a namespace that listed none until a listing leaves them out', async () => {
+  it('keeps the cached folders a refused namespace LIST would list until a listing leaves them out', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
+    imap.addFolder('Shared');
     imap.addFolder('Shared/Team');
-    imap.deliver('Shared/Team', { subject: 'Shared' });
+    imap.deliver('Shared', { subject: 'Root' });
+    imap.deliver('Shared/Team', { subject: 'Team' });
     const inbox = createImapInbox(imap.native);
     await inbox.load();
+    await inbox.openFolder('Shared');
     await inbox.openFolder('Shared/Team');
-    // The server refuses the shared namespace's LIST, which SwiftMail skips.
-    vi.spyOn(imap.native, 'imapListFolders').mockResolvedValueOnce({
-      folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
-      unlisted: ['Shared/'],
+    const names = () =>
+      ready(inbox.getSnapshot()).folders.map(({ name }) => name);
+    // The server refuses the namespace root's LIST, then its subtree's; SwiftMail skips each.
+    const listing = vi.spyOn(imap.native, 'imapListFolders');
+    listing.mockResolvedValueOnce({
+      folders: [
+        { name: 'INBOX', attributes: [], delimiter: '/' },
+        { name: 'Shared/Team', attributes: [], delimiter: '/' },
+      ],
+      unlisted: ['Shared'],
     });
     await inbox.load();
-    expect(firstMessage(inbox.folder('Shared/Team')).subject).toBe('Shared');
-    expect(
-      ready(inbox.getSnapshot()).folders.map(({ name }) => name),
-    ).toContain('Shared/Team');
-    imap.removeFolder('Shared/Team');
+    expect(names()).toStrictEqual(['INBOX', 'Shared/Team', 'Shared']);
+    expect(firstMessage(inbox.folder('Shared')).subject).toBe('Root');
+    listing.mockResolvedValueOnce({
+      folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
+      unlisted: ['Shared/*'],
+    });
     await inbox.load();
-    expect(inbox.folder('Shared/Team')).toStrictEqual({ kind: 'loading' });
+    expect(names()).toStrictEqual(['INBOX', 'Shared/Team']);
+    expect(firstMessage(inbox.folder('Shared/Team')).subject).toBe('Team');
+    expect(inbox.folder('Shared')).toStrictEqual({ kind: 'loading' });
   });
 
   it.each([

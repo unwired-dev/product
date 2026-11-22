@@ -244,9 +244,10 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 LIST responses, preserves the
-  prior list and cached mail for a later retry. A server may refuse the LIST of another
-  user's or a shared namespace, and SwiftMail then skips it, so a namespace that lists no
-  folder keeps the folders the prior list had under it. Listing stops reading at the 1,001st
+  prior list and cached mail for a later retry. A server may refuse a LIST of another
+  user's or a shared namespace, for its root or for the folders under it, and SwiftMail
+  then skips it, so a cached folder that such a LIST would have matched stays while that
+  LIST matches nothing. Listing stops reading at the 1,001st
   LIST response the server sends, across all namespaces and before duplicate names
   merge, and closes that session. Case
   variants of the reserved `INBOX` name share that spelling; other folder names
