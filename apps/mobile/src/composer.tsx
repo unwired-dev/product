@@ -3951,6 +3951,10 @@ function BodySlashMenu({
               keyboardShouldPersistTaps="always"
               ref={list}
               style={{ maxHeight }}
+              // A new height, as the keyboard moves, keeps the highlighted row in view.
+              onLayout={() => {
+                reveal(rowEnds.current.get(shown.active));
+              }}
               onContentSizeChange={(_width, height) => {
                 onContentHeight(height);
                 reveal(rowEnds.current.get(shown.active));
