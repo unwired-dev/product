@@ -544,6 +544,9 @@ describe('synchronized Inbox preferences', () => {
     await phone.store.changeFavorites('work', (entries) =>
       moveFavorite(entries, 'ARCHIVE', 1),
     );
+    await phone.store.changeFavorites('work', (entries) =>
+      moveFavorite(entries, 'SPAM', 1),
+    );
     await phone.store.changeFolders('work', 'gmail', (folders) =>
       moveFolder(folders, names, { name: 'Archive', to: () => 2 }),
     );

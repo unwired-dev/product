@@ -86,7 +86,12 @@ const sending = (fields: Fields): Fields =>
   );
 // A change made from `field`: from its value, or from what an unpublished change was made from.
 const madeFrom = (field: Field | undefined) => ({
-  base: field === undefined ? null : (field.base ?? plain(field)),
+  base:
+    field === undefined
+      ? null
+      : field.base === undefined
+        ? plain(field)
+        : field.base,
   ...(field?.sent === undefined ? {} : { sent: field.sent }),
 });
 // A Mail Profile's Inbox presentation preferences (ADR 0019's `mail-workflow-preferences:inbox`),
