@@ -1112,13 +1112,21 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
           Effect.andThen(current),
         ),
       ),
-    // Arranging a Profile's connections, or resetting them with no order, needs Product Sync.
-    arrangeMailboxes: (profile: string, order: readonly string[]) =>
+    // Arranging a Profile's connections, or resetting them with no order, needs Product Sync. An
+    // order made `from` one that has since changed writes nothing.
+    arrangeMailboxes: (
+      profile: string,
+      order: readonly string[],
+      from?: readonly string[],
+    ) =>
       program(
         session.pipe(
           Effect.andThen(saved),
           Effect.flatMap((value) =>
-            productSyncFlow.arrangeMailboxes(value, profile, order),
+            productSyncFlow.arrangeMailboxes(value, profile, {
+              order,
+              ...(from === undefined ? {} : { from }),
+            }),
           ),
           Effect.andThen(current),
         ),

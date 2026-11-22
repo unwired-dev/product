@@ -143,6 +143,13 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     revision: 0,
     document: null as string | null,
   };
+  // The signed-in account's stored Inbox preferences; while `locked`, reads reject.
+  const preferenceStorage = {
+    owner: 'account-synthetic-product-subject',
+    revision: 0,
+    document: null as string | null,
+    locked: false,
+  };
   // While set, settings reads wait for it, as a slow native reply would.
   const settingsGate: { held?: Promise<void>; started?: () => void } = {};
   const native: NativeHostModule = {
@@ -205,9 +212,21 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushBlockedSenders: (owner) => Promise.resolve({ owner, committed: false }),
     openInboxPreferences: () =>
-      Promise.resolve({ owner: 'account', revision: 0, document: null }),
-    commitInboxPreferences: (owner, expectedRevision) =>
-      Promise.resolve({ owner, revision: expectedRevision + 1 }),
+      preferenceStorage.locked
+        ? Promise.reject(new Error('locked'))
+        : Promise.resolve({
+            owner: preferenceStorage.owner,
+            revision: preferenceStorage.revision,
+            document: preferenceStorage.document,
+          }),
+    commitInboxPreferences: (owner, expectedRevision, document) => {
+      Object.assign(preferenceStorage, {
+        owner,
+        revision: expectedRevision + 1,
+        document,
+      });
+      return Promise.resolve({ owner, revision: preferenceStorage.revision });
+    },
     pullInboxPreferences: (owner) =>
       Promise.resolve({ owner, records: [], unreadable: [] }),
     pushInboxPreferences: (owner) =>
@@ -292,6 +311,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     cancelled,
     counts,
     notified,
+    preferenceStorage,
     titles,
     badges,
     badgeWrites,
@@ -454,11 +474,199 @@ describe('the host assembly', () => {
       read: 'Mark as Read',
     });
 
-    // Turned off again, the connection posts nothing.
+    // Hidden in the sidebar, the connection is muted.
+    await host.inboxPreferences.showSection(defaultProfile, connection, false);
+    gmail.deliver({ subject: 'While hidden' });
+    await host.gmailMailboxes.load();
+    expect(notified).toHaveLength(2);
+
+    // Shown again but turned off, the connection posts nothing.
+    await host.inboxPreferences.showSection(defaultProfile, connection, true);
     await host.registration.notifyMailbox(connection, false);
     gmail.deliver({ subject: 'After notifications' });
     await host.gmailMailboxes.load();
     expect(notified).toHaveLength(2);
+  });
+
+  it('posts nothing while the Inbox preferences that could mute a connection cannot be read, at a cold launch or after a read', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, preferenceStorage } = syntheticHost(
+      undefined,
+      true,
+    );
+    preferenceStorage.locked = true;
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    gmail.deliver({ subject: 'While unread' });
+    await host.gmailMailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    // Read, a connection its Profile shows posts again.
+    preferenceStorage.locked = false;
+    gmail.deliver({ subject: 'Once read' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toMatchObject([{ body: 'New mail' }]);
+    });
+
+    // Unreadable again, the earlier read does not let it post.
+    preferenceStorage.locked = true;
+    gmail.deliver({ subject: 'Locked again' });
+    await host.gmailMailboxes.load();
+    expect(notified).toHaveLength(1);
+  });
+
+  it('posts nothing that was pending when a newer read of the Inbox preferences fails', async () => {
+    expect.hasAssertions();
+    const { host, gmail, notified, preferenceStorage, settingsGate } =
+      syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+
+    // Read while its preferences can be, it waits for the notification settings.
+    const settings = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    settingsGate.held = settings.promise;
+    settingsGate.started = () => {
+      reading.resolve(undefined);
+    };
+    gmail.deliver({ subject: 'Pending' });
+    const loading = host.gmailMailboxes.load();
+    await reading.promise;
+    preferenceStorage.locked = true;
+    await host.inboxPreferences.load();
+    settingsGate.held = undefined;
+    settings.resolve(undefined);
+    await loading;
+    expect(notified).toStrictEqual([]);
+  });
+
+  it('mutes a connection another Trusted Device hid while its next new mail waited to post', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, notified, settingsGate } = syntheticHost(
+      undefined,
+      true,
+    );
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    gmail.deliver({ subject: 'Shown' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(1);
+    });
+
+    // Another device hides the connection while the notification settings are read; only
+    // Private Sync carries the hide here.
+    const settings = Promise.withResolvers<undefined>();
+    const reading = Promise.withResolvers<undefined>();
+    settingsGate.held = settings.promise;
+    settingsGate.started = () => {
+      reading.resolve(undefined);
+    };
+    gmail.deliver({ subject: 'Hidden elsewhere' });
+    const loading = host.gmailMailboxes.load();
+    await reading.promise;
+    const preferences = JSON.stringify({
+      profile: defaultProfile,
+      fields: {
+        [`sectionShown:${connection}`]: { value: false, at: Date.now() },
+      },
+    });
+    vi.spyOn(native, 'pullInboxPreferences').mockImplementation((owner) =>
+      Promise.resolve({
+        owner,
+        records: [
+          {
+            id: defaultProfile,
+            version: 1,
+            updatedAt: Date.now(),
+            preferences,
+          },
+        ],
+        unreadable: [],
+      }),
+    );
+    settingsGate.held = undefined;
+    settings.resolve(undefined);
+    await loading;
+    expect(notified).toHaveLength(1);
+  });
+
+  it('posts nothing while another Trusted Device overtakes every synchronization pass', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, notified } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    // A preference this device must publish, which every write loses to another device's.
+    await host.inboxPreferences.setListDensity(defaultProfile, 'compact');
+    const push = vi.spyOn(native, 'pushInboxPreferences');
+    push.mockImplementation((owner) =>
+      Promise.resolve({ owner, committed: false }),
+    );
+    gmail.deliver({ subject: 'Overtaken' });
+    await host.gmailMailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    // A write that commits settles it.
+    push.mockImplementation((owner) =>
+      Promise.resolve({ owner, committed: true, updatedAt: Date.now() }),
+    );
+    gmail.deliver({ subject: 'Settled' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(1);
+    });
+  });
+
+  it('posts nothing while Private Sync cannot tell whether another Trusted Device hid the connection', async () => {
+    expect.hasAssertions();
+    const { host, native, gmail, notified } = syntheticHost(undefined, true);
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const connection = required(host.gmailMailboxes.getSnapshot()[0]).id;
+    await host.registration.notifyMailbox(connection, true);
+    await host.notifications.request();
+    const pull = vi.spyOn(native, 'pullInboxPreferences');
+
+    // The pull fails, then the Profile's record does not open here; as natively, only a Profile
+    // asked about is reported unreadable, and this device stores no preferences of it yet.
+    pull.mockRejectedValueOnce(new Error('offline'));
+    gmail.deliver({ subject: 'Pull failed' });
+    await host.gmailMailboxes.load();
+    pull.mockImplementationOnce((owner, known) =>
+      Promise.resolve({
+        owner,
+        records: [],
+        unreadable: known.filter((profile) => profile === defaultProfile),
+      }),
+    );
+    gmail.deliver({ subject: 'Record unreadable' });
+    await host.gmailMailboxes.load();
+    expect(notified).toStrictEqual([]);
+
+    // Pulled again, it posts.
+    gmail.deliver({ subject: 'Pulled' });
+    await host.gmailMailboxes.load();
+    await vi.waitFor(() => {
+      expect(notified).toHaveLength(1);
+    });
   });
 
   it('keeps the App Icon Badge on the unread Inbox count while it is chosen and allowed', async () => {
@@ -1536,7 +1744,7 @@ describe('the host assembly', () => {
 
   it('posts nothing for a connection turned off or removed while posting waited, and groups a moved one under its new Profile', async () => {
     expect.hasAssertions();
-    const { host, gmail, notified, settingsGate } = syntheticHost(
+    const { host, native, gmail, notified, settingsGate } = syntheticHost(
       undefined,
       true,
     );
@@ -1589,6 +1797,35 @@ describe('the host assembly', () => {
       expect.objectContaining({ body: 'Moved meanwhile', profile: work }),
     ]);
 
+    // Moved again while its Inbox preferences synchronize, it groups with the Profile it is in then.
+    await host.registration.createProfile('Personal');
+    const personal = required(
+      profilesOf(host.registration.getSnapshot().snapshot).find(
+        ({ name }) => name === 'Personal',
+      ),
+    ).id;
+    const pulling = Promise.withResolvers<undefined>();
+    const pulled = Promise.withResolvers<undefined>();
+    vi.spyOn(native, 'pullInboxPreferences').mockImplementationOnce(
+      async (owner) => {
+        pulling.resolve(undefined);
+        await pulled.promise;
+        return { owner, records: [], unreadable: [] };
+      },
+    );
+    gmail.deliver({ subject: 'Moved while synchronizing' });
+    loading = host.gmailMailboxes.load();
+    await pulling.promise;
+    await host.registration.moveMailbox(connection, personal);
+    pulled.resolve(undefined);
+    await loading;
+    expect(notified.at(-1)).toStrictEqual(
+      expect.objectContaining({
+        body: 'Moved while synchronizing',
+        profile: personal,
+      }),
+    );
+
     gate = held();
     gmail.deliver({ subject: 'Removed meanwhile' });
     loading = host.gmailMailboxes.load();
@@ -1596,7 +1833,7 @@ describe('the host assembly', () => {
     await host.registration.removeMailbox(connection);
     gate.release();
     await loading;
-    expect(notified).toHaveLength(1);
+    expect(notified).toHaveLength(2);
   });
 
   it('keeps a background freshness opportunity alive until notification posting settles', async () => {

@@ -430,6 +430,22 @@ export const favoriteRows = (entries: FavoriteEntries) =>
     isFavorite(row) ? [{ row, shown: shown || row === allInboxes }] : [],
   );
 
+// `entries` with `row` shown when `shown`, hidden otherwise; undefined, to write nothing, when that
+// changes nothing, as for All Inboxes, which stays shown.
+export const showFavorite = (
+  entries: FavoriteEntries,
+  row: Favorite,
+  shown: boolean,
+): FavoriteEntries | undefined =>
+  row === allInboxes ||
+  !completed(entries).some(
+    (entry) => entry.row === row && entry.shown !== shown,
+  )
+    ? undefined
+    : completed(entries).map((entry) =>
+        entry.row === row ? { row, shown } : entry,
+      );
+
 // `entries` with `row` shown or hidden. All Inboxes stays shown.
 export const toggleFavorite = (
   entries: FavoriteEntries,
@@ -461,6 +477,102 @@ export const moveFavorite = (
     isFavorite(entry.row) ? (placed.next().value ?? entry) : entry,
   );
 };
+
+// A Mailbox Connection's folders in its Profile's order with whether each shows, as the Profile's
+// preference keeps them. A folder it does not name shows, after the named ones in this device's
+// order.
+export const SectionFoldersSchema = Schema.Array(
+  Schema.Struct({ name: Schema.String, shown: Schema.Boolean }),
+);
+export type SectionFolders = typeof SectionFoldersSchema.Type;
+// A Mailbox Connection's section: whether it shows and its folders. A hidden connection also leaves
+// All Inboxes and posts no New Mail Notification.
+export type Section = Readonly<{ shown: boolean; folders: SectionFolders }>;
+// A Profile's sections by connection; a connection without one shows with every folder.
+export type Sections = Readonly<Record<string, Section>>;
+
+// Whether `connection`'s section shows.
+export const sectionShown = (sections: Sections, connection: string) =>
+  !Object.hasOwn(sections, connection) || sections[connection]?.shown !== false;
+
+// `connection`'s folders as `sections` keeps them.
+export const sectionFolders = (
+  sections: Sections,
+  connection: string,
+): SectionFolders =>
+  (Object.hasOwn(sections, connection)
+    ? sections[connection]?.folders
+    : undefined) ?? [];
+
+// `names`, a connection's folders as this device lists them, in `folders`' order with whether each
+// shows. Its Inbox always does.
+export const folderRows = (
+  folders: SectionFolders,
+  names: readonly string[],
+): SectionFolders => {
+  const listed = Arr.dedupeWith(
+    folders.filter(({ name }) => names.includes(name)),
+    (left, right) => left.name === right.name,
+  );
+  return [
+    ...listed,
+    ...names
+      .filter((name) => !listed.some((folder) => folder.name === name))
+      .map((name) => ({ name, shown: true })),
+  ].map(({ name, shown }) => ({ name, shown: shown || name === inboxFolder }));
+};
+
+// `folders` with `names` as `change` orders and shows them. Folders it keeps that `names` lacks,
+// such as one another device still lists, follow them.
+const changedFolders = (
+  folders: SectionFolders,
+  names: readonly string[],
+  change: (rows: SectionFolders) => SectionFolders,
+): SectionFolders => [
+  ...change(folderRows(folders, names)),
+  ...folders.filter(({ name }) => !names.includes(name)),
+];
+
+// `folders` with folder `name` of `names` shown when `shown`, hidden otherwise, every other folder
+// keeping its stored place, even one this device has yet to list; undefined, to write nothing, when
+// that changes nothing, as for the Inbox, which stays shown.
+export const showFolder = (
+  folders: SectionFolders,
+  names: readonly string[],
+  { name, shown }: Readonly<{ name: string; shown: boolean }>,
+) => {
+  if (
+    name === inboxFolder ||
+    !folderRows(folders, names).some(
+      (row) => row.name === name && row.shown !== shown,
+    )
+  ) {
+    return undefined;
+  }
+  const stored = (row: Readonly<{ name: string }>) =>
+    folders.some((folder) => folder.name === row.name);
+  return [
+    ...folders,
+    ...folderRows([], names).filter((row) => !stored(row)),
+  ].map((row) => (row.name === name ? { name, shown } : row));
+};
+
+// `folders` with folder `name` of `names` moved to the place `to` gives for its stored place.
+export const moveFolder = (
+  folders: SectionFolders,
+  names: readonly string[],
+  { name, to }: Readonly<{ name: string; to: (index: number) => number }>,
+) =>
+  changedFolders(folders, names, (rows) => {
+    const index = rows.findIndex((row) => row.name === name);
+    const moving = rows[index];
+    if (moving === undefined) {
+      return rows;
+    }
+    const order = rows.filter((row) => row !== moving);
+    order.splice(Math.max(0, Math.min(to(index), order.length)), 0, moving);
+    return order;
+  });
 
 const unifiedTitles = {
   SENT: 'mailboxes.sent',

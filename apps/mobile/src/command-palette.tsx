@@ -855,7 +855,12 @@ function CommandRow({
   );
 }
 
-// The visible command input of iPad layouts; iPhone opens the palette by gesture alone.
+// Inside a system sheet, which owns the downward swipe, headers offer no palette, as the app's
+// other sheets do not.
+export const InSheet = createContext(false);
+
+// The visible command input of iPad layouts; iPhone opens the palette by gesture alone, and a
+// sheet offers none.
 export function CommandInput({
   style,
 }: {
@@ -867,7 +872,7 @@ export function CommandInput({
   const input = useRef<ViewInstance>(null);
   // Measured as the press begins, so the popover opens beneath the input wherever it has moved.
   const frame = useRef<Anchor>(undefined);
-  if (!pad) {
+  if (!pad || use(InSheet)) {
     return null;
   }
   return (
@@ -911,10 +916,6 @@ export function CommandInputRow() {
 }
 
 const swipe = 24;
-
-// Inside a system sheet, which owns the downward swipe, headers offer no palette, as the app's
-// other sheets do not.
-export const InSheet = createContext(false);
 
 // Opens the palette from a header. `swipe` goes on the header's whole area: a downward swipe
 // starting on it opens the palette, while swipes that start in the content below scroll it as

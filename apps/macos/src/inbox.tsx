@@ -98,7 +98,12 @@ import {
 } from './outbox.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { checking, offline, SyncStatusCapsule } from './sync-status.tsx';
+import {
+  checking,
+  offline,
+  refused,
+  SyncStatusCapsule,
+} from './sync-status.tsx';
 import { usePalette } from './theme.ts';
 
 // The open-Draft callback for an Inbox without Drafts, stable so Draft rows stay memoized.
@@ -498,6 +503,20 @@ function scopeOf(
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
 }
 
+// The provider of a shown connection that needs sign-in again. The subtitle names it after the
+// count, in place of the scope and update time, as the frames draw it; a chosen connection waiting
+// for authorization already says so in its status.
+const signInOf = (
+  shown: readonly InboxMailbox[],
+  waiting: ReadonlyArray<Readonly<{ provider: MailProvider }>>,
+): MailProvider | undefined =>
+  [
+    ...shown.flatMap(({ provider, state }) =>
+      refused(state) ? [provider ?? 'gmail'] : [],
+    ),
+    ...waiting.map(({ provider }) => provider),
+  ][0];
+
 // Below a view's listed mail: its older mail still downloading, or that only its newest mail is
 // saved on this device.
 function FolderFooter({
@@ -539,6 +558,7 @@ function statusOf(
     downloading,
     now,
     inbox,
+    signIn,
   }: Readonly<{
     unread: number;
     // An explicit online search that found a mail server unreachable.
@@ -549,6 +569,8 @@ function statusOf(
     now: number;
     // Whether the Inbox is listed; another folder or view was not necessarily brought up to date.
     inbox: boolean;
+    // Whether the subtitle names a connection that needs sign-in, in place of the update time.
+    signIn: boolean;
   }>,
 ) {
   if (waiting !== undefined) {
@@ -569,7 +591,7 @@ function statusOf(
   }
   const status =
     unread === 0 ? t('inbox.noUnread') : t('inbox.unread', { count: unread });
-  if (!inbox) {
+  if (!inbox || signIn) {
     return status;
   }
   const updated = lastUpdated(
@@ -860,6 +882,7 @@ function headingOf(
     unconnected,
     unlisted,
     unified,
+    signIn,
   }: Readonly<{
     scope: string | undefined;
     folder: string | undefined;
@@ -873,6 +896,8 @@ function headingOf(
     unconnected: boolean;
     // The listed folder or view is still opening or could not be read, so it has not answered.
     unlisted: boolean;
+    // A shown connection that needs sign-in again, which the subtitle names after the count.
+    signIn: MailProvider | undefined;
   }>,
 ) {
   const title =
@@ -892,7 +917,13 @@ function headingOf(
   ) {
     return {
       title,
-      subtitle: t('inbox.subtitleLabel', { scope: scopeName, status }),
+      subtitle:
+        signIn === undefined || results !== undefined
+          ? t('inbox.subtitleLabel', { scope: scopeName, status })
+          : t('inbox.statusSignIn', {
+              status,
+              provider: t(`mailProviders.${signIn}`),
+            }),
       emptyScope,
     };
   }
@@ -1159,6 +1190,8 @@ export function Inbox({
     gmail,
     waiting: chosenWaiting,
   });
+  const signIn =
+    chosenWaiting === undefined ? signInOf(shown, waiting) : undefined;
   const status = statusOf(t, shown, {
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
@@ -1166,6 +1199,7 @@ export function Inbox({
     downloading,
     now,
     inbox: view.unified === undefined && folder === inboxFolder,
+    signIn: signIn !== undefined,
   });
   const listHeading = headingOf(t, {
     scope,
@@ -1178,6 +1212,7 @@ export function Inbox({
     unconnected: unconnected !== undefined,
     unlisted,
     unified: view.unified !== undefined,
+    signIn,
   });
   const { emptyScope } = listHeading;
   const { title, subtitle } = outboxView ?? listHeading;

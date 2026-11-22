@@ -9,6 +9,7 @@ import type { RegistrationSnapshot } from '../src/registration.ts';
 import type {
   Asset,
   Block,
+  BlockKind,
   SemanticDocument,
 } from '../src/semantic-document.ts';
 
@@ -17,6 +18,7 @@ import {
   acceptRecipient,
   addBodyRecipient,
   addRecipients,
+  applySlashBlock,
   assetsOf,
   bodyRecipientQuery,
   bodyRecipientSuggestions,
@@ -26,6 +28,8 @@ import {
   prepareFiles,
   recipientSuggestions,
   recipientSummary,
+  slashBlocks,
+  slashQuery,
   draftOf,
   draftsOf,
   greetingName,
@@ -1256,6 +1260,74 @@ describe('entering Draft recipients', () => {
         address: 'MAYA@example.com',
       }).to,
     ).toStrictEqual([]);
+  });
+
+  it('opens the Slash Command Menu at a block start and applies a block as one edit', () => {
+    expect.hasAssertions();
+    const block = (kind: BlockKind, text: string) => ({
+      kind,
+      spans: [{ text }].filter((span) => span.text !== ''),
+    });
+    const body: SemanticDocument = [
+      block('paragraph', 'Hi'),
+      block('paragraph', '  /he'),
+    ];
+    const at = (document: SemanticDocument, caret: number) =>
+      slashQuery(document, { start: caret, end: caret });
+
+    // A / first in its block, after any whitespace, and the text after it up to the caret.
+    expect(at(body, 8)).toStrictEqual({ start: 5, end: 8, text: 'he' });
+    expect(at([block('bulleted', '/')], 3)).toStrictEqual({
+      start: 2,
+      end: 3,
+      text: '',
+    });
+    // Never after other text, in code or across a selection.
+    expect(at([block('paragraph', 'a /he')], 5)).toBeUndefined();
+    expect(at([block('code', '/usr')], 4)).toBeUndefined();
+    expect(
+      at([{ kind: 'paragraph', spans: [{ text: '/he', marks: ['code'] }] }], 3),
+    ).toBeUndefined();
+    expect(slashQuery(body, { start: 5, end: 8 })).toBeUndefined();
+
+    // Typing filters by the title or a word of it, ignoring case.
+    const titles: Record<BlockKind, string> = {
+      paragraph: 'Text',
+      heading1: 'Heading 1',
+      heading2: 'Heading 2',
+      heading3: 'Heading 3',
+      bulleted: 'Bulleted List',
+      numbered: 'Numbered List',
+      quote: 'Quote',
+      code: 'Code Block',
+    };
+    const titleOf = (kind: BlockKind) => titles[kind];
+    expect(slashBlocks('', titleOf)).toHaveLength(8);
+    expect(slashBlocks('He', titleOf)).toStrictEqual([
+      'heading1',
+      'heading2',
+      'heading3',
+    ]);
+    expect(slashBlocks('list', titleOf)).toStrictEqual([
+      'bulleted',
+      'numbered',
+    ]);
+    expect(slashBlocks('heading 2', titleOf)).toStrictEqual(['heading2']);
+    expect(slashBlocks('x', titleOf)).toStrictEqual([]);
+
+    // Applying removes the query and sets the caret's block; its kind already set stays.
+    const query = { start: 5, end: 8, text: 'he' };
+    expect(applySlashBlock(body, query, 'heading2')).toStrictEqual({
+      document: [block('paragraph', 'Hi'), block('heading2', '  ')],
+      selection: { start: 5, end: 5 },
+    });
+    expect(
+      applySlashBlock(
+        [block('heading2', '/')],
+        { start: 0, end: 1, text: '' },
+        'heading2',
+      ).document,
+    ).toStrictEqual([block('heading2', '')]);
   });
 
   it('turns @ in an otherwise empty body into a new To recipient and a greeting', () => {

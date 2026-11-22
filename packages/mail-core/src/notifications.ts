@@ -170,7 +170,7 @@ class NotificationNativeFailure extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()('NotificationNativeFailure', { cause: Schema.Defect() }) {}
 
-const call = (request: () => Promise<unknown>) =>
+const call = <A>(request: () => Promise<A>) =>
   Effect.tryPromise({
     try: request,
     catch: (cause) => new NotificationNativeFailure({ cause }),
@@ -379,12 +379,19 @@ export function createNotifications(
           call(() => native.openNotificationSettings()),
         ),
       ),
-    // `eligible` is checked again after reading the settings, just before posting: the
-    // connection may have been removed or turned off meanwhile.
+    // After the settings are read and `settle` has finished, `eligible` is asked about the Profile
+    // the connection is in then, in the same step that posts: the connection may have been
+    // removed, turned off, hidden or moved meanwhile.
     arrived: (
       { profile: currentProfile, address, ...mailbox }: Arrival,
       messages: readonly ArrivedMessage[],
-      eligible: () => boolean,
+      {
+        settle,
+        eligible,
+      }: Readonly<{
+        settle: () => Promise<void>;
+        eligible: (profile: string) => boolean;
+      }>,
     ) =>
       runLogged(
         logged(
@@ -394,17 +401,18 @@ export function createNotifications(
             const current = yield* settingsOf(() =>
               native.notificationSettings(),
             );
-            const profile = currentProfile();
             if (current.authorization !== 'authorized') {
               return yield* notPosted(`authorization ${current.authorization}`);
             }
-            if (!eligible()) {
-              return yield* notPosted(
-                'connection closed or turned off meanwhile',
-              );
-            }
+            yield* call(settle);
+            const profile = currentProfile();
             if (profile === undefined) {
               return yield* notPosted('Mail Profile unknown');
+            }
+            if (!eligible(profile)) {
+              return yield* notPosted(
+                'connection closed, turned off or hidden meanwhile',
+              );
             }
             const t = translate();
             yield* call(() =>

@@ -57,7 +57,8 @@ transport and known native exit gaps.
   **Default Sending Identity**, or its first usable mailbox when the Profile has none. A
   default that cannot send on this device still starts the Draft, whose From pop-up
   explains why Send is blocked, rather than another identity standing in. It opens the composer in
-  the detail column: the system sheet over the mail it was started from on iPhone and a bottom-anchored overlay
+  the detail column: the system sheet over the mail it was started from on iPhone and in a compact iPad window (Slide
+  Over, a narrow Split View or a narrow window), and a bottom-anchored overlay
   over the reader in a Mac window, docked across the reader's full width at its bottom edge, at
   70% of the window's height (420 to 720pt). On regular-width iPad a new message opens as a card
   centred on the window (at most 874pt wide, 40pt below the status bar and 32pt above the bottom
@@ -92,7 +93,10 @@ transport and known native exit gaps.
   another message updates that reader without closing the Draft; Close reveals
   the latest selection. Expanding, collapsing and changing the mobile layout
   retain the same editor and Undo history; the Mac's New Message window starts a
-  new editor and Undo history. Each window has one composer.
+  new editor and Undo history. An iPad composer stays where it opened until it
+  closes: when the window widens, a sheet stays the compact sheet without
+  **Expand**, and when it narrows, a card covers the window. The next composer
+  opens as the window's width then calls for. Each window has one composer.
   The floating search and New Message bar hides while composing. On Mac,
   **Search Mail** reveals it without closing the Draft; New Message remains
   available through the Command Palette and asks before switching the
@@ -281,8 +285,23 @@ selection as its text and an empty, focused Link field, and **Apply** links the
 text as one Undo step. While a Mac Link Editor has focus, the body draws the text it
 links as an inactive selection. The control is unavailable otherwise, including for a
 caret away from a link or a selection that is partly linked. The Tiptap
-evaluation editor's Link control behaves the same way. The Slash Command Menu is a
-later slice.
+evaluation editor's Link control behaves the same way.
+
+On iPad and iPhone, typing `/` as the first non-whitespace character of a body
+block outside a code block opens the **Slash Command Menu** under the caret's
+line: a glass menu of **Basic Blocks** (Text, Heading 1 to 3, Bulleted List,
+Numbered List, Quote, Code Block), each led by its icon, 320pt wide and scrolling
+inside the room above the keyboard and the format pill, or over the line when
+more room is there. VoiceOver hears **Slash commands** as it opens. Typing after
+the `/` filters the rows by their title or a word of it; the first match shows
+highlighted, and a result with none closes the menu and leaves the typed text.
+Moving the caret, leaving the body or deleting the `/` closes it too. A tap, or
+Return or Tab, which then type nothing, sets the caret's block to the chosen
+kind and removes the slash query as one Undo step; a block already of that kind
+keeps it. With an iPad hardware keyboard, Up and Down Arrow move the highlight
+and Escape or Command-period closes the menu. The Insert group, the writing
+tools and the Mac menu are later slices
+([#2117](https://github.com/unwired-dev/product/issues/2117)).
 
 Each block can also be centered, right-aligned or justified; a block without an
 alignment is start-aligned, and a Draft holding any other alignment is not saved
@@ -557,12 +576,17 @@ This also applies to authored edits arriving after an empty Draft was closed;
 an empty late edit creates no copy. A completed explicit discard suppresses
 later events from the editor that discarded it.
 
-On iPhone the composer is the system page sheet over the Inbox or reader it was started from, so
-their system **Back** and edge swipe cannot leave it. Swiping the sheet down is **Close**: the
-system holds the sheet up while the composer decides, so an unchanged Draft closes, an empty one
-is removed, and changed content asks **Delete Draft** or **Save Draft** with the sheet still open
-(#2610). The sheet is React Native's page sheet, whose size, corners and motion are the system's;
+On iPhone and in a compact iPad window the composer is the system page sheet over the Inbox or
+reader it was started from, so their system **Back** and edge swipe cannot leave it. Swiping the
+sheet down is **Close**: the system holds the sheet up while the composer decides, so an unchanged
+Draft closes, an empty one is removed, and changed content asks **Delete Draft** or **Save Draft**
+with the sheet still open (#2610, #2645). The sheet is React Native's page sheet, whose size, corners and motion are the system's;
 it shows no grabber, which the frames draw, because that component offers none.
+The body fills the sheet between From and the keyboard, or the bottom of the sheet without one, with
+attachments at its bottom; Subject, To, and Cc and Bcc follow below the fold, reached by scrolling
+while the header and From stay fixed ([#2119](https://github.com/unwired-dev/product/issues/2119)).
+In a reply the space after the quoted text grows instead. **Send** while it waits for a recipient
+scrolls to the fields and focuses To, or the field whose text it refuses, with its reason.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.

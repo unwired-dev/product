@@ -481,6 +481,12 @@ styles) so the file stays editable.
   Profile scoping follows the [mailbox requirements](docs/product/mailboxes.md#unified-mailboxes).
   iPhone Mailboxes puts Settings in a glass **Account** circle at the header's trailing
   edge and a glass New Message at the bottom trailing corner.
+  **Edit**, beside Hide Sidebar in the iPad sidebar's top row and beside Account in
+  iPhone's Mailboxes header, turns Favorites into the Edit Favorites list until
+  **Done**, a prominent capsule on iPad and a checkmark circle that replaces Edit and
+  Account on iPhone (#2611). The same list follows with each Mailbox Connection: a
+  checkmark and handle on its header, and its folders as Edit rows without counts;
+  a hidden connection collapses to its header.
 - **Message list header:** mailbox title, a subtitle carrying unread count and
   sync status, and a row of up to five Mail View chips in the order the
   [Mail View requirements](docs/product/organization.md#prototype-mail-views-and-interface-behavior)
@@ -898,15 +904,14 @@ app follows under the issue named:
 
 - **iPad reader type:** the frames draw Reading Body 17/25 and Reading Subject
   23/29; the app renders the Reading pane's 15/22 and 20/25 until #2654.
-- **Edit Favorites:** the Mac sidebar's Edit mode is built (#2593). The iPad
-  sidebar's Edit mode, and **Edit** beside Account in the iPhone Mailboxes
-  frames, wait for #2106.
 - **Message list header:** the iPhone frames' List/Chat toggle beside the title
   waits for #810. Their **…** menu waits for an issue that names what it offers.
-- **Compact iPad composer:** the frames draw the composer in a compact iPad
-  window as the same sheet as on iPhone, as
-  [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) now
-  decides. The app covers the window with it until the rest of #2113.
+- **Compact iPad composer:** the frames draw the sheet a compact iPad window
+  opens (#2645), not a window changing width under an open composer. The app
+  keeps the composer where it opened, as
+  [ADR 0057](docs/adr/0057-present-composing-inside-the-mail-shell.md) records:
+  a widened sheet stays the compact sheet, without Expand, and a narrowed card
+  covers the window.
 - **Send menu:** on the Mac it lists Send and Remind Me to Send… (#2123); on
   iPhone and iPad it lists Remind Me to Send… (#2136). Send and Archive, Send
   Now and Send Later wait for #1673, #1674 and #1262.
@@ -923,8 +928,10 @@ app follows under the issue named:
   on the composer's From row waits for #2133.
 - **iPhone composer body:** the body fills the sheet and the fields are below
   the fold, which waits for #2119.
-- **Slash Command Menu:** the menu and Show Formatting Toolbar wait for #2117
-  and #2118.
+- **Slash Command Menu:** iPad and iPhone show its Basic Blocks (#2656); the
+  Insert group, the writing tools and the Mac menu wait for #2117, and Show
+  Formatting Toolbar for #2118. The touch menus draw Heading 1 to 3 with the
+  format bar's H1–H3 glyphs and Quote with the `text.quote` symbol.
 - **Toasts:** the frames draw glass toasts. iPhone and iPad do (#2591); the Mac
   draws a deep graphite toast until the rest of #2104.
 - **Trusted Devices:** iPhone and iPad rows show the device symbol, Current

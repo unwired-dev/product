@@ -5,7 +5,13 @@ import type { Draft } from '@private-email/mail-core/drafts';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { SemanticDocument } from '@private-email/mail-core/semantic-document';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { StyleProp, TextStyle, useColorScheme } from 'react-native';
+import type { Component } from 'react';
+import type {
+  StyleProp,
+  TextInputProps,
+  TextStyle,
+  useColorScheme,
+} from 'react-native';
 
 import { captureDraftText } from '@private-email/mail-core/assistance';
 import { createMailAssistanceEnablement } from '@private-email/mail-core/assistance-enablement';
@@ -1080,6 +1086,81 @@ describe('composing Drafts', () => {
       expect(screen.queryByText(reason)).toBeNull();
       expect(send()).not.toBeDisabled();
     } finally {
+      outbox.dispose();
+    }
+  });
+
+  it('takes a Send that waits for a recipient to the field it waits for on iPhone', async () => {
+    expect.hasAssertions();
+    const focus = jest.spyOn(TextInput.prototype, 'focus');
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const drafts = createDrafts(storage.native, registration);
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail({ messages: 1 }) }),
+      registration,
+    );
+    const outbox = createOutbox({
+      drafts,
+      mailboxes,
+      registration,
+      claims: undefined,
+    });
+    // The fields focused, by name: each call's receiver is the mocked input.
+    const focused = () =>
+      focus.mock.contexts.map(
+        (input: Component<TextInputProps>) => input.props.accessibilityLabel,
+      );
+    try {
+      await render(
+        <ComposerLayoutContext
+          value={{ size: 'compact', avoidKeyboard: true, top: 0 }}>
+          <App
+            drafts={drafts}
+            mailboxes={mailboxes}
+            outbox={outbox}
+            registration={registration}
+          />
+        </ComposerLayoutContext>,
+      );
+      await press('New Message');
+      await screen.findByLabelText('To');
+      const send = () => screen.getByRole('button', { name: 'Send' });
+      // Send is dimmed and names the reason, and pressing it focuses To, which says it too.
+      expect(send()).toHaveProp(
+        'accessibilityHint',
+        'Add a recipient to send.',
+      );
+      focus.mockClear();
+      await act(async () => {
+        await fireEvent.press(send());
+      });
+      expect(focused()).toStrictEqual(['To']);
+      expect(screen.getByText('Add a recipient to send.')).toBeOnTheScreen();
+      // Unfinished text still being typed in Cc: Send focuses Cc, which then says why.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'sam@example.invalid',
+      );
+      await fireEvent(screen.getByLabelText('To'), 'submitEditing');
+      await press('Show Cc and Bcc');
+      await fireEvent.changeText(screen.getByLabelText('Cc'), 'kim@example');
+      // A valid address still being typed in To leaves Cc the field Send waits for.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'lee@example.invalid',
+      );
+      const incomplete =
+        '“kim@example” is not a complete address. Correct it to send.';
+      expect(screen.queryByText(incomplete)).toBeNull();
+      focus.mockClear();
+      await act(async () => {
+        await fireEvent.press(send());
+      });
+      expect(focused()).toStrictEqual(['Cc']);
+      expect(screen.getByText(incomplete)).toBeOnTheScreen();
+    } finally {
+      focus.mockRestore();
       outbox.dispose();
     }
   });
@@ -2241,6 +2322,138 @@ describe('composing Drafts', () => {
         reads: 0,
       });
     }
+  });
+
+  it('applies a block from the body’s Slash Command Menu as one edit', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    const body = () => screen.getByLabelText('Message body');
+    // The native body reports the caret after each typed character.
+    const type = async (text: string) => {
+      await fireEvent.changeText(body(), text);
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: text.length, end: text.length } },
+      });
+    };
+    const typeEach = async (before: string, typed: string) => {
+      for (let end = 1; end <= typed.length; end += 1) {
+        await type(before + typed.slice(0, end));
+      }
+    };
+    const menu = () => screen.queryByLabelText('Slash commands');
+    const rows = (options: Readonly<{ selected?: boolean }> = {}) => {
+      const shown = menu();
+      ok(shown !== null);
+      return within(shown)
+        .queryAllByRole('button', options)
+        .map(({ props }) => props.accessibilityLabel);
+    };
+    const lines = () =>
+      shownLines().map(
+        ({ marker, spans }) => marker + spans.map(({ text }) => text).join(''),
+      );
+    const sizes = () =>
+      body()
+        .children.filter((line) => typeof line !== 'string')
+        .map(
+          (line) =>
+            StyleSheet.flatten<StyleProp<TextStyle>>(line.props.style)
+              ?.fontSize,
+        );
+    const keys = () => arrowKeysAround(body());
+
+    // A / first in a block opens the Basic Blocks, unhighlighted, and VoiceOver hears it open.
+    await typeEach('', 'Hi\n/');
+    expect(rows()).toStrictEqual([
+      'Text',
+      'Heading 1',
+      'Heading 2',
+      'Heading 3',
+      'Bulleted List',
+      'Numbered List',
+      'Quote',
+      'Code Block',
+    ]);
+    expect(rows({ selected: true })).toStrictEqual([]);
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenLastCalledWith(
+      'Slash commands',
+    );
+
+    // Typing filters and highlights the row Return takes; Down and Up move it; Escape closes the
+    // menu, keeping the text, and typing on does not reopen it.
+    await typeEach('Hi\n/', 'he');
+    expect(rows()).toStrictEqual(['Heading 1', 'Heading 2', 'Heading 3']);
+    expect(rows({ selected: true })).toStrictEqual(['Heading 1']);
+    expect(keys().props).toHaveProperty('enabled', true);
+    await fireEvent(keys(), 'arrow', { nativeEvent: { key: 'ArrowDown' } });
+    expect(rows({ selected: true })).toStrictEqual(['Heading 2']);
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenLastCalledWith(
+      'Heading 2',
+    );
+    await fireEvent(keys(), 'arrow', { nativeEvent: { key: 'ArrowUp' } });
+    expect(rows({ selected: true })).toStrictEqual(['Heading 1']);
+    expect(keys().props).toHaveProperty('escape', true);
+    await fireEvent(keys(), 'escape');
+    expect(menu()).toBeNull();
+    expect(keys().props).toHaveProperty('escape', false);
+    await type('Hi\n/hea');
+    expect(menu()).toBeNull();
+    expect(lines()).toStrictEqual(['Hi', '/hea']);
+
+    // A result with no block closes it, and a / after text opens none.
+    await type('Hi\n');
+    await typeEach('Hi\n', '/x');
+    expect(menu()).toBeNull();
+    await type('Hi');
+    await typeEach('Hi', ' /');
+    expect(menu()).toBeNull();
+
+    // Return applies the highlighted block in place of a line break.
+    await type('Hi');
+    await typeEach('Hi', '\n/li');
+    await act(async () => {
+      body().props.onKeyPress({ nativeEvent: { key: 'Enter' } });
+      body().props.onChangeText('Hi\n/li\n');
+      body().props.onSelectionChange({
+        nativeEvent: { selection: { start: 7, end: 7 } },
+      });
+      await Promise.resolve();
+    });
+    expect(lines()).toStrictEqual(['Hi', '• ']);
+    expect(menu()).toBeNull();
+
+    // A tap applies its block; one Undo restores the text as typed.
+    await typeEach('Hi\n• ', '/he');
+    await press('Heading 2');
+    expect(lines()).toStrictEqual(['Hi', '']);
+    expect(sizes()[1]).toBe(22);
+    expect(menu()).toBeNull();
+    await openFormat();
+    await press('Undo');
+    expect(lines()).toStrictEqual(['Hi', '• /he']);
+    expect(sizes()[1]).toBeUndefined();
+
+    // Before existing text the menu hangs from the caret's line: its measured copy ends there.
+    await type('Hi\nthere');
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 3, end: 3 } },
+    });
+    await fireEvent.changeText(body(), 'Hi\n/there');
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 4, end: 4 } },
+    });
+    expect(menu()).not.toBeNull();
+    expect(
+      screen.queryAllByText('/', { includeHiddenElements: true }),
+    ).not.toHaveLength(0);
   });
 
   it('stores edits made while retrying a refused Save Draft', async () => {

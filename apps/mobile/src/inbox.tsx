@@ -34,6 +34,7 @@ import {
   organizingWork,
   profileMailboxes,
   resultKey,
+  sectionShown,
 } from '@private-email/mail-core/mailboxes';
 import { profileName } from '@private-email/mail-core/profile-windows';
 import { spacing } from '@private-email/mail-core/theme';
@@ -86,6 +87,11 @@ import {
   useInboxSearch,
 } from './inbox-search.tsx';
 import { emptySymbolSize, ipad, styles } from './inbox-styles.ts';
+import {
+  InboxPreferencesContext,
+  usePreferencesUnreadable,
+  useReadSections,
+} from './list-density.tsx';
 import { useLocalization } from './localization.ts';
 import { useListedMailbox } from './mailbox-folders.tsx';
 import { useNow } from './mailbox-state.ts';
@@ -165,6 +171,8 @@ interface InboxProps {
   // Each new value ends a search and scrolls to the top of the Outbox, as when View in Outbox shows
   // it.
   readonly outboxShown?: object | undefined;
+  // Whether the composer, expanded to the regular-width window, covers the list.
+  readonly covered?: boolean;
 }
 
 const allInboxes: MailboxView = {};
@@ -268,6 +276,49 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
       <OrganizeStatus />
     </>
   );
+}
+
+// Search widened to every Inbox waits for the preferences, so it shows they load and, after a failed
+// read, offers Try Again, as All Inboxes does.
+function WidenedPreferencesNotice({
+  widened,
+  read,
+}: Readonly<{ widened: boolean; read: boolean }>) {
+  const unreadable = usePreferencesUnreadable();
+  if (!widened || read) {
+    return null;
+  }
+  return unreadable ? (
+    <PreferencesNotice
+      unreadable
+      outbox={false}
+    />
+  ) : (
+    <SkeletonRows />
+  );
+}
+
+// All Inboxes' preferences could not be read, so it lists no connection until Try Again reads them;
+// the Outbox lists its own messages and says nothing of them.
+function PreferencesNotice({
+  unreadable,
+  outbox,
+}: Readonly<{ unreadable: boolean; outbox: boolean }>) {
+  const { t } = useLocalization();
+  const preferences = use(InboxPreferencesContext);
+  return unreadable && !outbox ? (
+    <Notice
+      icon="exclamationmark.triangle"
+      message={t('mailboxes.preferencesFailed')}
+      messageRole="alert">
+      <Button
+        label={t('common.retry')}
+        onPress={() => {
+          void preferences.load();
+        }}
+      />
+    </Notice>
+  ) : null;
 }
 
 // An IMAP mailbox whose password was refused enters it again in Settings.
@@ -420,12 +471,15 @@ function scopeOf(
   {
     unified,
     several,
+    everyHidden,
     gmail,
     waiting,
   }: Readonly<{
     // Whether the list is a Unified Mailbox, which spans every mailbox.
     unified: boolean;
     several: boolean;
+    // Whether the Profile hides every connection, so All Inboxes names none, not even its provider.
+    everyHidden: boolean;
     gmail: boolean;
     // The chosen connection while it waits for authorization, which has no Inbox to show.
     waiting: Readonly<{ address: string }> | undefined;
@@ -441,7 +495,7 @@ function scopeOf(
   if (shown.length === 1 && only?.address !== undefined) {
     return only.address;
   }
-  if (several) {
+  if (several || everyHidden) {
     return t('inbox.allInboxes');
   }
   return gmail ? t('inbox.gmail') : t('inbox.subtitle');
@@ -656,6 +710,26 @@ function inboxSections<M>({
   ];
 }
 
+// Whether the list's mailboxes have listed and are checking their servers. A connection All Inboxes
+// leaves out, hidden or not yet known to be shown, says neither, as its mail is not listed: while
+// the preferences are read, All Inboxes is loading, and with every connection hidden, even one
+// waiting for sign-in, there is no mail to wait for.
+const listState = (
+  searched: readonly InboxMailbox[],
+  preferences: Readonly<{ everyHidden: boolean; reading: boolean }>,
+) => {
+  if (preferences.everyHidden) {
+    return { ready: true, syncing: false };
+  }
+  if (preferences.reading) {
+    return { ready: false, syncing: true };
+  }
+  return {
+    ready: searched.some(({ state }) => state.kind === 'ready'),
+    syncing: searched.some(({ state }) => checking(state)),
+  };
+};
+
 const hasNoMail = ({
   ready,
   syncing,
@@ -805,6 +879,95 @@ const authorizer = (
         })();
       };
 
+// All Inboxes, its sign-in notices, and search there or widened to every Inbox, leave out every
+// connection the Profile hides, and every one until the Profile's preferences are read: `unhidden`
+// keeps the others, `inboxes` also the one the view scopes to, `reading` and
+// `unreadable` say All Inboxes waits for the preferences or could not read them, `everyHidden` that
+// the Profile hides every connection All Inboxes could show, `waiting` is what of `waiting` the list names, and `searched` is what of `shown` the list lists and refreshes, search covers,
+// Filters offers, the heading names and the list reports the state of.
+function useShownInboxes<W extends Readonly<{ id: string }>>({
+  mailboxes,
+  shown,
+  waiting,
+  profile,
+  scope,
+  unified,
+}: Readonly<{
+  mailboxes: readonly InboxMailbox[];
+  shown: readonly InboxMailbox[];
+  waiting: readonly W[];
+  profile: string;
+  scope: string | undefined;
+  unified: MailboxView['unified'];
+}>) {
+  const sections = useReadSections(profile);
+  const unreadable = usePreferencesUnreadable();
+  const preferences = use(InboxPreferencesContext);
+  // All Inboxes lists no connection until the preferences are read.
+  const waits =
+    unified === undefined &&
+    scope === undefined &&
+    sections === undefined &&
+    mailboxes.length + waiting.length > 0;
+  const inboxes = useMemo(
+    () =>
+      mailboxes.filter(
+        ({ id }) =>
+          id === scope ||
+          (sections !== undefined && sectionShown(sections, id)),
+      ),
+    [mailboxes, scope, sections],
+  );
+  const unhidden = useMemo(
+    () =>
+      inboxes.filter(
+        ({ id }) => sections !== undefined && sectionShown(sections, id),
+      ),
+    [inboxes, sections],
+  );
+  const named =
+    unified === undefined
+      ? waiting.filter(
+          ({ id }) =>
+            id === scope ||
+            (sections !== undefined && sectionShown(sections, id)),
+        )
+      : waiting;
+  const searched =
+    unified === undefined
+      ? shown.filter((mailbox) => inboxes.includes(mailbox))
+      : shown;
+  return {
+    inboxes,
+    unhidden,
+    // The Inboxes search widened to every Inbox covers; undefined until the preferences are read.
+    searchable: sections === undefined ? undefined : unhidden,
+    reading: waits && !unreadable,
+    unreadable: waits && unreadable,
+    // A pull while the preferences are unread, as All Inboxes or search widened from an Inbox waits
+    // for them, reads them again, and refreshes the mailboxes they then show and the scoped one.
+    reread: async () => {
+      if (unified !== undefined || sections !== undefined) {
+        return searched;
+      }
+      await preferences.load();
+      const read = preferences.sections(profile);
+      return shown.filter(
+        ({ id }) =>
+          id === scope || (read !== undefined && sectionShown(read, id)),
+      );
+    },
+    everyHidden:
+      unified === undefined &&
+      sections !== undefined &&
+      mailboxes.length + waiting.length > 0 &&
+      inboxes.length === 0 &&
+      named.length === 0,
+    waiting: named,
+    searched,
+  };
+}
+
 export function Inbox({
   visible,
   selected,
@@ -817,6 +980,7 @@ export function Inbox({
   view = allInboxes,
   onView = keepView,
   outboxShown,
+  covered,
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
@@ -855,7 +1019,11 @@ export function Inbox({
   const indicatorInsets = useBarIndicatorInsets(toolbar);
   const connections = profileMailboxes(account?.mailboxes ?? [], profile);
   // Connections waiting for provider authorization have no Inbox until it is given again.
-  const { keepsChoice, chosenWaiting, waiting } = inboxChoice({
+  const {
+    keepsChoice,
+    chosenWaiting,
+    waiting: allWaiting,
+  } = inboxChoice({
     mailboxes,
     connections,
     view,
@@ -870,9 +1038,27 @@ export function Inbox({
   // With more than one mailbox, every row and notice names its own.
   const several = (account === undefined ? mailboxes : connections).length > 1;
   const gmail = account !== undefined;
+  const {
+    inboxes,
+    unhidden,
+    searchable,
+    reading,
+    unreadable,
+    reread,
+    everyHidden,
+    waiting,
+    searched: searchedMailboxes,
+  } = useShownInboxes({
+    mailboxes,
+    shown,
+    waiting: allWaiting,
+    profile,
+    scope,
+    unified: view.unified,
+  });
   const inboxListed = useMemo(
-    () => inboxMessages(mailboxes, scoped),
-    [mailboxes, scoped],
+    () => inboxMessages(inboxes, scoped),
+    [inboxes, scoped],
   );
   const {
     folder,
@@ -885,10 +1071,10 @@ export function Inbox({
     missing,
     folderOf: listedFolder,
     showOlder,
-  } = useListedMailbox(shown, inboxListed, { view, onView });
+  } = useListedMailbox(searchedMailboxes, inboxListed, { view, onView });
   const searchState = useInboxSearch(search, {
-    mailboxes,
-    shown,
+    mailboxes: unhidden,
+    shown: searchedMailboxes,
     listed,
     profile,
     scoped,
@@ -910,7 +1096,12 @@ export function Inbox({
     selected === undefined ? '' : `${selected.mailbox}\n${selected.id}`,
   );
   const now = useNow();
-  const filtering = useInboxFilter({ scope, mailboxes, listed, now });
+  const filtering = useInboxFilter({
+    scope,
+    mailboxes: searchedMailboxes,
+    listed,
+    now,
+  });
   const inboxRows = filtering.rows;
   // Search keeps iPad's day groups beneath Top Results; iPhone lists matches without dividers.
   const dated = useMemo(
@@ -954,13 +1145,14 @@ export function Inbox({
       searchState.searchesAll,
       filtering.on,
       filtering.filter,
-      ...shown.map(({ inbox }) => inbox),
-      ...shown.map(({ state }) => state.kind === 'ready'),
+      // Hiding a connection, or a failed read, leaves its rows out at once.
+      ...searchedMailboxes.map(({ inbox }) => inbox),
+      ...searchedMailboxes.map(({ state }) => state.kind === 'ready'),
     ],
     keyOf: rowKey,
     contentOf: rowContent,
     selected,
-    ...organizingWork(shown),
+    ...organizingWork(searchedMailboxes),
     visible: visible !== false,
   });
   // The rows the list shows, with leaving rows beside their former neighbours.
@@ -998,19 +1190,23 @@ export function Inbox({
     () => ({ selected, saved, composing }),
     [selected, saved, composing],
   );
-  const ready = shown.some(({ state }) => state.kind === 'ready');
-  const syncing = shown.some(({ state }) => checking(state));
-  const scopeName = scopeOf(t, shown, {
+  const { ready, syncing } = listState(searchedMailboxes, {
+    everyHidden,
+    reading,
+  });
+  // A hidden connection's name stays out of All Inboxes, as its mail does.
+  const scopeName = scopeOf(t, searchedMailboxes, {
     unified: view.unified !== undefined,
     several,
+    everyHidden,
     gmail,
     waiting: chosenWaiting,
   });
-  const signIn = signInOf(shown, {
+  const signIn = signInOf(searchedMailboxes, {
     waiting,
     chosen: chosenWaiting !== undefined,
   });
-  const status = statusOf(t, shown, {
+  const status = statusOf(t, searchedMailboxes, {
     unread: listed.filter(({ message }) => message.unread).length,
     searchOffline: searchOffline(online),
     waiting: chosenWaiting,
@@ -1040,10 +1236,10 @@ export function Inbox({
       }),
     );
   };
-  const loadShown = load(shown);
   const refresh = async () => {
     setRefreshing(true);
     try {
+      const loadShown = load(await reread());
       await (account === undefined
         ? loadShown()
         : account.refreshInbox(loadShown));
@@ -1064,10 +1260,10 @@ export function Inbox({
       // The Sync Status Capsule reports a failure, and the list keeps its saved mail.
     }
   };
-  const { details, paused } = useToolbarPause(shown, toolbar);
+  const { details, paused } = useToolbarPause(searchedMailboxes, toolbar);
   const syncCapsule = (
     <SyncStatusCapsule
-      shown={shown}
+      shown={searchedMailboxes}
       refreshing={refreshing}
       now={now}
       onTryAgain={tryAgain}
@@ -1165,15 +1361,21 @@ export function Inbox({
     }),
     onEndReached: showOlder,
     footer: searching ? (
-      <SearchFooter
-        search={searchState}
-        mailboxes={mailboxes}
-        shown={shown}
-        ready={ready}
-        unlisted={unlisted}
-        scopeName={scopeName}
-        folderName={folderName}
-      />
+      <>
+        <WidenedPreferencesNotice
+          widened={searchState.searchesAll}
+          read={searchable !== undefined}
+        />
+        <SearchFooter
+          search={searchState}
+          mailboxes={searchable}
+          shown={searchedMailboxes}
+          ready={ready}
+          unlisted={unlisted}
+          scopeName={scopeName}
+          folderName={folderName}
+        />
+      </>
     ) : (
       <InboxFooter
         unconnected={unconnected !== undefined}
@@ -1204,7 +1406,9 @@ export function Inbox({
             bar={bar}
             searching={searching}
             onLeave={leave}
-            onSearch={ready ? searchState.open : undefined}>
+            onSearch={ready ? searchState.open : undefined}
+            onView={onView}
+            covered={covered}>
             <SearchHeading search={searchState}>
               <HeadingTitle
                 bar={bar}
@@ -1330,7 +1534,11 @@ export function Inbox({
                         ) : null}
                       </Notice>
                     ))}
-                    {shown.map((mailbox) => (
+                    <PreferencesNotice
+                      unreadable={unreadable}
+                      outbox={outboxView !== undefined}
+                    />
+                    {searchedMailboxes.map((mailbox) => (
                       <MailboxScope
                         key={mailbox.id}
                         id={mailbox.id}>

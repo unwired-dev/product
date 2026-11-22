@@ -615,8 +615,9 @@ export function createRegistration(vault: NativeRegistrationVault) {
     connection: string,
     change: ReturnType<typeof request>,
   ) => {
-    // Leaving the signature editor during foreground verification still stores the signature.
-    const queued = setting === 'signatureFailure';
+    // Leaving the signature editor, or dropping a reordered account, during foreground verification
+    // still stores the change.
+    const queued = setting === 'signatureFailure' || setting === 'orderFailure';
     const operation = change.pipe(
       Effect.catchTags({
         ProfileRefused: () => settingRefusal(setting, connection),
@@ -891,12 +892,17 @@ export function createRegistration(vault: NativeRegistrationVault) {
         saved.trash === folders.trash
       );
     },
-    // Arranges every connection of one Mail Profile in `order`.
-    arrangeMailboxes: (profile: string, order: readonly string[]) =>
+    // Arranges every connection of one Mail Profile in `order`, unless it was made `from` an order
+    // that has since changed.
+    arrangeMailboxes: (
+      profile: string,
+      order: readonly string[],
+      from?: readonly string[],
+    ) =>
       changeSetting(
         'orderFailure',
         profile,
-        request(native.arrangeMailboxes(profile, order)),
+        request(native.arrangeMailboxes(profile, order, from)),
       ),
     // Returns one Mail Profile's connections to the order they were added.
     resetMailboxOrder: (profile: string) =>

@@ -4028,6 +4028,137 @@ final class InboxTests: XCTestCase {
     attachScreen("After Send Now", of: app, to: self)
   }
 
+  // #2611: Edit hides a Favorites row and reorders two, hides and shows the Gmail mailbox, drags its
+  // Trash folder above its Inbox and hides its Spam folder; Mailboxes keeps them after a relaunch.
+  // Hiding the selected folder selects All Inboxes.
+  func testEditFavorites() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    let ipad = UIDevice.current.userInterfaceIdiom == .pad
+    // The Favorites rows from top to bottom.
+    func favorites() -> [String] {
+      let names = ["All Inboxes", "Sent", "Archive", "All Mail", "Spam", "Trash"]
+      return app.buttons.allElementsBoundByIndex
+        .map { ($0.label.replacingOccurrences(of: ". In All Mailboxes", with: ""), $0.frame.minY) }
+        .filter { names.contains($0.0) }
+        .sorted { $0.1 < $1.1 }
+        .map(\.0)
+    }
+    // Mailboxes' Edit, beside Account on iPhone and the sidebar toggle on iPad: the leftmost one.
+    func edit() -> XCUIElement? {
+      app.buttons.matching(identifier: "Edit").allElementsBoundByIndex
+        .filter { $0.isHittable }
+        .min { $0.frame.minX < $1.frame.minX }
+    }
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    waitUntil { edit() != nil }
+    edit()?.tap()
+    let done = app.buttons["Done"].firstMatch
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    let spam = app.buttons["Spam"]
+    XCTAssertEqual(spam.value as? String, "Shown")
+    attachScreen("Edit Favorites", of: app, to: self)
+    spam.tap()
+    waitUntil { spam.value as? String == "Hidden" }
+    // Trash's handle, at the row's trailing end, drags it two rows up, above Spam and All Mail.
+    let trash = app.buttons["Trash"]
+    let allMail = app.buttons["All Mail"]
+    let handle = trash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+      .withOffset(CGVector(dx: ipad ? -18 : -31, dy: 0))
+    handle.press(
+      forDuration: 0.5, thenDragTo: handle.withOffset(CGVector(dx: 0, dy: -2 * trash.frame.height)))
+    waitUntil { trash.frame.minY < allMail.frame.minY }
+    attachScreen("Spam hidden, Trash above All Mail", of: app, to: self)
+    // The Gmail mailbox's header and its own folders beneath it.
+    func folder(_ name: String) -> XCUIElement {
+      app.buttons.matching(
+        NSPredicate(
+          format: "label BEGINSWITH %@ AND NOT label CONTAINS %@", "\(name). In ", "All Mailboxes")
+      ).firstMatch
+    }
+    let header = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Gmail · "))
+      .firstMatch
+    let folderSpam = folder("Spam")
+    let folderInbox = folder("Inbox")
+    let folderTrash = folder("Trash")
+    // Hidden, the mailbox lists no folders; shown again, it lists them as before.
+    XCTAssertEqual(header.value as? String, "Shown")
+    header.tap()
+    waitUntil { header.value as? String == "Hidden" }
+    XCTAssertTrue(folderInbox.waitForNonExistence(timeout: 10))
+    attachScreen("Edit Mailboxes, Gmail hidden", of: app, to: self)
+    header.tap()
+    waitUntil { header.value as? String == "Shown" }
+    XCTAssertTrue(folderInbox.waitForExistence(timeout: 10))
+    XCTAssertEqual(folderSpam.value as? String, "Shown")
+    folderSpam.tap()
+    waitUntil { folderSpam.value as? String == "Hidden" }
+    // Mailboxes scrolls the folders up from under the Compose button.
+    let favoritesTitle = try XCTUnwrap(
+      app.staticTexts.matching(identifier: "Favorites").allElementsBoundByIndex
+        .first { $0.isHittable }
+    ).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    favoritesTitle.press(
+      forDuration: 0.05, thenDragTo: favoritesTitle.withOffset(CGVector(dx: 0, dy: -250)))
+    let compose = app.buttons["New Message"].firstMatch
+    waitUntil { !compose.exists || folderTrash.frame.maxY < compose.frame.minY }
+    // Trash's handle drags it above the Inbox, which cannot be hidden but moves.
+    let trashHandle = folderTrash.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+      .withOffset(CGVector(dx: ipad ? -18 : -31, dy: 0))
+    trashHandle.press(
+      forDuration: 0.5,
+      thenDragTo: trashHandle.withOffset(
+        CGVector(dx: 0, dy: folderInbox.frame.minY - folderTrash.frame.midY - 4)))
+    waitUntil { folderTrash.frame.minY < folderInbox.frame.minY }
+    attachScreen("Edit Mailboxes, Spam folder hidden, Trash above Inbox", of: app, to: self)
+    done.tap()
+    XCTAssertTrue(app.buttons["Spam"].waitForNonExistence(timeout: 10))
+    XCTAssertTrue(folderSpam.waitForNonExistence(timeout: 10))
+    let edited = ["All Inboxes", "Sent", "Archive", "Trash", "All Mail"]
+    waitUntil { favorites() == edited }
+    attachScreen("Edited Favorites", of: app, to: self)
+
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    waitUntil { favorites() == edited }
+    XCTAssertFalse(folderSpam.exists)
+    XCTAssertLessThan(folderTrash.frame.minY, folderInbox.frame.minY)
+    attachScreen("Edited Favorites after a relaunch", of: app, to: self)
+    // Hiding the selected Trash folder selects All Inboxes.
+    folderTrash.tap()
+    revealSwitcher(app, app.buttons["All Inboxes"])
+    waitUntil { folderTrash.isSelected }
+    waitUntil { edit() != nil }
+    edit()?.tap()
+    XCTAssertTrue(done.waitForExistence(timeout: 10))
+    folderTrash.tap()
+    waitUntil { folderTrash.value as? String == "Hidden" }
+    done.tap()
+    XCTAssertTrue(folderTrash.waitForNonExistence(timeout: 10))
+    waitUntil { app.buttons["All Inboxes"].isSelected }
+    // The iPad frames draw Edit mode in Landscape, whose sidebar is wider than Portrait's.
+    if ipad {
+      rotate(app, to: .landscapeLeft)
+      waitUntil { edit() != nil }
+      edit()?.tap()
+      XCTAssertTrue(done.waitForExistence(timeout: 10))
+      attachScreen("Edit Favorites in Landscape", of: app, to: self)
+      done.tap()
+      rotate(app, to: .portrait)
+    }
+  }
+
   // #2610: on iPhone the composer is the system sheet over the Inbox, which stays out of reach.
   // Its downward swipe is Close: an untouched Draft closes, and changed content asks first while
   // the sheet stays. Save Draft then closes it, and Send sends from it.
@@ -4094,15 +4225,49 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
-    app.buttons["New Message"].tap()
+    // #2119: the body fills the sheet, and Subject, To and Cc follow it below the fold.
     let to = app.textFields["To"]
-    XCTAssertTrue(to.waitForExistence(timeout: 15))
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    // The editor ends above the keyboard's typing predictions, which `keyboard` leaves out.
+    let editor = app.scrollViews.containing(NSPredicate(format: "label == %@", "Subject")).firstMatch
+    let writeBody = {
+      app.buttons["New Message"].tap()
+      XCTAssertTrue(to.waitForExistence(timeout: 15))
+      self.focus(body) { keyboard.exists }
+      for letter in "seats" {
+        keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", String(letter))).firstMatch
+          .tap()
+      }
+      self.waitUntil { (body.value as? String)?.lowercased().hasPrefix("seats") == true }
+      XCTAssertGreaterThanOrEqual(subject.frame.minY, editor.frame.maxY)
+    }
+    writeBody()
+    attachScreen("Composer body fills the sheet", of: app, to: self)
+    // Send without a recipient scrolls to To and focuses it, with its reason, above the keyboard.
+    app.buttons["Send"].tap()
+    waitForFocus(to)
+    XCTAssertGreaterThanOrEqual(to.frame.minY, editor.frame.minY)
+    XCTAssertLessThanOrEqual(to.frame.maxY, editor.frame.maxY)
+    let reason = app.staticTexts["Add a recipient to send."].firstMatch
+    XCTAssertTrue(reason.exists)
+    XCTAssertLessThanOrEqual(reason.frame.maxY, editor.frame.maxY)
+    attachScreen("Composer Send asks for a recipient", of: app, to: self)
+    swipeDown()
+    let delete = app.buttons["Delete Draft"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 10))
+    delete.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    // Scrolling past the body reaches the fields, which the message is then addressed in.
+    writeBody()
+    body.swipeUp()
+    waitUntil { subject.frame.maxY <= editor.frame.maxY }
     focus(to) { self.hasFocus(to) }
     type("maya@example.invalid", into: to)
     focus(subject) { self.hasFocus(subject) }
     type("Seats for the offsite", into: subject)
     // The fields stay clear of the keyboard inside the sheet.
-    XCTAssertLessThanOrEqual(subject.frame.maxY, app.keyboards.firstMatch.frame.minY)
+    XCTAssertLessThanOrEqual(subject.frame.maxY, keyboard.frame.minY)
     attachScreen("Composer sheet with keyboard", of: app, to: self)
     app.buttons["Send"].tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 15))
@@ -4164,6 +4329,66 @@ final class InboxTests: XCTestCase {
     waitUntil({ body.value as? String == "• Pilot\n\(level)• Start\n\(level)• Seats" }, timeout: 60)
     formatControl("Undo", in: app).tap()
     waitUntil({ body.value as? String == nested }, timeout: 60)
+  }
+
+  // #2656: a / first in a body block opens the Slash Command Menu's Basic Blocks; Escape closes it,
+  // typing filters them, Down and Return apply a heading and one Undo restores the typed text.
+  func testSlashMenu() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    app.buttons["New Message"].tap()
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    focus(subject) { self.hasFocus(subject) }
+    // XCUITest cannot type into the multiline body; hardware key presses reach it. A key the field
+    // drops while it re-renders is pressed once more (#1510).
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    focus(body) { !self.hasFocus(subject) }
+    let type = { (keys: String) in
+      for key in keys {
+        let before = body.value as? String
+        let changed = NSPredicate { _, _ in body.value as? String != before }
+        for _ in 0..<2 where body.value as? String == before {
+          self.press(String(key), in: app)
+          _ = XCTWaiter.wait(
+            for: [XCTNSPredicateExpectation(predicate: changed, object: nil)], timeout: 5)
+        }
+      }
+    }
+    let menu = app.descendants(matching: .any)["Slash commands"]
+    let row = { (name: String) in menu.buttons[name] }
+    type("Hi\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for name in ["Text", "Heading 1", "Heading 2", "Heading 3", "Bulleted List"] {
+      XCTAssertTrue(row(name).exists, name)
+    }
+    attachScreen("Slash Command Menu", of: app, to: self)
+    // Command-period reaches key commands as Escape on the simulator (#1396); it closes the menu
+    // and keeps the /, and a / first on the next line opens it again. A synthesized Delete does not
+    // edit the body, so deleting the / is left to Jest.
+    app.typeKey(".", modifierFlags: .command)
+    waitUntil({ !menu.exists && body.value as? String == "Hi\n/" }, timeout: 60)
+    type("\n/he")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Heading 3").exists }, timeout: 60)
+    XCTAssertTrue(row("Heading 1").isSelected)
+    attachScreen("Slash Command Menu filtered", of: app, to: self)
+    app.typeKey(.downArrow, modifierFlags: [])
+    waitUntil({ row("Heading 2").isSelected }, timeout: 60)
+    press("\n", in: app)
+    waitUntil({ !menu.exists && body.value as? String == "Hi\n/\n" }, timeout: 60)
+    attachScreen("Heading 2 from the Slash Command Menu", of: app, to: self)
+    formatControl("Undo", in: app).tap()
+    waitUntil({ body.value as? String == "Hi\n/\n/he" }, timeout: 60)
   }
 
   private func inboxJourney(_ app: XCUIApplication) throws {
