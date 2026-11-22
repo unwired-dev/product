@@ -291,7 +291,11 @@ On iPad and iPhone, typing `/` as the first non-whitespace character of a body
 block outside a code block opens the **Slash Command Menu** under the caret's
 line: a glass menu of **Basic Blocks** (Text, Heading 1 to 3, Bulleted List,
 Numbered List, Quote, Code Block) and, after a separator, **Insert** (Attach
-File…, Insert Image…), each led by its icon, 320pt wide and scrolling
+File…, Insert Image…), then, with Mail Assistance on, the format bar's
+Writing tools that apply in their untitled groups: Generate a Draft…, Suggest
+Reply in a Draft that admits one, and the text tools from Rewrite to Make More
+Neutral while the body has text besides the query. Each row is led by its icon;
+the menu is 320pt wide and scrolls
 inside the room above the keyboard and the format pill, or over the line when
 more room is there. VoiceOver hears **Slash commands** as it opens. Typing after
 the `/` filters the rows by their title or a word of it, hiding a section with
@@ -303,10 +307,12 @@ kind and removes the slash query as one Undo step; a block already of that kind
 keeps it. Choosing Attach File… or Insert Image… removes the slash query as
 its own Undo step and opens the same picker as the format bar's Attach File
 or Insert Image; as from the format bar, an inline image goes at the caret,
-which the removal leaves where the `/` was. With an iPad hardware
-keyboard, Up and Down Arrow move the highlight through both sections and Escape
-or Command-period closes the menu. Insert Template…, the writing tools and the
-Mac menu are later slices
+which the removal leaves where the `/` was. Choosing a writing tool removes the
+slash query the same way and then runs as the format bar's item does: Generate a
+Draft… opens its prompt, and a text tool rewrites the whole authored body. With an iPad hardware
+keyboard, Up and Down Arrow move the highlight through every section and Escape
+or Command-period closes the menu. Insert Template…, Translate to… and the Mac
+menu are later slices
 ([#2117](https://github.com/unwired-dev/product/issues/2117)).
 
 Each block can also be centered, right-aligned or justified; a block without an

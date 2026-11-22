@@ -2,7 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
-import type { Draft, Recipient } from './drafts.ts';
+import type { BodyRecipientQuery, Draft, Recipient } from './drafts.ts';
 import type { ReadableBody } from './readable-text.ts';
 import type { Selection, SemanticDocument } from './semantic-document.ts';
 
@@ -15,6 +15,7 @@ import { hasVisibleText } from './readable-text.ts';
 import {
   displayOf,
   imageCharacter,
+  replaceSelection,
   selectedText,
 } from './semantic-document.ts';
 
@@ -582,6 +583,33 @@ export const canRewrite = (body: Draft['body'], at: Selection) =>
 // Only Reply and Reply All Drafts with local quoted correspondence admit a reply suggestion.
 export const canSuggestReply = ({ quoted, response }: Draft) =>
   quoted !== undefined && response !== undefined && response.kind !== 'forward';
+
+// The Slash Command Menu's writing tools, in the format bar's Writing tools groups. Translate is not
+// one: it reads only selected text, and a slash query's caret is collapsed.
+export const slashToolGroups = [
+  ['generate', 'rewrite', 'reply'],
+  ['proofread', 'paragraphs'],
+  ['expand', 'shorten'],
+  ['friendly', 'neutral'],
+] as const satisfies ReadonlyArray<
+  ReadonlyArray<'generate' | 'reply' | TextTool>
+>;
+export type SlashTool = (typeof slashToolGroups)[number][number];
+
+// The writing tools that apply at a slash query, as the format bar offers them with Mail Assistance
+// on: Generate a Draft, Suggest Reply when the Draft admits one, and the text tools while the body
+// has authored text besides the query.
+export function slashTools(
+  body: Draft['body'],
+  query: BodyRecipientQuery,
+  reply: boolean,
+): readonly SlashTool[] {
+  const caret = { start: query.start, end: query.start };
+  const text = canRewrite(replaceSelection(body, query, '').document, caret);
+  return slashToolGroups
+    .flat()
+    .filter((tool) => tool === 'generate' || (tool === 'reply' ? reply : text));
+}
 
 // Selected authored text, or the whole authored body, for one text tool.
 export const rewriteInput = (

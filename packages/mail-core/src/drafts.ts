@@ -10,6 +10,7 @@ import * as Result from 'effect/Result';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
+import type { SlashTool } from './assistance.ts';
 import type {
   Draft,
   OutboxEntry,
@@ -517,17 +518,18 @@ const slashBlockKinds: readonly BlockKind[] = [
 // The Insert commands the menu offers after the Basic Blocks, in its order.
 export const slashInserts = ['attachFile', 'insertImage'] as const;
 export type SlashInsert = (typeof slashInserts)[number];
-// A row of the menu: a Basic Block or an Insert command.
-export type SlashCommand = BlockKind | SlashInsert;
+// A row of the menu: a Basic Block, an Insert command or a writing tool.
+export type SlashCommand = BlockKind | SlashInsert | SlashTool;
 
-// The commands, Basic Blocks then Insert, whose title, or a word of it, starts with the typed
-// text, ignoring case.
+// The commands, Basic Blocks, Insert, then the writing `tools` that apply, whose title, or a word of
+// it, starts with the typed text, ignoring case.
 export function slashCommands(
   typed: string,
   titleOf: (command: SlashCommand) => string,
+  tools: readonly SlashTool[] = [],
 ): readonly SlashCommand[] {
   const wanted = typed.trimStart().toLocaleLowerCase();
-  return [...slashBlockKinds, ...slashInserts].filter((command) => {
+  return [...slashBlockKinds, ...slashInserts, ...tools].filter((command) => {
     const title = titleOf(command).toLocaleLowerCase();
     return title
       .split(' ')
