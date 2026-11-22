@@ -428,8 +428,8 @@ styles) so the file stays editable.
   the same scale; interactive controls retain at least 44pt touch targets.
 - **iPad composer:** the body is the Mac composer's 15/22 at 1.15×, rounded to
   17/25.
-- **iPad reader:** the frames draw the Reading pane recipe at 1.15×, 17.25/25.3
-  and 23/28.75; the app renders the Reading pane styles, 15/22 and 20/25.
+- **iPad reader:** the frames draw Reading Body 17/25 and Reading Subject
+  23/28.75; the app renders the Reading pane styles, 15/22 and 20/25.
 - **iPad onboarding:** Welcome, Sign In and the Recovery Key use the same 1.15×:
   Title 1 25/30, Body 15/18, and 41.4pt and 46pt buttons with 6.9pt corners.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for
@@ -887,9 +887,10 @@ Two frame sizes differ from the device on purpose. Here the system wins:
 - **iPad Settings height:** frames whose Settings sidebar lists more rows than
   the screen holds are drawn 912pt tall to show the whole list. On the device
   the sidebar scrolls.
-- **iPad type:** the iPad frames scale Mac and iPhone components by 1.15, so
-  their text is 14.95pt, 12.65pt or 17.25pt. The app rounds each size to a whole
-  point, as [Typography](#typography) lists
+- **iPad type:** the iPad text styles use whole points, but the frames place Mac
+  components such as Sidebar Item, Message Row, Settings Row, Category Chip and
+  Sheet as 1.15× instances, whose text draws at 14.95pt, 12.65pt or 11.5pt. The
+  app rounds each size to a whole point, as [Typography](#typography) lists
   ([#2650](https://github.com/unwired-dev/product/issues/2650)).
 
 These frames show a decision the app has not built yet. The frame wins, and the
