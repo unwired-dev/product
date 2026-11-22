@@ -37,7 +37,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   title: { ...textStyles.headline, flex: 1, textAlign: 'center' },
   text: { ...textStyles.subheadline, paddingHorizontal: spacing.l },
-  group: { borderRadius: radius.insetGroup, borderCurve: 'continuous' },
+  group: { borderRadius: radius.mailboxGroup, borderCurve: 'continuous' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

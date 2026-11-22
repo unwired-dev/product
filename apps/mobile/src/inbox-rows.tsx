@@ -130,7 +130,7 @@ export function MessageRow({
     <ContextMenu
       // iPhone lifts the row as its 22pt contextual preview, which holds the text 16pt in on both
       // sides rather than the list's 18pt leading and 2pt trailing.
-      previewRadius={ipad ? radius.card : radius.insetGroup}
+      previewRadius={ipad ? radius.card : radius.mailboxGroup}
       onPreview={ipad ? undefined : setPreviewing}
       style={styles.rowSpacing}
       sections={
@@ -237,7 +237,7 @@ export function MessageRow({
                   {
                     backgroundColor: pressed
                       ? colors.accentInk
-                      : colors.accentFill,
+                      : colors.accentUnread,
                   },
                   selected && { backgroundColor: colors.accentOnFill },
                 ]}

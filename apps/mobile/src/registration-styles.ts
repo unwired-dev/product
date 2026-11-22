@@ -42,11 +42,11 @@ export const registrationStyles = StyleSheet.create({
     gap: spacing.l * ipadListScale,
     paddingTop: 28 * ipadListScale,
     paddingHorizontal: 28 * ipadListScale,
-    paddingBottom: 24 * ipadListScale,
+    paddingBottom: spacing.xxl * ipadListScale,
   },
   padSheetTitle: {
-    fontSize: 17 * ipadListScale,
-    lineHeight: 22 * ipadListScale,
+    fontSize: 20,
+    lineHeight: 25,
   },
   padSheetText: { ...typography.ipadList.body },
   // The Settings page's fixed title row.
@@ -116,7 +116,7 @@ export const registrationStyles = StyleSheet.create({
   },
   // iPad's brand Recovery Key well and field, at the onboarding sizes.
   ipadBrandRecoveryKey: {
-    fontSize: 17.25,
+    fontSize: 17,
     lineHeight: 23,
     letterSpacing: 1.38,
     borderRadius: spacing.m * ipadListScale,

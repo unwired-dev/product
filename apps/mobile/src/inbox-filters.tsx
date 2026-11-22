@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
   },
   group: {
     overflow: 'hidden',
-    borderRadius: ipad ? radius.card : radius.insetGroup,
+    borderRadius: ipad ? radius.card : radius.mailboxGroup,
     borderCurve: 'continuous',
   },
   row: {

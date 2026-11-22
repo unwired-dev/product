@@ -184,7 +184,7 @@ export function MessageRow({
                   {
                     backgroundColor: pressed
                       ? colors.accentInk
-                      : colors.accentFill,
+                      : colors.accentUnread,
                   },
                   selected && { backgroundColor: colors.accentOnFill },
                 ]}

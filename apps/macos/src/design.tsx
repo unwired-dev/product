@@ -985,7 +985,7 @@ export function OnDeviceMarker({
       accessibilityRole={header ? 'header' : 'text'}
       style={[styles.marker, compact && styles.compactMarker]}>
       <SFSymbol
-        name="lock.fill"
+        name="cpu"
         color={colors.onDeviceInk}
         size={compact ? 9 : 16}
       />
