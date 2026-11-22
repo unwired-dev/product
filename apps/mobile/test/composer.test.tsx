@@ -2509,6 +2509,91 @@ describe('composing Drafts', () => {
     expect(lines()).toStrictEqual(['Hi', '']);
   });
 
+  it('offers the Writing tools in the body’s Slash Command Menu and runs the chosen one', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    const { native, asked } = scriptedDraftAssistance();
+    await render(
+      <AssistanceContext value={native}>
+        <App
+          drafts={createDrafts(storage.native, registration)}
+          registration={registration}
+        />
+      </AssistanceContext>,
+    );
+    await press('New Message');
+    const body = () => screen.getByLabelText('Message body');
+    const type = async (text: string) => {
+      await fireEvent.changeText(body(), text);
+      await fireEvent(body(), 'selectionChange', {
+        nativeEvent: { selection: { start: text.length, end: text.length } },
+      });
+    };
+    const typeEach = async (before: string, typed: string) => {
+      for (let end = 1; end <= typed.length; end += 1) {
+        await type(before + typed.slice(0, end));
+      }
+    };
+    const menu = () => screen.queryByLabelText('Slash commands');
+    const rows = () => {
+      const shown = menu();
+      ok(shown !== null);
+      return within(shown)
+        .queryAllByRole('button')
+        .map(({ props }) => props.accessibilityLabel);
+    };
+    const lines = () =>
+      shownLines().map(
+        ({ marker, spans }) => marker + spans.map(({ text }) => text).join(''),
+      );
+
+    // Without authored text only Generate a Draft… applies, after Insert.
+    await typeEach('', '/');
+    expect(rows().slice(10)).toStrictEqual(['Generate a Draft…']);
+
+    // With text the text tools follow in the format bar's groups, and typing filters them too.
+    await type('');
+    await typeEach('', 'Hi\n/');
+    expect(rows().slice(10)).toStrictEqual([
+      'Generate a Draft…',
+      'Rewrite',
+      'Proofread',
+      'Break into Paragraphs',
+      'Expand Text',
+      'Shorten Text',
+      'Make More Friendly',
+      'Make More Neutral',
+    ]);
+    await typeEach('Hi\n/', 'sho');
+    expect(rows()).toStrictEqual(['Shorten Text']);
+
+    // Choosing one removes the query and runs it on the body as the format bar does.
+    await press('Shorten Text');
+    expect(menu()).toBeNull();
+    expect(lines()).toStrictEqual(['Hi', '']);
+    expect(parseJson(asked[0]!.input)).toStrictEqual({
+      operation: 'shorten',
+      authoredText: 'Hi\n',
+    });
+    await press('Keep your text and close this suggestion');
+    // One Undo restores the query as typed.
+    await openFormat();
+    await press('Undo');
+    expect(lines()).toStrictEqual(['Hi', '/sho']);
+    await closeFormat();
+
+    // Generate a Draft… opens its prompt.
+    await type('Hi');
+    await typeEach('Hi', '\n/gen');
+    await press('Generate a Draft…');
+    expect(lines()).toStrictEqual(['Hi', '']);
+    await expect(
+      screen.findByLabelText('What to write'),
+    ).resolves.toBeOnTheScreen();
+    expect(asked).toHaveLength(1);
+  });
+
   it('stores edits made while retrying a refused Save Draft', async () => {
     expect.hasAssertions();
     const registration = account(connected(['alex@example.invalid']));

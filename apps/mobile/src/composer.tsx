@@ -2,6 +2,7 @@ import type { Translate } from '@private-email/localization';
 import type {
   CapturedDraftText,
   NativeAssistance,
+  SlashTool,
   TextTool,
 } from '@private-email/mail-core/assistance';
 import type {
@@ -56,6 +57,8 @@ import {
   draftReplacement,
   isTextTool,
   sameDraftAssistanceSource,
+  slashToolGroups,
+  slashTools,
 } from '@private-email/mail-core/assistance';
 import {
   acceptRecipient,
@@ -3815,19 +3818,28 @@ const slashPickers: Readonly<
   insertImage: ['photos', true],
 };
 
+const isSlashTool = (kind: SlashCommand): kind is SlashTool =>
+  slashToolGroups.some((group) => group.some((each) => each === kind));
+
 // The Slash Command Menu in an editor's body. Typing / as the first non-whitespace character of a
-// body block opens its Basic Blocks and Insert commands at the caret; typing filters them. An empty
-// result, a caret move, leaving the body, Escape or a choice closes it, keeping the typed text.
+// body block opens its Basic Blocks, Insert commands and the writing `tools` that apply at the
+// caret; typing filters them. An empty result, a caret move, leaving the body, Escape or a choice
+// closes it, keeping the typed text.
 function useSlashMenu(
   draft: Draft,
   selection: Selection,
   {
     paused,
     pausedNow,
+    tools,
   }: Readonly<{
     paused: boolean;
     // Ahead of rendering, as native events can arrive before a pause commits.
     pausedNow: Readonly<{ current: boolean }>;
+    tools: (
+      body: SemanticDocument,
+      query: BodyRecipientQuery,
+    ) => readonly SlashTool[];
   }>,
 ) {
   const { t } = useLocalization();
@@ -3835,6 +3847,12 @@ function useSlashMenu(
     (kind: SlashCommand) => {
       if (kind === 'paragraph') {
         return t('drafts.slashMenu.text');
+      }
+      if (kind === 'reply') {
+        return t('assistance.suggestReply');
+      }
+      if (isSlashTool(kind)) {
+        return t(`assistance.${kind}`);
       }
       return isSlashInsert(kind)
         ? t(`drafts.slashMenu.${kind}`)
@@ -3873,7 +3891,10 @@ function useSlashMenu(
     const query = slashQuery(body, at);
     return query === undefined || query.start !== start
       ? undefined
-      : { query, kinds: slashCommands(query.text, titleOf) };
+      : {
+          query,
+          kinds: slashCommands(query.text, titleOf, tools(body, query)),
+        };
   };
   const current = paused ? undefined : listed(draft.body, selection, armed);
   const kinds = current?.kinds ?? [];
@@ -3903,7 +3924,7 @@ function useSlashMenu(
       } else if (
         typed !== undefined &&
         typed.start === armedNow.current &&
-        slashCommands(typed.text, titleOf).length > 0
+        slashCommands(typed.text, titleOf, tools(next, typed)).length > 0
       ) {
         // The list changed, so the highlight starts over.
         choose(undefined);
@@ -3945,7 +3966,8 @@ function useSlashMenu(
   };
 }
 
-// The leading icon of each row: the format bar's heading glyphs, else an SF Symbol.
+// The leading icon of each row: the format bar's heading glyphs, else its SF Symbol; Suggest Reply
+// has none there either.
 const slashIcons: Readonly<Record<SlashCommand, string>> = {
   paragraph: 'textformat',
   heading1: 'H1',
@@ -3957,10 +3979,14 @@ const slashIcons: Readonly<Record<SlashCommand, string>> = {
   code: 'curlybraces',
   attachFile: 'paperclip',
   insertImage: 'photo.on.rectangle',
+  generate: 'square.and.pencil',
+  reply: '',
+  ...textToolSymbols,
 };
 
 // The body's Slash Command Menu while it shows, under the query's line: a glass menu of Basic
-// Blocks, then Insert commands, the highlighted row filled.
+// Blocks, then Insert commands, then the writing tools in untitled groups, the highlighted row
+// filled.
 function BodySlashMenu({
   shown,
   titleOf,
@@ -4026,18 +4052,29 @@ function BodySlashMenu({
               }}>
               {[
                 {
+                  key: 'blocks',
                   title: t('drafts.slashMenu.basicBlocks'),
-                  kinds: shown.kinds.filter((kind) => !isSlashInsert(kind)),
+                  kinds: shown.kinds.filter(
+                    (kind) => !isSlashInsert(kind) && !isSlashTool(kind),
+                  ),
                 },
                 {
+                  key: 'insert',
                   title: t('drafts.slashMenu.insert'),
                   kinds: shown.kinds.filter(isSlashInsert),
                 },
+                ...slashToolGroups.map((group) => ({
+                  key: group[0],
+                  title: undefined,
+                  kinds: shown.kinds.filter((kind) =>
+                    group.some((each) => each === kind),
+                  ),
+                })),
               ]
                 .filter((section) => section.kinds.length > 0)
                 .map((section, index) => (
                   // Rows stay the list's own children, so their layout places the highlight.
-                  <Fragment key={section.title}>
+                  <Fragment key={section.key}>
                     {index === 0 ? null : (
                       <View
                         style={[
@@ -4046,15 +4083,17 @@ function BodySlashMenu({
                         ]}
                       />
                     )}
-                    <Text
-                      style={[
-                        styles.suggestionSection,
-                        sized.suggestionSection,
-                        styles.monogramSection,
-                        { color: colors.textSecondary },
-                      ]}>
-                      {section.title}
-                    </Text>
+                    {section.title === undefined ? null : (
+                      <Text
+                        style={[
+                          styles.suggestionSection,
+                          sized.suggestionSection,
+                          styles.monogramSection,
+                          { color: colors.textSecondary },
+                        ]}>
+                        {section.title}
+                      </Text>
+                    )}
                     {section.kinds.map((kind) => {
                       const chosen = shown.highlighted && kind === shown.active;
                       const filled = chosen && !compact;
@@ -4062,6 +4101,7 @@ function BodySlashMenu({
                         ? colors.accentOnFill
                         : colors.textPrimary;
                       const icon = slashIcons[kind];
+                      const glyph = /^H\d$/u.test(icon);
                       let highlight = null;
                       if (chosen) {
                         highlight = {
@@ -4097,11 +4137,12 @@ function BodySlashMenu({
                             highlight,
                           ]}>
                           <View style={styles.slashIcon}>
-                            {/^H\d$/u.test(icon) ? (
+                            {glyph ? (
                               <Text style={[styles.slashGlyph, { color: ink }]}>
                                 {icon}
                               </Text>
-                            ) : (
+                            ) : null}
+                            {glyph || icon === '' ? null : (
                               <SFSymbol
                                 name={icon}
                                 color={ink}
@@ -4532,6 +4573,11 @@ function Editor({
   const slashMenu = useSlashMenu(draft, selection, {
     paused: sending,
     pausedNow: sendingNow,
+    // The format bar's Writing tools, while it offers them.
+    tools: (body, query) =>
+      assistance === undefined
+        ? []
+        : slashTools(body, query, canSuggestReply(draft)),
   });
   const menuKeys = bodyMenuKeys(recipientMenu, slashMenu);
   // Where the body starts, for the Recipient Suggestions under its query.
@@ -4731,9 +4777,47 @@ function Editor({
     setPlaced(result.selection);
     AccessibilityInfo.announceForAccessibility(recipientMenu.added(recipient));
   };
+  // Captures authored text for an explicitly requested translation, text tool, reply suggestion or
+  // generated draft.
+  const capture = (text: (draft: Draft) => CapturedDraftText) => {
+    if (
+      sendingNow.current ||
+      !lifetime.current.mounted ||
+      !assistanceEnabled()
+    ) {
+      return;
+    }
+    captureGeneration.current += 1;
+    const next = {
+      ...text(authored.current),
+      id: captureGeneration.current,
+      profile,
+    };
+    captureNow.current = next;
+    setCaptured(next);
+    setDropped(undefined);
+    // On iPad a text tool's review takes the whole window, as Expand does.
+    if (isTextTool(next.purpose) && !expanded) {
+      onExpand?.();
+    }
+  };
+  const suggestReply = () => {
+    if (lifetime.current.mounted) {
+      capture((latest) =>
+        captureDraftText('reply', latest, selectionNow.current),
+      );
+    }
+  };
+  const rewrite = (tool: TextTool) => {
+    const at = selectionNow.current;
+    if (lifetime.current.mounted && canRewrite(authored.current.body, at)) {
+      capture((latest) => captureDraftText(tool, latest, at));
+    }
+  };
   // Choosing a block in the Slash Command Menu removes its query and sets the caret's block, as one
   // edit, so one Undo restores the text as typed. Choosing an Insert command removes the query and
-  // opens its picker, which places an inline image where the query was.
+  // opens its picker, which places an inline image where the query was. Choosing a writing tool
+  // removes the query and runs it as the format bar's Writing tools do.
   const chooseBlock = (kind?: SlashCommand) => {
     const latest = authored.current;
     const choice = slashMenu.choice(latest.body, selectionNow.current, kind);
@@ -4743,9 +4827,10 @@ function Editor({
     const picker = isSlashInsert(choice.kind)
       ? slashPickers[choice.kind]
       : undefined;
-    const result = isSlashInsert(choice.kind)
-      ? replaceSelection(latest.body, choice.query, '')
-      : applySlashBlock(latest.body, choice.query, choice.kind);
+    const result =
+      isSlashInsert(choice.kind) || isSlashTool(choice.kind)
+        ? replaceSelection(latest.body, choice.query, '')
+        : applySlashBlock(latest.body, choice.query, choice.kind);
     const at = result.selection ?? {
       start: choice.query.start,
       end: choice.query.start,
@@ -4758,6 +4843,13 @@ function Editor({
     setPlaced(at);
     if (picker !== undefined) {
       void choose(...picker);
+    }
+    if (choice.kind === 'generate') {
+      generatePrompt.open();
+    } else if (choice.kind === 'reply') {
+      suggestReply();
+    } else if (isTextTool(choice.kind)) {
+      rewrite(choice.kind);
     }
   };
   // Takes the Recipient Suggestion or command a menu highlights, if one does.
@@ -4911,36 +5003,6 @@ function Editor({
     ) {
       captureNow.current = undefined;
       setCaptured(undefined);
-    }
-  };
-  // Captures authored text for an explicitly requested translation, text tool, reply suggestion or
-  // generated draft.
-  const capture = (text: (draft: Draft) => CapturedDraftText) => {
-    if (
-      sendingNow.current ||
-      !lifetime.current.mounted ||
-      !assistanceEnabled()
-    ) {
-      return;
-    }
-    captureGeneration.current += 1;
-    const next = {
-      ...text(authored.current),
-      id: captureGeneration.current,
-      profile,
-    };
-    captureNow.current = next;
-    setCaptured(next);
-    setDropped(undefined);
-    // On iPad a text tool's review takes the whole window, as Expand does.
-    if (isTextTool(next.purpose) && !expanded) {
-      onExpand?.();
-    }
-  };
-  const rewrite = (tool: TextTool) => {
-    const at = selectionNow.current;
-    if (lifetime.current.mounted && canRewrite(authored.current.body, at)) {
-      capture((latest) => captureDraftText(tool, latest, at));
     }
   };
   const block = (kind: BlockKind) => {
@@ -5395,13 +5457,7 @@ function Editor({
         }
         capture((latest) => captureDraftText('translate', latest, at));
       }}
-      onReply={() => {
-        if (lifetime.current.mounted) {
-          capture((latest) =>
-            captureDraftText('reply', latest, selectionNow.current),
-          );
-        }
-      }}
+      onReply={suggestReply}
     />
   );
   const templates = useTemplateItems({
