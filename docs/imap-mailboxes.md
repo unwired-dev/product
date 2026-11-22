@@ -1324,8 +1324,9 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   6,001 messages across its selectable folders. Google Product Sign-In found the
   certification Product Account, and the device was unlocked with its Recovery Key.
   Result: pass. iCloud Mail resumed its first download after termination without asking
-  for a password, the history completed, a message opened in the reader during a
-  download, and the total matched the server. Times below come from the operator's
+  for a password and the history completed. A later download, after a second run folder
+  was added, showed a total that matched the server, and a message opened in the reader
+  during it. Times below come from the operator's
   one-second Sync Status readings. **iCloud Mail** connected over `imap.mail.me.com` 993
   (TLS). Sync Status showed **Downloading history · 1 messages** 19 seconds after
   **Connect** and **1,001 messages** 24 seconds after it, when the app was terminated.
@@ -1342,17 +1343,17 @@ Each record holds only non-secret facts: no addresses, passwords or mail content
   then showed no history download for the next 50 seconds. Read over IMAP after the app
   run, the server counted 12,001 messages, and the Mailboxes list showed both run
   folders. Afterwards both run folders were deleted, an IMAP count found the mailbox's
-  original folders and total, and the simulator was deleted. Limitations: the first
-  download showed no total, because the total appears only once every folder has begun;
-  the total was checked in the second download. As on the other hosts, Sync Status closes
-  with the capsule, so the final counts were not on screen; completion comes from the
-  capsule fading and the next launch downloading nothing. A message tapped 9 seconds
-  after the first relaunch still read **Loading message…** 4 seconds later, when the
-  operator went back. Readings were sampled about once a second, so the times are
-  approximate. iCloud Mail emptied a deleted run folder over about two minutes and listed
-  it until a later check. An earlier attempt on another new simulator is not counted: its
-  Product Account accepted neither Recovery Key the operator held, the cause was not
-  investigated, and its first run had no reading before termination. An iCloud Mail
+  original folders and total, and the simulator was deleted. Limitations: Sync Status
+  shows a total only once every folder has begun, and no sampled reading of the first
+  download showed one, so the total was checked in the later download. The first
+  download's last reading, **6,001 messages**, equals the server's count; the later
+  download was last sampled at **11,501 of 12,001**. As on the other hosts, Sync Status
+  closes with the capsule, so completion comes from the capsule fading and the next launch
+  downloading nothing. During the first resumed download, the reader check began 9
+  seconds after launch and still read **Loading message…** 4 seconds later, when the
+  operator went back, so the reader was verified only in the later download. Readings
+  were sampled about once a second, so the times are approximate. An earlier attempt on
+  another new simulator is not counted: it had no reading before termination. An iCloud Mail
   backfill total on the Mac, background refresh and push wakes, IDLE interruption,
   password and connection recovery and offline queueing stay on #632.
 
