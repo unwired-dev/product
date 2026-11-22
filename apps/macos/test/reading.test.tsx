@@ -55,6 +55,7 @@ describe('settings › Reading', () => {
         screen.getByRole('button', { name: 'Message zoom' }),
       );
       await chooseMenuItem('100%');
+      const reset = await shown();
       expect({
         initial,
         offered,
@@ -64,7 +65,7 @@ describe('settings › Reading', () => {
         message: zoomed.source.html.includes('<b>48 000 CZK</b>'),
         unstyled: zoomed.source.html.includes('zoom'),
         stored: Settings.get('UnwiredMessageZoom'),
-        reset: (await shown()).zoom,
+        reset: reset.zoom,
       }).toStrictEqual({
         initial: {
           textSize: true,
