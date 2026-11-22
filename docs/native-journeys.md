@@ -302,6 +302,12 @@ offers **Unpin**. After a relaunch the row reads `… Pinned`, and **Unpin** in 
 reopened reader removes the Pin. The pinned reader and the relaunched Inbox are
 kept as attachments.
 
+Before archiving that message, the journey chooses **Move to Spam**
+([#2662](https://github.com/unwired-dev/product/issues/2662)): from More on iPad,
+where it follows Mark as Unread, and from the Reply sheet on iPhone. The row
+leaves the Inbox, **Undo** brings it back, and the journey reopens it to archive
+and undo again. The menu or sheet listing **Move to Spam** is kept as an attachment.
+
 After its relaunch, that journey ends in Settings › Appearance
 ([#2210](https://github.com/unwired-dev/product/issues/2210)). System and
 Comfortable are checked, and both footers show. Under System, the Inbox and

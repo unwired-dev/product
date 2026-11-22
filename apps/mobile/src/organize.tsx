@@ -135,6 +135,7 @@ const actionIcons: Readonly<Record<string, string>> = {
   spam: 'xmark.bin',
   trash: 'trash',
   restore: 'tray.and.arrow.down',
+  notSpam: 'tray.and.arrow.down',
   pin: 'pin',
   unpin: 'pin.slash',
 };
@@ -421,6 +422,10 @@ export function MessageActionsNotice({ id }: { readonly id: string }) {
   ) : null;
 }
 
+// Mail in Spam goes back to the Inbox as Not Spam; from Trash it keeps Move to Inbox.
+const returned = (name: string, spam: boolean) =>
+  name === 'restore' && spam ? 'notSpam' : name;
+
 // More's panel: Gmail's labels to add or remove on iPhone, which More's menu or the Reply sheet
 // opens. VoiceOver's escape gesture closes it, as no button toggles it.
 function MorePanel({
@@ -451,12 +456,13 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
     read: [t('contextMenu.read'), 'envelope.open'],
     unread: [t('contextMenu.unread'), 'envelope.badge'],
     restore: [t('contextMenu.restore'), 'tray.and.arrow.down'],
+    notSpam: [t('contextMenu.notSpam'), 'tray.and.arrow.down'],
     spam: [t('contextMenu.spam'), 'xmark.bin'],
     trash: [t('contextMenu.trash'), 'trash'],
   }) as const;
 
-// More: the system menu the iPad frames draw: read state and Move to…, then the actions
-// that take the message elsewhere. Gmail's Labels, which toggle in place, open More's panel. The
+// More: the system menu the iPad frames draw: read state, Move to Spam (or Not Spam, or Move to
+// Inbox from Trash) and Move to…, then Gmail's Labels, which toggle in place in More's panel. The
 // iPhone toolbar has no Delete or Pin, so its menu ends with Delete and starts with Pin.
 function MoreButton({
   more,
@@ -497,9 +503,14 @@ function MoreButton({
       sections={[
         {
           items: [
-            ...items(
-              compact ? ['pin', 'unpin', 'read', 'unread'] : ['read', 'unread'],
-            ),
+            ...items([
+              ...(compact ? (['pin', 'unpin'] as const) : []),
+              'read',
+              'unread',
+              'restore',
+              'notSpam',
+              'spam',
+            ]),
             ...(folders === undefined
               ? []
               : [
@@ -514,7 +525,6 @@ function MoreButton({
         },
         {
           items: [
-            ...items(['restore', 'spam']),
             ...(more.labels === undefined
               ? []
               : [
@@ -597,12 +607,13 @@ const threadActions = (
         },
       ]),
   // The sheet names its message actions as the reader's message menu does.
-  ...['restore', 'spam', 'trash']
+  ...['restore', 'notSpam', 'spam', 'trash']
     .flatMap((name) => more.actions.filter((action) => action.name === name))
     .map(({ name, label, run }) => ({
       name,
       label:
         new Map([
+          ['notSpam', t('contextMenu.notSpam')],
           ['spam', t('contextMenu.spam')],
           ['trash', t('contextMenu.trash')],
         ]).get(name) ?? label,
@@ -989,7 +1000,13 @@ function ImapMessageActions({
           actions: actions
             .filter(({ name }) => name !== 'archive')
             .map(({ name, label, action }) => ({
-              name,
+              name: returned(
+                name,
+                state.folders.some(
+                  ({ name: folder, roles }) =>
+                    folder === message.folder && roles.includes('junk'),
+                ),
+              ),
               label,
               run: () => {
                 act(action);
@@ -1320,7 +1337,7 @@ function GmailMessageActions({
           actions: actions
             .filter(({ name }) => name !== 'archive')
             .map(({ name, label, action }) => ({
-              name,
+              name: returned(name, view === 'SPAM'),
               label,
               run: () => {
                 act(action);

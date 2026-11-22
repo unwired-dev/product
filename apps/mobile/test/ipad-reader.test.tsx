@@ -224,6 +224,52 @@ describe('iPad reader', () => {
     expect(screen.getByText('Labels: Clients/Acme')).toBeVisible();
   });
 
+  it('lists Move to Spam after the read state, and Not Spam in Spam', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Junk', ['junk']);
+    const uid = imap.deliver('INBOX', { subject: 'Project plans' });
+    const junk = imap.deliver('Junk', { subject: 'Seed catalogue' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    const titles = () =>
+      screen
+        .getByLabelText('More')
+        .props.sections.map(
+          ({ items }: { items: ReadonlyArray<{ title: string }> }) =>
+            items.map(({ title }) => title),
+        );
+    const reader = (id: string) => (
+      <InboxProvider mailboxes={singleMailbox(inbox, 'imap-reader')}>
+        <CommandPaletteProvider>
+          <MessageDetail
+            mailbox="imap-reader"
+            id={id}
+          />
+        </CommandPaletteProvider>
+      </InboxProvider>
+    );
+    await render(reader(`7.${uid}.INBOX`));
+    // The approved iPad More Menu frame: Mark as Unread, Move to Spam, Move to….
+    expect(titles()).toStrictEqual([
+      ['Mark as Unread', 'Move to Spam', 'Move to…'],
+    ]);
+    await act(() => inbox.openFolder('Junk'));
+    await screen.rerender(reader(`3.${junk}.Junk`));
+    expect(titles()).toStrictEqual([
+      ['Mark as Unread', 'Not Spam', 'Move to…'],
+    ]);
+    const more = screen.getByLabelText('More');
+    await act(async () => {
+      await fireEvent(more, 'select', {
+        nativeEvent: { id: 'notSpam' },
+      });
+    });
+    await waitFor(() => {
+      expect(imap.server.changes).toContain(`move Junk ${junk} INBOX`);
+    });
+  });
+
   it('pins the Thread from the toolbar’s last group, before More', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();

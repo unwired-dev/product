@@ -1731,6 +1731,7 @@
     "unpin": "Unpin",
     "moveTo": "Move to…",
     "spam": "Move to Spam",
+    "notSpam": "Not Spam",
     "openLink": "Open Link",
     "copyLink": "Copy Link",
     "quickLook": "Quick Look",

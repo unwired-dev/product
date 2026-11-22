@@ -311,7 +311,8 @@
     "pin": "Anheften",
     "unpin": "Loslösen",
     "moveTo": "Bewegen nach …",
-    "spam": "In Spam bewegen"
+    "spam": "In Spam bewegen",
+    "notSpam": "Kein Spam"
   },
   "messageBody": {
     "showQuoted": "Zitierten Text anzeigen",

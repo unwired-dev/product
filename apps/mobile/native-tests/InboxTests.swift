@@ -295,6 +295,31 @@ final class InboxTests: XCTestCase {
       app.buttons["Close"].tap()
       XCTAssertTrue(app.buttons["Reply All"].waitForNonExistence(timeout: 5))
     }
+    // #2662: Move to Spam from the reader, then Undo. iPad's More lists it after Mark as Unread;
+    // iPhone's Reply sheet lists it with the actions that move the message.
+    if phone {
+      app.buttons["Reply"].tap()
+      XCTAssertTrue(app.buttons["Reply All"].waitForExistence(timeout: 5))
+    } else {
+      app.buttons["More"].tap()
+    }
+    let moveToSpam = app.buttons["Move to Spam"].firstMatch
+    XCTAssertTrue(moveToSpam.waitForExistence(timeout: 5))
+    let spamMenu = XCTAttachment(screenshot: app.screenshot())
+    spamMenu.name = phone ? "Reply sheet with Move to Spam" : "More menu with Move to Spam"
+    spamMenu.lifetime = .keepAlways
+    add(spamMenu)
+    moveToSpam.tap()
+    XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
+    assertGmailActionsSettled(app)
+    XCTAssertTrue(starred.waitForNonExistence(timeout: 10))
+    app.buttons["Undo"].tap()
+    XCTAssertTrue(starred.waitForExistence(timeout: 15))
+    assertGmailActionsSettled(app)
+    if !subject.exists {
+      starred.tap()
+      XCTAssertTrue(subject.waitForExistence(timeout: 10))
+    }
     app.buttons["Archive"].tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
