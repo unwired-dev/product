@@ -360,7 +360,7 @@ describe('iPad reader', () => {
 
   /* oxlint-disable vitest/max-expects -- One reader journey covers Labels, the saved-only notice and Reply All. */
   it.each([320, 1024])(
-    'keeps direct response actions and the palette in the fixed header at %i points',
+    'keeps direct response actions in the fixed header and the palette in the navigation bar at %i points',
     async (width) => {
       expect.hasAssertions();
       const window = Dimensions.get('window');
@@ -424,6 +424,12 @@ describe('iPad reader', () => {
         expect({ scrollable: isScrollable(commands) }).toStrictEqual({
           scrollable: false,
         });
+        // A reader shown alone puts the input in its navigation bar, beside Back (#2133).
+        expect(
+          within(screen.getByTestId('system-back')).getByRole('button', {
+            name: 'Open Command Palette',
+          }),
+        ).toBe(commands);
         await fireEvent.press(commands);
         const palette = within(screen.getByTestId('command-palette'));
         expect(
@@ -504,13 +510,14 @@ describe('iPad reader', () => {
   );
   /* oxlint-enable vitest/max-expects */
 
-  // The compact window's composer sheet owns the downward swipe and offers no palette.
+  // The compact window's composer sheet owns the downward swipe; its Command input ends the From
+  // row as the command symbol alone (#2133).
   it.each([
-    { sheet: false, inputs: 1 },
-    { sheet: true, inputs: 0 },
+    { sheet: false, labels: 1 },
+    { sheet: true, labels: 0 },
   ])(
-    'offers the Command input in a compact composer unless it is the sheet (sheet=$sheet)',
-    async ({ sheet, inputs }) => {
+    'offers one Command input in a compact composer, symbol-only in the sheet (sheet=$sheet)',
+    async ({ sheet, labels }) => {
       expect.hasAssertions();
       const snapshot: RegistrationSnapshot = {
         kind: 'connected',
@@ -558,8 +565,9 @@ describe('iPad reader', () => {
       );
       await screen.findByLabelText('Subject');
       expect(
-        screen.queryAllByRole('button', { name: 'Open Command Palette' }),
-      ).toHaveLength(inputs);
+        screen.getByRole('button', { name: 'Open Command Palette' }),
+      ).toBeOnTheScreen();
+      expect(screen.queryAllByText('Commands')).toHaveLength(labels);
     },
   );
 });

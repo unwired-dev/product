@@ -271,6 +271,7 @@ export const fieldSlop = {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1 },
+  trailing: { marginLeft: 'auto' },
   // The same 44-point target as the format bar's icon buttons.
   menuControl: { minWidth: 44, minHeight: 44, alignItems: 'center' },
   // iPhone's controls float at the trailing edge above the keyboard; the editor scrolls its last
@@ -2876,7 +2877,8 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   return draft.response === undefined ? 'card' : 'docked';
 };
 
-// From sits in the iPad header and on its own row beneath the iPhone header. At the accessibility
+// From sits in the iPad header and on its own row beneath the iPhone header, where a compact iPad
+// window's sheet ends the row with its command input. At the accessibility
 // text sizes the iPad card's From takes its own row too, so Expand and Send stay in view. The
 // Authorization Needed banner stays in view under From; at those sizes it would crowd out the
 // Draft, so it scrolls with it among the notices (`signInNotice`). A docked reply's
@@ -2911,7 +2913,13 @@ const placeSender = ({
         row: (
           <>
             <View style={[styles.fromRow, rowStyle]}>
-              <View style={styles.bar}>{sender}</View>
+              <View style={styles.bar}>
+                {sender}
+                <CommandInput
+                  sheet
+                  style={styles.trailing}
+                />
+              </View>
             </View>
             {signIn}
           </>

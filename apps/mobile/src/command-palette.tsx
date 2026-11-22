@@ -859,12 +859,16 @@ function CommandRow({
 // other sheets do not.
 export const InSheet = createContext(false);
 
-// The visible command input of iPad layouts; iPhone opens the palette by gesture alone, and a
-// sheet offers none.
+// The visible command input of iPad layouts; iPhone opens the palette by gesture alone. A sheet's
+// header offers none: a compact iPad window's composer sheet shows its own on the From row, as the
+// command symbol alone.
 export function CommandInput({
   style,
+  sheet = false,
 }: {
   readonly style?: StyleProp<ViewStyle>;
+  // The sheet's own input, shown only inside a sheet.
+  readonly sheet?: boolean;
 }) {
   const { open } = useCommandPalette();
   const colors = usePalette();
@@ -872,7 +876,7 @@ export function CommandInput({
   const input = useRef<ViewInstance>(null);
   // Measured as the press begins, so the popover opens beneath the input wherever it has moved.
   const frame = useRef<Anchor>(undefined);
-  if (!pad || use(InSheet)) {
+  if (!pad || use(InSheet) !== sheet) {
     return null;
   }
   return (
@@ -895,9 +899,11 @@ export function CommandInput({
         name="command"
         color={colors.textSecondary}
       />
-      <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-        {t('commands.open')}
-      </Text>
+      {sheet ? null : (
+        <Text style={[styles.pillText, { color: colors.textSecondary }]}>
+          {t('commands.open')}
+        </Text>
+      )}
     </Pressable>
   );
 }

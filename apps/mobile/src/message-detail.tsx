@@ -102,7 +102,12 @@ import {
   ReadWhenOpened,
   readerToolbarInset,
 } from './organize.tsx';
-import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
+import {
+  MessageCount,
+  MessageHeader,
+  ReaderBar,
+  ReaderHeader,
+} from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReplySheet } from './reply-sheet.tsx';
 import { SidebarToggleContext } from './sidebar-toggle.tsx';
@@ -472,8 +477,9 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
-// The reader's header where the compact Back header is absent: the subject, the iPad command
-// input, and the gestures that open the Command Palette.
+// The reader's header where the compact Back header is absent: the subject and the gestures that
+// open the Command Palette. A reader shown alone in a compact iPad window puts its command input in
+// the navigation bar, between Back and the bar's trailing end.
 function RegularHeader({ subject }: { readonly subject: string }) {
   const colors = usePalette();
   const header = usePaletteHeader();
@@ -495,7 +501,11 @@ function RegularHeader({ subject }: { readonly subject: string }) {
           {subject}
         </Text>
       </View>
-      {besideList ? null : <CommandInput />}
+      {besideList || compact ? null : (
+        <ReaderBar>
+          <CommandInput />
+        </ReaderBar>
+      )}
     </View>
   );
 }
