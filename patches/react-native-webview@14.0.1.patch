@@ -238,7 +238,7 @@ index 3890426..f0e8bc9 100644
 +}
 +
 +// Product patch: the reader's zoom, applied to the mounted document as the app's own style, so
-+// the navigation, its selection and its scroll stay. Zero leaves the document's own zoom. A zoomed
++// the navigation and its selection stay. Zero leaves the document's own zoom. A zoomed
 +// document measures its own content, as the root never measures shorter than the view a zoom-out
 +// leaves taller.
 +- (void)setMessageZoom:(double)zoom
