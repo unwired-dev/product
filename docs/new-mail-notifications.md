@@ -37,6 +37,20 @@ matches content, grouping and actions to the design.
   locally, including older saved policies without their record identifier. Changes
   wait until the synchronized records can be read; unreadable ciphertext is never
   replaced. Without a connection, the group says to add a mailbox.
+- A Mailbox Connection its Mail Profile hides in Edit on iPhone or iPad is muted on every
+  Trusted Device, the Mac included, whatever its switch says
+  ([#2611](https://github.com/unwired-dev/product/issues/2611)). Each delivery pulls the
+  preferences from Private Sync once the notification settings are read, then checks the Profile
+  the connection is in at that moment in the same step that hands it to the native host, so a hide
+  another device published before that pull, or a move into a Profile that hides it, mutes the next
+  one, even one already waiting; a hide published after the pull counts from the next delivery. A hide or move this device stores after that check does not recall a
+  notification already handed to the native host, and a move whose following registration read fails
+  is checked against the old Profile until [#2632](https://github.com/unwired-dev/product/issues/2632); while the pull
+  fails, the Profile's record does not open here, or another device's write overtakes every
+  pass, none posts. Until this device has read the Profile's Inbox preferences, and while they
+  cannot be read, even after an earlier read, no connection posts, so a muted one never does. Showing it again restores its switch's choice. The Mac's All Inboxes and
+  search still list a hidden connection until
+  [#2624](https://github.com/unwired-dev/product/issues/2624).
 
 ## What notifies
 
@@ -223,7 +237,7 @@ On a connected device, Console.app filtered to those subsystems shows them; on a
 `packages/mail-core/test/gmail-inbox.test.ts`, `imap.test.ts` and
 `microsoft-notifications.test.ts` cover each provider's arrival classification and commit
 ordering; `gmail-views.test.ts` covers replay after an interrupted listing.
-`host.test.ts` covers gating, background completion, permission and generic and preview
+`host.test.ts` covers gating, a connection its Profile hides and preferences that cannot be read, background completion, permission and generic and preview
 content, the App Icon Badge count and when it clears, and that its diagnostics name no message or connection. `mail-profiles.test.ts` covers the synchronized policy and its fail-closed
 writes. `notifications.test.ts` covers account/incarnation routing, Draft exit guards,
 retired readers and Reply. `host.test.ts` also covers notification Archive and Mark

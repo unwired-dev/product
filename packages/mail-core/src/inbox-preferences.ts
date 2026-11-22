@@ -5,7 +5,11 @@ import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 import * as Semaphore from 'effect/Semaphore';
 
-import type { FavoriteEntries } from './mailbox-views.ts';
+import type {
+  FavoriteEntries,
+  SectionFolders,
+  Sections,
+} from './mailbox-views.ts';
 import type { Registration } from './registration.ts';
 
 import { runLogged } from './diagnostics.ts';
@@ -16,7 +20,11 @@ import {
   reportPreference,
 } from './draft-sync.ts';
 import { ownerOf } from './drafts.ts';
-import { FavoriteEntriesSchema } from './mailbox-views.ts';
+import {
+  FavoriteEntriesSchema,
+  SectionFoldersSchema,
+} from './mailbox-views.ts';
+import { mailboxesOf, profilesOf } from './registration-snapshot.ts';
 
 // How tightly a Thread list lays out its rows. Comfortable is the default.
 export const ListDensitySchema = Schema.Literals(['comfortable', 'compact']);
@@ -27,8 +35,15 @@ export const PreviewLinesSchema = Schema.Literals([0, 1, 2, 3]);
 export type PreviewLines = typeof PreviewLinesSchema.Type;
 const isPreviewLines = Schema.is(PreviewLinesSchema);
 const isFavoriteEntries = Schema.is(FavoriteEntriesSchema);
-// The same empty Favorites every read, so a React snapshot of none stays equal.
+const isSectionFolders = Schema.is(SectionFoldersSchema);
+// The same empty Favorites and folders every read, so a React snapshot of none stays equal.
 const noFavorites: FavoriteEntries = [];
+const noFolders: SectionFolders = [];
+const noSections: Sections = {};
+// Each Mailbox Connection's section keeps whether it shows and its folders in fields of their own,
+// so a device that hides one and another that reorders its folders keep both edits.
+const shownField = (connection: string) => `sectionShown:${connection}`;
+const foldersField = (connection: string) => `sectionFolders:${connection}`;
 
 // One preference's latest value and when it was chosen, in milliseconds since the epoch. A field
 // this build does not know is kept and published as it was.
@@ -70,6 +85,27 @@ const PulledSchema = Schema.Struct({
 });
 // Native code accepts a Private Sync record identifier of at most 200 characters.
 const publishable = (profile: string) => profile.length <= 200;
+
+// The Mailbox Connection sections `fields` keep; a connection they name is shown, with its folders
+// in their own order, unless they say otherwise.
+const sectionsOf = (fields: Fields): Sections => {
+  const sections: Record<string, Sections[string]> = {};
+  for (const [name, { value }] of Object.entries(fields)) {
+    const [kind, connection] = name.split(/:(?<connection>.*)/su);
+    if (connection !== undefined) {
+      const section = sections[connection] ?? {
+        shown: true,
+        folders: noFolders,
+      };
+      if (kind === 'sectionShown' && typeof value === 'boolean') {
+        sections[connection] = { ...section, shown: value };
+      } else if (kind === 'sectionFolders' && isSectionFolders(value)) {
+        sections[connection] = { ...section, folders: value };
+      }
+    }
+  }
+  return sections;
+};
 
 // The signed-in Product Account's Inbox preferences on this device: one document native code keeps
 // encrypted for the account that wrote it, like its Blocked Senders. Every call rejects with
@@ -183,17 +219,36 @@ export function createInboxPreferences(
 ) {
   const semaphore = Semaphore.makeUnsafe(1);
   const listeners = new Set<() => void>();
+  // Each Profile's sections as last read, kept while its fields stay, so a React snapshot stays equal.
+  const sectionsRead = new WeakMap<Fields, Sections>();
   const signedIn = () => ownerOf(registration.getSnapshot().snapshot);
   // The preferences last read or written, and the Product Account they belong to.
   let shown: Readonly<{
     account: string;
     profiles: readonly ProfilePreferences[];
   }> = { account: '', profiles: [] };
-  const show = (account: string, profiles: readonly ProfilePreferences[]) => {
-    shown = { account, profiles };
+  // The Product Accounts whose last read storage failed, so which of their connections are muted is
+  // unknown.
+  const failed = new Set<string | undefined>();
+  // The Profiles the last pass asked Private Sync about for `account`, and those whose records it
+  // could not read, once a pass merged what it pulled and no other device's write overtook it;
+  // none since a pass failed or was overtaken.
+  let pulled:
+    | Readonly<{
+        account: string;
+        known: ReadonlySet<string>;
+        unreadable: ReadonlySet<string>;
+      }>
+    | undefined = undefined;
+  const notify = () => {
     for (const listener of listeners) {
       listener();
     }
+  };
+  const show = (account: string, profiles: readonly ProfilePreferences[]) => {
+    shown = { account, profiles };
+    failed.delete(account);
+    notify();
   };
 
   // The preferences of `account`, the Product Account signed in when the action was called, so an
@@ -204,6 +259,13 @@ export function createInboxPreferences(
       const { owner, revision, document } = yield* native(
         storage.openInboxPreferences,
         OpenedSchema,
+      ).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            failed.add(account);
+            notify();
+          }),
+        ),
       );
       if (owner !== account || signedIn() !== account) {
         return yield* ownerMismatch();
@@ -289,18 +351,22 @@ export function createInboxPreferences(
       return false;
     }
     const before = yield* opened(account);
-    const pulled = yield* native(
-      () =>
-        remote.pullInboxPreferences(
-          account,
-          before.profiles.map(({ profile }) => profile),
-        ),
+    // Every Profile stored here, registered or holding a connection, so a record of one that does
+    // not open is reported unreadable rather than absent.
+    const { snapshot } = registration.getSnapshot();
+    const known = new Set([
+      ...before.profiles.map(({ profile }) => profile),
+      ...profilesOf(snapshot).map(({ id }) => id),
+      ...mailboxesOf(snapshot).map(({ profile }) => profile),
+    ]);
+    const fetched = yield* native(
+      () => remote.pullInboxPreferences(account, [...known]),
       PulledSchema,
     );
-    if (pulled.owner !== account) {
+    if (fetched.owner !== account) {
       return yield* ownerMismatch();
     }
-    const { records, unreadable } = readable(pulled);
+    const { records, unreadable } = readable(fetched);
     const stored = yield* changed(account, (profiles) =>
       records.reduce((next, { id, fields }) => {
         const local = fieldsOf(next, id);
@@ -321,10 +387,22 @@ export function createInboxPreferences(
           record: records.find(({ id }) => id === profile),
         })) || conflicted;
     }
+    pulled = conflicted ? undefined : { account, known, unreadable };
     return conflicted;
   });
 
-  const synchronize = preferencePasses('Inbox preference', pass, sync);
+  const synchronize = preferencePasses(
+    'Inbox preference',
+    (remote: NativeInboxPreferenceSync) =>
+      pass(remote).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            pulled = undefined;
+          }),
+        ),
+      ),
+    sync,
+  );
 
   // Sets field `name` of each of `profiles` to `value`, or to what `value` makes of the stored
   // value, after the value it replaces even when the clock went back. Resolves whether storage
@@ -332,7 +410,11 @@ export function createInboxPreferences(
   const choose = async (
     profiles: readonly string[],
     name: string,
-    value: ListDensity | PreviewLines | ((stored: unknown) => FavoriteEntries),
+    value:
+      | ListDensity
+      | PreviewLines
+      | boolean
+      | ((stored: unknown) => FavoriteEntries | SectionFolders | undefined),
   ) => {
     const scopes = profiles.filter((profile) => profile !== '');
     if (scopes.length === 0) {
@@ -345,7 +427,8 @@ export function createInboxPreferences(
           const field = fields[name];
           const chosen =
             typeof value === 'function' ? value(field?.value) : value;
-          return JSON.stringify(field?.value) === JSON.stringify(chosen)
+          return chosen === undefined ||
+            JSON.stringify(field?.value) === JSON.stringify(chosen)
             ? next
             : withFields(next, profile, {
                 ...fields,
@@ -384,8 +467,8 @@ export function createInboxPreferences(
           : undefined;
       return isListDensity(value) ? value : 'comfortable';
     },
-    // Reads the signed-in account's preferences for `listDensity`, `previewLines` and `favorites`;
-    // signed out, there are none.
+    // Reads the signed-in account's preferences for `listDensity`, `previewLines`, `favorites` and
+    // `sections`; signed out, there are none.
     load: async () => {
       const account = signedIn();
       if (account !== undefined) {
@@ -423,13 +506,61 @@ export function createInboxPreferences(
       return isFavoriteEntries(value) ? value : noFavorites;
     },
     // Chooses `profile`'s Favorites rows as `change` makes them from the stored ones, as
-    // `setListDensity` does, so edits made before the last one is read keep each other.
+    // `setListDensity` does, so edits made before the last one is read keep each other. A `change`
+    // that returns undefined writes nothing.
     changeFavorites: (
       profile: string,
-      change: (entries: FavoriteEntries) => FavoriteEntries,
+      change: (entries: FavoriteEntries) => FavoriteEntries | undefined,
     ) =>
       choose([profile], 'favorites', (stored) =>
         change(isFavoriteEntries(stored) ? stored : noFavorites),
+      ),
+    // Whether storage failed the signed-in account's last read, so `sections` is undefined until a
+    // read succeeds.
+    unreadable: () => {
+      const account = signedIn();
+      return account !== undefined && failed.has(account);
+    },
+    // `profile`'s Mailbox Connection sections, as last read; undefined until they are read and since
+    // storage last failed to read them, so a muted connection stays muted. Signed out, none is hidden.
+    sections: (profile: string): Sections | undefined => {
+      const account = signedIn();
+      if (account === undefined) {
+        return noSections;
+      }
+      if (failed.has(account) || shown.account !== account) {
+        return undefined;
+      }
+      const fields = shown.profiles.find(
+        (kept) => kept.profile === profile,
+      )?.fields;
+      if (fields === undefined) {
+        return noSections;
+      }
+      const sections = sectionsRead.get(fields) ?? sectionsOf(fields);
+      sectionsRead.set(fields, sections);
+      return sections;
+    },
+    // Whether this device holds what Private Sync last had for `profile`: the last pass asked for
+    // its record, pulled it or found none, and merged it unovertaken. Without Private Sync, the stored preferences are all.
+    pulled: (profile: string) =>
+      sync === undefined ||
+      (pulled !== undefined &&
+        pulled.account === signedIn() &&
+        pulled.known.has(profile) &&
+        !pulled.unreadable.has(profile)),
+    // Shows or hides `connection`'s section of `profile`, as `setListDensity` chooses.
+    showSection: (profile: string, connection: string, visible: boolean) =>
+      choose([profile], shownField(connection), visible),
+    // Chooses `connection`'s folders of `profile` as `change` makes them from the stored ones, as
+    // `changeFavorites` does.
+    changeFolders: (
+      profile: string,
+      connection: string,
+      change: (folders: SectionFolders) => SectionFolders | undefined,
+    ) =>
+      choose([profile], foldersField(connection), (stored) =>
+        change(isSectionFolders(stored) ? stored : noFolders),
       ),
     // Merges Private Sync into this device's preferences and publishes this device's changes;
     // resolves once no pass is running.

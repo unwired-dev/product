@@ -510,6 +510,24 @@ with no Outbox row "Sending soon" and no **Undo**. The captures "Send menu with 
 "After Send Now" are named with the appearance. The dimmed state while a file is still being
 added is covered by Jest.
 
+`testEditFavorites` runs on a `registration-declined` Release build with
+`UNWIRED_JOURNEY=testEditFavorites`, once with `UNWIRED_APPEARANCE=light` and once with `dark`
+([#2611](https://github.com/unwired-dev/product/issues/2611)). It connects the synthetic Gmail
+mailbox, shows Mailboxes and taps **Edit**, beside Account on iPhone and the sidebar toggle on iPad.
+Tapping Spam hides it, and dragging Trash's handle two rows up moves it above Spam and All Mail.
+Tapping the Gmail mailbox's header hides its folders and tapping it again shows them, tapping its
+own Spam folder hides it, and dragging its Trash folder's handle moves it above its Inbox. After
+**Done** Mailboxes lists All Inboxes, Sent, Archive, Trash and All Mail without the Spam folder and
+with Trash above the Inbox, and after a relaunch it lists them again. Selecting the Trash folder,
+which Mailboxes then shows selected, and hiding it in Edit selects All Inboxes. Edit mode, the edited list and the relaunched
+Mailboxes are kept as attachments named with the appearance. Move Up and Move Down, moving a
+connection between two, a drag that another device's reorder overtakes, a slow write that the
+selection outlives past Done, a refused connection order, scrolling near the list's edge during a
+drag but not while a handle is only held there, and All Inboxes and its search leaving out a hidden
+connection are covered by Jest, and the Private Sync merge, a connection order another device
+changed first, one dropped during foreground verification and the muted notifications by the
+mail-core tests. VoiceOver speech is not covered.
+
 `testListIndent` runs on a `registration-declined` Release build with `UNWIRED_JOURNEY=testListIndent`.
 It connects the synthetic Gmail mailbox and, in a New Message body, types a bulleted list whose
 items Tab nests three levels deep ([#2465](https://github.com/unwired-dev/product/issues/2465)).

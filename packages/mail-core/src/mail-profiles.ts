@@ -1,5 +1,7 @@
+import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
+import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
 
 import type { StoredPayload } from './registration-replies.ts';
@@ -1253,11 +1255,15 @@ export function createMailProfileProgram<E>(
   };
 
   // Arranges every connection of one Mail Profile in `order`, or with no order returns them to the
-  // order they were added. Other Profiles' connections and every Color stay as they are.
+  // order they were added. Other Profiles' connections and every Color stay as they are. An order
+  // made `from` one another device has since changed writes nothing.
   const arrange = Effect.fnUntraced(function* (
     value: RegistrationRecord,
     profile: string,
-    order: readonly string[],
+    {
+      order,
+      from,
+    }: Readonly<{ order: readonly string[]; from?: readonly string[] }>,
   ) {
     const { state, readable } = yield* refreshed(yield* known);
     if (!readable) {
@@ -1281,6 +1287,17 @@ export function createMailProfileProgram<E>(
       owned.every(({ id }) => order.includes(id));
     if ((order.length > 0 && !complete) || incarnations.length < owned.length) {
       return yield* failWith('unavailable');
+    }
+    const { positions } = connectionDisplay({ ...value, profiles: state });
+    const stored = Arr.sort(
+      owned,
+      Order.mapInput(
+        Order.Number,
+        ({ id }: (typeof owned)[number]) => positions.get(id) ?? Infinity,
+      ),
+    ).map(({ id }) => id);
+    if (from !== undefined && stored.join('\n') !== from.join('\n')) {
+      return;
     }
     yield* stillLive(incarnations);
     yield* commitDisplay(

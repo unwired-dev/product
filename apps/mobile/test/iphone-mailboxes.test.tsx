@@ -1,9 +1,37 @@
+import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
+
+import { createInboxPreferences } from '@private-email/mail-core/inbox-preferences';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
-import { singleMailbox } from '@private-email/mail-core/mailboxes';
-import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  createMailboxes,
+  moveFavorite,
+  showFolder,
+  singleMailbox,
+} from '@private-email/mail-core/mailboxes';
+import {
+  defaultProfile,
+  mailboxesOf,
+} from '@private-email/mail-core/registration';
+import {
+  createSyntheticGmail,
+  syntheticConnections,
+} from '@private-email/mail-core/testing/gmail-mailbox';
+import { syntheticMailboxes } from '@private-email/mail-core/testing/registration-vault';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react-native';
+import { useState } from 'react';
+import { Alert, ScrollView } from 'react-native';
+
+import type { MailboxView } from '../src/sidebar.tsx';
 
 import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { Inbox } from '../src/inbox.tsx';
+import { InboxPreferencesContext } from '../src/list-density.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
@@ -25,6 +53,67 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const ignore = () => undefined;
+
+const account = {
+  mailboxes: [],
+  openAccount: ignore,
+  authorizeMailbox: () => Promise.resolve(),
+  refreshInbox: (load: () => Promise<void>) => load(),
+  account: 'synthetic-product-account',
+  profiles: [],
+  createProfile: () => Promise.resolve(undefined),
+  chooseFolders: () => Promise.resolve(true),
+};
+
+// Inbox preferences kept for one signed-in Product Account, as native storage keeps them. While
+// `gate.held` is set, writes wait for it, and while `gate.reading` is set, reads do.
+const preferences = (
+  gate: { held?: Promise<void>; reading?: Promise<void> } = {},
+) => {
+  const kept = { revision: 0, document: null as string | null };
+  const registration = {
+    getSnapshot: () => ({
+      snapshot: {
+        kind: 'connected',
+        productAccountId: 'account-1',
+        signInProvider: 'google',
+        mailboxes: '[]',
+      } satisfies RegistrationSnapshot,
+      busy: false,
+      failed: false,
+    }),
+  };
+  return () =>
+    createInboxPreferences(
+      {
+        openInboxPreferences: async () => {
+          await gate.reading;
+          return { owner: 'account-1', ...kept };
+        },
+        commitInboxPreferences: async (owner, expectedRevision, document) => {
+          await gate.held;
+          Object.assign(kept, { revision: expectedRevision + 1, document });
+          return { owner, revision: kept.revision };
+        },
+      },
+      registration,
+    );
+};
+
+const touch = (pageY: number) => ({
+  persist: ignore,
+  currentTarget: 1,
+  nativeEvent: { pageX: 0, pageY, locationX: 0, locationY: 0, timestamp: 0 },
+});
+
+const names = new Set([
+  'All Inboxes',
+  'Sent',
+  'Archive',
+  'All Mail',
+  'Spam',
+  'Trash',
+]);
 
 describe('iPhone Mailboxes', () => {
   it('shows a connection that needs sign-in beside its header and in a banner above its folders', async () => {
@@ -86,5 +175,955 @@ describe('iPhone Mailboxes', () => {
       screen.getByRole('button', { name: `Sign In to ${address}…` }),
     );
     expect(authorizeMailbox).toHaveBeenCalledWith(address);
+  });
+
+  it('hides, shows and reorders Favorites in Edit mode, and keeps them after a relaunch', async () => {
+    expect.hasAssertions();
+    const gate: { held?: Promise<void> } = {};
+    const relaunch = preferences(gate);
+    // The window's view, and how to select one as Go To would.
+    let selected: MailboxView = {};
+    let select: (view: MailboxView) => void = ignore;
+    const launch = async (
+      store: ReturnType<ReturnType<typeof preferences>>,
+    ) => {
+      await store.load();
+      const inbox = createInboxStore(
+        createSyntheticGmail({ address: 'alex@example.invalid' }).native,
+      );
+      await inbox.load();
+      function Window() {
+        const [view, setView] = useState<MailboxView>({ unified: 'SPAM' });
+        selected = view;
+        select = setView;
+        return (
+          <Mailboxes
+            view={view}
+            onView={setView}
+            onProfile={ignore}
+          />
+        );
+      }
+      return render(
+        <AccountContext value={account}>
+          <InboxPreferencesContext value={store}>
+            <InboxProvider
+              mailboxes={singleMailbox(inbox, 'alex@example.invalid')}>
+              <CommandPaletteProvider>
+                <Window />
+              </CommandPaletteProvider>
+            </InboxProvider>
+          </InboxPreferencesContext>
+        </AccountContext>,
+      );
+    };
+    // The Favorites rows in order, by name, and in Edit mode with whether each is shown.
+    const rows = (app: Awaited<ReturnType<typeof launch>>) =>
+      app
+        .getAllByRole('button')
+        .map(({ props }) =>
+          [
+            String(props.accessibilityLabel).replace('. In All Mailboxes', ''),
+            props.accessibilityValue?.text,
+          ]
+            .filter((part) => part !== undefined)
+            .join(' '),
+        )
+        .filter((row) => names.has(row.replace(/ (?:Shown|Hidden)$/u, '')));
+    const app = await launch(relaunch());
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
+    expect(app.queryByRole('button', { name: 'Account' })).toBeNull();
+    // Hiding the selected Spam; All Inboxes stays shown.
+    await fireEvent.press(app.getByRole('button', { name: 'Spam' }));
+    await fireEvent.press(app.getByRole('button', { name: 'All Inboxes' }));
+    await fireEvent(
+      app.getByRole('button', { name: 'Trash' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveUp' } },
+    );
+    await waitFor(() => {
+      expect(rows(app)).toStrictEqual([
+        'All Inboxes Shown',
+        'Sent Shown',
+        'Archive Shown',
+        'All Mail Shown',
+        'Trash Shown',
+        'Spam Hidden',
+      ]);
+    });
+    // Sent's handle, dragged two 52pt rows down, lands after All Mail.
+    const handle = app
+      .getByRole('button', { name: 'Sent' })
+      .queryAll((node) => node.props.onResponderGrant !== undefined)
+      .at(0)!;
+    for (const name of ['Sent', 'Archive', 'All Mail']) {
+      await fireEvent(app.getByRole('button', { name }), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 370, height: 52 } },
+      });
+    }
+    await fireEvent(handle, 'responderGrant', touch(0));
+    await fireEvent(handle, 'responderMove', touch(104));
+    await fireEvent(handle, 'responderRelease', touch(104));
+    const edited = [
+      'All Inboxes Shown',
+      'Archive Shown',
+      'All Mail Shown',
+      'Sent Shown',
+      'Trash Shown',
+      'Spam Hidden',
+    ];
+    await waitFor(() => {
+      expect(rows(app)).toStrictEqual(edited);
+    });
+    await fireEvent.press(app.getByRole('button', { name: 'Done' }));
+    // Hiding the selected Spam selected All Inboxes, the first row still shown.
+    expect({
+      favorites: rows(app),
+      selected: app.getByRole('button', { name: 'All Inboxes' }).props
+        .accessibilityState?.selected,
+      account: app.getByRole('button', { name: 'Account' }) !== null,
+    }).toStrictEqual({
+      favorites: ['All Inboxes', 'Archive', 'All Mail', 'Sent', 'Trash'],
+      selected: true,
+      account: true,
+    });
+    await app.unmount();
+
+    const relaunched = relaunch();
+    const again = await launch(relaunched);
+    await fireEvent.press(again.getByRole('button', { name: 'Edit' }));
+    expect(rows(again)).toStrictEqual(edited);
+    // A move onto rows another device reordered meanwhile, whose write is still being stored,
+    // changes nothing.
+    const reordered = Promise.withResolvers<undefined>();
+    gate.held = reordered.promise;
+    const elsewhere = relaunched.changeFavorites(defaultProfile, (stored) =>
+      moveFavorite(stored, 'TRASH', 1),
+    );
+    await fireEvent(
+      again.getByRole('button', { name: 'Sent' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveUp' } },
+    );
+    delete gate.held;
+    await act(async () => {
+      reordered.resolve(undefined);
+      await elsewhere;
+      // Queued after the move, so it lands first.
+      await relaunched.changeFavorites(defaultProfile, () => undefined);
+    });
+    expect(rows(again)).toStrictEqual([
+      'All Inboxes Shown',
+      'Trash Shown',
+      'Archive Shown',
+      'All Mail Shown',
+      'Sent Shown',
+      'Spam Hidden',
+    ]);
+    // Hiding the selected Trash, then Done and choosing Sent while the write is slow, keeps Sent.
+    await act(() => {
+      select({ unified: 'TRASH' });
+    });
+    const written = Promise.withResolvers<undefined>();
+    gate.held = written.promise;
+    await fireEvent.press(again.getByRole('button', { name: 'Trash' }));
+    await fireEvent.press(again.getByRole('button', { name: 'Done' }));
+    await act(() => {
+      select({ unified: 'SENT' });
+    });
+    delete gate.held;
+    await act(async () => {
+      written.resolve(undefined);
+      // Queued after the hide, so the hide and what follows it have finished.
+      await relaunched.changeFavorites(defaultProfile, () => undefined);
+    });
+    expect({
+      selected,
+      trash: again.queryByRole('button', { name: 'Trash. In All Mailboxes' }),
+    }).toStrictEqual({ selected: { unified: 'SENT' }, trash: null });
+    await again.unmount();
+  });
+
+  it('hides, shows and reorders accounts and their folders in Edit mode; a hidden account leaves All Inboxes', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const registration = {
+      getSnapshot: () => ({
+        snapshot: {
+          kind: 'connected',
+          productAccountId: 'synthetic-product-account',
+          signInProvider: 'google',
+          mailboxes: JSON.stringify([
+            { id: alex, address: 'alex@example.invalid', state: 'connected' },
+            { id: other, address: 'other@example.invalid', state: 'connected' },
+          ]),
+        } satisfies RegistrationSnapshot,
+        busy: false,
+        failed: false,
+      }),
+      subscribe: () => () => undefined,
+    };
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'From Alex’s Inbox' });
+    gmail.archive(gmail.deliver({ subject: 'Second look' }));
+    const otherGmail = createSyntheticGmail({
+      address: 'other@example.invalid',
+    });
+    otherGmail.deliver({ subject: 'First' });
+    otherGmail.deliver({ subject: 'Second' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail, [other]: otherGmail }),
+      registration,
+    );
+    await mailboxes.load();
+    const gate: { held?: Promise<void> } = {};
+    const store = preferences(gate)();
+    await store.load();
+    // The account order is refused, as offline.
+    const arrangeMailboxes = jest.fn(() => Promise.resolve(false));
+    const alert = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    // The window's view, and how to select one as Go To would.
+    let selected: MailboxView = {};
+    let select: (view: MailboxView) => void = ignore;
+    function Window() {
+      const [view, setView] = useState<MailboxView>({ mailbox: other });
+      selected = view;
+      select = setView;
+      return (
+        <Mailboxes
+          view={view}
+          onView={setView}
+          onProfile={ignore}
+        />
+      );
+    }
+    const connections = mailboxesOf(registration.getSnapshot().snapshot);
+    // The window, with the Profile's connections in `order` and the Inbox showing `view`.
+    const tree = (order: typeof connections, view: MailboxView = {}) => (
+      <AccountContext
+        value={{
+          ...account,
+          mailboxes: order,
+          arrangeMailboxes,
+        }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Window />
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={view}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>
+    );
+    const app = await render(tree(connections));
+    const allInboxes = () => app.getByRole('button', { name: 'All Inboxes' });
+    // The rows after Favorites: each account's header and its folders, with whether each shows.
+    const rows = () =>
+      app
+        .getAllByRole(/^(?:button|header)$/u)
+        .map(({ props }) =>
+          [
+            props.accessibilityLabel,
+            props.children,
+            props.accessibilityValue?.text,
+          ]
+            .filter((part) => typeof part === 'string')
+            .join(' '),
+        )
+        .filter((row) =>
+          /^(?:Gmail · |[\w ]+\. In \S+example\.invalid)/u.test(row),
+        );
+    await waitFor(() => {
+      expect(allInboxes()).toHaveAccessibilityValue({ text: '3 unread' });
+    });
+    await app.findByText('Second');
+
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
+    // Hiding the selected account, then Done and choosing Alex's Inbox while the write is slow,
+    // keeps that choice; hiding the selected Spam selects All Inboxes. Alex's Inbox stays shown.
+    const written = Promise.withResolvers<undefined>();
+    gate.held = written.promise;
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Gmail · other@example.invalid' }),
+    );
+    await fireEvent.press(app.getByRole('button', { name: 'Done' }));
+    await act(() => {
+      select({ mailbox: alex });
+    });
+    delete gate.held;
+    await act(async () => {
+      written.resolve(undefined);
+      await written.promise;
+    });
+    expect(selected).toStrictEqual({ mailbox: alex });
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
+    await act(() => {
+      select({ mailbox: alex, folder: 'SPAM' });
+    });
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Spam. In alex@example.invalid' }),
+    );
+    await fireEvent.press(
+      app.getByRole('button', { name: 'Inbox. In alex@example.invalid' }),
+    );
+    await fireEvent(
+      app.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveUp' } },
+    );
+    await fireEvent(
+      app.getByRole('button', { name: 'Gmail · other@example.invalid' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveUp' } },
+    );
+    await waitFor(() => {
+      expect(rows()).toStrictEqual([
+        'Gmail · alex@example.invalid Shown',
+        'Inbox. In alex@example.invalid Shown',
+        'All Mail. In alex@example.invalid Shown',
+        'Trash. In alex@example.invalid Shown',
+        'Spam. In alex@example.invalid Hidden',
+        'Gmail · other@example.invalid Hidden',
+      ]);
+    });
+    // A folder move onto rows another device reversed meanwhile, whose write is still being
+    // stored, changes nothing; then that device restores them.
+    const reversed = Promise.withResolvers<undefined>();
+    gate.held = reversed.promise;
+    let kept: ReadonlyArray<Readonly<{ name: string; shown: boolean }>> = [];
+    const elsewhere = store.changeFolders(defaultProfile, alex, (folders) => {
+      kept = folders;
+      return folders.toReversed();
+    });
+    await fireEvent(
+      app.getByRole('button', { name: 'Trash. In alex@example.invalid' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveUp' } },
+    );
+    delete gate.held;
+    await act(async () => {
+      reversed.resolve(undefined);
+      await elsewhere;
+      // Queued after the move, so it lands first.
+      await store.changeFolders(defaultProfile, alex, () => undefined);
+    });
+    expect(rows()).toStrictEqual([
+      'Gmail · alex@example.invalid Shown',
+      'Spam. In alex@example.invalid Hidden',
+      'Trash. In alex@example.invalid Shown',
+      'All Mail. In alex@example.invalid Shown',
+      'Inbox. In alex@example.invalid Shown',
+      'Gmail · other@example.invalid Hidden',
+    ]);
+    await act(() => store.changeFolders(defaultProfile, alex, () => kept));
+    // Hiding All Mail while another device's hide of it is still being stored keeps it hidden.
+    const hiding = Promise.withResolvers<undefined>();
+    gate.held = hiding.promise;
+    const hidden = store.changeFolders(defaultProfile, alex, (folders) =>
+      showFolder(
+        folders,
+        folders.map(({ name }) => name),
+        { name: 'ALL_MAIL', shown: false },
+      ),
+    );
+    await fireEvent.press(
+      app.getByRole('button', { name: 'All Mail. In alex@example.invalid' }),
+    );
+    delete gate.held;
+    await act(async () => {
+      hiding.resolve(undefined);
+      await hidden;
+      await store.changeFolders(defaultProfile, alex, () => undefined);
+    });
+    const hiddenStays = rows().find((row) => row.startsWith('All Mail.'));
+    await act(() => store.changeFolders(defaultProfile, alex, () => kept));
+    // Alex's header handle, released where it was pressed, and dragged past the other account
+    // while another device reorders them, arranges nothing.
+    const header = () =>
+      app
+        .getByRole('button', { name: 'Gmail · alex@example.invalid' })
+        .queryAll((node) => node.props.onResponderGrant !== undefined)
+        .at(0)!;
+    for (const name of [
+      'Gmail · alex@example.invalid',
+      'Gmail · other@example.invalid',
+    ]) {
+      await fireEvent(app.getByRole('button', { name }), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 370, height: 52 } },
+      });
+    }
+    await fireEvent(header(), 'responderGrant', touch(0));
+    await fireEvent(header(), 'responderRelease', touch(10));
+    await fireEvent(header(), 'responderGrant', touch(100));
+    await fireEvent(header(), 'responderMove', touch(110));
+    await app.rerender(tree(connections.toReversed()));
+    await fireEvent(header(), 'responderMove', touch(20));
+    await fireEvent(header(), 'responderRelease', touch(20));
+    await app.rerender(tree(connections));
+
+    await fireEvent.press(app.getByRole('button', { name: 'Done' }));
+    expect({
+      rows: rows(),
+      hiddenStays,
+      unread: allInboxes().props.accessibilityValue?.text,
+      selected: allInboxes().props.accessibilityState?.selected,
+      arranged: arrangeMailboxes.mock.calls,
+      refused: alert.mock.calls.map(([title, message]) => [title, message]),
+      listed: app.queryByText('Second'),
+    }).toStrictEqual({
+      rows: [
+        'Gmail · alex@example.invalid',
+        'Inbox. In alex@example.invalid 1 unread',
+        'All Mail. In alex@example.invalid',
+        'Trash. In alex@example.invalid',
+      ],
+      hiddenStays: 'All Mail. In alex@example.invalid Hidden',
+      unread: '1 unread',
+      selected: true,
+      arranged: [[defaultProfile, [other, alex], [alex, other]]],
+      refused: [
+        [
+          'The accounts couldn’t be reordered',
+          'They keep their order on every device. Check your connection and try again.',
+        ],
+      ],
+      // All Inboxes lists only the shown account's mail, and searches only its server.
+      listed: null,
+    });
+    const field = app.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'Second');
+    await fireEvent.press(
+      await app.findByRole('button', {
+        name: 'Search Mail Servers for “Second”',
+      }),
+    );
+    await app.findByRole('button', { name: /Second look/u });
+    expect(
+      app.queryAllByRole('button', { name: /Second(?! look)/u }),
+    ).toStrictEqual([]);
+    // With the hidden account's own Inbox open, search finds its mail until widened to every Inbox.
+    await app.rerender(tree(connections, { mailbox: other }));
+    await fireEvent.changeText(field, 'F');
+    await app.findByRole('button', { name: /First/u });
+    await fireEvent.press(app.getByRole('tab', { name: 'All Mailboxes' }));
+    await app.findByRole('button', { name: /From Alex’s Inbox/u });
+    expect(app.queryAllByRole('button', { name: /First/u })).toStrictEqual([]);
+    alert.mockRestore();
+    await app.unmount();
+  });
+
+  it('moves an account past another in the Profile’s order, keeping the place of one not yet opened', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const listed = [
+      { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      { id: 'unopened', address: 'new@example.invalid', state: 'connected' },
+      { id: other, address: 'other@example.invalid', state: 'connected' },
+    ];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify(listed),
+    } satisfies RegistrationSnapshot;
+    // The unopened connection has no Inbox yet, so Edit shows no row for it.
+    const mailboxes = createMailboxes(
+      syntheticConnections({
+        [alex]: createSyntheticGmail(),
+        [other]: createSyntheticGmail({ address: 'other@example.invalid' }),
+      }),
+      {
+        getSnapshot: () => ({
+          snapshot: {
+            ...snapshot,
+            mailboxes: JSON.stringify([listed[0], listed[2]]),
+          },
+          busy: false,
+          failed: false,
+        }),
+        subscribe: () => () => undefined,
+      },
+    );
+    await mailboxes.load();
+    const store = preferences()();
+    await store.load();
+    const arrangeMailboxes = jest.fn(() => Promise.resolve(true));
+    const app = await render(
+      <AccountContext
+        value={{
+          ...account,
+          mailboxes: mailboxesOf(snapshot),
+          arrangeMailboxes,
+        }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Mailboxes
+                view={{}}
+                onView={ignore}
+                onProfile={ignore}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
+    await fireEvent(
+      app.getByRole('button', { name: 'Gmail · alex@example.invalid' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveDown' } },
+    );
+    expect(arrangeMailboxes.mock.calls).toStrictEqual([
+      [defaultProfile, ['unopened', other, alex], [alex, 'unopened', other]],
+    ]);
+    await app.unmount();
+  });
+
+  it('lists no mail of a hidden account in All Inboxes after a relaunch, before or after its preferences are read', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'From Alex’s Inbox' });
+    const otherGmail = createSyntheticGmail({
+      address: 'other@example.invalid',
+    });
+    otherGmail.deliver({ subject: 'From the hidden account' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail, [other]: otherGmail }),
+      registration,
+    );
+    await mailboxes.load();
+    // Hidden before the relaunch; the relaunched app has yet to read its preferences.
+    const gate: { reading?: Promise<void> } = {};
+    const relaunch = preferences(gate);
+    const before = relaunch();
+    await before.load();
+    await before.showSection(defaultProfile, other, false);
+    const read = Promise.withResolvers<undefined>();
+    gate.reading = read.promise;
+    const store = relaunch();
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Mailboxes
+                view={{}}
+                onView={ignore}
+                onProfile={ignore}
+              />
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    // Until the read, All Inboxes lists no account's mail, and Mailboxes no account.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const accounts = () =>
+      app.queryAllByText(/^Gmail · /u).map(({ props }) => props.children);
+    const unread = [
+      app.queryAllByRole('button', { name: /From /u }),
+      accounts(),
+    ];
+    // Edit waits for the read, so it edits no row it has not read.
+    expect(app.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    await act(() => {
+      read.resolve(undefined);
+    });
+    await app.findByRole('button', { name: /From Alex’s Inbox/u });
+    expect([
+      unread,
+      app.queryAllByRole('button', { name: /hidden account/u }),
+      accounts(),
+    ]).toStrictEqual([[[], []], [], ['Gmail · alex@example.invalid']]);
+    await app.unmount();
+  });
+
+  it('answers search widened from an account’s Inbox only once the preferences are read', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'From Alex’s Inbox' });
+    const otherGmail = createSyntheticGmail({
+      address: 'other@example.invalid',
+    });
+    otherGmail.deliver({ subject: 'From the other account' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: gmail, [other]: otherGmail }),
+      registration,
+    );
+    await mailboxes.load();
+    const gate: { reading?: Promise<void> } = {};
+    const read = Promise.withResolvers<undefined>();
+    gate.reading = read.promise;
+    const store = preferences(gate)();
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <Inbox
+              onClose={ignore}
+              onSelect={ignore}
+              onView={ignore}
+              selected={undefined}
+              view={{ mailbox: alex }}
+            />
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await app.findByRole('button', { name: /From Alex’s Inbox/u });
+    const field = app.getByLabelText('Search senders and subjects');
+    await fireEvent(field, 'focus');
+    await fireEvent.changeText(field, 'other account');
+    await fireEvent.press(app.getByRole('tab', { name: 'All Mailboxes' }));
+    // Until the read, which Inboxes the search covers is unknown, so it has not answered and loads.
+    const unread = {
+      noResults: app.queryByText('No Results'),
+      loading: app.queryByLabelText('Loading Inbox') !== null,
+    };
+    await act(() => {
+      read.resolve(undefined);
+    });
+    await app.findByRole('button', { name: /From the other account/u });
+    expect(unread).toStrictEqual({ noResults: null, loading: true });
+    await app.unmount();
+  });
+
+  it('names All Inboxes, not the provider, with the only account hidden', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [alex]: createSyntheticGmail() }),
+      {
+        getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+        subscribe: () => () => undefined,
+      },
+    );
+    const store = preferences()();
+    await store.load();
+    await store.showSection(defaultProfile, alex, false);
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await expect(
+      app.findByText('New messages in All Inboxes will appear here.'),
+    ).resolves.toBeOnTheScreen();
+    await app.unmount();
+  });
+
+  it('names no hidden account in All Inboxes, even the only one connected, one needing sign-in or one waiting for it', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+        { id: alex, address: 'alex@example.invalid', state: 'authorization' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    const registration = {
+      getSnapshot: () => ({ snapshot, busy: false, failed: false }),
+      subscribe: () => () => undefined,
+    };
+    const gmail = createSyntheticGmail({ address: 'other@example.invalid' });
+    gmail.deliver({ subject: 'From the hidden account' });
+    const mailboxes = createMailboxes(
+      syntheticConnections({ [other]: gmail }),
+      registration,
+    );
+    await mailboxes.load();
+    const store = preferences()();
+    await store.load();
+    await store.showSection(defaultProfile, other, false);
+    await store.showSection(defaultProfile, alex, false);
+    const app = await render(
+      <AccountContext value={{ ...account, mailboxes: mailboxesOf(snapshot) }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Inbox
+                onClose={ignore}
+                onSelect={ignore}
+                onView={ignore}
+                selected={undefined}
+                view={{}}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await app.findByText('No Mail');
+    // Its open Inbox then needs sign-in again.
+    gmail.fail({ status: 401 });
+    await act(mailboxes.load);
+    expect([
+      app.queryAllByText(/@example\.invalid/u),
+      app.queryAllByText(/needs attention/u),
+    ]).toStrictEqual([[], []]);
+    await app.unmount();
+  });
+
+  it('scrolls the list while an account or a Favorites row is dragged at its edge, but not while a handle is only held there', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    } satisfies RegistrationSnapshot;
+    // Another device can remove a connection meanwhile.
+    let current: RegistrationSnapshot = snapshot;
+    const changes = new Set<() => void>();
+    const registration = {
+      getSnapshot: () => ({ snapshot: current, busy: false, failed: false }),
+      subscribe: (change: () => void) => {
+        changes.add(change);
+        return () => changes.delete(change);
+      },
+    };
+    const mailboxes = createMailboxes(
+      syntheticConnections({
+        [alex]: createSyntheticGmail(),
+        [other]: createSyntheticGmail({ address: 'other@example.invalid' }),
+      }),
+      registration,
+    );
+    await mailboxes.load();
+    const store = preferences()();
+    await store.load();
+    const arrangeMailboxes = jest.fn(() => Promise.resolve(true));
+    // Animation frames run only when the test steps them.
+    const frames = new Map<number, FrameRequestCallback>();
+    let requested = 0;
+    jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((frame) => {
+        requested += 1;
+        frames.set(requested, frame);
+        return requested;
+      });
+    jest.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(Number(id));
+    });
+    const step = async (count: number) => {
+      for (let index = 0; index < count; index += 1) {
+        const [id, frame] = frames.entries().next().value!;
+        frames.delete(id);
+        await act(() => {
+          frame(0);
+        });
+      }
+    };
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockReturnValue(undefined);
+    const connections = mailboxesOf(snapshot);
+    const tree = (order: typeof connections) => (
+      <AccountContext
+        value={{ ...account, mailboxes: order, arrangeMailboxes }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Mailboxes
+                view={{}}
+                onView={ignore}
+                onProfile={ignore}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>
+    );
+    const app = await render(tree(connections));
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
+    // A 300pt list of 1000pt; Alex's account, with its folders, 260pt above the other's 52pt.
+    const list = () =>
+      app
+        .root!.queryAll((node) => node.props.scrollEventThrottle === 16)
+        .at(0)!;
+    await fireEvent(list(), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 370, height: 300 } },
+    });
+    await fireEvent(list(), 'contentSizeChange', 370, 1000);
+    for (const [name, height] of [
+      ['Gmail · alex@example.invalid', 260],
+      ['Gmail · other@example.invalid', 52],
+    ] as const) {
+      await fireEvent(app.getByRole('button', { name }), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 370, height } },
+      });
+    }
+    const handle = () =>
+      app
+        .getByRole('button', { name: 'Gmail · alex@example.invalid' })
+        .queryAll((node) => node.props.onResponderGrant !== undefined)
+        .at(0)!;
+
+    // Held 10pt above the bottom edge, the handle scrolls nothing and its release moves nothing.
+    await fireEvent(handle(), 'responderGrant', touch(290));
+    await fireEvent(handle(), 'responderMove', touch(292));
+    expect(frames.size).toBe(0);
+    await fireEvent(handle(), 'responderRelease', touch(292));
+    expect(arrangeMailboxes).not.toHaveBeenCalled();
+
+    // Dragged 10pt there, the list scrolls until Alex's account passes the other's middle.
+    await fireEvent(handle(), 'responderGrant', touch(280));
+    await fireEvent(handle(), 'responderMove', touch(290));
+    await step(2);
+    const scrolls = list().props.scrollEnabled;
+    await fireEvent(handle(), 'responderRelease', touch(290));
+    expect({
+      scrolls,
+      scrolled: scrollTo.mock.calls.length,
+      arranged: arrangeMailboxes.mock.calls,
+    }).toStrictEqual({
+      scrolls: false,
+      scrolled: 2,
+      arranged: [[defaultProfile, [other, alex], [alex, other]]],
+    });
+
+    // Another device's order, arriving mid-drag, ends it: the list stops and scrolls again, and
+    // the drag stays ended when the order changes back.
+    scrollTo.mockClear();
+    await fireEvent(handle(), 'responderGrant', touch(280));
+    await fireEvent(handle(), 'responderMove', touch(290));
+    await step(1);
+    await app.rerender(tree(connections.toReversed()));
+    const stopped = [frames.size, list().props.scrollEnabled];
+    await app.rerender(tree(connections));
+    await fireEvent(handle(), 'responderMove', touch(330));
+    await fireEvent(handle(), 'responderRelease', touch(330));
+    // A Favorites row dragged there scrolls the list too.
+    const sent = app
+      .getByRole('button', { name: 'Sent' })
+      .queryAll((node) => node.props.onResponderGrant !== undefined)
+      .at(0)!;
+    await fireEvent(sent, 'responderGrant', touch(280));
+    await fireEvent(sent, 'responderMove', touch(290));
+    const favorites = frames.size;
+    await fireEvent(sent, 'responderRelease', touch(290));
+    // An account another device removes mid-drag leaves the next drag free to start.
+    await fireEvent(handle(), 'responderGrant', touch(280));
+    await fireEvent(handle(), 'responderMove', touch(290));
+    current = {
+      ...snapshot,
+      mailboxes: JSON.stringify([
+        { id: other, address: 'other@example.invalid', state: 'connected' },
+      ]),
+    };
+    await act(() => {
+      for (const change of changes) {
+        change();
+      }
+    });
+    await app.rerender(tree(mailboxesOf(current)));
+    const left = app
+      .queryAllByRole('button', { name: /^Gmail/u })
+      .map(({ props }) => props.accessibilityLabel);
+    const remaining = app
+      .getByRole('button', { name: 'Gmail · other@example.invalid' })
+      .queryAll((node) => node.props.onResponderGrant !== undefined)
+      .at(0)!;
+    await fireEvent(remaining, 'responderGrant', touch(100));
+    await fireEvent(remaining, 'responderMove', touch(130));
+    const draggedAfterRemoval = !list().props.scrollEnabled;
+    await fireEvent(remaining, 'responderRelease', touch(130));
+    expect({
+      stopped,
+      scrolled: scrollTo.mock.calls.length,
+      arranged: arrangeMailboxes.mock.calls.length,
+      favorites,
+      left,
+      draggedAfterRemoval,
+    }).toStrictEqual({
+      stopped: [0, true],
+      scrolled: 1,
+      arranged: 1,
+      favorites: 1,
+      left: ['Gmail · other@example.invalid'],
+      draggedAfterRemoval: true,
+    });
+    jest.restoreAllMocks();
+    await app.unmount();
   });
 });

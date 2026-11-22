@@ -207,6 +207,11 @@ function showsReader(
   return reader !== undefined || (draft !== undefined && !collapsed);
 }
 
+// Whether the composer, expanded to the regular-width window, covers the list.
+function coversList(expanded: boolean, draft: string | undefined) {
+  return expanded && draft !== undefined;
+}
+
 // Only the categorization-spike build has a page; it fills the reading column until a message
 // replaces it.
 function ReadingColumn({
@@ -650,6 +655,7 @@ function MailShell() {
                           // On iPhone a Mailbox opens its list; beside it, the list is already shown.
                           splitView.current?.show('supplementary');
                         }}
+                        onSelect={setView}
                         onOutbox={() => {
                           setView({ outbox: true });
                           setOutboxShown({});
@@ -702,6 +708,7 @@ function MailShell() {
                         }
                         view={view}
                         outboxShown={outboxShown}
+                        covered={coversList(expanded, draft)}
                       />
                     </SafeAreaProvider>
                   </Split.Column>

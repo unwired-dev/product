@@ -178,7 +178,9 @@ const press = async (name: string) => {
       { nativeEvent: { actionName: 'openCommandPalette' } },
     );
   }
-  const button = await screen.findByRole('button', { name });
+  // Mailboxes' Edit comes before the Outbox's Edit, which the window shows after it.
+  const buttons = await screen.findAllByRole('button', { name });
+  const button = buttons.at(-1)!;
   await act(async () => {
     await fireEvent.press(button);
   });
