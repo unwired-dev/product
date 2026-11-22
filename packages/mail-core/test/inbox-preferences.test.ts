@@ -37,6 +37,16 @@ const decodePulled = Schema.decodeUnknownSync(
     ),
   }),
 );
+const decodeFields = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      fields: Schema.Record(
+        Schema.String,
+        Schema.Record(Schema.String, Schema.Unknown),
+      ),
+    }),
+  ),
+);
 const openRecord = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
@@ -612,12 +622,18 @@ describe('synchronized Inbox preferences', () => {
     await phone.store.synchronize();
     expect({
       // Private Sync holds what an older build reads: each field's value and when it was chosen.
-      published: pushes.mock.calls.some(([, { preferences }]) =>
-        preferences.includes('"from"'),
-      ),
+      published: [
+        ...new Set(
+          pushes.mock.calls.flatMap(([, { preferences }]) =>
+            Object.values(decodeFields(preferences).fields).map((field) =>
+              Object.keys(field).join(','),
+            ),
+          ),
+        ),
+      ],
       phone: favoriteRows(phone.store.favorites('work')).map(({ row }) => row),
     }).toStrictEqual({
-      published: false,
+      published: ['value,at'],
       phone: ['ALL_INBOXES', 'TRASH', 'SPAM', 'ARCHIVE', 'ALL_MAIL', 'SENT'],
     });
   });
