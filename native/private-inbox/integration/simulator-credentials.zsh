@@ -1,0 +1,52 @@
+#!/bin/zsh
+# Hands certification credentials to the app on an iOS Simulator without any tool writing them to
+# disk, then checks this Mac for them. The XCTest runner that drives the Simulator logs the text
+# it types, so a credential is never typed: it is put on the Simulator's pasteboard and pasted in
+# the app. Run it under `op run --env-file <file outside the repository>`, which supplies the
+# named variables from the password manager.
+#
+#   copy <udid> <variable>           Put the variable's value on the Simulator's pasteboard.
+#   clear <udid>                     Empty the Simulator's pasteboard.
+#   scan <variable>... -- <path>...  List the files under the paths holding any value, also in
+#                                    compressed result bundle data. Exits 0 when none does, 1 on
+#                                    a match and 2 when a file could not be read.
+set -euo pipefail
+usage() {
+  print -u2 "Usage: ${ZSH_ARGZERO:t} copy <udid> <variable> | clear <udid> | scan <variable>... -- <path>..."
+  exit 2
+}
+value() {
+  [[ -n "${(P)1:-}" ]] || { print -u2 "Missing $1"; exit 2; }
+  print -rn -- "${(P)1}"
+}
+case ${1:-} in
+  copy)
+    (( $# == 3 )) || usage
+    value $3 | xcrun simctl pbcopy $2
+    ;;
+  clear)
+    (( $# == 2 )) || usage
+    xcrun simctl pbcopy $2 < /dev/null
+    ;;
+  scan)
+    shift
+    secrets=()
+    while (( $# )) && [[ $1 != -- ]]; do secrets+=("$(value $1)"); shift; done
+    (( $# )) && shift
+    (( $#secrets && $# )) || usage
+    paths=(${^@}(N))
+    (( $#paths )) || usage
+    # grep reports a match as 0, none as 1 and a read error as 2.
+    result=0
+    LC_ALL=C grep -rlaFs -D skip -f <(print -rl -- $secrets) -- $paths || result=$?
+    # Result bundles keep their data zstd-compressed, out of reach of a plain search.
+    for blob in ${^paths}/**/*.xcresult/Data/*(ND.); do
+      if zstd -dcqf -- $blob 2> /dev/null | LC_ALL=C grep -qaF -f <(print -rl -- $secrets); then
+        print -r -- $blob
+        result=0
+      fi
+    done
+    exit $(( result == 0 ? 1 : result == 1 ? 0 : 2 ))
+    ;;
+  *) usage ;;
+esac
