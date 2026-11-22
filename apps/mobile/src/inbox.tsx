@@ -278,6 +278,21 @@ function MailboxStatus({ address }: { readonly address: string | undefined }) {
   );
 }
 
+// Search widened to every Inbox waits for the preferences, so a failed read offers Try Again there
+// as All Inboxes does.
+function WidenedPreferencesNotice({
+  widened,
+  read,
+}: Readonly<{ widened: boolean; read: boolean }>) {
+  const unreadable = usePreferencesUnreadable();
+  return (
+    <PreferencesNotice
+      unreadable={widened && !read && unreadable}
+      outbox={false}
+    />
+  );
+}
+
 // All Inboxes' preferences could not be read, so it lists no connection until Try Again reads them;
 // the Outbox lists its own messages and says nothing of them.
 function PreferencesNotice({
@@ -1341,15 +1356,21 @@ export function Inbox({
     }),
     onEndReached: showOlder,
     footer: searching ? (
-      <SearchFooter
-        search={searchState}
-        mailboxes={searchable}
-        shown={searchedMailboxes}
-        ready={ready}
-        unlisted={unlisted}
-        scopeName={scopeName}
-        folderName={folderName}
-      />
+      <>
+        <WidenedPreferencesNotice
+          widened={searchState.searchesAll}
+          read={searchable !== undefined}
+        />
+        <SearchFooter
+          search={searchState}
+          mailboxes={searchable}
+          shown={searchedMailboxes}
+          ready={ready}
+          unlisted={unlisted}
+          scopeName={scopeName}
+          folderName={folderName}
+        />
+      </>
     ) : (
       <InboxFooter
         unconnected={unconnected !== undefined}

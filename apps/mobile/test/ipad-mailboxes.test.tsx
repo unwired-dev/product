@@ -450,7 +450,7 @@ describe('iPad Mailboxes', () => {
     await app.unmount();
   });
 
-  it('answers search widened from an account’s Inbox once a pull reads the preferences a read failed', async () => {
+  it('answers search widened from an account’s Inbox once Try Again reads the preferences a read failed', async () => {
     expect.hasAssertions();
     const { alex, shown, hidden, mailboxes, store, reads, tree } =
       await hiddenAccount('connected', 'connected', false);
@@ -465,12 +465,10 @@ describe('iPad Mailboxes', () => {
     await fireEvent(field, 'focus');
     await fireEvent.changeText(field, 'other account');
     await fireEvent.press(screen.getByRole('tab', { name: 'All Mailboxes' }));
-    // Which Inboxes the search covers is unknown, so it has not answered.
+    // Which Inboxes the search covers is unknown, so it has not answered and offers Try Again.
     const unread = screen.queryByText('No Results');
     reads.fail = false;
-    await act(async () => {
-      fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
-    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Try Again' }));
     await screen.findByText('From the other account');
     expect(unread).toBeNull();
     await app.unmount();

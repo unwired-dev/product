@@ -1153,10 +1153,13 @@ function EditConnections({
   const connections = profileMailboxes(account?.mailboxes ?? [], profile).map(
     ({ id }) => id,
   );
-  const arrange = async (order: readonly string[]) => {
+  // The Profile's full order when a drag began, so a change to it during the drag, even of a
+  // connection without a row, cancels the drop; Move Up and Move Down move from the order shown.
+  const began = useRef<readonly string[] | undefined>(undefined);
+  const arrange = async (order: readonly string[], from: readonly string[]) => {
     if (
       account?.arrangeMailboxes !== undefined &&
-      !(await account.arrangeMailboxes(profile, order, connections))
+      !(await account.arrangeMailboxes(profile, order, from))
     ) {
       Alert.alert(t('mailboxes.orderFailed'), t('mailboxes.orderTryAgain'), [
         { text: t('common.ok') },
@@ -1173,16 +1176,27 @@ function EditConnections({
         const keys = entries.map(({ id }) => id);
         const rest = keys.filter((id) => id !== key);
         const place = Math.max(0, to(keys.indexOf(key)));
-        const order = connections.filter((id) => id !== key);
+        const from = began.current ?? connections;
+        const order = from.filter((id) => id !== key);
         const next = rest.slice(place).find((id) => order.includes(id));
         order.splice(
           next === undefined ? order.length : order.indexOf(next),
           0,
           key,
         );
-        void arrange(order);
+        void arrange(order, from);
       }}
-      onDragging={onDragging}
+      onDragging={(dragging) => {
+        // Each step of a drag reports it; its drop moves the row before this clears.
+        if (dragging) {
+          began.current ??= connections;
+        } else {
+          queueMicrotask(() => {
+            began.current = undefined;
+          });
+        }
+        onDragging(dragging);
+      }}
       render={(entry, drag) => {
         const { id } = entry;
         const mailbox = 'section' in entry ? entry.section.mailbox : undefined;

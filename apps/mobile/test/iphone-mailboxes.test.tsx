@@ -339,7 +339,7 @@ describe('iPhone Mailboxes', () => {
     });
     expect({
       selected,
-      trash: again.queryByRole('button', { name: 'Trash' }),
+      trash: again.queryByRole('button', { name: 'Trash. In All Mailboxes' }),
     }).toStrictEqual({ selected: { unified: 'SENT' }, trash: null });
     await again.unmount();
   });
