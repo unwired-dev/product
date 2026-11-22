@@ -163,6 +163,7 @@ function Reader({
   onLeave = ignore,
   onAccount = ignore,
   onInbox = ignore,
+  onReopen = ignore,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
@@ -172,8 +173,18 @@ function Reader({
   readonly onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
   readonly onAccount?: () => void;
   readonly onInbox?: () => void;
+  // Hands over a reopening of the last Draft, as its Open Draft notification does.
+  readonly onReopen?: (reopen: () => void) => void;
 }) {
   const [composing, setComposing] = useState<string>();
+  const [last, setLast] = useState<string>();
+  const compose = (draft: string) => {
+    setLast(draft);
+    setComposing(draft);
+  };
+  onReopen(() => {
+    setComposing(last);
+  });
   return (
     <InboxProvider
       drafts={drafts}
@@ -189,7 +200,7 @@ function Reader({
             mailbox={alex}
             id={message}
             onClose={ignore}
-            onCompose={setComposing}
+            onCompose={compose}
           />
         ) : null}
         {/* The sheet stays mounted while it slides away, as the app's does. */}
@@ -200,7 +211,7 @@ function Reader({
             onLeft={() => {
               setComposing(undefined);
             }}
-            onRebind={setComposing}
+            onRebind={compose}
           />
         ) : null}
       </CommandPaletteProvider>
@@ -616,10 +627,12 @@ describe('iPad reader', () => {
       onLeave = ignore,
       onAccount = ignore,
       onInbox = ignore,
+      onReopen = ignore,
     }: Readonly<{
       onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
       onAccount?: () => void;
       onInbox?: () => void;
+      onReopen?: (reopen: () => void) => void;
     }> = {},
   ) => {
     const snapshot: RegistrationSnapshot = {
@@ -662,6 +675,7 @@ describe('iPad reader', () => {
           onLeave={onLeave}
           onAccount={onAccount}
           onInbox={onInbox}
+          onReopen={onReopen}
         />
       </AccountContext>,
     );
@@ -819,5 +833,48 @@ describe('iPad reader', () => {
     await waitFor(() => {
       expect(inbox).toHaveBeenCalledWith();
     });
+  });
+
+  it('asks again about a Draft reopened while its sheet slides away', async () => {
+    expect.hasAssertions();
+    let leaveComposer: ReturnType<typeof useLeaveComposer> = () =>
+      Promise.resolve(true);
+    let reopen: () => void = ignore;
+    await replyFromReader(true, {
+      onLeave: (leave) => {
+        leaveComposer = leave;
+      },
+      onReopen: (open) => {
+        reopen = open;
+      },
+    });
+    const edit = async (text: string) => {
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body', { includeHiddenElements: true }),
+        text,
+      );
+    };
+    await edit('Friday works.');
+    await act(() => {
+      void leaveComposer();
+    });
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Save Draft' }),
+    );
+    // Its Open Draft notification reopens it before the sheet finishes sliding away.
+    await act(() => {
+      reopen();
+    });
+    await edit('Saturday works.');
+    let left: boolean | undefined = undefined;
+    await act(() => {
+      void (async () => {
+        left = await leaveComposer();
+      })();
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Save Draft' }),
+    ).resolves.toBeOnTheScreen();
+    expect(left).toBeUndefined();
   });
 });

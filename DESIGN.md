@@ -717,7 +717,8 @@ form accessories, keyboards, status bar).
   Selected Message · subject, App and Go To, and a footer names the keys. iPhone
   and iPad show a panel attached to the top with the input, Cancel and 44pt rows;
   iPad keeps the command input in the Inbox heading and in the reader and
-  composer headers too. The [Command Palette guide](docs/command-palette.md) owns
+  composer headers too; a compact window's reader shows it in the navigation
+  bar and its composer sheet on the From row. The [Command Palette guide](docs/command-palette.md) owns
   its entry points, including iPhone's header swipe.
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
