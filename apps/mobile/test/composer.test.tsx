@@ -2268,11 +2268,11 @@ describe('composing Drafts', () => {
       }
     };
     const menu = () => screen.queryByLabelText('Slash commands');
-    const rows = (selected?: boolean) => {
+    const rows = (options: Readonly<{ selected?: boolean }> = {}) => {
       const shown = menu();
       ok(shown !== null);
       return within(shown)
-        .queryAllByRole('button', selected === undefined ? {} : { selected })
+        .queryAllByRole('button', options)
         .map(({ props }) => props.accessibilityLabel);
     };
     const lines = () =>
@@ -2280,14 +2280,13 @@ describe('composing Drafts', () => {
         ({ marker, spans }) => marker + spans.map(({ text }) => text).join(''),
       );
     const sizes = () =>
-      body().children.flatMap((line) =>
-        typeof line === 'string'
-          ? []
-          : [
-              StyleSheet.flatten<StyleProp<TextStyle>>(line.props.style)
-                ?.fontSize,
-            ],
-      );
+      body()
+        .children.filter((line) => typeof line !== 'string')
+        .map(
+          (line) =>
+            StyleSheet.flatten<StyleProp<TextStyle>>(line.props.style)
+              ?.fontSize,
+        );
     const keys = () => arrowKeysAround(body());
 
     // A / first in a block opens the Basic Blocks, unhighlighted, and VoiceOver hears it open.
@@ -2302,7 +2301,7 @@ describe('composing Drafts', () => {
       'Quote',
       'Code Block',
     ]);
-    expect(rows(true)).toStrictEqual([]);
+    expect(rows({ selected: true })).toStrictEqual([]);
     expect(AccessibilityInfo.announceForAccessibility).toHaveBeenLastCalledWith(
       'Slash commands',
     );
@@ -2311,12 +2310,12 @@ describe('composing Drafts', () => {
     // menu, keeping the text, and typing on does not reopen it.
     await typeEach('Hi\n/', 'he');
     expect(rows()).toStrictEqual(['Heading 1', 'Heading 2', 'Heading 3']);
-    expect(rows(true)).toStrictEqual(['Heading 1']);
+    expect(rows({ selected: true })).toStrictEqual(['Heading 1']);
     expect(keys().props).toHaveProperty('enabled', true);
     await fireEvent(keys(), 'arrow', { nativeEvent: { key: 'ArrowDown' } });
-    expect(rows(true)).toStrictEqual(['Heading 2']);
+    expect(rows({ selected: true })).toStrictEqual(['Heading 2']);
     await fireEvent(keys(), 'arrow', { nativeEvent: { key: 'ArrowUp' } });
-    expect(rows(true)).toStrictEqual(['Heading 1']);
+    expect(rows({ selected: true })).toStrictEqual(['Heading 1']);
     expect(keys().props).toHaveProperty('escape', true);
     await fireEvent(keys(), 'escape');
     expect(menu()).toBeNull();

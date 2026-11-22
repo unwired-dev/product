@@ -3838,7 +3838,9 @@ function useSlashMenu(
     choosing: kinds.length > 0,
     move: (key: string, body: SemanticDocument, at: Selection) => {
       const each = latest(body, at)?.kinds ?? [];
-      const index = Math.max(each.indexOf(chosenNow.current ?? 'paragraph'), 0);
+      const chosenKind = chosenNow.current;
+      const index =
+        chosenKind === undefined ? 0 : Math.max(each.indexOf(chosenKind), 0);
       const step = { ArrowDown: 1, ArrowUp: -1 }[key] ?? 0;
       choose(each[Math.min(Math.max(index + step, 0), each.length - 1)]);
     },
@@ -4000,6 +4002,21 @@ function BodySlashMenu({
     </BodyMenuAnchor>
   );
 }
+
+// The body's hardware keys for whichever menu shows, Recipient Suggestions or the Slash Command
+// Menu: Up and Down Arrow while either moves, Return and Tab while either chooses, and Escape for the
+// Slash Command Menu.
+const bodyMenuKeys = (
+  recipients: Pick<ReturnType<typeof useBodyRecipients>, 'moving' | 'choosing'>,
+  slash: Pick<
+    ReturnType<typeof useSlashMenu>,
+    'moving' | 'choosing' | 'shown' | 'close'
+  >,
+) => ({
+  moving: recipients.moving || slash.moving,
+  choosing: recipients.choosing || slash.choosing,
+  handleEscape: slash.shown === undefined ? undefined : slash.close,
+});
 
 // In a list, a hardware keyboard's Tab and Shift-Tab indent and outdent its items, unless Tab
 // chooses a Recipient Suggestion.
@@ -4185,6 +4202,8 @@ function Editor({
   };
   // The Format panel takes the pill's place too.
   const pillShown = !regular && !formatting;
+  // On iPhone the body's menus end 8pt above the floating pill's 44pt buttons, 10pt off the bottom.
+  const menuReserve = pillShown ? 10 + 44 + spacing.s : spacing.s;
   const bodyInput = useRef<TextInputInstance>(null);
   // While Send is pending the editor accepts no edits, so nothing typed then is lost.
   const [sending, setSending] = useState(false);
@@ -4255,6 +4274,7 @@ function Editor({
     paused: sending,
     pausedNow: sendingNow,
   });
+  const menuKeys = bodyMenuKeys(recipientMenu, slashMenu);
   // Where the body starts, for the Recipient Suggestions under its query.
   const [bodyTop, setBodyTop] = useState(0);
   // The editor's visible area, which those suggestions stay inside, and their placing in it.
@@ -4472,6 +4492,19 @@ function Editor({
     selectionNow.current = at;
     setPlaced(at);
   };
+  // Takes the Recipient Suggestion or block a menu highlights, if one does.
+  const chooseHighlighted = (latest: Draft, at: Selection) => {
+    const highlighted = recipientMenu.highlighted(latest, at);
+    if (highlighted !== undefined) {
+      chooseRecipient(highlighted);
+      return true;
+    }
+    if (slashMenu.choice(latest.body, at) === undefined) {
+      return false;
+    }
+    chooseBlock();
+    return true;
+  };
   const edit = (text: string) => {
     if (sendingNow.current) {
       return;
@@ -4493,20 +4526,11 @@ function Editor({
     const choosing =
       (inserted === '\n' && key === 'Enter') ||
       (inserted === '\t' && key === 'Tab');
-    const highlighted = choosing
-      ? recipientMenu.highlighted(latest, at)
-      : undefined;
-    const block = choosing ? slashMenu.choice(latest.body, at) : undefined;
-    if (highlighted !== undefined || block !== undefined) {
+    if (choosing && chooseHighlighted(latest, at)) {
       replaced.current = after ?? {
         start: at.start + 1,
         end: at.start + 1,
       };
-      if (highlighted === undefined) {
-        chooseBlock();
-      } else {
-        chooseRecipient(highlighted);
-      }
       return;
     }
     // Forward deletion leaves the caret in place. Backspace moves it, even without a key event.
@@ -5431,7 +5455,7 @@ function Editor({
             )}
             <ArrowKeys
               style={styles.bodyKeys}
-              enabled={recipientMenu.moving || slashMenu.moving}
+              enabled={menuKeys.moving}
               onArrow={(key) => {
                 if (slashMenu.moving) {
                   slashMenu.move(
@@ -5447,13 +5471,8 @@ function Editor({
                   );
                 }
               }}
-              tabs={listTabs(
-                kind,
-                recipientMenu.choosing || slashMenu.choosing,
-              )}
-              onEscape={
-                slashMenu.shown === undefined ? undefined : slashMenu.close
-              }
+              tabs={listTabs(kind, menuKeys.choosing)}
+              onEscape={menuKeys.handleEscape}
               onTab={(shift) => {
                 indent(shift ? 'outdent' : 'indent');
               }}
@@ -5547,8 +5566,7 @@ function Editor({
               bodyStyle={[styles.body, sized.body, parts.body]}
               viewport={viewport}
               placeRef={placeSuggestions}
-              // On iPhone they end 8pt above the floating pill's 44pt buttons, 10pt off the bottom.
-              reserve={pillShown ? 10 + 44 + spacing.s : spacing.s}
+              reserve={menuReserve}
               onAccept={chooseRecipient}
             />
             <BodySlashMenu
@@ -5559,7 +5577,7 @@ function Editor({
               bodyStyle={[styles.body, sized.body, parts.body]}
               viewport={viewport}
               placeRef={placeSuggestions}
-              reserve={pillShown ? 10 + 44 + spacing.s : spacing.s}
+              reserve={menuReserve}
               onChoose={chooseBlock}
             />
             {draft.quoted === undefined ? null : (

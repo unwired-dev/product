@@ -4166,6 +4166,67 @@ final class InboxTests: XCTestCase {
     waitUntil({ body.value as? String == nested }, timeout: 60)
   }
 
+  // #2656: a / first in a body block opens the Slash Command Menu's Basic Blocks; Escape closes it,
+  // typing filters them, Down and Return apply a heading and one Undo restores the typed text.
+  func testSlashMenu() throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-declined")
+    let app = XCUIApplication(bundleIdentifier: try XCTUnwrap(environment["UNWIRED_BUNDLE_ID"]))
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    app.launch()
+    XCTAssertTrue(app.staticTexts["Your mail,\non your devices."].waitForExistence(timeout: 60))
+    connectGmail(app)
+    XCTAssertTrue(
+      app.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 30))
+    app.buttons["New Message"].tap()
+    let subject = app.textFields["Subject"]
+    XCTAssertTrue(subject.waitForExistence(timeout: 15))
+    focus(subject) { self.hasFocus(subject) }
+    // XCUITest cannot type into the multiline body; hardware key presses reach it. A key the field
+    // drops while it re-renders is pressed once more (#1510).
+    let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
+      .firstMatch
+    focus(body) { !self.hasFocus(subject) }
+    let type = { (keys: String) in
+      for key in keys {
+        let before = body.value as? String
+        let changed = NSPredicate { _, _ in body.value as? String != before }
+        for _ in 0..<2 where body.value as? String == before {
+          self.press(String(key), in: app)
+          _ = XCTWaiter.wait(
+            for: [XCTNSPredicateExpectation(predicate: changed, object: nil)], timeout: 5)
+        }
+      }
+    }
+    let menu = app.descendants(matching: .any)["Slash commands"]
+    let row = { (name: String) in menu.buttons[name] }
+    type("Hi\n/")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    for name in ["Text", "Heading 1", "Heading 2", "Heading 3", "Bulleted List"] {
+      XCTAssertTrue(row(name).exists, name)
+    }
+    attachScreen("Slash Command Menu", of: app, to: self)
+    // Command-period reaches key commands as Escape on the simulator (#1396); it closes the menu
+    // and keeps the /, and a / typed again reopens it.
+    app.typeKey(".", modifierFlags: .command)
+    waitUntil({ !menu.exists && body.value as? String == "Hi\n/" }, timeout: 60)
+    app.typeKey(.delete, modifierFlags: [])
+    waitUntil({ body.value as? String == "Hi\n" }, timeout: 60)
+    type("/he")
+    XCTAssertTrue(menu.waitForExistence(timeout: 60))
+    waitUntil({ !row("Text").exists && row("Heading 3").exists }, timeout: 60)
+    XCTAssertTrue(row("Heading 1").isSelected)
+    attachScreen("Slash Command Menu filtered", of: app, to: self)
+    app.typeKey(.downArrow, modifierFlags: [])
+    waitUntil({ row("Heading 2").isSelected }, timeout: 60)
+    press("\n", in: app)
+    waitUntil({ !menu.exists && body.value as? String == "Hi\n" }, timeout: 60)
+    attachScreen("Heading 2 from the Slash Command Menu", of: app, to: self)
+    formatControl("Undo", in: app).tap()
+    waitUntil({ body.value as? String == "Hi\n/he" }, timeout: 60)
+  }
+
   private func inboxJourney(_ app: XCUIApplication) throws {
     let title = UIDevice.current.userInterfaceIdiom == .pad ? "All Inboxes" : "Inbox"
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 20))
