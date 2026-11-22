@@ -31,6 +31,7 @@ import {
   createContext,
   use,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -389,9 +390,22 @@ export function CommandPaletteProvider({
 }
 
 // The palette opened from inside a system sheet, shown over the sheet's content as on iPhone; the
-// window's palette lies beneath the sheet.
+// window's palette lies beneath the sheet. A sheet swiped away closes the palette it showed.
 export function SheetPalette() {
-  return use(SheetPaletteContext);
+  const palette = use(SheetPaletteContext);
+  const { close } = useCommandPalette();
+  const leave = useEffectEvent(() => {
+    if (palette !== null) {
+      close();
+    }
+  });
+  useEffect(
+    () => () => {
+      leave();
+    },
+    [],
+  );
+  return palette;
 }
 
 // The palette's frame: on iPad a popover beneath the command input that opened it, its field in

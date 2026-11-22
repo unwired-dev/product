@@ -107,7 +107,9 @@ function Reader({
             <InSheet value={sheet}>
               <Composer
                 id={composing}
-                onClose={ignore}
+                onClose={() => {
+                  setComposing(undefined);
+                }}
                 onRebind={setComposing}
               />
             </InSheet>
@@ -583,6 +585,20 @@ describe('iPad reader', () => {
           screen.getByTestId('sheet-content', { includeHiddenElements: true }),
         ).queryAllByTestId('command-palette'),
       ).toHaveLength(palettes);
+      // Leaving the composer, as the sheet's swipe does, leaves no palette open behind it.
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Close',
+          includeHiddenElements: true,
+        }),
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', {
+          name: 'Open Command Palette',
+          includeHiddenElements: true,
+        }),
+      );
+      expect(screen.getByTestId('command-palette')).toBeOnTheScreen();
     },
   );
 });
