@@ -302,7 +302,8 @@ Return or Tab, which then type nothing, sets the caret's block to the chosen
 kind and removes the slash query as one Undo step; a block already of that kind
 keeps it. Choosing Attach File… or Insert Image… removes the slash query as
 its own Undo step and opens the same picker as the format bar's Attach File
-or Insert Image; an inline image goes where the `/` was. With an iPad hardware
+or Insert Image; as from the format bar, an inline image goes at the caret,
+which the removal leaves where the `/` was. With an iPad hardware
 keyboard, Up and Down Arrow move the highlight through both sections and Escape
 or Command-period closes the menu. Insert Template…, the writing tools and the
 Mac menu are later slices

@@ -2476,6 +2476,12 @@ describe('composing Drafts', () => {
     await screen.findByLabelText('Inline image chart.png');
     expect(menu()).toBeNull();
     expect(lines()).toStrictEqual(['Hi', '￼']);
+    // The removed query and the image are separate Undo steps.
+    await openFormat();
+    await press('Undo');
+    expect(lines()).toStrictEqual(['Hi', '']);
+    await press('Undo');
+    expect(lines()).toStrictEqual(['Hi', '/im']);
 
     // Down Arrow moves on from the Basic Blocks into Insert, and Return opens Attach File…'s picker.
     await type('Hi');
