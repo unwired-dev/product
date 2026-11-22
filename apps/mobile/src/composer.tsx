@@ -36,7 +36,7 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 import type { SendReminder } from '@private-email/mail-core/send-reminders';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { ComponentProps, ReactNode, RefObject } from 'react';
+import type { ComponentProps, ReactNode, Ref, RefObject } from 'react';
 import type {
   StyleProp,
   ScrollViewInstance,
@@ -192,6 +192,7 @@ import {
   ToolbarButton,
 } from './design.tsx';
 import { DraftAssistance, DroppedAssistance } from './draft-assistance.tsx';
+import { ipad } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import {
   MailAssistanceProfileContext,
@@ -245,6 +246,8 @@ export const assetPickers = [
   ['drafts.assets.pasteImage', 'paste', true, 'doc.on.clipboard'],
 ] as const;
 
+// The space the floating pill takes at the bottom of the iPhone editor.
+const pillReserve = 44 + 2 * spacing.xs + 2 * spacing.s;
 // On iPhone the body and fields sit 20pt in, with an 80pt right-aligned label column.
 const inset = 20;
 const fieldInset = 16;
@@ -282,7 +285,12 @@ const styles = StyleSheet.create({
   pillGroup: { borderRadius: 26 },
   // The Format pill is 104pt wide in the frame: its two 44pt buttons sit 8pt from each end.
   formatPill: { paddingHorizontal: spacing.s },
-  pillInset: { paddingBottom: 44 + 2 * spacing.xs + 2 * spacing.s },
+  pillInset: { paddingBottom: pillReserve },
+  // Up to the pill's space between the Draft and the fields, so the last attachment clears it.
+  pillClear: { flexGrow: 1000, maxHeight: pillReserve },
+  // The iPhone body, or the space after its quoted text, takes the rest of the visible area.
+  filling: { flexGrow: 1 },
+  fixed: { flexGrow: 0 },
   // Open menus stack header over From over the format bar, whose layout-only rows Fabric
   // flattens into this column, so each menu opens over the rows that follow it.
   header: {
@@ -1302,13 +1310,22 @@ export function Recipients({
   editable,
   trailing,
   required = false,
+  revealed,
+  ref,
+  block,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
   readonly field: RecipientField;
+  // The field's entry, which Send focuses when it waits for this field.
+  readonly ref?: Ref<TextInputInstance>;
+  // The field with its reason, which a blocked Send scrolls into view.
+  readonly block?: Ref<ViewInstance>;
   readonly editable: boolean;
   // Whether Send waits for a recipient, which this field then asks for.
   readonly required?: boolean;
+  // The entry a blocked Send was pressed over, which says why while it is still being typed.
+  readonly revealed?: string | undefined;
   // A typing step when only the unfinished entry changed.
   readonly onChange: (draft: Draft, typing: boolean, field: string) => void;
   readonly onCaretMove: () => void;
@@ -1358,7 +1375,8 @@ export function Recipients({
     text: entryOf(draft, field),
     all: true,
   }).text;
-  const incomplete = !entering && entry !== '';
+  const incomplete =
+    (!entering || entryOf(draft, field) === revealed) && entry !== '';
   const requiredReason = required ? t('drafts.recipient.required') : undefined;
   const reason = incomplete
     ? t('drafts.recipient.incomplete', { address: entry })
@@ -1394,7 +1412,7 @@ export function Recipients({
     setNotice(result.notice);
   };
   return (
-    <View>
+    <View ref={block}>
       {first === undefined ? null : (
         <SuggestionMenu
           sections={suggestions}
@@ -1473,6 +1491,7 @@ export function Recipients({
           ))}
           <View style={[styles.entry, sized.entry]}>
             <TextInput
+              ref={ref}
               accessibilityLabel={name}
               accessibilityHint={incomplete ? reason : undefined}
               editable={editable}
@@ -2399,6 +2418,7 @@ export function SendButton({
   hint,
   titled = false,
   onPress,
+  onBlockedPress,
 }: {
   readonly disabled: boolean;
   // Why Send is unavailable, read after its name.
@@ -2406,6 +2426,8 @@ export function SendButton({
   // iPad names Send in a rounded button; iPhone keeps the arrow circle.
   readonly titled?: boolean;
   readonly onPress: () => void;
+  // A press while Send is unavailable, which shows the person what it waits for.
+  readonly onBlockedPress?: (() => void) | undefined;
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
@@ -2414,10 +2436,13 @@ export function SendButton({
       accessibilityLabel={t('drafts.send')}
       accessibilityHint={hint}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
+      // Pressable treats a disabled state as unpressable, so one that shows its reason is not.
+      accessibilityState={{
+        disabled: disabled && onBlockedPress === undefined,
+      }}
+      disabled={disabled && onBlockedPress === undefined}
       hitSlop={titled ? (44 - titledSendHeight) / 2 : undefined}
-      onPress={onPress}
+      onPress={disabled ? onBlockedPress : onPress}
       style={({ pressed }) => [
         titled ? styles.sendTitled : styles.circle,
         disabled
@@ -4058,6 +4083,137 @@ const bodyMenuKeys = (
 const listTabs = (kind: BlockKind, choosing: boolean) =>
   !choosing && isListKind(kind);
 
+// On iPhone the Draft fills the editor's visible area and Subject, To and Cc follow below it: the
+// body, or the space after quoted text, grows until the fields start below the fold, and up to the
+// floating pill's space keeps the last attachment clear of the pill. Pressing Send while it waits
+// for a recipient scrolls to the fields and focuses the one it waits for.
+function useFieldsBelowBody({
+  regular,
+  pillShown,
+  shown,
+  blocked,
+  saving,
+}: {
+  readonly regular: boolean;
+  readonly pillShown: boolean;
+  // The Draft as Send would take it, with its typed entries.
+  readonly shown: Draft;
+  readonly blocked: SendRefusal | undefined;
+  readonly saving: boolean;
+}) {
+  const [visibleHeight, setVisibleHeight] = useState(0);
+  const [fieldsHeight, setFieldsHeight] = useState(0);
+  // How tall the scrolled content is.
+  const contentHeight = useRef(0);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const toRef = useRef<TextInputInstance>(null);
+  const ccRef = useRef<TextInputInstance>(null);
+  const bccRef = useRef<TextInputInstance>(null);
+  const [revealed, setRevealed] = useState<{
+    readonly field: RecipientField;
+    readonly entry: string;
+  }>();
+  const visible = useRef(0);
+  const toBlock = useRef<ViewInstance>(null);
+  const ccBlock = useRef<ViewInstance>(null);
+  const bccBlock = useRef<ViewInstance>(null);
+  // The field a blocked Send revealed, scrolled to again as its reason and the keyboard resize the
+  // editor, while the Draft is unchanged, the field keeps focus and the person has not scrolled.
+  const pending = useRef<{
+    readonly field: RecipientField;
+    readonly draft: Draft;
+  }>(undefined);
+  const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
+  const blocks = { to: toBlock, cc: ccBlock, bcc: bccBlock };
+  // Focus alone leaves a field that already has it where it is: scroll its entry to the top with
+  // one 44pt row above it, or further while its reason would end under the floating pill, as far
+  // as the content goes.
+  const reveal = (field: RecipientField) => {
+    const input = inputs[field].current;
+    const block = blocks[field].current;
+    const content = scrollRef.current?.getInnerViewRef();
+    if (
+      input === null ||
+      block === null ||
+      content === null ||
+      content === undefined
+    ) {
+      return;
+    }
+    input.measureLayout(content, (_x, entryTop) => {
+      block.measureLayout(content, (...[, blockTop, , height]) => {
+        const shownEnd = visible.current - (pillShown ? pillReserve : 0);
+        const y = Math.min(
+          entryTop,
+          Math.max(entryTop - 44, blockTop + height - shownEnd),
+        );
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, Math.min(y, contentHeight.current - visible.current)),
+        });
+      });
+    });
+  };
+  const phone = !regular && !ipad;
+  const filled = phone && visibleHeight > 0;
+  const quoted = shown.quoted !== undefined;
+  // The field whose text Send refuses, as useBlockedSend finds it, or To.
+  const finished = finishedEntries(shown);
+  const waiting =
+    phone && !saving && (blocked === 'recipients' || blocked === 'entries')
+      ? ((['to', 'cc', 'bcc'] as const).find(
+          (field) => entryOf(finished, field) !== '',
+        ) ?? 'to')
+      : undefined;
+  const revealAgain = () => {
+    // An edit ends it for good, so Undo back to the Draft does not bring it back.
+    if (pending.current?.draft !== shown) {
+      pending.current = undefined;
+    } else if (inputs[pending.current.field].current?.isFocused() === true) {
+      reveal(pending.current.field);
+    }
+  };
+  return {
+    scrollRef,
+    toRef,
+    ccRef,
+    bccRef,
+    blocks,
+    onBlockedPress:
+      waiting === undefined
+        ? undefined
+        : () => {
+            pending.current = { field: waiting, draft: shown };
+            reveal(waiting);
+            inputs[waiting].current?.focus();
+            setRevealed({ field: waiting, entry: entryOf(shown, waiting) });
+          },
+    revealed: (field: RecipientField) =>
+      revealed?.field === field ? revealed.entry : undefined,
+    measureVisible: (height: number) => {
+      visible.current = height;
+      setVisibleHeight(height);
+      revealAgain();
+    },
+    measureFields: setFieldsHeight,
+    measureContent: (height: number) => {
+      contentHeight.current = height;
+      revealAgain();
+    },
+    stopRevealing: () => {
+      pending.current = undefined;
+    },
+    content: filled && {
+      minHeight:
+        visibleHeight + fieldsHeight + (pillShown ? pillReserve : spacing.s),
+    },
+    body: filled && !quoted && styles.filling,
+    // In a reply the space after the quoted text grows, not the space around the body.
+    bodyKeys: filled && quoted && styles.fixed,
+    afterQuoted: filled && quoted && styles.filling,
+    pillClear: filled && pillShown && styles.pillClear,
+  };
+}
+
 function Editor({
   initial,
   opening,
@@ -5059,6 +5215,22 @@ function Editor({
     change({ ...next, copies: true }, word, field);
   };
   const blocked = useBlockedSend({ shown: history.present, draft, docked });
+  const {
+    scrollRef,
+    toRef,
+    ccRef,
+    bccRef,
+    blocks,
+    onBlockedPress,
+    revealed,
+    ...below
+  } = useFieldsBelowBody({
+    regular,
+    pillShown,
+    shown: history.present,
+    blocked: blocked.blocked,
+    saving: closing === 'saving',
+  });
 
   const sender = (
     <SendingMailbox
@@ -5099,6 +5271,7 @@ function Editor({
         onPress={() => {
           void sendAsking();
         }}
+        onBlockedPress={onBlockedPress}
       />
     </SendMenu>
   );
@@ -5418,9 +5591,19 @@ function Editor({
         {regular ? formatBar : null}
         <View
           ref={viewport}
-          onLayout={() => placeSuggestions.current?.()}
+          onLayout={({ nativeEvent }) => {
+            below.measureVisible(nativeEvent.layout.height);
+            placeSuggestions.current?.();
+          }}
           style={styles.fill}>
           <ScrollView
+            ref={scrollRef}
+            onContentSizeChange={(_width, height) => {
+              below.measureContent(height);
+            }}
+            onScrollBeginDrag={() => {
+              below.stopRevealing();
+            }}
             onScroll={() => placeSuggestions.current?.()}
             scrollEventThrottle={16}
             contentContainerStyle={[
@@ -5428,6 +5611,7 @@ function Editor({
               sized.content,
               parts.content,
               pillShown && styles.pillInset,
+              below.content,
             ]}
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled">
@@ -5489,7 +5673,7 @@ function Editor({
               </View>
             )}
             <ArrowKeys
-              style={styles.bodyKeys}
+              style={[styles.bodyKeys, below.bodyKeys]}
               enabled={menuKeys.moving}
               onArrow={(key) => {
                 if (slashMenu.moving) {
@@ -5561,6 +5745,7 @@ function Editor({
                   styles.body,
                   sized.body,
                   parts.body,
+                  below.body,
                   { color: colors.textPrimary },
                 ]}
                 textAlignVertical="top">
@@ -5618,6 +5803,7 @@ function Editor({
             {draft.quoted === undefined ? null : (
               <QuotedText quoted={draft.quoted} />
             )}
+            <View style={below.afterQuoted} />
             <DraftAssets
               draft={draft}
               editable={!sending}
@@ -5629,7 +5815,12 @@ function Editor({
               onRemove={removeAsset}
               onResize={resizeAsset}
             />
-            <View style={[styles.fields, sized.fields]}>
+            <View style={below.pillClear} />
+            <View
+              onLayout={({ nativeEvent }) => {
+                below.measureFields(nativeEvent.layout.height);
+              }}
+              style={[styles.fields, sized.fields]}>
               <View
                 style={[
                   styles.field,
@@ -5690,6 +5881,9 @@ function Editor({
                 draft={draft}
                 getDraft={getDraft}
                 editable={!sending}
+                ref={toRef}
+                block={blocks.to}
+                revealed={revealed('to')}
                 field="to"
                 required={blocked.blocked === 'recipients' && !docked}
                 onChange={change}
@@ -5714,6 +5908,9 @@ function Editor({
                     draft={draft}
                     getDraft={getDraft}
                     editable={!sending}
+                    ref={ccRef}
+                    block={blocks.cc}
+                    revealed={revealed('cc')}
                     field="cc"
                     onChange={changeCopies}
                     onCaretMove={breakTyping}
@@ -5722,6 +5919,9 @@ function Editor({
                     draft={draft}
                     getDraft={getDraft}
                     editable={!sending}
+                    ref={bccRef}
+                    block={blocks.bcc}
+                    revealed={revealed('bcc')}
                     field="bcc"
                     onChange={changeCopies}
                     onCaretMove={breakTyping}
