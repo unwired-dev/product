@@ -1,7 +1,6 @@
 import { ok } from 'node:assert';
 
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
-import type { ReactNode } from 'react';
 import type { Platform } from 'react-native';
 
 import {
@@ -27,14 +26,10 @@ import {
   within,
 } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Dimensions, Modal, View } from 'react-native';
+import { Dimensions, View } from 'react-native';
 
-import {
-  CommandPaletteProvider,
-  InSheet,
-  SheetPalette,
-  useCloseSheetPalette,
-} from '../src/command-palette.tsx';
+import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import { ComposerSheet } from '../src/composer-sheet.tsx';
 import { Composer } from '../src/composer.tsx';
 import { InboxProvider, useLeaveComposer } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
@@ -79,35 +74,46 @@ function isScrollable(
 
 const ignore = () => undefined;
 
-// The composer's host, swiped away as the app's composer sheet is: the swipe closes the palette the
-// sheet shows, then leaves the composer, which may ask about its changes first.
+// The composer's host: the compact window's sheet, whose swipe leaves the composer as the app's
+// does, or the regular window's card.
 function ComposerHost({
-  children,
+  draft,
+  sheet,
   onLeft,
+  onRebind,
 }: {
-  readonly children: ReactNode;
+  readonly draft: string;
+  readonly sheet: boolean;
   readonly onLeft: () => void;
+  readonly onRebind: (draft: string) => void;
 }) {
   const leave = useLeaveComposer();
-  const closePalette = useCloseSheetPalette();
   const leaveSheet = async () => {
     if (await leave()) {
       onLeft();
     }
   };
-  return (
-    <Modal
-      testID="composer-sheet"
-      onRequestClose={() => {
-        closePalette();
+  const composer = (id: string) => (
+    <Composer
+      id={id}
+      onClose={onLeft}
+      onRebind={onRebind}
+    />
+  );
+  return sheet ? (
+    <ComposerSheet
+      draft={draft}
+      onLeave={() => {
         void leaveSheet();
-      }}>
-      <View
-        testID="sheet-content"
-        style={{ flex: 1 }}>
-        {children}
-      </View>
-    </Modal>
+      }}
+      composer={composer}
+    />
+  ) : (
+    <View
+      testID="composer-overlay"
+      style={{ flex: 1 }}>
+      {composer(draft)}
+    </View>
   );
 }
 
@@ -138,18 +144,13 @@ function Reader({
           />
         ) : (
           <ComposerHost
+            draft={composing}
+            sheet={sheet}
             onLeft={() => {
               setComposing(undefined);
-            }}>
-            <InSheet value={sheet}>
-              <Composer
-                id={composing}
-                onClose={ignore}
-                onRebind={setComposing}
-              />
-            </InSheet>
-            <SheetPalette />
-          </ComposerHost>
+            }}
+            onRebind={setComposing}
+          />
         )}
       </CommandPaletteProvider>
     </InboxProvider>
@@ -556,6 +557,58 @@ describe('iPad reader', () => {
   );
   /* oxlint-enable vitest/max-expects */
 
+  // A reader whose responses open the composer in the compact window's sheet, or the regular
+  // window's card, with its Reply's composer open.
+  const replyFromReader = async (sheet: boolean) => {
+    const snapshot: RegistrationSnapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify([
+        { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      ]),
+    };
+    const account = { snapshot, busy: false, failed: false };
+    const drafts = createDrafts(
+      createSyntheticDrafts(() => 'synthetic-product-account').native,
+      { getSnapshot: () => account, subscribe: () => ignore },
+    );
+    const gmail = createSyntheticGmail({ messages: 0 });
+    const message = gmail.deliver({
+      from: 'Maya Chen <maya@example.invalid>',
+      subject: 'iPad plans',
+      content: { text: 'Shall we meet on Friday?' },
+    });
+    const inbox = createInboxStore(gmail.native);
+    await render(
+      <AccountContext
+        value={{
+          mailboxes: mailboxesOf(snapshot),
+          openAccount: ignore,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox: (load) => load(),
+          account: 'synthetic-product-account',
+          profiles: [],
+          createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
+        }}>
+        <Reader
+          inbox={inbox}
+          drafts={drafts}
+          message={message}
+          sheet={sheet}
+        />
+      </AccountContext>,
+    );
+    await act(inbox.load);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Reply' }));
+    await screen.findByLabelText('Subject');
+  };
+  const palettesInComposer = () =>
+    within(
+      screen.getByTestId('composer-overlay', { includeHiddenElements: true }),
+    ).queryAllByTestId('command-palette');
+
   // The compact window's composer sheet owns the downward swipe; its Command input ends the From
   // row as the command symbol alone (#2133).
   it.each([
@@ -565,85 +618,17 @@ describe('iPad reader', () => {
     'offers one Command input in a compact composer, symbol-only in the sheet (sheet=$sheet)',
     async ({ sheet, labels, palettes }) => {
       expect.hasAssertions();
-      const snapshot: RegistrationSnapshot = {
-        kind: 'connected',
-        productAccountId: 'synthetic-product-account',
-        signInProvider: 'google',
-        mailboxes: JSON.stringify([
-          { id: alex, address: 'alex@example.invalid', state: 'connected' },
-        ]),
-      };
-      const account = { snapshot, busy: false, failed: false };
-      const drafts = createDrafts(
-        createSyntheticDrafts(() => 'synthetic-product-account').native,
-        { getSnapshot: () => account, subscribe: () => ignore },
-      );
-      const gmail = createSyntheticGmail({ messages: 0 });
-      const message = gmail.deliver({
-        from: 'Maya Chen <maya@example.invalid>',
-        subject: 'iPad plans',
-        content: { text: 'Shall we meet on Friday?' },
-      });
-      const inbox = createInboxStore(gmail.native);
-      await render(
-        <AccountContext
-          value={{
-            mailboxes: mailboxesOf(snapshot),
-            openAccount: ignore,
-            authorizeMailbox: () => Promise.resolve(),
-            refreshInbox: (load) => load(),
-            account: 'synthetic-product-account',
-            profiles: [],
-            createProfile: () => Promise.resolve(undefined),
-            chooseFolders: () => Promise.resolve(true),
-          }}>
-          <Reader
-            inbox={inbox}
-            drafts={drafts}
-            message={message}
-            sheet={sheet}
-          />
-        </AccountContext>,
-      );
-      await act(inbox.load);
-      await fireEvent.press(
-        await screen.findByRole('button', { name: 'Reply' }),
-      );
-      await screen.findByLabelText('Subject');
+      await replyFromReader(sheet);
       expect(screen.queryAllByText('Commands')).toHaveLength(labels);
       await fireEvent.press(
         screen.getByRole('button', { name: 'Open Command Palette' }),
       );
       // A sheet covers the window, so the palette its input opens shows over the sheet itself.
-      expect(
-        within(
-          screen.getByTestId('sheet-content', { includeHiddenElements: true }),
-        ).queryAllByTestId('command-palette'),
-      ).toHaveLength(palettes);
-      // Swiping away a composer with changes asks about them in place of the sheet's palette, and
-      // leaves no palette open behind the sheet.
-      await fireEvent.changeText(
-        screen.getByLabelText('Message body', { includeHiddenElements: true }),
-        'Friday works.',
-      );
-      await act(async () => {
-        await fireEvent(
-          screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
-          'requestClose',
-        );
-      });
-      await waitFor(() => {
-        expect(
-          within(
-            screen.getByTestId('sheet-content', {
-              includeHiddenElements: true,
-            }),
-          ).queryAllByTestId('command-palette'),
-        ).toHaveLength(0);
-      });
+      expect(palettesInComposer()).toHaveLength(palettes);
+      // Closing the composer leaves no palette open behind it.
       await fireEvent.press(
         screen.getByRole('button', {
-          name: 'Delete Draft',
+          name: 'Close',
           includeHiddenElements: true,
         }),
       );
@@ -668,11 +653,33 @@ describe('iPad reader', () => {
           includeHiddenElements: true,
         }),
       );
-      expect(
-        within(
-          screen.getByTestId('sheet-content', { includeHiddenElements: true }),
-        ).queryAllByTestId('command-palette'),
-      ).toHaveLength(palettes);
+      expect(palettesInComposer()).toHaveLength(palettes);
     },
   );
+
+  it('swipes a changed composer sheet to its Save or Delete question in place of its palette', async () => {
+    expect.hasAssertions();
+    await replyFromReader(true);
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      'Friday works.',
+    );
+    await act(async () => {
+      await fireEvent(
+        screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
+        'requestClose',
+      );
+    });
+    await waitFor(() => {
+      expect(palettesInComposer()).toHaveLength(0);
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Delete Draft' }));
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Open Command Palette' }),
+    );
+    expect(screen.getByTestId('command-palette')).toBeOnTheScreen();
+  });
 });

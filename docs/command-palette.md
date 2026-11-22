@@ -132,7 +132,8 @@ results never appear in the palette. The vocabulary lives in the
   ([#2133](https://github.com/unwired-dev/product/issues/2133)) a reader or
   Thread shown alone puts it in the navigation bar after the
   system Back with the mailbox's unread count, and the subject keeps its own
-  row. The composer there is the system sheet
+  row. Its palette attaches to the top of the window, as on iPhone, since UIKit
+  moves the bar's input out of the layout React measures. The composer there is the system sheet
   ([#2645](https://github.com/unwired-dev/product/issues/2645)). Its
   downward swipe leaves the composer, as Close does, asking Save Draft or
   Delete Draft when the Draft has changes, and closes the sheet's palette

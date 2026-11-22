@@ -515,7 +515,7 @@ function RegularHeader({ subject }: { readonly subject: string }) {
               styles.barTitle,
               { width: Math.min(barTitleWidth, width - 2 * barInset) },
             ]}>
-            <CommandInput />
+            <CommandInput bar />
           </View>
         </ReaderBar>
       )}

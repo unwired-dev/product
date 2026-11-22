@@ -908,10 +908,13 @@ export const InSheet = createContext(false);
 export function CommandInput({
   style,
   sheet = false,
+  bar = false,
 }: {
   readonly style?: StyleProp<ViewStyle>;
   // The sheet's own input, shown only inside a sheet.
   readonly sheet?: boolean;
+  // The navigation bar's input, which UIKit moves out of React's layout, so it cannot be measured.
+  readonly bar?: boolean;
 }) {
   const { open } = useCommandPalette();
   const colors = usePalette();
@@ -934,8 +937,9 @@ export function CommandInput({
         });
       }}
       onPress={() => {
-        // In a sheet the palette is attached to the sheet's top, as on iPhone.
-        open(sheet ? undefined : frame.current, sheet);
+        // From a sheet or a compact window's navigation bar the palette is attached to the top, as
+        // on iPhone.
+        open(sheet || bar ? undefined : frame.current, sheet);
       }}
       style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
       <Glass cornerRadius={18} />
