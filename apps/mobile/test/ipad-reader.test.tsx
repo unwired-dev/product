@@ -824,7 +824,7 @@ describe('iPad reader', () => {
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Delete Draft' }),
     );
-    // The sheet still shows the closed composer as it slides away; leaving again goes.
+    // The command runs once the sheet that showed the closed composer is gone.
     await waitFor(() => {
       expect(inbox).toHaveBeenCalledWith();
     });

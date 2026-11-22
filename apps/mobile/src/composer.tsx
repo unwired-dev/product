@@ -4493,9 +4493,6 @@ function Editor({
 
   // Set while Discard or Send finishes, which take the Draft as it was then.
   const discarded = useRef(false);
-  // The Draft as this composer closed with it. A sheet sliding away still shows the composer, and
-  // the route may reopen the same Draft in it; leaving asks again once it changes.
-  const left = useRef<typeof authored.current>(undefined);
   const update = useCallback((next: Draft) => {
     const previous = authored.current;
     const bound =
@@ -4945,7 +4942,6 @@ function Editor({
       // An unexpected storage rejection keeps the composer open and retryable too.
     }
     if (closed) {
-      left.current = authored.current;
       void closeRecord(authored.current.id);
     }
     finishOperation();
@@ -5122,9 +5118,6 @@ function Editor({
   const navigation = useComposerNavigation();
   useLayoutEffect(() =>
     navigation.register(async () => {
-      if (left.current === authored.current) {
-        return true;
-      }
       asked.current = false;
       if (await close()) {
         return true;

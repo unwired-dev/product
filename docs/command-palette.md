@@ -143,7 +143,8 @@ results never appear in the palette. The vocabulary lives in the
   opens the palette attached to the sheet's top, as on iPhone, even over a
   window palette left open beneath the sheet. The sheet covers the window its
   commands act on, such as Account, so a command chosen there first leaves the
-  composer, as the swipe does. Elsewhere, tapping the input or
+  composer, as the swipe does, and runs once the sheet is gone; reopening a
+  Draft in the sheet meanwhile drops it. Elsewhere, tapping the input or
   the header swipe opens the palette. Command-K from a hardware keyboard is
   deferred to [#2670](https://github.com/unwired-dev/product/issues/2670): React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
