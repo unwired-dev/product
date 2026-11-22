@@ -130,7 +130,7 @@ results never appear in the palette. The vocabulary lives in the
   or has no message or Draft to show, so one is on screen in every size class
   (a composer sheet's loading or failed state shows none). In a compact window
   ([#2133](https://github.com/unwired-dev/product/issues/2133)) a reader or
-  Thread shown alone puts it in the centre of the navigation bar, beside the
+  Thread shown alone puts it in the navigation bar after the
   system Back with the mailbox's unread count, and the subject keeps its own
   row. The composer there is the system sheet
   ([#2645](https://github.com/unwired-dev/product/issues/2645)), whose
