@@ -3053,13 +3053,25 @@ export function createInboxStore(
     shared.released(imageOwner);
   };
 
+  // How many synchronizations have started, and while registration verifies the mailbox again after
+  // an invalidated one, how many had started by the latest invalidation: the load after the
+  // verification runs only when no synchronization started since.
+  let synchronizations = 0;
+  let reverifyAfter: number | undefined = undefined;
   // Authentication and retry keep the shown mail; locked or unreadable storage hides it. A removed
   // device's data is already gone, so its Inbox waits for the account page instead.
   const unavailable = (kind: SyncFailure['kind']) => {
-    // The shown Inbox stays while a foreground restore verifies the mailbox again; the load after
-    // it synchronizes.
     if (kind !== 'invalidated' || shown === undefined) {
       publish({ kind: kind === 'locked' ? 'locked' : 'failed' });
+      return;
+    }
+    // The shown Inbox stays while a foreground restore verifies the mailbox again, then
+    // synchronizes once registration verifies it: an activation's restore may have no Inbox load
+    // after it. A synchronization invalidated meanwhile waits for the same verification.
+    const asking = reverifyAfter === undefined;
+    reverifyAfter = synchronizations;
+    if (asking) {
+      void reverify();
     }
   };
   // A usage limit waits for Gmail's named time, or else one minute doubling with each limit in a
@@ -3597,6 +3609,7 @@ export function createInboxStore(
           forgotten = false;
           authenticationRejected = false;
           speculativeFailure = false;
+          synchronizations += 1;
           return queued.length === 0
             ? synchronize
             : persistence
@@ -3616,6 +3629,24 @@ export function createInboxStore(
     return run;
   };
   const load = () => loadWhen();
+
+  // Synchronizes once registration verifies the mailbox again, unless the open Inbox changed or
+  // another synchronization started since the latest invalidation.
+  async function reverify() {
+    const invalidatedFor = ownership;
+    try {
+      await verify(() =>
+        loadWhen(
+          () =>
+            invalidatedFor === ownership && reverifyAfter === synchronizations,
+        ),
+      );
+    } catch {
+      // Registration reports its failure; the Inbox keeps its mail shown.
+    } finally {
+      reverifyAfter = undefined;
+    }
+  }
 
   // Synchronizes again after a usage limit's pause, unless the open Inbox changed meanwhile. A
   // timer waits at most about 24.8 days, so a later time of Gmail's waits again until it comes.
