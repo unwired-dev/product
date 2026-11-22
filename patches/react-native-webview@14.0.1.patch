@@ -72,7 +72,7 @@ index 1f637c1..9293688 100644
  
  
 diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
-index 3890426..8227de1 100644
+index 3890426..f0e8bc9 100644
 --- a/apple/RNCWebViewImpl.m
 +++ b/apple/RNCWebViewImpl.m
 @@ -13,6 +13,7 @@
@@ -224,7 +224,7 @@ index 3890426..8227de1 100644
  
      if (_webView != nil) {
        [self visitSource];
-@@ -816,6 +873,25 @@ - (void)setSource:(NSDictionary *)source
+@@ -816,6 +873,27 @@ - (void)setSource:(NSDictionary *)source
    }
  }
  
@@ -238,7 +238,9 @@ index 3890426..8227de1 100644
 +}
 +
 +// Product patch: the reader's zoom, applied to the mounted document as the app's own style, so
-+// the navigation, its selection and its scroll stay. Zero leaves the document's own zoom.
++// the navigation, its selection and its scroll stay. Zero leaves the document's own zoom. A zoomed
++// document measures its own content, as the root never measures shorter than the view a zoom-out
++// leaves taller.
 +- (void)setMessageZoom:(double)zoom
 +{
 +  if (_messageZoom != zoom) {
@@ -250,7 +252,7 @@ index 3890426..8227de1 100644
  - (void)setAllowingReadAccessToURL:(NSString *)allowingReadAccessToURL
  {
    if (![_allowingReadAccessToURL isEqualToString:allowingReadAccessToURL]) {
-@@ -1575,6 +1651,13 @@ -(void)appWillResignActive
+@@ -1575,6 +1653,13 @@ -(void)appWillResignActive
    }
  }
  
@@ -264,7 +266,7 @@ index 3890426..8227de1 100644
  /**
   * Called when the navigation is complete.
   * @see https://fburl.com/rtys6jlb
-@@ -1589,6 +1672,94 @@ - (void)webView:(WKWebView *)webView
+@@ -1589,6 +1674,94 @@ - (void)webView:(WKWebView *)webView
    if (_onLoadingFinish) {
      _onLoadingFinish([self baseEvent]);
    }
@@ -312,7 +314,7 @@ index 3890426..8227de1 100644
 +  // the character at the reader's top is found first: a document taller than the view keeps it in
 +  // its own scroll, one that grows past the reader's 20,000pt cap scrolls by the excess, and the
 +  // measurement reports how far it moved for the reader.
-+  [_webView callAsyncJavaScript:@"globalThis.__unwiredRemoteRevision = revision;\nconst root = document.documentElement, body = document.body;\nif (zoom > 0 && body) body.style.setProperty('zoom', String(zoom));\nconst fitted = Boolean(body) && getComputedStyle(root).getPropertyValue('--unwired-fit').trim() === '1';\nconst before = globalThis.__unwiredFitScale ?? 1;\nlet mark = null;\nfor (let x = 1; fitted && !mark && x < window.innerWidth; x += 1) {\n  const range = document.caretRangeFromPoint(x, Math.min(Math.max(reading, 0), Math.max(window.innerHeight - 1, 0))), node = range && range.startContainer;\n  if (node && node.nodeType === Node.TEXT_NODE && range.startOffset < node.length && !node.parentElement.closest('[data-remote]')) {\n    range.setEnd(node, range.startOffset + 1);\n    mark = range;\n  }\n}\nconst from = mark ? mark.getBoundingClientRect().top : 0, capped = root.scrollHeight > window.innerHeight + 1;\nconst pending = [];\nfor (const element of document.querySelectorAll('[data-remote]')) {\n  const index = Number(element.dataset.remote), html = nodes[index];\n  if (typeof html !== 'string') continue;\n  const template = document.createElement('template');\n  template.innerHTML = html;\n  const next = template.content.firstElementChild;\n  if (template.content.childNodes.length !== 1 || !next || !['IMG', 'SPAN'].includes(next.tagName) || Number(next.dataset.remote) !== index) throw new Error('Invalid remote node');\n  if (next.tagName === 'IMG' && !next.getAttribute('src').startsWith('data:image/')) throw new Error('Nonlocal remote image');\n  if (element.outerHTML === next.outerHTML) continue;\n  element.replaceWith(next);\n  if (next.tagName === 'IMG') pending.push(next.decode().catch(() => undefined));\n}\nawait Promise.all(pending);\nif (globalThis.__unwiredRemoteRevision !== revision) return null;\nlet height = root.scrollHeight, shift = 0;\nif (fitted) {\n  for (const property of ['transform', 'width', 'min-width']) body.style.removeProperty(property);\n  const view = root.clientWidth;\n  const leftmost = () => Math.min(0, ...Array.from(body.getElementsByTagName('*'), (element) => element.getBoundingClientRect().left));\n  let left = leftmost();\n  if (root.scrollWidth > view || left < -0.5) {\n    body.style.setProperty('width', 'fit-content');\n    body.style.setProperty('min-width', '100%');\n    left = leftmost();\n  }\n  const offset = left < -0.5 ? -left : 0, wide = root.scrollWidth + offset;\n  const scale = wide > view ? Math.floor((view * 10000) / wide) / 10000 || view / wide : 1;\n  const zoom = parseFloat(getComputedStyle(body).zoom) || 1;\n  if (scale !== 1 || offset) body.style.setProperty('transform', 'translateX(' + (offset * scale) / zoom + 'px) scale(' + scale + ')');\n  globalThis.__unwiredFitScale = scale;\n  height = Math.max(1, Math.ceil(body.getBoundingClientRect().bottom + window.scrollY));\n  if (scale !== before) {\n    if (capped && height > window.innerHeight) window.scrollTo(window.scrollX, mark ? window.scrollY + mark.getBoundingClientRect().top - from : (window.scrollY * scale) / before);\n    else window.scrollTo(window.scrollX, mark && reading > 0 && reading < window.innerHeight ? Math.max(0, Math.min(window.scrollY + mark.getBoundingClientRect().top - from, height - cap)) : 0);\n    shift = mark ? mark.getBoundingClientRect().top - from : 0;\n  }\n}\nreturn [root.scrollWidth, height, Array.from(document.querySelectorAll('[data-remote]'), (element) => { const box = element.getBoundingClientRect(); return [Number(element.dataset.remote), box.top + window.scrollY, box.bottom + window.scrollY]; }), shift];"
++  [_webView callAsyncJavaScript:@"globalThis.__unwiredRemoteRevision = revision;\nconst root = document.documentElement, body = document.body;\nif (zoom > 0 && body) body.style.setProperty('zoom', String(zoom));\nconst fitted = Boolean(body) && getComputedStyle(root).getPropertyValue('--unwired-fit').trim() === '1';\nconst before = globalThis.__unwiredFitScale ?? 1;\nlet mark = null;\nfor (let x = 1; fitted && !mark && x < window.innerWidth; x += 1) {\n  const range = document.caretRangeFromPoint(x, Math.min(Math.max(reading, 0), Math.max(window.innerHeight - 1, 0))), node = range && range.startContainer;\n  if (node && node.nodeType === Node.TEXT_NODE && range.startOffset < node.length && !node.parentElement.closest('[data-remote]')) {\n    range.setEnd(node, range.startOffset + 1);\n    mark = range;\n  }\n}\nconst from = mark ? mark.getBoundingClientRect().top : 0, capped = root.scrollHeight > window.innerHeight + 1;\nconst pending = [];\nfor (const element of document.querySelectorAll('[data-remote]')) {\n  const index = Number(element.dataset.remote), html = nodes[index];\n  if (typeof html !== 'string') continue;\n  const template = document.createElement('template');\n  template.innerHTML = html;\n  const next = template.content.firstElementChild;\n  if (template.content.childNodes.length !== 1 || !next || !['IMG', 'SPAN'].includes(next.tagName) || Number(next.dataset.remote) !== index) throw new Error('Invalid remote node');\n  if (next.tagName === 'IMG' && !next.getAttribute('src').startsWith('data:image/')) throw new Error('Nonlocal remote image');\n  if (element.outerHTML === next.outerHTML) continue;\n  element.replaceWith(next);\n  if (next.tagName === 'IMG') pending.push(next.decode().catch(() => undefined));\n}\nawait Promise.all(pending);\nif (globalThis.__unwiredRemoteRevision !== revision) return null;\nlet height = zoom > 0 ? Math.max(1, Math.ceil(Math.max(root.getBoundingClientRect().bottom, ...Array.from(root.getElementsByTagName('*'), (element) => element.getBoundingClientRect().bottom)) + window.scrollY)) : root.scrollHeight, shift = 0;\nif (fitted) {\n  for (const property of ['transform', 'width', 'min-width']) body.style.removeProperty(property);\n  const view = root.clientWidth;\n  const leftmost = () => Math.min(0, ...Array.from(body.getElementsByTagName('*'), (element) => element.getBoundingClientRect().left));\n  let left = leftmost();\n  if (root.scrollWidth > view || left < -0.5) {\n    body.style.setProperty('width', 'fit-content');\n    body.style.setProperty('min-width', '100%');\n    left = leftmost();\n  }\n  const offset = left < -0.5 ? -left : 0, wide = root.scrollWidth + offset;\n  const scale = wide > view ? Math.floor((view * 10000) / wide) / 10000 || view / wide : 1;\n  const zoom = parseFloat(getComputedStyle(body).zoom) || 1;\n  if (scale !== 1 || offset) body.style.setProperty('transform', 'translateX(' + (offset * scale) / zoom + 'px) scale(' + scale + ')');\n  globalThis.__unwiredFitScale = scale;\n  height = Math.max(1, Math.ceil(body.getBoundingClientRect().bottom + window.scrollY));\n  if (scale !== before) {\n    if (capped && height > window.innerHeight) window.scrollTo(window.scrollX, mark ? window.scrollY + mark.getBoundingClientRect().top - from : (window.scrollY * scale) / before);\n    else window.scrollTo(window.scrollX, mark && reading > 0 && reading < window.innerHeight ? Math.max(0, Math.min(window.scrollY + mark.getBoundingClientRect().top - from, height - cap)) : 0);\n    shift = mark ? mark.getBoundingClientRect().top - from : 0;\n  }\n}\nreturn [root.scrollWidth, height, Array.from(document.querySelectorAll('[data-remote]'), (element) => { const box = element.getBoundingClientRect(); return [Number(element.dataset.remote), box.top + window.scrollY, box.bottom + window.scrollY]; }), shift];"
 +                      arguments:@{@"nodes": nodes, @"revision": @(revision), @"reading": @(reading), @"cap": @20000, @"zoom": @(_messageZoom)}
 +                        inFrame:nil
 +                 inContentWorld:WKContentWorld.defaultClientWorld
@@ -359,7 +361,7 @@ index 3890426..8227de1 100644
  }
  
  - (void)cookiesDidChangeInCookieStore:(WKHTTPCookieStore *)cookieStore
-@@ -1844,6 +2015,13 @@ - (void)syncCookiesToWebView:(void (^)(void))completion {
+@@ -1844,6 +2017,13 @@ - (void)syncCookiesToWebView:(void (^)(void))completion {
  
  - (void)resetupScripts:(WKWebViewConfiguration *)wkWebViewConfig {
    [wkWebViewConfig.userContentController removeAllUserScripts];

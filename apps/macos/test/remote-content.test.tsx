@@ -217,7 +217,7 @@ describe('remote message content in the reader', () => {
     const settings = settingsWith(null);
     await settings.load();
     const later = 'https://images.example/later.png';
-    const { gmail, app } = await openReader(
+    const { gmail, app, scroll } = await openReader(
       settings,
       `<p>Weekly news</p><img src="${source}" alt="Photo"><img src="${later}" alt="Later">`,
     );
@@ -240,9 +240,19 @@ describe('remote message content in the reader', () => {
         fireEvent.press(screen.getByRole('button', { name: 'Load Images' }));
       });
       const first = [...gmail.remoteFetches];
+      // WebKit scrolls its 30,000-point document to the end of the 20,000-point view, and the
+      // reader brings that view's lower part near.
       await act(() => {
         fireEvent.scroll(webview, {
-          nativeEvent: { contentOffset: { x: 0, y: 24_800 } },
+          nativeEvent: { contentOffset: { x: 0, y: 10_000 } },
+        });
+      });
+      await act(() => {
+        fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y: 14_600 },
+            layoutMeasurement: { height: 600 },
+          },
         });
       });
       expect({ first, scrolled: gmail.remoteFetches }).toStrictEqual({
