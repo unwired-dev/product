@@ -3590,6 +3590,7 @@ function useBodyRecipients(
 // draws the menu from where it grows, the height it may take and a report of its rows' height.
 function BodyMenuAnchor({
   start,
+  end,
   display,
   top,
   bodyStyle,
@@ -3599,6 +3600,8 @@ function BodyMenuAnchor({
   children,
 }: {
   readonly start: number;
+  // The caret, where the query and the copied line end.
+  readonly end: number;
   readonly display: ReturnType<typeof displayOf>;
   // Where the body starts.
   readonly top: number;
@@ -3641,10 +3644,22 @@ function BodyMenuAnchor({
       placeRef.current = undefined;
     };
   });
-  const lines = display.lines.slice(
-    0,
-    display.text.slice(0, start).split('\n').length,
-  );
+  // The lines up to the caret: text after it may wrap below the line the menu hangs from.
+  const lineStart = display.text.lastIndexOf('\n', start - 1) + 1;
+  const lines = display.lines
+    .slice(0, display.text.slice(0, start).split('\n').length)
+    .map((line, index, all) => {
+      if (index < all.length - 1) {
+        return line;
+      }
+      let left = end - lineStart - line.marker.length;
+      const spans = line.spans.flatMap((span) => {
+        const text = span.text.slice(0, Math.max(left, 0));
+        left -= span.text.length;
+        return text === '' ? [] : [{ ...span, text }];
+      });
+      return { ...line, spans };
+    });
   const copy = (each: typeof lines) =>
     each.map((line, index) => (
       <Text
@@ -3710,7 +3725,7 @@ function BodyRecipientMenu({
   shown,
   onAccept,
   ...anchor
-}: Omit<ComponentProps<typeof BodyMenuAnchor>, 'start' | 'children'> & {
+}: Omit<ComponentProps<typeof BodyMenuAnchor>, 'start' | 'end' | 'children'> & {
   readonly shown: ReturnType<typeof useBodyRecipients>['shown'];
   readonly onAccept: (recipient: Recipient) => void;
 }) {
@@ -3721,6 +3736,7 @@ function BodyRecipientMenu({
   return (
     <BodyMenuAnchor
       start={shown.sections.query.start}
+      end={shown.sections.query.end}
       {...anchor}>
       {({ origin, maxHeight, onContentHeight }) => (
         <SuggestionMenu
@@ -3885,7 +3901,7 @@ function BodySlashMenu({
   titleOf,
   onChoose,
   ...anchor
-}: Omit<ComponentProps<typeof BodyMenuAnchor>, 'start' | 'children'> & {
+}: Omit<ComponentProps<typeof BodyMenuAnchor>, 'start' | 'end' | 'children'> & {
   readonly shown: ReturnType<typeof useSlashMenu>['shown'];
   readonly titleOf: (kind: BlockKind) => string;
   readonly onChoose: (kind: BlockKind) => void;
@@ -3920,6 +3936,7 @@ function BodySlashMenu({
   return (
     <BodyMenuAnchor
       start={shown.query.start}
+      end={shown.query.end}
       {...anchor}>
       {({ origin, maxHeight, onContentHeight }) => {
         maxHeightNow.current = maxHeight;

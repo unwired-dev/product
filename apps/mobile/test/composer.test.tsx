@@ -2359,6 +2359,20 @@ describe('composing Drafts', () => {
     await press('Undo');
     expect(lines()).toStrictEqual(['Hi', '• /he']);
     expect(sizes()[1]).toBeUndefined();
+
+    // Before existing text the menu hangs from the caret's line: its measured copy ends there.
+    await type('Hi\nthere');
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 3, end: 3 } },
+    });
+    await fireEvent.changeText(body(), 'Hi\n/there');
+    await fireEvent(body(), 'selectionChange', {
+      nativeEvent: { selection: { start: 4, end: 4 } },
+    });
+    expect(menu()).not.toBeNull();
+    expect(
+      screen.queryAllByText('/', { includeHiddenElements: true }),
+    ).not.toHaveLength(0);
   });
 
   it('stores edits made while retrying a refused Save Draft', async () => {
