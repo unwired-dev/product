@@ -305,7 +305,10 @@ Each Mail Profile's Inbox preferences, today its Thread-list density
 `profile-inbox-preferences.` record under an identifier derived from the Profile's,
 holding each preference's latest value and when it was chosen
 ([ADR 0019](adr/0019-sync-mail-workflow-preferences-not-device-state.md)). Devices
-merge them preference by preference, the later choice winning, in the same way.
+merge them preference by preference, the later choice winning, in the same way, except
+that a Favorites or folder change made from an order another device has since replaced
+gives way to that device's order
+([#2628](https://github.com/unwired-dev/product/issues/2628)).
 
 Older clients can't keep Profiles apart either: they would show every Profile's
 connections in their only window. Convex fences them out without learning anything about

@@ -46,38 +46,49 @@ const shownField = (connection: string) => `sectionShown:${connection}`;
 const foldersField = (connection: string) => `sectionFolders:${connection}`;
 
 // One preference's latest value and when it was chosen, in milliseconds since the epoch. A field
-// this build does not know is kept and published as it was. A Favorites or folder change made here
-// keeps `from`, when the value Private Sync held as it was made was chosen (0 for none), and once a
-// pass publishes it `sent`, when the change it published was chosen. Private Sync holds neither.
+// this build does not know is kept and published as it was.
+const ChosenSchema = Schema.Struct({ value: Schema.Json, at: Schema.Finite });
+type Chosen = typeof ChosenSchema.Type;
+// A Favorites or folder change made here also keeps, until Private Sync holds it, `base`: the value
+// it was made from (null for none), and once a pass publishes it, `sent`: what it published.
+// Private Sync holds neither.
 const FieldSchema = Schema.Struct({
-  value: Schema.Json,
-  at: Schema.Finite,
-  from: Schema.optionalKey(Schema.Finite),
-  sent: Schema.optionalKey(Schema.Finite),
+  ...ChosenSchema.fields,
+  base: Schema.optionalKey(Schema.NullOr(ChosenSchema)),
+  sent: Schema.optionalKey(ChosenSchema),
 });
 type Field = typeof FieldSchema.Type;
 type Fields = Readonly<Record<string, Field>>;
+// `field` without what only this device keeps.
+const plain = ({ value, at }: Chosen): Chosen => ({ value, at });
+const same = (left: Chosen, right: Chosen) =>
+  left.at === right.at &&
+  JSON.stringify(left.value) === JSON.stringify(right.value);
 // `fields` as Private Sync holds them.
 const published = (fields: Fields): Fields =>
   Object.fromEntries(
-    Object.entries(fields).map(([name, { value, at }]) => [
-      name,
-      { value, at },
-    ]),
+    Object.entries(fields).map(([name, field]) => [name, plain(field)]),
   );
 // Whether `fields` hold a change made here that no pass has published yet.
 const unsent = (fields: Fields) =>
   Object.values(fields).some(
-    ({ at, from, sent }) => from !== undefined && sent !== at,
+    (field) =>
+      field.base !== undefined &&
+      (field.sent === undefined || !same(field.sent, field)),
   );
 // `fields` with each change made here marked as published.
 const sending = (fields: Fields): Fields =>
   Object.fromEntries(
     Object.entries(fields).map(([name, field]) => [
       name,
-      field.from === undefined ? field : { ...field, sent: field.at },
+      field.base === undefined ? field : { ...field, sent: plain(field) },
     ]),
   );
+// A change made from `field`: from its value, or from what an unpublished change was made from.
+const madeFrom = (field: Field | undefined) => ({
+  base: field === undefined ? null : (field.base ?? plain(field)),
+  ...(field?.sent === undefined ? {} : { sent: field.sent }),
+});
 // A Mail Profile's Inbox presentation preferences (ADR 0019's `mail-workflow-preferences:inbox`),
 // as this device keeps them and as the Profile's record seals them.
 const ProfilePreferencesSchema = Schema.Struct({
@@ -180,20 +191,34 @@ const report = reportPreference('Inbox preference');
 // Each field's later value. At the same instant the greater JSON wins, so devices converge whatever
 // order they merge in. A change made here from a value another device has since replaced gives way
 // to that device's value, so a move made from an order it has since changed replaces nothing.
+// Whether `field` from Private Sync replaces `kept`. A change made here gives way to any value
+// other than the one it was made from.
+const replaces = (field: Chosen, kept: Field | undefined) => {
+  if (kept?.base === undefined) {
+    return (
+      kept === undefined ||
+      field.at > kept.at ||
+      (field.at === kept.at &&
+        JSON.stringify(field.value) > JSON.stringify(kept.value))
+    );
+  }
+  return (
+    kept.base === null || (field.at >= kept.base.at && !same(field, kept.base))
+  );
+};
 const merged = (local: Fields, remote: Fields): Fields => {
   const next: Record<string, Field> = { ...local };
   for (const [name, field] of Object.entries(remote)) {
     const kept = next[name];
-    if (kept?.sent === field.at && kept.at > field.at) {
-      // Private Sync holds a change made here, which the later one here was made from.
-      next[name] = { value: kept.value, at: kept.at, from: field.at };
-    } else if (
-      kept === undefined ||
-      field.at > (kept.from ?? kept.at) ||
-      (field.at === kept.at &&
-        JSON.stringify(field.value) > JSON.stringify(kept.value))
+    if (
+      kept?.sent !== undefined &&
+      kept.at > field.at &&
+      same(kept.sent, field)
     ) {
-      next[name] = field;
+      // Private Sync holds a change made here, which the later one here was made from.
+      next[name] = { ...plain(kept), base: plain(field) };
+    } else if (replaces(field, kept)) {
+      next[name] = plain(field);
     }
   }
   return next;
@@ -474,15 +499,7 @@ export function createInboxPreferences(
                 [name]: {
                   value: chosen,
                   at: Math.max(Date.now(), (field?.at ?? 0) + 1),
-                  // Made from the stored value, or from what an unpublished change was made from.
-                  ...(typeof value === 'function'
-                    ? {
-                        from: field?.from ?? field?.at ?? 0,
-                        ...(field?.sent === undefined
-                          ? {}
-                          : { sent: field.sent }),
-                      }
-                    : {}),
+                  ...(typeof value === 'function' ? madeFrom(field) : {}),
                 },
               });
         }, kept),
