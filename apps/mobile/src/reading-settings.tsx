@@ -1,3 +1,4 @@
+import { messageZooms } from '@private-email/mail-core/message-body';
 import {
   ipadListScale,
   spacing,
@@ -10,7 +11,6 @@ import type { SettingsDestination } from './settings.tsx';
 import { MenuButton } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import {
-  messageZooms,
   setFitWideMessages,
   setMessageZoom,
   useFitWideMessages,

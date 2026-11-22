@@ -51,6 +51,7 @@ import {
   decodeMessageFitShift,
   decodeRemoteImagePositions,
   labelImagePlaceholders,
+  zoomedDocument,
 } from '@private-email/mail-core/message-body';
 import { ipadListScale, spacing } from '@private-email/mail-core/theme';
 import { setStringAsync } from 'expo-clipboard';
@@ -88,7 +89,6 @@ import {
   fittedDocument,
   useFitWideMessages,
   useMessageZoom,
-  zoomedDocument,
 } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { usePalette } from './theme.ts';

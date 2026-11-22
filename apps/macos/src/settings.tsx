@@ -15,6 +15,7 @@ export type SettingsDestination =
   | 'account'
   | 'mailboxes'
   | 'profiles'
+  | 'reading'
   | 'signatures'
   | 'notifications'
   | 'blockedSenders'
@@ -32,6 +33,7 @@ const sections = [
       { id: 'profiles', icon: 'person.crop.rectangle.stack' },
     ],
   },
+  { title: 'mail', items: [{ id: 'reading', icon: 'text.book.closed' }] },
   { title: 'composing', items: [{ id: 'signatures', icon: 'signature' }] },
   {
     title: 'automation',

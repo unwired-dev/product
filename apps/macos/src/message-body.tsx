@@ -26,6 +26,7 @@ import {
   decodeMessageContentSize,
   decodeRemoteImagePositions,
   labelImagePlaceholders,
+  zoomedDocument,
 } from '@private-email/mail-core/message-body';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
@@ -64,6 +65,7 @@ import { useLocalization } from './localization.ts';
 import { useProviderName } from './mailbox.tsx';
 import { styles } from './message-body-styles.ts';
 import { AssistanceContext, MessageSummary } from './message-summary.tsx';
+import { useMessageZoom } from './reading.ts';
 import { useRemoteImages } from './remote-content.tsx';
 import { windowHost } from './settings-window-client.ts';
 import { usePalette } from './theme.ts';
@@ -439,14 +441,17 @@ export function ReaderScrollView({
 // The sanitized document in an isolated WebKit view: no page JavaScript, non-persistent data,
 // no link previews, and every navigation cancelled. A chosen link goes to the confirmation.
 // The view stays hidden behind a placeholder until its first layout is measured. Blocked remote
-// images within one viewport of the visible range are reported as they come near.
+// images within one viewport of the visible range are reported as they come near. The document
+// takes the reader's Message Zoom.
 function RichDocument({
   rich,
+  zoom,
   onChoose,
   onFailure,
   onNear,
 }: {
   readonly rich: NonNullable<MessagePresentation['rich']>;
+  readonly zoom: number;
   readonly onChoose: (link: BodyLink) => void;
   readonly onFailure: () => void;
   readonly onNear: (urls: readonly string[]) => void;
@@ -457,9 +462,12 @@ function RichDocument({
   const [width, setWidth] = useState<number>();
   // oxlint-disable-next-line react/hook-use-state -- This mounted navigation keeps its original source.
   const [source] = useState(() => ({
-    html: labelImagePlaceholders(
-      rich.initialDocument,
-      t('messageBody.imageNotLoaded'),
+    html: zoomedDocument(
+      labelImagePlaceholders(
+        rich.initialDocument,
+        t('messageBody.imageNotLoaded'),
+      ),
+      zoom,
     ),
   }));
   const container = useRef<View>(null);
@@ -606,6 +614,7 @@ export function Presentation({
   const colors = usePalette();
   const { t } = useLocalization();
   const { rich, readable } = presentation;
+  const zoom = useMessageZoom();
   // A new source gets a new native view; remote-image node changes keep this navigation.
   const [navigation, setNavigation] = useState(() => ({
     document: rich?.initialDocument,
@@ -655,8 +664,9 @@ export function Presentation({
       ) : (
         <>
           <RichDocument
-            key={richKey}
+            key={`${richKey}:${zoom}`}
             rich={rich}
+            zoom={zoom / 100}
             onNear={onNear}
             onChoose={onChoose}
             onFailure={() => {
