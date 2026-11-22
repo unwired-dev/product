@@ -107,6 +107,12 @@ export const SaveOutcomeContext = createContext<
   (() => (outcome: SaveOutcome) => void) | undefined
 >(undefined);
 
+// Whether the reader's Profile saves received attachments to Downloads on this Mac, and how a copy
+// saved there remembers it; none outside a signed-in reader.
+export const DownloadsContext = createContext<
+  Readonly<{ remembered: boolean; remember: () => void }> | undefined
+>(undefined);
+
 async function openLink(href: string) {
   try {
     await Linking.openURL(href);
@@ -717,7 +723,12 @@ type AttachmentSource = Pick<
   | 'cancelAttachment'
   | 'presentAttachment'
   | 'saveAttachmentCopy'
+  | 'saveAttachmentToDownloads'
   | 'attachmentFile'
+>;
+type SaveReply = Exclude<
+  Awaited<ReturnType<AttachmentSource['saveAttachmentToDownloads']>>,
+  Readonly<{ exists: string }>
 >;
 // Starts a new message with a Downloaded Attachment, where the reader can open a composer. The
 // file is resolved only after leaving an open composer.
@@ -744,7 +755,17 @@ function AttachmentRow({
   const colors = usePalette();
   const attach = use(AttachContext);
   const report = use(SaveOutcomeContext);
+  const downloads = use(DownloadsContext);
   const window = useWindowIdentifier();
+  const anchor = useRef<View>(null);
+  const asking = useRef<ReturnType<typeof askInSheet>>(undefined);
+  // Leaving the reader withdraws a name-collision question still open.
+  useLayoutEffect(
+    () => () => {
+      asking.current?.retire();
+    },
+    [],
+  );
   const { t, settings } = useLocalization();
   const sizeFormat = useMemo(
     () => new Intl.NumberFormat(settings.locale, { maximumFractionDigits: 1 }),
@@ -801,8 +822,23 @@ function AttachmentRow({
         });
       }
     };
-    // Saves a copy where the person chooses, and tells the reader what happened unless they
-    // cancelled; the reader drops a result once it stopped showing the message.
+    // Tells the reader what a save did; it drops a result once it stopped showing the message. A
+    // copy saved in Downloads lets this Profile save there directly from then on.
+    const settle = (
+      shown: (outcome: SaveOutcome) => void,
+      saved: SaveReply,
+    ) => {
+      if (saved === 'failed' || 'failedIn' in saved) {
+        const folder = saved === 'failed' ? undefined : saved.failedIn;
+        shown({ kind: 'failed', name, folder });
+        return;
+      }
+      if (saved.downloads === true) {
+        downloads?.remember();
+      }
+      shown({ kind: 'saved', copy: saved });
+    };
+    // Saves a copy where the person chooses, saying nothing when they cancel.
     const save = () => {
       if (!current() || report === undefined) {
         return;
@@ -812,15 +848,61 @@ function AttachmentRow({
       windowHost()?.focusWindow(window);
       void (async () => {
         const saved = await inbox.saveAttachmentCopy(id, locator);
-        if (saved === 'cancelled') {
-          return;
+        if (saved !== 'cancelled') {
+          settle(shown, saved);
         }
-        if (saved === 'failed' || 'failedIn' in saved) {
-          const folder = saved === 'failed' ? undefined : saved.failedIn;
-          shown({ kind: 'failed', name, folder });
-          return;
+      })();
+    };
+    // Asks what to do with a name already in Downloads: Keep Both, the default, or Replace saves
+    // the copy; Cancel, or leaving the message, saves nothing and says nothing.
+    const resolveCollision = async (folder: string) => {
+      asking.current?.retire();
+      if (!current()) {
+        return undefined;
+      }
+      const asked = askInSheet(anchor.current, {
+        title: t('attachment.exists', { name }),
+        detail: t('attachment.existsIn', { folder }),
+        buttons: [
+          t('attachment.keepBoth'),
+          t('attachment.replace'),
+          t('common.cancel'),
+        ],
+      });
+      asking.current = asked;
+      const choice = await asked.answer;
+      if (asking.current !== asked || (choice !== 0 && choice !== 1)) {
+        return undefined;
+      }
+      asking.current = undefined;
+      if (!current()) {
+        return undefined;
+      }
+      const saved = await inbox.saveAttachmentToDownloads(
+        id,
+        locator,
+        choice === 0 ? 'downloadsKeepBoth' : 'downloadsReplace',
+      );
+      return saved !== 'failed' && 'exists' in saved ? 'failed' : saved;
+    };
+    const saveToDownloads = () => {
+      if (!current() || report === undefined) {
+        return;
+      }
+      const shown = report();
+      void (async () => {
+        const first = await inbox.saveAttachmentToDownloads(
+          id,
+          locator,
+          'downloads',
+        );
+        const saved =
+          first !== 'failed' && 'exists' in first
+            ? await resolveCollision(first.exists)
+            : first;
+        if (saved !== undefined) {
+          settle(shown, saved);
         }
-        shown({ kind: 'saved', copy: saved });
       })();
     };
     menu = [
@@ -839,6 +921,16 @@ function AttachmentRow({
         : [
             {
               items: [
+                ...(downloads?.remembered === true
+                  ? [
+                      {
+                        key: 'saveToDownloads',
+                        title: t('attachment.saveToDownloads'),
+                        symbol: 'arrow.down.circle',
+                        run: saveToDownloads,
+                      },
+                    ]
+                  : []),
                 {
                   key: 'saveAs',
                   title: t('attachment.saveAs'),
@@ -896,7 +988,9 @@ function AttachmentRow({
   }
   return (
     <ContextMenu sections={menu}>
-      <View style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
+      <View
+        ref={anchor}
+        style={[styles.attachment, { backgroundColor: colors.fillQuiet }]}>
         <SFSymbol
           name="doc"
           color={colors.textSecondary}

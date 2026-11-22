@@ -4202,6 +4202,7 @@ export function createInboxStore(
     cancelAttachment: attachments.cancelAttachment,
     presentAttachment: attachments.presentAttachment,
     saveAttachmentCopy: attachments.saveAttachmentCopy,
+    saveAttachmentToDownloads: attachments.saveAttachmentToDownloads,
     attachmentFile: attachments.attachmentFile,
     // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
     // provider, so the message waits.

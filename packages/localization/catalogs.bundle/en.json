@@ -707,7 +707,12 @@
     "saveAs": "Save As…",
     "showInFinder": "Show in Finder",
     "showInFinderLabel": "Show {{name}} in Finder",
-    "saveFailedIn": "Couldn’t save to {{folder}}"
+    "saveFailedIn": "Couldn’t save to {{folder}}",
+    "saveToDownloads": "Save to Downloads",
+    "exists": "“{{name}}” already exists",
+    "existsIn": "A file with this name is already in this Mac › {{folder}}.",
+    "keepBoth": "Keep Both",
+    "replace": "Replace"
   },
   "invitation": {
     "heading": "Invitation",

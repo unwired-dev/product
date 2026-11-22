@@ -27,7 +27,10 @@ import Foundation
   import UIKit
 
   @MainActor enum AttachmentPresenter {
-    enum Action: String { case open, share, save }
+    enum Action: String {
+      case open, share, save
+      var saves: Bool { self == .save }
+    }
 
     static func origin() -> PresentationOrigin {
       let scene = UIApplication.shared.connectedScenes
@@ -133,7 +136,12 @@ import Foundation
   import Quartz
 
   @MainActor enum AttachmentPresenter {
-    enum Action: String { case open, share, save }
+    // Besides the save panel, a copy can go straight to Downloads: refusing a name already there,
+    // keeping both under a free name, or replacing the file.
+    enum Action: String {
+      case open, share, save, downloads, downloadsKeepBoth, downloadsReplace
+      var saves: Bool { self != .open && self != .share }
+    }
 
     // `nextResponder` does not retain, so each window's controller is owned here until the window
     // closes, when the window's original responder chain is restored.
@@ -217,6 +225,50 @@ import Foundation
   }
 
   extension AttachmentPresenter {
+    enum DownloadsSave { case saved(URL), exists, failed }
+
+    // The person's Downloads folder, which the sandbox reaches through a link in the container.
+    nonisolated static var downloads: URL? {
+      FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?
+        .resolvingSymlinksInPath()
+    }
+
+    // Writes a copy into Downloads under the attachment's name, off the main thread. A name already
+    // there is refused, kept beside as Finder numbers it (“name 2.pdf”), or replaced, by `action`.
+    // The copy is written to a hidden file of its own first and then renamed into place, so a
+    // failed write never leaves a partial file or removes one another save wrote.
+    static func saveToDownloads(_ url: URL, _ action: Action) async -> DownloadsSave {
+      await Task.detached(priority: .userInitiated) {
+        guard let folder = downloads else { return .failed }
+        let staged = folder.appendingPathComponent(".\(UUID().uuidString).download")
+        defer { try? FileManager.default.removeItem(at: staged) }
+        do {
+          try Data(contentsOf: url, options: .alwaysMapped)
+            .write(to: staged, options: .withoutOverwriting)
+        } catch {
+          return .failed
+        }
+        let name = url.lastPathComponent
+        if action == .downloadsReplace {
+          let destination = folder.appendingPathComponent(name)
+          return rename(staged.path, destination.path) == 0 ? .saved(destination) : .failed
+        }
+        let stem = (name as NSString).deletingPathExtension
+        let suffix = (name as NSString).pathExtension
+        for number in (action == .downloads ? 1 : 2)... {
+          let numbered = number == 1 ? name : "\(stem) \(number)"
+          let destination = folder.appendingPathComponent(
+            number == 1 || suffix.isEmpty ? numbered : "\(numbered).\(suffix)")
+          if renamex_np(staged.path, destination.path, UInt32(RENAME_EXCL)) == 0 {
+            return .saved(destination)
+          }
+          guard errno == EEXIST else { return .failed }
+          if action == .downloads { return .exists }
+        }
+        return .failed
+      }.value
+    }
+
     // The save panel, as a sheet on the reader's window, names the copy after the attachment and
     // confirms replacing a file already there; the copy is then written off the main thread.
     fileprivate static func save(

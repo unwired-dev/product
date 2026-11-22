@@ -34,6 +34,7 @@ import { Action } from './action.tsx';
 import {
   SaveFailedNotice,
   SaveOutcomeToast,
+  useRememberedDownloads,
   useSaveOutcome,
 } from './attachment-save.tsx';
 import { useBlockSender } from './block-sender.ts';
@@ -64,6 +65,7 @@ import {
   AttachContext,
   MessageBody,
   ReaderScrollView,
+  DownloadsContext,
   SaveOutcomeContext,
 } from './message-body.tsx';
 import { MessageSummary } from './message-summary.tsx';
@@ -620,6 +622,7 @@ function MailboxMessage({
   );
   const message = folderMessage ?? shownMessage(state, id);
   const saving = useSaveOutcome(id, readable(state, message));
+  const downloads = useRememberedDownloads(use(AccountContext), useProfile());
   const applied = new Set(
     message !== undefined && 'labels' in message ? message.labels : [],
   );
@@ -813,12 +816,14 @@ function MailboxMessage({
                 id={message.id}
               />
               <SaveOutcomeContext value={saving.start}>
-                <ReaderBody
-                  key={message.id}
-                  inbox={actions}
-                  message={message}
-                  connection={mailbox?.id}
-                />
+                <DownloadsContext value={downloads}>
+                  <ReaderBody
+                    key={message.id}
+                    inbox={actions}
+                    message={message}
+                    connection={mailbox?.id}
+                  />
+                </DownloadsContext>
               </SaveOutcomeContext>
             </ReaderScrollView>
             <SaveOutcomeToast shown={saving.shown} />
