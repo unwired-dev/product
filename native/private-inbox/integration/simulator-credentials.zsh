@@ -8,8 +8,9 @@
 #   copy <udid> <variable>           Put the variable's value on the Simulator's pasteboard.
 #   clear <udid>                     Empty the Simulator's pasteboard.
 #   scan <variable>... -- <path>...  List the files under the paths holding any value, also in
-#                                    compressed result bundle data. Exits 0 when none does, 1 on
-#                                    a match and 2 when a file could not be read.
+#                                    compressed result bundle data, which needs zstd. Exits 0
+#                                    when none does, 1 on a match and 2 when a file could not
+#                                    be read.
 set -euo pipefail
 usage() {
   print -u2 "Usage: ${ZSH_ARGZERO:t} copy <udid> <variable> | clear <udid> | scan <variable>... -- <path>..."
@@ -39,13 +40,22 @@ case ${1:-} in
     # grep reports a match as 0, none as 1 and a read error as 2.
     result=0
     LC_ALL=C grep -rlaFs -D skip -f <(print -rl -- $secrets) -- $paths || result=$?
-    # Result bundles keep their data zstd-compressed, out of reach of a plain search.
-    for blob in ${^paths}/**/*.xcresult/Data/*(ND.); do
-      if zstd -dcqf -- $blob 2> /dev/null | LC_ALL=C grep -qaF -f <(print -rl -- $secrets); then
+    # Result bundles keep their data zstd-compressed, out of reach of a plain search. grep reads
+    # the whole stream, so an early match cannot end zstd with SIGPIPE; a blob zstd cannot read
+    # counts as a read error.
+    bundles=(${^paths}/**/*.xcresult(ND/) ${(M)paths:#*.xcresult})
+    set +e
+    for blob in ${^bundles}/Data/*(N.); do
+      zstd -dcqf -- $blob 2> /dev/null | LC_ALL=C grep -aF -f <(print -rl -- $secrets) > /dev/null
+      codes=($pipestatus)
+      if (( codes[2] == 0 )); then
         print -r -- $blob
         result=0
+      elif (( (codes[1] || codes[2] > 1) && result == 1 )); then
+        result=2
       fi
     done
+    set -e
     exit $(( result == 0 ? 1 : result == 1 ? 0 : 2 ))
     ;;
   *) usage ;;

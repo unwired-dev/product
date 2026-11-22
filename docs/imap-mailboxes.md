@@ -798,9 +798,11 @@ password manager by running
    Simulator closed, so the value does not reach the Mac's pasteboard.
 2. Long-press the app's field and press **Paste** in the edit menu.
 3. `simulator-credentials.zsh clear <udid>` empties the pasteboard at once.
-4. When the field shows its text, as **Recovery Key** does, press its action, such as
-   **Unlock with Recovery Key**, before any screenshot or accessibility snapshot: both
-   keep what the screen shows in files on the Mac.
+4. When the field shows its text, as **Recovery Key** does, take no screenshot or
+   accessibility snapshot while it holds the credential: both keep what the screen shows
+   in files on the Mac. Press its action, such as **Unlock with Recovery Key**, and wait
+   until the field is gone, for example with agent-device's `wait absent` on the field.
+   If it stays, empty it with an empty `fill` before reading the screen.
 5. After the run, with the Simulator deleted,
    `simulator-credentials.zsh scan <variable>... -- <path>...` lists each file under the
    paths that holds any of the passwords or the Recovery Key, also inside compressed
@@ -1484,12 +1486,13 @@ password manager by running
 - **2026-11-22, iPhone credential entry through the pasteboard
   ([#2685](https://github.com/unwired-dev/product/issues/2685)).** Target, toolchain and
   operator as in the first record, on a new iPhone 18 Pro Simulator on iOS 27.0, with
-  Simulator closed. Build: the Release app of the #2663 record. Result: pass. Every
-  credential was entered with the pasteboard steps above, and nothing was typed: the
-  Google address and password in the Google sign-in sheet, with no paste permission prompt,
-  the Recovery Key, then the iCloud Mail address and app-specific password and the Seznam
-  Email address and mail-client password in **Connect your mail** and **Other IMAP
-  Account**. Google Product Sign-In found the certification Product Account, **Unlock
+  Simulator closed. Build: the Release app of the #2663 record. Result: the sign-in
+  passed and no file this run wrote held a credential, but the Mac was not clean (see
+  the limitations). Every credential was entered with the pasteboard steps above, and
+  nothing was typed: the Google address and password in the Google sign-in sheet, with
+  no paste permission prompt, the Recovery Key, then the iCloud Mail address and
+  app-specific password and the Seznam Email address and mail-client password in
+  **Connect your mail** and **Other IMAP Account**. Google Product Sign-In found the certification Product Account, **Unlock
   with Recovery Key** unlocked the device, and Email Accounts showed both mailboxes
   **Updated just now**. The Mac's pasteboard did not change. **Sign Out of This Device**
   returned the app to Welcome, and the Simulator was deleted. The scan then covered
@@ -1498,9 +1501,10 @@ password manager by running
   `artifacts`, the operator's scratch files and the agents' session transcripts and
   state on this Mac. No file this run wrote held a password or the Recovery Key.
   Limitations: the scan found the Recovery Key, and in one session the iCloud Mail
-  password, in agent session transcripts and app state written by earlier runs, the
-  latest about 80 minutes before this one. They predate this path and are left to the
-  owner ([#2688](https://github.com/unwired-dev/product/issues/2688)).
+  password, in agent session transcripts, their logs and T3 Code's state database,
+  all written by earlier runs, the latest about 80 minutes before this one. The scan
+  criterion of #2685 waits on their removal and a clean rescan
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)).
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
