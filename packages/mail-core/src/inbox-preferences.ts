@@ -46,9 +46,41 @@ const shownField = (connection: string) => `sectionShown:${connection}`;
 const foldersField = (connection: string) => `sectionFolders:${connection}`;
 
 // One preference's latest value and when it was chosen, in milliseconds since the epoch. A field
-// this build does not know is kept and published as it was.
-const FieldSchema = Schema.Struct({ value: Schema.Json, at: Schema.Finite });
-type Fields = Readonly<Record<string, typeof FieldSchema.Type>>;
+// this build does not know is kept and published as it was. A Favorites or folder change made here
+// keeps, until Private Sync holds it, `from`: when the value it was made from was chosen, 0 for
+// none. Private Sync never holds `from`.
+const FieldSchema = Schema.Struct({
+  value: Schema.Json,
+  at: Schema.Finite,
+  from: Schema.optionalKey(Schema.Finite),
+});
+type Field = typeof FieldSchema.Type;
+type Fields = Readonly<Record<string, Field>>;
+// `fields` as Private Sync holds them.
+const published = (fields: Fields): Fields =>
+  Object.fromEntries(
+    Object.entries(fields).map(([name, { value, at }]) => [
+      name,
+      { value, at },
+    ]),
+  );
+// `kept` once Private Sync holds `sent`: a change it holds keeps no `from`, and one made here from
+// it since is made from it.
+const settled = (kept: Fields, sent: Fields): Fields =>
+  Object.fromEntries(
+    Object.entries(kept).map(([name, field]) => {
+      const { at, from } = sent[name] ?? {};
+      if (field.at === at) {
+        return [name, { value: field.value, at }];
+      }
+      return [
+        name,
+        from !== undefined && field.from === from
+          ? { ...field, from: at }
+          : field,
+      ];
+    }),
+  );
 // A Mail Profile's Inbox presentation preferences (ADR 0019's `mail-workflow-preferences:inbox`),
 // as this device keeps them and as the Profile's record seals them.
 const ProfilePreferencesSchema = Schema.Struct({
@@ -149,14 +181,15 @@ export interface NativeInboxPreferenceSync {
 const report = reportPreference('Inbox preference');
 
 // Each field's later value. At the same instant the greater JSON wins, so devices converge whatever
-// order they merge in.
+// order they merge in. A change made here from a value another device has since replaced gives way
+// to that device's value, so a move made from an order it has since changed replaces nothing.
 const merged = (local: Fields, remote: Fields): Fields => {
-  const next: Record<string, Fields[string]> = { ...local };
+  const next: Record<string, Field> = { ...local };
   for (const [name, field] of Object.entries(remote)) {
     const kept = next[name];
     if (
       kept === undefined ||
-      field.at > kept.at ||
+      field.at > (kept.from ?? kept.at) ||
       (field.at === kept.at &&
         JSON.stringify(field.value) > JSON.stringify(kept.value))
     ) {
@@ -317,12 +350,12 @@ export function createInboxPreferences(
         | undefined;
     }>,
   ) {
-    if (record !== undefined && sameFields(record.fields, fields)) {
+    if (record !== undefined && sameFields(record.fields, published(fields))) {
       return false;
     }
     const preferences = yield* Schema.encodeEffect(RecordJsonSchema)({
       profile,
-      fields,
+      fields: published(fields),
     }).pipe(Effect.mapError(malformed));
     const pushed = yield* native(
       () =>
@@ -377,15 +410,29 @@ export function createInboxPreferences(
       }, profiles),
     );
     let conflicted = false;
+    // The Profiles whose changes made here Private Sync now holds, with those changes.
+    const sent: ProfilePreferences[] = [];
     for (const { profile, fields } of stored.filter(
       (kept) => !unreadable.has(kept.profile) && publishable(kept.profile),
     )) {
-      conflicted =
-        (yield* publish(remote, account, {
-          profile,
-          fields,
-          record: records.find(({ id }) => id === profile),
-        })) || conflicted;
+      const lost = yield* publish(remote, account, {
+        profile,
+        fields,
+        record: records.find(({ id }) => id === profile),
+      });
+      conflicted = lost || conflicted;
+      if (!lost && Object.values(fields).some((field) => 'from' in field)) {
+        sent.push({ profile, fields });
+      }
+    }
+    if (sent.length > 0) {
+      yield* changed(account, (profiles) =>
+        sent.reduce(
+          (next, { profile, fields }) =>
+            withFields(next, profile, settled(fieldsOf(next, profile), fields)),
+          profiles,
+        ),
+      );
     }
     pulled = conflicted ? undefined : { account, known, unreadable };
     return conflicted;
@@ -435,6 +482,10 @@ export function createInboxPreferences(
                 [name]: {
                   value: chosen,
                   at: Math.max(Date.now(), (field?.at ?? 0) + 1),
+                  // Made from the stored value, or from what an unpublished change was made from.
+                  ...(typeof value === 'function'
+                    ? { from: field?.from ?? field?.at ?? 0 }
+                    : {}),
                 },
               });
         }, kept),
