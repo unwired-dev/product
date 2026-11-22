@@ -107,15 +107,19 @@ const assertResumed = (command, { large, sparse }) => {
 const operations = new Set();
 // Sent copies appended by Message-ID; filing the same message again must find, not append.
 const appended = new Set();
-const discoverNamespaces = (socket, tag, failed) => {
+// RFC 2342 §5.9: Tilde's other users' prefix `~` does not end in its delimiter, so its root `~`
+// also matches the `~*` LIST.
+const discoverNamespaces = (socket, tag, { failed, user }) => {
   if (failed) {
     operations.add('namespace-refused');
     socket.write(`${tag} NO Namespace temporarily unavailable\r\n`);
   } else {
     operations.add('namespace');
-    socket.write(
-      `* NAMESPACE (("" "/")) NIL (("Shared/" "/"))\r\n${tag} OK Completed\r\n`,
-    );
+    const namespaces =
+      user === 'tilde'
+        ? '(("INBOX/" "/")) (("~" "/")) NIL'
+        : '(("" "/")) NIL (("Shared/" "/"))';
+    socket.write(`* NAMESPACE ${namespaces}\r\n${tag} OK Completed\r\n`);
   }
 };
 // Sends LIST responses without ever answering the command. A flood far past what fits in the socket
@@ -147,10 +151,12 @@ const foldersAtLimit = Array.from(
   { length: 1000 },
   (_, index) => `* LIST (\\HasNoChildren) "/" "Folder ${index + 1}"\r\n`,
 ).join('');
-const listFolders = (socket, command, { overflowing, listed }) => {
+const listFolders = (socket, command, { overflowing, listed, user }) => {
   operations.add('list');
   if (overflowing) {
     floodFolders(socket, overflowing);
+  } else if (user === 'tilde' && /~"?$/u.test(command)) {
+    socket.write('* LIST (\\Noselect) "/" "~"\r\n');
   } else if (command.includes('Shared/')) {
     operations.add('shared-list');
     socket.write('* LIST (\\HasNoChildren) "/" "Shared/Team"\r\n');
@@ -233,6 +239,7 @@ const organize = (socket, tag, command) => {
 const refusedLists = {
   'shared-wildcard': /Shared\/\*/u,
   'shared-root': /Shared"?$/u,
+  tilde: /~\*/u,
 };
 // The user name a LOGIN presents, which chooses the synthetic server's variation.
 const userOf = (command) =>
@@ -509,11 +516,12 @@ const server = tls.createServer(
             'namespaced',
             'shared-wildcard',
             'shared-root',
+            'tilde',
           ].some((name) => command.includes(name));
           ok();
         }
       } else if (command === 'NAMESPACE') {
-        discoverNamespaces(socket, tag, namespaceFailure);
+        discoverNamespaces(socket, tag, { failed: namespaceFailure, user });
       } else if (
         command.startsWith('LIST ') &&
         refusedLists[user]?.test(command)
@@ -522,7 +530,7 @@ const server = tls.createServer(
         operations.add('shared-refused');
         socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
       } else if (command.startsWith('LIST ')) {
-        listFolders(socket, command, { overflowing, listed });
+        listFolders(socket, command, { overflowing, listed, user });
         if (overflowing === 0) {
           ok();
         }

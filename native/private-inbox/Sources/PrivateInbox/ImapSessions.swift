@@ -13,9 +13,9 @@ struct ImapListedFolder: Sendable, Equatable {
 }
 
 // Every folder the server lists. SwiftMail skips a LIST of another user's or a shared namespace
-// that the server refuses, which looks the same as one that matches no folder; `unlisted` holds
-// each such pattern that matched none, a namespace root or a prefix ending in `*`, whose cached
-// folders may still exist.
+// that the server refuses and merges the rest, so only a listed name no other LIST matches shows
+// that one answered; `unlisted` holds each such pattern nothing shows answered, a namespace root or
+// a prefix ending in `*`, whose cached folders may still exist.
 struct ImapListing: Sendable, Equatable {
   let folders: [ImapListedFolder]
   var unlisted: [String] = []
@@ -112,11 +112,14 @@ enum ImapStoredFlag: String, Sendable {
         } catch is ExceededListResponseLimitError {
           throw RegistrationError.unavailable
         }
-        let skippable: Set<String> = await server.namespaces.map { namespaces in
-          let personal = NamespaceResponse(personal: namespaces.personal, otherUsers: [], shared: [])
-          return Set(namespaces.listingPatterns(for: "*"))
-            .subtracting(personal.listingPatterns(for: "*"))
-        } ?? Set()
+        let patterns = await server.namespaces?.listingPatterns(for: "*") ?? []
+        let personal = await server.namespaces.map {
+          NamespaceResponse(personal: $0.personal, otherUsers: [], shared: [])
+            .listingPatterns(for: "*")
+        } ?? []
+        func matches(_ pattern: String, _ name: String) -> Bool {
+          pattern.hasSuffix("*") ? name.hasPrefix(pattern.dropLast()) : name == pattern
+        }
         return ImapListing(
           folders: listed.map { info in
             ImapListedFolder(
@@ -124,10 +127,12 @@ enum ImapStoredFlag: String, Sendable {
               attributes: Self.attributes.filter { info.attributes.contains($0.0) }.map(\.1),
               delimiter: info.hierarchyDelimiter)
           },
-          unlisted: skippable.filter { pattern in
-            !listed.contains {
-              pattern.hasSuffix("*") ? $0.name.hasPrefix(pattern.dropLast()) : $0.name == pattern
-            }
+          unlisted: patterns.filter { pattern in
+            !personal.contains(pattern)
+              && !listed.contains { info in
+                matches(pattern, info.name)
+                  && !patterns.contains { $0 != pattern && matches($0, info.name) }
+              }
           }.sorted())
       }
     }

@@ -93,9 +93,9 @@ the encrypted metadata cache. Bodies use the existing bounded encrypted body cac
 Folder retirement uses a complete namespace-aware listing. Oversized results and
 failed advertised namespace discovery refuse the refresh rather than present
 partial results as absence. SwiftMail 1.18 skips a LIST of another user's or a shared
-namespace, its root or its subtree, that the server refuses, so native reports each such
-LIST pattern that matched no folder and TypeScript keeps the prior listing's folders it
-would have matched. TypeScript commits the listing and retained mailbox
+namespace, its root or its subtree, that the server refuses, and merges the rest, so native
+reports each such LIST pattern that no listed name matches uniquely, and TypeScript keeps
+the prior listing's folders it would have matched. TypeScript commits the listing and retained mailbox
 metadata before dropping retired views; commit refusal preserves the previous
 listing and evicted-folder rows. Still-selectable evicted views continue to
 protect their saved bodies.
