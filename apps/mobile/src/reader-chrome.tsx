@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { ViewProps } from 'react-native';
 
 import {
@@ -92,36 +93,44 @@ const styles = StyleSheet.create({
   hangingAvatar: { position: 'absolute', left: -(40 * ipadListScale + 36) / 2 },
 });
 
-// The compact reader's header: the subject beneath the navigation bar, whose system Back shows the
-// mailbox's unread count.
-export function ReaderHeader({ subject }: { readonly subject: string }) {
+// The navigation bar of a reader shown alone, whose system Back shows the mailbox's unread count.
+// Its children, such as a compact iPad window's command input, are the bar's title.
+export function ReaderBar({ children }: { readonly children?: ReactNode }) {
   const state = useInbox();
-  const header = usePaletteHeader();
-  const colors = usePalette();
   const { t } = useLocalization();
   const unread =
     state.kind === 'ready'
       ? state.messages.filter((message) => message.unread).length
       : 0;
   const count = unread > 99 ? '99+' : String(unread);
+  return (
+    <NavigationChrome
+      testID="system-back"
+      backLabel={
+        unread === 0
+          ? t('message.back')
+          : t('message.backUnread', { count: unread })
+      }
+      backCount={unread === 0 ? '' : count}
+      surface={dynamicColorIOS({
+        light: palette.light.surfaceContent,
+        dark: palette.dark.surfaceContent,
+      })}>
+      {children}
+    </NavigationChrome>
+  );
+}
+
+// The compact reader's header: the subject beneath the navigation bar.
+export function ReaderHeader({ subject }: { readonly subject: string }) {
+  const header = usePaletteHeader();
+  const colors = usePalette();
   const large = useLargeText();
   return (
     <View
       style={styles.header}
       {...header.swipe}>
-      <NavigationChrome
-        testID="system-back"
-        backLabel={
-          unread === 0
-            ? t('message.back')
-            : t('message.backUnread', { count: unread })
-        }
-        backCount={unread === 0 ? '' : count}
-        surface={dynamicColorIOS({
-          light: palette.light.surfaceContent,
-          dark: palette.dark.surfaceContent,
-        })}
-      />
+      <ReaderBar />
       <Text
         accessibilityRole="header"
         // The header stays put above the scrolling body, so a long subject leaves the body room.

@@ -127,12 +127,29 @@ results never appear in the palette. The vocabulary lives in the
 - **iPad:** the command input stays visible in the Inbox heading, the reader's
   header, the composer's top bar and the Account page's title row, and at the
   top of a reader, Thread or composer that is loading, cannot open its storage
-  or has no message or Draft to show, so one is on screen in every size class,
-  including compact layouts that show only the reader. A composer in the
-  system sheet, which a compact window opens, offers no palette at either
-  width, as on iPhone ([#2645](https://github.com/unwired-dev/product/issues/2645)); tapping the
-  input or the header swipe opens the palette. Command-K from a hardware keyboard is
-  deferred: React Native exposes no key commands on iOS without a native
+  or has no message or Draft to show, so one is on screen in every size class
+  (a composer sheet's loading or failed state shows none). In a compact window
+  ([#2133](https://github.com/unwired-dev/product/issues/2133)) a reader or
+  Thread shown alone puts it in the navigation bar after the
+  system Back with the mailbox's unread count, and the subject keeps its own
+  row. Its palette attaches to the top of the window, as on iPhone, since UIKit
+  moves the bar's input out of the layout React measures, and starts beneath
+  the bar's row, where iPadOS draws the window's controls. The composer there is the system sheet
+  ([#2645](https://github.com/unwired-dev/product/issues/2645)). Its
+  downward swipe leaves the composer, as Close does, asking Save Draft or
+  Delete Draft when the Draft has changes. That question, however leaving
+  asks it, closes the sheet's palette first. Its header offers no palette swipe; the input ends the From row as
+  the command symbol alone, a 44pt target labelled Open Command Palette, which
+  opens the palette attached to the sheet's top, as on iPhone, even over a
+  window palette left open beneath the sheet. The sheet covers the window its
+  commands act on, such as Account, so a command chosen there first leaves the
+  composer, as the swipe does, and runs once the composer has closed, unless
+  another destination was chosen meanwhile, such as the same Draft opened
+  again from its notification. The
+  sheet sliding away still shows the closed composer, which no longer asks
+  about leaving. Elsewhere, tapping the input or
+  the header swipe opens the palette. Command-K from a hardware keyboard is
+  deferred to [#2670](https://github.com/unwired-dev/product/issues/2670): React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.
 - On iPhone and iPad the palette is a panel attached to the top of the screen
   with the input focused, the software keyboard shown when needed, and the
@@ -162,7 +179,7 @@ From the root:
 
 ```sh
 mise exec -- pnpm --filter @private-email/mail-core exec vitest run test/commands.test.ts
-mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx test/profile-routing.test.tsx test/composer.test.tsx
+mise exec -- pnpm --filter @private-email/mobile test -- test/inbox.test.tsx test/thread.test.tsx test/profile-routing.test.tsx test/composer.test.tsx test/ipad-reader.test.tsx
 mise exec -- pnpm --filter @private-email/macos test -- test/windows.test.tsx test/registration.test.tsx test/composer.test.tsx
 ```
 

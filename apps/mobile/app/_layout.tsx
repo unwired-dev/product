@@ -1,7 +1,6 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { NativeQualification } from '@private-email/mail-core/assistance-qualification';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
-import type { ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
@@ -21,7 +20,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
   Linking,
-  Modal,
   Platform,
   StyleSheet,
   TurboModuleRegistry,
@@ -42,10 +40,10 @@ import { restoreAppearance } from '../src/appearance-settings.tsx';
 import { CategorizationSpike } from '../src/categorization-spike.ts';
 import {
   CommandPaletteProvider,
-  InSheet,
   useCommandRegistry,
   useCommandPalette,
 } from '../src/command-palette.tsx';
+import { ComposerSheet } from '../src/composer-sheet.tsx';
 import { ComposerLayoutContext, useRecoveryOffer } from '../src/composer.tsx';
 import { DraftComposer } from '../src/evaluation-composer.tsx';
 import {
@@ -137,13 +135,18 @@ function OpenedNotifications() {
   const leave = useLeaveComposer();
   const registry = useCommandRegistry();
   const { close } = useCommandPalette();
+  // The palette's `close` changes as it opens; a pending tap or Open Draft outlives that.
+  const closing = useRef(close);
+  useLayoutEffect(() => {
+    closing.current = close;
+  }, [close]);
   useEffect(() => {
     if (!previewInbox) {
       return followOpenedNotifications(native(), '', {
         snapshot: () => registration.getSnapshot().snapshot,
         leave,
         open: (target, reply, current) => {
-          close();
+          closing.current();
           router.navigate({
             pathname: '/message/[id]',
             params: {
@@ -165,12 +168,7 @@ function OpenedNotifications() {
         },
       });
     }
-  }, [leave, registry, close]);
-  // The palette's `close` changes as it opens; a pending Open Draft outlives that.
-  const closing = useRef(close);
-  useLayoutEffect(() => {
-    closing.current = close;
-  }, [close]);
+  }, [leave, registry]);
   useEffect(() => {
     let stopped = false;
     const stop = followOpenedDrafts((draft, profile) => {
@@ -256,52 +254,6 @@ function ComposerScrim({
       style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrimTouch }]}
     />
   ) : null;
-}
-
-// On iPhone and in a compact iPad window the composer is the system sheet over the mail. Its
-// dismissal gesture leaves the composer as Close does: the sheet stays up while the composer asks
-// about changes. The sheet sliding away still shows the composer it closed.
-function ComposerSheet({
-  draft,
-  onLeave,
-  composer,
-}: Readonly<{
-  draft: string | undefined;
-  onLeave: () => void;
-  composer: (draft: string) => ReactNode;
-}>) {
-  const colors = usePalette();
-  const [shown, setShown] = useState(draft);
-  if (draft !== undefined && draft !== shown) {
-    setShown(draft);
-  }
-  return (
-    <Modal
-      testID="composer-sheet"
-      visible={draft !== undefined}
-      presentationStyle="pageSheet"
-      animationType="slide"
-      // Without this the Modal holds iPhone in portrait; the app turns with the device.
-      supportedOrientations={[
-        'portrait',
-        'portrait-upside-down',
-        'landscape-left',
-        'landscape-right',
-      ]}
-      onRequestClose={onLeave}
-      onDismiss={() => {
-        setShown(draft);
-      }}>
-      {shown === undefined ? null : (
-        <View
-          testID="composer-overlay"
-          pointerEvents={draft === undefined ? 'none' : 'auto'}
-          style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
-          <InSheet value>{composer(shown)}</InSheet>
-        </View>
-      )}
-    </Modal>
-  );
 }
 
 // A composer keeps the host it opened in until it closes, so a window changing width never

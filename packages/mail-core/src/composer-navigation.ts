@@ -10,6 +10,8 @@ import { newMessageSender, profileOf } from './drafts.ts';
 export interface ComposerNavigation {
   readonly register: (finish: () => Promise<boolean>) => () => void;
   readonly leave: (draft?: string) => Promise<boolean>;
+  // How many times leaving was allowed: a change means a later destination was chosen.
+  readonly navigations: () => number;
   // Starts a Draft only after leaving, and returns it only if no later destination was chosen.
   readonly create: (
     drafts: Pick<Drafts, 'create' | 'abandon'>,
@@ -106,6 +108,7 @@ export function createComposerNavigation(): ComposerNavigation {
   };
   return {
     leave,
+    navigations: () => navigations,
     register: (next) => {
       finish = next;
       return () => {

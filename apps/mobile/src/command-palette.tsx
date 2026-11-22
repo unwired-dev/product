@@ -31,6 +31,7 @@ import {
   createContext,
   use,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -62,7 +63,7 @@ const PaletteContext = createContext<
     opened: readonly Command[] | undefined;
     // Where the iPad command input that opens the palette sits in the window.
     anchor: Anchor | undefined;
-    open: (from?: Anchor) => void;
+    open: (from?: Anchor, sheet?: boolean) => void;
     close: () => void;
   }>
 >({
@@ -72,6 +73,13 @@ const PaletteContext = createContext<
   open: () => undefined,
   close: () => undefined,
 });
+
+// The palette opened from inside a system sheet, which the sheet shows over its own content.
+const SheetPaletteContext = createContext<ReactNode>(null);
+// How the palette a sheet shows leaves the sheet's composer before a command runs.
+const SheetLeaveContext = createContext<(() => Promise<boolean>) | undefined>(
+  undefined,
+);
 
 // An iPad command input's frame in the window. The palette opens as a popover beneath it, its
 // field taking the input's place, as the iPad Palette frames draw it.
@@ -131,6 +139,8 @@ const pad = Platform.OS === 'ios' && Platform.isPad;
 const scrim = 'rgba(0, 0, 0, 0.3)';
 // The iPad Palette frames' popover: 460pt beside a landscape reader, 420pt in portrait.
 const popoverWidth = (width: number) => (width > 1000 ? 460 : 420);
+// iPadOS draws a window's controls in its navigation bar's row, outside the safe area.
+const windowControlsRow = 50;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -318,6 +328,8 @@ export function CommandPaletteProvider({
   const motion = useMenuMotion(opened !== undefined, 'drop');
   const [shown, setShown] = useState(opened);
   const [openings, setOpenings] = useState(0);
+  // Opened from a system sheet, which covers the window: the sheet shows the palette itself.
+  const [inSheet, setInSheet] = useState(false);
   if (opened !== undefined && opened !== shown) {
     setShown(opened);
   }
@@ -335,11 +347,13 @@ export function CommandPaletteProvider({
       registry,
       opened,
       anchor,
-      open: (from?: Anchor) => {
-        if (opened !== undefined) {
+      open: (from?: Anchor, sheet = false) => {
+        // A sheet's input takes over a window palette left open beneath the sheet.
+        if (opened !== undefined && (!sheet || inSheet)) {
           return;
         }
         setAnchor(from);
+        setInSheet(sheet);
         void hint.dismiss();
         previous.current = TextInput.State.currentlyFocusedInput();
         const placeholders = expectedCommands(t, {
@@ -358,24 +372,68 @@ export function CommandPaletteProvider({
         previous.current = null;
       },
     }),
-    [registry, opened, anchor, t],
+    [registry, opened, anchor, inSheet, t],
   );
+  const palette =
+    motion.shown && shown !== undefined ? (
+      <Palette
+        key={openings}
+        anchor={pad ? anchor : undefined}
+        motion={motion}
+        open={opened !== undefined}
+        opened={shown}
+      />
+    ) : null;
   return (
     <PaletteContext value={value}>
-      <View style={styles.fill}>
-        {children}
-        {motion.shown && shown !== undefined ? (
-          <Palette
-            key={openings}
-            anchor={pad ? anchor : undefined}
-            motion={motion}
-            open={opened !== undefined}
-            opened={shown}
-          />
-        ) : null}
-      </View>
+      <SheetPaletteContext value={inSheet ? palette : null}>
+        <View style={styles.fill}>
+          {children}
+          {inSheet ? null : palette}
+        </View>
+      </SheetPaletteContext>
     </PaletteContext>
   );
+}
+
+// The palette opened from inside a system sheet, shown over the sheet's content as on iPhone; the
+// window's palette lies beneath the sheet. A sheet swiped away closes the palette it showed.
+export function SheetPalette({
+  leave,
+}: {
+  readonly leave: () => Promise<boolean>;
+}) {
+  const palette = use(SheetPaletteContext);
+  const { close } = useCommandPalette();
+  const closeShown = useEffectEvent(() => {
+    if (palette !== null) {
+      close();
+    }
+  });
+  useEffect(
+    () => () => {
+      closeShown();
+    },
+    [],
+  );
+  return <SheetLeaveContext value={leave}>{palette}</SheetLeaveContext>;
+}
+
+// Closes the palette a system sheet shows, so the question its composer asks about changes is not
+// covered. A window's palette stays.
+export function useCloseSheetPalette() {
+  const { close } = useCommandPalette();
+  const sheet = use(SheetPaletteContext) !== null;
+  // Read when the question shows, which may follow a palette opened after Close began.
+  const shown = useRef(sheet);
+  useLayoutEffect(() => {
+    shown.current = sheet;
+  });
+  return () => {
+    if (shown.current) {
+      close();
+    }
+  };
 }
 
 // The palette's frame: on iPad a popover beneath the command input that opened it, its field in
@@ -386,10 +444,13 @@ function paletteFrame(
     insets,
     colors,
     window,
+    sheet,
   }: Readonly<{
     insets: ReturnType<typeof useSafeAreaInsets>;
     colors: ReturnType<typeof usePalette>;
     window: Readonly<{ width: number; height: number }>;
+    // Opened inside a system sheet, which starts beneath the window's controls.
+    sheet: boolean;
   }>,
 ) {
   if (anchor === undefined) {
@@ -398,8 +459,12 @@ function paletteFrame(
       body: [
         styles.sheet,
         {
-          // The sheet floats over the screens, so it clears the status bar itself.
-          paddingTop: insets.top,
+          // The sheet floats over the screens, so it clears the status bar itself, and on iPad
+          // the window's controls.
+          paddingTop:
+            pad && !sheet
+              ? Math.max(insets.top, windowControlsRow)
+              : insets.top,
           paddingLeft: insets.left,
           paddingRight: insets.right,
           backgroundColor: colors.surfaceContent,
@@ -468,7 +533,15 @@ function Palette({
   const colors = usePalette();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
-  const frame = paletteFrame(anchor, { insets, colors, window });
+  // A sheet covers the window its commands act on, so they first leave the composer, as the
+  // sheet's swipe does: a Draft with changes asks Save Draft or Delete Draft.
+  const leave = use(SheetLeaveContext);
+  const frame = paletteFrame(anchor, {
+    insets,
+    colors,
+    window,
+    sheet: leave !== undefined,
+  });
   const { t } = useLocalization();
   const [query, setQuery] = useState('');
   const [choosing, setChoosing] = useState<Command>();
@@ -484,6 +557,19 @@ function Palette({
     }
   }, [open]);
   const live = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
+  // `offered` finds the command again when it runs, since the registry may change while leaving.
+  const perform = (offered: () => (() => unknown) | undefined) => {
+    close();
+    if (leave === undefined) {
+      void offered()?.();
+      return;
+    }
+    void (async () => {
+      if (await leave()) {
+        await offered()?.();
+      }
+    })();
+  };
   const vanished = (command: Command): Command =>
     gone.includes(command.id)
       ? { ...command, disabled: t('commands.gone') }
@@ -501,22 +587,29 @@ function Palette({
       setChoiceQuery('');
       return;
     }
-    close();
-    void found.run?.();
+    perform(() => offeredCommand(registry.getSnapshot(), found)?.run);
   };
   const choose = (choice: CommandChoice) => {
     const found =
       choosing === undefined ? undefined : offeredCommand(live, choosing);
     const option = found?.choices?.find(({ id }) => id === choice.id);
-    if (option === undefined || option.disabled !== undefined) {
+    if (
+      found === undefined ||
+      option === undefined ||
+      option.disabled !== undefined
+    ) {
       if (choosing !== undefined) {
         setGone([...gone, choosing.id]);
       }
       setChoosing(undefined);
       return;
     }
-    close();
-    option.run();
+    perform(
+      () =>
+        offeredCommand(registry.getSnapshot(), found)?.choices?.find(
+          ({ id, disabled }) => id === option.id && disabled === undefined,
+        )?.run,
+    );
   };
   const subject = opened.find(({ target }) => target !== undefined)?.target
     ?.subject;
@@ -859,12 +952,19 @@ function CommandRow({
 // other sheets do not.
 export const InSheet = createContext(false);
 
-// The visible command input of iPad layouts; iPhone opens the palette by gesture alone, and a
-// sheet offers none.
+// The visible command input of iPad layouts; iPhone opens the palette by gesture alone. A sheet's
+// header offers none: a compact iPad window's composer sheet shows its own on the From row, as the
+// command symbol alone.
 export function CommandInput({
   style,
+  sheet = false,
+  bar = false,
 }: {
   readonly style?: StyleProp<ViewStyle>;
+  // The sheet's own input, shown only inside a sheet.
+  readonly sheet?: boolean;
+  // The navigation bar's input, which UIKit moves out of React's layout, so it cannot be measured.
+  readonly bar?: boolean;
 }) {
   const { open } = useCommandPalette();
   const colors = usePalette();
@@ -872,7 +972,7 @@ export function CommandInput({
   const input = useRef<ViewInstance>(null);
   // Measured as the press begins, so the popover opens beneath the input wherever it has moved.
   const frame = useRef<Anchor>(undefined);
-  if (!pad || use(InSheet)) {
+  if (!pad || use(InSheet) !== sheet) {
     return null;
   }
   return (
@@ -887,7 +987,9 @@ export function CommandInput({
         });
       }}
       onPress={() => {
-        open(frame.current);
+        // From a sheet or a compact window's navigation bar the palette is attached to the top, as
+        // on iPhone.
+        open(sheet || bar ? undefined : frame.current, sheet);
       }}
       style={[styles.pill, style, { boxShadow: colors.smallGlassShadow }]}>
       <Glass cornerRadius={18} />
@@ -895,9 +997,11 @@ export function CommandInput({
         name="command"
         color={colors.textSecondary}
       />
-      <Text style={[styles.pillText, { color: colors.textSecondary }]}>
-        {t('commands.open')}
-      </Text>
+      {sheet ? null : (
+        <Text style={[styles.pillText, { color: colors.textSecondary }]}>
+          {t('commands.open')}
+        </Text>
+      )}
     </Pressable>
   );
 }

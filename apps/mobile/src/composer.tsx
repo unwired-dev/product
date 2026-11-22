@@ -164,7 +164,12 @@ import type {
 } from './composer-controls.tsx';
 
 import { Action } from './action.tsx';
-import { CommandInput, InSheet, usePaletteHeader } from './command-palette.tsx';
+import {
+  CommandInput,
+  InSheet,
+  useCloseSheetPalette,
+  usePaletteHeader,
+} from './command-palette.tsx';
 import {
   ComposerActions,
   FormatBar,
@@ -232,6 +237,10 @@ export const ComposerLayoutContext = createContext<{
   readonly avoidKeyboard: boolean;
   readonly top: number;
 }>({ size: 'compact', avoidKeyboard: true, top: 0 });
+
+// Whether the composer is open: a system sheet sliding away still shows the composer it closed,
+// which no longer guards leaving.
+export const ComposerPresentedContext = createContext(true);
 
 // The docked iPad reply's title: the kind of response it is.
 const responseTitles = {
@@ -377,7 +386,14 @@ const styles = StyleSheet.create({
     borderRadius: 24,
   },
   closeChoiceText: { ...textStyles.body },
-  fromRow: { zIndex: 2, paddingHorizontal: inset, paddingBottom: spacing.xs },
+  fromRow: {
+    zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: inset,
+    paddingBottom: spacing.xs,
+  },
   alerts: {
     gap: spacing.s,
     paddingHorizontal: fieldInset,
@@ -2881,7 +2897,8 @@ const presentationOf = (regular: boolean, draft: Draft): Presentation => {
   return draft.response === undefined ? 'card' : 'docked';
 };
 
-// From sits in the iPad header and on its own row beneath the iPhone header. At the accessibility
+// From sits in the iPad header and on its own row beneath the iPhone header, where a compact iPad
+// window's sheet ends the row with its command input. At the accessibility
 // text sizes the iPad card's From takes its own row too, so Expand and Send stay in view. The
 // Authorization Needed banner stays in view under From; at those sizes it would crowd out the
 // Draft, so it scrolls with it among the notices (`signInNotice`). A docked reply's
@@ -2916,7 +2933,8 @@ const placeSender = ({
         row: (
           <>
             <View style={[styles.fromRow, rowStyle]}>
-              <View style={styles.bar}>{sender}</View>
+              <View style={[styles.bar, styles.grow]}>{sender}</View>
+              <CommandInput sheet />
             </View>
             {signIn}
           </>
@@ -5134,6 +5152,7 @@ function Editor({
     });
   // Close asks to save or delete changes, including ones a failed Save Draft left unsaved; an
   // empty Draft is removed and an unchanged one closes.
+  const closeSheetPalette = useCloseSheetPalette();
   const close = () =>
     finish(async () => {
       if (isEmptyDraft(authored.current) && isEmptyDraft(stored.current)) {
@@ -5152,14 +5171,20 @@ function Editor({
         return true;
       }
       setClosing(undefined);
+      // The question takes the place of a palette the sheet showed over it.
+      closeSheetPalette();
       setAsking(true);
       asked.current = true;
       return false;
     });
   // Leaving for another destination asks the same question first.
   const navigation = useComposerNavigation();
-  useLayoutEffect(() =>
-    navigation.register(async () => {
+  const presented = use(ComposerPresentedContext);
+  useLayoutEffect(() => {
+    if (!presented) {
+      return undefined;
+    }
+    return navigation.register(async () => {
       asked.current = false;
       if (await close()) {
         return true;
@@ -5176,8 +5201,8 @@ function Editor({
       return new Promise<boolean>((resolve) => {
         leaving.current = resolve;
       });
-    }),
-  );
+    });
+  });
   useEffect(() => {
     if (!asking && lifetime.current.finishing === 0) {
       answerLeave(false);

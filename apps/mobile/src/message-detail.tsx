@@ -71,6 +71,7 @@ import {
 } from './design.tsx';
 import { ImapMessageBody } from './imap-message-body.tsx';
 import { ScrollEdge, WindowBarContext } from './inbox-bar.tsx';
+import { barInset } from './inbox-styles.ts';
 import { useLocalization, useMessageDateFormat } from './localization.ts';
 import { ProfileMailAssistanceGate } from './mail-assistance.tsx';
 import {
@@ -102,7 +103,12 @@ import {
   ReadWhenOpened,
   readerToolbarInset,
 } from './organize.tsx';
-import { MessageCount, MessageHeader, ReaderHeader } from './reader-chrome.tsx';
+import {
+  MessageCount,
+  MessageHeader,
+  ReaderBar,
+  ReaderHeader,
+} from './reader-chrome.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { ReplySheet } from './reply-sheet.tsx';
 import { SidebarToggleContext } from './sidebar-toggle.tsx';
@@ -128,6 +134,8 @@ const usePortrait = () => {
 };
 const usePortraitInset = () => (usePortrait() ? portraitInset : undefined);
 const topToolbarHeight = readerToolbarInset + scaledToolbarHeight;
+// The compact iPad window frame's command input in the navigation bar.
+const barTitleWidth = 200;
 // iPhone's message text fades out over the frames' 140pt Scroll Edge Bottom, beneath the toolbar's
 // glass.
 const readerEdgeHeight = 140;
@@ -143,6 +151,7 @@ const clearsBottom = (bar: boolean, inset: number) => ({
 });
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  barTitle: { position: 'absolute' },
   // The regular-width toolbar: glass groups at the pane's trailing edge. Groups that wrap in a
   // narrow pane push the content down.
   topToolbar: {
@@ -472,13 +481,15 @@ const shownMessage = (state: ReturnType<typeof useInbox>, id: string) => {
   );
 };
 
-// The reader's header where the compact Back header is absent: the subject, the iPad command
-// input, and the gestures that open the Command Palette.
+// The reader's header where the compact Back header is absent: the subject and the gestures that
+// open the Command Palette. A reader shown alone in a compact iPad window puts its command input in
+// the navigation bar, between Back and the bar's trailing end.
 function RegularHeader({ subject }: { readonly subject: string }) {
   const colors = usePalette();
   const header = usePaletteHeader();
   const besideList = use(SidebarToggleContext) !== undefined;
   const inset = usePortraitInset();
+  const { width } = useWindowDimensions();
   return (
     <View
       style={[styles.header, inset]}
@@ -495,7 +506,19 @@ function RegularHeader({ subject }: { readonly subject: string }) {
           {subject}
         </Text>
       </View>
-      {besideList ? null : <CommandInput />}
+      {besideList || compact ? null : (
+        <ReaderBar>
+          {/* The bar takes one native view at its own size as its title. */}
+          <View
+            collapsable={false}
+            style={[
+              styles.barTitle,
+              { width: Math.min(barTitleWidth, width - 2 * barInset) },
+            ]}>
+            <CommandInput bar />
+          </View>
+        </ReaderBar>
+      )}
     </View>
   );
 }

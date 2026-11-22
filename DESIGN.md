@@ -717,7 +717,8 @@ form accessories, keyboards, status bar).
   Selected Message · subject, App and Go To, and a footer names the keys. iPhone
   and iPad show a panel attached to the top with the input, Cancel and 44pt rows;
   iPad keeps the command input in the Inbox heading and in the reader and
-  composer headers too. The [Command Palette guide](docs/command-palette.md) owns
+  composer headers too; a compact window's reader shows it in the navigation
+  bar and its composer sheet on the From row. The [Command Palette guide](docs/command-palette.md) owns
   its entry points, including iPhone's header swipe.
 - **Toolbar:** one fixed reader toolbar of glass button groups over the reading
   pane. On iPhone its 52pt glass groups and New Message sit 2pt above the bottom
@@ -926,8 +927,12 @@ app follows under the issue named:
 - **Reader More menu:** on iPad More lists Move to Spam after Mark as Unread
   (#2662), and the iPhone Reply sheet lists it; in Spam it reads Not Spam. The
   Mac menu waits for #2132.
-- **Compact iPad window:** the Command input in the reader's navigation bar and
-  on the composer's From row waits for #2133.
+- **Compact iPad window:** the reader's navigation bar holds Back and the
+  Command input (#2133); the frame's Previous and Next wait for an issue that
+  names them. The input there and on the composer's From row has no ⌘K key cap
+  until #2670 gives iPad the shortcut, so the From row shows the command symbol
+  alone. A downward swipe on the composer sheet's header closes the sheet, as
+  the system sheet does, rather than opening the palette.
 - **iPhone composer body:** the body fills the sheet and the fields are below
   the fold, which waits for #2119.
 - **Slash Command Menu:** iPad and iPhone show its Basic Blocks (#2656) and
