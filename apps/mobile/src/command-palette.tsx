@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   backText: { ...textStyles.subheadline },
-  choosing: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  choosing: { ...textStyles.subheadlineEmphasized, flex: 1 },
   // iPad's commands sit 8pt inside their panel, beneath 32pt group headers, in the list's type.
   list: { paddingHorizontal: pad ? spacing.s : spacing.m },
   section: {
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
   hintStacked: { flexDirection: 'column', alignItems: 'flex-start' },
   hintTextStacked: { flex: 0, alignSelf: 'stretch' },
   dismissStacked: { alignSelf: 'flex-end' },
-  hintTitle: { ...textStyles.subheadline, fontWeight: '600' },
+  hintTitle: { ...textStyles.subheadlineEmphasized },
   hintDetail: { ...textStyles.footnote },
   dismiss: {
     width: 44,

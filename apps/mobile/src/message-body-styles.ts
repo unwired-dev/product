@@ -32,7 +32,7 @@ export const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   attachmentText: { flexShrink: 1, gap: 2 },
-  attachmentName: { ...textStyles.subheadline, fontWeight: '600' },
+  attachmentName: { ...textStyles.subheadlineEmphasized },
   link: { textDecorationLine: 'underline' },
   linkControl: {
     borderRadius: radius.control,

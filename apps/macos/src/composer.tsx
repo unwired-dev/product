@@ -205,7 +205,7 @@ import {
 
 // The body sits 32pt in; fields, chips and notices 24pt, with a 64pt right-aligned label column.
 const bodyInset = 32;
-const fieldInset = 24;
+const fieldInset = spacing.xxl;
 const fieldLabelWidth = 64;
 
 const styles = StyleSheet.create({

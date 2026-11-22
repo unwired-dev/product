@@ -321,9 +321,7 @@ const styles = StyleSheet.create({
   marker: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   // iPhone's On Device Marker is Caption 1 Emphasized.
   markerText: {
-    ...(iphone
-      ? { ...textStyles.caption1, fontWeight: '600' }
-      : textStyles.footnote),
+    ...(iphone ? { ...textStyles.caption1Emphasized } : textStyles.footnote),
     flex: 1,
   },
   // A 48pt glass capsule; a message that wraps grows it to 64pt, 12pt above and below.
@@ -340,7 +338,7 @@ const styles = StyleSheet.create({
   },
   toastSymbol: { width: 22, alignItems: 'center' },
   toastText: { flexShrink: 1 },
-  toastMessage: { ...textStyles.subheadline, fontWeight: '600' },
+  toastMessage: { ...textStyles.subheadlineEmphasized },
   toastDetail: { ...textStyles.footnote },
   // 6pt more before the action; its 44pt target extends 10pt above and below the 24pt content.
   toastAction: {
@@ -401,7 +399,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
   },
   signInMessage: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  signInText: { ...textStyles.subheadline, fontWeight: '600' },
+  signInText: { ...textStyles.subheadlineEmphasized },
   signInButton: {
     alignSelf: 'flex-start',
     minHeight: 44,

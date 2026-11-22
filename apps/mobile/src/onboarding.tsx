@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
   welcome: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: ipad ? 140 : 24,
+    paddingHorizontal: ipad ? 140 : spacing.xxl,
     paddingVertical: spacing.l,
   },
   // The iPad frames set Welcome's content 13.5pt below the centre of the safe area.
@@ -66,8 +66,8 @@ const styles = StyleSheet.create({
   // ink sits 2pt higher in the line than the frames', so it moves down without moving the rest.
   ipadHeadline: {
     top: 2,
-    fontSize: 59.8,
-    lineHeight: 66.7,
+    fontSize: 60,
+    lineHeight: 67,
     fontWeight: '400',
     letterSpacing: -1.196 - 0.25,
   },

@@ -172,6 +172,16 @@ typography:
     fontSize: '12px'
     fontWeight: 400
     lineHeight: '16px'
+  ios-subheadline-emphasized:
+    fontFamily: 'SF Pro'
+    fontSize: '15px'
+    fontWeight: 600
+    lineHeight: '20px'
+  ios-caption-1-emphasized:
+    fontFamily: 'SF Pro'
+    fontSize: '12px'
+    fontWeight: 600
+    lineHeight: '16px'
   ios-title-3-emphasized:
     fontFamily: 'SF Pro'
     fontSize: '20px'
@@ -416,8 +426,10 @@ styles) so the file stays editable.
   orientations, with type rounded to whole points: Body 15/18, Subheadline 13/16
   and Title 3 Emphasized 17/23. Row insets, unread indicators and dividers use
   the same scale; interactive controls retain at least 44pt touch targets.
-- **iPad reader and composer:** the Reading pane recipe at the same 1.15×,
-  rounded: Reading Body 17/25 and Reading Subject 23/29.
+- **iPad composer:** the body is the Mac composer's 15/22 at 1.15×, rounded to
+  17/25.
+- **iPad reader:** the frames draw the Reading pane recipe at 1.15×, 17.25/25.3
+  and 23/28.75; the app renders the Reading pane styles, 15/22 and 20/25.
 - **iPad onboarding:** Welcome, Sign In and the Recovery Key use the same 1.15×:
   Title 1 25/30, Body 15/18, and 41.4pt and 46pt buttons with 6.9pt corners.
 - **Reading pane:** Reading Body 15/22 for message text (larger than Mac Body for

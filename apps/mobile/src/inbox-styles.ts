@@ -194,7 +194,7 @@ export const styles = StyleSheet.create({
     flexGrow: 1,
     alignItems: 'center',
     justifyContent: ipad ? 'flex-start' : 'center',
-    paddingTop: ipad ? 40 : 0,
+    paddingTop: ipad ? spacing.xxxl : 0,
     paddingHorizontal: ipad ? 32 : spacing.xl,
   },
   noResults: { paddingTop: ipad ? 132 : 0 },

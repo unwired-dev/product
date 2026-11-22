@@ -109,6 +109,8 @@ export const palette = {
     // The Mac frames' glass menu panels, such as the Command Palette.
     macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
     scrimTouch: 'rgba(0, 0, 0, 0.22)',
+    // The Mac frames' backdrop behind alerts and sheets, which AppKit draws itself.
+    scrimMac: 'rgba(0, 0, 0, 0.18)',
     // Menus, popovers and sheets, which float above the content.
     menuShadow: '0px 8px 24px rgba(0, 0, 0, 0.16)',
     // The deep graphite toast above the floating search bar, alike in Light and Dark.
@@ -167,6 +169,7 @@ export const palette = {
     macMenuGlassShadow: '0px 8px 24px rgba(0, 0, 0, 0.4)',
     // The iPad Compose frames dim the #1E1E1E content to #121212.
     scrimTouch: 'rgba(0, 0, 0, 0.4)',
+    scrimMac: 'rgba(0, 0, 0, 0.4)',
     menuShadow: '0px 18px 48px rgba(0, 0, 0, 0.45)',
     toastShadow: '0px 6px 9px rgba(0, 0, 0, 0.18)',
   },
@@ -217,8 +220,10 @@ export const typography = {
     headline: style(17, 22, '600'),
     body: style(17, 22, '400'),
     subheadline: style(15, 20, '400'),
+    subheadlineEmphasized: style(15, 20, '600'),
     footnote: style(13, 18, '400'),
     caption1: style(12, 16, '400'),
+    caption1Emphasized: style(12, 16, '600'),
     title3Emphasized: style(20, 25, '600'),
   },
   ipadList: {

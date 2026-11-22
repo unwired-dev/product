@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     gap: spacing.s,
   },
   responseHeading: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  responseTitle: { ...textStyles.subheadline, fontWeight: '600', flex: 1 },
+  responseTitle: { ...textStyles.subheadlineEmphasized, flex: 1 },
   // Long labels wrap the capsules onto another line on iPad too.
   responseActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
 });
