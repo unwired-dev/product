@@ -452,7 +452,10 @@ macOS: app text and plain-text messages are unaffected. **Message zoom** is a na
 pop-up of Safari's page zoom levels from 50% to 300%, 100% by default. The reader adds
 the zoom to the sanitized document as the app's own CSS `zoom`, as on iPhone and iPad
 ([Expo client](expo-client.md#reading)), so the stored message and Drafts never
-change; an open reader reloads its document at the new zoom. The zoom is a
+change; an open reader reloads its document at the new zoom. A larger zoom makes a
+document taller, so more messages pass the reader's 20,000-point cap and scroll
+inside the view, where remote images below its first view stay placeholders
+([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content)). The zoom is a
 Device-Local Preference in this Mac's user defaults (`UnwiredMessageZoom`), never
 synced. Fit wide messages to the screen follows separately.
 

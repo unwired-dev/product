@@ -8,8 +8,7 @@ const key = 'UnwiredMessageZoom';
 let current: number | undefined = undefined;
 const listeners = new Set<() => void>();
 const snapshot = () => {
-  const stored: unknown = Settings.get(key);
-  current ??= messageZooms.find((each) => each === stored) ?? 100;
+  current ??= messageZooms.find((each) => each === Settings.get(key)) ?? 100;
   return current;
 };
 const subscribe = (listener: () => void) => {
