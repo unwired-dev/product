@@ -552,15 +552,16 @@ function Palette({
     }
   }, [open]);
   const live = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
-  const perform = (work: () => unknown) => {
+  // `offered` finds the command again when it runs, since the registry may change while leaving.
+  const perform = (offered: () => (() => unknown) | undefined) => {
     close();
     if (leave === undefined) {
-      void work();
+      void offered()?.();
       return;
     }
     void (async () => {
       if (await leave()) {
-        await work();
+        await offered()?.();
       }
     })();
   };
@@ -581,20 +582,29 @@ function Palette({
       setChoiceQuery('');
       return;
     }
-    perform(() => found.run?.());
+    perform(() => offeredCommand(registry.getSnapshot(), found)?.run);
   };
   const choose = (choice: CommandChoice) => {
     const found =
       choosing === undefined ? undefined : offeredCommand(live, choosing);
     const option = found?.choices?.find(({ id }) => id === choice.id);
-    if (option === undefined || option.disabled !== undefined) {
+    if (
+      found === undefined ||
+      option === undefined ||
+      option.disabled !== undefined
+    ) {
       if (choosing !== undefined) {
         setGone([...gone, choosing.id]);
       }
       setChoosing(undefined);
       return;
     }
-    perform(option.run);
+    perform(
+      () =>
+        offeredCommand(registry.getSnapshot(), found)?.choices?.find(
+          ({ id, disabled }) => id === option.id && disabled === undefined,
+        )?.run,
+    );
   };
   const subject = opened.find(({ target }) => target !== undefined)?.target
     ?.subject;

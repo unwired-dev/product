@@ -87,7 +87,7 @@ function ComposerHost({
   onLeft,
   onRebind,
 }: {
-  readonly draft: string;
+  readonly draft: string | undefined;
   readonly sheet: boolean;
   readonly onLeft: () => void;
   readonly onRebind: (draft: string) => void;
@@ -105,15 +105,18 @@ function ComposerHost({
       onRebind={onRebind}
     />
   );
-  return sheet ? (
-    <ComposerSheet
-      draft={draft}
-      onLeave={() => {
-        void leaveSheet();
-      }}
-      composer={composer}
-    />
-  ) : (
+  if (sheet) {
+    return (
+      <ComposerSheet
+        draft={draft}
+        onLeave={() => {
+          void leaveSheet();
+        }}
+        composer={composer}
+      />
+    );
+  }
+  return draft === undefined ? null : (
     <View
       testID="composer-overlay"
       style={{ flex: 1 }}>
@@ -123,18 +126,32 @@ function ComposerHost({
 }
 
 // Hands over the shared leave guard a tapped notification waits on before it navigates, and
-// offers the window's Account command.
+// offers the window's Account and Go To Inbox, which leaves the composer first, as the app's does.
 function Window({
   onLeave,
   onAccount,
+  onInbox,
 }: {
   readonly onLeave: (leave: ReturnType<typeof useLeaveComposer>) => void;
   readonly onAccount: () => void;
+  readonly onInbox: () => void;
 }) {
   const { t } = useLocalization();
-  onLeave(useLeaveComposer());
+  const leave = useLeaveComposer();
+  onLeave(leave);
   return (
-    <RegisterCommands offer={() => inboxCommands(t, { account: onAccount })} />
+    <RegisterCommands
+      offer={() =>
+        inboxCommands(t, {
+          account: onAccount,
+          inbox: async () => {
+            if (await leave()) {
+              onInbox();
+            }
+          },
+        })
+      }
+    />
   );
 }
 
@@ -145,6 +162,7 @@ function Reader({
   sheet = false,
   onLeave = ignore,
   onAccount = ignore,
+  onInbox = ignore,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
@@ -153,6 +171,7 @@ function Reader({
   readonly sheet?: boolean;
   readonly onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
   readonly onAccount?: () => void;
+  readonly onInbox?: () => void;
 }) {
   const [composing, setComposing] = useState<string>();
   return (
@@ -163,6 +182,7 @@ function Reader({
         <Window
           onLeave={onLeave}
           onAccount={onAccount}
+          onInbox={onInbox}
         />
         {composing === undefined ? (
           <MessageDetail
@@ -171,7 +191,9 @@ function Reader({
             onClose={ignore}
             onCompose={setComposing}
           />
-        ) : (
+        ) : null}
+        {/* The sheet stays mounted while it slides away, as the app's does. */}
+        {sheet || composing !== undefined ? (
           <ComposerHost
             draft={composing}
             sheet={sheet}
@@ -180,7 +202,7 @@ function Reader({
             }}
             onRebind={setComposing}
           />
-        )}
+        ) : null}
       </CommandPaletteProvider>
     </InboxProvider>
   );
@@ -593,9 +615,11 @@ describe('iPad reader', () => {
     {
       onLeave = ignore,
       onAccount = ignore,
+      onInbox = ignore,
     }: Readonly<{
       onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
       onAccount?: () => void;
+      onInbox?: () => void;
     }> = {},
   ) => {
     const snapshot: RegistrationSnapshot = {
@@ -637,6 +661,7 @@ describe('iPad reader', () => {
           sheet={sheet}
           onLeave={onLeave}
           onAccount={onAccount}
+          onInbox={onInbox}
         />
       </AccountContext>,
     );
@@ -768,5 +793,31 @@ describe('iPad reader', () => {
       expect(account).toHaveBeenCalledWith();
     });
     expect(screen.queryByLabelText('Message body')).not.toBeOnTheScreen();
+  });
+
+  it('goes to the Inbox from a changed composer sheet once Delete Draft answers', async () => {
+    expect.hasAssertions();
+    const inbox = jest.fn<undefined, []>();
+    await replyFromReader(true, { onInbox: inbox });
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      'Friday works.',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Inbox',
+        includeHiddenElements: true,
+      }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Delete Draft' }),
+    );
+    // The sheet still shows the closed composer as it slides away; leaving again goes.
+    await waitFor(() => {
+      expect(inbox).toHaveBeenCalledWith();
+    });
   });
 });
