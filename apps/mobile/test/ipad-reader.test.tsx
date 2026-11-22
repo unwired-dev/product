@@ -934,6 +934,46 @@ describe('iPad reader', () => {
     expect(account).not.toHaveBeenCalled();
   });
 
+  it('runs a composer sheet’s command once its route closes, despite a swipe meanwhile', async () => {
+    expect.hasAssertions();
+    const account = jest.fn<undefined, []>();
+    let open: (draft: string | undefined) => void = ignore;
+    await replyFromReader(true, {
+      onAccount: account,
+      onOpen: (opening) => {
+        open = opening;
+      },
+      reopen: true,
+    });
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      'Friday works.',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Account',
+        includeHiddenElements: true,
+      }),
+    );
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Save Draft' }),
+    );
+    // The swipe lands before the route commits the close the command already asked for.
+    await act(async () => {
+      await fireEvent(
+        screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
+        'requestClose',
+      );
+    });
+    await act(() => {
+      open(undefined);
+    });
+    expect(account).toHaveBeenCalledWith();
+  });
+
   it('asks again about a Draft its route reopens as it closes', async () => {
     expect.hasAssertions();
     let leaveComposer: ReturnType<typeof useLeaveComposer> = () =>

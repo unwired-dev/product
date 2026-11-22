@@ -32,21 +32,27 @@ export function ComposerSheet({
   }
   const presented = draft !== undefined;
   const open = useRef(presented);
-  // Commands waiting for the composer to close; one left when the sheet goes away never runs.
-  const closed = useRef<Array<(left: boolean) => void>>([]);
+  // Commands waiting for the composer to close, each with the navigation it left at: a later one
+  // chose another destination, and one left when the sheet goes away never runs.
+  const closed = useRef<
+    Array<Readonly<{ turn: number; resolve: (left: boolean) => void }>>
+  >([]);
   const removed = useRef(false);
   useEffect(() => {
     open.current = presented;
-    if (!presented) {
-      for (const resolve of closed.current.splice(0)) {
-        resolve(true);
+    const turn = navigation.navigations();
+    closed.current = closed.current.filter((waiting) => {
+      const superseded = waiting.turn !== turn;
+      if (superseded || !presented) {
+        waiting.resolve(!superseded);
       }
-    }
-  }, [presented]);
+      return !superseded && presented;
+    });
+  });
   useEffect(
     () => () => {
       removed.current = true;
-      for (const resolve of closed.current.splice(0)) {
+      for (const { resolve } of closed.current.splice(0)) {
         resolve(false);
       }
     },
@@ -57,14 +63,14 @@ export function ComposerSheet({
       return false;
     }
     const turn = navigation.navigations();
-    const left =
+    return (
       !removed.current &&
       (!open.current ||
         // oxlint-disable-next-line promise/avoid-new -- The command waits for the composer to close.
-        (await new Promise<boolean>((resolve) => {
-          closed.current.push(resolve);
-        })));
-    return left && navigation.navigations() === turn;
+        new Promise<boolean>((resolve) => {
+          closed.current.push({ turn, resolve });
+        }))
+    );
   };
   return (
     <Modal
@@ -79,7 +85,12 @@ export function ComposerSheet({
         'landscape-left',
         'landscape-right',
       ]}
-      onRequestClose={onLeave}
+      // A command already closing the sheet stands for its swipe.
+      onRequestClose={() => {
+        if (closed.current.length === 0) {
+          onLeave();
+        }
+      }}
       onDismiss={() => {
         setShown(draft);
       }}>
