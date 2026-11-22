@@ -324,7 +324,7 @@ final class InboxTests: XCTestCase {
     assertGmailActionsSettled(app)
     // Opening it again reads it.
     row.tap()
-    XCTAssertTrue(subject.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 10))
     app.buttons["Archive"].tap()
     XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 10))
     assertGmailActionsSettled(app)
