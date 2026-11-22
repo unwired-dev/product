@@ -79,8 +79,10 @@ function isScrollable(
 
 const ignore = () => undefined;
 
-// iOS keeps a dismissed sheet's content until it has slid away; the returned call ends the slide.
-function holdSheetDismissal() {
+// iOS keeps a dismissed sheet's content until it has slid away; `slid` ends the slide.
+async function holdingSheetDismissal(
+  run: (slid: () => Promise<void>) => Promise<void>,
+) {
   const { render } = Modal.prototype;
   let dismiss: (() => void) | undefined = undefined;
   const shown = jest
@@ -94,13 +96,16 @@ function holdSheetDismissal() {
   const dismissing = jest
     .spyOn(Modal.prototype, 'componentDidUpdate')
     .mockImplementation(ignore);
-  return async () => {
+  try {
+    await run(async () => {
+      await act(() => {
+        dismiss?.();
+      });
+    });
+  } finally {
     shown.mockRestore();
     dismissing.mockRestore();
-    await act(() => {
-      dismiss?.();
-    });
-  };
+  }
 }
 
 // The composer's host: the compact window's sheet, whose swipe leaves the composer as the app's
@@ -833,63 +838,69 @@ describe('iPad reader', () => {
 
   it('goes to the Inbox from a changed composer sheet once Delete Draft answers', async () => {
     expect.hasAssertions();
-    const slid = holdSheetDismissal();
-    const inbox = jest.fn<undefined, []>();
-    await replyFromReader(true, { onInbox: inbox });
-    await fireEvent.changeText(
-      screen.getByLabelText('Message body', { includeHiddenElements: true }),
-      'Friday works.',
-    );
-    await fireEvent.press(
-      screen.getByRole('button', { name: 'Open Command Palette' }),
-    );
-    await fireEvent.press(
-      screen.getByRole('button', {
-        name: 'Inbox',
-        includeHiddenElements: true,
-      }),
-    );
-    await fireEvent.press(
-      await screen.findByRole('button', { name: 'Delete Draft' }),
-    );
-    // The command runs once the composer has closed, while the sheet still slides away with it.
-    await waitFor(() => {
-      expect(inbox).toHaveBeenCalledWith();
+    await holdingSheetDismissal(async (slid) => {
+      const inbox = jest.fn<undefined, []>();
+      await replyFromReader(true, { onInbox: inbox });
+      await fireEvent.changeText(
+        screen.getByLabelText('Message body', { includeHiddenElements: true }),
+        'Friday works.',
+      );
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Open Command Palette' }),
+      );
+      await fireEvent.press(
+        screen.getByRole('button', {
+          name: 'Inbox',
+          includeHiddenElements: true,
+        }),
+      );
+      await fireEvent.press(
+        await screen.findByRole('button', { name: 'Delete Draft' }),
+      );
+      // The command runs once the composer has closed, while the sheet still slides away with it.
+      await waitFor(() => {
+        expect(inbox).toHaveBeenCalledWith();
+      });
+      expect(
+        screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      ).toBeOnTheScreen();
+      await slid();
+      expect(
+        screen.queryByLabelText('Message body', {
+          includeHiddenElements: true,
+        }),
+      ).not.toBeOnTheScreen();
     });
-    expect(
-      screen.getByLabelText('Message body', { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
-    await slid();
-    expect(
-      screen.queryByLabelText('Message body', { includeHiddenElements: true }),
-    ).not.toBeOnTheScreen();
   });
 
   it('swipes away an unchanged Draft opened again while its sheet slides away', async () => {
     expect.hasAssertions();
-    const slid = holdSheetDismissal();
-    let open: (draft: string | undefined) => void = ignore;
-    const drafts = await replyFromReader(true, {
-      onOpen: (opening) => {
-        open = opening;
-      },
+    await holdingSheetDismissal(async (slid) => {
+      let open: (draft: string | undefined) => void = ignore;
+      const drafts = await replyFromReader(true, {
+        onOpen: (opening) => {
+          open = opening;
+        },
+      });
+      const [draft] = draftsOf(drafts.getSnapshot());
+      ok(draft);
+      await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+      await act(() => {
+        open(draft.id);
+      });
+      await act(async () => {
+        await fireEvent(
+          screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
+          'requestClose',
+        );
+      });
+      await slid();
+      expect(
+        screen.queryByLabelText('Message body', {
+          includeHiddenElements: true,
+        }),
+      ).not.toBeOnTheScreen();
     });
-    const [draft] = draftsOf(drafts.getSnapshot());
-    ok(draft);
-    await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
-    await act(() => {
-      open(draft.id);
-    });
-    await act(async () => {
-      await fireEvent(
-        screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
-        'requestClose',
-      );
-    });
-    await slid();
-    expect(
-      screen.queryByLabelText('Message body', { includeHiddenElements: true }),
-    ).not.toBeOnTheScreen();
   });
 
   it('drops a composer sheet’s command when its route reopens the Draft as it closes', async () => {

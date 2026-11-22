@@ -423,9 +423,14 @@ export function SheetPalette({
 // covered. A window's palette stays.
 export function useCloseSheetPalette() {
   const { close } = useCommandPalette();
-  const shown = use(SheetPaletteContext) !== null;
+  const sheet = use(SheetPaletteContext) !== null;
+  // Read when the question shows, which may follow a palette opened after Close began.
+  const shown = useRef(sheet);
+  useLayoutEffect(() => {
+    shown.current = sheet;
+  });
   return () => {
-    if (shown) {
+    if (shown.current) {
       close();
     }
   };
