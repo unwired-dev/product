@@ -1146,6 +1146,11 @@ describe('composing Drafts', () => {
       await press('Show Cc and Bcc');
       await fireEvent.changeText(screen.getByLabelText('Cc'), 'kim@example');
       await fireEvent(screen.getByLabelText('Cc'), 'blur');
+      // A valid address still being typed in To leaves Cc the field Send waits for.
+      await fireEvent.changeText(
+        screen.getByLabelText('To'),
+        'lee@example.invalid',
+      );
       focus.mockClear();
       await act(async () => {
         await fireEvent.press(send());

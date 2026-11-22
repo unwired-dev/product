@@ -4095,25 +4095,42 @@ final class InboxTests: XCTestCase {
     save.tap()
     XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
     // #2119: the body fills the sheet, and Subject, To and Cc follow it below the fold.
-    app.buttons["New Message"].tap()
     let to = app.textFields["To"]
-    XCTAssertTrue(to.waitForExistence(timeout: 15))
     let body = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Message body"))
       .firstMatch
-    focus(body) { keyboard.exists }
-    for letter in "seats" {
-      keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", String(letter))).firstMatch.tap()
+    // The editor ends above the keyboard's typing predictions, which `keyboard` leaves out.
+    let editor = app.scrollViews.containing(NSPredicate(format: "label == %@", "Subject")).firstMatch
+    let writeBody = {
+      app.buttons["New Message"].tap()
+      XCTAssertTrue(to.waitForExistence(timeout: 15))
+      self.focus(body) { keyboard.exists }
+      for letter in "seats" {
+        keyboard.keys.matching(NSPredicate(format: "label ==[c] %@", String(letter))).firstMatch
+          .tap()
+      }
+      self.waitUntil { (body.value as? String)?.lowercased().hasPrefix("seats") == true }
+      XCTAssertGreaterThanOrEqual(subject.frame.minY, editor.frame.maxY)
     }
-    waitUntil { (body.value as? String)?.lowercased().hasPrefix("seats") == true }
-    XCTAssertGreaterThanOrEqual(subject.frame.minY, keyboard.frame.minY)
+    writeBody()
     attachScreen("Composer body fills the sheet", of: app, to: self)
-    // Send without a recipient brings To into view above the keyboard, focused, with its reason.
+    // Send without a recipient scrolls to To and focuses it, with its reason, above the keyboard.
     app.buttons["Send"].tap()
     waitForFocus(to)
-    XCTAssertLessThanOrEqual(to.frame.maxY, keyboard.frame.minY)
+    XCTAssertLessThanOrEqual(to.frame.maxY, editor.frame.maxY)
     let reason = app.staticTexts["Add a recipient to send."].firstMatch
-    XCTAssertLessThanOrEqual(reason.frame.maxY, keyboard.frame.minY)
+    XCTAssertTrue(reason.exists)
+    XCTAssertLessThanOrEqual(reason.frame.maxY, editor.frame.maxY)
     attachScreen("Composer Send asks for a recipient", of: app, to: self)
+    swipeDown()
+    let delete = app.buttons["Delete Draft"]
+    XCTAssertTrue(delete.waitForExistence(timeout: 10))
+    delete.tap()
+    XCTAssertTrue(composer.waitForNonExistence(timeout: 10))
+    // Scrolling past the body reaches the fields, which the message is then addressed in.
+    writeBody()
+    body.swipeUp()
+    waitUntil { subject.frame.maxY <= editor.frame.maxY }
+    focus(to) { self.hasFocus(to) }
     type("maya@example.invalid", into: to)
     focus(subject) { self.hasFocus(subject) }
     type("Seats for the offsite", into: subject)

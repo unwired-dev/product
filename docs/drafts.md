@@ -563,11 +563,11 @@ system holds the sheet up while the composer decides, so an unchanged Draft clos
 is removed, and changed content asks **Delete Draft** or **Save Draft** with the sheet still open
 (#2610). The sheet is React Native's page sheet, whose size, corners and motion are the system's;
 it shows no grabber, which the frames draw, because that component offers none.
-The body fills the sheet between From and the keyboard, or the bottom of the sheet without one, and
-attachments, Subject, To, and Cc and Bcc follow it below the fold, reached by scrolling while the
-header and From stay fixed ([#2119](https://github.com/unwired-dev/product/issues/2119)). In a
-reply the space after the quoted text grows instead. **Send** while it waits for a recipient focuses
-To, or the field with unfinished recipient text, which brings that field and its reason into view.
+The body fills the sheet between From and the keyboard, or the bottom of the sheet without one, with
+attachments at its bottom; Subject, To, and Cc and Bcc follow below the fold, reached by scrolling
+while the header and From stay fixed ([#2119](https://github.com/unwired-dev/product/issues/2119)).
+In a reply the space after the quoted text grows instead. **Send** while it waits for a recipient
+scrolls to the fields and focuses To, or the field whose text it refuses, with its reason.
 Closing a Draft with no recipients, subject,
 body content or attachments discards it only if no other window has completed its content. **Discard**
 asks before deleting a Draft from this device.

@@ -287,6 +287,7 @@ const styles = StyleSheet.create({
   pillClear: { flexGrow: 1000, maxHeight: pillReserve },
   // The iPhone body, or the space after its quoted text, takes the rest of the visible area.
   filling: { flexGrow: 1 },
+  fixed: { flexGrow: 0 },
   // Open menus stack header over From over the format bar, whose layout-only rows Fabric
   // flattens into this column, so each menu opens over the rows that follow it.
   header: {
@@ -3717,35 +3718,40 @@ const listTabs = (kind: BlockKind, choosing: boolean) =>
 // On iPhone the Draft fills the editor's visible area and Subject, To and Cc follow below it: the
 // body, or the space after quoted text, grows until the fields start below the fold, and up to the
 // floating pill's space keeps the last attachment clear of the pill. Pressing Send while it waits
-// for a recipient focuses the field it waits for, which brings that field and its reason into view.
+// for a recipient scrolls to the fields and focuses the one it waits for.
 function useFieldsBelowBody({
   regular,
   pillShown,
-  draft,
+  shown,
   blocked,
   saving,
 }: {
   readonly regular: boolean;
   readonly pillShown: boolean;
-  readonly draft: Draft;
+  // The Draft as Send would take it, with its typed entries.
+  readonly shown: Draft;
   readonly blocked: SendRefusal | undefined;
   readonly saving: boolean;
 }) {
   const [visibleHeight, setVisibleHeight] = useState(0);
   const [fieldsHeight, setFieldsHeight] = useState(0);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const toRef = useRef<TextInputInstance>(null);
   const ccRef = useRef<TextInputInstance>(null);
   const bccRef = useRef<TextInputInstance>(null);
   const phone = !regular && !ipad;
   const filled = phone && visibleHeight > 0;
-  const quoted = draft.quoted !== undefined;
+  const quoted = shown.quoted !== undefined;
+  // The field whose text Send refuses, as useBlockedSend finds it, or To.
+  const finished = finishedEntries(shown);
   const waiting =
     phone && !saving && (blocked === 'recipients' || blocked === 'entries')
       ? ((['to', 'cc', 'bcc'] as const).find(
-          (field) => entryOf(draft, field) !== '',
+          (field) => entryOf(finished, field) !== '',
         ) ?? 'to')
       : undefined;
   return {
+    scrollRef,
     toRef,
     ccRef,
     bccRef,
@@ -3754,6 +3760,8 @@ function useFieldsBelowBody({
         ? undefined
         : () => {
             const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
+            // Focus alone leaves a field that already has it where it is.
+            scrollRef.current?.scrollToEnd();
             inputs[waiting].current?.focus();
           },
     measureVisible: setVisibleHeight,
@@ -3763,6 +3771,8 @@ function useFieldsBelowBody({
         visibleHeight + fieldsHeight + (pillShown ? pillReserve : spacing.s),
     },
     body: filled && !quoted && styles.filling,
+    // In a reply the space after the quoted text grows, not the space around the body.
+    bodyKeys: filled && quoted && styles.fixed,
     afterQuoted: filled && quoted && styles.filling,
     pillClear: filled && pillShown && styles.pillClear,
   };
@@ -4726,15 +4736,14 @@ function Editor({
     change({ ...next, copies: true }, word, field);
   };
   const blocked = useBlockedSend({ shown: history.present, draft, docked });
-  const { toRef, ccRef, bccRef, onBlockedPress, ...below } = useFieldsBelowBody(
-    {
+  const { scrollRef, toRef, ccRef, bccRef, onBlockedPress, ...below } =
+    useFieldsBelowBody({
       regular,
       pillShown,
-      draft,
+      shown: history.present,
       blocked: blocked.blocked,
       saving: closing === 'saving',
-    },
-  );
+    });
 
   const sender = (
     <SendingMailbox
@@ -5101,6 +5110,7 @@ function Editor({
           }}
           style={styles.fill}>
           <ScrollView
+            ref={scrollRef}
             onScroll={() => placeSuggestions.current?.()}
             scrollEventThrottle={16}
             contentContainerStyle={[
@@ -5170,7 +5180,7 @@ function Editor({
               </View>
             )}
             <ArrowKeys
-              style={styles.bodyKeys}
+              style={[styles.bodyKeys, below.bodyKeys]}
               enabled={recipientMenu.moving}
               onArrow={(key) => {
                 recipientMenu.move(key, authored.current, selectionNow.current);

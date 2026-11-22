@@ -529,9 +529,11 @@ stay, and no Command Palette opens; **Keep Editing**, outside the question, keep
 on the next swipe **Save Draft** closes it. In a third New Message the body fills the sheet: with
 text typed in it, Subject starts below the keyboard
 ([#2119](https://github.com/unwired-dev/product/issues/2119)). **Send** with no recipient focuses
-To and brings it, with **Add a recipient to send.**, into view above the keyboard. Addressed to
+To and brings it, with **Add a recipient to send.**, into view above the keyboard; that Draft is
+then deleted. In a fourth, scrolling past the body brings the fields into view; addressed to
 `maya@example.invalid` with a Subject, the message keeps its fields above the keyboard and sends,
-and the Outbox then offers its **Undo**. The captures "Composer sheet", "Composer sheet asks before
+and the Outbox then offers its **Undo**. The editor's bottom, not the keyboard element, marks the
+fold: the keyboard's typing predictions sit above that element. The captures "Composer sheet", "Composer sheet asks before
 closing", "Composer body fills the sheet", "Composer Send asks for a recipient" and "Composer sheet
 with keyboard" are named with the appearance.
 
