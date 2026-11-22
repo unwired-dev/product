@@ -47,12 +47,13 @@ const foldersField = (connection: string) => `sectionFolders:${connection}`;
 
 // One preference's latest value and when it was chosen, in milliseconds since the epoch. A field
 // this build does not know is kept and published as it was. A Favorites or folder change made here
-// keeps, until Private Sync holds it, `from`: when the value it was made from was chosen, 0 for
-// none. Private Sync never holds `from`.
+// keeps `from`, when the value Private Sync held as it was made was chosen (0 for none), and once a
+// pass publishes it `sent`, when the change it published was chosen. Private Sync holds neither.
 const FieldSchema = Schema.Struct({
   value: Schema.Json,
   at: Schema.Finite,
   from: Schema.optionalKey(Schema.Finite),
+  sent: Schema.optionalKey(Schema.Finite),
 });
 type Field = typeof FieldSchema.Type;
 type Fields = Readonly<Record<string, Field>>;
@@ -64,22 +65,18 @@ const published = (fields: Fields): Fields =>
       { value, at },
     ]),
   );
-// `kept` once Private Sync holds `sent`: a change it holds keeps no `from`, and one made here from
-// it since is made from it.
-const settled = (kept: Fields, sent: Fields): Fields =>
+// Whether `fields` hold a change made here that no pass has published yet.
+const unsent = (fields: Fields) =>
+  Object.values(fields).some(
+    ({ at, from, sent }) => from !== undefined && sent !== at,
+  );
+// `fields` with each change made here marked as published.
+const sending = (fields: Fields): Fields =>
   Object.fromEntries(
-    Object.entries(kept).map(([name, field]) => {
-      const { at, from } = sent[name] ?? {};
-      if (field.at === at) {
-        return [name, { value: field.value, at }];
-      }
-      return [
-        name,
-        from !== undefined && field.from === from
-          ? { ...field, from: at }
-          : field,
-      ];
-    }),
+    Object.entries(fields).map(([name, field]) => [
+      name,
+      field.from === undefined ? field : { ...field, sent: field.at },
+    ]),
   );
 // A Mail Profile's Inbox presentation preferences (ADR 0019's `mail-workflow-preferences:inbox`),
 // as this device keeps them and as the Profile's record seals them.
@@ -187,7 +184,10 @@ const merged = (local: Fields, remote: Fields): Fields => {
   const next: Record<string, Field> = { ...local };
   for (const [name, field] of Object.entries(remote)) {
     const kept = next[name];
-    if (
+    if (kept?.sent === field.at && kept.at > field.at) {
+      // Private Sync holds a change made here, which the later one here was made from.
+      next[name] = { value: kept.value, at: kept.at, from: field.at };
+    } else if (
       kept === undefined ||
       field.at > (kept.from ?? kept.at) ||
       (field.at === kept.at &&
@@ -400,39 +400,31 @@ export function createInboxPreferences(
       return yield* ownerMismatch();
     }
     const { records, unreadable } = readable(fetched);
-    const stored = yield* changed(account, (profiles) =>
-      records.reduce((next, { id, fields }) => {
-        const local = fieldsOf(next, id);
+    const sendable = (kept: ProfilePreferences) =>
+      !unreadable.has(kept.profile) && publishable(kept.profile);
+    // Marks what it publishes before publishing it, so a later pass knows it for this device's own.
+    const stored = yield* changed(account, (profiles) => {
+      const next = records.reduce((all, { id, fields }) => {
+        const local = fieldsOf(all, id);
         const adopted = merged(local, fields);
-        return sameFields(local, adopted)
-          ? next
-          : withFields(next, id, adopted);
-      }, profiles),
-    );
+        return sameFields(local, adopted) ? all : withFields(all, id, adopted);
+      }, profiles);
+      return next
+        .filter((kept) => sendable(kept) && unsent(kept.fields))
+        .reduce(
+          (all, { profile, fields }) =>
+            withFields(all, profile, sending(fields)),
+          next,
+        );
+    });
     let conflicted = false;
-    // The Profiles whose changes made here Private Sync now holds, with those changes.
-    const sent: ProfilePreferences[] = [];
-    for (const { profile, fields } of stored.filter(
-      (kept) => !unreadable.has(kept.profile) && publishable(kept.profile),
-    )) {
-      const lost = yield* publish(remote, account, {
-        profile,
-        fields,
-        record: records.find(({ id }) => id === profile),
-      });
-      conflicted = lost || conflicted;
-      if (!lost && Object.values(fields).some((field) => 'from' in field)) {
-        sent.push({ profile, fields });
-      }
-    }
-    if (sent.length > 0) {
-      yield* changed(account, (profiles) =>
-        sent.reduce(
-          (next, { profile, fields }) =>
-            withFields(next, profile, settled(fieldsOf(next, profile), fields)),
-          profiles,
-        ),
-      );
+    for (const { profile, fields } of stored.filter(sendable)) {
+      conflicted =
+        (yield* publish(remote, account, {
+          profile,
+          fields,
+          record: records.find(({ id }) => id === profile),
+        })) || conflicted;
     }
     pulled = conflicted ? undefined : { account, known, unreadable };
     return conflicted;
@@ -484,7 +476,12 @@ export function createInboxPreferences(
                   at: Math.max(Date.now(), (field?.at ?? 0) + 1),
                   // Made from the stored value, or from what an unpublished change was made from.
                   ...(typeof value === 'function'
-                    ? { from: field?.from ?? field?.at ?? 0 }
+                    ? {
+                        from: field?.from ?? field?.at ?? 0,
+                        ...(field?.sent === undefined
+                          ? {}
+                          : { sent: field.sent }),
+                      }
                     : {}),
                 },
               });
