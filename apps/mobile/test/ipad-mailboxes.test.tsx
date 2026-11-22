@@ -332,10 +332,12 @@ describe('iPad Mailboxes', () => {
     await fireEvent.changeText(field, 'Nothing like this');
     await screen.findByText('No Results');
     await fireEvent.press(screen.getByRole('button', { name: 'Close Search' }));
-    // Pulling down settles once the shown account has.
+    // Pulling down lists the shown account's new mail and settles once it has.
+    shown.deliver({ subject: 'Pulled' });
     await act(async () => {
       fireEvent(screen.getByLabelText('Inbox messages'), 'refresh');
     });
+    await screen.findByText('Pulled');
     await waitFor(() => {
       expect(screen.getByLabelText('Inbox messages')).toHaveProp(
         'refreshing',

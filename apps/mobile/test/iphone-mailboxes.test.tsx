@@ -334,9 +334,13 @@ describe('iPhone Mailboxes', () => {
     delete gate.held;
     await act(async () => {
       written.resolve(undefined);
-      await written.promise;
+      // Queued after the hide, so the hide and what follows it have finished.
+      await relaunched.changeFavorites(defaultProfile, () => undefined);
     });
-    expect(selected).toStrictEqual({ unified: 'SENT' });
+    expect({
+      selected,
+      trash: again.queryByRole('button', { name: 'Trash' }),
+    }).toStrictEqual({ selected: { unified: 'SENT' }, trash: null });
     await again.unmount();
   });
 
@@ -614,6 +618,75 @@ describe('iPhone Mailboxes', () => {
     await app.findByRole('button', { name: /From Alex’s Inbox/u });
     expect(app.queryAllByRole('button', { name: /First/u })).toStrictEqual([]);
     alert.mockRestore();
+    await app.unmount();
+  });
+
+  it('moves an account past another in the Profile’s order, keeping the place of one not yet opened', async () => {
+    expect.hasAssertions();
+    const alex = syntheticMailboxes['alex@example.invalid'];
+    const other = syntheticMailboxes['other@example.invalid'];
+    const listed = [
+      { id: alex, address: 'alex@example.invalid', state: 'connected' },
+      { id: 'unopened', address: 'new@example.invalid', state: 'connected' },
+      { id: other, address: 'other@example.invalid', state: 'connected' },
+    ];
+    const snapshot = {
+      kind: 'connected',
+      productAccountId: 'synthetic-product-account',
+      signInProvider: 'google',
+      mailboxes: JSON.stringify(listed),
+    } satisfies RegistrationSnapshot;
+    // The unopened connection has no Inbox yet, so Edit shows no row for it.
+    const mailboxes = createMailboxes(
+      syntheticConnections({
+        [alex]: createSyntheticGmail(),
+        [other]: createSyntheticGmail({ address: 'other@example.invalid' }),
+      }),
+      {
+        getSnapshot: () => ({
+          snapshot: {
+            ...snapshot,
+            mailboxes: JSON.stringify([listed[0], listed[2]]),
+          },
+          busy: false,
+          failed: false,
+        }),
+        subscribe: () => () => undefined,
+      },
+    );
+    await mailboxes.load();
+    const store = preferences()();
+    await store.load();
+    const arrangeMailboxes = jest.fn(() => Promise.resolve(true));
+    const app = await render(
+      <AccountContext
+        value={{
+          ...account,
+          mailboxes: mailboxesOf(snapshot),
+          arrangeMailboxes,
+        }}>
+        <InboxPreferencesContext value={store}>
+          <InboxProvider mailboxes={mailboxes}>
+            <CommandPaletteProvider>
+              <Mailboxes
+                view={{}}
+                onView={ignore}
+                onProfile={ignore}
+              />
+            </CommandPaletteProvider>
+          </InboxProvider>
+        </InboxPreferencesContext>
+      </AccountContext>,
+    );
+    await fireEvent.press(app.getByRole('button', { name: 'Edit' }));
+    await fireEvent(
+      app.getByRole('button', { name: 'Gmail · alex@example.invalid' }),
+      'accessibilityAction',
+      { nativeEvent: { actionName: 'moveDown' } },
+    );
+    expect(arrangeMailboxes.mock.calls).toStrictEqual([
+      [defaultProfile, ['unopened', other, alex], [alex, 'unopened', other]],
+    ]);
     await app.unmount();
   });
 

@@ -42,8 +42,8 @@ matches content, grouping and actions to the design.
   ([#2611](https://github.com/unwired-dev/product/issues/2611)). Each delivery pulls the
   preferences from Private Sync once the notification settings are read, then checks the Profile
   the connection is in at that moment in the same step that hands it to the native host, so a hide
-  made on another device, or a move into a Profile that hides it, mutes the next one, even one
-  already waiting. A hide or move this device stores after that check does not recall a
+  another device published before that pull, or a move into a Profile that hides it, mutes the next
+  one, even one already waiting; a hide published after the pull counts from the next delivery. A hide or move this device stores after that check does not recall a
   notification already handed to the native host, and a move whose following registration read fails
   is checked against the old Profile until [#2632](https://github.com/unwired-dev/product/issues/2632); while the pull
   fails, the Profile's record does not open here, or another device's write overtakes every

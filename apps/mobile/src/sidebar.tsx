@@ -1168,9 +1168,18 @@ function EditConnections({
       items={entries}
       keyOf={({ id }) => id}
       onMove={(key, to) => {
+        // The drop's place among the rows, before the next row's connection in the Profile's
+        // order, so a connection without a row, such as one not yet opened, keeps its place.
+        const keys = entries.map(({ id }) => id);
+        const rest = keys.filter((id) => id !== key);
+        const place = Math.max(0, to(keys.indexOf(key)));
         const order = connections.filter((id) => id !== key);
-        const place = to(connections.indexOf(key));
-        order.splice(Math.max(0, Math.min(place, order.length)), 0, key);
+        const next = rest.slice(place).find((id) => order.includes(id));
+        order.splice(
+          next === undefined ? order.length : order.indexOf(next),
+          0,
+          key,
+        );
         void arrange(order);
       }}
       onDragging={onDragging}
@@ -1247,6 +1256,10 @@ function EditConnections({
 // starts from rows not read.
 function useEditing(readable: boolean) {
   const [editing, setEditing] = useState(false);
+  // A command offered while they were read can still run after a reread fails: it opens nothing.
+  if (editing && !readable) {
+    setEditing(false);
+  }
   return {
     editing: editing && readable,
     setEditing: (next: boolean) => {

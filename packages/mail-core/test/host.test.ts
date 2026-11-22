@@ -480,7 +480,8 @@ describe('the host assembly', () => {
     await host.gmailMailboxes.load();
     expect(notified).toHaveLength(2);
 
-    // Turned off again, the connection posts nothing.
+    // Shown again but turned off, the connection posts nothing.
+    await host.inboxPreferences.showSection(defaultProfile, connection, true);
     await host.registration.notifyMailbox(connection, false);
     gmail.deliver({ subject: 'After notifications' });
     await host.gmailMailboxes.load();
