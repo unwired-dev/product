@@ -449,14 +449,14 @@ Settings' **Reading** page ([#2678](https://github.com/unwired-dev/product/issue
 a slice of [#1728](https://github.com/unwired-dev/product/issues/1728)), in its own
 Mail group, zooms received formatted mail on this Mac. **Text Size** reads Follows
 macOS: app text and plain-text messages are unaffected. **Message zoom** is a native
-pop-up of Safari's page zoom levels from 50% to 300%, 100% by default. The reader adds
-the zoom to the sanitized document as the app's own CSS `zoom`, as on iPhone and iPad
-([Expo client](expo-client.md#reading)), so the stored message and Drafts never
-change; an open reader reloads its document at the new zoom. A larger zoom makes a
-document taller, so more messages pass the reader's 20,000-point cap and scroll
-inside the view, where remote images below its first view stay placeholders
-([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content),
-[#2680](https://github.com/unwired-dev/product/issues/2680)). The zoom is a
+pop-up of Safari's page zoom levels from 50% to 300%, 100% by default. The reader
+applies the zoom to the mounted sanitized document as the app's own CSS `zoom`
+(the patched WebView's `messageZoom`, set by the isolated client-world measurement),
+so the stored message and Drafts never change, and an open reader follows a change
+in place, keeping its selection and scroll. A larger zoom makes a document taller,
+so more messages pass the reader's 20,000-point cap and scroll inside the view;
+WebKit reports that scroll, so remote images there still load as they come near
+([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content)). The zoom is a
 Device-Local Preference in this Mac's user defaults (`UnwiredMessageZoom`), never
 synced. Fit wide messages to the screen follows separately.
 

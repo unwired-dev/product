@@ -7,11 +7,13 @@ import { MessageBody } from '../src/message-body.tsx';
 import { ReadingSettings } from '../src/reading-settings.tsx';
 import { chooseMenuItem, menuItems } from './native-menu.ts';
 
-// The zoom style the reader added to the shown document, if any.
-const shownZoom = async () => {
+// The zoom the reader asks WebKit to apply to the mounted document, and that document's source.
+const shown = async () => {
   const webview = await screen.findByTestId('message-webview');
-  const html: string = webview.props.source.html;
-  return /<style>body\{zoom:[\d.]+\}<\/style>/u.exec(html)?.[0];
+  return {
+    zoom: webview.props.nativeConfig.props.messageZoom,
+    source: webview.props.source,
+  };
 };
 
 describe('settings › Reading', () => {
@@ -43,14 +45,12 @@ describe('settings › Reading', () => {
           screen.queryByText(
             'Zooms formatted mail as you read it on this Mac. The message and your Drafts don’t change.',
           ) !== null,
-        document: await shownZoom(),
+        document: await shown(),
       };
       await fireEvent.press(zoom);
       const offered = menuItems().map(({ title }) => title);
       await chooseMenuItem('150%');
-      const zoomed = await shownZoom();
-      const webview = await screen.findByTestId('message-webview');
-      const message: string = webview.props.source.html;
+      const zoomed = await shown();
       await fireEvent.press(
         screen.getByRole('button', { name: 'Message zoom' }),
       );
@@ -58,16 +58,19 @@ describe('settings › Reading', () => {
       expect({
         initial,
         offered,
-        zoomed,
-        message: message.includes('<b>48 000 CZK</b>'),
+        zoomed: zoomed.zoom,
+        // The mounted navigation stays, so its selection and scroll do too; the message is unchanged.
+        mounted: zoomed.source === initial.document.source,
+        message: zoomed.source.html.includes('<b>48 000 CZK</b>'),
+        unstyled: zoomed.source.html.includes('zoom'),
         stored: Settings.get('UnwiredMessageZoom'),
-        reset: await shownZoom(),
+        reset: (await shown()).zoom,
       }).toStrictEqual({
         initial: {
           textSize: true,
           zoom: '125%',
           footer: true,
-          document: '<style>body{zoom:1.25}</style>',
+          document: expect.objectContaining({ zoom: 1.25 }),
         },
         offered: [
           '50%',
@@ -82,10 +85,12 @@ describe('settings › Reading', () => {
           '250%',
           '300%',
         ],
-        zoomed: '<style>body{zoom:1.5}</style>',
+        zoomed: 1.5,
+        mounted: true,
         message: true,
+        unstyled: false,
         stored: 100,
-        reset: undefined,
+        reset: 1,
       });
     } finally {
       await app.unmount();

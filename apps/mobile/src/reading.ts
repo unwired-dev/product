@@ -44,6 +44,12 @@ const fitWideMessages = deviceSetting(
 export const setFitWideMessages = fitWideMessages.set;
 export const useFitWideMessages = fitWideMessages.useValue;
 
+// The sanitized document zoomed by `scale`; the app's own style, so the message is unchanged.
+export const zoomedDocument = (html: string, scale: number) =>
+  scale === 1
+    ? html
+    : html.replace('</head>', `<style>body{zoom:${scale}}</style></head>`);
+
 // The sanitized document marked to fit: the reader's measurement shrinks it to the view's width
 // with an app-owned transform, in place. Floats stay inside the body and shrink with it, and the
 // zero-height root lets the scroll range end at the shrunk content.
