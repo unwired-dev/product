@@ -4389,6 +4389,11 @@ final class InboxTests: XCTestCase {
     attachScreen("Heading 2 from the Slash Command Menu", of: app, to: self)
     formatControl("Undo", in: app).tap()
     waitUntil({ body.value as? String == "Hi\n/\n/he" }, timeout: 60)
+    // Close Format resumes typing on iPhone.
+    if app.buttons["Close Format"].exists {
+      app.buttons["Close Format"].tap()
+      XCTAssertTrue(app.buttons["Format"].waitForExistence(timeout: 10))
+    }
     // The Insert commands follow the Basic Blocks: Down reaches Insert Image…, scrolling both Insert
     // rows into view, and typing filters to it. Choosing one opens a system picker, left to Jest.
     app.typeKey(.downArrow, modifierFlags: .command)
