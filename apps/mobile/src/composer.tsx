@@ -1312,12 +1312,15 @@ export function Recipients({
   required = false,
   revealed,
   ref,
+  block,
 }: {
   readonly draft: Draft;
   readonly getDraft: () => Draft;
   readonly field: RecipientField;
   // The field's entry, which Send focuses when it waits for this field.
   readonly ref?: Ref<TextInputInstance>;
+  // The field with its reason, which a blocked Send scrolls into view.
+  readonly block?: Ref<ViewInstance>;
   readonly editable: boolean;
   // Whether Send waits for a recipient, which this field then asks for.
   readonly required?: boolean;
@@ -1409,7 +1412,7 @@ export function Recipients({
     setNotice(result.notice);
   };
   return (
-    <View>
+    <View ref={block}>
       {first === undefined ? null : (
         <SuggestionMenu
           sections={suggestions}
@@ -4110,21 +4113,40 @@ function useFieldsBelowBody({
     readonly field: RecipientField;
     readonly entry: string;
   }>();
+  const visible = useRef(0);
+  const toBlock = useRef<ViewInstance>(null);
+  const ccBlock = useRef<ViewInstance>(null);
+  const bccBlock = useRef<ViewInstance>(null);
   // The field a blocked Send revealed, scrolled to again as its reason and the keyboard resize the
-  // content, while it keeps focus and until the person scrolls.
+  // editor, while Send waits for it, it keeps focus and the person has not scrolled.
   const pending = useRef<RecipientField>(undefined);
-  // Focus alone leaves a field that already has it where it is: scroll its entry to the top with
-  // one 44pt row above it, as far as the content goes.
   const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
+  const blocks = { to: toBlock, cc: ccBlock, bcc: bccBlock };
+  // Focus alone leaves a field that already has it where it is: scroll its entry to the top with
+  // one 44pt row above it, or further while its reason would end under the floating pill, as far
+  // as the content goes.
   const reveal = (field: RecipientField) => {
     const input = inputs[field].current;
+    const block = blocks[field].current;
     const content = scrollRef.current?.getInnerViewRef();
-    if (input === null || content === null || content === undefined) {
+    if (
+      input === null ||
+      block === null ||
+      content === null ||
+      content === undefined
+    ) {
       return;
     }
-    input.measureLayout(content, (_x, y) => {
-      scrollRef.current?.scrollTo({
-        y: Math.max(0, Math.min(y - 44, contentHeight.current - visibleHeight)),
+    input.measureLayout(content, (_x, entryTop) => {
+      block.measureLayout(content, (...[, blockTop, , height]) => {
+        const shownEnd = visible.current - (pillShown ? pillReserve : 0);
+        const y = Math.min(
+          entryTop,
+          Math.max(entryTop - 44, blockTop + height - shownEnd),
+        );
+        scrollRef.current?.scrollTo({
+          y: Math.max(0, Math.min(y, contentHeight.current - visible.current)),
+        });
       });
     });
   };
@@ -4139,11 +4161,21 @@ function useFieldsBelowBody({
           (field) => entryOf(finished, field) !== '',
         ) ?? 'to')
       : undefined;
+  const revealAgain = () => {
+    if (
+      pending.current !== undefined &&
+      pending.current === waiting &&
+      inputs[pending.current].current?.isFocused() === true
+    ) {
+      reveal(pending.current);
+    }
+  };
   return {
     scrollRef,
     toRef,
     ccRef,
     bccRef,
+    blocks,
     onBlockedPress:
       waiting === undefined
         ? undefined
@@ -4155,16 +4187,15 @@ function useFieldsBelowBody({
           },
     revealed: (field: RecipientField) =>
       revealed?.field === field ? revealed.entry : undefined,
-    measureVisible: setVisibleHeight,
+    measureVisible: (height: number) => {
+      visible.current = height;
+      setVisibleHeight(height);
+      revealAgain();
+    },
     measureFields: setFieldsHeight,
     measureContent: (height: number) => {
       contentHeight.current = height;
-      if (
-        pending.current !== undefined &&
-        inputs[pending.current].current?.isFocused() === true
-      ) {
-        reveal(pending.current);
-      }
+      revealAgain();
     },
     stopRevealing: () => {
       pending.current = undefined;
@@ -5187,6 +5218,7 @@ function Editor({
     toRef,
     ccRef,
     bccRef,
+    blocks,
     onBlockedPress,
     revealed,
     ...below
@@ -5848,6 +5880,7 @@ function Editor({
                 getDraft={getDraft}
                 editable={!sending}
                 ref={toRef}
+                block={blocks.to}
                 revealed={revealed('to')}
                 field="to"
                 required={blocked.blocked === 'recipients' && !docked}
@@ -5874,6 +5907,7 @@ function Editor({
                     getDraft={getDraft}
                     editable={!sending}
                     ref={ccRef}
+                    block={blocks.cc}
                     revealed={revealed('cc')}
                     field="cc"
                     onChange={changeCopies}
@@ -5884,6 +5918,7 @@ function Editor({
                     getDraft={getDraft}
                     editable={!sending}
                     ref={bccRef}
+                    block={blocks.bcc}
                     revealed={revealed('bcc')}
                     field="bcc"
                     onChange={changeCopies}
