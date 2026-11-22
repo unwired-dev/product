@@ -1,4 +1,5 @@
 import * as Effect from 'effect/Effect';
+import * as Predicate from 'effect/Predicate';
 import * as Schema from 'effect/Schema';
 
 import type { SyncFailure } from './mailbox-read.ts';
@@ -59,7 +60,8 @@ export interface NativeAttachments {
   // iPhone and iPad and the save panel on the Mac, for a saved attachment. Saving resolves once
   // the person saved a copy, with its name, folder and link, once they cancelled, with
   // `{ cancelled: true }`, or, on the Mac, once writing to the chosen folder failed, with
-  // `{ failed: folder }`.
+  // `{ failed: folder }`. On the Mac a copy saved in Downloads also carries `downloads: true`, and
+  // saving straight to Downloads resolves `{ exists: folder }` when it refuses a name already there.
   readonly presentAttachment: (
     mailbox: Readonly<{ address: string; generation: string }>,
     file: string,
@@ -67,27 +69,34 @@ export interface NativeAttachments {
   ) => Promise<unknown>;
 }
 
-export type AttachmentAction = 'open' | 'share' | 'save';
+export type AttachmentAction = 'open' | 'share' | 'save' | DownloadsSave;
+// On the Mac, a copy straight to Downloads: refusing a name already there, keeping both under a
+// free name, or replacing the file.
+export type DownloadsSave =
+  | 'downloads'
+  | 'downloadsKeepBoth'
+  | 'downloadsReplace';
 
 // A copy the person saved: its actual name, its folder as Files or Finder names it, and the link
-// that shows it in Files, or on the Mac its file URL, which Finder reveals.
+// that shows it in Files, or on the Mac its file URL, which Finder reveals, and whether it is in
+// Downloads.
 const savedCopy = Schema.Struct({
   name: Schema.NonEmptyString,
   folder: Schema.NonEmptyString,
   show: Schema.String.check(
     Schema.isPattern(/^(?:shareddocuments|file):\/\//u),
   ),
+  downloads: Schema.optional(Schema.Literal(true)),
 });
 const decodeSaveReply = Schema.decodeUnknownEffect(
   Schema.Union([
     savedCopy,
     Schema.Struct({ cancelled: Schema.Literal(true) }),
     Schema.Struct({ failed: Schema.NonEmptyString }),
+    Schema.Struct({ exists: Schema.NonEmptyString }),
   ]),
 );
 export type SavedCopy = typeof savedCopy.Type;
-// Nothing was saved in the named folder the person chose.
-type SaveFailure = Readonly<{ failedIn: string }>;
 
 const attachmentStates = {
   available: { kind: 'available' },
@@ -368,6 +377,35 @@ export function createAttachmentDownloads<S extends Scope, E>(
     );
   };
 
+  // Saves a copy of a Downloaded Attachment, decoding the native reply; 'failed' when nothing was
+  // saved for a reason the reply does not name.
+  const saveCopy = (
+    id: string,
+    locator: string,
+    action: Extract<AttachmentAction, 'save' | DownloadsSave>,
+  ) =>
+    present(id, locator, action).pipe(
+      Effect.flatMap((reply) =>
+        reply === undefined
+          ? Effect.succeed('failed' as const)
+          : decodeSaveReply(reply).pipe(
+              Effect.map((copy) => {
+                if ('cancelled' in copy) {
+                  return 'cancelled' as const;
+                }
+                return 'failed' in copy ? { failedIn: copy.failed } : copy;
+              }),
+              Effect.tapError((failure) =>
+                Effect.logError(
+                  'Saved attachment reply was malformed:',
+                  malformed(failure, 'failed').diagnostic,
+                ),
+              ),
+              Effect.orElseSucceed(() => 'failed' as const),
+            ),
+      ),
+    );
+
   return {
     // An opened message's received attachments with their availability, once its body is ready;
     // listing them never downloads their bytes.
@@ -403,32 +441,32 @@ export function createAttachmentDownloads<S extends Scope, E>(
     presentAttachment: (
       id: string,
       locator: string,
-      action: Exclude<AttachmentAction, 'save'>,
+      action: 'open' | 'share',
     ) => runLogged(present(id, locator, action).pipe(Effect.asVoid)),
     // Saves a copy of a Downloaded Attachment where the person chooses. Resolves the saved copy,
     // 'cancelled', the chosen folder when writing there failed, or 'failed' when nothing was saved
     // for another reason.
     saveAttachmentCopy: (id: string, locator: string) =>
       runLogged(
-        present(id, locator, 'save').pipe(
-          Effect.flatMap((reply) =>
-            reply === undefined
-              ? Effect.succeed('failed' as const)
-              : decodeSaveReply(reply).pipe(
-                  Effect.map((copy): SavedCopy | SaveFailure | 'cancelled' => {
-                    if ('cancelled' in copy) {
-                      return 'cancelled';
-                    }
-                    return 'failed' in copy ? { failedIn: copy.failed } : copy;
-                  }),
-                  Effect.tapError((failure) =>
-                    Effect.logError(
-                      'Saved attachment reply was malformed:',
-                      malformed(failure, 'failed').diagnostic,
-                    ),
-                  ),
-                  Effect.orElseSucceed(() => 'failed' as const),
-                ),
+        saveCopy(id, locator, 'save').pipe(
+          Effect.map((saved) =>
+            Predicate.hasProperty(saved, 'exists')
+              ? ('failed' as const)
+              : saved,
+          ),
+        ),
+      ),
+    // On the Mac, saves a copy straight to Downloads. Resolves as saveAttachmentCopy does, or
+    // `{ exists: folder }` when `to` refuses a name already there.
+    saveAttachmentToDownloads: (
+      id: string,
+      locator: string,
+      to: DownloadsSave,
+    ) =>
+      runLogged(
+        saveCopy(id, locator, to).pipe(
+          Effect.map((saved) =>
+            saved === 'cancelled' ? ('failed' as const) : saved,
           ),
         ),
       ),

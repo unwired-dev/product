@@ -2388,7 +2388,7 @@ extension UnwiredRegistration {
     _ scope: [String: Any], file: String, action: String, from origin: PresentationOrigin,
     resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
   ) {
-    let save = action == AttachmentPresenter.Action.save.rawValue
+    let save = AttachmentPresenter.Action(rawValue: action)?.saves == true
     mailbox("presentAttachment", save ? { _ in } : resolve, reject: reject) {
       let (connection, address, generation) = try Self.scope(scope)
       guard let action = AttachmentPresenter.Action(rawValue: action) else {
@@ -2397,6 +2397,25 @@ extension UnwiredRegistration {
       let url = try await $0.attachmentFile(
         connection: connection, address: address, generation: generation, file: file)
       Self.presentedAttachments[file, default: 0] += 1
+      #if os(macOS)
+        // Saving to Downloads needs no window; the copy is written outside the storage gate.
+        if [.downloads, .downloadsKeepBoth, .downloadsReplace].contains(action) {
+          Task {
+            let saved = await AttachmentPresenter.saveToDownloads(url, action)
+            Self.endPresentation(file)
+            guard let folder = AttachmentPresenter.downloads else {
+              return reject("unavailable", nil, nil)
+            }
+            let name = FileManager.default.displayName(atPath: folder.path)
+            switch saved {
+            case .saved(let copy): resolve(Self.savedCopy(copy))
+            case .exists: resolve(["exists": name])
+            case .failed: resolve(["failed": name])
+            }
+          }
+          return [:]
+        }
+      #endif
       let presented = AttachmentPresenter.present(
         url, action: action, from: origin,
         failed: { folder in
@@ -2416,7 +2435,8 @@ extension UnwiredRegistration {
   }
 
   // A saved copy as the reader reports it: its actual name, the folder's name as Files or Finder
-  // shows it, and the Files link that opens it there, or on the Mac its file URL for Finder.
+  // shows it, and the Files link that opens it there, or on the Mac its file URL for Finder and
+  // whether it is in Downloads.
   private static func savedCopy(_ url: URL) -> [String: Any] {
     let folder = url.deletingLastPathComponent()
     #if os(macOS)
@@ -2428,11 +2448,18 @@ extension UnwiredRegistration {
       link.path = url.path
       let show = link.url?.absoluteString ?? ""
     #endif
-    return [
+    var copy: [String: Any] = [
       "name": url.lastPathComponent,
       "folder": FileManager.default.displayName(atPath: folder.path),
       "show": show,
     ]
+    #if os(macOS)
+      // A copy in Downloads lets the reader offer Save to Downloads next time.
+      if folder.resolvingSymlinksInPath().path == AttachmentPresenter.downloads?.path {
+        copy["downloads"] = true
+      }
+    #endif
+    return copy
   }
 
   // Copy on the Recovery Key step: the key stays off Universal Clipboard and leaves the

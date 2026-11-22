@@ -15,15 +15,18 @@ import {
 import {
   SaveFailedNotice,
   SaveOutcomeToast,
+  useRememberedDownloads,
   useSaveOutcome,
 } from '../src/attachment-save.tsx';
 import { languageStorage } from '../src/language-storage.ts';
 import { localization } from '../src/localization.ts';
 import {
+  DownloadsContext,
   MessageBody,
   ReaderScrollView,
   SaveOutcomeContext,
 } from '../src/message-body.tsx';
+import { chooseSheetButton, sheetShown } from './native-alert.ts';
 
 // The application callback behind a rendered control, as delayed native input would invoke it.
 const pressHandler = (
@@ -411,23 +414,29 @@ function SavingReader({
   inbox,
   id,
   readable = true,
+  account = 'account',
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly id: string;
   // False while storage is locked.
   readonly readable?: boolean;
+  // The signed-in Product Account, whose Default Profile remembers Downloads on this Mac.
+  readonly account?: string;
 }) {
   const saving = useSaveOutcome(id, readable);
+  const downloads = useRememberedDownloads({ account }, 'default');
   return (
     <SaveOutcomeContext value={saving.start}>
-      <ReaderScrollView>
-        <SaveFailedNotice shown={saving.shown} />
-        <MessageBody
-          inbox={inbox}
-          id={id}
-        />
-      </ReaderScrollView>
-      <SaveOutcomeToast shown={saving.shown} />
+      <DownloadsContext value={downloads}>
+        <ReaderScrollView>
+          <SaveFailedNotice shown={saving.shown} />
+          <MessageBody
+            inbox={inbox}
+            id={id}
+          />
+        </ReaderScrollView>
+        <SaveOutcomeToast shown={saving.shown} />
+      </DownloadsContext>
     </SaveOutcomeContext>
   );
 }
@@ -439,8 +448,22 @@ const savedInDownloads = {
   show: 'file:///Users/person/Downloads/notes%202.txt',
 };
 
+// The attachment's context menu items as now rendered, and a way to choose one by its title.
+const attachmentMenu = async () => {
+  const menu = contextMenuOf(await screen.findByLabelText('Open notes.txt'));
+  const sections: ReadonlyArray<{
+    items: ReadonlyArray<{ id: string; title: string }>;
+  }> = menu.props.sections;
+  const items = sections.flatMap((section) => section.items);
+  const choose = async (title: string) => {
+    const item = items.find((candidate) => candidate.title === title);
+    await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
+  };
+  return { items, choose };
+};
+
 // Renders a reader around one downloaded notes.txt, with its context menu and Save As… item.
-const openSaving = async () => {
+const openSaving = async (account = 'account') => {
   const gmail = createSyntheticGmail();
   const id = gmail.deliver({ content: { text: 'Notes attached.' } });
   const inbox = createInboxStore(gmail.native);
@@ -449,20 +472,26 @@ const openSaving = async () => {
     <SavingReader
       inbox={inbox}
       id={id}
+      account={account}
     />,
   );
   await fireEvent.press(await screen.findByLabelText('Download notes.txt'));
-  const menu = contextMenuOf(await screen.findByLabelText('Open notes.txt'));
-  const sections: ReadonlyArray<{
-    items: ReadonlyArray<{ id: string; title: string }>;
-  }> = menu.props.sections;
-  const items = sections.flatMap((section) => section.items);
+  const { items, choose } = await attachmentMenu();
   const save = async () => {
-    const item = items.find(({ title }) => title === 'Save As…');
-    await fireEvent(menu, 'select', { nativeEvent: { id: item?.id } });
+    await choose('Save As…');
   };
   return { gmail, inbox, id, app, items, save };
 };
+
+// The native preferences behind the reader, as this Mac saved them.
+const preferences = () =>
+  TurboModuleRegistry.getEnforcing<
+    TurboModule &
+      Readonly<{
+        preference: (key: string) => Promise<unknown>;
+        setPreference: (key: string, value: string) => Promise<unknown>;
+      }>
+  >('UnwiredRegistration');
 
 // Only the native window host is substituted; returns the windows it brought forward and the
 // files it was asked to reveal.
@@ -605,6 +634,191 @@ describe('saving a received attachment with Save As…', () => {
           'Couldn’t save to Home The file was not saved.',
         ),
       ).not.toBeOnTheScreen();
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
+    }
+  });
+});
+
+describe('saving a received attachment to Downloads', () => {
+  it('offers Save to Downloads once a Save As… copy landed there, then saves there directly', async () => {
+    expect.hasAssertions();
+    const setPreference = jest.spyOn(preferences(), 'setPreference');
+    const { gmail, app, items, save } = await openSaving('remembers');
+    const present = jest.spyOn(gmail.native, 'presentAttachment');
+    try {
+      expect(items.map(({ title }) => title)).not.toContain(
+        'Save to Downloads',
+      );
+      present.mockResolvedValueOnce({ ...savedInDownloads, downloads: true });
+      await save();
+      await expect(
+        screen.findByText('Saved “notes 2.txt” to Downloads'),
+      ).resolves.toBeOnTheScreen();
+      const menu = await attachmentMenu();
+      expect(menu.items.map(({ title }) => title)).toStrictEqual([
+        'Quick Look',
+        'Save to Downloads',
+        'Save As…',
+        'Share…',
+      ]);
+      present.mockResolvedValueOnce({
+        name: 'notes.txt',
+        folder: 'Downloads',
+        show: 'file:///Users/person/Downloads/notes.txt',
+        downloads: true,
+      });
+      await menu.choose('Save to Downloads');
+      await expect(
+        screen.findByText('Saved “notes.txt” to Downloads'),
+      ).resolves.toBeOnTheScreen();
+      expect({
+        actions: present.mock.calls.map((call) => call[2]),
+        remembered: setPreference.mock.calls,
+      }).toStrictEqual({
+        actions: ['save', 'downloads'],
+        remembered: [['attachment-save-folder:remembers:default', 'downloads']],
+      });
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('keeps a Save As… copy elsewhere from remembering Downloads, and reads a Profile that already did', async () => {
+    expect.hasAssertions();
+    // The elsewhere Profile has saved nothing; the already Profile remembered Downloads.
+    const preference = jest
+      .spyOn(preferences(), 'preference')
+      .mockResolvedValueOnce({ value: null })
+      .mockResolvedValueOnce({ value: 'downloads' });
+    try {
+      const elsewhere = await openSaving('elsewhere');
+      jest
+        .spyOn(elsewhere.gmail.native, 'presentAttachment')
+        .mockResolvedValueOnce({ ...savedInDownloads, folder: 'Home' });
+      await elsewhere.save();
+      await expect(
+        screen.findByText('Saved “notes 2.txt” to Home'),
+      ).resolves.toBeOnTheScreen();
+      const { items: afterElsewhere } = await attachmentMenu();
+      await elsewhere.app.unmount();
+      const already = await openSaving('already');
+      const { items } = await attachmentMenu();
+      await already.app.unmount();
+      expect({
+        elsewhere: afterElsewhere.map(({ title }) => title),
+        already: items.map(({ title }) => title),
+        read: preference.mock.calls.map(([key]) => key),
+      }).toStrictEqual({
+        elsewhere: ['Quick Look', 'Save As…', 'Share…'],
+        already: ['Quick Look', 'Save to Downloads', 'Save As…', 'Share…'],
+        read: [
+          'attachment-save-folder:elsewhere:default',
+          'attachment-save-folder:already:default',
+        ],
+      });
+    } finally {
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('asks about a name already in Downloads: Keep Both saves beside it, Replace overwrites it, Cancel saves nothing', async () => {
+    expect.hasAssertions();
+    jest.spyOn(preferences(), 'preference').mockResolvedValue({
+      value: 'downloads',
+    });
+    const { gmail, app } = await openSaving('collides');
+    const present = jest.spyOn(gmail.native, 'presentAttachment');
+    const exists = { exists: 'Downloads' };
+    const toDownloads = async () => {
+      const menu = await attachmentMenu();
+      await menu.choose('Save to Downloads');
+    };
+    try {
+      present.mockResolvedValueOnce(exists).mockResolvedValueOnce({
+        name: 'notes 2.txt',
+        folder: 'Downloads',
+        show: 'file:///Users/person/Downloads/notes%202.txt',
+        downloads: true,
+      });
+      await toDownloads();
+      expect(sheetShown()).toStrictEqual({
+        title: '“notes.txt” already exists',
+        detail: 'A file with this name is already in this Mac › Downloads.',
+        buttons: ['Keep Both', 'Replace', 'Cancel'],
+      });
+      await act(async () => {
+        chooseSheetButton('Keep Both');
+      });
+      await expect(
+        screen.findByText('Saved “notes 2.txt” to Downloads'),
+      ).resolves.toBeOnTheScreen();
+
+      present.mockResolvedValueOnce(exists).mockResolvedValueOnce({
+        name: 'notes.txt',
+        folder: 'Downloads',
+        show: 'file:///Users/person/Downloads/notes.txt',
+        downloads: true,
+      });
+      await toDownloads();
+      await act(async () => {
+        chooseSheetButton('Replace');
+      });
+      await expect(
+        screen.findByText('Saved “notes.txt” to Downloads'),
+      ).resolves.toBeOnTheScreen();
+
+      present.mockResolvedValueOnce(exists);
+      await toDownloads();
+      await act(async () => {
+        chooseSheetButton('Cancel');
+      });
+      // Leaving the reader withdraws a question still open.
+      present.mockResolvedValueOnce(exists);
+      await toDownloads();
+      expect(sheetShown()?.title).toBe('“notes.txt” already exists');
+      await app.unmount();
+      expect({
+        sheet: sheetShown(),
+        actions: present.mock.calls.map((call) => call[2]),
+      }).toStrictEqual({
+        sheet: undefined,
+        actions: [
+          'downloads',
+          'downloadsKeepBoth',
+          'downloads',
+          'downloadsReplace',
+          'downloads',
+          'downloads',
+        ],
+      });
+    } finally {
+      await app.unmount();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('names Downloads when writing there fails, and keeps Save As… to try again', async () => {
+    expect.hasAssertions();
+    jest.spyOn(preferences(), 'preference').mockResolvedValue({
+      value: 'downloads',
+    });
+    const { gmail, app } = await openSaving('fails');
+    jest
+      .spyOn(gmail.native, 'presentAttachment')
+      .mockResolvedValueOnce({ failed: 'Downloads' });
+    try {
+      const menu = await attachmentMenu();
+      await menu.choose('Save to Downloads');
+      await expect(
+        screen.findByLabelText(
+          'Couldn’t save to Downloads The file was not saved.',
+        ),
+      ).resolves.toBeOnTheScreen();
+      const { items } = await attachmentMenu();
+      expect(items.map(({ title }) => title)).toContain('Save As…');
     } finally {
       await app.unmount();
       jest.restoreAllMocks();

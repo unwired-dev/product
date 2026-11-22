@@ -1578,8 +1578,20 @@ attachment descriptors.
   to** that folder beneath its header, or **Couldn’t save “name”** when no panel could
   open, with **The file was not saved.**; **Save As…** stays in the menu to try again,
   and a file that is gone offers **Download** again. The result follows the same visit
-  rule as on iPhone and iPad. **Save to Downloads** to a folder remembered for the
-  Profile, with its name-collision alert, follows in #1681.
+  rule as on iPhone and iPad.
+- **Save to Downloads.** Once a Save As… copy lands in the Downloads folder, the Mac
+  remembers Downloads for that Product Account's Profile, in this Mac's preferences only
+  ([#2664](https://github.com/unwired-dev/product/issues/2664), the last slice of
+  [#1681](https://github.com/unwired-dev/product/issues/1681)). The attachment's menu then
+  offers **Save to Downloads** above **Save As…**, which writes a copy there without a
+  panel and shows the same toast. A save to another folder neither remembers nor forgets
+  Downloads, and nothing offers another remembered folder: the sandbox lets the app write
+  only into Downloads without the person choosing the file. When the name is already
+  there, an alert sheet on the reader's window asks: **Keep Both**, the default, saves the
+  copy under the next free name as Finder numbers it (“name 2.pdf”), **Replace** overwrites
+  the file, and **Cancel** saves nothing and says nothing. Leaving the reader withdraws the
+  question. A failed write shows **Couldn’t save to Downloads** beneath the reader's
+  header, and **Save As…** stays in the menu. The result follows the same visit rule.
 
 Downloaded Attachments are plaintext so the system can preview them. They are
 written under the app's private Application Support directory, in a folder per Mailbox Connection,
@@ -1603,7 +1615,7 @@ Download acquires a new copy. Opening a result outside every cached view does no
 in the encrypted body cache.
 
 A file still shown in Quick Look, handed to a share that has not finished, or being
-saved with **Save to Files…** or **Save As…**, is
+saved with **Save to Files…**, **Save As…** or **Save to Downloads**, is
 deleted after its reader closes, its message leaves the Inbox and every other cached view, or the Inbox closes or
 changes owner only once that preview closes, the share ends or the save finishes.
 It also stays through eviction and counts toward the 250 MiB limit. A download

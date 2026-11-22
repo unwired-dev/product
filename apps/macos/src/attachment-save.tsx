@@ -1,6 +1,11 @@
 import type { Translate } from '@private-email/localization';
 
+import {
+  savedPreference,
+  savePreference,
+} from '@private-email/mail-core/commands';
 import { radius, spacing } from '@private-email/mail-core/theme';
+import * as Effect from 'effect/Effect';
 import {
   use,
   useEffect,
@@ -8,12 +13,14 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 
 import type { SaveOutcome } from './message-body.tsx';
 
 import { Toast } from './design.tsx';
+import { native } from './host.ts';
 import { ReaderToastContext } from './inbox-bar.tsx';
 import { useLocalization } from './localization.ts';
 import { useReaderTop } from './message-body.tsx';
@@ -163,4 +170,68 @@ export function SaveOutcomeToast({ shown }: { readonly shown: Shown }) {
     [showToast],
   );
   return showToast === undefined ? toast : null;
+}
+
+// The Profiles on this Mac that save received attachments to Downloads, by preference key, and
+// the keys already read. Saving one there with Save As… remembers Downloads for the Profile, in
+// this Mac's preferences only; it is never synchronized.
+const remembered = new Set<string>();
+const read = new Set<string>();
+const listeners = new Set<() => void>();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+const publish = (key: string) => {
+  remembered.add(key);
+  for (const listener of listeners) {
+    listener();
+  }
+};
+
+// Whether the signed-in Product Account's Profile saves received attachments to Downloads on this
+// Mac, and how a copy saved there remembers it; none before an account is signed in.
+export function useRememberedDownloads(
+  signedIn: Readonly<{ account: string }> | undefined,
+  profile: string,
+) {
+  const key =
+    signedIn === undefined
+      ? undefined
+      : `attachment-save-folder:${signedIn.account}:${profile}`;
+  const saves = useSyncExternalStore(
+    subscribe,
+    () => key !== undefined && remembered.has(key),
+  );
+  useEffect(() => {
+    if (key === undefined || read.has(key)) {
+      return;
+    }
+    read.add(key);
+    void (async () => {
+      const value = await Effect.runPromise(savedPreference(native(), key));
+      if (value === 'downloads' && !remembered.has(key)) {
+        publish(key);
+      }
+    })();
+  }, [key]);
+  return useMemo(
+    () =>
+      key === undefined
+        ? undefined
+        : {
+            remembered: saves,
+            remember: () => {
+              if (!remembered.has(key)) {
+                publish(key);
+                void Effect.runPromise(
+                  savePreference(native(), key, 'downloads'),
+                );
+              }
+            },
+          },
+    [key, saves],
+  );
 }

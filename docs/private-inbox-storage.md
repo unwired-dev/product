@@ -588,7 +588,9 @@ Cleanup recognizes only the picker-owned UUID folder beneath its exact temporary
 root and preserves user files in similarly named folders. Mac files are read in
 place through the open panel's or drop's grant. A received attachment's **Save As…**
 writes its copy only where the save panel's grant allows. The user-selected read-write
-sandbox entitlement allows both.
+sandbox entitlement allows both. **Save to Downloads** writes its copy into the person's
+Downloads folder through the Downloads read-write sandbox entitlement, and only when the
+person chooses it; nothing else reads or writes that folder.
 
 ## Native wiring and signing
 
