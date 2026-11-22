@@ -196,7 +196,7 @@ function OpenedNotifications() {
   return null;
 }
 
-// Whether the split view shows its reading column: the reader, or beside the list a composer. A
+// Whether the split view shows its reading column: the reader, or beside the list the card. A
 // collapsed one's composer covers the window, so the column beneath stays, such as Mailboxes for
 // its New Message.
 function showsReader(
@@ -258,9 +258,9 @@ function ComposerScrim({
   ) : null;
 }
 
-// On iPhone the composer is the system sheet over the mail. Its dismissal gesture leaves the
-// composer as Close does: the sheet stays up while the composer asks about changes. The sheet
-// sliding away still shows the composer it closed.
+// On iPhone and in a compact iPad window the composer is the system sheet over the mail. Its
+// dismissal gesture leaves the composer as Close does: the sheet stays up while the composer asks
+// about changes. The sheet sliding away still shows the composer it closed.
 function ComposerSheet({
   draft,
   onLeave,
@@ -302,6 +302,25 @@ function ComposerSheet({
       )}
     </Modal>
   );
+}
+
+// A composer keeps the host it opened in until it closes, so a window changing width never
+// remounts its editor (ADR 0057): iPhone and a compact iPad window open the system sheet, which
+// stays a compact sheet when the window widens; a regular-width window opens the card, which
+// covers the window when it narrows.
+function useSheetHost(draft: string | undefined, regular: boolean) {
+  const compact = !ipad || !regular;
+  const [host, setHost] = useState({ draft, sheet: compact });
+  // A conflict copy replaces the open Draft in place, in the same host.
+  const [rebound, setRebound] = useState<string>();
+  if (draft !== host.draft) {
+    setHost({
+      draft,
+      sheet: draft === undefined || draft === rebound ? host.sheet : compact,
+    });
+    setRebound(undefined);
+  }
+  return { sheet: host.sheet, rebind: setRebound };
 }
 
 // Whether the open Draft answers a message.
@@ -382,21 +401,24 @@ function MailShell() {
   const windowBar = useMemo(() => createWindowBar(), []);
   // The composer sits outside the split view's screens, so it keeps clear of the system bars here.
   const insets = useSafeAreaInsets();
-  const composerLayout = useMemo(
-    () =>
-      ({
-        size: regular ? 'regular' : 'compact',
-        avoidKeyboard: !regular || expanded,
-        top: insets.top,
-      }) as const,
-    [regular, expanded, insets.top],
-  );
   const { id, mailbox, folder, draft } = useGlobalSearchParams<{
     id?: string;
     mailbox?: string;
     folder?: string;
     draft?: string;
   }>();
+  const { sheet, rebind } = useSheetHost(draft, regular);
+  // The open Draft of the in-window composer.
+  const overlay = sheet ? undefined : draft;
+  const composerLayout = useMemo(
+    () =>
+      ({
+        size: regular && !sheet ? 'regular' : 'compact',
+        avoidKeyboard: !regular || sheet || expanded,
+        top: insets.top,
+      }) as const,
+    [regular, sheet, expanded, insets.top],
+  );
   // A docked software keyboard leaves the overlay and the window bar only the height above it; a
   // floating one is ignored. On iPhone only an open composer listens: re-rendering the shell for
   // every keyboard change remounts the reader beneath it, which would close a sheet whose field
@@ -451,7 +473,7 @@ function MailShell() {
   }, [draft]);
   // On iPhone, Back from the categorization spike page leaves it for the session.
   const [spike, setSpike] = useState(CategorizationSpike !== undefined);
-  const reading = spike || showsReader(id, draft, collapsed);
+  const reading = spike || showsReader(id, overlay, collapsed);
   const [inboxVisible, setInboxVisible] = useState(false);
   // The Mailboxes column's choice, which the message list column shows.
   const [view, setView] = useState<MailboxView>({});
@@ -546,7 +568,7 @@ function MailShell() {
         recovered={recovery.recovered}
         expanded={expanded}
         onExpand={
-          regular
+          regular && !sheet
             ? () => {
                 setExpanded((current) => !current);
               }
@@ -554,7 +576,7 @@ function MailShell() {
         }
         onClose={() => {
           // The sheet sliding away still shows the composer it closed.
-          if (draft === undefined) {
+          if (opened !== draft) {
             return;
           }
           setExpanded(false);
@@ -580,6 +602,7 @@ function MailShell() {
           }
         }}
         onRebind={(copy) => {
+          rebind(copy);
           recovery.follow(copy);
           composing.current = copy;
           router.setParams({ draft: copy });
@@ -684,7 +707,7 @@ function MailShell() {
                         onCompose={compose}
                         onSelect={selectMessage}
                         onSelectBehindComposer={
-                          regular && draft !== undefined
+                          regular && overlay !== undefined
                             ? (selection) => {
                                 // A message chosen in the Inbox clears the previous one's view.
                                 const next = {
@@ -734,20 +757,19 @@ function MailShell() {
           ) : null}
         </WindowBarContext>
         <ComposerScrim
-          open={draft !== undefined}
+          open={overlay !== undefined}
           floating={floating}
           replying={replying}
         />
-        {ipad ? null : (
-          <ComposerSheet
-            draft={draft}
-            onLeave={() => {
-              void leave();
-            }}
-            composer={composer}
-          />
-        )}
-        {!ipad || draft === undefined ? null : (
+        <ComposerSheet
+          draft={sheet ? draft : undefined}
+          onLeave={() => {
+            void leave();
+          }}
+          // A card opened while the sheet slides away is the only composer.
+          composer={(shown) => (overlay === undefined ? composer(shown) : null)}
+        />
+        {overlay === undefined ? null : (
           <View
             testID="composer-overlay"
             accessibilityViewIsModal={!floating}
@@ -775,7 +797,7 @@ function MailShell() {
                     },
                   ]
             }>
-            {composer(draft)}
+            {composer(overlay)}
           </View>
         )}
       </View>

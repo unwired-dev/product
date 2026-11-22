@@ -548,7 +548,8 @@ other blocks are covered by Jest and the mail-core tests.
 ## iPhone composer sheet journey
 
 `testComposerSheet` runs on a `registration-declined` Release build with
-`UNWIRED_JOURNEY=testComposerSheet` on iPhone. It connects the synthetic Gmail mailbox and opens
+`UNWIRED_JOURNEY=testComposerSheet` on iPhone; a compact iPad window presents the same sheet
+([#2645](https://github.com/unwired-dev/product/issues/2645)). It connects the synthetic Gmail mailbox and opens
 New Message as the system page sheet over the Inbox, whose rows are out of reach while it is up
 ([#2610](https://github.com/unwired-dev/product/issues/2610)). The sheet turns to landscape and
 back with the device. Swiping the untouched sheet down closes it. With a Subject typed, the same swipe asks **Save Draft** over **Close** while the sheet and its text
