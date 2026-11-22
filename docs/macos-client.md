@@ -455,7 +455,8 @@ the zoom to the sanitized document as the app's own CSS `zoom`, as on iPhone and
 change; an open reader reloads its document at the new zoom. A larger zoom makes a
 document taller, so more messages pass the reader's 20,000-point cap and scroll
 inside the view, where remote images below its first view stay placeholders
-([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content)). The zoom is a
+([Gmail inbox](gmail-inbox.md#links-and-blocked-remote-content),
+[#2680](https://github.com/unwired-dev/product/issues/2680)). The zoom is a
 Device-Local Preference in this Mac's user defaults (`UnwiredMessageZoom`), never
 synced. Fit wide messages to the screen follows separately.
 
