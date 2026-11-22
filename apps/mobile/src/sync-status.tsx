@@ -669,15 +669,22 @@ function CapsuleStatus({
           name="exclamationmark.triangle.fill"
           color={colors.statusWarning}
         />
-        <Text style={[styles.message, { color: colors.textPrimary }]}>
+        {/* Each button names itself: inside the popover's SwiftUI host its text would otherwise
+            stay a separate element too small to press (#2484). */}
+        <Text
+          accessible={false}
+          style={[styles.message, { color: colors.textPrimary }]}>
           {said.label}
         </Text>
       </Pressable>
       <Pressable
+        accessibilityLabel={t('syncStatus.tryAgain')}
         accessibilityRole="button"
         onPress={onTryAgain}
         style={styles.action}>
-        <Text style={[styles.actionLabel, { color: colors.accentInk }]}>
+        <Text
+          accessible={false}
+          style={[styles.actionLabel, { color: colors.accentInk }]}>
           {t('syncStatus.tryAgain')}
         </Text>
       </Pressable>
