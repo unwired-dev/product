@@ -1376,6 +1376,32 @@ describe('connecting IMAP mailboxes', () => {
   });
 
   it.each([
+    { pattern: 'ΟΣ*', name: 'ΟΣΑ', reason: 'a final sigma in any letter case' },
+    {
+      pattern: `*${'a'.repeat(5000)}b`,
+      name: 'a'.repeat(4000),
+      reason: 'matching past its budget',
+    },
+  ])(
+    'keeps the cache of a folder a skippable LIST matches by $reason',
+    async ({ pattern, name }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      imap.addFolder(name);
+      imap.deliver(name, { subject: 'Shared' });
+      const inbox = createImapInbox(imap.native);
+      await inbox.load();
+      await inbox.openFolder(name);
+      vi.spyOn(imap.native, 'imapListFolders').mockResolvedValueOnce({
+        folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
+        skippable: [pattern],
+      });
+      await inbox.load();
+      expect(firstMessage(inbox.folder(name)).subject).toBe('Shared');
+    },
+  );
+
+  it.each([
     { code: 'locked', state: { kind: 'locked' } },
     { code: 'mailbox-invalidated', state: { kind: 'failed' } },
     {

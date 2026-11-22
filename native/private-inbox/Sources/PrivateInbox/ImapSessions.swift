@@ -105,13 +105,20 @@ enum ImapStoredFlag: String, Sendable {
             _ = try await server.fetchNamespaces()
           }
         }
+        // SwiftMail lists by the namespaces it holds when listing starts, and a re-login between its
+        // LIST commands may replace them; the patterns it may have skipped come from that snapshot.
+        let namespaces = await server.namespaces
         let listed: [Mailbox.Info]
         do {
           listed = try await server.listMailboxes()
         } catch is ExceededListResponseLimitError {
           throw RegistrationError.unavailable
         }
-        let skippable: Set<String> = await server.namespaces.map { namespaces in
+        guard
+          await server.namespaces?.listingPatterns(for: "*")
+            == namespaces?.listingPatterns(for: "*")
+        else { throw RegistrationError.unavailable }
+        let skippable: Set<String> = namespaces.map { namespaces in
           let personal = NamespaceResponse(personal: namespaces.personal, otherUsers: [], shared: [])
           return Set(namespaces.listingPatterns(for: "*"))
             .subtracting(personal.listingPatterns(for: "*"))

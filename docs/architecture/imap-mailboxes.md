@@ -94,7 +94,8 @@ Folder retirement uses a complete namespace-aware listing. Oversized results and
 failed advertised namespace discovery refuse the refresh rather than present
 partial results as absence. SwiftMail 1.18 skips a LIST of another user's or a shared
 namespace, its root or its subtree, that the server refuses and does not say which, so
-native reports every such LIST pattern and TypeScript keeps the cached mailboxes and
+native reports every such LIST pattern from the namespaces the listing started with, failing
+the refresh if they change meanwhile, and TypeScript keeps the cached mailboxes and
 views of unlisted folders any of them matches (#2690); folders and roles come only from the
 listing. TypeScript commits the listing and retained mailbox
 metadata before dropping retired views; commit refusal preserves the previous

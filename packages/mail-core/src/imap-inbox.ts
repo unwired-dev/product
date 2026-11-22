@@ -483,12 +483,16 @@ const failureKinds: Readonly<Record<string, ImapFailure['kind']>> = {
   unavailable: 'retry',
 };
 
-// Whether a LIST pattern matches a folder name in any letter case. IMAP's `*` and `%` match any run
-// of characters, `%` only up to a hierarchy delimiter: matching `%` like `*` keeps more folders,
-// never fewer. The text between wildcards is found leftmost and in order, so no part is retried.
-const listMatches = (pattern: string, name: string) => {
-  const text = name.toLowerCase();
-  const [first = '', ...parts] = pattern.toLowerCase().split(/[*%]/u);
+// Letter case folded one character at a time, so a final sigma reads as any other.
+const folded = (text: string) =>
+  Array.from(text, (character) => character.toUpperCase().toLowerCase()).join(
+    '',
+  );
+// Whether a folded LIST pattern matches a folded folder name. IMAP's `*` and `%` match any run of
+// characters, `%` only up to a hierarchy delimiter: matching `%` like `*` keeps more folders, never
+// fewer. The text between wildcards is found leftmost and in order, so no part is retried.
+const listMatches = (pattern: string, text: string) => {
+  const [first = '', ...parts] = pattern.split(/[*%]/u);
   const last = parts.pop();
   if (last === undefined) {
     return text === first;
@@ -507,6 +511,9 @@ const listMatches = (pattern: string, name: string) => {
     text.endsWith(last)
   );
 };
+// A search may compare each pattern character with each name character; past this many, a folder
+// stays as one a skipped LIST would match.
+const listMatchBudget = 2 ** 24;
 const call = (operation: () => Promise<unknown>) =>
   Effect.tryPromise({
     try: operation,
@@ -1520,11 +1527,25 @@ export function createImapInbox(
     const offered = new Set(
       folders.filter(({ selectable }) => selectable).map(({ name }) => name),
     );
+    const patterns = skippable.map(folded);
+    let budget = listMatchBudget;
+    const retained = new Map<string, boolean>();
+    const skippedMatch = (name: string) => {
+      let keep = retained.get(name);
+      if (keep === undefined) {
+        const text = folded(name);
+        keep = patterns.some((pattern) => {
+          budget -= (pattern.length + 1) * (text.length + 1);
+          return budget < 0 || listMatches(pattern, text);
+        });
+        retained.set(name, keep);
+      }
+      return keep;
+    };
     const kept = (name: string) =>
       name === inboxFolder ||
       offered.has(name) ||
-      (!listed.has(name) &&
-        skippable.some((pattern) => listMatches(pattern, name)));
+      (!listed.has(name) && skippedMatch(name));
     const next: ImapDocument = {
       ...current,
       folders,

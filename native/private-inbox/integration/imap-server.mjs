@@ -105,21 +105,32 @@ const assertResumed = (command, { large, sparse }) => {
   }
 };
 const operations = new Set();
+// Namespace-shift's server drops its first session after refusing the shared LIST, and its next
+// session no longer reports the shared namespace.
+let shifted = false;
 // Sent copies appended by Message-ID; filing the same message again must find, not append.
 const appended = new Set();
 // RFC 2342 §5.9: Tilde's other users' prefix `~` does not end in its delimiter, so its root `~`
 // also matches the `~*` LIST.
+const namespacesOf = (user) => {
+  if (user === 'tilde') {
+    return '(("INBOX/" "/")) (("~" "/")) NIL';
+  }
+  if (user === 'namespace-shift' && shifted) {
+    operations.add('namespace-shift');
+    return '(("" "/")) NIL NIL';
+  }
+  return '(("" "/")) NIL (("Shared/" "/"))';
+};
 const discoverNamespaces = (socket, tag, { failed, user }) => {
   if (failed) {
     operations.add('namespace-refused');
     socket.write(`${tag} NO Namespace temporarily unavailable\r\n`);
   } else {
     operations.add('namespace');
-    const namespaces =
-      user === 'tilde'
-        ? '(("INBOX/" "/")) (("~" "/")) NIL'
-        : '(("" "/")) NIL (("Shared/" "/"))';
-    socket.write(`* NAMESPACE ${namespaces}\r\n${tag} OK Completed\r\n`);
+    socket.write(
+      `* NAMESPACE ${namespacesOf(user)}\r\n${tag} OK Completed\r\n`,
+    );
   }
 };
 // Sends LIST responses without ever answering the command. A flood far past what fits in the socket
@@ -239,7 +250,17 @@ const organize = (socket, tag, command) => {
 const refusedLists = {
   'shared-wildcard': /Shared\/\*/u,
   'shared-root': /Shared"?$/u,
+  'namespace-shift': /Shared\/\*/u,
   tilde: /~\*/u,
+};
+// Zimbra refuses a wildcard in its other users' namespace, for one.
+const refuseList = (socket, tag, user) => {
+  operations.add('shared-refused');
+  socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
+  if (user === 'namespace-shift' && !shifted) {
+    shifted = true;
+    socket.end();
+  }
 };
 // The user name a LOGIN presents, which chooses the synthetic server's variation.
 const userOf = (command) =>
@@ -517,6 +538,7 @@ const server = tls.createServer(
             'shared-wildcard',
             'shared-root',
             'tilde',
+            'namespace-shift',
           ].some((name) => command.includes(name));
           ok();
         }
@@ -526,9 +548,7 @@ const server = tls.createServer(
         command.startsWith('LIST ') &&
         refusedLists[user]?.test(command)
       ) {
-        // Zimbra refuses a wildcard in its other users' namespace, for one.
-        operations.add('shared-refused');
-        socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
+        refuseList(socket, tag, user);
       } else if (command.startsWith('LIST ')) {
         listFolders(socket, command, { overflowing, listed, user });
         if (overflowing === 0) {
@@ -610,6 +630,7 @@ process.on('SIGTERM', () => {
       'move-refused',
       'namespace',
       'namespace-refused',
+      'namespace-shift',
       'oversized',
       'oversized-headers',
       'refused',

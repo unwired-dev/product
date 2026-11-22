@@ -250,7 +250,8 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   views of a folder the listing leaves out that such a LIST would match, in any letter case and reading `*` and
   `%` as wildcards, therefore stay, so folders of other users' and shared namespaces stay
   cached after they are removed ([#2690](https://github.com/unwired-dev/product/issues/2690)).
-  Only the listing names folders and their roles, so such a folder leaves the folder list
+  A folder whose match would take too long stays as well. Should namespace discovery change
+  while the listing runs, the refresh fails and keeps the prior list. Only the listing names folders and their roles, so such a folder leaves the folder list
   and never serves as Sent, Drafts or another role. Listing stops reading at the 1,001st
   LIST response the server sends, across all namespaces and before duplicate names
   merge, and closes that session. Case
