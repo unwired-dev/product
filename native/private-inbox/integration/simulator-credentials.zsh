@@ -9,8 +9,8 @@
 #   clear <udid>                     Empty the Simulator's pasteboard.
 #   scan <variable>... -- <path>...  List the files under the paths holding any value, also in
 #                                    compressed result bundle data, which needs zstd. Exits 0
-#                                    when none does, 1 on a match and 2 when a file could not
-#                                    be read.
+#                                    when none does, 1 on a match and 2 when a path is missing
+#                                    or a file could not be read.
 set -euo pipefail
 usage() {
   print -u2 "Usage: ${ZSH_ARGZERO:t} copy <udid> <variable> | clear <udid> | scan <variable>... -- <path>..."
@@ -35,8 +35,10 @@ case ${1:-} in
     while (( $# )) && [[ $1 != -- ]]; do secrets+=("$(value $1)"); shift; done
     (( $# )) && shift
     (( $#secrets && $# )) || usage
-    paths=(${^@}(N))
-    (( $#paths )) || usage
+    paths=($@)
+    for p in $paths; do [[ -e $p ]] || { print -u2 "Missing $p"; exit 2; }; done
+    # Session transcripts are JSON, which escapes a backslash or quote in a value.
+    for secret in $secrets; do secrets+=("${${secret//\\/\\\\}//\"/\\\"}"); done
     # grep reports a match as 0, none as 1 and a read error as 2.
     result=0
     LC_ALL=C grep -rlaFs -D skip -f <(print -rl -- $secrets) -- $paths || result=$?
