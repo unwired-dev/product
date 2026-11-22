@@ -3053,14 +3053,20 @@ export function createInboxStore(
     shared.released(imageOwner);
   };
 
+  // How many synchronizations have started, and how many had started when a foreground restore
+  // invalidated the latest one while mail was shown.
+  let synchronizations = 0;
+  let interrupted: number | undefined = undefined;
   // Authentication and retry keep the shown mail; locked or unreadable storage hides it. A removed
   // device's data is already gone, so its Inbox waits for the account page instead.
   const unavailable = (kind: SyncFailure['kind']) => {
-    // The shown Inbox stays while a foreground restore verifies the mailbox again; the load after
-    // it synchronizes.
     if (kind !== 'invalidated' || shown === undefined) {
       publish({ kind: kind === 'locked' ? 'locked' : 'failed' });
+      return;
     }
+    // The shown Inbox stays while a foreground restore verifies the mailbox again; the next
+    // registration change synchronizes it, as an activation's restore may have no Inbox load after it.
+    interrupted = synchronizations;
   };
   // A usage limit waits for Gmail's named time, or else one minute doubling with each limit in a
   // row up to half an hour, then synchronizes again unless the open Inbox changed.
@@ -3597,6 +3603,7 @@ export function createInboxStore(
           forgotten = false;
           authenticationRejected = false;
           speculativeFailure = false;
+          synchronizations += 1;
           return queued.length === 0
             ? synchronize
             : persistence
@@ -4049,6 +4056,15 @@ export function createInboxStore(
     // changes requested there and not yet saved.
     forget: forgetOpenInbox,
     load,
+    // Synchronizes again after a registration change when a foreground restore invalidated the
+    // latest synchronization, once per invalidation.
+    resume: () => {
+      const latest = interrupted === synchronizations;
+      interrupted = undefined;
+      if (latest) {
+        void load();
+      }
+    },
     showSaved,
     resolvePending,
     // A window protects its chosen view before opening it, then releases this exact lease on exit.

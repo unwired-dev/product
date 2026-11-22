@@ -840,6 +840,15 @@ export function createMailboxes(
       }
     }
   };
+  // A Gmail or Microsoft Inbox whose synchronization a foreground restore invalidated
+  // synchronizes again.
+  const resumeInterrupted = () => {
+    for (const entry of inboxes.values()) {
+      if (entry.provider !== 'imap') {
+        entry.inbox.resume();
+      }
+    }
+  };
   // A connection moved to another Profile keeps its Inbox and changes only its owner here.
   const follow = (
     mailboxLoading: 'automatic' | 'explicit' = 'automatic',
@@ -855,6 +864,10 @@ export function createMailboxes(
     chooseFolders(open);
     if (repairedImap !== undefined) {
       reloadRepaired(repairedImap, held);
+    }
+    // An explicit change loads its Inbox itself.
+    if (mailboxLoading === 'automatic') {
+      resumeInterrupted();
     }
     if (
       closed ||

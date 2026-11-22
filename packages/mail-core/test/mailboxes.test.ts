@@ -894,6 +894,75 @@ describe('mailbox connections and the unified Inbox', () => {
     },
   );
 
+  it('synchronizes again after an activation restore that no Inbox load follows invalidated its first synchronization', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail({ messages: 2 });
+    const synthetic = await createRegistrationScenario('registration-success');
+    // Native code forgets mailbox access when a restore starts and grants it again once the
+    // connection verifies; until then its mailbox reads as invalidated.
+    let verifying = false;
+    const forgotten = Promise.withResolvers<undefined>();
+    const verified = Promise.withResolvers<undefined>();
+    let verification: Promise<undefined> = Promise.resolve(undefined);
+    const registration = createRegistration({
+      ...synthetic.vault,
+      forgetMailboxAccess: async () => {
+        await synthetic.vault.forgetMailboxAccess();
+        verifying = true;
+        forgotten.resolve(undefined);
+        return null;
+      },
+      confirmMailbox: async (connection) => {
+        await verification;
+        await synthetic.vault.confirmMailbox(connection);
+        verifying = false;
+        return null;
+      },
+    });
+    await registration.register('google');
+    await registration.addMailbox();
+    const reading = Promise.withResolvers<undefined>();
+    const released = Promise.withResolvers<undefined>();
+    const base = pendingWhile(
+      () => verifying,
+      syntheticConnections({ [alex]: gmail }),
+    );
+    // Only the first synchronization's first Gmail read is held.
+    const holds = [released.promise];
+    const mailboxes = createMailboxes(
+      {
+        ...base,
+        gmailRequest: async (path, query, scope) => {
+          reading.resolve(undefined);
+          await holds.shift();
+          return base.gmailRequest(path, query, scope);
+        },
+      },
+      registration,
+    );
+    // The new connection's Inbox opens and synchronizes as the app becomes active again, and the
+    // activation's restore, which no Inbox load follows, forgets mailbox access meanwhile.
+    const running = mailboxes.load();
+    await reading.promise;
+    verification = verified.promise;
+    const restoring = registration.resume();
+    await forgotten.promise;
+    released.resolve(undefined);
+    await running;
+    const { inbox } = mailbox(mailboxes.getSnapshot(), alex);
+    expect(ready(inbox.getSnapshot()).sync).toBe('syncing');
+    // Another load during the restore, as when the Inbox mounts again, is invalidated too.
+    await mailboxes.load();
+    expect(ready(inbox.getSnapshot()).sync).toBe('syncing');
+
+    verified.resolve(undefined);
+    await restoring;
+    await vi.waitFor(() => {
+      expect(ready(inbox.getSnapshot()).sync).toBe('current');
+    });
+    expect(ready(inbox.getSnapshot()).messages).toHaveLength(2);
+  });
+
   it('shares the image budget across connections and returns only a closed connection’s reservations', async () => {
     expect.hasAssertions();
     const { gmail, mailboxes, registration } = await twoMailboxes();

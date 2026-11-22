@@ -366,3 +366,16 @@ mail content.
   ([#2390](https://github.com/unwired-dev/product/issues/2390)). Mac, iPad, organizing,
   search, attachments, sending, renewal after relaunch and revocation were not run and
   stay on #637.
+- **2026-11-22, iPhone connect after the app becomes active again
+  ([#2676](https://github.com/unwired-dev/product/issues/2676)).** Target, operator and
+  toolchain as on 2026-11-18. Build: the app source of
+  `8c26803c132385f75843d98309055779dd4f7a04`, then the same source with the fix from
+  #2676. Result: fail, then pass with the fix. Google Product Sign-In and the Recovery
+  Key, then **Microsoft 365 and Outlook**, connected the personal mailbox, but its Inbox
+  stayed on **Loading Inbox** until the app was relaunched; removing the mailbox and
+  connecting it again showed the same each time the connection's first synchronization
+  overlapped the restore that the return from Microsoft's sign-in sheet started. With
+  the fix, two such overlapping connects each listed the real Inbox without a relaunch,
+  and two connects that did not overlap listed it as before. One message then opened in
+  the reader with its body, in Light and Dark. Limitations: Mac, iPad and the other
+  areas the 2026-11-18 run left out were not run.
