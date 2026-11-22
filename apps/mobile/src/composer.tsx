@@ -3842,7 +3842,12 @@ function useSlashMenu(
       const index =
         chosenKind === undefined ? 0 : Math.max(each.indexOf(chosenKind), 0);
       const step = { ArrowDown: 1, ArrowUp: -1 }[key] ?? 0;
-      choose(each[Math.min(Math.max(index + step, 0), each.length - 1)]);
+      const next = each[Math.min(Math.max(index + step, 0), each.length - 1)];
+      choose(next);
+      // Focus stays in the body, so VoiceOver hears the highlighted block.
+      if (next !== undefined && next !== chosenKind) {
+        AccessibilityInfo.announceForAccessibility(titleOf(next));
+      }
     },
     // The query and the block a choice of `kind`, or Return without one, applies for the latest
     // body and caret, while the menu lists it.
@@ -3891,6 +3896,23 @@ function BodySlashMenu({
   const sized = layoutStyles[size];
   const list = useRef<ScrollViewInstance>(null);
   const rowEnds = useRef(new Map<BlockKind, number>());
+  const maxHeightNow = useRef<number>(undefined);
+  // Scrolls as far as the highlighted row needs to show, as the highlight moves or its row lays out.
+  const reveal = useCallback((end: number | undefined) => {
+    const maxHeight = maxHeightNow.current;
+    if (end !== undefined && maxHeight !== undefined) {
+      list.current?.scrollTo({
+        y: Math.max(end - maxHeight, 0),
+        animated: false,
+      });
+    }
+  }, []);
+  const active = shown?.active;
+  useEffect(() => {
+    if (active !== undefined) {
+      reveal(rowEnds.current.get(active));
+    }
+  }, [active, reveal]);
   if (shown === undefined) {
     return null;
   }
@@ -3900,15 +3922,7 @@ function BodySlashMenu({
       start={shown.query.start}
       {...anchor}>
       {({ origin, maxHeight, onContentHeight }) => {
-        // Scrolls as far as the highlighted row needs to show.
-        const reveal = (end: number | undefined) => {
-          if (end !== undefined && maxHeight !== undefined) {
-            list.current?.scrollTo({
-              y: Math.max(end - maxHeight, 0),
-              animated: false,
-            });
-          }
-        };
+        maxHeightNow.current = maxHeight;
         return (
           <GlassPanel
             open

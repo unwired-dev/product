@@ -2314,6 +2314,9 @@ describe('composing Drafts', () => {
     expect(keys().props).toHaveProperty('enabled', true);
     await fireEvent(keys(), 'arrow', { nativeEvent: { key: 'ArrowDown' } });
     expect(rows({ selected: true })).toStrictEqual(['Heading 2']);
+    expect(AccessibilityInfo.announceForAccessibility).toHaveBeenLastCalledWith(
+      'Heading 2',
+    );
     await fireEvent(keys(), 'arrow', { nativeEvent: { key: 'ArrowUp' } });
     expect(rows({ selected: true })).toStrictEqual(['Heading 1']);
     expect(keys().props).toHaveProperty('escape', true);
