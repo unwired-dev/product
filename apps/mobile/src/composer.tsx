@@ -4110,6 +4110,24 @@ function useFieldsBelowBody({
     readonly field: RecipientField;
     readonly entry: string;
   }>();
+  // The field a blocked Send revealed, scrolled to again as its reason and the keyboard resize the
+  // content, while it keeps focus and until the person scrolls.
+  const pending = useRef<RecipientField>(undefined);
+  // Focus alone leaves a field that already has it where it is: scroll its entry to the top with
+  // one 44pt row above it, as far as the content goes.
+  const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
+  const reveal = (field: RecipientField) => {
+    const input = inputs[field].current;
+    const content = scrollRef.current?.getInnerViewRef();
+    if (input === null || content === null || content === undefined) {
+      return;
+    }
+    input.measureLayout(content, (_x, y) => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, Math.min(y - 44, contentHeight.current - visibleHeight)),
+      });
+    });
+  };
   const phone = !regular && !ipad;
   const filled = phone && visibleHeight > 0;
   const quoted = shown.quoted !== undefined;
@@ -4130,22 +4148,9 @@ function useFieldsBelowBody({
       waiting === undefined
         ? undefined
         : () => {
-            const input = { to: toRef, cc: ccRef, bcc: bccRef }[waiting]
-              .current;
-            const content = scrollRef.current?.getInnerViewRef();
-            // Focus alone leaves a field that already has it where it is: scroll its entry to the
-            // top with one 44pt row above it, as far as the content goes.
-            if (input !== null && content !== null && content !== undefined) {
-              input.measureLayout(content, (_x, y) => {
-                scrollRef.current?.scrollTo({
-                  y: Math.max(
-                    0,
-                    Math.min(y - 44, contentHeight.current - visibleHeight),
-                  ),
-                });
-              });
-            }
-            input?.focus();
+            pending.current = waiting;
+            reveal(waiting);
+            inputs[waiting].current?.focus();
             setRevealed({ field: waiting, entry: entryOf(shown, waiting) });
           },
     revealed: (field: RecipientField) =>
@@ -4154,6 +4159,15 @@ function useFieldsBelowBody({
     measureFields: setFieldsHeight,
     measureContent: (height: number) => {
       contentHeight.current = height;
+      if (
+        pending.current !== undefined &&
+        inputs[pending.current].current?.isFocused() === true
+      ) {
+        reveal(pending.current);
+      }
+    },
+    stopRevealing: () => {
+      pending.current = undefined;
     },
     content: filled && {
       minHeight:
@@ -5552,6 +5566,9 @@ function Editor({
             ref={scrollRef}
             onContentSizeChange={(_width, height) => {
               below.measureContent(height);
+            }}
+            onScrollBeginDrag={() => {
+              below.stopRevealing();
             }}
             onScroll={() => placeSuggestions.current?.()}
             scrollEventThrottle={16}

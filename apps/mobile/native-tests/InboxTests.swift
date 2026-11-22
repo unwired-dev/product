@@ -4116,6 +4116,7 @@ final class InboxTests: XCTestCase {
     // Send without a recipient scrolls to To and focuses it, with its reason, above the keyboard.
     app.buttons["Send"].tap()
     waitForFocus(to)
+    XCTAssertGreaterThanOrEqual(to.frame.minY, editor.frame.minY)
     XCTAssertLessThanOrEqual(to.frame.maxY, editor.frame.maxY)
     let reason = app.staticTexts["Add a recipient to send."].firstMatch
     XCTAssertTrue(reason.exists)
