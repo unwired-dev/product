@@ -1384,6 +1384,11 @@ describe('connecting IMAP mailboxes', () => {
       reason: 'a Turkish dotted capital I',
     },
     {
+      pattern: 'Shared/i%\u0307/*',
+      name: 'Shared/i\u0307/Team',
+      reason: 'a combining dot above beside a wildcard',
+    },
+    {
       pattern: `*${'a'.repeat(5000)}b`,
       name: 'a'.repeat(4000),
       reason: 'matching past its budget',
