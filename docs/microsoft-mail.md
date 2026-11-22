@@ -375,5 +375,7 @@ mail content.
   stayed on **Loading Inbox** until the app was relaunched; removing the mailbox and
   connecting it again showed the same each time the connection's first synchronization
   overlapped the restore that the return from Microsoft's sign-in sheet started. With
-  the fix, two such overlapping connects each listed the real Inbox without a relaunch.
-  Limitations: Mac, iPad and the other areas the 2026-11-18 run left out were not run.
+  the fix, two such overlapping connects each listed the real Inbox without a relaunch,
+  and two connects that did not overlap listed it as before. One message then opened in
+  the reader with its body, in Light and Dark. Limitations: Mac, iPad and the other
+  areas the 2026-11-18 run left out were not run.
