@@ -1324,7 +1324,7 @@ describe('connecting IMAP mailboxes', () => {
     expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
   });
 
-  it('keeps the cached folders a skippable namespace LIST would match until a listing leaves them out', async () => {
+  it('keeps the cache of folders a skippable namespace LIST would match until a listing leaves them out', async () => {
     expect.hasAssertions();
     const imap = createSyntheticImap();
     imap.addFolder('Shared');
@@ -1348,14 +1348,15 @@ describe('connecting IMAP mailboxes', () => {
       skippable: ['Shared'],
     });
     await inbox.load();
-    expect(names()).toStrictEqual(['INBOX', 'Shared/Team', 'Shared']);
+    // Only the listing names folders; the unlisted one keeps its cache.
+    expect(names()).toStrictEqual(['INBOX', 'Shared/Team']);
     expect(firstMessage(inbox.folder('Shared')).subject).toBe('Root');
     listing.mockResolvedValueOnce({
       folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
       skippable: ['SH%/*'],
     });
     await inbox.load();
-    expect(names()).toStrictEqual(['INBOX', 'Shared/Team']);
+    expect(names()).toStrictEqual(['INBOX']);
     expect(firstMessage(inbox.folder('Shared/Team')).subject).toBe('Team');
     expect(inbox.folder('Shared')).toStrictEqual({ kind: 'loading' });
   });

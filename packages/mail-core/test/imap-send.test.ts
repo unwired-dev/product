@@ -503,6 +503,41 @@ describe('sending through SMTP and filing Sent copies', () => {
     }
   });
 
+  it('never submits through a Sent folder that only a skippable namespace LIST would match', async () => {
+    expect.hasAssertions();
+    const sending = await imapSender();
+    const delivery = present(sending.storage.delivery, 'delivery claims');
+    const claim = delivery.claimDraftDelivery;
+    const listing = vi.spyOn(sending.servers.work.native, 'imapListFolders');
+    const held = vi
+      .spyOn(delivery, 'claimDraftDelivery')
+      .mockImplementation(async (...args) => {
+        const reply = await claim(...args);
+        // The server no longer lists Sent, which a refused namespace LIST would have matched.
+        sending.servers.work.removeFolder('Sent');
+        listing.mockResolvedValue({
+          folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
+          skippable: ['*'],
+        });
+        await sending.mailboxes.load();
+        return reply;
+      });
+    try {
+      const id = await sending.addressed();
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toMatchObject([
+        { id, state: 'failed', problem: 'sent-folder' },
+      ]);
+      expect(sending.servers.work.smtp.accepted).toStrictEqual([]);
+    } finally {
+      held.mockRestore();
+      listing.mockRestore();
+      sending.outbox.dispose();
+    }
+  });
+
   it.each([
     {
       failure: 'gmail-unavailable',

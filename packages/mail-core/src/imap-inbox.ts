@@ -483,6 +483,38 @@ const failureKinds: Readonly<Record<string, ImapFailure['kind']>> = {
   unavailable: 'retry',
 };
 
+// Whether a LIST pattern matches a folder name in any letter case. IMAP's `*` and `%` match any run
+// of characters, `%` only up to a hierarchy delimiter: matching `%` like `*` keeps more folders,
+// never fewer. Only the latest wildcard backtracks, so a match takes at most pattern × name steps.
+const listMatches = (pattern: string, name: string) => {
+  const glob = pattern.toLowerCase();
+  const text = name.toLowerCase();
+  const wildcard = (at: number) => glob[at] === '*' || glob[at] === '%';
+  let at = 0;
+  let read = 0;
+  let star = -1;
+  let resume = 0;
+  while (read < text.length) {
+    if (wildcard(at)) {
+      star = at;
+      resume = read;
+      at += 1;
+    } else if (at < glob.length && glob[at] === text[read]) {
+      at += 1;
+      read += 1;
+    } else if (star === -1) {
+      return false;
+    } else {
+      at = star + 1;
+      resume += 1;
+      read = resume;
+    }
+  }
+  while (wildcard(at)) {
+    at += 1;
+  }
+  return at === glob.length;
+};
 const call = (operation: () => Promise<unknown>) =>
   Effect.tryPromise({
     try: operation,
@@ -1476,12 +1508,13 @@ export function createImapInbox(
   }
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
-  // pruning stops keeping their bodies. The Inbox always stays, and so does each folder that a LIST
-  // the native listing may have skipped would match, in any letter case the server may permit.
+  // pruning stops keeping their bodies. The Inbox always stays, and so do the cache and views of a
+  // folder that a LIST the native listing may have skipped would match; only listed folders carry
+  // roles.
   const acceptListing = Effect.fnUntraced(function* (
     current: ImapDocument,
     {
-      folders: listed,
+      folders,
       skippable,
       ...capabilities
     }: Readonly<
@@ -1491,27 +1524,13 @@ export function createImapInbox(
       } & ImapCapabilities
     >,
   ) {
-    const names = new Set(listed.map(({ name }) => name));
-    // IMAP's `*` and `%` match any run of characters, `%` only up to a hierarchy delimiter: matching
-    // `%` like `*` keeps more folders, never fewer.
-    const patterns = skippable.map(
-      (pattern) =>
-        new RegExp(
-          `^${pattern.replaceAll(/[$()+.?[\\\]^{|}]/gu, String.raw`\$&`).replaceAll(/[*%]/gu, '.*')}$`,
-          'isu',
-        ),
-    );
-    const folders = [
-      ...listed,
-      ...current.folders.filter(
-        ({ name }) =>
-          !names.has(name) && patterns.some((pattern) => pattern.test(name)),
-      ),
-    ];
     const offered = new Set(
       folders.filter(({ selectable }) => selectable).map(({ name }) => name),
     );
-    const kept = (name: string) => name === inboxFolder || offered.has(name);
+    const kept = (name: string) =>
+      name === inboxFolder ||
+      offered.has(name) ||
+      skippable.some((pattern) => listMatches(pattern, name));
     const next: ImapDocument = {
       ...current,
       folders,
