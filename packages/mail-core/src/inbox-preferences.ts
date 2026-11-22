@@ -85,15 +85,15 @@ const sending = (fields: Fields): Fields =>
     ]),
   );
 // A change made from `field`: from its value, or from what an unpublished change was made from.
-const madeFrom = (field: Field | undefined) => ({
-  base:
-    field === undefined
-      ? null
-      : field.base === undefined
-        ? plain(field)
-        : field.base,
-  ...(field?.sent === undefined ? {} : { sent: field.sent }),
-});
+const madeFrom = (field: Field | undefined) => {
+  if (field === undefined) {
+    return { base: null };
+  }
+  return {
+    base: field.base === undefined ? plain(field) : field.base,
+    ...(field.sent === undefined ? {} : { sent: field.sent }),
+  };
+};
 // A Mail Profile's Inbox presentation preferences (ADR 0019's `mail-workflow-preferences:inbox`),
 // as this device keeps them and as the Profile's record seals them.
 const ProfilePreferencesSchema = Schema.Struct({
