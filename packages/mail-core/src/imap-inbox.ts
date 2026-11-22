@@ -175,7 +175,8 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
-  // Resolves `{ folders: [{ name, attributes, delimiter? }] }`, every folder the server lists.
+  // Resolves `{ folders: [{ name, attributes, delimiter? }], unlisted? }`, every folder the server
+  // lists and the prefixes of other users' and shared namespaces that listed none.
   readonly imapListFolders: (
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
@@ -1475,12 +1476,27 @@ export function createImapInbox(
   }
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
-  // pruning stops keeping their bodies. The Inbox always stays.
+  // pruning stops keeping their bodies. The Inbox always stays, and so do the folders of a
+  // namespace that listed none: the server may have refused its LIST.
   const acceptListing = Effect.fnUntraced(function* (
     current: ImapDocument,
-    folders: ImapDocument['folders'],
-    capabilities: ImapCapabilities,
+    {
+      folders: listed,
+      unlisted,
+      ...capabilities
+    }: Readonly<
+      {
+        folders: ImapDocument['folders'];
+        unlisted: readonly string[];
+      } & ImapCapabilities
+    >,
   ) {
+    const folders = [
+      ...listed,
+      ...current.folders.filter(({ name }) =>
+        unlisted.some((prefix) => name.startsWith(prefix)),
+      ),
+    ];
     const offered = new Set(
       folders.filter(({ selectable }) => selectable).map(({ name }) => name),
     );
@@ -2311,26 +2327,22 @@ export function createImapInbox(
             }
             const scope = opened;
             if (scope !== undefined) {
-              const { folders, ...capabilities } = yield* withSession(
-                scope,
-                (session) =>
-                  Effect.gen(function* () {
-                    const advertised = yield* decodeCapabilities(
-                      yield* call(() =>
-                        native.imapCapabilities(scope, session),
-                      ),
-                    ).pipe(Effect.mapError(malformed));
-                    const listed = yield* decodeListedFolders(
-                      yield* call(() => native.imapListFolders(scope, session)),
-                    ).pipe(Effect.mapError(malformed));
-                    return folderListing(
-                      listed.folders,
-                      advertised.capabilities,
-                    );
-                  }),
+              const listing = yield* withSession(scope, (session) =>
+                Effect.gen(function* () {
+                  const advertised = yield* decodeCapabilities(
+                    yield* call(() => native.imapCapabilities(scope, session)),
+                  ).pipe(Effect.mapError(malformed));
+                  const listed = yield* decodeListedFolders(
+                    yield* call(() => native.imapListFolders(scope, session)),
+                  ).pipe(Effect.mapError(malformed));
+                  return {
+                    ...folderListing(listed.folders, advertised.capabilities),
+                    unlisted: listed.unlisted ?? [],
+                  };
+                }),
               );
               if (document !== undefined) {
-                yield* acceptListing(document, folders, capabilities);
+                yield* acceptListing(document, listing);
               }
             }
             yield* synchronizeFolder(inboxFolder);

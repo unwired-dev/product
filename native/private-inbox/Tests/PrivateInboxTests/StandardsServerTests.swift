@@ -59,7 +59,7 @@ extension PrivateInboxTests {
     let session = try await imapProvider.open(imap(ports[0], "sam"), password: password)
     do {
       let roles = Dictionary(
-        uniqueKeysWithValues: try await session.folders().map { ($0.name, Set($0.attributes)) })
+        uniqueKeysWithValues: try await session.folders().folders.map { ($0.name, Set($0.attributes)) })
       for role in ["Archive", "Drafts", "Junk", "Sent", "Trash"] {
         #expect(roles[role]?.contains("\\\(role)") == true)
       }

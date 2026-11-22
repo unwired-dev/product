@@ -39,8 +39,8 @@ owns the checkpoint and arrival arithmetic, and classifies IDLE events. Search
 examines one folder and returns a bounded newest-UID window and the total match count
 without expanding compressed UID ranges; TypeScript chooses the folder order and
 per-folder limit, fetches the matching envelopes, skips missing or unestablished
-folder identities and derives truncation disclosure. Native ends IDLE with DONE after
-the first event or the requested bound and drains the stream so queued change events
+folder identities and derives truncation disclosure. Native ends IDLE with one DONE after
+the first event or the requested bound, whichever comes first, lets it finish and drains the stream so queued change events
 are retained. TypeScript keeps waiting through non-change events within the original
 deadline and treats BYE as offline. `RegistrationStore` binds each handle
 to its connection, address, generation and receipt subject, admits one command
@@ -92,7 +92,9 @@ invalidates prior message identity. Inbox plus eight other folders are retained 
 the encrypted metadata cache. Bodies use the existing bounded encrypted body cache.
 Folder retirement uses a complete namespace-aware listing. Oversized results and
 failed advertised namespace discovery refuse the refresh rather than present
-partial results as absence. TypeScript commits the listing and retained mailbox
+partial results as absence. SwiftMail 1.18 skips another user's or a shared namespace
+whose LIST the server refuses, so native reports each such namespace that listed no
+folder and TypeScript keeps the prior listing's folders under it. TypeScript commits the listing and retained mailbox
 metadata before dropping retired views; commit refusal preserves the previous
 listing and evicted-folder rows. Still-selectable evicted views continue to
 protect their saved bodies.

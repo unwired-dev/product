@@ -267,7 +267,17 @@ const answerChange = (socket, session, { tag, command }) => {
   if (command === 'DONE') {
     assert.ok(session.idling, 'DONE outside IDLE');
     operations.add('idle-done');
-    socket.write(`${session.idling} OK Idle terminated\r\n`);
+    const answer = `${session.idling} OK Idle terminated\r\n`;
+    // Late's events arrive between DONE and its answer, and still reach the wait.
+    if (session.selected === 'Late') {
+      operations.add('idle-late');
+      socket.write('* OK [ALERT] Maintenance tonight\r\n');
+      setTimeout(() => {
+        socket.write(`* 2 EXISTS\r\n${answer}`);
+      }, 100);
+    } else {
+      socket.write(answer);
+    }
     session.idling = '';
   } else if (/^(?:EXAMINE|SELECT) /u.test(command)) {
     selectFolder(socket, session, { tag, command });
@@ -432,6 +442,7 @@ const server = tls.createServer(
     let listed = folders;
     let namespaces = false;
     let namespaceFailure = false;
+    let sharedRefused = false;
     let user = '';
     const session = {
       user: '',
@@ -489,13 +500,24 @@ const server = tls.createServer(
             ? foldersAtLimit
             : folders;
           namespaceFailure = command.includes('namespace-failure');
-          namespaces = ['namespace-failure', 'namespaced'].some((name) =>
-            command.includes(name),
-          );
+          sharedRefused = command.includes('shared-wildcard');
+          namespaces = [
+            'namespace-failure',
+            'namespaced',
+            'shared-wildcard',
+          ].some((name) => command.includes(name));
           ok();
         }
       } else if (command === 'NAMESPACE') {
         discoverNamespaces(socket, tag, namespaceFailure);
+      } else if (
+        sharedRefused &&
+        command.startsWith('LIST ') &&
+        command.includes('Shared/')
+      ) {
+        // Zimbra refuses a wildcard in its other users' namespace.
+        operations.add('shared-refused');
+        socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
       } else if (command.startsWith('LIST ')) {
         listFolders(socket, command, { overflowing, listed });
         if (overflowing === 0) {
@@ -565,6 +587,7 @@ process.on('SIGTERM', () => {
       'history-search',
       'idle',
       'idle-done',
+      'idle-late',
       'large-search',
       'list',
       'logout',
@@ -584,6 +607,7 @@ process.on('SIGTERM', () => {
       'sent-found',
       'sent-search',
       'shared-list',
+      'shared-refused',
       'store-deleted',
       'store-flagged',
       'store-seen',

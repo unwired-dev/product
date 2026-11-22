@@ -107,11 +107,12 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
   func append(_ folder: String, message: Data) async throws {
     lock.withLock { stored.append(message) }
   }
-  func folders() async throws -> [ImapListedFolder] {
+  func folders() async throws -> ImapListing {
     if hold {
       await withCheckedContinuation { continuation in lock.withLock { held = continuation } }
     }
-    return [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")]
+    return ImapListing(
+      folders: [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")])
   }
   func select(_ folder: String) async throws -> UInt32 {
     command("select \(folder)")
@@ -658,7 +659,7 @@ extension PrivateInboxTests {
     }
     try await provider.verify(account, password: "synthetic-password")
     // One session lists every folder with its LIST attributes, and the server's capabilities.
-    func listed(_ account: ImapAccount) async throws -> ([ImapListedFolder], [String]) {
+    func listed(_ account: ImapAccount) async throws -> (ImapListing, [String]) {
       let session = try await provider.open(account, password: "synthetic-password")
       do {
         let result = (try await session.folders(), try await session.capabilities())
@@ -669,7 +670,8 @@ extension PrivateInboxTests {
         throw error
       }
     }
-    let (folders, capabilities) = try await listed(account)
+    let (listing, capabilities) = try await listed(account)
+    let folders = listing.folders
     // swift-nio-imap reports any ASCII case of INBOX as `INBOX`.
     #expect(folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
     #expect(
@@ -690,7 +692,7 @@ extension PrivateInboxTests {
     let full = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"folders-at-limit"}"#.utf8))
-    #expect(try await listed(full).0.count == 1_000)
+    #expect(try await listed(full).0.folders.count == 1_000)
     let undiscovered = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespace-failure"}"#.utf8))
@@ -699,7 +701,15 @@ extension PrivateInboxTests {
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespaced"}"#.utf8))
     let (shared, sharedCapabilities) = try await listed(namespaced)
-    #expect(shared.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
+    #expect(shared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
+    #expect(shared.unlisted.isEmpty)
+    // SwiftMail skips a namespace whose LIST the server refuses; its folders may still exist.
+    let refused = try JSONDecoder().decode(
+      ImapAccount.self,
+      from: Data(#"{"host":"localhost","port":\#(port),"username":"shared-wildcard"}"#.utf8))
+    let unshared = try await listed(refused).0
+    #expect(unshared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
+    #expect(unshared.unlisted == ["Shared/"])
     #expect(Set(sharedCapabilities.map { $0.uppercased() }).isDisjoint(with: ["MOVE", "UIDPLUS", "IDLE"]))
     // One session examines folders and reads their envelopes and flags, as a synchronization
     // does.
@@ -905,6 +915,8 @@ extension PrivateInboxTests {
     let watching = try await provider.open(synthetic, password: password)
     #expect(try await watching.idle(folder: "INBOX", seconds: 30) == ["exists"])
     #expect(try await watching.idle(folder: "Quiet", seconds: 1) == [])
+    // Events sent after the bound's DONE still reach the wait, and the session stays open.
+    #expect(try await watching.idle(folder: "Late", seconds: 1) == ["alert", "exists"])
     let wait = Task { try await watching.idle(folder: "Quiet", seconds: 30) }
     try await Task.sleep(for: .milliseconds(500))
     let closing = ContinuousClock.now

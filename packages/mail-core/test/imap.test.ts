@@ -1324,6 +1324,29 @@ describe('connecting IMAP mailboxes', () => {
     expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
   });
 
+  it('keeps the cached folders of a namespace that listed none until a listing leaves them out', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Shared/Team');
+    imap.deliver('Shared/Team', { subject: 'Shared' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Shared/Team');
+    // The server refuses the shared namespace's LIST, which SwiftMail skips.
+    vi.spyOn(imap.native, 'imapListFolders').mockResolvedValueOnce({
+      folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
+      unlisted: ['Shared/'],
+    });
+    await inbox.load();
+    expect(firstMessage(inbox.folder('Shared/Team')).subject).toBe('Shared');
+    expect(
+      ready(inbox.getSnapshot()).folders.map(({ name }) => name),
+    ).toContain('Shared/Team');
+    imap.removeFolder('Shared/Team');
+    await inbox.load();
+    expect(inbox.folder('Shared/Team')).toStrictEqual({ kind: 'loading' });
+  });
+
   it.each([
     { code: 'locked', state: { kind: 'locked' } },
     { code: 'mailbox-invalidated', state: { kind: 'failed' } },

@@ -244,7 +244,9 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 LIST responses, preserves the
-  prior list and cached mail for a later retry. Listing stops reading at the 1,001st
+  prior list and cached mail for a later retry. A server may refuse the LIST of another
+  user's or a shared namespace, and SwiftMail then skips it, so a namespace that lists no
+  folder keeps the folders the prior list had under it. Listing stops reading at the 1,001st
   LIST response the server sends, across all namespaces and before duplicate names
   merge, and closes that session. Case
   variants of the reserved `INBOX` name share that spelling; other folder names
@@ -584,8 +586,9 @@ code reads the message from the Outbox and appends it only for a trusted device.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. IDLE runs the
 same way: TypeScript checks the capability, then asks the session to wait on a folder
-for a bounded time. Native code sends IDLE, ends it with DONE after the first
-event or the bound, and reports the kinds of events the server sent; TypeScript
+for a bounded time. Native code sends IDLE, ends it with one DONE after the first
+event or the bound, whichever comes first, and reports the kinds of events the server
+sent until it answers DONE; TypeScript
 decides which of them are a change. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
 connection's generation changes, as on removal, sign-out or a new password.
@@ -602,9 +605,10 @@ reported as interrupted, so TypeScript never resends an uncertain move.
 Filing a Sent copy runs the same way: TypeScript searches the Sent folder for the copy's
 Message-ID and appends the message in the same session only when no copy is there.
 
-The connection of a closed session ends only when its active command answers or
-times out. Aborting it on the wire is
-[#1184](https://github.com/unwired-dev/product/issues/1184). The hosted
+Closing a session also closes its connection at once: in SwiftMail 1.18,
+cancelling an active command closes its transport, and disconnecting no longer
+waits for that command. The product's proof that a closed session stops its
+command on the wire is [#1184](https://github.com/unwired-dev/product/issues/1184). The hosted
 close-answers-at-once cases, including a session closed during IDLE, use a
 controlled `ImapSession`.
 
