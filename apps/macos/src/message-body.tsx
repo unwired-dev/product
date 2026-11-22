@@ -478,6 +478,17 @@ function RichDocument({
   const [positions, setPositions] = useState<
     ReturnType<typeof decodeRemoteImagePositions>
   >([]);
+  // An outgoing document, such as one replaced by a Message Zoom change, withdraws its images.
+  const withdraw = useRef(onNear);
+  useEffect(() => {
+    withdraw.current = onNear;
+  });
+  useEffect(
+    () => () => {
+      withdraw.current([]);
+    },
+    [],
+  );
   useEffect(() => {
     if (
       viewport === undefined ||
