@@ -26,11 +26,13 @@ repository adds:
   platform (iOS, iPadOS, macOS) in Light and Dark, a short video of the new
   behavior recorded from the real app, and a link to each approved Figma frame
   it implements, one per changed state. Delegate the capture to the latest
-  available GPT Sol model with high reasoning through `delegate_task`. In the
-  capture brief, tell the delegate to use the native runner's cleanup and
-  return the verified media and any remaining task-owned temporary paths.
-  The parent uploads the media to the PR body before cleaning up the
-  remaining paths. Use `gh pr create|edit --attach <file>` (see
+  available GPT Sol model with high reasoning through `delegate_task`. In each
+  capture brief, including retries, tell the delegate to use the
+  native runner's cleanup for resources it owns. Have the delegate return any
+  verified media and remaining task-owned temporary paths, even if the capture
+  is blocked. Leave other file cleanup to the parent, including cleanup in
+  shell exit traps. The parent uploads the media to the PR body before removing
+  those files. Use `gh pr create|edit --attach <file>` (see
   [attaching files](https://docs.github.com/en/github-cli/github-cli/attaching-files-with-github-cli));
   reference each file from the body so it renders in place: `![alt](./shot.png)`
   for an image, `![](./demo.mov)` alone in its paragraph for a video. Do not
