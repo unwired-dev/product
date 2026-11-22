@@ -76,6 +76,10 @@ const PaletteContext = createContext<
 
 // The palette opened from inside a system sheet, which the sheet shows over its own content.
 const SheetPaletteContext = createContext<ReactNode>(null);
+// How the palette a sheet shows leaves the sheet's composer before a command runs.
+const SheetLeaveContext = createContext<(() => Promise<boolean>) | undefined>(
+  undefined,
+);
 
 // An iPad command input's frame in the window. The palette opens as a popover beneath it, its
 // field taking the input's place, as the iPad Palette frames draw it.
@@ -135,6 +139,8 @@ const pad = Platform.OS === 'ios' && Platform.isPad;
 const scrim = 'rgba(0, 0, 0, 0.3)';
 // The iPad Palette frames' popover: 460pt beside a landscape reader, 420pt in portrait.
 const popoverWidth = (width: number) => (width > 1000 ? 460 : 420);
+// iPadOS draws a window's controls in its navigation bar's row, outside the safe area.
+const windowControlsRow = 50;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
@@ -392,21 +398,25 @@ export function CommandPaletteProvider({
 
 // The palette opened from inside a system sheet, shown over the sheet's content as on iPhone; the
 // window's palette lies beneath the sheet. A sheet swiped away closes the palette it showed.
-export function SheetPalette() {
+export function SheetPalette({
+  leave,
+}: {
+  readonly leave: () => Promise<boolean>;
+}) {
   const palette = use(SheetPaletteContext);
   const { close } = useCommandPalette();
-  const leave = useEffectEvent(() => {
+  const closeShown = useEffectEvent(() => {
     if (palette !== null) {
       close();
     }
   });
   useEffect(
     () => () => {
-      leave();
+      closeShown();
     },
     [],
   );
-  return palette;
+  return <SheetLeaveContext value={leave}>{palette}</SheetLeaveContext>;
 }
 
 // Closes the palette a system sheet shows, so the question its composer asks about changes is not
@@ -429,10 +439,13 @@ function paletteFrame(
     insets,
     colors,
     window,
+    sheet,
   }: Readonly<{
     insets: ReturnType<typeof useSafeAreaInsets>;
     colors: ReturnType<typeof usePalette>;
     window: Readonly<{ width: number; height: number }>;
+    // Opened inside a system sheet, which starts beneath the window's controls.
+    sheet: boolean;
   }>,
 ) {
   if (anchor === undefined) {
@@ -441,8 +454,12 @@ function paletteFrame(
       body: [
         styles.sheet,
         {
-          // The sheet floats over the screens, so it clears the status bar itself.
-          paddingTop: insets.top,
+          // The sheet floats over the screens, so it clears the status bar itself, and on iPad
+          // the window's controls.
+          paddingTop:
+            pad && !sheet
+              ? Math.max(insets.top, windowControlsRow)
+              : insets.top,
           paddingLeft: insets.left,
           paddingRight: insets.right,
           backgroundColor: colors.surfaceContent,
@@ -511,7 +528,15 @@ function Palette({
   const colors = usePalette();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
-  const frame = paletteFrame(anchor, { insets, colors, window });
+  // A sheet covers the window its commands act on, so they first leave the composer, as the
+  // sheet's swipe does: a Draft with changes asks Save Draft or Delete Draft.
+  const leave = use(SheetLeaveContext);
+  const frame = paletteFrame(anchor, {
+    insets,
+    colors,
+    window,
+    sheet: leave !== undefined,
+  });
   const { t } = useLocalization();
   const [query, setQuery] = useState('');
   const [choosing, setChoosing] = useState<Command>();
@@ -527,6 +552,18 @@ function Palette({
     }
   }, [open]);
   const live = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
+  const perform = (work: () => unknown) => {
+    close();
+    if (leave === undefined) {
+      void work();
+      return;
+    }
+    void (async () => {
+      if (await leave()) {
+        await work();
+      }
+    })();
+  };
   const vanished = (command: Command): Command =>
     gone.includes(command.id)
       ? { ...command, disabled: t('commands.gone') }
@@ -544,8 +581,7 @@ function Palette({
       setChoiceQuery('');
       return;
     }
-    close();
-    void found.run?.();
+    perform(() => found.run?.());
   };
   const choose = (choice: CommandChoice) => {
     const found =
@@ -558,8 +594,7 @@ function Palette({
       setChoosing(undefined);
       return;
     }
-    close();
-    option.run();
+    perform(option.run);
   };
   const subject = opened.find(({ target }) => target !== undefined)?.target
     ?.subject;

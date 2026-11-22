@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 
 import { InSheet, SheetPalette } from './command-palette.tsx';
+import { useLeaveComposer } from './mailbox.tsx';
 import { usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({ fill: { flex: 1 } });
@@ -21,6 +22,7 @@ export function ComposerSheet({
   composer: (draft: string) => ReactNode;
 }>) {
   const colors = usePalette();
+  const leave = useLeaveComposer();
   const [shown, setShown] = useState(draft);
   if (draft !== undefined && draft !== shown) {
     setShown(draft);
@@ -48,7 +50,7 @@ export function ComposerSheet({
           pointerEvents={draft === undefined ? 'none' : 'auto'}
           style={[styles.fill, { backgroundColor: colors.surfaceContent }]}>
           <InSheet value>{composer(shown)}</InSheet>
-          <SheetPalette />
+          <SheetPalette leave={leave} />
         </View>
       )}
     </Modal>

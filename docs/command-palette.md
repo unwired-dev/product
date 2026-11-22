@@ -133,14 +133,17 @@ results never appear in the palette. The vocabulary lives in the
   Thread shown alone puts it in the navigation bar after the
   system Back with the mailbox's unread count, and the subject keeps its own
   row. Its palette attaches to the top of the window, as on iPhone, since UIKit
-  moves the bar's input out of the layout React measures. The composer there is the system sheet
+  moves the bar's input out of the layout React measures, and starts beneath
+  the bar's row, where iPadOS draws the window's controls. The composer there is the system sheet
   ([#2645](https://github.com/unwired-dev/product/issues/2645)). Its
   downward swipe leaves the composer, as Close does, asking Save Draft or
   Delete Draft when the Draft has changes. That question, however leaving
   asks it, closes the sheet's palette first. Its header offers no palette swipe; the input ends the From row as
   the command symbol alone, a 44pt target labelled Open Command Palette, which
   opens the palette attached to the sheet's top, as on iPhone, even over a
-  window palette left open beneath the sheet. Elsewhere, tapping the input or
+  window palette left open beneath the sheet. The sheet covers the window its
+  commands act on, such as Account, so a command chosen there first leaves the
+  composer, as the swipe does. Elsewhere, tapping the input or
   the header swipe opens the palette. Command-K from a hardware keyboard is
   deferred to [#2670](https://github.com/unwired-dev/product/issues/2670): React Native exposes no key commands on iOS without a native
   module, and the Mac host owns the only keyboard entry today.

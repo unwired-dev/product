@@ -3,6 +3,7 @@ import { ok } from 'node:assert';
 import type { RegistrationSnapshot } from '@private-email/mail-core/registration';
 import type { Platform } from 'react-native';
 
+import { inboxCommands } from '@private-email/mail-core/commands';
 import {
   createDrafts,
   draftsOf,
@@ -28,9 +29,13 @@ import {
 import { useState } from 'react';
 import { Dimensions, View } from 'react-native';
 
-import { CommandPaletteProvider } from '../src/command-palette.tsx';
+import {
+  CommandPaletteProvider,
+  RegisterCommands,
+} from '../src/command-palette.tsx';
 import { ComposerSheet } from '../src/composer-sheet.tsx';
 import { Composer } from '../src/composer.tsx';
+import { useLocalization } from '../src/localization.ts';
 import { InboxProvider, useLeaveComposer } from '../src/mailbox.tsx';
 import { MessageDetail } from '../src/message-detail.tsx';
 import { PinsContext } from '../src/pins.tsx';
@@ -117,14 +122,20 @@ function ComposerHost({
   );
 }
 
-// Hands over the shared leave guard a tapped notification waits on before it navigates.
-function LeaveGuard({
+// Hands over the shared leave guard a tapped notification waits on before it navigates, and
+// offers the window's Account command.
+function Window({
   onLeave,
+  onAccount,
 }: {
   readonly onLeave: (leave: ReturnType<typeof useLeaveComposer>) => void;
+  readonly onAccount: () => void;
 }) {
+  const { t } = useLocalization();
   onLeave(useLeaveComposer());
-  return null;
+  return (
+    <RegisterCommands offer={() => inboxCommands(t, { account: onAccount })} />
+  );
 }
 
 function Reader({
@@ -133,6 +144,7 @@ function Reader({
   message,
   sheet = false,
   onLeave = ignore,
+  onAccount = ignore,
 }: {
   readonly inbox: ReturnType<typeof createInboxStore>;
   readonly drafts: ReturnType<typeof createDrafts>;
@@ -140,6 +152,7 @@ function Reader({
   // Whether the composer opens in the compact window's system sheet.
   readonly sheet?: boolean;
   readonly onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
+  readonly onAccount?: () => void;
 }) {
   const [composing, setComposing] = useState<string>();
   return (
@@ -147,7 +160,10 @@ function Reader({
       drafts={drafts}
       mailboxes={singleMailbox(inbox, alex)}>
       <CommandPaletteProvider>
-        <LeaveGuard onLeave={onLeave} />
+        <Window
+          onLeave={onLeave}
+          onAccount={onAccount}
+        />
         {composing === undefined ? (
           <MessageDetail
             mailbox={alex}
@@ -574,7 +590,13 @@ describe('iPad reader', () => {
   // window's card, with its Reply's composer open.
   const replyFromReader = async (
     sheet: boolean,
-    onLeave: (leave: ReturnType<typeof useLeaveComposer>) => void = ignore,
+    {
+      onLeave = ignore,
+      onAccount = ignore,
+    }: Readonly<{
+      onLeave?: (leave: ReturnType<typeof useLeaveComposer>) => void;
+      onAccount?: () => void;
+    }> = {},
   ) => {
     const snapshot: RegistrationSnapshot = {
       kind: 'connected',
@@ -614,6 +636,7 @@ describe('iPad reader', () => {
           message={message}
           sheet={sheet}
           onLeave={onLeave}
+          onAccount={onAccount}
         />
       </AccountContext>,
     );
@@ -696,8 +719,10 @@ describe('iPad reader', () => {
     expect.hasAssertions();
     let leaveComposer: ReturnType<typeof useLeaveComposer> = () =>
       Promise.resolve(true);
-    await replyFromReader(true, (leave) => {
-      leaveComposer = leave;
+    await replyFromReader(true, {
+      onLeave: (leave) => {
+        leaveComposer = leave;
+      },
     });
     await fireEvent.press(
       screen.getByRole('button', { name: 'Open Command Palette' }),
@@ -714,6 +739,34 @@ describe('iPad reader', () => {
       expect(palettesInComposer()).toHaveLength(0);
     });
     await fireEvent.press(screen.getByRole('button', { name: 'Delete Draft' }));
+    expect(screen.queryByLabelText('Message body')).not.toBeOnTheScreen();
+  });
+
+  it('leaves a changed composer sheet before a window command acts behind it', async () => {
+    expect.hasAssertions();
+    const account = jest.fn<undefined, []>();
+    await replyFromReader(true, { onAccount: account });
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      'Friday works.',
+    );
+    await fireEvent.press(
+      screen.getByRole('button', { name: 'Open Command Palette' }),
+    );
+    await fireEvent.press(
+      screen.getByRole('button', {
+        name: 'Account',
+        includeHiddenElements: true,
+      }),
+    );
+    // Settings would open beneath the sheet, so the Draft's question comes first.
+    expect(account).not.toHaveBeenCalled();
+    await fireEvent.press(
+      await screen.findByRole('button', { name: 'Save Draft' }),
+    );
+    await waitFor(() => {
+      expect(account).toHaveBeenCalledWith();
+    });
     expect(screen.queryByLabelText('Message body')).not.toBeOnTheScreen();
   });
 });
