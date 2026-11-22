@@ -3735,8 +3735,7 @@ function useFieldsBelowBody({
 }) {
   const [visibleHeight, setVisibleHeight] = useState(0);
   const [fieldsHeight, setFieldsHeight] = useState(0);
-  // Where the fields start in the scrolled content, and how tall that content is.
-  const fieldsTop = useRef(0);
+  // How tall the scrolled content is.
   const contentHeight = useRef(0);
   const scrollRef = useRef<ScrollViewInstance>(null);
   const toRef = useRef<TextInputInstance>(null);
@@ -3762,22 +3761,25 @@ function useFieldsBelowBody({
       waiting === undefined
         ? undefined
         : () => {
-            const inputs = { to: toRef, cc: ccRef, bcc: bccRef };
-            // Focus alone leaves a field that already has it where it is: scroll to the fields,
-            // as far as the content goes.
-            scrollRef.current?.scrollTo({
-              y: Math.min(
-                fieldsTop.current,
-                contentHeight.current - visibleHeight,
-              ),
-            });
-            inputs[waiting].current?.focus();
+            const input = { to: toRef, cc: ccRef, bcc: bccRef }[waiting]
+              .current;
+            const content = scrollRef.current?.getInnerViewRef();
+            // Focus alone leaves a field that already has it where it is: scroll its entry to the
+            // top with one 44pt row above it, as far as the content goes.
+            if (input !== null && content !== null && content !== undefined) {
+              input.measureLayout(content, (_x, y) => {
+                scrollRef.current?.scrollTo({
+                  y: Math.max(
+                    0,
+                    Math.min(y - 44, contentHeight.current - visibleHeight),
+                  ),
+                });
+              });
+            }
+            input?.focus();
           },
     measureVisible: setVisibleHeight,
-    measureFields: ({ y, height }: { y: number; height: number }) => {
-      fieldsTop.current = y;
-      setFieldsHeight(height);
-    },
+    measureFields: setFieldsHeight,
     measureContent: (height: number) => {
       contentHeight.current = height;
     },
@@ -5318,7 +5320,7 @@ function Editor({
             <View style={below.pillClear} />
             <View
               onLayout={({ nativeEvent }) => {
-                below.measureFields(nativeEvent.layout);
+                below.measureFields(nativeEvent.layout.height);
               }}
               style={[styles.fields, sized.fields]}>
               <View
