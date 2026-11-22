@@ -928,6 +928,21 @@ describe('iPad reader', () => {
     await act(async () => {
       await leaveComposer();
     });
+    // The Draft opened again still answers its swipe.
+    await fireEvent.changeText(
+      screen.getByLabelText('Message body', { includeHiddenElements: true }),
+      'Saturday works.',
+    );
+    await act(async () => {
+      await fireEvent(
+        screen.getByTestId('composer-sheet', { includeHiddenElements: true }),
+        'requestClose',
+      );
+    });
+    await expect(
+      screen.findByRole('button', { name: 'Save Draft' }),
+    ).resolves.toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Save Draft' }));
     await act(() => {
       open(undefined);
     });

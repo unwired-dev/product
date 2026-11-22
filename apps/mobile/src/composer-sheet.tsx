@@ -38,16 +38,19 @@ export function ComposerSheet({
     Array<Readonly<{ turn: number; resolve: (left: boolean) => void }>>
   >([]);
   const removed = useRef(false);
-  useEffect(() => {
-    open.current = presented;
+  const settle = () => {
     const turn = navigation.navigations();
     closed.current = closed.current.filter((waiting) => {
       const superseded = waiting.turn !== turn;
-      if (superseded || !presented) {
+      if (superseded || !open.current) {
         waiting.resolve(!superseded);
       }
-      return !superseded && presented;
+      return !superseded && open.current;
     });
+  };
+  useEffect(() => {
+    open.current = presented;
+    settle();
   });
   useEffect(
     () => () => {
@@ -87,6 +90,7 @@ export function ComposerSheet({
       ]}
       // A command already closing the sheet stands for its swipe.
       onRequestClose={() => {
+        settle();
         if (closed.current.length === 0) {
           onLeave();
         }
