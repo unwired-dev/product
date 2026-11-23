@@ -485,8 +485,8 @@ mail content.
   message.** with **Edit**, also after a relaunch. Nothing reached Sent Items. After the
   Simulator was deleted, the credential scan of this run's own files, `~/.agent-device`
   and the Simulator's logs found nothing; before deletion, the Simulator's system log
-  held a credential value. Limitations: Microsoft's one-time sign-in code was typed, as
+  and one of its system Siri model files matched a credential value. Limitations: Microsoft's one-time sign-in code was typed, as
   it expires within minutes. The body of the 400 answer was not recorded, so the run
-  shows that Microsoft refused the message, not which limit it applied. Mac, iPad,
+  shows that Microsoft refused the message, not why. Mac, iPad,
   uncertain outcomes, renewal after relaunch and revocation were not run and stay on
   #637.
