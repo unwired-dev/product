@@ -493,3 +493,34 @@ mail content.
   pressing **Edit** on the refused message; they stay on #2719. Mac, iPad,
   uncertain outcomes, renewal after relaunch and revocation were not run and stay on
   #637.
+- **2026-11-23, iPhone attachments of 3 MB or more, rerun
+  ([#2719](https://github.com/unwired-dev/product/issues/2719)).** Target, operator and
+  toolchain as on 2026-11-18, on a new iPhone 18 Pro Simulator. Build: the Release build of
+  the run above, from the app source of `f257226c0c8786b58784c9a4f497ee2ec8ed5a38`; only
+  documentation changed before this run. Result: two of the three checks the run above left
+  out pass; the third could not run because Microsoft locked the account
+  ([#2724](https://github.com/unwired-dev/product/issues/2724)). A fresh Google Product
+  Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the personal
+  mailbox with the passwords and the Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app). In the
+  reader, the 10,000,000-byte message of the run above listed its file, and **Download**
+  saved it under its own name with 10,000,000 bytes. A new message with two
+  24,000,000-byte files uploaded the first file completely; Microsoft answered the last
+  range of the second with status 400, as before. The app deleted the Outlook draft, the
+  Outbox showed **Not sent. Microsoft refused this message.**, and **Edit** returned it to
+  the composer with its recipient, subject, text and both files. Not run: looking in
+  **Drafts** after a successful send. A new message with one 10,000,000-byte file went up
+  through an upload session in three ranges, the last answered 201, but Microsoft answered
+  the draft's send with status 403, and a text-only message's send with 403 too, while
+  reads still succeeded. Both ended **Not sent. This mailbox needs Microsoft access
+  again.**, and the app deleted the 10 MB message's Outlook draft. **Allow Microsoft
+  Access** then opened Microsoft's notice that it had locked the account for activity
+  against the Microsoft Services Agreement and asked the person to show they are human; the
+  agent stopped there. After the Simulator was deleted, the credential scan of this run's
+  own files, `~/.agent-device`, the Simulator's logs, the shell history, the temporary
+  directory and this run's session transcripts found nothing; before deletion, the
+  Simulator's system log and two of its system search files matched a credential value.
+  Limitations: Microsoft's one-time sign-in code was typed, as it expires within minutes.
+  Typing the recipient opened the system's contacts access sheet, and the Simulator's sample
+  contacts were shared. The bodies of the 400 and 403 answers were not recorded. Mac, iPad,
+  uncertain outcomes, renewal after relaunch and revocation were not run and stay on #637.
