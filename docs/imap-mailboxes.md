@@ -1942,15 +1942,17 @@ password manager by running
   was first sampled gone 25 seconds after the start and the new one running 2 seconds
   later. At the first readable snapshot, 20 seconds after that, it showed All Inboxes
   with Seznam Email's saved messages, and it asked for no password. The header read
-  **All Inboxes · Offline** with **1 account needs attention** and **Try Again**, and
+  **Syncing** with **1 account needs attention** and **Try Again**, and 3 seconds later
+  **All Inboxes · Offline** with the same notice, and
   Email Accounts showed Seznam Email as **Saved mail only until the mail server can be
   checked** and iCloud Mail as **Updated just now**. The app tried Seznam Email just
   after the launch and, at the 1-second socket samples, not again during the outage. A
   message submitted during this outage arrived on the server 54 seconds after its start.
   The outage lasted 4 minutes 3 seconds. Without a relaunch or any interaction, the app
   read **Syncing** 92 seconds after the outage ended, 5 minutes after its attempt at
-  launch, and listed that message 4 seconds later; the header then read **Updated just
-  now** without the attention notice, and Email Accounts showed both mailboxes **Updated
+  launch, and listed that message 4 seconds later, still reading **Syncing**; 7 seconds
+  after that the header read **Updated just now** without the attention notice, and
+  Email Accounts showed both mailboxes **Updated
   just now**. Afterwards the run's messages were removed from both mailboxes with `UID
   EXPUNGE`, which removes only the listed messages, and a search of every folder found
   none, **Sign Out of This Device** returned the app to Welcome, and the Simulator was
