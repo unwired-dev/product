@@ -314,8 +314,8 @@ Comfortable are checked, and both footers show. Under System, the Inbox and
 then Settings follow the device's appearance as the journey switches it. Light, with the device Dark,
 then Dark, with the device Light, turn Settings and the Inbox light, then dark.
 With Compact chosen, the Welcome row wraps its subject on iPad; on iPhone it fits
-one line in both densities. After a relaunch the Inbox opens dark at the same row
-height; iPad Portrait opens with Mailboxes hidden, so the journey shows them again
+one line in both densities. After a relaunch the Inbox opens dark, and the row keeps
+its height; iPad Portrait opens with Mailboxes hidden, so the journey shows them again
 before it measures the row ([#989](https://github.com/unwired-dev/product/issues/989)). Settings still checks Dark and Compact. Choosing System and
 Comfortable then returns the Inbox to the device's appearance and the row to its
 Comfortable height. Each state is kept as an attachment.
