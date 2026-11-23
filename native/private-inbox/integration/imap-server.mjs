@@ -265,10 +265,14 @@ const refusedLists = {
 // Zimbra refuses a wildcard in its other users' namespace, for one.
 const refuseList = (socket, tag, user) => {
   operations.add('shared-refused');
-  socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
+  const refusal = `${tag} NO LIST failed: wildcards not permitted\r\n`;
   if (user === 'namespace-shift' && !shifted) {
     shifted = true;
-    socket.end();
+    // A BYE with the refusal tells the client the session ended before it sends its next LIST;
+    // a bare close often reaches it later, failing that LIST instead of logging in again.
+    socket.end(`${refusal}* BYE Session ends\r\n`);
+  } else {
+    socket.write(refusal);
   }
 };
 // The user name a LOGIN presents, which chooses the synthetic server's variation.

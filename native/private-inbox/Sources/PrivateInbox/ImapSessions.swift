@@ -114,10 +114,12 @@ enum ImapStoredFlag: String, Sendable {
         } catch is ExceededListResponseLimitError {
           throw RegistrationError.unavailable
         }
-        guard
-          await server.namespaces?.listingPatterns(for: "*")
-            == namespaces?.listingPatterns(for: "*")
-        else { throw RegistrationError.unavailable }
+        // SwiftMail's reconnect inside a command logs in again without updating
+        // `server.namespaces`, so the session that ended the listing is asked for its own.
+        let ended = namespaces == nil ? nil : try await server.fetchNamespaces()
+        guard ended?.listingPatterns(for: "*") == namespaces?.listingPatterns(for: "*") else {
+          throw RegistrationError.unavailable
+        }
         let skippable: Set<String> = namespaces.map { namespaces in
           let personal = NamespaceResponse(personal: namespaces.personal, otherUsers: [], shared: [])
           return Set(namespaces.listingPatterns(for: "*"))
