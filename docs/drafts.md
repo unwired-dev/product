@@ -694,7 +694,8 @@ iPhone and iPad. The approved
 frame opens the menu from the image in the body; the body draws no image, so it
 opens from the row. The image's own size is read on the device with the row's
 thumbnail, after the image's orientation, so a turned photo reads portrait; until
-it is read, or when the image does not state it, **Original** shows no size. The
+it is read, or when the image does not state it, **Original** shows no size.
+VoiceOver speaks Original's width and height on both. The
 size caption and drawing the image in the body with corner handles come in later
 [#1735](https://github.com/unwired-dev/product/issues/1735) slices.
 

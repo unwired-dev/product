@@ -6286,6 +6286,14 @@ describe('adding files and images to a Draft', () => {
     expect(checkedSizes(screen.getByLabelText(/^chart\.png, /u))).toStrictEqual(
       ['Original · 4032 px'],
     );
+    expect(screen.getByLabelText(/^chart\.png, /u)).toHaveProp(
+      'accessibilityActions',
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Show chart.png at Original size, 4032 × 2688',
+        }),
+      ]),
+    );
   });
 
   it('checks no size while an image’s uses differ, and resizes them together as one edit (#2696)', async () => {

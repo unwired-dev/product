@@ -1561,10 +1561,16 @@ const assetMenu = (
           title: sizeTitle(t, size, sizeWidth ?? dimensions?.width),
           symbol: '',
           checked: width === sizeWidth,
-          accessibilityLabel: t('drafts.assets.size.label', {
-            name: asset.name,
-            size: t(`drafts.assets.size.${size}`),
-          }),
+          accessibilityLabel:
+            sizeWidth === undefined && dimensions !== undefined
+              ? t('drafts.assets.size.originalLabel', {
+                  name: asset.name,
+                  ...dimensions,
+                })
+              : t('drafts.assets.size.label', {
+                  name: asset.name,
+                  size: t(`drafts.assets.size.${size}`),
+                }),
           run: () => {
             onResize(sizeWidth);
           },

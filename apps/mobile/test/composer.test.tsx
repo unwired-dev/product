@@ -7609,6 +7609,7 @@ describe('adding files and images to a Draft', () => {
       title: 'Original',
       subtitle: '4032 × 2688',
       checked: true,
+      accessibilityLabel: 'Show Pasted image.png at Original size, 4032 × 2688',
     });
   });
 
