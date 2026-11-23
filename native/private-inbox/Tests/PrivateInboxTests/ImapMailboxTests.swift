@@ -795,6 +795,33 @@ extension PrivateInboxTests {
     } catch {
       #expect(String(reflecting: Swift.type(of: error)).hasSuffix("IMAPDecoderError"))
     }
+    // The server sends a source's first bytes and then nothing. Cancelling the read closes its
+    // session at once, long before SwiftMail's command timeout; the fixture records the close.
+    func fixtureAccount(_ user: String) throws -> ImapAccount {
+      try JSONDecoder().decode(
+        ImapAccount.self,
+        from: Data(#"{"host":"localhost","port":\#(port),"username":"\#(user)"}"#.utf8))
+    }
+    let read = Task {
+      try await provider.message(
+        try fixtureAccount("stalled-source"), password: "synthetic-password", folder: "INBOX",
+        uidValidity: 7, uid: 11, limit: RegistrationStore.imapMessageLimit)
+    }
+    // The probe's Inbox holds a message once the stalled transfer has started.
+    let probe = try await provider.open(try fixtureAccount("stalled-probe"), password: "synthetic-password")
+    let deadline = ContinuousClock.now + .seconds(60)
+    var started = false
+    while !started, ContinuousClock.now < deadline {
+      started = try await probe.examine("INBOX").messages > 0
+      if !started { try await Task.sleep(for: .milliseconds(50)) }
+    }
+    await probe.close()
+    if !started { read.cancel() }
+    try #require(started)
+    let cancelled = ContinuousClock.now
+    read.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await read.value }
+    #expect(ContinuousClock.now - cancelled < .seconds(3))
     // Refusal closes its session and leaves later independent work usable.
     try await provider.verify(account, password: "synthetic-password")
   }

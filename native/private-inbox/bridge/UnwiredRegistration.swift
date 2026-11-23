@@ -1496,13 +1496,22 @@ extension UnwiredRegistration {
     }
   }
 
-  // `message` names `{ folder, uidValidity, uid }`; a changed UIDVALIDITY reads nothing.
+  // `message` names `{ folder, uidValidity, uid }`; a changed UIDVALIDITY reads nothing. The read
+  // shares Gmail reads' cancellation by request name: cancelling closes its IMAP session.
   @objc(imapMessage:message:resolver:rejecter:)
   func imapMessage(
     _ scope: [String: Any], message: [String: Any], resolve: @escaping RCTPromiseResolveBlock,
     reject: @escaping RCTPromiseRejectBlock
   ) {
-    mailbox("imapMessage", resolve, reject: reject) {
+    let request = scope["request"] as? String
+    if let request,
+      request.count > 200
+        || request.range(of: "^[0-9A-Za-z:-]+$", options: .regularExpression) == nil
+    {
+      reject("unavailable", "The mailbox could not be reached.", nil)
+      return
+    }
+    mailbox("imapMessage", resolve, reject: reject, request: request) {
       let (connection, address, generation) = try Self.scope(scope)
       guard let folder = message["folder"] as? String,
         let validity = (message["uidValidity"] as? Double).flatMap({ UInt32(exactly: $0) }),
