@@ -20,8 +20,11 @@ const styles = StyleSheet.create({
 
 // Beside the list, the window's sidebar toggle: whether Mailboxes shows, and the way to change it.
 // Without it, as when the split view collapses, UIKit's navigation bars carry the way back.
+// At the accessibility text sizes, `showList` brings the list back where Mailboxes takes its place,
+// for the list's own commands, search and filter (#2193).
 export const SidebarToggleContext = createContext<
-  Readonly<{ shown: boolean; toggle: () => void }> | undefined
+  | Readonly<{ shown: boolean; toggle: () => void; showList?: () => void }>
+  | undefined
 >(undefined);
 
 // The sidebar toggle, at the trailing end of the sidebar's top row while it shows, or beside the
@@ -88,6 +91,9 @@ export function useSidebarToggle(
             shown: inList,
             toggle: () => {
               setListed(!inList);
+            },
+            showList: () => {
+              setListed(false);
             },
           }
         : {

@@ -546,8 +546,6 @@ function MailShell() {
   const recovery = useRecoveryOffer(draft, compose);
 
   function closeReader() {
-    // Go To Inbox and Search Mail show the list, also where Mailboxes takes its place (#2193).
-    sidebarToggle.hideInList();
     reader.current = {
       id: undefined,
       mailbox: undefined,
@@ -743,10 +741,7 @@ function MailShell() {
                                 }
                               : undefined
                           }
-                          onView={(next) => {
-                            setView(next);
-                            sidebarToggle.hideInList();
-                          }}
+                          onView={setView}
                           selected={
                             id === undefined || mailbox === undefined
                               ? undefined
@@ -775,21 +770,13 @@ function MailShell() {
             </ReaderPaneWidthContext>
           </ShowOutboxContext>
           {regular ? (
-            // Searching from the bar shows the list where Mailboxes takes its place (#2193).
-            <View
-              pointerEvents="box-none"
-              style={StyleSheet.absoluteFill}
-              onTouchStart={() => {
-                sidebarToggle.hideInList();
-              }}>
-              <WindowBarHost
-                windowBar={windowBar}
-                readerWidth={readerWidth}
-                keyboardLift={height - available}
-                // The bar sits on the home indicator's inset and rises above a docked keyboard.
-                bottom={Math.max(insets.bottom, spacing.l) + height - available}
-              />
-            </View>
+            <WindowBarHost
+              windowBar={windowBar}
+              readerWidth={readerWidth}
+              keyboardLift={height - available}
+              // The bar sits on the home indicator's inset and rises above a docked keyboard.
+              bottom={Math.max(insets.bottom, spacing.l) + height - available}
+            />
           ) : null}
         </WindowBarContext>
         <ComposerScrim

@@ -4646,6 +4646,7 @@ final class InboxTests: XCTestCase {
           && hittable("Show Sidebar") != nil
       }
       XCTAssertNil(hittable("Hide Sidebar"))
+      XCTAssertNil(hittable("All Inboxes"))
       attachScreen("Mailboxes hidden at the largest text size, \(name)", of: app, to: self)
       hittable("Show Sidebar")?.tap()
       waitUntil { hittable("Hide Sidebar") != nil }

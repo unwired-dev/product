@@ -44,6 +44,7 @@ import { SearchScope } from './inbox-heading.tsx';
 import { ipad, styles } from './inbox-styles.ts';
 import { useLocalization } from './localization.ts';
 import { useGmailSearch } from './mailbox.tsx';
+import { SidebarToggleContext } from './sidebar-toggle.tsx';
 import { usePalette } from './theme.ts';
 
 // How far UIKit floats the toolbar's open search field above the keyboard.
@@ -171,6 +172,19 @@ export function InboxBar({
   const inWindow = use(WindowBarContext) !== undefined;
   const bottomInset = useBarBottomInset();
   const compact = filter.on && !searching && !inWindow;
+  // Searching or filtering acts on the list, so it shows where Mailboxes takes its place (#2193).
+  const showList = use(SidebarToggleContext)?.showList;
+  const listFilter = {
+    ...filter,
+    setOn: (on: Parameters<typeof filter.setOn>[0]) => {
+      showList?.();
+      filter.setOn(on);
+    },
+    setFilter: (next: Parameters<typeof filter.setFilter>[0]) => {
+      showList?.();
+      filter.setFilter(next);
+    },
+  };
   let trailing = null;
   if (searching) {
     trailing = (
@@ -196,7 +210,7 @@ export function InboxBar({
       listNotice={listNotice}
       bottomInset={bottomInset}
       leading={
-        searching || !ready ? null : <InboxFilterButton state={filter} />
+        searching || !ready ? null : <InboxFilterButton state={listFilter} />
       }
       trailing={trailing}>
       {compact ? <BarSpacer /> : null}
@@ -216,7 +230,10 @@ export function InboxBar({
           <SearchField
             // Match the mount seed to the native field's readiness lifetime.
             key={ready || searching ? 'field' : 'placeholder'}
-            onFocus={focused}
+            onFocus={() => {
+              showList?.();
+              focused();
+            }}
             onQuery={setQuery}
             query={query}
             ready={ready || searching}
