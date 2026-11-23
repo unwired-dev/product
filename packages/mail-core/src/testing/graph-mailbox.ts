@@ -601,6 +601,13 @@ export function createSyntheticGraph({
       /^\/v1\.0\/me\/messages\/(?<id>[^/]+)(?:\/(?<list>attachments|\$value)(?:\/(?<attachment>[^/]+))?)?$/u.exec(
         url.pathname,
       )?.groups;
+    // As Graph, $select names a file attachment's own property only through its type.
+    if (url.searchParams.get('$select')?.split(',').includes('contentId')) {
+      return Promise.resolve({
+        status: 400,
+        body: JSON.stringify({ error: { code: 'RequestBroker--ParseUri' } }),
+      });
+    }
     return groups?.id === undefined
       ? notFound()
       : message(

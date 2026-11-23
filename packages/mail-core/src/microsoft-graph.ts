@@ -37,8 +37,9 @@ export const graphMessage = (id: string) =>
 export const graphMime = (id: string) =>
   `${graphRoot}/me/messages/${id}/$value`;
 
+// Content-ID belongs to file attachments, so Graph refuses it unqualified in a list's $select.
 export const graphAttachments = (id: string) =>
-  `${graphRoot}/me/messages/${id}/attachments?$select=id,name,contentType,size,isInline,contentId`;
+  `${graphRoot}/me/messages/${id}/attachments?$select=id,name,contentType,size,isInline,microsoft.graph.fileAttachment/contentId`;
 
 export const graphAttachment = (id: string, attachment: string) =>
   `${graphRoot}/me/messages/${id}/attachments/${attachment}`;
