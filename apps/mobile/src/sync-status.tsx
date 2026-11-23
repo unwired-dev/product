@@ -80,10 +80,9 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     flex: 1,
   },
-  // A 44pt target around a 17pt label, without growing the capsule; a label that wraps in a narrow
-  // list grows both.
+  // A 44pt target around a 17pt label, without growing the capsule.
   action: {
-    paddingVertical: 13.5,
+    minHeight: 44,
     marginVertical: -14,
     justifyContent: 'center',
   },
@@ -116,6 +115,15 @@ const styles = StyleSheet.create({
   // Wraps rather than overflowing a narrow list.
   pausedText: {
     flexShrink: 1,
+  },
+  // A 44pt target within the 48pt capsule.
+  pausedStatus: {
+    flexShrink: 1,
+    minHeight: 44,
+  },
+  // Leaves the message room at the largest text sizes, wrapping instead.
+  tryAgain: {
+    maxWidth: '50%',
   },
   pausedLabel: {
     ...typography.ios.caption1,
@@ -642,7 +650,7 @@ function CapsuleStatus({
         accessibilityLabel={said.spoken}
         accessibilityRole="button"
         onPress={onShowDetails}
-        style={[styles.status, styles.pausedText]}>
+        style={[styles.status, styles.pausedStatus]}>
         <View style={styles.pausedIcon}>
           <SFSymbol
             name="clock"
@@ -687,7 +695,7 @@ function CapsuleStatus({
         accessibilityLabel={t('syncStatus.tryAgain')}
         accessibilityRole="button"
         onPress={onTryAgain}
-        style={styles.action}>
+        style={[styles.action, styles.tryAgain]}>
         <Text
           accessible={false}
           style={[styles.actionLabel, { color: colors.accentInk }]}>
