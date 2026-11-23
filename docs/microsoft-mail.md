@@ -434,3 +434,31 @@ mail content.
   ([#846](https://github.com/unwired-dev/product/issues/846)). Mac, iPad, attachments,
   uncertain outcomes, renewal after relaunch and revocation were not run and stay on
   #637.
+- **2026-11-23, iPhone attachments
+  ([#2709](https://github.com/unwired-dev/product/issues/2709)).** Target, operator and
+  toolchain as on 2026-11-18, on an iPhone 18 Pro Simulator. Build: the app source of
+  `c95a25bbc92a4dbee831f21b423038926489d0d9`, then the same source with the fix from
+  #2709 installed over it. Result: fail, then pass with the fix. A fresh Google Product
+  Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
+  personal mailbox with the passwords and the Recovery Key entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app). A new
+  message to the mailbox's own address with a PDF from **Attach File** and a photo from
+  **Attach Photo** left the Outbox after the **Undo Send Window**, appeared in **Sent
+  Items** and arrived in the Inbox. Before the fix, the reader showed its text with a
+  placeholder for the photo, **Images in this message are not loaded.** and no
+  attachment list: Graph refused the attachment list with status 400, because it
+  selected the Content-ID without naming the file attachment type. With the fix, the
+  photo showed in the body and the PDF was listed below it with Graph's listed size;
+  **Download** saved it with its name and exactly the bytes sent, and **Open** showed it
+  in Quick Look. After a relaunch the photo still showed and the PDF was listed with
+  **Download**, because a relaunch deletes the files an earlier process downloaded, and
+  it downloaded again. After **Sign Out of This Device**, the credential scan covered the
+  places the 2026-11-23 organize run lists and the Simulator. This run's own files,
+  provider log and transcripts held no password or Recovery Key. The Simulator's system
+  log held the Recovery Key: XCTest's test manager wrote it when an accessibility
+  snapshot read the **Recovery Key** field after the paste, which the
+  [pasteboard procedure](imap-mailboxes.md#certification-runs-through-the-app) forbids.
+  Deleting the Simulator removed it. T3 Code's state database and the three provider
+  logs of 2026-11-22 still held it, as tracked in #2688. Limitations: Microsoft's
+  one-time sign-in code was typed, as it expires within minutes. Mac, iPad, attachments of 3 MB or more, uncertain outcomes, renewal after
+  relaunch and revocation were not run and stay on #637.
