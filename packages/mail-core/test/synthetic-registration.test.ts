@@ -14,10 +14,6 @@ import {
   partText,
 } from '../src/message-body.ts';
 import {
-  decodeGraphListed,
-  graphFolderMessage,
-} from '../src/microsoft-graph.ts';
-import {
   SyntheticGmailMessages,
   SyntheticGoogle,
   SyntheticScenario,
@@ -765,24 +761,25 @@ describe('the performance mailboxes', () => {
   it('read a Microsoft delta change with the folder it is in, as the Inbox checks it', async () => {
     expect.hasAssertions();
     const ask = launch('registration-performance', { state: null });
-    const Reply = Schema.Struct({ status: Schema.Finite, body: Schema.String });
+    const Placed = Schema.fromJsonString(
+      Schema.Struct({ id: Schema.String, parentFolderId: Schema.String }),
+    );
     for (const id of [
       'AAMkAGI2-synthetic-outlook=',
       'AAMkAGI2-synthetic-performance-125=',
     ]) {
       const { status, body } = decoded(
-        Reply,
+        Schema.Struct({ status: Schema.Finite, body: Placed }),
         await ask('microsoft.graph', {
-          url: graphFolderMessage('INBOX', id),
+          url: `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/${id}?$select=id,conversationId,receivedDateTime,subject,bodyPreview,from,isRead,parentFolderId`,
           method: 'GET',
           body: null,
           contentType: 'application/json',
         }),
       );
       expect(status).toBe(200);
-      await expect(
-        Effect.runPromise(decodeGraphListed(body)),
-      ).resolves.toMatchObject({ id, parentFolderId: expect.any(String) });
+      expect(body.id).toBe(id);
+      expect(body.parentFolderId).not.toBe('');
     }
   });
 });
