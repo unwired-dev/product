@@ -203,6 +203,97 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
+  it('keeps saved mail shown while a restore checks an unreachable IMAP server, then reopens it', async () => {
+    expect.hasAssertions();
+    const device = createSyntheticDevice();
+    const { vault } = createSyntheticVault(device);
+    // Native code forgets mailbox access when a restore starts and settles it once the server
+    // check ends; meanwhile the connection's mailbox reads as invalidated (#2731).
+    let checking = false;
+    const timedOut = Promise.withResolvers<undefined>();
+    const store = createRegistration({
+      ...vault,
+      forgetMailboxAccess: async () => {
+        checking = true;
+        return vault.forgetMailboxAccess();
+      },
+      verifyImap: async (id) => {
+        if (!checking) {
+          return vault.verifyImap(id);
+        }
+        await timedOut.promise;
+        checking = false;
+        throw Object.assign(new Error('Synthetic'), { code: 'offline' });
+      },
+    });
+    await store.register('google');
+    await store.connectImap({
+      address: 'alex@icloud.example.invalid',
+      host: 'imap.mail.me.com',
+      port: 993,
+      username: 'alex@icloud.example.invalid',
+      password: device.imap.password,
+      smtp,
+    });
+    const [connection] = mailboxesOf(store.getSnapshot().snapshot);
+    Vitest.assert.isDefined(connection);
+    const imap = createSyntheticImap({ address: connection.address });
+    imap.deliver('INBOX', { subject: 'Saved before the outage' });
+    const opened = vi.fn(() =>
+      checking
+        ? Promise.reject(
+            Object.assign(new Error('Synthetic'), {
+              code: 'mailbox-invalidated',
+            }),
+          )
+        : imap.native.openMailbox(),
+    );
+    const mailboxes = createMailboxes(
+      syntheticConnections(
+        {},
+        { [connection.id]: { ...imap.native, openMailbox: opened } },
+      ),
+      store,
+    );
+    await mailboxes.load();
+    const states: string[] = [];
+    mailboxes.subscribe(() => {
+      states.push(mailboxes.getConnections()[0]?.state.kind ?? 'none');
+    });
+    const restoring = store.resume();
+    await vi.waitFor(() => {
+      expect(checking).toBe(true);
+    });
+    // The five-minute check loads the Inbox while the server check is still waiting.
+    imap.server.failure = 'offline';
+    await mailboxes.load();
+    expect(mailboxes.getConnections()[0]?.state).toMatchObject({
+      kind: 'ready',
+      status: 'retry',
+      messages: [
+        expect.objectContaining({ subject: 'Saved before the outage' }),
+      ],
+    });
+    // The check times out, so the restore keeps the connection as saved mail only.
+    imap.cache.availability = 'retry';
+    imap.cache.generation = 'generation-2';
+    timedOut.resolve(undefined);
+    await restoring;
+    await vi.waitFor(() => {
+      expect(opened).toHaveLastResolvedWith(
+        expect.objectContaining({ generation: 'generation-2' }),
+      );
+    });
+    expect(mailboxes.getConnections()[0]?.state).toMatchObject({
+      kind: 'ready',
+      status: 'retry',
+      messages: [
+        expect.objectContaining({ subject: 'Saved before the outage' }),
+      ],
+    });
+    expect(states).not.toContain('failed');
+  });
+
   it('verifies SMTP on its own and adds nothing until it accepts', async () => {
     expect.hasAssertions();
     const device = createSyntheticDevice();

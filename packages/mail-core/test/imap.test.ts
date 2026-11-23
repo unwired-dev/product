@@ -982,6 +982,14 @@ describe('connecting IMAP mailboxes', () => {
       removals: 1,
     },
     {
+      code: 'mailbox-invalidated',
+      state: { kind: 'ready', status: 'retry' },
+      folder: { kind: 'ready', status: 'retry' },
+      subject: 'Private archive',
+      body: 'ready',
+      removals: 0,
+    },
+    {
       code: 'imap-refused',
       state: { kind: 'ready', status: 'authentication' },
       folder: { kind: 'ready', status: 'authentication' },
@@ -1469,6 +1477,12 @@ describe('connecting IMAP mailboxes', () => {
         expect.objectContaining({ subject: 'Saved before the outage' }),
       ],
     });
+    // Saying so once keeps work that waits on Inbox changes, such as a Sent lookup, from retrying
+    // against the invalidated generation.
+    const listener = vi.fn();
+    inbox.subscribe(listener);
+    await inbox.load();
+    expect(listener).not.toHaveBeenCalled();
     opening.mockRestore();
     await inbox.load();
     expect(ready(inbox.getSnapshot()).status).toBe('current');
