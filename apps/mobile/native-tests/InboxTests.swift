@@ -1633,6 +1633,16 @@ final class InboxTests: XCTestCase {
     let tomorrow = labelled("Tomorrow Morning, ")
     XCTAssertTrue(tomorrow.waitForExistence(timeout: 15))
     XCTAssertTrue(labelled("Keeps this message in Drafts").exists)
+    // #2147: the zone line names the zone in full, as the frames do, where Hermes formats it.
+    let zone = TimeZone.current
+    let dayAhead = Date(timeIntervalSinceNow: 86_400)
+    let name = zone.localizedName(
+      for: zone.isDaylightSavingTime(for: dayAhead) ? .daylightSaving : .standard,
+      locale: Locale(identifier: "en")
+    ) ?? zone.identifier
+    let city = String(zone.identifier.split(separator: "/").last ?? "").replacingOccurrences(of: "_", with: " ")
+    let expected = "Times in \(name) (\(city))"
+    XCTAssertTrue(labelled(expected).exists, "Expected \"\(expected)\", found \"\(labelled("Times in ").label)\"")
     if UIDevice.current.userInterfaceIdiom == .pad {
       // The popover selects Tomorrow Morning; Set Reminder sets it.
       XCTAssertTrue(app.buttons["Cancel"].exists)
