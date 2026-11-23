@@ -1972,6 +1972,45 @@ password manager by running
   every 1 to 3 seconds; the socket table was sampled every second. Background refresh
   and push wakes, server-closed sessions without a network loss, password recovery and a
   changed UIDVALIDITY on a live provider stay on #632.
+- **2026-11-23, iPhone recreated iCloud Mail folder
+  ([#2734](https://github.com/unwired-dev/product/issues/2734)).** A folder that iCloud
+  Mail deletes and creates again under the same name gets a new UIDVALIDITY and starts
+  its UIDs at 1 again, so a new message can carry the UID of one the app already read.
+  Target, toolchain and operator as in the first record, on a new iPhone 18 Pro Simulator
+  on iOS 27.0, with Simulator closed. Build: the app source of
+  `50debb80de04eab21693a3d91c60d6e4fa166e87`. Every credential was entered with
+  pasteboard steps 1 to 3 above, and the Recovery Key also with step 4. Google Product
+  Sign-In found the certification Product Account, the Recovery Key unlocked the device,
+  and both mailboxes connected as in the first record. The operator created a run folder
+  in iCloud Mail over IMAP and appended two synthetic messages, A1 with a 3,000-byte
+  file and A2. A pull-down of the iCloud Mail Inbox listed the folder; it showed A1 and
+  A2, A1 opened, and **Download** saved its file with the bytes appended. After returning
+  to the folder, the operator deleted the folder over IMAP, created it again under the
+  same name and appended message B with a different 5,000-byte file. The recreated
+  folder reported a changed UIDVALIDITY, and B had A1's UID. Result: pass. **Superseded
+  message:** A2, still listed from the cache and never opened, opened as **Couldn’t load
+  this message** with **This message is no longer in this folder on the mail server.**
+  **Folder listed again:** a pull-down of the folder listed B, and neither A1 nor A2,
+  12 seconds later, without relaunching. **Nothing reused:** B opened with its own
+  subject, text and attachment row, and **Download** saved its file under its name with
+  exactly the bytes appended; A1's saved file was no longer in the app's container.
+  **Relaunch:** after the app was quit and launched again, the folder listed only B.
+  Afterwards the operator deleted the run folder, **Sign Out of This Device** returned the
+  app to Welcome, and the Simulator was deleted. The scan of step 5 above covered the
+  files written since the run began under `~/.agent-device`, T3 Code's device sessions,
+  `~/Library/Logs`, Xcode's DerivedData, the temporary directory, the repository's
+  `artifacts`, the operator's scratch files and this run's session transcript, and the
+  shell history, 46,234 files in all, then T3 Code's logs written since the run began
+  and its state database's write-ahead log; none held a password or the Recovery Key.
+  The state database file itself, which holds earlier runs' copies
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)), was not scanned.
+  Limitations: a Draft from an earlier Outlook.com run, synchronized through Product
+  Sync, was listed above the folder's messages throughout. Seznam Email cannot exercise
+  this case: a folder it deleted and created again kept its UIDVALIDITY and continued
+  assigning UIDs. A changed UIDVALIDITY on iPad and Mac, of the Inbox, with a reader or
+  download still open, or during a history download stays on #632, with background
+  refresh and push wakes, server-closed sessions without a network loss and password
+  recovery.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
