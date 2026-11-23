@@ -418,7 +418,10 @@ describe('answering IMAP mail', () => {
   it.each([
     { failure: 'locked', expected: { kind: 'locked' } },
     { failure: 'mailbox-revoked', expected: { kind: 'failed' } },
-    { failure: 'mailbox-invalidated', expected: { kind: 'failed' } },
+    {
+      failure: 'mailbox-invalidated',
+      expected: { kind: 'ready', status: 'retry' },
+    },
     {
       failure: 'imap-refused',
       expected: { kind: 'ready', status: 'authentication' },

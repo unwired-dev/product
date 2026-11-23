@@ -755,9 +755,13 @@ const settle = (
 
 type Failure = Readonly<Pick<ImapFailure, 'kind' | 'diagnostic'>>;
 
-// Refused or transient server access, which the Inbox states rather than logs.
+// Refused or transient server access, or work a restore invalidated, which the Inbox states rather
+// than logs.
 const expected = (kind: ImapFailure['kind']) =>
-  kind === 'authentication' || kind === 'retry' || kind === 'interrupted';
+  kind === 'authentication' ||
+  kind === 'retry' ||
+  kind === 'interrupted' ||
+  kind === 'invalidated';
 const closesAccess = (kind: ImapFailure['kind']) =>
   kind === 'locked' || kind === 'revoked' || kind === 'invalidated';
 const changesAccess = (kind: ImapFailure['kind']) =>
@@ -1827,23 +1831,17 @@ export function createImapInbox(
     yield* pruneBodies;
   });
 
+  // A restore renews the native generation, so work from before it is invalidated; an open Inbox
+  // keeps its saved mail until a load reopens it, as a Gmail Inbox does.
+  const keepsShown = (kind: ImapFailure['kind']) =>
+    kind === 'invalidated' && document !== undefined;
   // A removed device purged its data; the account page, not the Inbox, explains it. Locked storage
   // and transient or refused server access are expected; anything else is logged.
   function loadFailed({ kind, diagnostic }: Failure) {
     if (forgotten) {
       return Effect.void;
     }
-    // A restore renews the native generation, so work from before it is invalidated; the open
-    // Inbox keeps its saved mail until a load reopens it, as a Gmail Inbox does.
-    if (
-      kind === 'invalidated' &&
-      opened !== undefined &&
-      document !== undefined
-    ) {
-      render('retry');
-      return Effect.void;
-    }
-    if (closesAccess(kind)) {
+    if (closesAccess(kind) && !keepsShown(kind)) {
       originalIds = new Map();
       restoring.clear();
       authenticationRejected = false;
