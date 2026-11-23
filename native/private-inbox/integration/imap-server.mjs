@@ -411,14 +411,14 @@ const answerFetch = (socket, session, { tag, command }) => {
       );
       return;
     }
-    if (command.startsWith('UID FETCH 13 ')) {
+    if (command.startsWith('UID FETCH 14 ')) {
       // One message's fields split across two literals, each within its bound, that together
       // exceed the message's budget: the client must refuse the second declaration before its
       // bytes, which never come.
       operations.add('headers-split');
       const half = 128 * 1024 + 1;
       socket.write(
-        `* 1 FETCH (UID 13 BODY[${section}] {${half}}\r\n${'a'.repeat(half)} BODY[${section}] {${half}}\r\n`,
+        `* 1 FETCH (UID 14 BODY[${section}] {${half}}\r\n${'a'.repeat(half)} BODY[${section}] {${half}}\r\n`,
       );
       return;
     }
@@ -455,7 +455,7 @@ const answerFetch = (socket, session, { tag, command }) => {
     socket.write(
       `${held.map((uid, index) => `* ${index + 1} FETCH (${metadataFields(command, uid).join(' ')})\r\n`).join('')}${tag} OK Completed\r\n`,
     );
-  } else if (command.startsWith('UID FETCH 13 ')) {
+  } else if (command.startsWith('UID FETCH 14 ')) {
     // Answers one named message with unsolicited replies for others, without end.
     flood(socket, {
       total: 1_000_000,

@@ -751,7 +751,7 @@ extension PrivateInboxTests {
     // refused at the second reply, without waiting for SwiftMail's command timeout.
     let flooded = try await provider.open(account, password: "synthetic-password")
     _ = try await flooded.examine("INBOX")
-    await #expect(throws: ImapFailure.tooLarge) { _ = try await flooded.flags([13]) }
+    await #expect(throws: ImapFailure.tooLarge) { _ = try await flooded.flags([14]) }
     await flooded.close()
     let raw = try await provider.message(
       account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uid: 11,
@@ -780,7 +780,7 @@ extension PrivateInboxTests {
     // second declaration is refused before its bytes, which the server never sends.
     await #expect(throws: ImapFailure.tooLarge) {
       _ = try await provider.headers(
-        account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uids: [13])
+        account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uids: [14])
     }
     await #expect(throws: ImapFailure.changed) {
       _ = try await provider.message(

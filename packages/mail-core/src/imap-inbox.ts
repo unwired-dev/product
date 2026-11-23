@@ -2035,7 +2035,10 @@ export function createImapInbox(
         Effect.tapError(({ kind }) =>
           moves(action) &&
           head.copied === undefined &&
-          (kind === 'retry' || kind === 'authentication') &&
+          // A refused oversized reply comes only from the presence check, before any change.
+          (kind === 'retry' ||
+            kind === 'authentication' ||
+            kind === 'too-large') &&
           document !== undefined
             ? commit({
                 ...document,

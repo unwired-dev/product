@@ -163,16 +163,16 @@ enum ImapStoredFlag: String, Sendable {
         let infos: [MessageInfo]
         switch read {
         case .uids(let uids):
+          let named = UIDSet(uids.map(UID.init))
           infos = try await server.fetchMessageInfosBulk(
-            using: UIDSet(uids.map(UID.init)), options: .slim,
-            limits: SwiftMailImap.limits(uids.count))
+            using: named, options: .slim, limits: SwiftMailImap.limits(named.count))
         case .from(let uid):
           infos = try await server.fetchMessageInfos(
             uidRange: UID(uid)..., options: .slim, limits: SwiftMailImap.limits(200))
         case .newest(let count, let total):
           infos = try await server.fetchMessageInfos(
             sequenceRange: SequenceNumber(max(1, total - count + 1))...SequenceNumber(total),
-            options: .slim, limits: SwiftMailImap.limits(count))
+            options: .slim, limits: SwiftMailImap.limits(min(count, total)))
         }
         return infos.compactMap(SwiftMailImap.envelope)
       }
@@ -180,9 +180,9 @@ enum ImapStoredFlag: String, Sendable {
 
     func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]] {
       try await run { server in
+        let named = UIDSet(uids.map(UID.init))
         let present = try await server.fetchMessageInfosBulk(
-          using: UIDSet(uids.map(UID.init)), options: .uidFlagsOnly,
-          limits: SwiftMailImap.limits(uids.count))
+          using: named, options: .uidFlagsOnly, limits: SwiftMailImap.limits(named.count))
         var flags: [UInt32: [String]] = [:]
         for info in present {
           if let uid = info.uid?.value { flags[uid] = info.flags.map(SwiftMailImap.flag) }

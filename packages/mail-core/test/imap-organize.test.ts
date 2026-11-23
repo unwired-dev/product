@@ -636,6 +636,35 @@ describe('organizing IMAP mail', () => {
     expect(imap.server.changes).toHaveLength(1);
   });
 
+  it('sends a move later when its presence check is refused as too large', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    const uid = imap.deliver('INBOX', { subject: 'Hello' });
+    let refuse = true;
+    const inbox = createImapInbox({
+      ...imap.native,
+      imapFlags: async (...[scope, request]) => {
+        if (refuse && request.uids.length === 1) {
+          throw Object.assign(new Error('Too many replies'), {
+            code: 'too-large',
+          });
+        }
+        return imap.native.imapFlags(scope, request);
+      },
+    });
+    await inbox.load();
+    const state = inbox.getSnapshot();
+    const message = inboxMessage(state, 'Hello');
+    await inbox.organize(message, action(state, message, 'archive'));
+    expect(imap.server.changes).toStrictEqual([]);
+    expect(ready(inbox.getSnapshot()).notice?.kind).not.toBe('blocked');
+    refuse = false;
+    await inbox.load();
+    expect(imap.server.changes).toStrictEqual([`move INBOX ${uid} Archive`]);
+    expect(ready(inbox.getSnapshot()).pending).toBe(0);
+    inbox.forget();
+  });
+
   it('repeats relocations that were not kept, in order, after relaunch', async () => {
     expect.hasAssertions();
     const imap = organizedServer();

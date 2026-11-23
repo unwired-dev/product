@@ -260,12 +260,12 @@ struct SwiftMailImap: ImapProvider {
           using: latest, options: .uidFlagsOnly, limits: Self.limits(1))
         next = (newest.compactMap { $0.uid?.value }.max() ?? 0) &+ 1
       }
+      let known = UIDSet(request.known.map(UID.init))
       let present =
         request.known.isEmpty
         ? []
         : try await server.fetchMessageInfosBulk(
-          using: UIDSet(request.known.map(UID.init)), options: .uidFlagsOnly,
-          limits: Self.limits(request.known.count)
+          using: known, options: .uidFlagsOnly, limits: Self.limits(known.count)
         ).compactMap { $0.uid?.value }
       let floor = max(request.above, 1)
       var high = request.below ?? next
@@ -335,10 +335,10 @@ struct SwiftMailImap: ImapProvider {
       // Request only BODY.PEEK[HEADER.FIELDS (...)], without any body part.
       let infos: [MessageInfo]
       do {
+        let named = UIDSet(uids.map(UID.init))
         infos = try await server.fetchMessageInfosBulk(
-          using: UIDSet(uids.map(UID.init)), options: [],
-          headerFields: ["Content-Type", "Content-Disposition"],
-          limits: Self.limits(uids.count, bytes: UInt64(uids.count * RegistrationStore.imapHeaderLimit)))
+          using: named, options: [], headerFields: ["Content-Type", "Content-Disposition"],
+          limits: Self.limits(named.count, bytes: UInt64(named.count * RegistrationStore.imapHeaderLimit)))
       } catch where String(reflecting: Swift.type(of: error)).hasSuffix("IMAPDecoderError") {
         throw ImapFailure.tooLarge
       }
