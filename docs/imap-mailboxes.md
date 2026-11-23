@@ -1758,10 +1758,12 @@ password manager by running
   `imap.seznam.cz` and `smtp.seznam.cz` on ports 993 and 465 only; the same 4 addresses
   were in the rule during both outages. The packet filter was off before the run and was
   turned off again after each outage. During both, `imap.seznam.cz` 993 and
-  `smtp.seznam.cz` 465 timed out while `imap.mail.me.com` 993 and `smtp.mail.me.com` 587
-  connected. Test messages were submitted to Seznam Email over SMTP from iCloud Mail
-  outside the app, and each arrival time was read on the server as the message's IMAP
-  `INTERNALDATE`. Result: the three cases and the outage scope passed. Before any outage,
+  `smtp.seznam.cz` 465 did not connect while `imap.mail.me.com` 993 and
+  `smtp.mail.me.com` 587 connected. Test messages were submitted to Seznam Email over
+  SMTP from iCloud Mail outside the app, and each arrival time was read on the server as
+  the message's IMAP `INTERNALDATE`. Result: the three cases passed, and the outage
+  blocked new connections to Seznam Email only; its refusal of an established
+  connection was not exercised (see the limitations). Before any outage,
   a message appeared in the list 4 minutes 54 seconds after it arrived, at the next poll.
   **Poll interruption and offline queueing:** the outage was started with All Inboxes
   open, 29 seconds after a poll. A message submitted 68 seconds after the start arrived
@@ -1769,16 +1771,20 @@ password manager by running
   Seznam Email, sent from the app 81 seconds after the start, waited: the Outbox read
   **1 waiting**, and its row **Waiting to send. It sends when this device can reach the
   mail server and your Unwired Mail account.**, reading **Sending…** at two samples in
-  between. The app tried to reach the sending server about every 40 seconds. The next
+  between. The app tried to reach the sending server five times, about every 40 seconds,
+  the last 4 minutes 12 seconds after the start, and not again, at the 1-second socket
+  samples, until the outage ended. The next
   poll's connection attempt timed out 4 minutes 44 seconds after the start; the header
   then read **All Inboxes · Offline** with **1 account needs attention** and **Try
   Again**, and the app tried Seznam Email again about every 43 seconds. The outage lasted
   7 minutes 26 seconds. Without a relaunch or any interaction, the app connected to
   Seznam Email 22 seconds after the outage ended and listed the message that had arrived
   during the outage a second later, without the attention notice. In the same second the
-  app connected to the sending server; the reply was filed by the app in Seznam Email's Sent folder 26 seconds after the
-  end and arrived in iCloud Mail 43 seconds after the end, exactly one copy in each, with
-  the same Message-ID. A message submitted next appeared 68 seconds after it arrived.
+  app connected to the sending server; the reply was filed by the app in Seznam Email's
+  Sent folder 26 seconds after the end and arrived in iCloud Mail 43 seconds after the
+  end, exactly one copy in each, whose Message-IDs matched in the part the operator's
+  check compared, before the domain. A message submitted next appeared 68 seconds after
+  it arrived.
   **Connection recovery:** a second outage was started with the app on All Inboxes, and
   25 seconds later the app was quit with Command-Q and launched again. It showed
   **Opening your mail…**, then All Inboxes with Seznam Email's saved messages 14 seconds
@@ -1800,9 +1806,11 @@ password manager by running
   scanned file held a password or the Recovery Key written by this run; the only matches
   were the earlier runs' copies in T3 Code's state database, the latest written about 18
   hours before this run ([#2688](https://github.com/unwired-dev/product/issues/2688)).
-  Limitations: the app holds
-  no Seznam Email connection between polls, so none was open when either outage began,
-  and the rule's refusal of an established connection was not exercised. The browser
+  Limitations: the app holds no Seznam Email connection between polls, so none was open
+  when either outage began, and the rule's refusal of an established connection was not
+  exercised. The cleanup marked the run messages deleted and expunged each folder that
+  held them, which would also have removed a message another client had marked deleted
+  there; whether any such message existed was not checked. The browser
   ignored synthesized clicks in Google's account chooser, so the operator chose the
   account and **Continue** with the keyboard. The socket table and the list were sampled
   every second. Background refresh and push wakes, password recovery and Seznam Email
