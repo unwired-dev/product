@@ -384,6 +384,30 @@ and the header still names the problem; clicking it again expands it. The expand
 and collapsed sidebars are kept as attachments. The Inbox row's unread count is
 covered by the Mac Jest tests. VoiceOver speech is not covered.
 
+## Mac Gmail pause journey
+
+The `testGmailPaused` journey and its `Dark` variant run on a `Testing` build of
+`registration-sync-status-paused`, in which Gmail returns HTTP 429 during history
+backfill with the fixed retry time 2 July 2099, 12:20 UTC
+([#2738](https://github.com/unwired-dev/product/issues/2738)). Run them on a Mac
+whose time zone is off UTC at that instant, as Europe/Prague is:
+
+```sh
+UNWIRED_MOCK_SCENARIO=registration-sync-status-paused \
+mise exec -- pnpm --filter @private-email/macos native:build Testing
+mise exec -- pnpm --filter @private-email/macos test:native \
+  "$PWD/artifacts/macos-inbox/DerivedData/Build/Products/Testing/UnwiredMail.app" \
+  testGmailPaused
+```
+
+The journey signs in with Google and confirms the Recovery Key. The first history
+page stays listed, and the sidebar's warning reads **Gmail paused, until** the retry
+instant formatted in English for the Mac's time zone. Clicking it opens Sync Status
+beside the sidebar, whose **Try Again** is unavailable beside **Available at** the
+same time, above the footer naming this Mac. Escape closes it. The sidebar and the popover each pass an
+accessibility audit and are kept as attachments. The capsule shown with a hidden
+sidebar is covered by the Mac Jest tests.
+
 ## Mac Edit Favorites journey
 
 The `testEditFavorites` journey and its `Dark` variant use the same

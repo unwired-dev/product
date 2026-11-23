@@ -146,6 +146,9 @@ interface InboxProps {
   readonly searchEnded?: object | undefined;
   // A control in the window controls' row above the title, such as the window's sidebar toggle.
   readonly leading?: ReactNode;
+  // Whether the window's sidebar shows, which reports Gmail's pause in the Sync Status Capsule's
+  // place.
+  readonly sidebarShown?: boolean;
   // The pane beside the list; the floating search bar spans both.
   readonly reader?: ReactNode;
 }
@@ -1012,6 +1015,7 @@ export function Inbox({
   onView = keepView,
   searchEnded,
   leading,
+  sidebarShown = false,
   reader,
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
@@ -1563,6 +1567,7 @@ export function Inbox({
               onTryAgain={synchronize}
               refreshing={refreshing}
               shown={shown}
+              sidebarShown={sidebarShown}
             />
             {outboxActions.toast}
             {readerToast}

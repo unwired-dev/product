@@ -14,6 +14,7 @@ import {
   favoriteRows,
   gmailMailbox,
   gmailViewRow,
+  inboxChoice,
   mailboxSidebar,
   moveFavorite,
   toggleFavorite,
@@ -38,7 +39,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { InboxMailbox } from './private-storage.ts';
 
 import { RegisterCommands } from './command-palette.tsx';
-import { Button, ContextMenu, MenuButton, SFSymbol } from './design.tsx';
+import {
+  Button,
+  ContextMenu,
+  MenuButton,
+  SFSymbol,
+  useNow,
+} from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useAllMailboxes } from './mailbox-list.ts';
 import { useMailboxes, useProfile, useReloadMailboxes } from './mailbox.tsx';
@@ -46,6 +53,7 @@ import { useProfileOutbox } from './outbox.tsx';
 import { InboxPreferencesContext } from './preview-lines.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
+import { SyncStatusSidebarWarning, limited } from './sync-status.tsx';
 import { textStyles, usePalette, useProfilePalette } from './theme.ts';
 
 // What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, a
@@ -680,12 +688,27 @@ export function Mailboxes({
   const outbox = useProfileOutbox();
   const colors = usePalette();
   const { t } = useLocalization();
+  const now = useNow();
   const sidebar = mailboxSidebar({
     mailboxes,
     connections: account?.mailboxes ?? [],
     profile,
     view,
   });
+  // The mailboxes the window's Inbox shows, whose Gmail pause the sidebar reports.
+  const inboxShown = inboxChoice({
+    mailboxes,
+    connections: account?.mailboxes ?? [],
+    view,
+  }).keepsChoice
+    ? mailboxes.filter(({ id }) => id === view.mailbox)
+    : mailboxes;
+  const tryAgain = async (loaded: readonly InboxMailbox[]) => {
+    const load = async () => {
+      await Promise.allSettled(loaded.map(({ inbox }) => inbox.load()));
+    };
+    await (account === undefined ? load() : account.refreshInbox(load));
+  };
   const authorize = async (connection: string) => {
     await account?.authorizeMailbox(connection);
     await reload();
@@ -889,10 +912,14 @@ export function Mailboxes({
               const provider = t(
                 `mailProviders.${mailbox.provider ?? 'gmail'}`,
               );
-              const trouble = problemText(t, problem, {
-                provider: mailbox.provider,
-                name: provider,
-              });
+              // Gmail's usage limit pauses the connection rather than leaving it unreachable:
+              // the warning below the list says so, not its header.
+              const trouble = limited(mailbox.state)
+                ? undefined
+                : problemText(t, problem, {
+                    provider: mailbox.provider,
+                    name: provider,
+                  });
               const { header, shown } = section(
                 mailbox.id,
                 `${provider} · ${name}`,
@@ -954,6 +981,11 @@ export function Mailboxes({
             );
           })}
         </ScrollView>
+        <SyncStatusSidebarWarning
+          shown={inboxShown}
+          now={now}
+          onTryAgain={tryAgain}
+        />
         {account === undefined ? null : (
           <View style={[styles.footer, { borderTopColor: colors.separator }]}>
             <Item

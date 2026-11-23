@@ -536,6 +536,7 @@ function WindowContents({
               <Inbox
                 composing={composing}
                 leading={collapsed ? toggle : undefined}
+                sidebarShown={!collapsed}
                 reader={
                   <View
                     // The reader's toolbar and the rest left uncovered stay interactive above the

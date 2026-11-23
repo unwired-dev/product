@@ -2111,6 +2111,96 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(header.label.contains(problem))
   }
 
+  // #2738: Gmail's timed usage limit is said in the sidebar, and Sync Status keeps Try Again
+  // unavailable until Gmail's time.
+  func testGmailPaused() throws {
+    try gmailPaused(appearance: "Light")
+  }
+
+  func testGmailPausedDark() throws {
+    try gmailPaused(appearance: "Dark")
+  }
+
+  private func gmailPaused(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-sync-status-paused")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    // Settings › Appearance for this launch, which the app applies whatever the Mac's appearance.
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    func attach(_ name: String) {
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "\(name) (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    // The mock's fixed retry time, in the app's interface language and this Mac's time zone.
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en")
+    formatter.timeStyle = .short
+    // Foundation and Intl can use different spaces before AM or PM.
+    func normalized(_ label: String) -> String {
+      label.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+    let retryTime = normalized(
+      formatter.string(from: try XCTUnwrap(ISO8601DateFormatter().date(from: "2099-07-02T12:20:00Z"))))
+
+    XCTAssertTrue(window.buttons["Continue"].waitForExistence(timeout: 30))
+    window.buttons["Continue"].click()
+    XCTAssertTrue(window.buttons["Sign in with Google"].waitForExistence(timeout: 20))
+    window.buttons["Sign in with Google"].click()
+    XCTAssertTrue(recoveryKey(in: window).waitForExistence(timeout: 15))
+    let presented = recoveryKey(in: window).value as? String ?? ""
+    window.buttons["Choose Another Google Mailbox"].click()
+    XCTAssertTrue(text("connected on this device", in: window).waitForExistence(timeout: 15))
+    let entry = window.textFields["Last four characters"]
+    entry.click()
+    entry.typeText(String(presented.suffix(4)))
+    window.buttons["Confirm Recovery Key"].click()
+    // The first history page stays listed while Gmail pauses the rest.
+    XCTAssertTrue(
+      window.buttons["Unread. Rowan Hale. Garden plans for spring"].waitForExistence(timeout: 20))
+    let paused = window.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Gmail paused")
+    ).firstMatch
+    XCTAssertTrue(paused.waitForExistence(timeout: 30))
+    print("Expected retry time \(retryTime). Sidebar shows \(paused.label).")
+    XCTAssertEqual(normalized(paused.label), "Gmail paused, until \(retryTime)")
+    attach("Gmail paused")
+    try audit(app, "Gmail paused")
+
+    paused.click()
+    let title = text("Sync Status", in: window)
+    XCTAssertTrue(title.waitForExistence(timeout: 10))
+    // The popover opens beside the sidebar, not over it.
+    XCTAssertGreaterThan(title.frame.minX, paused.frame.maxX)
+    let available = window.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Available at ")
+    ).firstMatch
+    XCTAssertTrue(available.waitForExistence(timeout: 10))
+    XCTAssertEqual(normalized(available.label), "Available at \(retryTime)")
+    let tryAgain = window.buttons.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "Try Again for Gmail")
+    ).firstMatch
+    XCTAssertTrue(tryAgain.exists)
+    XCTAssertFalse(tryAgain.isEnabled)
+    let footer = text(
+      "Mail already on this Mac stays readable. Sending has its own status in Outbox.", in: window)
+    XCTAssertTrue(footer.exists)
+    // Level with the warning, the popover stays within the window.
+    XCTAssertLessThanOrEqual(footer.frame.maxY, window.frame.maxY)
+    attach("Paused Sync Status popover")
+    try audit(app, "Paused Sync Status")
+    app.typeKey(.escape, modifierFlags: [])
+    XCTAssertTrue(available.waitForNonExistence(timeout: 10))
+  }
+
   // #2593: Edit Favorites hides a row and reorders two, and the sidebar keeps them after a relaunch.
   func testEditFavorites() throws {
     try editFavorites(appearance: "Light")
