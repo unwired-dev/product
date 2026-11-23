@@ -260,6 +260,28 @@ export function createGraphReader(
     });
   });
 
+  // The mailbox's well-known folders by ID, read once per open mailbox; a mailbox without one, such
+  // as Archive, simply lacks it.
+  let known: Readonly<{ scope: MailboxScope; roles: FolderRoles }> | undefined =
+    undefined;
+  const folderRoles = Effect.fnUntraced(function* (scope: MailboxScope) {
+    if (known !== undefined && sameMailbox(known.scope, scope)) {
+      return known.roles;
+    }
+    const found = yield* Effect.forEach(
+      wellKnownFolders,
+      (name) =>
+        graphGet(scope)(graphWellKnownFolder(name), decodeGraphFolder).pipe(
+          Effect.map(({ id }) => [[id, name] as const]),
+          Effect.catchTag('GmailNotFound', () => Effect.succeed([])),
+        ),
+      { concurrency: 4 },
+    );
+    const roles: FolderRoles = new Map(found.flat());
+    known = { scope, roles };
+    return roles;
+  });
+
   // Each message a delta page names as it now is in `view`, or undefined once it left the folder.
   const readChanged = Effect.fnUntraced(function* (
     scope: MailboxScope,
@@ -566,27 +588,6 @@ export function createGraphReader(
     );
   });
 
-  // The mailbox's well-known folders by ID, read once per open mailbox; a mailbox without one, such
-  // as Archive, simply lacks it.
-  let known: Readonly<{ scope: MailboxScope; roles: FolderRoles }> | undefined =
-    undefined;
-  const folderRoles = Effect.fnUntraced(function* (scope: MailboxScope) {
-    if (known !== undefined && sameMailbox(known.scope, scope)) {
-      return known.roles;
-    }
-    const found = yield* Effect.forEach(
-      wellKnownFolders,
-      (name) =>
-        graphGet(scope)(graphWellKnownFolder(name), decodeGraphFolder).pipe(
-          Effect.map(({ id }) => [[id, name] as const]),
-          Effect.catchTag('GmailNotFound', () => Effect.succeed([])),
-        ),
-      { concurrency: 4 },
-    );
-    const roles: FolderRoles = new Map(found.flat());
-    known = { scope, roles };
-    return roles;
-  });
   const placed = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
