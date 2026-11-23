@@ -1479,7 +1479,7 @@ describe('connecting IMAP mailboxes', () => {
     });
     // Saying so once keeps work that waits on Inbox changes, such as a Sent lookup, from retrying
     // against the invalidated generation.
-    const listener = vi.fn();
+    const listener = vi.fn<() => void>();
     inbox.subscribe(listener);
     await inbox.load();
     expect(listener).not.toHaveBeenCalled();

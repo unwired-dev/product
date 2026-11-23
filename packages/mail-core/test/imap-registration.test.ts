@@ -209,22 +209,14 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     const { vault } = createSyntheticVault(device);
     // Native code forgets mailbox access when a restore starts and settles it once the server
     // check ends; meanwhile the connection's mailbox reads as invalidated (#2731).
-    let checking = false;
-    const timedOut = Promise.withResolvers<undefined>();
+    const invalidated = () =>
+      Promise.reject(
+        Object.assign(new Error('Synthetic'), { code: 'mailbox-invalidated' }),
+      );
+    let { verifyImap } = vault;
     const store = createRegistration({
       ...vault,
-      forgetMailboxAccess: async () => {
-        checking = true;
-        return vault.forgetMailboxAccess();
-      },
-      verifyImap: async (id) => {
-        if (!checking) {
-          return vault.verifyImap(id);
-        }
-        await timedOut.promise;
-        checking = false;
-        throw Object.assign(new Error('Synthetic'), { code: 'offline' });
-      },
+      verifyImap: (id) => verifyImap(id),
     });
     await store.register('google');
     await store.connectImap({
@@ -239,15 +231,8 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     Vitest.assert.isDefined(connection);
     const imap = createSyntheticImap({ address: connection.address });
     imap.deliver('INBOX', { subject: 'Saved before the outage' });
-    const opened = vi.fn(() =>
-      checking
-        ? Promise.reject(
-            Object.assign(new Error('Synthetic'), {
-              code: 'mailbox-invalidated',
-            }),
-          )
-        : imap.native.openMailbox(),
-    );
+    let openMailbox: typeof imap.native.openMailbox = imap.native.openMailbox;
+    const opened = vi.fn<typeof imap.native.openMailbox>(() => openMailbox());
     const mailboxes = createMailboxes(
       syntheticConnections(
         {},
@@ -258,12 +243,19 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     await mailboxes.load();
     const states: string[] = [];
     mailboxes.subscribe(() => {
-      states.push(mailboxes.getConnections()[0]?.state.kind ?? 'none');
+      states.push(...mailboxes.getConnections().map(({ state }) => state.kind));
     });
+    const checking = Promise.withResolvers<undefined>();
+    const timedOut = Promise.withResolvers<undefined>();
+    verifyImap = async () => {
+      checking.resolve(undefined);
+      await timedOut.promise;
+      ({ openMailbox } = imap.native);
+      throw Object.assign(new Error('Synthetic'), { code: 'offline' });
+    };
+    openMailbox = invalidated;
     const restoring = store.resume();
-    await vi.waitFor(() => {
-      expect(checking).toBe(true);
-    });
+    await checking.promise;
     // The five-minute check loads the Inbox while the server check is still waiting.
     imap.server.failure = 'offline';
     await mailboxes.load();
