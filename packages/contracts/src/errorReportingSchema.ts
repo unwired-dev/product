@@ -38,8 +38,10 @@ const position = Schema.Int.check(
 );
 const address = Schema.String.check(Schema.isPattern(/^0x[0-9a-f]{1,16}$/iu));
 export const ReportingFrameSchema = Schema.Union([
+  // `call-site` is where an operation was requested, kept for a failure without JavaScript frames;
+  // it is not where the failure was thrown.
   Schema.Struct({
-    kind: Schema.Literal('javascript'),
+    kind: Schema.Literals(['javascript', 'call-site']),
     line: position,
     column: position,
   }),

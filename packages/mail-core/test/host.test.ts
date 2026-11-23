@@ -1,9 +1,11 @@
 import type { NativeErrorReporting } from '@private-email/mail-core/error-reporting';
 import type { GmailInboxState } from '@private-email/mail-core/inbox-store';
 
+import { ErrorReportSchema } from '@private-email/contracts/errorReportingSchema';
 import { allMail, gmailAction } from '@private-email/mail-core/gmail-actions';
 import { unifiedFolders } from '@private-email/mail-core/mailboxes';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
+import * as Schema from 'effect/Schema';
 
 import type { NativeHostModule } from '../src/host.ts';
 
@@ -1915,6 +1917,85 @@ describe('the host assembly', () => {
         reporting.requests.filter((request) => request.operation === 'capture'),
       ).toHaveLength(before);
     } finally {
+      host.errorReporting.dispose();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('reports where a failed operation was requested when the failure carries no JavaScript frames', async () => {
+    expect.hasAssertions();
+    const reporting = reportingFixture();
+    const { host, native } = syntheticHost(reporting.native);
+    const { prepareStackTrace } = Error;
+    try {
+      await host.errorReporting.load();
+      await host.errorReporting.setEnabled(true);
+      await host.registration.register('google');
+      await host.registration.addMailbox();
+      await host.gmailMailboxes.load();
+      const inbox = required(host.gmailMailboxes.getSnapshot()[0]?.inbox);
+      // Stacks read as release bundle coordinates, as Hermes writes them.
+      Error.prepareStackTrace = (error, sites) =>
+        [
+          String(error),
+          ...sites.map(
+            (site) =>
+              `    at f (main.jsbundle:${site.getLineNumber()}:${site.getColumnNumber()})`,
+          ),
+        ].join('\n');
+      vi.spyOn(native, 'gmailSend').mockResolvedValue({
+        status: 503,
+        body: '',
+      });
+      await inbox.send({ segments: [{ text: 'body' }] });
+      // A native rejection is built after the request's JavaScript has unwound.
+      const rejection = new Error('Native bridge failed');
+      rejection.stack = 'Error: Native bridge failed';
+      vi.spyOn(native, 'gmailRequest').mockRejectedValueOnce(rejection);
+      await inbox.load();
+      const thrown = new TypeError('Invalid time value');
+      vi.mocked(native.gmailRequest).mockRejectedValueOnce(thrown);
+      await inbox.load();
+      Error.prepareStackTrace = prepareStackTrace;
+      await host.errorReporting.refresh();
+      const reports = reporting.requests
+        .filter((request) => request.operation === 'capture')
+        .flatMap(
+          (request) =>
+            Schema.decodeSync(
+              Schema.fromJsonString(
+                Schema.Struct({ reports: Schema.Array(ErrorReportSchema) }),
+              ),
+            )(request.body).reports,
+        )
+        .map(({ name, message, code, frames }) => ({
+          name,
+          message,
+          code,
+          kinds: [...new Set(frames.map((frame) => frame.kind))],
+        }));
+      expect(reports).toStrictEqual([
+        {
+          name: 'OperationError',
+          message: undefined,
+          code: 'send-failed',
+          kinds: ['call-site'],
+        },
+        {
+          name: 'Error',
+          message: 'Native bridge failed',
+          code: 'sync-failed',
+          kinds: ['call-site'],
+        },
+        {
+          name: 'TypeError',
+          message: 'Invalid time value',
+          code: 'sync-failed',
+          kinds: ['javascript'],
+        },
+      ]);
+    } finally {
+      Error.prepareStackTrace = prepareStackTrace;
       host.errorReporting.dispose();
       vi.restoreAllMocks();
     }
