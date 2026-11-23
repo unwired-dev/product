@@ -1,5 +1,6 @@
 import * as Arr from 'effect/Array';
 import * as Effect from 'effect/Effect';
+import * as Base64Url from 'effect/encoding/Base64Url';
 import * as Option from 'effect/Option';
 import * as Order from 'effect/Order';
 import * as Schema from 'effect/Schema';
@@ -54,6 +55,7 @@ import {
   rejectedGrant,
   SyncFailure,
 } from './mailbox-read.ts';
+import { calendarPart, partText } from './message-body.ts';
 import {
   decodeGraphAttachments,
   decodeGraphCopies,
@@ -80,7 +82,9 @@ import {
   graphFolderTotal,
   graphMessages,
   graphLabels,
+  graphCalendar,
   graphMessage,
+  graphMime,
   graphPayload,
   graphPlacement,
   graphSearch,
@@ -93,6 +97,9 @@ import {
   listedMessage,
   wellKnownFolders,
 } from './microsoft-graph.ts';
+import { parseMime } from './mime.ts';
+
+const decodeMime = Schema.decodeUnknownEffect(Schema.String);
 
 const folderMessage = (
   message: Parameters<typeof listedMessage>[0],
@@ -445,6 +452,29 @@ export function createGraphReader(
       });
     }
     return bytes;
+  });
+
+  // A meeting message's calendar, read from its MIME as UTF-8 text. A MIME with no calendar that
+  // fits or decodes is not found, which leaves the message readable without one.
+  const calendarData = Effect.fnUntraced(function* (
+    scope: MailboxScope,
+    id: string,
+  ) {
+    const mime = yield* graphGet(scope)(graphMime(id), decodeMime);
+    const tree = parseMime(new TextEncoder().encode(mime));
+    const part = tree === undefined ? undefined : calendarPart(tree);
+    const text =
+      part === undefined
+        ? undefined
+        : yield* partText(part, part.body?.data ?? '').pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
+    // An undecodable transfer encoding reads as empty.
+    if (text === undefined || text === '') {
+      return yield* new GmailNotFound();
+    }
+    const bytes = new TextEncoder().encode(text);
+    return { data: Base64Url.encode(bytes), size: bytes.length };
   });
 
   const graphAttachmentMetadata = Effect.fnUntraced(function* (
@@ -1145,6 +1175,9 @@ export function createGraphReader(
     // Graph serves only attachments separately; its body parts are inline, as Gmail's small ones.
     partData: (scope: MailboxScope, id: string, part: GmailPart) => {
       const attachmentId = part.body?.attachmentId;
+      if (attachmentId === graphCalendar) {
+        return calendarData(scope, id);
+      }
       return attachmentId === undefined
         ? Effect.succeed({ data: part.body?.data ?? '', size: part.body?.size })
         : partData(scope, id, attachmentId);
@@ -1157,7 +1190,7 @@ export function createGraphReader(
       _id: string,
       preflight: ProviderPayload,
     ) => Effect.succeed(preflight),
-    invitations: false,
+    invitations: true,
     labels,
     readLabels,
     modify,

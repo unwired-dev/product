@@ -4,7 +4,8 @@
 [#1277](https://github.com/unwired-dev/product/issues/1277), lets the Mac reader
 send an [Invitation Response](domain/organization.md) to a single Gmail meeting
 invitation, and [#1815](https://github.com/unwired-dev/product/issues/1815) brings
-the same card to the iPhone and iPad reader. Microsoft, IMAP responses, Add to Calendar
+the same card to the iPhone and iPad reader. [Microsoft](#microsoft) and
+[IMAP](#imap) mailboxes follow; Add to Calendar
 ([#1280](https://github.com/unwired-dev/product/issues/1280)) and organizer
 updates ([#1281](https://github.com/unwired-dev/product/issues/1281)) follow
 separately.
@@ -138,6 +139,29 @@ separately.
   a timed meeting whose `DURATION` counts days, and damaged calendar text show
   **Unwired can’t read this invitation**, with no response.
 
+## Microsoft
+
+[#2703](https://github.com/unwired-dev/product/issues/2703), the first slice of
+[#1278](https://github.com/unwired-dev/product/issues/1278), shows the same card
+for an Outlook.com or Microsoft 365 mailbox on Mac, iPhone and iPad and answers it
+through the Gmail journey above, sent directly through the owning connection.
+
+- Outlook files a meeting request or cancellation as an event message, whose
+  Graph JSON carries no calendar text, so opening one also reads its MIME and
+  takes its calendar part as for Gmail. A meeting message whose attachments
+  exceed 4 MiB, or whose MIME holds no calendar part that fits, opens without a
+  card. A calendar attached as an ordinary file is read as for Gmail.
+- Exchange names a meeting's time zone by its Windows ID, such as `Pacific
+  Standard Time`; the card reads it as the matching IANA zone from CLDR's
+  `windowsZones.xml`, as for any invitation that names one.
+- A choice sends one `METHOD:REPLY` through Graph's `sendMail` with a Message-ID
+  made from its MIME boundary. **Check Again** looks for that Message-ID in Sent
+  Items, which Microsoft fills only after accepting the message.
+- The card names an Outlook.com, Hotmail, Live or MSN address's provider
+  **Outlook.com** and any other Microsoft address's **Microsoft 365**, as in
+  **{address} · Outlook.com** and **Outlook.com confirmed it sent your
+  response…**. Other states keep the Gmail copy with that name.
+
 ## IMAP
 
 [#2109](https://github.com/unwired-dev/product/issues/2109), the first slice of
@@ -237,6 +261,10 @@ mail server** for a reviewed provider, **The mail server** for any other.
   a send the app quit during, restore after relaunch and mailbox removal, a
   revision that moved the meeting after an earlier answer, and the message an
   older revision's **Show Latest** opens.
+- The same suite reads an Outlook meeting request from its MIME through a
+  synthetic Graph mailbox, answers it and finds a lost send in Sent Items by its
+  Message-ID; each app's `test/invitation.test.tsx` answers an Outlook.com
+  invitation in the reader and names Outlook.com.
 - `packages/mail-core/test/imap-invitations.test.ts` reads an IMAP invitation's
   calendar part from a synthetic IMAP server, and
   `packages/mail-core/test/imap-invitation-responses.test.ts` drives IMAP

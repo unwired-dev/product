@@ -13,10 +13,12 @@ import type { InvitationAnswer } from './invitation-record.ts';
 import type { InvitationResponse } from './mailbox-document.ts';
 import type { BodyDocument } from './message-body.ts';
 import type { Outbox, OutboxSnapshotEntry } from './outbox.ts';
+import type { MailProvider } from './registration-snapshot.ts';
 
 import { imapPresetOf } from './imap-setup.ts';
 import { listedMessage } from './inbox-store.ts';
 import { boundaryOf, outgoingMessage } from './outgoing-message.ts';
+import { windowsZones } from './windows-zones.ts';
 
 // The response a person chooses for a meeting invitation, as its iCalendar participation status.
 export type InvitationChoice = 'accepted' | 'tentative' | 'declined';
@@ -138,6 +140,14 @@ const recipientOf = (line: Line): Recipient | undefined => {
   return name === undefined || name === '' ? { address } : { name, address };
 };
 
+// A local DATE-TIME's zone: its TZID, as the IANA zone of a Windows ID that Exchange writes.
+const zoneOf = (line: Line) => {
+  const id = parameterOf(line, 'TZID');
+  return id !== undefined && Object.hasOwn(windowsZones, id)
+    ? windowsZones[id]
+    : id;
+};
+
 // A DATE-TIME in the IANA zone `zone`, or undefined for a missing or unknown zone.
 const zonedTime = (
   naive: number,
@@ -178,8 +188,8 @@ const supportedTime = (line: Line, allDay: boolean, utc: boolean) => {
   return (value === undefined || value === 'DATE-TIME') && !(hasZone && utc);
 };
 
-// A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA zone; floating and unknown-zone times are
-// unreadable.
+// A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA or Windows zone; floating and unknown-zone
+// times are unreadable.
 const timeOf = (line: Line | undefined): InvitationTime | undefined => {
   const match = dateTime.exec(line?.value.trim() ?? '');
   if (line === undefined || match === null) {
@@ -203,7 +213,7 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
   }
   return hour === undefined || utc === 'Z'
     ? { at: naive, allDay: hour === undefined }
-    : zonedTime(naive, parameterOf(line, 'TZID'));
+    : zonedTime(naive, zoneOf(line));
 };
 
 const recurring = new Set(['RDATE', 'EXDATE']);
@@ -410,7 +420,7 @@ const weeklyStarts = (dtstart: Line | undefined, start: InvitationTime) => {
     .slice(1, 7)
     .map(Number);
   const timeZone = DateTime.zoneMakeNamed(
-    (dtstart && parameterOf(dtstart, 'TZID')) ?? 'UTC',
+    (dtstart && zoneOf(dtstart)) ?? 'UTC',
   ).pipe(Option.getOrUndefined);
   if (dtstart === undefined || start.allDay || timeZone === undefined) {
     return undefined;
@@ -783,6 +793,7 @@ export type ResponseState =
 // The plain text a response carries beside its calendar reply, in the person's language.
 type ResponseInbox = Pick<
   GmailInbox,
+  | 'keepsMessageIds'
   | 'send'
   | 'findSent'
   | 'findMessage'
@@ -888,9 +899,20 @@ const keyOf = (invitation: Invitation) =>
 const replySubject = (subject: string) =>
   /^\s*re:/iu.test(subject) ? subject : `Re: ${subject}`;
 
+const domainOf = (address: string) =>
+  address.slice(address.lastIndexOf('@') + 1);
+
+// The Message-ID of a response sent from a mailbox that keeps it, which finds the response in Sent:
+// the token of its MIME boundary at the invited address's domain.
+const sentMessageId = (boundary: string, address: string) =>
+  /^=_[\da-z]+_[a-z]$/u.test(boundary)
+    ? `${boundary.slice(2, -2)}@${domainOf(address)}`
+    : undefined;
+
 // The response message: a reply to the invitation, from the invited mailbox to the organizer,
 // carrying the calendar reply beside its text in the person's language. An Outbox message names
-// its connection and a Message-ID that finds its Sent copy; Gmail assigns its own.
+// its connection and a Message-ID that finds its Sent copy, as does a message from a mailbox that
+// keeps its Message-ID; Gmail assigns its own.
 const responseMessage = (
   invitation: Invitation,
   {
@@ -898,11 +920,13 @@ const responseMessage = (
     t,
     received,
     connection,
+    identified = false,
   }: Readonly<{
     choice: InvitationChoice;
     t: Translate;
     received: string | undefined;
     connection?: string;
+    identified?: boolean;
   }>,
   at: number,
 ) => {
@@ -945,15 +969,15 @@ const responseMessage = (
     },
     updatedAt: at,
   };
+  // An Outbox message's Message-ID names its draft, a directly sent one its MIME boundary.
+  const local = connection === undefined ? boundary : draft.id;
   const { segments, size } = outgoingMessage(draft, {
     date: at,
     boundary,
     calendar: invitationReply(invitation, choice, at),
-    ...(connection === undefined
+    ...(connection === undefined && !identified
       ? {}
-      : {
-          messageId: `${at.toString(36)}.${boundary}@${invitation.address.slice(invitation.address.lastIndexOf('@') + 1)}`,
-        }),
+      : { messageId: `${local}@${domainOf(invitation.address)}` }),
   });
   return {
     draft,
@@ -1112,7 +1136,11 @@ function createInvitationResponses(
     const thread = received?.threadId;
     const { segments, boundary } = responseMessage(
       invitation,
-      { ...chosen, received: received?.subject },
+      {
+        ...chosen,
+        received: received?.subject,
+        identified: inbox.keepsMessageIds,
+      },
       now(),
     );
     set(invitation, { kind: 'sending', choice: chosen.choice });
@@ -1200,7 +1228,10 @@ function createInvitationResponses(
       }
       set(invitation, { ...current, kind: 'checking' });
       const found = await inbox
-        .findSent(current.boundary)
+        .findSent(
+          current.boundary,
+          sentMessageId(current.boundary, invitation.address),
+        )
         .catch(() => undefined);
       if (found?.kind !== 'sent' && found?.kind !== 'accepted') {
         set(invitation, current);
@@ -1850,6 +1881,25 @@ const statuses: {
     detail: t('invitation.authenticationDetail', { address }),
   }),
 };
+
+// Microsoft's consumer mail domains, whose mailboxes are Outlook.com's.
+const outlookDomain =
+  /^(?:(?:outlook|hotmail|live)\.(?:com|[a-z]{2}|com?\.[a-z]{2})|msn\.com)$/u;
+
+// How a Gmail or Microsoft mailbox's invitation card names its provider: a Microsoft address as
+// Outlook.com when it is a consumer one, otherwise as Microsoft 365.
+export const invitationProvider = (
+  t: Translate,
+  provider: MailProvider | undefined,
+  address: string,
+) =>
+  provider === 'microsoft-graph'
+    ? t(
+        outlookDomain.test(domainOf(address).toLowerCase())
+          ? 'invitation.providers.outlook'
+          : 'invitation.providers.microsoft365',
+      )
+    : t(`mailProviders.${provider ?? 'gmail'}`);
 
 // How an IMAP mailbox's invitation card names its provider and its mail server: a reviewed provider
 // by its own name, any other server plainly.

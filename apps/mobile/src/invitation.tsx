@@ -34,6 +34,7 @@ import {
   alsoInvited,
   imapInvitationResponses,
   imapServer,
+  invitationProvider,
   invitationOf,
   invitationResponses,
   createInvitationFormats,
@@ -65,7 +66,7 @@ import {
 
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
-import { useMailboxes, useOutbox, useProviderName } from './mailbox.tsx';
+import { useMailbox, useMailboxes, useOutbox } from './mailbox.tsx';
 import { AccountContext } from './registration-gate.tsx';
 import { textStyles, useLargeText, usePalette } from './theme.ts';
 
@@ -120,6 +121,7 @@ const styles = StyleSheet.create({
 
 type InvitationInbox = Pick<
   GmailInbox,
+  | 'keepsMessageIds'
   | 'send'
   | 'findSent'
   | 'findMessage'
@@ -531,7 +533,11 @@ function Responding({
   readonly current: () => boolean;
 }) {
   const { t } = useLocalization();
-  const provider = useProviderName();
+  const provider = invitationProvider(
+    t,
+    useMailbox()?.provider,
+    invitation.address,
+  );
   const account = use(AccountContext);
   // The choice a Respond Again alert asks about; leaving the message unmounts the alert.
   const [asking, setAsking] = useState<InvitationChoice>();
@@ -1023,7 +1029,11 @@ function Invited({
 }) {
   const colors = usePalette();
   const { t } = useLocalization();
-  const provider = useProviderName();
+  const provider = invitationProvider(
+    t,
+    useMailbox()?.provider,
+    invitation.address,
+  );
   // Invited at other addresses of the Profile too, each address is listed instead of You.
   const others = alsoInvited(invitation, useMailboxes());
   const responses = invitationResponses(inbox);
@@ -1050,7 +1060,7 @@ function Invited({
                 ...others.map(({ address: other, provider: kind }) =>
                   t('invitation.yourAddress', {
                     address: other,
-                    provider: t(`mailProviders.${kind ?? 'gmail'}`),
+                    provider: invitationProvider(t, kind, other),
                   }),
                 ),
               ]
