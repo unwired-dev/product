@@ -90,7 +90,9 @@ for device_type in "${device_types[@]}"; do
     if (( test_exit == 0 )) && grep -Eq 'Executed [1-9][0-9]* tests?, with 0 failures' "$run_dir/$device_id.log"; then
       print "Native Inbox journey passed: $device_type"
       # CoreSimulator may already have shut the device down; simctl then fails with SimError 405.
-      xcrun simctl shutdown "$device_id" >/dev/null 2>&1 || true
+      shutdown_error=$(xcrun simctl shutdown "$device_id" 2>&1) ||
+        [[ $shutdown_error == *'current state: Shutdown'* ]] ||
+        { print -u2 -r -- "$shutdown_error"; exit 1; }
       break
     fi
     # Assertion failures must never be hidden by an infrastructure retry.
