@@ -810,10 +810,14 @@ extension PrivateInboxTests {
     // The probe's Inbox holds a message once the stalled transfer has started.
     let probe = try await provider.open(try fixtureAccount("stalled-probe"), password: "synthetic-password")
     let deadline = ContinuousClock.now + .seconds(60)
-    while try await probe.examine("INBOX").messages == 0, ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(50))
+    var started = false
+    while !started, ContinuousClock.now < deadline {
+      started = try await probe.examine("INBOX").messages > 0
+      if !started { try await Task.sleep(for: .milliseconds(50)) }
     }
     await probe.close()
+    if !started { read.cancel() }
+    try #require(started)
     let cancelled = ContinuousClock.now
     read.cancel()
     await #expect(throws: CancellationError.self) { _ = try await read.value }

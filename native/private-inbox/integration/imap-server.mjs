@@ -105,7 +105,8 @@ const assertResumed = (command, { large, sparse }) => {
   }
 };
 const operations = new Set();
-// Set once the stalled source has sent its first bytes; `stalled-probe` sees it as one message.
+// Set while a stalled source that has sent its first bytes stays open, so each test attempt
+// observes its own transfer; `stalled-probe` sees it as one message.
 let stalling = false;
 // Namespace-shift's server drops its first session after refusing the shared LIST, and its next
 // session no longer reports the shared namespace.
@@ -433,6 +434,7 @@ const answerFetch = (socket, session, { tag, command }) => {
       socket.write(raw);
       stalling = true;
       socket.once('close', () => {
+        stalling = false;
         operations.add('source-cancelled');
       });
     } else {
