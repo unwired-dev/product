@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as Vitest from '@effect/vitest';
 import * as Predicate from 'effect/Predicate';
 
+import { createFreshness } from '../src/freshness.ts';
 import {
   discoveredFields,
   imapFields,
@@ -203,16 +204,12 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
   });
   /* oxlint-enable vitest/max-expects */
 
-  it('keeps saved mail shown while a restore checks an unreachable IMAP server, then reopens it', async () => {
-    expect.hasAssertions();
+  // An IMAP connection with saved mail whose next restore checks an unreachable server: native
+  // code forgets mailbox access when the restore starts and settles it once that check times out,
+  // and meanwhile the connection's mailbox reads as invalidated (#2731).
+  const outage = async () => {
     const device = createSyntheticDevice();
     const { vault } = createSyntheticVault(device);
-    // Native code forgets mailbox access when a restore starts and settles it once the server
-    // check ends; meanwhile the connection's mailbox reads as invalidated (#2731).
-    const invalidated = () =>
-      Promise.reject(
-        Object.assign(new Error('Synthetic'), { code: 'mailbox-invalidated' }),
-      );
     let { verifyImap } = vault;
     const store = createRegistration({
       ...vault,
@@ -232,11 +229,12 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     const imap = createSyntheticImap({ address: connection.address });
     imap.deliver('INBOX', { subject: 'Saved before the outage' });
     let openMailbox: typeof imap.native.openMailbox = imap.native.openMailbox;
-    const opened = vi.fn<typeof imap.native.openMailbox>(() => openMailbox());
     const mailboxes = createMailboxes(
       syntheticConnections(
         {},
-        { [connection.id]: { ...imap.native, openMailbox: opened } },
+        {
+          [connection.id]: { ...imap.native, openMailbox: () => openMailbox() },
+        },
       ),
       store,
     );
@@ -247,42 +245,95 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     });
     const checking = Promise.withResolvers<undefined>();
     const timedOut = Promise.withResolvers<undefined>();
+    // Opens after the check, when the restore keeps the connection as saved mail only.
+    const reopened = vi.fn<typeof imap.native.openMailbox>(
+      imap.native.openMailbox,
+    );
     verifyImap = async () => {
       checking.resolve(undefined);
       await timedOut.promise;
-      ({ openMailbox } = imap.native);
+      openMailbox = reopened;
       throw Object.assign(new Error('Synthetic'), { code: 'offline' });
     };
-    openMailbox = invalidated;
+    const invalidated = () =>
+      Promise.reject(
+        Object.assign(new Error('Synthetic'), { code: 'mailbox-invalidated' }),
+      );
+    return {
+      store,
+      mailboxes,
+      states,
+      reopened,
+      checking: checking.promise,
+      invalidated,
+      // The server stops answering, and work on the forgotten access is invalidated.
+      forget: (open: typeof imap.native.openMailbox = invalidated) => {
+        imap.server.failure = 'offline';
+        openMailbox = open;
+      },
+      timeOut: () => {
+        imap.cache.availability = 'retry';
+        imap.cache.generation = 'generation-2';
+        timedOut.resolve(undefined);
+      },
+    };
+  };
+  const savedShown = {
+    kind: 'ready',
+    status: 'retry',
+    messages: [expect.objectContaining({ subject: 'Saved before the outage' })],
+  };
+
+  it('keeps saved mail shown while a restore checks an unreachable IMAP server, then reopens it', async () => {
+    expect.hasAssertions();
+    const { store, mailboxes, states, reopened, checking, forget, timeOut } =
+      await outage();
+    forget();
     const restoring = store.resume();
-    await checking.promise;
-    // The five-minute check loads the Inbox while the server check is still waiting.
-    imap.server.failure = 'offline';
+    await checking;
+    // Another load while the server check waits, as when the Inbox mounts again.
     await mailboxes.load();
-    expect(mailboxes.getConnections()[0]?.state).toMatchObject({
-      kind: 'ready',
-      status: 'retry',
-      messages: [
-        expect.objectContaining({ subject: 'Saved before the outage' }),
-      ],
-    });
-    // The check times out, so the restore keeps the connection as saved mail only.
-    imap.cache.availability = 'retry';
-    imap.cache.generation = 'generation-2';
-    timedOut.resolve(undefined);
+    expect(mailboxes.getConnections()[0]?.state).toMatchObject(savedShown);
+    timeOut();
     await restoring;
     await vi.waitFor(() => {
-      expect(opened).toHaveLastResolvedWith(
+      expect(reopened).toHaveResolvedWith(
         expect.objectContaining({ generation: 'generation-2' }),
       );
     });
-    expect(mailboxes.getConnections()[0]?.state).toMatchObject({
-      kind: 'ready',
-      status: 'retry',
-      messages: [
-        expect.objectContaining({ subject: 'Saved before the outage' }),
-      ],
+    expect(mailboxes.getConnections()[0]?.state).toMatchObject(savedShown);
+    expect(states).not.toContain('failed');
+  });
+
+  it('reopens an IMAP Inbox once after a five-minute check whose restore invalidated its work', async () => {
+    expect.hasAssertions();
+    const {
+      store,
+      mailboxes,
+      states,
+      reopened,
+      checking,
+      invalidated,
+      forget,
+      timeOut,
+    } = await outage();
+    const freshness = createFreshness(mailboxes, store.refreshInbox);
+    // A load is opening the mailbox as the check's restore forgets access.
+    const held = Promise.withResolvers<undefined>();
+    forget(async () => {
+      await held.promise;
+      return invalidated();
     });
+    const loading = mailboxes.load();
+    const polling = freshness.refresh();
+    await checking;
+    held.resolve(undefined);
+    await loading;
+    expect(mailboxes.getConnections()[0]?.state).toMatchObject(savedShown);
+    timeOut();
+    await polling;
+    expect(reopened).toHaveResolvedTimes(1);
+    expect(mailboxes.getConnections()[0]?.state).toMatchObject(savedShown);
     expect(states).not.toContain('failed');
   });
 

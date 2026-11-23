@@ -1035,8 +1035,10 @@ export function createImapInbox(
   const withdrawals = new Set<string>();
   let shownStatus: Sync = 'current';
   let authenticationRejected = false;
-  // Whether a restore invalidated the shown Inbox's generation since it last opened.
+  // Whether a restore invalidated the shown Inbox's generation since it last opened, and the load
+  // `resume` runs to reopen it.
   let interrupted = false;
+  let reopening: Promise<void> | undefined = undefined;
   // Folders whose history was read up to date since the connection opened, and folders it skips
   // until the next launch because they are gone or refused their UIDVALIDITY.
   const settled = new Map<string, number | undefined>();
@@ -3681,7 +3683,17 @@ export function createImapInbox(
         render();
       }
     },
-    load,
+    // A load asked for while a restore's reopen runs, as a poll's after its restore, joins it
+    // unless that reopen found access still pending.
+    load: async () => {
+      if (reopening !== undefined) {
+        await reopening;
+        if (!interrupted) {
+          return;
+        }
+      }
+      await load();
+    },
     showSaved,
     openFolder,
     // A folder's messages as last read, cached ones first; the Inbox reads `messages`.
@@ -3838,8 +3850,15 @@ export function createImapInbox(
     },
     // Reopens an Inbox a restore interrupted, once registration changes after it.
     resume: () => {
-      if (interrupted) {
-        void load();
+      if (interrupted && reopening === undefined) {
+        const reopen = async () => {
+          try {
+            await load();
+          } finally {
+            reopening = undefined;
+          }
+        };
+        reopening = reopen();
       }
     },
     // Forgets the mail held in memory when the connection or its account leaves the Inbox.
