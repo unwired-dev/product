@@ -651,7 +651,7 @@ extension PrivateInboxTests {
     // A freshly booted Simulator's first verified TLS handshakes can outlast SwiftMail's
     // five-second greeting wait on a loaded runner, which reads as `.offline` (#2341). Open one
     // verified session first, so the failures below are classified once the handshake is warm.
-    let ready = ContinuousClock.now + .seconds(60)
+    let ready = ContinuousClock.now + .seconds(30)
     while true {
       do {
         try await provider.verify(account, password: "synthetic-password")
