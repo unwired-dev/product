@@ -611,7 +611,8 @@ Message-ID and appends the message in the same session only when no copy is ther
 Every metadata read (envelopes, flags, sizes, the history page and the prefetch
 preflight) receives at most one FETCH reply per message it names, or 200 for a
 UID-range read, counting unsolicited replies, and no streamed section except the
-preflight's header fields, at most 256 KiB per named message in all. SwiftMail
+preflight's header fields, at most 256 KiB per reply across its sections and per
+named message in all. SwiftMail
 checks each reply and each section's declared size before keeping it; a server that
 sends more fails the read as too large and loses that connection, without waiting for
 a command timeout. A synchronization that fails this way reports the failure and

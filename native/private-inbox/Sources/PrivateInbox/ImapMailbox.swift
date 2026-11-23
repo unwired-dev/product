@@ -204,7 +204,9 @@ struct SwiftMailImap: ImapProvider {
   // not import.
   static func failure(_ error: any Error) -> any Error {
     if error is ImapFailure || error is CancellationError { return error }
-    if error is FetchReceiveLimitExceededError { return ImapFailure.tooLarge }
+    if error is FetchReceiveLimitExceededError || error is ExceededResponseBodySizeError {
+      return ImapFailure.tooLarge
+    }
     let type = String(reflecting: Swift.type(of: error))
     if type.contains("NIOSSL") || type.contains("BoringSSL") { return ImapFailure.insecure }
     if let error = error as? IMAPError {

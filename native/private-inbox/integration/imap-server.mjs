@@ -413,7 +413,7 @@ const answerFetch = (socket, session, { tag, command }) => {
     }
     if (command.startsWith('UID FETCH 14 ')) {
       // One message's fields split across two literals, each within its bound, that together
-      // exceed the message's budget: the client must refuse the second declaration before its
+      // exceed the reply's budget: the client must refuse the second declaration before its
       // bytes, which never come.
       operations.add('headers-split');
       const half = 128 * 1024 + 1;

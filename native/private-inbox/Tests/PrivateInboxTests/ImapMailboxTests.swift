@@ -776,7 +776,7 @@ extension PrivateInboxTests {
       _ = try await provider.headers(
         account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uids: [12])
     }
-    // Two header literals within their bound that together exceed the message's budget: the
+    // Two header literals within their bound that together exceed one reply's budget: the
     // second declaration is refused before its bytes, which the server never sends.
     await #expect(throws: ImapFailure.tooLarge) {
       _ = try await provider.headers(

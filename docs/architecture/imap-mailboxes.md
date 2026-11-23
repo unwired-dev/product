@@ -160,6 +160,9 @@ named message (200 for `UID n:*`) and no declared streamed-section bytes, except
 256 KiB per named message for the preflight's header fields, 5 MiB at 20 UIDs.
 SwiftMail checks both before keeping a reply or reading a section, closes the
 connection, and the adapter maps `FetchReceiveLimitExceededError` to `too-large`.
+The parser's body limit (256 KiB for the preflight) also counts every section of
+one reply, so header literals split within one reply fail first with
+`ExceededResponseBodySizeError`, which maps to `too-large` too.
 Literals nested in ENVELOPE or BODYSTRUCTURE are not counted; the parser's 1 MiB
 response buffer bounds each FETCH attribute, and its 64-attribute limit each
 reply. The hosted TLS fixture proves refusal of a reply flood for one named
