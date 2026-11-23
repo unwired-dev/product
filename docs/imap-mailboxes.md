@@ -1518,6 +1518,83 @@ password manager by running
   all written by earlier runs, the latest about 80 minutes before this one. The scan
   criterion of #2685 waits on their removal and a clean rescan
   ([#2688](https://github.com/unwired-dev/product/issues/2688)).
+- **2026-11-23, iPhone lost connection to iCloud Mail, rerun
+  ([#2683](https://github.com/unwired-dev/product/issues/2683)).** This rerun repeats the
+  three cases of the 2026-11-22 record under a rule narrowed to iCloud Mail's servers
+  and with pasteboard credential entry. Target, toolchain and operator as in the first record, on a new iPhone 18 Pro Simulator on
+  iOS 27.0, with Simulator closed. Build: the app source of
+  `1ac442d43fae08e8ef53bb50e24bc2597f30070d`. Every credential was entered with
+  pasteboard steps 1 to 3 above; Google Product Sign-In found the certification Product
+  Account, **Unlock with Recovery Key** unlocked the device, and both mailboxes
+  connected. Outage method: a temporary anchor in the Mac's packet filter refused TCP to
+  and from the addresses `imap.mail.me.com` and `smtp.mail.me.com` resolved to, on ports
+  993 and 587 only. The addresses were resolved several times through the Mac's resolver
+  and two public resolvers when the rule was loaded and again after a 5-second pause between sweeps while it was
+  in place (17 and 18 addresses). Loading the rule also cleared the packet filter's states for those
+  addresses, so connections already open passed no more packets. The packet filter was off before the
+  run and was turned off again after each outage. During the first counted outage,
+  `imap.mail.me.com` 993 and `smtp.mail.me.com` 587 timed out while `imap.seznam.cz` 993
+  and `smtp.seznam.cz` 465 connected; during the second, `imap.mail.me.com` 993 timed out
+  while `imap.seznam.cz` 993 connected. During both, the packet filter held no state for an
+  iCloud Mail address.
+  Test messages were submitted to iCloud Mail over SMTP from Seznam Email outside the
+  app, and each arrival time was read on the server as the message's IMAP `INTERNALDATE`.
+  Result: the three cases and the outage scope passed, and no scanned file this run wrote held a
+  credential; the scan still found earlier runs' copies (see below). Before any outage, a message appeared in the list at most 6 seconds after
+  it arrived. **IDLE interruption and offline queueing:** the outage was started with All
+  Inboxes open and the app's iCloud Mail connection waiting on the Inbox. That connection
+  was last sampled open 40 seconds after the start and was gone 43 seconds after. A message submitted 85 seconds after the start arrived
+  on the server 20 seconds later and was not listed while the outage lasted. The list
+  header read **All Inboxes · Offline** with **1 account needs attention** and **Try
+  Again**. A reply from iCloud Mail, sent from the app 2 minutes 2 seconds after the start,
+  left the Undo Send Window and waited: the Outbox read **1 waiting**, and its row
+  **Waiting to send. It sends when this device can reach the mail server and your
+  Unwired Mail account.** The outage lasted 2 minutes 49 seconds. Without a relaunch, the
+  app connected to iCloud Mail 6 seconds after the outage ended, the list read **Syncing**
+  with **Updating 2 accounts** 10 seconds after, and listed the message that had arrived
+  during the outage 13 seconds after. The waiting reply was filed in iCloud Mail's Sent
+  folder 28 seconds after the outage ended and arrived on `imap.seznam.cz` 3 seconds
+  later, exactly one copy in each, with the same Message-ID. The app then held no
+  lasting iCloud Mail connection until one opened 5 minutes 17 seconds after the outage
+  ended and stayed open, consistent with an IDLE wait resuming after a retry pause grown
+  to five minutes. Meanwhile a message arriving 1 minute 57 seconds after the end was
+  listed 59 seconds after it arrived, just after brief connections whose trigger was not
+  determined. Once the lasting connection had opened, a message appeared 5
+  seconds after it arrived. **Connection recovery:** a second outage was started with
+  the app waiting on iCloud Mail's Inbox, and 10 seconds later the app was terminated and
+  launched again. It opened All Inboxes with iCloud Mail's saved messages and asked for
+  no password. The header read **All Inboxes · Offline** with **1 account needs
+  attention** and **Try Again**, and Email Accounts showed iCloud Mail as **Saved mail
+  only until the mail server can be checked** and Seznam Email as **Updated just now**. A
+  message submitted during this outage arrived on the server 61 seconds after its start.
+  The outage lasted 2 minutes 57 seconds. Without a relaunch or any interaction, the app
+  began connecting to iCloud Mail 2 minutes 26 seconds after the outage ended and was
+  connected 2 seconds later, when the list read **Syncing**; it listed that message 6
+  seconds after the first attempt. The attention notice was gone,
+  and Email Accounts showed both mailboxes **Updated just now**. A message submitted
+  next appeared 4 seconds after it arrived. Afterwards no run message remained in any
+  folder of either mailbox, **Sign Out of This Device** returned the app to Welcome, and
+  the Simulator was deleted. The scan of step 5 then covered `~/.agent-device`, `~/Library/Logs`,
+  Xcode's DerivedData, the shell history, the temporary directories, the repository's
+  `artifacts`, the operator's scratch files, this run's session transcript and T3
+  Code's state database and logs; the Simulator's own files were deleted with it and not
+  scanned. No scanned file this run wrote held a password or the Recovery Key; the only matches were the earlier runs' copies in T3 Code's state
+  database and three of its logs, the latest written about four hours before this run
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)). Limitations: a first attempt loaded the
+  rule without clearing the packet filter's states, and the open IDLE connection was
+  still sampled established 71 seconds after the rule was loaded; it is not counted, but its reply, sent from the app during
+  it, was sent once, 43 seconds after it ended. The app's closing of the
+  open connection is read from the socket table, sampled every 2 seconds. The operator
+  sent the first outage's reply from the reader and read the Outbox, which was still
+  shown 6 seconds after that outage ended; All Inboxes was first sampled again 10 seconds
+  after the end, and whether leaving the Outbox prompted the reconnection was not
+  distinguished. The rule
+  depended on the addresses those names resolved to on this Mac; every iCloud Mail
+  address the app connected to on ports 993 and 587 during the run was in it. As in the
+  2026-11-22 record, the outage cut the path on the Mac, so the Simulator saw no network
+  change, and the screen readings were sampled every 1 to 3 seconds. Background refresh
+  and push wakes, password recovery, Seznam Email outages and connection loss on iPad
+  and Mac stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
