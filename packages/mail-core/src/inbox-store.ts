@@ -2026,9 +2026,8 @@ export function createInboxStore(
     return { ...tally.result(), authentication: false };
   });
 
-  // The invitation text of a Gmail message. An unavailable invitation leaves the rest readable,
-  // and one Gmail can still answer later is `pending`; Microsoft invitations are answered through
-  // their own journey.
+  // The invitation text of a message. An unavailable invitation leaves the rest readable, and one
+  // the provider can still answer later is `pending`.
   const fetchCalendar = (
     scope: MailboxScope,
     id: string,
@@ -2042,9 +2041,10 @@ export function createInboxStore(
           authentication: false,
         })
       : partData(scope, id, part).pipe(
-          // Calendar data that cannot decode never will, so the attachment list still loads.
-          Effect.flatMap(({ data }) =>
-            partText(part, data, part.body?.size).pipe(
+          // Calendar data that cannot decode never will, so the attachment list still loads. Graph
+          // lists approximate sizes, so the bytes received report their own.
+          Effect.flatMap(({ data, size }) =>
+            partText(part, data, size ?? part.body?.size).pipe(
               Effect.orElseSucceed(() => undefined),
             ),
           ),
@@ -4220,6 +4220,9 @@ export function createInboxStore(
     saveAttachmentCopy: attachments.saveAttachmentCopy,
     saveAttachmentToDownloads: attachments.saveAttachmentToDownloads,
     attachmentFile: attachments.attachmentFile,
+    // Whether the provider keeps the Message-ID a sent message carries, which then finds its copy in
+    // Sent: Microsoft does, and Gmail assigns its own.
+    keepsMessageIds: provider === 'microsoft-graph',
     // Sends one message from this mailbox's open generation. A mailbox not open yet reaches no
     // provider, so the message waits.
     send: (message: OutgoingSend): Promise<SendOutcome> =>

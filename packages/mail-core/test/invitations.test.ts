@@ -21,6 +21,7 @@ import {
   invitationWhen,
 } from '@private-email/mail-core/invitations';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
 const me = 'alex@example.invalid';
 
@@ -828,6 +829,52 @@ describe('meeting invitations', () => {
 
     expect(gmail.sends).toHaveLength(2);
     expect(replyOf(gmail.sends[1])).toContain('PARTSTAT=DECLINED');
+
+    close();
+  });
+
+  it('answers an Outlook meeting request read from its MIME and finds an unknown delivery in Sent Items', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ address: me });
+    const id = graph.deliver({
+      from: { name: 'Lena Fischer', address: 'lena@northwind.example' },
+      subject: 'Q4 roadmap review',
+      calendar: calendar(meeting),
+    });
+    const inbox = createInboxStore(graph.native, {
+      provider: 'microsoft-graph',
+    });
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+    const invitation = await invitationIn(inbox, id);
+    const responses = invitationResponses(inbox, () =>
+      Date.UTC(2026, 10, 2, 9, 52),
+    );
+    graph.failSend({ lost: true });
+
+    await responses.respond(invitation, 'accepted', english);
+
+    expect(responses.state(invitation)).toMatchObject({
+      kind: 'unknown',
+      choice: 'accepted',
+    });
+
+    const [sent] = graph.sends;
+
+    expect(sent?.raw).toContain('Subject: Re: Q4 roadmap review');
+    expect(sent?.raw).toMatch(/^Message-ID: <[\da-z]+@example\.invalid>\r$/mu);
+    expect(replyOf(sent)).toContain(
+      'ATTENDEE;CN=Alex;PARTSTAT=ACCEPTED:mailto:Alex@example.invalid',
+    );
+
+    await responses.check(invitation);
+
+    expect(graph.sends).toHaveLength(1);
+    expect(responses.state(invitation)).toStrictEqual({
+      kind: 'sent',
+      choice: 'accepted',
+      at: Date.UTC(2026, 10, 2, 9, 52),
+    });
 
     close();
   });

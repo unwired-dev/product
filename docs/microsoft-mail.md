@@ -75,6 +75,11 @@ again. Other attachments download only when asked. Graph's listed size is
 approximate, so the downloaded file keeps its decoded byte size. Only file
 attachments are listed; attached Outlook items and cloud links are not.
 
+A meeting request or cancellation is an event message, so opening one also reads
+the message's MIME (`/me/messages/{id}/$value`) for its calendar part, which the
+[invitation card](invitation-responses.md#microsoft) answers. Only a meeting
+message whose attachments total at most 4 MiB is read this way.
+
 The constructed message's MIME metadata uses the same [budgets as Gmail](gmail-inbox.md#reading-messages).
 An explicit open over a budget reports the body as failed, including when an
 attachment's MIME type or Content-ID exceeds its limit. Metadata is never truncated.

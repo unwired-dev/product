@@ -31,6 +31,40 @@ const Change = Schema.fromJsonString(
     destinationId: Schema.optionalKey(Schema.String),
   }),
 );
+// In `registration-invitation` the message is Jordan Lee's meeting request, whose calendar only its
+// MIME carries.
+const meeting = [
+  'Content-Type: multipart/alternative; boundary="meeting"',
+  '',
+  '--meeting',
+  'Content-Type: text/plain; charset="utf-8"',
+  '',
+  'Agenda for Thursday.',
+  '--meeting',
+  'Content-Type: text/calendar; charset="utf-8"; method=REQUEST',
+  'Content-Transfer-Encoding: base64',
+  '',
+  Base64.encode(
+    [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'METHOD:REQUEST',
+      'BEGIN:VEVENT',
+      'UID:quarterly-planning@example.invalid',
+      'SEQUENCE:0',
+      'SUMMARY:Quarterly planning',
+      'DTSTART:20261203T090000Z',
+      'DTEND:20261203T100000Z',
+      'LOCATION:Room 2',
+      'ORGANIZER;CN=Jordan Lee:mailto:jordan@example.invalid',
+      'ATTENDEE;CN=Casey;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:casey@example.invalid',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n'),
+  ),
+  '--meeting--',
+  '',
+].join('\r\n');
 const folderID = (name: string) =>
   name === projects ? name : `AQMkAGI2-synthetic-${name}=`;
 
@@ -70,6 +104,7 @@ const performance = new Map(
 // A synthetic Microsoft mailbox read, organized and sent from through Graph: one message, in the
 // Inbox until a write moves it, a delta round that reports each later change, its text body, the
 // mailbox's folders and search. sendMail accepts every message and keeps no Sent Items copy.
+// In `registration-invitation` the message is a meeting request.
 export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
   '@private-email/mail-core/testing/SyntheticMicrosoft',
   {
@@ -198,6 +233,11 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
           },
         },
         {
+          matches: (path) =>
+            scenario === 'registration-invitation' && path.endsWith('/$value'),
+          answer: () => Effect.succeed({ status: 200, body: meeting }),
+        },
+        {
           matches: (path) => path.startsWith('/v1.0/me/messages/'),
           answer: ({ search }) =>
             reply(
@@ -205,6 +245,11 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
               search.includes('parentFolderId')
                 ? placement()
                 : {
+                    ...(scenario === 'registration-invitation'
+                      ? {
+                          '@odata.type': '#microsoft.graph.eventMessageRequest',
+                        }
+                      : {}),
                     id: message,
                     hasAttachments: false,
                     body: {

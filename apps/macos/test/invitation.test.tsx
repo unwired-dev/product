@@ -6,11 +6,12 @@ import type {
 import { createImapInbox } from '@private-email/mail-core/imap-inbox';
 import { createInboxStore } from '@private-email/mail-core/inbox-store';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 import { createSyntheticImap } from '@private-email/mail-core/testing/imap-mailbox';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { OpenMessageContext } from '../src/invitation.tsx';
-import { InboxProvider, ProfileScope } from '../src/mailbox.tsx';
+import { InboxProvider, MailboxScope, ProfileScope } from '../src/mailbox.tsx';
 import { MessageBody } from '../src/message-body.tsx';
 import { AccountContext } from '../src/registration-gate.tsx';
 import { chooseSheetButton, sheetShown } from './native-alert.ts';
@@ -33,6 +34,7 @@ const pressHandler = (
 };
 
 const me = 'alex@example.invalid';
+const outlook = 'alex@outlook.com';
 
 const invitation = (attendee: string, extra: readonly string[] = []) =>
   [
@@ -81,17 +83,42 @@ async function opened(
   });
   const inbox = createInboxStore(gmail.native);
   await inbox.load();
+  return {
+    gmail,
+    ...(await reader(inbox, id, {
+      owner: { provider: 'gmail', address: me },
+      authorizeMailbox,
+      others,
+    })),
+  };
+}
+
+// The reader showing message `id` of `inbox`, the opened `owner` mailbox.
+async function reader(
+  inbox: ReturnType<typeof createInboxStore>,
+  id: string,
+  {
+    owner,
+    authorizeMailbox = () => Promise.resolve(),
+    others = [],
+  }: Readonly<{
+    owner: Readonly<{ provider: MailProvider; address: string }>;
+    authorizeMailbox?: (connection: string) => Promise<void>;
+    others?: ReadonlyArray<
+      Readonly<{ provider: MailProvider; address: string; profile: string }>
+    >;
+  }>,
+) {
   // The messages the reader's window opened in its place.
   const shown: string[] = [];
-  const mailboxes = [
-    { provider: 'gmail' as const, address: me, profile: 'default' },
-    ...others,
-  ].map((mailbox, index) => ({
-    ...mailbox,
-    id: index === 0 ? 'gmail-connection' : `connection-${index}`,
-    inbox,
-    state: inbox.getSnapshot(),
-  }));
+  const mailboxes = [{ ...owner, profile: 'default' }, ...others].map(
+    (mailbox, index) => ({
+      ...mailbox,
+      id: index === 0 ? 'gmail-connection' : `connection-${index}`,
+      inbox,
+      state: inbox.getSnapshot(),
+    }),
+  );
   const app = await render(
     <AccountContext
       value={{
@@ -115,17 +142,39 @@ async function opened(
             value={(opened) => {
               shown.push(opened);
             }}>
-            <MessageBody
-              inbox={inbox}
-              id={id}
-              connection="gmail-connection"
-            />
+            <MailboxScope id="gmail-connection">
+              <MessageBody
+                inbox={inbox}
+                id={id}
+                connection="gmail-connection"
+              />
+            </MailboxScope>
           </OpenMessageContext>
         </ProfileScope>
       </InboxProvider>
     </AccountContext>,
   );
-  return { gmail, inbox, app, shown };
+  return { inbox, id, app, shown };
+}
+
+// The reader showing a meeting request received by a synthetic Outlook.com mailbox.
+async function openedOutlook() {
+  const graph = createSyntheticGraph({ address: outlook });
+  const id = graph.deliver({
+    from: { name: 'Lena Fischer', address: 'lena@northwind.example' },
+    subject: 'Q4 roadmap review',
+    calendar: invitation(outlook),
+  });
+  const inbox = createInboxStore(graph.native, {
+    provider: 'microsoft-graph',
+  });
+  await inbox.load();
+  return {
+    graph,
+    ...(await reader(inbox, id, {
+      owner: { provider: 'microsoft-graph', address: outlook },
+    })),
+  };
 }
 
 // An IMAP invitation for the opened mailbox, whose connection is `connection`. Records where each
@@ -232,6 +281,28 @@ describe('meeting invitations in the Mac reader', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Accepted' }));
 
       expect(gmail.sends).toHaveLength(1);
+    } finally {
+      await app.unmount();
+    }
+  });
+
+  it('answers an Outlook.com invitation and shows that Outlook.com sent it', async () => {
+    expect.hasAssertions();
+    const { graph, app } = await openedOutlook();
+    try {
+      await expect(
+        screen.findByText('alex@outlook.com · Outlook.com'),
+      ).resolves.toBeOnTheScreen();
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Accept' }));
+      await expect(screen.findByText('Accepted')).resolves.toBeOnTheScreen();
+
+      expect(graph.sends).toHaveLength(1);
+      expect(
+        screen.getByText(
+          /^Outlook\.com confirmed it sent your response to Lena Fischer at /u,
+        ),
+      ).toBeOnTheScreen();
     } finally {
       await app.unmount();
     }
