@@ -4631,7 +4631,7 @@ final class InboxTests: XCTestCase {
 
   // #2193: at the largest text size the iPad hides Mailboxes in either orientation, and Show
   // Sidebar shows it in the list's place beside the reader, where labels break only between
-  // words; choosing a Mailbox shows its list again.
+  // words; choosing a Mailbox, or searching from the bar, shows the list again.
   private func verifyLargestTextMailboxes(_ app: XCUIApplication, list: XCUIElement) {
     func hittable(_ label: String) -> XCUIElement? {
       app.buttons.matching(identifier: label).allElementsBoundByIndex.first { $0.isHittable }
@@ -4653,7 +4653,17 @@ final class InboxTests: XCTestCase {
       XCTAssertNotNil(inboxes)
       XCTAssertFalse(list.exists)
       attachScreen("Mailboxes in the list's place at the largest text size, \(name)", of: app, to: self)
-      inboxes?.tap()
+      if orientation == .portrait {
+        // Searching from the window's bar shows the list again.
+        let search = app.searchFields.firstMatch
+        search.tap()
+        search.typeText("Maya\n")
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        closeSearch(app).tap()
+      } else {
+        inboxes?.tap()
+      }
       waitUntil { list.exists && hittable("Show Sidebar") != nil }
     }
   }

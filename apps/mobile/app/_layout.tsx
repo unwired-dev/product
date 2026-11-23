@@ -546,6 +546,8 @@ function MailShell() {
   const recovery = useRecoveryOffer(draft, compose);
 
   function closeReader() {
+    // Go To Inbox and Search Mail show the list, also where Mailboxes takes its place (#2193).
+    sidebarToggle.hideInList();
     reader.current = {
       id: undefined,
       mailbox: undefined,
@@ -643,6 +645,7 @@ function MailShell() {
             value={() => {
               setView({ outbox: true });
               setOutboxShown({});
+              sidebarToggle.hideInList();
               // iPhone's single column returns to the list; beside it, the list is already shown.
               if (collapsed) {
                 closeReader();
@@ -740,7 +743,10 @@ function MailShell() {
                                 }
                               : undefined
                           }
-                          onView={setView}
+                          onView={(next) => {
+                            setView(next);
+                            sidebarToggle.hideInList();
+                          }}
                           selected={
                             id === undefined || mailbox === undefined
                               ? undefined
@@ -769,13 +775,21 @@ function MailShell() {
             </ReaderPaneWidthContext>
           </ShowOutboxContext>
           {regular ? (
-            <WindowBarHost
-              windowBar={windowBar}
-              readerWidth={readerWidth}
-              keyboardLift={height - available}
-              // The bar sits on the home indicator's inset and rises above a docked keyboard.
-              bottom={Math.max(insets.bottom, spacing.l) + height - available}
-            />
+            // Searching from the bar shows the list where Mailboxes takes its place (#2193).
+            <View
+              pointerEvents="box-none"
+              style={StyleSheet.absoluteFill}
+              onTouchStart={() => {
+                sidebarToggle.hideInList();
+              }}>
+              <WindowBarHost
+                windowBar={windowBar}
+                readerWidth={readerWidth}
+                keyboardLift={height - available}
+                // The bar sits on the home indicator's inset and rises above a docked keyboard.
+                bottom={Math.max(insets.bottom, spacing.l) + height - available}
+              />
+            </View>
           ) : null}
         </WindowBarContext>
         <ComposerScrim
