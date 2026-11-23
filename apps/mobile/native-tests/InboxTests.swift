@@ -3613,6 +3613,15 @@ final class InboxTests: XCTestCase {
       }
       try verifyUnsqueezed(destination)
       try audit(app, "\(destination) at the largest text size", for: [.textClipped, .dynamicType])
+      // Each control in the destination scrolls into reach. On iPad the swipe scrolls the detail, so
+      // the check skips the 256pt sidebar (8pt inset and 248pt panel), whose list scrolls apart.
+      let controls = app.buttons.allElementsBoundByIndex + app.switches.allElementsBoundByIndex
+      for control in controls where phone || control.frame.minX >= 256 {
+        for _ in 0..<8 where !control.isHittable {
+          app.swipeUp()
+        }
+        XCTAssertTrue(control.isHittable, "\(control.label) is out of reach in \(destination)")
+      }
     }
   }
 
@@ -3828,7 +3837,7 @@ final class InboxTests: XCTestCase {
     case .dynamicType
     where issue.element?.elementType == .textView
       && [
-        "Signatures", "Composer at the largest text size",
+        "Signatures", "Signatures at the largest text size", "Composer at the largest text size",
         "Composer fields at the largest text size",
       ].contains(screen):
       return "React Native multiline text input (#2231)"

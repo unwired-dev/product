@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
   },
   // On iPhone the pop-up's 44pt target reaches into the row's padding, keeping the row 52pt.
   popUpTarget: { marginVertical: settingsColumns ? 0 : -spacing.m },
-  popUpStacked: { marginVertical: 0 },
+  popUpStacked: { marginVertical: 0, flexShrink: 1 },
   popUpLabelWrap: { flexShrink: 1 },
   popUp: {
     minHeight: 44,

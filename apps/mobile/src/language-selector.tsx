@@ -21,8 +21,9 @@ const styles = StyleSheet.create({
   // The iPhone Settings Row's pop-up: the choice in Body, then a 22pt circle holding the up-down
   // chevrons 12pt after it, at the row's trailing edge.
   menu: { minHeight: 44, marginVertical: -spacing.m },
-  // Stacked beneath the row's title at accessibility text sizes, the pop-up wraps its choice.
-  menuStacked: { marginVertical: 0 },
+  // Stacked beneath the row's title at accessibility text sizes, the pop-up shrinks to the row and
+  // wraps its choice beside the chevrons.
+  menuStacked: { marginVertical: 0, flexShrink: 1 },
   choiceWrap: { flexShrink: 1 },
   popUp: {
     minHeight: 44,
