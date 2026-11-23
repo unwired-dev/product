@@ -892,6 +892,67 @@ describe('meeting invitations', () => {
     close();
   });
 
+  it('shows an Outlook meeting request’s own calendar ahead of an attached calendar file', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ address: me });
+    const other = calendar(
+      meeting.map((line) =>
+        line.replace('roadmap-42@northwind.example', 'other@example.invalid'),
+      ),
+    );
+    const id = graph.deliver({
+      calendar: calendar(meeting),
+      attachments: [
+        {
+          name: 'other.ics',
+          contentType: 'text/calendar',
+          bytes: [...new TextEncoder().encode(other)],
+        },
+      ],
+    });
+    const inbox = createInboxStore(graph.native, {
+      provider: 'microsoft-graph',
+    });
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+
+    const invitation = await invitationIn(inbox, id);
+
+    expect(invitation.uid).toBe('roadmap-42@northwind.example');
+
+    close();
+  });
+
+  it('leaves an Outlook meeting request readable without a card when its calendar cannot decode', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ address: me });
+    const id = graph.deliver({ calendar: calendar(meeting) });
+    const inbox = createInboxStore(
+      {
+        ...graph.native,
+        // Base64 that cannot decode in place of the MIME's calendar line.
+        graphRequest: async (url, owner) => {
+          const reply = await graph.native.graphRequest(url, owner);
+          return {
+            ...reply,
+            body: reply.body.replace(/^[\d+/=A-Za-z]+\r$/mu, 'x\r'),
+          };
+        },
+      },
+      { provider: 'microsoft-graph' },
+    );
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+
+    expect(inbox.responseSource(id)).toMatchObject({
+      text: expect.stringContaining('Synthetic body.'),
+    });
+    expect(inbox.responseSource(id)?.calendar).toBeUndefined();
+
+    close();
+  });
+
   it('names the meeting in the subject when the invitation message is gone', async () => {
     expect.hasAssertions();
     const { gmail, invitation, responses, close } = await invited();

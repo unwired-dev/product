@@ -451,7 +451,8 @@ const calendarPart = (
     : [];
 
 // A Graph message as the MIME tree Gmail would return: its one decoded body, then inline parts in
-// the related scope and other attachments beside it, and a meeting message's calendar last. Its
+// the related scope, a meeting message's calendar ahead of any attached calendar file, and other
+// attachments. Its
 // shape depends only on the attachment list and message type, so a part's locator is the same
 // whether or not inline images were read.
 export function graphPayload(
@@ -484,10 +485,10 @@ export function graphPayload(
             .map(attachmentPart),
         ],
       },
+      ...calendar,
       ...attachments
         .filter(({ isInline }) => isInline !== true)
         .map(attachmentPart),
-      ...calendar,
     ],
   };
 }

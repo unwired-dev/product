@@ -418,7 +418,7 @@ export function createGraphReader(
   });
 
   // A meeting message's calendar, read from its MIME as UTF-8 text. A MIME with no calendar that
-  // fits is not found, which leaves the message readable without one.
+  // fits or decodes is not found, which leaves the message readable without one.
   const calendarData = Effect.fnUntraced(function* (
     scope: MailboxScope,
     id: string,
@@ -432,7 +432,8 @@ export function createGraphReader(
         : yield* partText(part, part.body?.data ?? '').pipe(
             Effect.orElseSucceed(() => undefined),
           );
-    if (text === undefined) {
+    // An undecodable transfer encoding reads as empty.
+    if (text === undefined || text === '') {
       return yield* new GmailNotFound();
     }
     const bytes = new TextEncoder().encode(text);
