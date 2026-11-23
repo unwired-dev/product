@@ -1507,13 +1507,26 @@ function AssetStatus({
   );
 }
 
-// The display sizes an inline image offers, as in the approved #1735 frames; Original has none.
+// The display sizes an inline image offers, as in the approved #1735 frames; Original names the
+// image's own size.
 const imageSizes = [
   ['small', 320],
   ['medium', 640],
   ['large', 1024],
   ['original', undefined],
 ] as const;
+
+const sizeTitle = (
+  t: Translate,
+  size: (typeof imageSizes)[number][0],
+  width: number | undefined,
+) =>
+  width === undefined
+    ? t(`drafts.assets.size.${size}`)
+    : t('drafts.assets.size.withWidth', {
+        size: t(`drafts.assets.size.${size}`),
+        width,
+      });
 
 // An asset row's context menu and VoiceOver actions: an image in the body offers its display
 // sizes in an Image Size submenu, and Remove Image; an editor that converts offers that, with
@@ -1524,6 +1537,7 @@ const assetMenu = (
     asset,
     inline,
     width,
+    dimensions,
     onConvert,
     onRemove,
     onResize,
@@ -1531,6 +1545,8 @@ const assetMenu = (
     asset: Asset;
     inline: boolean;
     width: ImageWidth | null | undefined;
+    // The image's own pixel size, once its preview names one.
+    dimensions: Readonly<{ width: number; height: number }> | undefined;
     onConvert: ((id: string) => void) | undefined;
     onRemove: (id: string) => void;
     onResize: ((width: ImageWidth | undefined) => void) | undefined;
@@ -1542,19 +1558,19 @@ const assetMenu = (
       ? []
       : imageSizes.map(([size, sizeWidth]) => ({
           key: `size:${size}:${asset.id}`,
-          title:
-            sizeWidth === undefined
-              ? t(`drafts.assets.size.${size}`)
-              : t('drafts.assets.size.withWidth', {
-                  size: t(`drafts.assets.size.${size}`),
-                  width: sizeWidth,
-                }),
+          title: sizeTitle(t, size, sizeWidth ?? dimensions?.width),
           symbol: '',
           checked: width === sizeWidth,
-          accessibilityLabel: t('drafts.assets.size.label', {
-            name: asset.name,
-            size: t(`drafts.assets.size.${size}`),
-          }),
+          accessibilityLabel:
+            sizeWidth === undefined && dimensions !== undefined
+              ? t('drafts.assets.size.originalLabel', {
+                  name: asset.name,
+                  ...dimensions,
+                })
+              : t('drafts.assets.size.label', {
+                  name: asset.name,
+                  size: t(`drafts.assets.size.${size}`),
+                }),
           run: () => {
             onResize(sizeWidth);
           },
@@ -1669,6 +1685,7 @@ function AssetRow({
     asset,
     inline,
     width,
+    dimensions: preview?.kind === 'ready' ? preview.dimensions : undefined,
     onConvert,
     onRemove,
     onResize,
