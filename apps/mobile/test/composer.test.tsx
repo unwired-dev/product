@@ -7580,6 +7580,38 @@ describe('adding files and images to a Draft', () => {
     expect(imageWidthOf(saved.body, image.id)).toBe(1024);
   });
 
+  it('names an inline image’s own dimensions under Original once its preview reads them (#2729)', async () => {
+    expect.hasAssertions();
+    const registration = account(connected(['alex@example.invalid']));
+    const storage = createSyntheticDrafts(() => 'synthetic-product-account');
+    jest.spyOn(storage.native, 'readDraftAsset').mockResolvedValue({
+      uri: 'data:image/png;base64,AA==',
+      width: 4032,
+      height: 2688,
+    });
+    await render(
+      <App
+        drafts={createDrafts(storage.native, registration)}
+        registration={registration}
+      />,
+    );
+    await press('New Message');
+    storage.addFile('file:///chart.png', 'chart');
+    storage.pickNext('paste', [
+      { uri: 'file:///chart.png', name: 'Pasted image.png', type: 'image/png' },
+    ]);
+    await press('Paste Image');
+    await screen.findByLabelText('Inline image Pasted image.png');
+    const original = assetMenuOf(
+      screen.getByLabelText(/^Pasted image\.png, /u),
+    ).sections[0]?.items.at(-1);
+    expect(original).toMatchObject({
+      title: 'Original',
+      subtitle: '4032 × 2688',
+      checked: true,
+    });
+  });
+
   it('checks no size while an image’s uses differ, resizes them together and offers no size for a quoted image (#2577)', async () => {
     expect.hasAssertions();
     const image = (id: string, name: string) =>

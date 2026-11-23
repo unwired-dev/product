@@ -673,7 +673,8 @@ colors, and the image shows at its original size. The editor page's `resize`
 command sets or clears the width of every use of one image as one undoable edit.
 
 On iPhone and iPad, touching and holding an inline image's row opens its menu:
-**Small**, **Medium** and **Large** with their widths, **Original**, a checkmark at
+**Small**, **Medium** and **Large** with their widths, **Original** with the
+image's own width and height in pixels, such as **4032 × 2688**, a checkmark at
 the image's current size, and **Remove Image**. VoiceOver offers the sizes as
 actions on the row. The body is plain text and draws no image, so the menu opens
 from the row that shows the picture, where the approved
@@ -685,13 +686,16 @@ nothing. An image only in quoted correspondence offers no sizes.
 
 On the Mac, Control-clicking an inline image's row opens its menu with an
 **Image Size** submenu: **Small · 320 px**, **Medium · 640 px**, **Large · 1024 px**
-and **Original**, with a checkmark at the current size, then **Remove Image**.
+and **Original** with the image's own width, such as **Original · 4032 px**, with a
+checkmark at the current size, then **Remove Image**.
 VoiceOver offers the same sizes as actions on the row, and a size works as on
 iPhone and iPad. The approved
 [macOS](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T/?node-id=1243-3794)
 frame opens the menu from the image in the body; the body draws no image, so it
-opens from the row. The original dimensions, the size caption, and drawing the
-image in the body with corner handles come in later
+opens from the row. The image's own size is read on the device with the row's
+thumbnail, after the image's orientation, so a turned photo reads portrait; until
+it is read, or when the image does not state it, **Original** shows no size. The
+size caption and drawing the image in the body with corner handles come in later
 [#1735](https://github.com/unwired-dev/product/issues/1735) slices.
 
 An added file is **importing** until its bytes are stored. While it imports, its

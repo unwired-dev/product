@@ -1708,7 +1708,8 @@ function usePreview(asset: Asset, inline: boolean) {
   return { preview: shown, retry };
 }
 
-// The display sizes an inline image offers, as in the approved #1735 frames; Original has none.
+// The display sizes an inline image offers, as in the approved #1735 frames; Original names the
+// image's own size.
 const imageSizes = [
   ['small', 320],
   ['medium', 640],
@@ -1724,6 +1725,7 @@ const assetMenu = (
     asset,
     inline,
     width,
+    dimensions,
     onConvert,
     onRemove,
     onResize,
@@ -1731,6 +1733,8 @@ const assetMenu = (
     asset: Asset;
     inline: boolean;
     width: ImageWidth | null | undefined;
+    // The image's own pixel size, once its preview names one.
+    dimensions: Readonly<{ width: number; height: number }> | undefined;
     onConvert: ((id: string) => void) | undefined;
     onRemove: (id: string) => void;
     onResize: ((width: ImageWidth | undefined) => void) | undefined;
@@ -1740,24 +1744,26 @@ const assetMenu = (
   const sizes =
     onResize === undefined
       ? []
-      : imageSizes.map(([size, sizeWidth]) => ({
-          key: `size:${size}:${asset.id}`,
-          title: t(`drafts.assets.size.${size}`),
-          symbol: '',
-          ...(sizeWidth === undefined
-            ? {}
-            : {
-                subtitle: t('drafts.assets.size.width', { width: sizeWidth }),
-              }),
-          checked: width === sizeWidth,
-          accessibilityLabel: t('drafts.assets.size.label', {
-            name: asset.name,
-            size: t(`drafts.assets.size.${size}`),
-          }),
-          run: () => {
-            onResize(sizeWidth);
-          },
-        }));
+      : imageSizes.map(([size, sizeWidth]) => {
+          const subtitle =
+            sizeWidth === undefined
+              ? dimensions && t('drafts.assets.size.dimensions', dimensions)
+              : t('drafts.assets.size.width', { width: sizeWidth });
+          return {
+            key: `size:${size}:${asset.id}`,
+            title: t(`drafts.assets.size.${size}`),
+            symbol: '',
+            ...(subtitle === undefined ? {} : { subtitle }),
+            checked: width === sizeWidth,
+            accessibilityLabel: t('drafts.assets.size.label', {
+              name: asset.name,
+              size: t(`drafts.assets.size.${size}`),
+            }),
+            run: () => {
+              onResize(sizeWidth);
+            },
+          };
+        });
   const convert =
     onConvert !== undefined && (inline || asset.type.startsWith('image/'))
       ? [
@@ -1852,6 +1858,7 @@ function AssetRow({
     asset,
     inline,
     width,
+    dimensions: preview?.kind === 'ready' ? preview.dimensions : undefined,
     onConvert,
     onRemove,
     onResize,

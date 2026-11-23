@@ -1429,6 +1429,7 @@
         "large": "Large",
         "original": "Original",
         "width": "{{width}} px",
+        "dimensions": "{{width}} × {{height}}",
         "withWidth": "{{size}} · {{width}} px",
         "menu": "Image Size",
         "label": "Show {{name}} at {{size}} size"
