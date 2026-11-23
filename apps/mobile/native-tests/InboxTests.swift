@@ -3586,10 +3586,8 @@ final class InboxTests: XCTestCase {
           element.frame.width, 60, "\(element.label) is squeezed in \(screen)")
       }
     }
-    for destination in [
-      nil, "Account & Devices", "Email Accounts", "Profiles", "Reading", "Signatures",
-      "Notifications", "Blocked Senders", "Appearance", "Language", "Privacy & Data",
-    ] {
+    // Opens Settings, then the destination, on a fresh launch at the largest size.
+    func open(_ destination: String?) {
       app.terminate()
       app.launch()
       // A tap before the Inbox lists its messages can reach the palette's button before its handler.
@@ -3600,21 +3598,27 @@ final class InboxTests: XCTestCase {
       waitForFocus(query)
       submit("Account", into: query, in: app)
       XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 10))
-      guard let destination else {
-        try verifyUnsqueezed("Settings")
-        try audit(app, "Settings at the largest text size", for: [.textClipped, .dynamicType])
-        continue
-      }
+      guard let destination else { return }
       openSettings(destination, in: app)
       if phone {
         XCTAssertTrue(app.navigationBars[destination].waitForExistence(timeout: 10))
       } else {
         waitUntil { app.buttons[destination].firstMatch.isSelected }
       }
-      try verifyUnsqueezed(destination)
-      try audit(app, "\(destination) at the largest text size", for: [.textClipped, .dynamicType])
-      // Each control in the destination scrolls into reach. On iPad the swipe scrolls the detail, so
-      // the check skips the 256pt sidebar (8pt inset and 248pt panel), whose list scrolls apart.
+    }
+    for destination in [
+      nil, "Account & Devices", "Email Accounts", "Profiles", "Reading", "Signatures",
+      "Notifications", "Blocked Senders", "Appearance", "Language", "Privacy & Data",
+    ] {
+      open(destination)
+      let screen = destination ?? "Settings"
+      try verifyUnsqueezed(screen)
+      try audit(app, "\(screen) at the largest text size", for: [.textClipped, .dynamicType])
+      guard let destination else { continue }
+      // Each control in the destination scrolls into reach, checked on a fresh launch because the
+      // audit leaves the app at the system's text size. On iPad the swipe scrolls the detail, so the
+      // check skips the 256pt sidebar (8pt inset and 248pt panel), whose list scrolls apart.
+      open(destination)
       let controls = app.buttons.allElementsBoundByIndex + app.switches.allElementsBoundByIndex
       for control in controls where phone || control.frame.minX >= 256 {
         for _ in 0..<8 where !control.isHittable {

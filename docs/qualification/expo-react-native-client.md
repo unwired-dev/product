@@ -19,9 +19,10 @@ deferral still applies to unavailable release checks. Mac host evidence follows.
 Accessibility XXXL, opens Settings and each destination it lists, and runs the
 XCTest audit for clipped text and Dynamic Type on each. It also fails when a
 text of four or more characters is narrower than 60 points, and on iPhone and
-in the iPad detail it scrolls each button and switch into reach. It ran on a `registration-performance`
-Release Simulator build with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and
-macOS 27.2.1, in Dark. Host load was 5–700 from other work.
+in the iPad detail it scrolls each button and switch into reach on a fresh
+launch. It ran on a `registration-performance` Release Simulator build with
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2.1, in Dark.
+Host load was 5–700 from other work.
 
 - Before, on iPhone 18 Pro at 50debb80d: Email Accounts, Reading and Account &
   Devices squeezed row titles beside their values, a letter or two to a line,
@@ -42,8 +43,8 @@ macOS 27.2.1, in Dark. Host load was 5–700 from other work.
   ([#1873](https://github.com/unwired-dev/product/issues/1873)), before the
   step, so it ran in a probe: an uncommitted copy of the journey that runs the
   step after the Inbox audit. It printed `PROBE2730`. Every screen passed the
-  audit, the width check and the reach check. The 248-point sidebar still breaks single words
-  between characters ("Accoun/ts", "Readin/g"), and the detail's one-line title
+  audit, the width check and the reach check. The 248-point sidebar still
+  breaks single words between characters ("Accoun/ts", "Readin/g"), and the detail's one-line title
   truncates ("Acco…"); that layout waits for approved frames in
   [#2735](https://github.com/unwired-dev/product/issues/2735).
 - Settings › Signatures holds the signature editor, whose Dynamic Type finding
@@ -51,10 +52,11 @@ macOS 27.2.1, in Dark. Host load was 5–700 from other work.
   [#2231](https://github.com/unwired-dev/product/issues/2231) once it holds
   text. The journey's editor is empty, and on both devices its audit reported
   nothing.
-- Default text size: every change applies only at accessibility sizes
-  (`useLargeText()`), and the same journey's default-size audit of the
-  Settings list passed on iPhone. A default-size comparison of each
-  destination is deferred.
+- Default text size: the layout changes apply only at accessibility sizes
+  (`useLargeText()`). The account and Profile monogram letters and the iPhone
+  Settings bar title no longer scale at any size, so at the default size they
+  are unchanged. The same journey's default-size audit of the Settings list
+  passed on iPhone. A default-size comparison of each destination is deferred.
 - **Light appearance, landscape, VoiceOver and physical devices are deferred.**
 
 ## iPhone and iPad Remind Me to Send time zone line, 2026-11-23
