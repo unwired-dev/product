@@ -73,6 +73,7 @@ import { styles } from './inbox-styles.ts';
 import { Label } from './label.tsx';
 import { useLocalization } from './localization.ts';
 import { useListedMailbox } from './mailbox-folders.tsx';
+import { useAllMailboxes } from './mailbox-list.ts';
 import {
   MailboxScope,
   useDrafts,
@@ -102,6 +103,7 @@ import {
   checking,
   offline,
   refused,
+  retryMailboxes,
   SyncStatusCapsule,
 } from './sync-status.tsx';
 import { usePalette } from './theme.ts';
@@ -1020,6 +1022,7 @@ export function Inbox({
 }: InboxProps) {
   const reporting = use(ErrorReportingContext);
   const mailboxes = useMailboxes();
+  const every = useAllMailboxes();
   // The reader's toast, such as a saved attachment's, with the bar's notices.
   const [readerToast, setReaderToast] = useState<ReactNode>(null);
   // The view a Pin or Unpin that storage refused explains itself on.
@@ -1174,6 +1177,7 @@ export function Inbox({
   };
   const synchronize = (loaded: readonly InboxMailbox[]) =>
     account === undefined ? load(loaded)() : account.refreshInbox(load(loaded));
+  const tryAgain = retryMailboxes(account, every, load);
   const [refreshing, setRefreshing] = useState(false);
   useMenuCommand('refresh', () => {
     const refresh = async () => {
@@ -1564,7 +1568,7 @@ export function Inbox({
           <>
             <SyncStatusCapsule
               now={now}
-              onTryAgain={synchronize}
+              onTryAgain={tryAgain}
               refreshing={refreshing}
               shown={shown}
               sidebarShown={sidebarShown}

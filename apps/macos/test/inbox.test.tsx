@@ -31,6 +31,7 @@ import type { MailboxView } from '../src/sidebar.tsx';
 
 import { Inbox } from '../src/inbox.tsx';
 import { InboxProvider } from '../src/mailbox.tsx';
+import { AccountContext } from '../src/registration-gate.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
 
 // Only the native menu boundary is substituted; its events arrive as the host sends them.
@@ -75,7 +76,9 @@ const limitWithTime = (gmail: ReturnType<typeof createSyntheticGmail>) => {
 // Two mailboxes shown together, each from its own Inbox store.
 const twoMailboxes = (
   work: ReturnType<typeof createInboxStore>,
-  home: ReturnType<typeof createInboxStore>,
+  home:
+    | ReturnType<typeof createInboxStore>
+    | ReturnType<typeof createPersistentInbox>,
 ) => {
   const both = [
     singleMailbox(work, 'work-mailbox'),
@@ -477,6 +480,66 @@ describe('message list', () => {
     }
   });
 
+  it('asks only the shown connection on Try Again while Gmail pauses another, unshown one until its time', async () => {
+    expect.hasAssertions();
+    const work = createSyntheticGmail();
+    const home = createSyntheticGmail();
+    const workInbox = createInboxStore(work.native);
+    const homeInbox = createInboxStore(home.native);
+    const mailboxes = twoMailboxes(workInbox, homeInbox);
+    const refreshInbox = jest.fn(async (load: () => Promise<void>) => {
+      await load();
+    });
+    await render(
+      <AccountContext
+        value={{
+          mailboxes: [],
+          openAccount: () => undefined,
+          authorizeMailbox: () => Promise.resolve(),
+          refreshInbox,
+          account: 'synthetic-product-account',
+          profiles: [],
+          createProfile: () => Promise.resolve(undefined),
+          chooseFolders: () => Promise.resolve(true),
+        }}>
+        <InboxProvider mailboxes={mailboxes}>
+          <Inbox
+            onSelect={() => undefined}
+            selected={undefined}
+            view={{ mailbox: 'home-mailbox' }}
+          />
+        </InboxProvider>
+      </AccountContext>,
+    );
+    try {
+      limitWithTime(work);
+      home.fail({ status: 429 });
+      await act(mailboxes.load);
+      await fireEvent.press(
+        screen.getByRole('button', { name: 'Gmail paused' }),
+      );
+      const asked = work.requests.length;
+      await act(async () => {
+        await fireEvent.press(
+          within(screen.getByTestId('sync-status-details')).getByRole(
+            'button',
+            { name: 'Try Again for Gmail · home-mailbox' },
+          ),
+        );
+      });
+      expect(refreshInbox).toHaveBeenCalledWith(
+        expect.any(Function),
+        'explicit',
+        'home-mailbox',
+      );
+      expect(work.requests).toHaveLength(asked);
+    } finally {
+      await cleanup();
+      workInbox.forget();
+      homeInbox.forget();
+    }
+  });
+
   it('keeps the attention capsule when one mailbox is paused by Gmail and another cannot be reached', async () => {
     expect.hasAssertions();
     const work = createSyntheticGmail();
@@ -506,6 +569,48 @@ describe('message list', () => {
       await cleanup();
       workInbox.forget();
       homeInbox.forget();
+    }
+  });
+
+  it('keeps the attention capsule when one mailbox is paused by Gmail and another’s storage is locked', async () => {
+    expect.hasAssertions();
+    const work = createSyntheticGmail();
+    const workInbox = createInboxStore(work.native);
+    const locked = createPersistentInbox(
+      {
+        ...makeMockInboxStorage(),
+        open: () =>
+          Promise.reject(
+            Object.assign(new Error('locked'), { code: 'locked' }),
+          ),
+      },
+      createMockMailSession('open-read-relaunch').mail.list,
+    );
+    const mailboxes = twoMailboxes(workInbox, locked);
+    await render(
+      <InboxProvider mailboxes={mailboxes}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+        />
+      </InboxProvider>,
+    );
+    try {
+      limitWithTime(work);
+      await act(mailboxes.load);
+      expect(
+        screen.getByRole('button', { name: /needs? attention$/u }),
+      ).toBeOnTheScreen();
+      expect(
+        screen.queryByRole('button', { name: /^Gmail paused/u }),
+      ).toBeNull();
+      // Only the storage notice offers Try Again: Gmail's time has not come yet.
+      expect(screen.getAllByRole('button', { name: 'Try Again' })).toHaveLength(
+        1,
+      );
+    } finally {
+      await cleanup();
+      workInbox.forget();
     }
   });
 

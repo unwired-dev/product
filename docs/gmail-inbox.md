@@ -412,15 +412,19 @@ during search, the capsule rises with it and stays 12pt above it.
   search, and opens the same Sync Status sheet. On Mac, while the sidebar is shown,
   the pause appears at the foot of the sidebar, above Drafts and Settings, in
   place of the capsule; clicking it opens Sync Status in a popover beside it. With
-  the sidebar hidden, the capsule says it.
+  the sidebar hidden, the capsule says it. Locked or failed storage beside a pause keeps
+  the attention summary, whose **Try Again** waits while every failed connection waits for
+  Gmail's time. While Gmail's time for any connection, in any Mail Profile, has not come,
+  **Try Again** for another verifies only that connection with its provider, not the whole
+  registration, so Gmail hears nothing from the paused one before its time.
   A paused mailbox is not Offline: the list header keeps its unread count.
 - **Idle.** The capsule fades out. A refused grant or password also keeps its own
   authorization notice above the list, and the sidebar keeps each connection's problem.
 
 On Mac, clicking the capsule opens **Sync Status** in an AppKit popover above it.
-Each shown connection has a row with its provider and address and what it is doing:
+The connections sit in an inset group. Each shown connection has a row with its provider and address and what it is doing:
 checking its server, downloading history with its message count and a progress bar,
-up to date with its last update, or its problem with a warning and its own
+up to date with its last update and a green checkmark, or its problem with a warning and its own
 **Try Again**, which synchronizes only that connection. Below the rows the popover
 gives the time the shown mailboxes were last all up to date and points to
 **View › Refresh** (⌘R), which synchronizes the key window's shown mailboxes and
@@ -440,7 +444,10 @@ the last update, this footer is where it appears.
 A connection paused by Gmail's usage limit shows a clock and, when Gmail named a
 time, **Gmail is limiting requests from this account and asked Unwired to wait
 until 14:20.** (**Limited by Gmail until 14:20** in the iPad and Mac popovers); its
-**Try Again** stays unavailable, beside **Available at 14:20**, until then.
+**Try Again** stays unavailable, beside **Available at 14:20**, until then. On Mac a
+paused connection shows no history progress bar, since the pass waits too, and while any
+shown connection is paused the popover is 320 points wide, as the frames draw it, and an
+up-to-date row gives the clock time of its last update, such as **Up to date · 9:40**.
 Without a time it reads **Limited by Gmail, 2nd time today. Gmail didn’t say for
 how long; trying again automatically, waiting longer each time.** and its
 **Try Again** stays available. While any shown connection is paused, the footer

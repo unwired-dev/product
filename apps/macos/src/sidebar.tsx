@@ -53,7 +53,11 @@ import { useProfileOutbox } from './outbox.tsx';
 import { InboxPreferencesContext } from './preview-lines.tsx';
 import { ProfileMonogram, promptNewProfile } from './profile-settings.tsx';
 import { AccountContext } from './registration-gate.tsx';
-import { SyncStatusSidebarWarning, limited } from './sync-status.tsx';
+import {
+  SyncStatusSidebarWarning,
+  limited,
+  retryMailboxes,
+} from './sync-status.tsx';
 import { textStyles, usePalette, useProfilePalette } from './theme.ts';
 
 // What the message list shows: every mailbox of the Profile, one mailbox, one of its folders, a
@@ -665,6 +669,10 @@ function EditFavorites({
   });
 }
 
+const loadInboxes = (loaded: readonly InboxMailbox[]) => async () => {
+  await Promise.allSettled(loaded.map(({ inbox }) => inbox.load()));
+};
+
 // The Mailboxes of the window's Profile: every Inbox together, the Unified Mailboxes with the
 // Outbox after Sent while it holds a message, then each Mailbox Connection with its folders, and
 // Settings last.
@@ -682,6 +690,7 @@ export function Mailboxes({
   readonly toggle?: ReactNode;
 }) {
   const mailboxes = useMailboxes();
+  const every = useAllMailboxes();
   const account = use(AccountContext);
   const profile = useProfile();
   const reload = useReloadMailboxes();
@@ -703,12 +712,7 @@ export function Mailboxes({
   }).keepsChoice
     ? mailboxes.filter(({ id }) => id === view.mailbox)
     : mailboxes;
-  const tryAgain = async (loaded: readonly InboxMailbox[]) => {
-    const load = async () => {
-      await Promise.allSettled(loaded.map(({ inbox }) => inbox.load()));
-    };
-    await (account === undefined ? load() : account.refreshInbox(load));
-  };
+  const tryAgain = retryMailboxes(account, every, loadInboxes);
   const authorize = async (connection: string) => {
     await account?.authorizeMailbox(connection);
     await reload();
