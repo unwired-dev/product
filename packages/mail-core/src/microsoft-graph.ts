@@ -27,7 +27,7 @@ export const graphDelta = (view: string) =>
   `${graphRoot}/me/mailFolders/${graphFolder(view)}/messages/delta?$select=${listed}&$orderby=receivedDateTime%20desc`;
 
 export const graphFolderMessage = (view: string, id: string) =>
-  `${graphRoot}/me/mailFolders/${graphFolder(view)}/messages/${id}?$select=${listed}`;
+  `${graphRoot}/me/mailFolders/${graphFolder(view)}/messages/${id}?$select=${listed},parentFolderId`;
 
 export const graphMessage = (id: string) =>
   `${graphRoot}/me/messages/${id}?$select=body,from,toRecipients,ccRecipients,replyTo,internetMessageId,internetMessageHeaders,hasAttachments`;
@@ -131,7 +131,11 @@ const GraphListedSchema = Schema.Struct({
 });
 type GraphListed = typeof GraphListedSchema.Type;
 
-export const decodeGraphListed = json(GraphListedSchema);
+// A delta change as Graph has it now. Graph reads a message by its ID wherever it is, so the
+// folder it names says whether it is still in the folder whose delta named it.
+export const decodeGraphListed = json(
+  Schema.Struct({ ...GraphListedSchema.fields, parentFolderId: GraphId }),
+);
 
 export const decodeGraphInbox = json(
   Schema.Struct({
