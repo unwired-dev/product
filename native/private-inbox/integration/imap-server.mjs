@@ -136,27 +136,33 @@ const discoverNamespaces = (socket, tag, { failed, user }) => {
     );
   }
 };
-// Sends LIST responses without ever answering the command. A flood far past what fits in the socket
-// buffers ends early only when the client stops at its bound and closes the session; exactly 1,001
-// responses fail only a client whose bound is 1,000 or lower.
-const floodFolders = (socket, total) => {
+// Sends `total` responses without ever answering the command. A flood far past what fits in the
+// socket buffers ends early only when the client stops at its bound and closes the session.
+const flood = (socket, { total, response, operation }) => {
   let index = 0;
-  const flood = () => {
+  const send = () => {
     while (!socket.destroyed && index < total) {
       index += 1;
-      if (!socket.write(`* LIST (\\HasNoChildren) "/" "Folder ${index}"\r\n`)) {
-        socket.once('drain', flood);
+      if (!socket.write(response(index))) {
+        socket.once('drain', send);
         return;
       }
     }
   };
   socket.once('close', () => {
     if (index < total) {
-      operations.add('folder-flood');
+      operations.add(operation);
     }
   });
-  flood();
+  send();
 };
+// Exactly 1,001 LIST responses fail only a client whose bound is 1,000 or lower.
+const floodFolders = (socket, total) =>
+  flood(socket, {
+    total,
+    response: (index) => `* LIST (\\HasNoChildren) "/" "Folder ${index}"\r\n`,
+    operation: 'folder-flood',
+  });
 // The reserved ASCII name folds case; a Unicode lookalike and an inbox role do not.
 const folders =
   '* LIST (\\HasNoChildren) "/" "Inbox"\r\n* LIST (\\HasNoChildren \\Archive) "/" "Archive"\r\n* LIST (\\HasNoChildren) "/" "ınbox"\r\n* LIST (\\HasNoChildren \\Inbox) "/" "Primary"\r\n';
@@ -415,6 +421,17 @@ const answerFetch = (socket, session, { tag, command }) => {
       );
       return;
     }
+    if (command.startsWith('UID FETCH 14 ')) {
+      // One message's fields split across two literals, each within its bound, that together
+      // exceed the reply's budget: the client must refuse the second declaration before its
+      // bytes, which never come.
+      operations.add('headers-split');
+      const half = 128 * 1024 + 1;
+      socket.write(
+        `* 1 FETCH (UID 14 BODY[${section}] {${half}}\r\n${'a'.repeat(half)} BODY[${section}] {${half}}\r\n`,
+      );
+      return;
+    }
     assert.match(command, /^UID FETCH 11 /u);
     const fields = 'Content-Type: text/plain;\r\n charset=utf-8\r\n\r\n';
     socket.write(
@@ -458,6 +475,14 @@ const answerFetch = (socket, session, { tag, command }) => {
     socket.write(
       `${held.map((uid, index) => `* ${index + 1} FETCH (${metadataFields(command, uid).join(' ')})\r\n`).join('')}${tag} OK Completed\r\n`,
     );
+  } else if (command.startsWith('UID FETCH 14 ')) {
+    // Answers one named message with unsolicited replies for others, without end.
+    flood(socket, {
+      total: 1_000_000,
+      response: (index) =>
+        `* ${index} FETCH (UID ${index} FLAGS (\\Flagged))\r\n`,
+      operation: 'fetch-flood',
+    });
   } else {
     assertResumed(command, session);
     operations.add(command.includes('ENVELOPE') ? 'metadata' : 'flags-or-size');
@@ -630,9 +655,11 @@ process.on('SIGTERM', () => {
       'copy-unmapped',
       'examine',
       'expunge',
+      'fetch-flood',
       'flags-or-size',
       'folder-flood',
       'gone',
+      'headers-split',
       'history-fetch',
       'history-known',
       'history-search',
