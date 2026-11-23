@@ -960,7 +960,9 @@ describe('the Tiptap evaluation composer', () => {
     const converted = lastSent();
     await act(async () => {
       await fireEvent(chip, 'accessibilityAction', {
-        nativeEvent: { actionName: 'convert' },
+        nativeEvent: {
+          actionName: 'Attach chart.png instead of showing it inline',
+        },
       });
     });
     expect(lastSent()).toStrictEqual(converted);

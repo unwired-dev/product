@@ -1603,15 +1603,14 @@ const assetMenu = (
       },
       { items: [...convert, remove] },
     ],
+    // VoiceOver on the Mac speaks an action's name, so each name is its spoken label.
     actions: [
       ...convert.map(({ run }) => ({
-        name: 'convert',
-        label: t(`drafts.assets.${toAttachment}Label`, { name: asset.name }),
+        name: t(`drafts.assets.${toAttachment}Label`, { name: asset.name }),
         run,
       })),
-      ...sizes.map(({ key, accessibilityLabel, run }) => ({
-        name: key,
-        label: accessibilityLabel,
+      ...sizes.map(({ accessibilityLabel, run }) => ({
+        name: accessibilityLabel,
         run,
       })),
     ],
@@ -1699,9 +1698,9 @@ function AssetRow({
         })}
         {...(menu.actions.length > 0 && editable
           ? {
-              accessibilityActions: menu.actions.map(({ name, label }) => ({
+              accessibilityActions: menu.actions.map(({ name }) => ({
                 name,
-                label,
+                label: name,
               })),
               onAccessibilityAction: ({ nativeEvent }) => {
                 menu.actions

@@ -479,15 +479,10 @@ const assetMenuOf = (row: ReturnType<typeof screen.getByLabelText>) => {
   if (node === null) {
     throw new Error('Expected a context menu');
   }
-  const {
-    sections,
-    onSelect,
-  }: {
-    readonly sections: ReadonlyArray<{
-      readonly items: readonly AssetMenuItem[];
-    }>;
-    readonly onSelect: (event: { nativeEvent: { id: string } }) => void;
-  } = node.props;
+  const sections: ReadonlyArray<{ readonly items: readonly AssetMenuItem[] }> =
+    node.props.sections;
+  const onSelect: (event: { nativeEvent: { id: string } }) => void =
+    node.props.onSelect;
   return { sections, onSelect };
 };
 
@@ -6215,30 +6210,21 @@ describe('adding files and images to a Draft', () => {
       ],
     }));
     const row = () => screen.getByLabelText(/^photo\.png, /u);
-    expect(
-      assetMenuOf(row()).sections.map(({ items }) =>
-        items.map(({ title, checked, items: submenu }) =>
-          submenu === undefined
-            ? [title, checked === true]
-            : [
-                title,
-                submenu.map((size) => [size.title, size.checked === true]),
-              ],
-        ),
-      ),
-    ).toStrictEqual([
-      [
-        [
-          'Image Size',
-          [
-            ['Small · 320 px', false],
-            ['Medium · 640 px', false],
-            ['Large · 1024 px', false],
-            ['Original', true],
-          ],
+    expect(assetMenuOf(row()).sections).toMatchObject([
+      {
+        items: [
+          {
+            title: 'Image Size',
+            items: [
+              { title: 'Small · 320 px', checked: false },
+              { title: 'Medium · 640 px', checked: false },
+              { title: 'Large · 1024 px', checked: false },
+              { title: 'Original', checked: true },
+            ],
+          },
         ],
-      ],
-      [['Remove Image', false]],
+      },
+      { items: [{ title: 'Remove Image', destructive: true }] },
     ]);
     await chooseSize(row(), 'Medium · 640 px');
     expect(checkedSizes(row())).toStrictEqual(['Medium · 640 px']);
@@ -6246,29 +6232,28 @@ describe('adding files and images to a Draft', () => {
     await chooseSize(row(), 'Medium · 640 px');
     await press('Undo');
     expect(checkedSizes(row())).toStrictEqual(['Original']);
-    // VoiceOver offers each size as an action on the row.
-    const { accessibilityActions } = row().props;
-    const large = accessibilityActions.find(
-      ({ label }: { label: string }) =>
-        label === 'Show photo.png at Large size',
+    // VoiceOver offers each size as an action on the row, speaking its name.
+    expect(row()).toHaveProp(
+      'accessibilityActions',
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Show photo.png at Large size' }),
+      ]),
     );
-    ok(large);
     await act(async () => {
       await fireEvent(row(), 'accessibilityAction', {
-        nativeEvent: { actionName: large.name },
+        nativeEvent: { actionName: 'Show photo.png at Large size' },
       });
     });
     expect(checkedSizes(row())).toStrictEqual(['Large · 1024 px']);
     // An image only in the quoted correspondence offers no size.
     const quoted = screen.getByLabelText(/^quoted\.png, /u);
     expect(() => assetMenuOf(quoted)).toThrow('Expected a context menu');
+    const quotedSize = expect.objectContaining({
+      name: expect.stringMatching(/^Show quoted\.png at /u),
+    });
     expect(quoted).not.toHaveProp(
       'accessibilityActions',
-      expect.arrayContaining([
-        expect.objectContaining({
-          label: expect.stringMatching(/^Show quoted\.png at /u),
-        }),
-      ]),
+      expect.arrayContaining([quotedSize]),
     );
     await saveAndClose();
     const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
