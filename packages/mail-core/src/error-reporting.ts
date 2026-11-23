@@ -55,7 +55,11 @@ export interface ErrorReporting {
   readonly dispose: () => void;
 }
 
-type CallSite = readonly ReportingFrame[];
+interface CallSite {
+  readonly revision: number;
+  readonly generation: number | undefined;
+  readonly frames: readonly ReportingFrame[];
+}
 
 export interface NativeErrorReporting {
   readonly errorReportingRead: () => Promise<unknown>;
@@ -610,10 +614,15 @@ export function createErrorReporting(
       }),
     );
   };
+  // A call site taken under an earlier consent is dropped with that consent's data.
+  const currentFrames = (callSite: CallSite | undefined) =>
+    callSite?.revision === revision && callSite.generation === state?.generation
+      ? callSite.frames
+      : [];
   const capture = (
     error: unknown,
     code: ReportingCode = 'unhandled-js',
-    callSite: CallSite = [],
+    callSite?: CallSite,
   ) => {
     if (!collecting || disposed) {
       return;
@@ -627,7 +636,7 @@ export function createErrorReporting(
     const expected = revision;
     // Read foreign error properties before scheduling; no arbitrary error is retained.
     let detail: ReturnType<typeof exception> = { name: 'Error' };
-    let stack: CallSite = [];
+    let stack: readonly ReportingFrame[] = [];
     let causes: ReturnType<typeof exceptionCauses> = [];
     try {
       if (['offline', 'cancelled'].includes(rejectionCode(error) ?? '')) {
@@ -636,7 +645,7 @@ export function createErrorReporting(
       detail = exception(error);
       stack = frames(error, 'javascript');
       if (stack.length === 0) {
-        stack = callSite;
+        stack = currentFrames(callSite);
       }
       causes = exceptionCauses(error);
     } catch {
@@ -695,7 +704,11 @@ export function createErrorReporting(
     retryDeletion: () => guarded(deletion()),
     callSite: () =>
       collecting && !disposed
-        ? frames(new Error('call site'), 'call-site')
+        ? {
+            revision,
+            generation: state?.generation,
+            frames: frames(new Error('call site'), 'call-site'),
+          }
         : undefined,
     capture,
     breadcrumb: (breadcrumb) => {

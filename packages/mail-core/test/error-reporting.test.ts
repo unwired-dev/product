@@ -206,31 +206,31 @@ describe('installation error reporting at the protected native boundary', () => 
       [String(error), ...sites.map(() => '    at f (main.jsbundle:1:5)')].join(
         '\n',
       );
+    const captures = () =>
+      host.requests
+        .filter((request) => request.operation === 'capture')
+        .map((request) => request.body);
     try {
       await store.load();
-      const before = store.callSite();
+      expect(store.callSite()).toBeUndefined();
       await store.setEnabled(true);
       const during = store.callSite();
-      expect(before).toBeUndefined();
-      expect(during?.[0]).toStrictEqual({
-        kind: 'call-site',
-        line: 1,
-        column: 5,
-      });
-      // A site taken before consent adds nothing to a later failure.
-      store.capture({ name: 'OperationError' }, 'sync-failed', before);
+      store.capture({ name: 'OperationError' }, 'sync-failed', during);
       await store.refresh();
-      const sent = host.requests.filter(
-        (request) => request.operation === 'capture',
+      expect(captures()).toHaveLength(1);
+      expect(captures()[0]).toContain(
+        '{"kind":"call-site","line":1,"column":5}',
       );
-      expect(sent).toHaveLength(1);
-      expect(sent[0]?.body).toContain('"frames":[]');
       await store.setEnabled(false);
       store.capture({ name: 'OperationError' }, 'sync-failed', during);
       await store.refresh();
-      expect(
-        host.requests.filter((request) => request.operation === 'capture'),
-      ).toHaveLength(1);
+      expect(captures()).toHaveLength(1);
+      // An operation that spans withdrawal and re-enabling keeps none of its earlier site.
+      await store.setEnabled(true);
+      store.capture({ name: 'OperationError' }, 'sync-failed', during);
+      await store.refresh();
+      expect(captures()).toHaveLength(2);
+      expect(captures()[1]).toContain('"frames":[]');
       expect(host.state().document).not.toContain('call-site');
     } finally {
       Error.prepareStackTrace = prepareStackTrace;
