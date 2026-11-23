@@ -1833,6 +1833,16 @@ export function createImapInbox(
     if (forgotten) {
       return Effect.void;
     }
+    // A restore renews the native generation, so work from before it is invalidated; the open
+    // Inbox keeps its saved mail until a load reopens it, as a Gmail Inbox does.
+    if (
+      kind === 'invalidated' &&
+      opened !== undefined &&
+      document !== undefined
+    ) {
+      render('retry');
+      return Effect.void;
+    }
     if (closesAccess(kind)) {
       originalIds = new Map();
       restoring.clear();
