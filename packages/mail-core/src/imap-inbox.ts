@@ -175,7 +175,8 @@ export interface NativeImapMailbox
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
   ) => Promise<unknown>;
-  // Resolves `{ folders: [{ name, attributes, delimiter? }] }`, every folder the server lists.
+  // Resolves `{ folders: [{ name, attributes, delimiter? }], skippable? }`, every folder the server
+  // lists and the LIST patterns of other users' and shared namespaces it may have skipped.
   readonly imapListFolders: (
     mailbox: Readonly<{ address: string; generation: string }>,
     session: Readonly<{ session: string }>,
@@ -482,6 +483,54 @@ const failureKinds: Readonly<Record<string, ImapFailure['kind']>> = {
   unavailable: 'retry',
 };
 
+// Letter case folded one character at a time, as Unicode case folding equates it: lowering,
+// raising and lowering again reads a final sigma as any other and a capital sharp s as `ss`.
+// Decomposed and stripped of combining marks, canonically equivalent spellings and a Turkish dotted
+// capital I read alike; matching more keeps more folders, never fewer. Folding each character alone
+// keeps every match it had; ASCII other than capitals is its own fold.
+const folded = (text: string) => {
+  const folds = new Map<string, string>();
+  return text.replaceAll(/[A-Z]|[^\0-\u007F]/gu, (character) => {
+    let fold = folds.get(character);
+    if (fold === undefined) {
+      fold = character
+        .normalize('NFD')
+        .toLowerCase()
+        .toUpperCase()
+        .toLowerCase()
+        .normalize('NFD')
+        .replaceAll(/\p{M}/gu, '');
+      folds.set(character, fold);
+    }
+    return fold;
+  });
+};
+// Whether a folded LIST pattern matches a folded folder name. IMAP's `*` and `%` match any run of
+// characters, `%` only up to a hierarchy delimiter: matching `%` like `*` keeps more folders, never
+// fewer. The text between wildcards is found leftmost and in order, so no part is retried.
+const listMatches = (pattern: string, text: string) => {
+  const [first = '', ...parts] = pattern.split(/[*%]/u);
+  const last = parts.pop();
+  if (last === undefined) {
+    return text === first;
+  }
+  let at = first.length;
+  for (const part of parts) {
+    const found = text.indexOf(part, at);
+    if (found === -1) {
+      return false;
+    }
+    at = found + part.length;
+  }
+  return (
+    text.startsWith(first) &&
+    text.length - last.length >= at &&
+    text.endsWith(last)
+  );
+};
+// A search may compare each pattern character with each name character; past this many, a folder
+// stays as one a skipped LIST would match.
+const listMatchBudget = 2 ** 24;
 const call = (operation: () => Promise<unknown>) =>
   Effect.tryPromise({
     try: operation,
@@ -1475,16 +1524,45 @@ export function createImapInbox(
   }
 
   // A refreshed listing retires the cache and views of folders the server no longer offers, so
-  // pruning stops keeping their bodies. The Inbox always stays.
+  // pruning stops keeping their bodies. The Inbox always stays, and so do the cache and views of a
+  // folder the listing leaves out that a LIST the native listing may have skipped would match; only
+  // listed folders carry roles.
   const acceptListing = Effect.fnUntraced(function* (
     current: ImapDocument,
-    folders: ImapDocument['folders'],
-    capabilities: ImapCapabilities,
+    {
+      folders,
+      skippable,
+      ...capabilities
+    }: Readonly<
+      {
+        folders: ImapDocument['folders'];
+        skippable: readonly string[];
+      } & ImapCapabilities
+    >,
   ) {
+    const listed = new Set(folders.map(({ name }) => name));
     const offered = new Set(
       folders.filter(({ selectable }) => selectable).map(({ name }) => name),
     );
-    const kept = (name: string) => name === inboxFolder || offered.has(name);
+    const patterns = skippable.map(folded);
+    let budget = listMatchBudget;
+    const retained = new Map<string, boolean>();
+    const skippedMatch = (name: string) => {
+      let keep = retained.get(name);
+      if (keep === undefined) {
+        const text = folded(name);
+        keep = patterns.some((pattern) => {
+          budget -= (pattern.length + 1) * (text.length + 1);
+          return budget < 0 || listMatches(pattern, text);
+        });
+        retained.set(name, keep);
+      }
+      return keep;
+    };
+    const kept = (name: string) =>
+      name === inboxFolder ||
+      offered.has(name) ||
+      (!listed.has(name) && skippedMatch(name));
     const next: ImapDocument = {
       ...current,
       folders,
@@ -2311,26 +2389,22 @@ export function createImapInbox(
             }
             const scope = opened;
             if (scope !== undefined) {
-              const { folders, ...capabilities } = yield* withSession(
-                scope,
-                (session) =>
-                  Effect.gen(function* () {
-                    const advertised = yield* decodeCapabilities(
-                      yield* call(() =>
-                        native.imapCapabilities(scope, session),
-                      ),
-                    ).pipe(Effect.mapError(malformed));
-                    const listed = yield* decodeListedFolders(
-                      yield* call(() => native.imapListFolders(scope, session)),
-                    ).pipe(Effect.mapError(malformed));
-                    return folderListing(
-                      listed.folders,
-                      advertised.capabilities,
-                    );
-                  }),
+              const listing = yield* withSession(scope, (session) =>
+                Effect.gen(function* () {
+                  const advertised = yield* decodeCapabilities(
+                    yield* call(() => native.imapCapabilities(scope, session)),
+                  ).pipe(Effect.mapError(malformed));
+                  const listed = yield* decodeListedFolders(
+                    yield* call(() => native.imapListFolders(scope, session)),
+                  ).pipe(Effect.mapError(malformed));
+                  return {
+                    ...folderListing(listed.folders, advertised.capabilities),
+                    skippable: listed.skippable ?? [],
+                  };
+                }),
               );
               if (document !== undefined) {
-                yield* acceptListing(document, folders, capabilities);
+                yield* acceptListing(document, listing);
               }
             }
             yield* synchronizeFolder(inboxFolder);

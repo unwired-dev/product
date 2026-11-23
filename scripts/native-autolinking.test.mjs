@@ -153,7 +153,7 @@ test('incremental Expo generation removes retired synthetic sources', async () =
     assert.equal(written.split('Logging in Frameworks */ = ').length, 2);
     assert.match(
       written,
-      /revision = 15f5466a852749749680e01db3ecf0abd97e93d6;/u,
+      /revision = 3b09f6e7de8273c19fb5c8f296cd2bdecc55c99e;/u,
     );
     assert.doesNotMatch(
       written,

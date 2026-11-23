@@ -244,7 +244,15 @@ code owns authenticated transport. Reading is read-only and never sets `\Seen`.
   longer offers as selectable leaves the cache, with its views and, at the next
   cleanup, its saved bodies; the Inbox always stays. A failed listing, including
   unavailable namespace discovery or more than 1,000 LIST responses, preserves the
-  prior list and cached mail for a later retry. Listing stops reading at the 1,001st
+  prior list and cached mail for a later retry. A server may refuse a LIST of another
+  user's or a shared namespace, for its root or for the folders under it, and SwiftMail
+  then skips it and merges the rest without saying which it skipped. The cached mail and
+  views of a folder the listing leaves out that such a LIST would match, in any letter case and reading `*` and
+  `%` as wildcards, therefore stay, so folders of other users' and shared namespaces stay
+  cached after they are removed ([#2690](https://github.com/unwired-dev/product/issues/2690)).
+  A folder whose match would take too long stays as well. Should a new namespace discovery
+  change the LIST patterns, in content or order, while the listing runs, the refresh fails and keeps the prior list. Only the listing names folders and their roles, so such a folder leaves the folder list
+  and never serves as Sent, Drafts or another role. Listing stops reading at the 1,001st
   LIST response the server sends, across all namespaces and before duplicate names
   merge, and closes that session. Case
   variants of the reserved `INBOX` name share that spelling; other folder names
@@ -417,7 +425,7 @@ Local search reports a prefetched body as saved on this device.
 
 The 20-UID request limit and 256 KiB per-literal limit do not bound aggregate
 memory when a server sends extra or repeated replies, or several individually
-legal literals per message. The owner accepted this residual SwiftMail 1.16.0 risk
+legal literals per message. The owner accepted this residual SwiftMail risk
 for [PR #1185](https://github.com/unwired-dev/product/pull/1185), with receive-time
 aggregate refusal tracked in [#1187](https://github.com/unwired-dev/product/issues/1187).
 Prefetch is not qualified against that server behavior.
@@ -553,8 +561,8 @@ waits to send until the connection's folder list has been read.
 
 ## Engine and dependencies
 
-The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) at a main-branch
-revision after 1.16.0. Its exact revisions and linked products are owned by
+The engine is [SwiftMail](https://github.com/Cocoanetics/SwiftMail) 1.18.0, pinned
+by its tag's commit. Its exact revisions and linked products are owned by
 [`native/private-inbox/Package.swift`](../native/private-inbox/Package.swift), with the
 resolved dependency graph in [`Package.resolved`](../native/private-inbox/Package.resolved).
 Both hosts must build that graph and pass their `verify:bundle` gate. Incremental
@@ -575,7 +583,8 @@ folder without UIDVALIDITY), and envelopes or flags of that folder's messages by
 from a UID onward or by the newest sequence numbers. A search examines one folder and
 returns its newest matching UIDs and how many matched in all, refusing a folder the
 server no longer selects, one without UIDVALIDITY and a query in a charset the server
-cannot search; it matches either text or a Sent copy's Message-ID header. Seznam
+cannot search, and failing when the server completes it without reporting the matches
+or an ESEARCH item it was asked for; it matches either text or a Sent copy's Message-ID header. Seznam
 Email's server drops the connection on a Content-Type header search in a folder
 that holds messages ([#2402](https://github.com/unwired-dev/product/issues/2402)),
 so a Sent copy is not looked up by its MIME boundary. An append stores an outgoing message, read, in a folder: native
@@ -583,8 +592,9 @@ code reads the message from the Outbox and appends it only for a trusted device.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. IDLE runs the
 same way: TypeScript checks the capability, then asks the session to wait on a folder
-for a bounded time. Native code sends IDLE, ends it with DONE after the first
-event or the bound, and reports the kinds of events the server sent; TypeScript
+for a bounded time. Native code sends IDLE, ends it with one DONE after the first
+event or the bound, whichever comes first, and reports the kinds of events the server
+sent until it answers DONE; TypeScript
 decides which of them are a change. Native code also
 closes a session after 60 seconds unused or 15 minutes open, and when the
 connection's generation changes, as on removal, sign-out or a new password.
@@ -601,9 +611,10 @@ reported as interrupted, so TypeScript never resends an uncertain move.
 Filing a Sent copy runs the same way: TypeScript searches the Sent folder for the copy's
 Message-ID and appends the message in the same session only when no copy is there.
 
-The connection of a closed session ends only when its active command answers or
-times out. Aborting it on the wire is
-[#1184](https://github.com/unwired-dev/product/issues/1184). The hosted
+Closing a session also closes its connection at once: in SwiftMail 1.18,
+cancelling an active command closes its transport, and disconnecting no longer
+waits for that command. The product's proof that a closed session stops its
+command on the wire is [#1184](https://github.com/unwired-dev/product/issues/1184). The hosted
 close-answers-at-once cases, including a session closed during IDLE, use a
 controlled `ImapSession`.
 
