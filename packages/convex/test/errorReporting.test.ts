@@ -2,6 +2,7 @@
 
 import { createReportingTest } from '@private-email/convex/testing';
 import * as Predicate from 'effect/Predicate';
+import * as Schema from 'effect/Schema';
 
 const modules = import.meta.glob('../convex/**/*.ts');
 const identity = {
@@ -256,6 +257,47 @@ describe('anonymous error reporting HTTP capability', () => {
     expect(outbound[0]).toContain('$geoip_disable');
     expect(outbound[0]).not.toContain(identity.credential);
     expect(outbound[0]).not.toContain('private');
+  });
+
+  it('marks operation call-site frames as synthetic context, and genuine frames not', async () => {
+    expect.hasAssertions();
+    configure();
+    const outbound: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(captureProvider(outbound)));
+    const t = createReportingTest(modules);
+    await post(t, 'enable');
+    const callSite = {
+      ...report(),
+      id: '12345678-1234-4123-8123-123456789abc',
+      name: 'OperationError',
+      frames: [{ kind: 'call-site', line: 7, column: 3 }],
+    };
+    await expect(
+      body(t, 'capture', { reports: [callSite, report()], metadata }),
+    ).resolves.toStrictEqual({ status: 'accepted' });
+    expect(
+      Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(
+        outbound[0],
+      ),
+    ).toMatchObject({
+      batch: [
+        {
+          properties: {
+            $exception_list: [
+              {
+                type: 'OperationError',
+                mechanism: { type: 'operation-call-site', synthetic: true },
+                stacktrace: {
+                  frames: [{ platform: 'hermes', lineno: 7, colno: 3 }],
+                },
+              },
+            ],
+          },
+        },
+        { properties: { $exception_list: [{ type: 'TypeError' }] } },
+      ],
+    });
+    expect(outbound[0]?.match(/"mechanism"/gu)).toHaveLength(1);
   });
 
   it('keeps deletion pending through ingestion lag, accepted deletion and unverified event removal', async () => {

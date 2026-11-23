@@ -2,6 +2,7 @@ import type { ErrorReport } from '@private-email/contracts/errorReporting';
 import type {
   ReportingBreadcrumb,
   ReportingCode,
+  ReportingFrame,
 } from '@private-email/contracts/errorReporting';
 
 import {
@@ -43,9 +44,21 @@ export interface ErrorReporting {
   readonly setEnabled: (enabled: boolean) => Promise<void>;
   readonly deleteReports: () => Promise<void>;
   readonly retryDeletion: () => Promise<void>;
-  readonly capture: (error: unknown, code?: ReportingCode) => void;
+  // Bundle coordinates of the current call, while collecting, for a later failure without its own.
+  readonly callSite: () => CallSite | undefined;
+  readonly capture: (
+    error: unknown,
+    code?: ReportingCode,
+    callSite?: CallSite,
+  ) => void;
   readonly breadcrumb: (breadcrumb: ReportingBreadcrumb) => void;
   readonly dispose: () => void;
+}
+
+interface CallSite {
+  readonly revision: number;
+  readonly generation: number | undefined;
+  readonly frames: readonly ReportingFrame[];
 }
 
 export interface NativeErrorReporting {
@@ -156,7 +169,7 @@ function exception(error: unknown) {
       : undefined;
   return { name, ...(message === undefined ? {} : { message }) };
 }
-function frames(error: unknown) {
+function frames(error: unknown, kind: 'javascript' | 'call-site') {
   if (
     !Predicate.hasProperty(error, 'stack') ||
     !Predicate.isString(error.stack)
@@ -172,7 +185,7 @@ function frames(error: unknown) {
         ),
     ].slice(0, 64),
   ).map((match) => ({
-    kind: 'javascript' as const,
+    kind,
     line: Number(match[1]),
     column: Number(match[2]),
   }));
@@ -601,7 +614,16 @@ export function createErrorReporting(
       }),
     );
   };
-  const capture = (error: unknown, code: ReportingCode = 'unhandled-js') => {
+  // A call site taken under an earlier consent is dropped with that consent's data.
+  const currentFrames = (callSite: CallSite | undefined) =>
+    callSite?.revision === revision && callSite.generation === state?.generation
+      ? callSite.frames
+      : [];
+  const capture = (
+    error: unknown,
+    code: ReportingCode = 'unhandled-js',
+    callSite?: CallSite,
+  ) => {
     if (!collecting || disposed) {
       return;
     }
@@ -614,14 +636,14 @@ export function createErrorReporting(
     const expected = revision;
     // Read foreign error properties before scheduling; no arbitrary error is retained.
     let detail: ReturnType<typeof exception> = { name: 'Error' };
-    let stack: ReturnType<typeof frames> = [];
+    let stack: readonly ReportingFrame[] = [];
     let causes: ReturnType<typeof exceptionCauses> = [];
     try {
       if (['offline', 'cancelled'].includes(rejectionCode(error) ?? '')) {
         return;
       }
       detail = exception(error);
-      stack = frames(error);
+      stack = frames(error, 'javascript');
       causes = exceptionCauses(error);
     } catch {
       return;
@@ -632,12 +654,14 @@ export function createErrorReporting(
         if (!stillCollecting(expected)) {
           return;
         }
+        // Chosen under the permit, after any refresh that adopted another consent.
+        const site = stack.length === 0 ? currentFrames(callSite) : stack;
         const report: ErrorReport = {
           id: yield* uuid,
           createdAt: yield* Clock.currentTimeMillis,
           code,
           ...detail,
-          frames: stack,
+          frames: site,
           causes,
           breadcrumbs: trail,
         };
@@ -677,6 +701,14 @@ export function createErrorReporting(
     setEnabled,
     deleteReports,
     retryDeletion: () => guarded(deletion()),
+    callSite: () =>
+      collecting && !disposed
+        ? {
+            revision,
+            generation: state?.generation,
+            frames: frames(new Error('call site'), 'call-site'),
+          }
+        : undefined,
     capture,
     breadcrumb: (breadcrumb) => {
       if (
