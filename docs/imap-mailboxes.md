@@ -1547,7 +1547,7 @@ password manager by running
   lasting iCloud Mail connection until one opened 5 minutes 17 seconds after the outage
   ended and stayed open, consistent with an IDLE wait resuming after a retry pause grown
   to five minutes. Meanwhile a message arriving 1 minute 57 seconds after the end was
-  listed 59 seconds after it arrived, during brief connections whose trigger was not
+  listed 59 seconds after it arrived, just after brief connections whose trigger was not
   determined. Once the lasting connection had opened, a message appeared 5
   seconds after it arrived. **Connection recovery:** a second outage was started with
   the app waiting on iCloud Mail's Inbox, and 10 seconds later the app was terminated and
