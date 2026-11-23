@@ -644,9 +644,6 @@ export function createErrorReporting(
       }
       detail = exception(error);
       stack = frames(error, 'javascript');
-      if (stack.length === 0) {
-        stack = currentFrames(callSite);
-      }
       causes = exceptionCauses(error);
     } catch {
       return;
@@ -657,12 +654,14 @@ export function createErrorReporting(
         if (!stillCollecting(expected)) {
           return;
         }
+        // Chosen under the permit, after any refresh that adopted another consent.
+        const site = stack.length === 0 ? currentFrames(callSite) : stack;
         const report: ErrorReport = {
           id: yield* uuid,
           createdAt: yield* Clock.currentTimeMillis,
           code,
           ...detail,
-          frames: stack,
+          frames: site,
           causes,
           breadcrumbs: trail,
         };

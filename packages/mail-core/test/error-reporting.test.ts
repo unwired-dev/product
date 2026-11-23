@@ -231,6 +231,17 @@ describe('installation error reporting at the protected native boundary', () => 
       await store.refresh();
       expect(captures()).toHaveLength(2);
       expect(captures()[1]).toContain('"frames":[]');
+      // Consent withdrawn and given again natively, adopted by a refresh ahead of the capture.
+      const site = store.callSite();
+      const { generation } = host.state();
+      await host.native.errorReportingConsent(false, false, generation);
+      await host.native.errorReportingConsent(true, false, generation + 1);
+      const refreshing = store.refresh();
+      store.capture({ name: 'OperationError' }, 'sync-failed', site);
+      await refreshing;
+      await store.refresh();
+      expect(captures()).toHaveLength(3);
+      expect(captures()[2]).toContain('"frames":[]');
       expect(host.state().document).not.toContain('call-site');
     } finally {
       Error.prepareStackTrace = prepareStackTrace;
