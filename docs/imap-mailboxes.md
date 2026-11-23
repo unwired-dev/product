@@ -1677,16 +1677,17 @@ password manager by running
   resolvers and state clearing, on this Mac, which runs the app; 18 addresses were in
   the rule during both outages. The packet filter was off before the run and was turned
   off again after each outage. During both, `imap.mail.me.com` 993 and `smtp.mail.me.com`
-  587 timed out while `imap.seznam.cz` 993 and `smtp.seznam.cz` 465 connected, and no
-  iCloud Mail connection of the app completed. Test messages were submitted and timed as in the iPhone rerun.
+  587 timed out and no iCloud Mail connection of the app completed. During the first,
+  `imap.seznam.cz` 993 and `smtp.seznam.cz` 465 connected; during the second, the app
+  connected to Seznam Email and listed its new mail. Test messages were submitted and timed as in the iPhone rerun.
   Result: the three cases and the outage scope passed. Before any outage, a message
   appeared in the list 5 seconds after it arrived. **IDLE interruption and offline
   queueing:** the outage was started with All Inboxes open and the app's iCloud Mail
   connection waiting on the Inbox. That connection was last sampled open 2 seconds after
   the outage ended. A message submitted 70 seconds after the start arrived
   on the server 20 seconds later and was not listed while the outage lasted. Opening an
-  earlier message, 83 seconds after the start, made the app try new iCloud Mail
-  connections, none of which completed. The list header read **All Inboxes · Offline**,
+  earlier message 83 seconds after the start; in the same second the socket samples
+  showed new iCloud Mail connection attempts, none of which completed. The list header read **All Inboxes · Offline**,
   and the list showed **One change is saved on this device and waits for IMAP.** for the
   message's read state. A reply from iCloud Mail was sent from the app 1 minute 46
   seconds after the start; from then on the header also showed **1 account needs
@@ -1717,11 +1718,11 @@ password manager by running
   next appeared 5 seconds after it arrived. Afterwards no run message remained in any
   folder of either mailbox, **Sign Out of This Device** returned the app to Welcome, and
   the run's caches and HTTP storage were removed from the app's container. The scan of
-  step 5 above then covered every file written since the run began under
+  step 5 above then covered the files written since the run began under
   `~/Library/Logs`, Xcode's DerivedData, the repository's `artifacts`, the shell
   history, the temporary directories, the operator's scratch files, this run's session
   transcript, T3 Code's state, the app's container, `~/.agent-device` and the browser's
-  profile. No file held a password or the Recovery Key from this run; the only matches
+  profile. No scanned file held a password or the Recovery Key written by this run; the only matches
   were the earlier runs' copies in T3 Code's state database, the latest written about 15
   hours before this run ([#2688](https://github.com/unwired-dev/product/issues/2688)).
   Limitations: the operator's first entry of the Seznam Email credentials used key
