@@ -398,8 +398,12 @@ const enrollmentFailed =
     enrollmentFailure: isEnrollmentUnavailable(cause) ? 'unavailable' : failure,
   });
 
-export function createRegistration(vault: NativeRegistrationVault) {
-  const native = createRegistrationFlow(vault);
+// `paused` names a connection whose Inbox waits for a time Gmail named; nothing verifies it then.
+export function createRegistration(
+  vault: NativeRegistrationVault,
+  paused?: (connection: string) => boolean,
+) {
+  const native = createRegistrationFlow(vault, paused);
   const settingRefusal = (
     setting: SettingRefused['setting'],
     connection: string,

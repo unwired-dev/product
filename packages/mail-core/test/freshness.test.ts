@@ -1,3 +1,5 @@
+import { ok } from 'node:assert/strict';
+
 import type {
   Mailboxes,
   NativeGmailMailboxes,
@@ -15,6 +17,7 @@ import type { GmailInboxState } from '../src/inbox-store.ts';
 import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 
 import { createFreshness, followWakes, pushCovers } from '../src/freshness.ts';
+import { gmailAction } from '../src/gmail-actions.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createRegistrationFlow } from '../src/registration-flow.ts';
 import {
@@ -92,7 +95,12 @@ async function twoMailboxes(messages = 0, connectOther = true) {
           );
     },
   };
-  const registration = createRegistration(vault);
+  // The latest launch's Inboxes: verification waits for a time Gmail named one of them.
+  let opened: Mailboxes | undefined = undefined;
+  const registration = createRegistration(
+    vault,
+    (connection) => opened?.paused(connection) === true,
+  );
   await registration.register('google');
   await registration.addMailbox();
   if (connectOther) {
@@ -112,6 +120,7 @@ async function twoMailboxes(messages = 0, connectOther = true) {
   });
   const launch = () => {
     const mailboxes = createMailboxes(native, registration);
+    opened = mailboxes;
     return {
       mailboxes,
       freshness: createFreshness(mailboxes, registration.refreshInbox),
@@ -822,6 +831,71 @@ describe('keeping Gmail fresh through application lifecycles', () => {
     });
     vi.useRealTimers();
   });
+
+  it.each([
+    ['locked', 'locked'],
+    ['unavailable', 'failed'],
+  ])(
+    "asks Gmail nothing about a paused mailbox before Gmail's time, also once a save finds its storage %s",
+    async (code, kind) => {
+      expect.hasAssertions();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-20T13:00:00.000Z'));
+      const { gmail, registration, verifications, launch } =
+        await twoMailboxes(1);
+      const { mailboxes, freshness } = launch();
+      await loaded(mailboxes);
+      const opened = () =>
+        mailboxes.getSnapshot().find(({ id }) => id === alex);
+      gmail.alex.fail({
+        status: 429,
+        body: JSON.stringify({
+          error: {
+            errors: [{ reason: 'rateLimitExceeded' }],
+            message:
+              'Rate limit exceeded. Retry after 2026-11-20T13:20:00.000Z',
+          },
+        }),
+      });
+      await mailboxes.load();
+      expect(opened()?.state).toMatchObject({ sync: 'retry', limit: {} });
+      const requests = gmail.alex.requests.length;
+      // Activation, Refresh, unscoped Try Again, Try Again for Other, and a wake routed to Alex.
+      const everyPath = async () => {
+        verifications.length = 0;
+        await registration.resume();
+        await freshness.refresh();
+        await registration.refreshInbox(mailboxes.load);
+        await registration.refreshInbox(mailboxes.load, 'explicit', other);
+        await registration.refreshInbox(mailboxes.load, 'explicit', alex);
+        expect(verifications).toStrictEqual([other, other, other, other]);
+        expect(gmail.alex.requests).toHaveLength(requests);
+        expect(states(registration)).toStrictEqual({
+          [alex]: 'cached',
+          [other]: 'connected',
+        });
+      };
+      await everyPath();
+
+      // Saving a change made meanwhile fails; the Inbox shows its storage, not the pause.
+      const shown = opened();
+      ok(shown?.state?.kind === 'ready');
+      const [message] = shown.state.messages;
+      ok(message);
+      gmail.alex.failCommit(code);
+      await shown.inbox.organize(message, gmailAction.archive);
+      expect(opened()?.state).toStrictEqual({ kind });
+      await everyPath();
+
+      // At Gmail's time Alex verifies again.
+      verifications.length = 0;
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
+      await vi.waitFor(() => {
+        expect(verifications).toStrictEqual([alex]);
+      });
+      vi.useRealTimers();
+    },
+  );
 
   it("ends the pause at Gmail's time when verification still meets the limit, until it verifies again", async () => {
     expect.hasAssertions();

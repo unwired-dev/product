@@ -266,7 +266,11 @@ const status = Effect.fnUntraced(function* (
   } satisfies RegistrationSnapshot;
 });
 
-export function createRegistrationFlow(vault: NativeRegistrationVault) {
+// `paused` names a connection whose Inbox waits for a time Gmail named.
+export function createRegistrationFlow(
+  vault: NativeRegistrationVault,
+  paused: (connection: string) => boolean = () => false,
+) {
   const { native, step, record, saved, convex } = nativeSteps(vault);
   const productSyncFlow = createProductSyncProgram(vault);
   const { synchronize, listedFor } = productSyncFlow;
@@ -383,14 +387,17 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
 
   const { checkedMailbox, verify } = createMailboxVerification(vault);
 
-  // A push wake's routed connection alone verifies with its provider: the others keep this
-  // process's access, and one it has not verified opens its saved Inbox from the cache until a
-  // later verification.
+  // A push wake's routed connection alone verifies with its provider, and a connection Gmail
+  // paused until a time still to come never does: the others keep this process's access, and one
+  // it has not verified opens its saved Inbox from the cache until a later verification.
   const verifyRouted = (
     mailbox: RegistrationRecord['mailboxes'][number],
-    routed: string,
+    routed: string | undefined,
   ) => {
-    if (mailbox.id === routed) {
+    if (
+      (routed === undefined || mailbox.id === routed) &&
+      !paused(mailbox.id)
+    ) {
       return verify(mailbox);
     }
     return !mailbox.authorizationNeeded && mailbox.access === 'unverified'
@@ -408,9 +415,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
       return yield* pendingStatus(value);
     }
     for (const mailbox of value.mailboxes) {
-      yield* routed === undefined
-        ? verify(mailbox)
-        : verifyRouted(mailbox, routed);
+      yield* verifyRouted(mailbox, routed);
     }
     const verified = (yield* saved).mailboxes.some(
       (mailbox) =>
