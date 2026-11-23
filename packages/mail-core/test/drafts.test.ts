@@ -3385,6 +3385,25 @@ describe('adding files and images to Drafts', () => {
     await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
       kind: 'verified',
     });
+    // A thumbnail carries the full image's pixel size; a size that is not one is refused.
+    read.mockResolvedValueOnce({
+      uri: 'data:image/png;base64,AA==',
+      width: 4032,
+      height: 2688,
+    });
+    await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
+      kind: 'ready',
+      uri: 'data:image/png;base64,AA==',
+      dimensions: { width: 4032, height: 2688 },
+    });
+    read.mockResolvedValueOnce({
+      uri: 'data:image/png;base64,AA==',
+      width: 0,
+      height: 2688,
+    });
+    await expect(drafts.readAsset(kept)).resolves.toStrictEqual({
+      kind: 'damaged',
+    });
     read.mockRestore();
     // Damaged bytes and bytes the device lost read as unavailable, never as the file.
     storage.damage(kept.id);

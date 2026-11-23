@@ -850,7 +850,12 @@ export type PickSource = 'photos' | 'files' | 'paste';
 // What a complete asset's bytes are on this device when read back: an image to show, bytes that
 // verified without being shown, or why they are unavailable.
 export type AssetPreview =
-  | Readonly<{ kind: 'ready'; uri: string }>
+  // `dimensions`: the full image's pixel size after its orientation, when it states one.
+  | Readonly<{
+      kind: 'ready';
+      uri: string;
+      dimensions?: Readonly<{ width: number; height: number }>;
+    }>
   | Readonly<{
       // 'incomplete': another device synchronized the Draft, and this one cannot download its
       // bytes yet.
@@ -872,8 +877,11 @@ const PickedSchema = Schema.Array(
     }),
   ]),
 );
+const PixelsSchema = Schema.Int.check(Schema.isGreaterThan(0));
 const PreviewSchema = Schema.Struct({
   uri: Schema.NullOr(Schema.NonEmptyString),
+  width: Schema.optionalKey(PixelsSchema),
+  height: Schema.optionalKey(PixelsSchema),
 });
 const VerificationSchema = Schema.Struct({
   uri: Schema.optionalKey(Schema.NonEmptyString),
@@ -1199,8 +1207,9 @@ export interface NativeDrafts {
     id: string,
     source: AssetSource,
   ) => Promise<unknown>;
-  // Verifies the asset's bytes against `digest`. With `preview`, resolves `{ uri }`, a bounded PNG
-  // thumbnail as a `data:` URL, or `{ uri: null }` when no thumbnail can be decoded; otherwise `{}`, so an
+  // Verifies the asset's bytes against `digest`. With `preview`, resolves `{ uri, width, height }`,
+  // a bounded PNG thumbnail as a `data:` URL with the full image's pixel size after its
+  // orientation when it states one, or `{ uri: null }` when no thumbnail can be decoded; otherwise `{}`, so an
   // asset's full bytes never cross the bridge. Rejects with
   // 'attachment-missing' when the device has no bytes for it.
   readonly readDraftAsset: (
@@ -2695,7 +2704,11 @@ export function createDrafts(
     asset: Readonly<{ id: string; digest: string; type: string }>,
     preview: boolean,
   ): Effect.fn.Return<AssetPreview, DraftStorageFailure> {
-    const { uri } = yield* native(
+    const read: Readonly<{
+      uri?: string | null;
+      width?: number;
+      height?: number;
+    }> = yield* native(
       () =>
         storage.readDraftAsset(account, {
           id: asset.id,
@@ -2705,9 +2718,13 @@ export function createDrafts(
         }),
       preview ? PreviewSchema : VerificationSchema,
     );
-    return uri === undefined || uri === null
-      ? { kind: 'verified' }
-      : { kind: 'ready', uri };
+    const { uri, width, height } = read;
+    if (uri === undefined || uri === null) {
+      return { kind: 'verified' };
+    }
+    return width === undefined || height === undefined
+      ? { kind: 'ready', uri }
+      : { kind: 'ready', uri, dimensions: { width, height } };
   });
 
   // Bytes a synchronized Draft names but this device lacks are downloaded first; until that

@@ -261,8 +261,9 @@ extension RegistrationStore {
   }
 
   // Verifies an asset's bytes; with `preview`, returns a thumbnail at most `draftPreviewSize`
-  // pixels on its longest side as a PNG `data:` URL for showing an inline image, so a large
-  // image's full bytes never cross the bridge. Undecodable content returns an explicit null URI.
+  // pixels on its longest side as a PNG `data:` URL for showing an inline image, with the image's
+  // own `width` and `height` in pixels after its orientation, so a large image's full bytes never
+  // cross the bridge. Undecodable content returns an explicit null URI.
   func readDraftAsset(
     owner: String, id: String, digest: String, type: String, preview: Bool = true
   ) async throws -> [String: Any] {
@@ -273,13 +274,21 @@ extension RegistrationStore {
     }
     guard preview else { return [:] }
     guard let thumbnail else { return ["uri": NSNull()] }
-    return ["uri": "data:image/png;base64,\(thumbnail.base64EncodedString())"]
+    var read: [String: Any] = ["uri": "data:image/png;base64,\(thumbnail.png.base64EncodedString())"]
+    if let (width, height) = thumbnail.dimensions {
+      read["width"] = width
+      read["height"] = height
+    }
+    return read
   }
 
   nonisolated static let draftPreviewSize = 256
 
-  // Decodes only as much of the image as the thumbnail needs, honouring its orientation.
-  nonisolated static func draftThumbnail(_ bytes: Data) -> Data? {
+  // Decodes only as much of the image as the thumbnail needs, honouring its orientation, and reads
+  // the full image's dimensions, when it states them, from its properties.
+  nonisolated static func draftThumbnail(
+    _ bytes: Data
+  ) -> (png: Data, dimensions: (width: Int, height: Int)?)? {
     guard let source = CGImageSourceCreateWithData(bytes as CFData, nil),
       let image = CGImageSourceCreateThumbnailAtIndex(
         source, 0,
@@ -295,7 +304,14 @@ extension RegistrationStore {
         output, UTType.png.identifier as CFString, 1, nil)
     else { return nil }
     CGImageDestinationAddImage(destination, image, nil)
-    return CGImageDestinationFinalize(destination) ? output as Data : nil
+    guard CGImageDestinationFinalize(destination) else { return nil }
+    guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+      let height = properties[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0
+    else { return (output as Data, nil) }
+    // EXIF orientations 5 to 8 turn the stored image a quarter turn.
+    let turned = (5...8).contains(properties[kCGImagePropertyOrientation] as? Int ?? 1)
+    return (output as Data, turned ? (height, width) : (width, height))
   }
 
   // Removes bytes no stored Draft names; needs no key, so it also runs while the device is locked.
