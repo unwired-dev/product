@@ -1742,6 +1742,71 @@ password manager by running
   Seznam Email as **IMAP**, with no status line. The socket table and the list were
   sampled every second. Background refresh and push wakes, password recovery and
   Seznam Email outages stay on #632.
+- **2026-11-23, Mac lost connection to Seznam Email
+  ([#2718](https://github.com/unwired-dev/product/issues/2718)).** This run repeats the
+  three cases of the Mac record above for Seznam Email, which offers no IDLE, so the app
+  reads it at the five-minute poll and files its Sent copies itself. Target, toolchain,
+  operator and credential entry as in that record, on macOS 27.2.1. Build: the app
+  source of `f257226c0c8786b58784c9a4f497ee2ec8ed5a38`. Each credential went from the
+  password manager, under `op run`, into key events with the keyboard layout's key codes.
+  The screen watcher was stopped while the **Recovery Key** field held the key, and the
+  field was then confirmed gone by a check that returned only a count. **Sign in with
+  Google** showed the system prompt, then Google's account chooser in the Mac's default
+  browser, which already held the certification Product Account's session; no Google
+  password was entered. Both mailboxes connected as in the Mac connect record. Outage
+  method: the Mac record's packet-filter anchor, resolvers and state clearing, for
+  `imap.seznam.cz` and `smtp.seznam.cz` on ports 993 and 465 only; the same 4 addresses
+  were in the rule during both outages. The packet filter was off before the run and was
+  turned off again after each outage. During both, `imap.seznam.cz` 993 and
+  `smtp.seznam.cz` 465 timed out while `imap.mail.me.com` 993 and `smtp.mail.me.com` 587
+  connected. Test messages were submitted to Seznam Email over SMTP from iCloud Mail
+  outside the app, and each arrival time was read on the server as the message's IMAP
+  `INTERNALDATE`. Result: the three cases and the outage scope passed. Before any outage,
+  a message appeared in the list 4 minutes 54 seconds after it arrived, at the next poll.
+  **Poll interruption and offline queueing:** the outage was started with All Inboxes
+  open, 29 seconds after a poll. A message submitted 68 seconds after the start arrived
+  on the server 5 seconds later and was not listed while the outage lasted. A reply from
+  Seznam Email, sent from the app 81 seconds after the start, waited: the Outbox read
+  **1 waiting**, and its row **Waiting to send. It sends when this device can reach the
+  mail server and your Unwired Mail account.**, reading **Sending…** at two samples in
+  between. The app tried to reach the sending server about every 40 seconds. The next
+  poll's connection attempt timed out 4 minutes 44 seconds after the start; the header
+  then read **All Inboxes · Offline** with **1 account needs attention** and **Try
+  Again**, and the app tried Seznam Email again about every 43 seconds. The outage lasted
+  7 minutes 26 seconds. Without a relaunch or any interaction, the app connected to
+  Seznam Email 22 seconds after the outage ended and listed the message that had arrived
+  during the outage a second later, without the attention notice. In the same second the
+  app connected to the sending server; the reply was filed by the app in Seznam Email's Sent folder 26 seconds after the
+  end and arrived in iCloud Mail 43 seconds after the end, exactly one copy in each, with
+  the same Message-ID. A message submitted next appeared 68 seconds after it arrived.
+  **Connection recovery:** a second outage was started with the app on All Inboxes, and
+  25 seconds later the app was quit with Command-Q and launched again. It showed
+  **Opening your mail…**, then All Inboxes with Seznam Email's saved messages 14 seconds
+  after the launch, and asked for no password. The header read **All Inboxes · Offline**
+  with **1 account needs attention** and **Try Again**, and Email Accounts showed Seznam
+  Email as **Saved mail only until the mail server can be checked**. The app tried Seznam
+  Email just after the launch and, at the 1-second socket samples, not again during the
+  outage. A message submitted during this outage arrived on the server 72 seconds after
+  its start. The outage lasted 4 minutes 19 seconds. Without a relaunch or any
+  interaction, the app connected to Seznam Email 72 seconds after the outage ended, 4
+  minutes 59 seconds after its attempt at launch; the list read **Syncing** and listed
+  that message 78 seconds after the end, with the header reading **Updated just now**
+  without the attention notice, and Email Accounts showed Seznam Email without the saved
+  mail line. A message submitted next appeared 4 minutes 36 seconds after it arrived, at
+  the next poll. Afterwards no run message remained in any folder of either mailbox,
+  **Sign Out of This Device** returned the app to Welcome, and the run's caches and HTTP
+  storage were removed from the app's container. The scan of step 5 above then covered
+  the files written since the run began under the locations the Mac record lists. No
+  scanned file held a password or the Recovery Key written by this run; the only matches
+  were the earlier runs' copies in T3 Code's state database, the latest written about 18
+  hours before this run ([#2688](https://github.com/unwired-dev/product/issues/2688)).
+  Limitations: the app holds
+  no Seznam Email connection between polls, so none was open when either outage began,
+  and the rule's refusal of an established connection was not exercised. The browser
+  ignored synthesized clicks in Google's account chooser, so the operator chose the
+  account and **Continue** with the keyboard. The socket table and the list were sampled
+  every second. Background refresh and push wakes, password recovery and Seznam Email
+  outages on iPhone and iPad stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
