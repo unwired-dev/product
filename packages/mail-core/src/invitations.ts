@@ -18,6 +18,7 @@ import type { MailProvider } from './registration-snapshot.ts';
 import { imapPresetOf } from './imap-setup.ts';
 import { listedMessage } from './inbox-store.ts';
 import { boundaryOf, outgoingMessage } from './outgoing-message.ts';
+import { windowsZones } from './windows-zones.ts';
 
 // The response a person chooses for a meeting invitation, as its iCalendar participation status.
 export type InvitationChoice = 'accepted' | 'tentative' | 'declined';
@@ -139,6 +140,14 @@ const recipientOf = (line: Line): Recipient | undefined => {
   return name === undefined || name === '' ? { address } : { name, address };
 };
 
+// A local DATE-TIME's zone: its TZID, as the IANA zone of a Windows ID that Exchange writes.
+const zoneOf = (line: Line) => {
+  const id = parameterOf(line, 'TZID');
+  return id !== undefined && Object.hasOwn(windowsZones, id)
+    ? windowsZones[id]
+    : id;
+};
+
 // A DATE-TIME in the IANA zone `zone`, or undefined for a missing or unknown zone.
 const zonedTime = (
   naive: number,
@@ -179,8 +188,8 @@ const supportedTime = (line: Line, allDay: boolean, utc: boolean) => {
   return (value === undefined || value === 'DATE-TIME') && !(hasZone && utc);
 };
 
-// A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA zone; floating and unknown-zone times are
-// unreadable.
+// A DATE, a UTC DATE-TIME or a DATE-TIME in an IANA or Windows zone; floating and unknown-zone
+// times are unreadable.
 const timeOf = (line: Line | undefined): InvitationTime | undefined => {
   const match = dateTime.exec(line?.value.trim() ?? '');
   if (line === undefined || match === null) {
@@ -204,7 +213,7 @@ const timeOf = (line: Line | undefined): InvitationTime | undefined => {
   }
   return hour === undefined || utc === 'Z'
     ? { at: naive, allDay: hour === undefined }
-    : zonedTime(naive, parameterOf(line, 'TZID'));
+    : zonedTime(naive, zoneOf(line));
 };
 
 const recurring = new Set(['RDATE', 'EXDATE']);
@@ -411,7 +420,7 @@ const weeklyStarts = (dtstart: Line | undefined, start: InvitationTime) => {
     .slice(1, 7)
     .map(Number);
   const timeZone = DateTime.zoneMakeNamed(
-    (dtstart && parameterOf(dtstart, 'TZID')) ?? 'UTC',
+    (dtstart && zoneOf(dtstart)) ?? 'UTC',
   ).pipe(Option.getOrUndefined);
   if (dtstart === undefined || start.allDay || timeZone === undefined) {
     return undefined;
@@ -895,10 +904,10 @@ const domainOf = (address: string) =>
 
 // The Message-ID of a response sent from a mailbox that keeps it, which finds the response in Sent:
 // the token of its MIME boundary at the invited address's domain.
-const sentMessageId = (boundary: string, address: string) => {
-  const token = /^=_(?<token>[\da-z]+)_[a-z]$/u.exec(boundary)?.groups?.token;
-  return token === undefined ? undefined : `${token}@${domainOf(address)}`;
-};
+const sentMessageId = (boundary: string, address: string) =>
+  /^=_[\da-z]+_[a-z]$/u.test(boundary)
+    ? `${boundary.slice(2, -2)}@${domainOf(address)}`
+    : undefined;
 
 // The response message: a reply to the invitation, from the invited mailbox to the organizer,
 // carrying the calendar reply beside its text in the person's language. An Outbox message names

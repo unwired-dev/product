@@ -839,7 +839,15 @@ describe('meeting invitations', () => {
     const id = graph.deliver({
       from: { name: 'Lena Fischer', address: 'lena@northwind.example' },
       subject: 'Q4 roadmap review',
-      calendar: calendar(meeting),
+      // Exchange names the zone by its Windows ID.
+      calendar: calendar(
+        meeting.map((line) =>
+          line.replace(
+            'TZID=Europe/Prague',
+            'TZID=Central Europe Standard Time',
+          ),
+        ),
+      ),
     });
     const inbox = createInboxStore(graph.native, {
       provider: 'microsoft-graph',
@@ -851,6 +859,11 @@ describe('meeting invitations', () => {
       Date.UTC(2026, 10, 2, 9, 52),
     );
     graph.failSend({ lost: true });
+
+    expect(invitation.details.start).toStrictEqual({
+      at: Date.UTC(2026, 10, 6, 13),
+      allDay: false,
+    });
 
     await responses.respond(invitation, 'accepted', english);
 

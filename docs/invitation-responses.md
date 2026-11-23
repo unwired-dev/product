@@ -151,6 +151,9 @@ through the Gmail journey above, sent directly through the owning connection.
   takes its calendar part as for Gmail. A meeting message whose attachments
   exceed 4 MiB, or whose MIME holds no calendar part that fits, opens without a
   card. A calendar attached as an ordinary file is read as for Gmail.
+- Exchange names a meeting's time zone by its Windows ID, such as `Pacific
+  Standard Time`; the card reads it as the matching IANA zone from CLDR's
+  `windowsZones.xml`, as for any invitation that names one.
 - A choice sends one `METHOD:REPLY` through Graph's `sendMail` with a Message-ID
   made from its MIME boundary. **Check Again** looks for that Message-ID in Sent
   Items, which Microsoft fills only after accepting the message.
