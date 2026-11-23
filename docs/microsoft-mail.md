@@ -57,7 +57,9 @@ The Microsoft Inbox joins the unified Inbox with the same encrypted mailbox cach
 body cache, remote-content and attachment rules as Gmail. Synchronization follows initial listing and delta continuation pages. The initial
 cache retains the newest 200 Inbox messages; each later synchronization updates
 new or changed messages, read state and messages that left the Inbox, and saves
-the newest delta link Graph returns even when nothing changed. An
+the newest delta link Graph returns even when nothing changed. Graph reads a
+message a delta round names by its ID wherever it is now, so the folder it names
+decides whether it left the Inbox or the folder being read. An
 interrupted delta round resumes after relaunch. Losing a message from a full cache
 admits the next older one. Expired delta state restarts synchronization while
 saved mail stays visible; repeated expiry offers retry. A long or repeated delta
@@ -379,6 +381,38 @@ mail content.
   and two connects that did not overlap listed it as before. One message then opened in
   the reader with its body, in Light and Dark. Limitations: Mac, iPad and the other
   areas the 2026-11-18 run left out were not run.
+- **2026-11-23, iPhone organize and search
+  ([#2693](https://github.com/unwired-dev/product/issues/2693)).** Target: Expo client,
+  Release build without a Mock Mail Session, iPhone 18 Pro Simulator on iOS 27.0, with
+  the development Convex deployment and the Microsoft public-client ID. Build: the app
+  source of `1ac442d43fae08e8ef53bb50e24bc2597f30070d`, then the same source with the fix
+  from #2693 (`411d396fb1ed0a07062dcc2dbd5a2680f58322bf`) installed over it. Toolchain:
+  Xcode 27.2 (27B52). Operator: agent, with credentials read at run time from the
+  approved password manager. Result: fail, then pass with the fix. The Google password,
+  the Recovery Key and the Microsoft address and password went in through the Simulator
+  pasteboard as [IMAP mailboxes](imap-mailboxes.md) describes; Google Product Sign-In,
+  **Unlock with Recovery Key** and **Microsoft 365 and Outlook** connected the personal
+  mailbox and its Inbox listed real messages. **Mark as Unread** and **Mark as Read**
+  showed at once and survived a relaunch. Before the fix, **Move to** and **Archive**
+  reached Graph, and the destination folder listed the message, but its Inbox row stayed
+  after synchronization, a relaunch and a refresh: Graph answers a read of a message
+  through a folder it has left, so the delta round kept it. With the fix, a message moved
+  to **Conversation History**, deleted there and moved back with **Move to Inbox** from
+  **Deleted Items**, moved again and returned with **Undo**, and then archived each time
+  left the list it was moved from and appeared in the other, also after a relaunch.
+  Search for a word from a subject found real messages on this device and on the mail
+  server, and a search with no match showed **No Results** in both. After **Sign Out of
+  This Device** and deleting the Simulator, the credential scan covered
+  `~/.agent-device`, `~/Library/Logs`, Xcode's DerivedData, the repository's
+  `artifacts`, the shell history, the temporary directories, this run's session
+  transcripts and T3 Code's state. This run's own files, provider log and transcripts
+  held no password or Recovery Key. The scan found the Recovery Key in T3 Code's state
+  database, which every session writes, and in three agent provider logs last written
+  the day before by earlier runs
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)). Limitations:
+  Microsoft's one-time sign-in code was typed, as it expires within minutes; rows the
+  earlier build kept stayed in the saved Inbox until those messages returned to it.
+  Mac, iPad and the other areas the 2026-11-18 run left out were not run.
 - **2026-11-23, iPhone send and reply
   ([#2697](https://github.com/unwired-dev/product/issues/2697)).** Target, operator and
   toolchain as on 2026-11-18, on an iPhone 18 Pro Simulator. Build: the app source of
