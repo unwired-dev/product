@@ -116,7 +116,8 @@ enum ImapStoredFlag: String, Sendable {
         }
         // SwiftMail's reconnect inside a command logs in again without updating
         // `server.namespaces`, so the session that ended the listing is asked for its own.
-        let ended = namespaces == nil ? nil : try await server.fetchNamespaces()
+        let ended =
+          namespaces == nil ? await server.namespaces : try await server.fetchNamespaces()
         guard ended?.listingPatterns(for: "*") == namespaces?.listingPatterns(for: "*") else {
           throw RegistrationError.unavailable
         }
