@@ -485,6 +485,9 @@ final class InboxTests: XCTestCase {
     app.launch()
     XCTAssertTrue(welcome.waitForExistence(timeout: 20))
     expect(dark: true)
+    // iPad Portrait opens with Mailboxes hidden (#2376); beside them the list is as narrow as before
+    // the relaunch.
+    if !phone { showSidebar(app) }
     XCTAssertEqual(settledFrame(of: welcome).height, compact, accuracy: 0.5)
     attach("Compact Inbox after relaunch · Dark")
     openAppearance()
