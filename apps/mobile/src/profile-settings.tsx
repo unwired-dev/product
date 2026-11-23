@@ -36,7 +36,7 @@ import { MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
 import { SettingsGroup, SettingsRow, settingsColumns } from './settings.tsx';
-import { textStyles, usePalette, useProfilePalette } from './theme.ts';
+import { textStyles, useLargeText, usePalette, useProfilePalette } from './theme.ts';
 
 const value = settingsColumns ? typography.ipadList.body : textStyles.body;
 
@@ -304,6 +304,7 @@ export function MailProfilesSettings({
   readonly store: Registration;
 }) {
   const colors = usePalette();
+  const large = useLargeText();
   const { t } = useLocalization();
   const [chosen, setChosen] = useState(defaultProfile);
   const choices = useSyncExternalStore(profileChoices.subscribe, () =>
@@ -586,7 +587,7 @@ export function MailProfilesSettings({
               key={mailbox.id}
               icon="at"
               title={mailbox.address}
-              titleNumberOfLines={1}
+              titleNumberOfLines={large ? 0 : 1}
               subtitle={t(`mailProviders.${mailbox.provider}`)}>
               {/* A pending move shows only the indicator in place of the pop-up. */}
               {progress(mailbox.id) ?? (

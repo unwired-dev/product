@@ -30,7 +30,7 @@ Host load was 5–700 from other work.
   clipped. The audit reported none of these. The new width check fails there,
   first on "Sign Out on This Device", 38.7 points wide.
 - After: at these sizes a Settings row puts its value and controls beneath its
-  title, pop-up choices, destinations and the account name wrap, and monogram
+  title, pop-up choices, destinations, the account name and mailbox addresses wrap, and monogram
   letters keep their circle's size.
 - iPhone 18 Pro passed the step in the whole journey: every screen passed the
   audit and the width check. The reach check, added after review, passed in a
