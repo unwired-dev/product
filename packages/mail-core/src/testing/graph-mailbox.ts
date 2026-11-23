@@ -443,8 +443,8 @@ export function createSyntheticGraph({
           totalItemCount: newest(folder).length,
         });
   };
-  // A folder's newest messages, its delta, or one of its messages, as a delta change is read; a
-  // message that left the folder, and a folder that is gone, are not found.
+  // A folder's newest messages, its delta, or one of its messages, as a delta change is read. Like
+  // Graph, a message is read by its ID wherever it is now; a folder that is gone is not found.
   const folderMessages = (url: URL) => {
     const groups = folderMessagesPath.exec(url.pathname)?.groups;
     if (groups === undefined) {
@@ -461,7 +461,9 @@ export function createSyntheticGraph({
       return delta(url, folder);
     }
     const found = messages.get(decodeURIComponent(groups.rest));
-    return inFolder(folder)(found) ? respond(listed(found)) : notFound();
+    return found === undefined
+      ? notFound()
+      : respond({ ...listed(found), parentFolderId: folderId(found.folder) });
   };
   // Where a message is, as organizing reads it back.
   const placementRead = (url: URL) => {
