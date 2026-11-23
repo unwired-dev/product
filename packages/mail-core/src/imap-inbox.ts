@@ -805,7 +805,7 @@ const textOf = (part: GmailPart) =>
   );
 
 type HeaderFields = ReadonlyArray<Readonly<{ name: string; value: string }>>;
-// UIDs per header preflight; native limits each literal to 256 KiB, not aggregate receive (#1187).
+// UIDs per header preflight; native limits each message's header literals to 256 KiB in all.
 const preflightSize = 20;
 // Whether a message's Content-Type and Content-Disposition fields describe one plain-text or HTML
 // part, parsed as its full source would be.

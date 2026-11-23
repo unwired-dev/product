@@ -164,13 +164,15 @@ enum ImapStoredFlag: String, Sendable {
         switch read {
         case .uids(let uids):
           infos = try await server.fetchMessageInfosBulk(
-            using: UIDSet(uids.map(UID.init)), options: .slim)
+            using: UIDSet(uids.map(UID.init)), options: .slim,
+            limits: SwiftMailImap.limits(uids.count))
         case .from(let uid):
-          infos = try await server.fetchMessageInfos(uidRange: UID(uid)..., options: .slim)
+          infos = try await server.fetchMessageInfos(
+            uidRange: UID(uid)..., options: .slim, limits: SwiftMailImap.limits(200))
         case .newest(let count, let total):
           infos = try await server.fetchMessageInfos(
             sequenceRange: SequenceNumber(max(1, total - count + 1))...SequenceNumber(total),
-            options: .slim)
+            options: .slim, limits: SwiftMailImap.limits(count))
         }
         return infos.compactMap(SwiftMailImap.envelope)
       }
@@ -179,7 +181,8 @@ enum ImapStoredFlag: String, Sendable {
     func flags(_ uids: [UInt32]) async throws -> [UInt32: [String]] {
       try await run { server in
         let present = try await server.fetchMessageInfosBulk(
-          using: UIDSet(uids.map(UID.init)), options: .uidFlagsOnly)
+          using: UIDSet(uids.map(UID.init)), options: .uidFlagsOnly,
+          limits: SwiftMailImap.limits(uids.count))
         var flags: [UInt32: [String]] = [:]
         for info in present {
           if let uid = info.uid?.value { flags[uid] = info.flags.map(SwiftMailImap.flag) }
@@ -438,7 +441,7 @@ extension RegistrationStore {
     ]
   }
 
-  // At most 200 named or newest messages; `UID n:*` is bounded by the server's arrivals.
+  // At most 200 named, newest or arrived messages: a `UID n:*` read naming more fails as too large.
   func imapEnvelopes(
     connection: String, address: String, generation: String, session: String,
     read: ImapEnvelopeRead

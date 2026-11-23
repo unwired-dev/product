@@ -423,12 +423,9 @@ before they are opened, under Gmail's
 
 Local search reports a prefetched body as saved on this device.
 
-The 20-UID request limit and 256 KiB per-literal limit do not bound aggregate
-memory when a server sends extra or repeated replies, or several individually
-legal literals per message. The owner accepted this residual SwiftMail risk
-for [PR #1185](https://github.com/unwired-dev/product/pull/1185), with receive-time
-aggregate refusal tracked in [#1187](https://github.com/unwired-dev/product/issues/1187).
-Prefetch is not qualified against that server behavior.
+A preflight also refuses, as too large, a reply beyond one per requested message and
+header literals beyond 256 KiB per requested message in all, as the
+[engine's receive bounds](#engine-and-dependencies) describe.
 
 A message whose UID no longer exists under the folder's UIDVALIDITY reads as **This
 message is no longer in this folder on the mail server**.
@@ -588,7 +585,7 @@ or an ESEARCH item it was asked for; it matches either text or a Sent copy's Mes
 Email's server drops the connection on a Content-Type header search in a folder
 that holds messages ([#2402](https://github.com/unwired-dev/product/issues/2402)),
 so a Sent copy is not looked up by its MIME boundary. An append stores an outgoing message, read, in a folder: native
-code reads the message from the Outbox and appends it only for a trusted device. UID-set and newest-message requests name at most 200 messages; a UID-range request reads from its starting UID onward.
+code reads the message from the Outbox and appends it only for a trusted device. UID-set and newest-message requests name at most 200 messages; a UID-range request reads from its starting UID onward, at most 200 messages.
 TypeScript keeps the checkpoint arithmetic, decides which messages to read, and
 closes the session when the work ends, whether it succeeded or failed. IDLE runs the
 same way: TypeScript checks the capability, then asks the session to wait on a folder
@@ -610,6 +607,17 @@ a folder the server opens read-only. A command that fails after it was sent is
 reported as interrupted, so TypeScript never resends an uncertain move.
 Filing a Sent copy runs the same way: TypeScript searches the Sent folder for the copy's
 Message-ID and appends the message in the same session only when no copy is there.
+
+Every metadata read (envelopes, flags, sizes, the history page and the prefetch
+preflight) receives at most one FETCH reply per message it names, or 200 for a
+UID-range read, counting unsolicited replies, and no streamed section except the
+preflight's header fields, at most 256 KiB per named message in all. SwiftMail
+checks each reply and each section's declared size before keeping it; a server that
+sends more fails the read as too large and loses that connection, without waiting for
+a command timeout. A synchronization that fails this way reports the failure and
+retries at the next one. Literals nested in ENVELOPE are not counted: each FETCH
+attribute is bounded by SwiftMail's 1 MiB response buffer, and each reply by its
+64-attribute limit.
 
 Closing a session also closes its connection at once: in SwiftMail 1.18,
 cancelling an active command closes its transport, and disconnecting no longer
@@ -692,7 +700,8 @@ UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also chec
 `\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,
 refusal without MOVE or UIDPLUS, a refused destination, a connection dropped after MOVE,
 a removed folder, cross-folder search, a history read that clamps an oversized UID range
-reply to its bounded window, and IDLE over a session waking on a change, timing out, and ending when its
+reply to its bounded window, refusal of unsolicited FETCH replies beyond a read's
+messages and of header literals beyond a message's budget, and IDLE over a session waking on a change, timing out, and ending when its
 session closes. A
 TLS SMTP fixture beside it, with the same certificate, checks real SwiftMail submission
 over implicit TLS and STARTTLS, leaving a server without STARTTLS before any password,

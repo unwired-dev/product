@@ -152,21 +152,18 @@ Forward uses the existing attachment downloads. The operational
 [reader contract](../imap-mailboxes.md#reading) owns the visible behavior.
 
 The header preflight requests at most 20 UIDs and configures a 256 KiB BODY
-literal limit. That bounds the requested header payload to 5 MiB when the server
-returns one literal per requested UID,
-not the command's aggregate allocation. SwiftMail's `FetchMessageInfoHandler`
-accumulates every FETCH, including unsolicited and repeated responses, before
-returning. Neither the UID request cap nor the parser's working-buffer limit bounds
-that collection. SwiftMail 1.18.0 adds opt-in per-call `FetchReceiveLimits` (a reply
-count and declared streamed-section bytes) to its metadata FETCH calls; the adapter
-does not pass them yet. On 2026-10-22, the owner accepted this residual risk for
-[PR #1185](https://github.com/unwired-dev/product/pull/1185) and assigned the
-receive-time bound to [#1187](https://github.com/unwired-dev/product/issues/1187),
-separately from the LIST-response limitation tracked by #888.
-A controlled TLS probe also returned success for two individually legal header
-sections totaling over 256 KiB in one FETCH. The pinned engine's intended
-response-wide guard and its error mapping therefore require wire-level validation;
-its synthetic guard tests alone do not establish the adapter's receive bound.
+literal limit. SwiftMail's `FetchMessageInfoHandler` accumulates every FETCH,
+including unsolicited and repeated responses, before returning, so every metadata
+FETCH passes SwiftMail 1.18's per-call `FetchReceiveLimits`
+([#1187](https://github.com/unwired-dev/product/issues/1187)): one reply per
+named message (200 for `UID n:*`) and no declared streamed-section bytes, except
+256 KiB per named message for the preflight's header fields, 5 MiB at 20 UIDs.
+SwiftMail checks both before keeping a reply or reading a section, closes the
+connection, and the adapter maps `FetchReceiveLimitExceededError` to `too-large`.
+Literals nested in ENVELOPE or BODYSTRUCTURE are not counted; the parser's 1 MiB
+response buffer bounds each FETCH attribute, and its 64-attribute limit each
+reply. The hosted TLS fixture proves refusal of a reply flood for one named
+message and of two individually legal header literals over one message's budget.
 
 Private Sync descriptors carry `provider: imap`. The native receipt's subject is
 `host:port:username`; its provider-scoped account, `imap:host:port:username`, supplies
