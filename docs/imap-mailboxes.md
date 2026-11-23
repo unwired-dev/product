@@ -1637,8 +1637,8 @@ password manager by running
   only until the mail server can be checked** and Seznam Email as **Updated just now**. A
   message submitted during this outage arrived on the server 70 seconds after its start.
   The outage lasted 4 minutes 8 seconds. Without a relaunch or any interaction, the app
-  connected to iCloud Mail 79 seconds after the outage ended, when the list read
-  **Syncing**, and listed that message 6 seconds later. The header then read **Updated
+  connected to iCloud Mail 79 seconds after the outage ended; the list read **Syncing**
+  2 seconds later and listed that message 85 seconds after the end. The header then read **Updated
   just now** without the attention notice, Email Accounts showed both mailboxes **Updated
   just now**, and a message submitted next appeared 4 seconds after it arrived.
   Afterwards no run message remained in any folder of either mailbox, **Sign Out of This
