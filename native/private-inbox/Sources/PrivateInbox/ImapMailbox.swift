@@ -204,6 +204,9 @@ struct SwiftMailImap: ImapProvider {
   // not import.
   static func failure(_ error: any Error) -> any Error {
     if error is ImapFailure || error is CancellationError { return error }
+    if error is FetchReceiveLimitExceededError || error is ExceededResponseBodySizeError {
+      return ImapFailure.tooLarge
+    }
     let type = String(reflecting: Swift.type(of: error))
     if type.contains("NIOSSL") || type.contains("BoringSSL") { return ImapFailure.insecure }
     if let error = error as? IMAPError {
@@ -218,6 +221,13 @@ struct SwiftMailImap: ImapProvider {
       return ImapFailure.offline
     }
     return error
+  }
+
+  // A metadata FETCH receives at most one reply per message it names, unsolicited ones included,
+  // and `bytes` of streamed sections such as BODY[HEADER.FIELDS]; SwiftMail refuses more before
+  // keeping it and closes the connection.
+  static func limits(_ messages: Int, bytes: UInt64 = 0) -> FetchReceiveLimits {
+    FetchReceiveLimits(maximumReplies: messages, maximumPayloadBytes: bytes)
   }
 
   func verify(_ account: ImapAccount, password: String) async throws {
@@ -248,14 +258,16 @@ struct SwiftMailImap: ImapProvider {
       }
       var next = selection.uidNext.value
       if next == 0, let latest = selection.latest(1) {
-        let newest = try await server.fetchMessageInfosBulk(using: latest, options: .uidFlagsOnly)
+        let newest = try await server.fetchMessageInfosBulk(
+          using: latest, options: .uidFlagsOnly, limits: Self.limits(1))
         next = (newest.compactMap { $0.uid?.value }.max() ?? 0) &+ 1
       }
+      let known = UIDSet(request.known.map(UID.init))
       let present =
         request.known.isEmpty
         ? []
         : try await server.fetchMessageInfosBulk(
-          using: UIDSet(request.known.map(UID.init)), options: .uidFlagsOnly
+          using: known, options: .uidFlagsOnly, limits: Self.limits(known.count)
         ).compactMap { $0.uid?.value }
       let floor = max(request.above, 1)
       var high = request.below ?? next
@@ -285,7 +297,7 @@ struct SwiftMailImap: ImapProvider {
         kept.isEmpty
         ? []
         : try await server.fetchMessageInfosBulk(
-          using: UIDSet(kept.map(UID.init)), options: .slim
+          using: UIDSet(kept.map(UID.init)), options: .slim, limits: Self.limits(kept.count)
         ).compactMap(Self.envelope)
       return ImapHistoryPage(
         uidValidity: selection.uidValidity.value,
@@ -302,7 +314,9 @@ struct SwiftMailImap: ImapProvider {
     try await session(account, password) { server in
       let selection = try await Self.examine(server, folder: folder)
       guard selection.uidValidity.value == uidValidity else { throw ImapFailure.changed }
-      guard let info = try await server.fetchMessageInfo(for: UID(uid), options: [.size]),
+      guard
+        let info = try await server.fetchMessageInfo(
+          for: UID(uid), options: [.size], limits: Self.limits(1)),
         info.uid?.value == uid
       else { throw ImapFailure.missing }
       guard let size = info.size, size <= limit else { throw ImapFailure.tooLarge }
@@ -315,17 +329,18 @@ struct SwiftMailImap: ImapProvider {
   func headers(
     _ account: ImapAccount, password: String, folder: String, uidValidity: UInt32, uids: [UInt32]
   ) async throws -> [ImapHeaders] {
-    // Each header literal has the MIME header budget; larger declarations refuse the read.
-    // shortcut: Aggregate receive is unbounded, accepted for #1185; add the upstream bound in #1187.
+    // Each header literal has the MIME header budget, and so does each message in the read's total;
+    // larger declarations refuse the read.
     try await session(account, password, literalLimit: RegistrationStore.imapHeaderLimit) { server in
       let selection = try await Self.examine(server, folder: folder)
       guard selection.uidValidity.value == uidValidity else { throw ImapFailure.changed }
       // Request only BODY.PEEK[HEADER.FIELDS (...)], without any body part.
       let infos: [MessageInfo]
       do {
+        let named = UIDSet(uids.map(UID.init))
         infos = try await server.fetchMessageInfosBulk(
-          using: UIDSet(uids.map(UID.init)), options: [],
-          headerFields: ["Content-Type", "Content-Disposition"])
+          using: named, options: [], headerFields: ["Content-Type", "Content-Disposition"],
+          limits: Self.limits(named.count, bytes: UInt64(named.count * RegistrationStore.imapHeaderLimit)))
       } catch where String(reflecting: Swift.type(of: error)).hasSuffix("IMAPDecoderError") {
         throw ImapFailure.tooLarge
       }
@@ -399,7 +414,7 @@ struct SwiftMailImap: ImapProvider {
 extension RegistrationStore {
   // Bounds a message read: the same per-message limit as Gmail's received mail.
   nonisolated static let imapMessageLimit = 40 * 1024 * 1024
-  // Prefetch requests at most 20 UIDs, with the MIME header budget per literal; see #1187.
+  // Prefetch requests at most 20 UIDs, with the MIME header budget per message.
   nonisolated static let imapHeaderLimit = 256 * 1024
   nonisolated static let imapHeaderMessages = 20
 

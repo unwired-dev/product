@@ -747,6 +747,12 @@ extension PrivateInboxTests {
       await reading.close()
       throw error
     }
+    // The server answers one named message with unsolicited replies without end: the read is
+    // refused at the second reply, without waiting for SwiftMail's command timeout.
+    let flooded = try await provider.open(account, password: "synthetic-password")
+    _ = try await flooded.examine("INBOX")
+    await #expect(throws: ImapFailure.tooLarge) { _ = try await flooded.flags([14]) }
+    await flooded.close()
     let raw = try await provider.message(
       account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uid: 11,
       limit: RegistrationStore.imapMessageLimit)
@@ -769,6 +775,12 @@ extension PrivateInboxTests {
     await #expect(throws: ImapFailure.tooLarge) {
       _ = try await provider.headers(
         account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uids: [12])
+    }
+    // Two header literals within their bound that together exceed one reply's budget: the
+    // second declaration is refused before its bytes, which the server never sends.
+    await #expect(throws: ImapFailure.tooLarge) {
+      _ = try await provider.headers(
+        account, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uids: [14])
     }
     await #expect(throws: ImapFailure.changed) {
       _ = try await provider.message(
