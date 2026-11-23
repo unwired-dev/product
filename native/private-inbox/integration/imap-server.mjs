@@ -109,30 +109,33 @@ const operations = new Set();
 // observes its own transfer; `stalled-probe` sees it as one message.
 let stalling = false;
 // Namespace-shift's server drops its first session after refusing the shared LIST, and its next
-// session no longer reports the shared namespace.
+// session no longer reports the shared namespace. Only a NAMESPACE that session answers after its
+// LIST counts: SwiftMail's reconnect inside a command leaves its own namespaces unchanged.
 let shifted = false;
 // Sent copies appended by Message-ID; filing the same message again must find, not append.
 const appended = new Set();
 // RFC 2342 §5.9: Tilde's other users' prefix `~` does not end in its delimiter, so its root `~`
 // also matches the `~*` LIST.
-const namespacesOf = (user) => {
+const namespacesOf = (user, listing) => {
   if (user === 'tilde') {
     return '(("INBOX/" "/")) (("~" "/")) NIL';
   }
   if (user === 'namespace-shift' && shifted) {
-    operations.add('namespace-shift');
+    if (listing) {
+      operations.add('namespace-shift');
+    }
     return '(("" "/")) NIL NIL';
   }
   return '(("" "/")) NIL (("Shared/" "/"))';
 };
-const discoverNamespaces = (socket, tag, { failed, user }) => {
+const discoverNamespaces = (socket, tag, { failed, user, listing }) => {
   if (failed) {
     operations.add('namespace-refused');
     socket.write(`${tag} NO Namespace temporarily unavailable\r\n`);
   } else {
     operations.add('namespace');
     socket.write(
-      `* NAMESPACE ${namespacesOf(user)}\r\n${tag} OK Completed\r\n`,
+      `* NAMESPACE ${namespacesOf(user, listing)}\r\n${tag} OK Completed\r\n`,
     );
   }
 };
@@ -265,10 +268,14 @@ const refusedLists = {
 // Zimbra refuses a wildcard in its other users' namespace, for one.
 const refuseList = (socket, tag, user) => {
   operations.add('shared-refused');
-  socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
+  const refusal = `${tag} NO LIST failed: wildcards not permitted\r\n`;
   if (user === 'namespace-shift' && !shifted) {
     shifted = true;
-    socket.end();
+    // A BYE with the refusal tells the client the session ended before it sends its next LIST;
+    // a bare close often reaches it later, failing that LIST instead of logging in again.
+    socket.end(`${refusal}* BYE Session ends\r\n`);
+  } else {
+    socket.write(refusal);
   }
 };
 // The user name a LOGIN presents, which chooses the synthetic server's variation.
@@ -588,13 +595,18 @@ const server = tls.createServer(
           ok();
         }
       } else if (command === 'NAMESPACE') {
-        discoverNamespaces(socket, tag, { failed: namespaceFailure, user });
+        discoverNamespaces(socket, tag, {
+          failed: namespaceFailure,
+          user,
+          listing: session.listing,
+        });
       } else if (
         command.startsWith('LIST ') &&
         refusedLists[user]?.test(command)
       ) {
         refuseList(socket, tag, user);
       } else if (command.startsWith('LIST ')) {
+        session.listing = true;
         listFolders(socket, command, { overflowing, listed, user });
         if (overflowing === 0) {
           ok();
