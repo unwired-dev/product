@@ -113,6 +113,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Wraps rather than overflowing a narrow list.
+  pausedText: {
+    flexShrink: 1,
+  },
   pausedLabel: {
     ...typography.ios.caption1,
     fontWeight: '600',
@@ -521,6 +525,8 @@ export function SyncStatusCapsule({
         styles.capsule,
         {
           width,
+          // The paused capsule hugs its content, still within the list.
+          maxWidth: width,
           borderRadius: height / 2,
           boxShadow: colors.smallGlassShadow,
         },
@@ -636,7 +642,7 @@ function CapsuleStatus({
         accessibilityLabel={said.spoken}
         accessibilityRole="button"
         onPress={onShowDetails}
-        style={styles.status}>
+        style={[styles.status, styles.pausedText]}>
         <View style={styles.pausedIcon}>
           <SFSymbol
             name="clock"
@@ -644,7 +650,7 @@ function CapsuleStatus({
             size={20}
           />
         </View>
-        <View>
+        <View style={styles.pausedText}>
           <Text style={[styles.pausedLabel, { color: colors.textPrimary }]}>
             {said.label}
           </Text>
