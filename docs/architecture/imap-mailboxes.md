@@ -124,12 +124,14 @@ checkpoint was evicted. Late body replies reconcile their descriptors against th
 committed identity too. Search replies, refused source reads and failed cache commits
 do not retire other attachments before a later successful synchronization adopts the
 new identity; a refused source read still reports its own attachment as missing.
-The native `imapMessage` task has no cancellation handle. Cancel and last-reader
-cleanup remove download ownership immediately, but `sourceOf` keeps its native
-call uninterruptible until settlement. `explicitLoad` therefore holds the
-connection and device permits and interactive ownership for the actual transfer;
-cancelled results cannot retain a saved attachment or restore its row. Ending the
-native transfer itself remains [#1172](https://github.com/unwired-dev/product/issues/1172).
+Cancel and last-reader cleanup remove download ownership immediately and
+interrupt `sourceOf`. Issue #1172 gives the native `imapMessage` read a request
+name, as Gmail's reads have: the interruption aborts it, and the host cancels it
+by that name. Cancelling the native task closes the read's session transport in
+SwiftMail 1.18, which ends the transfer on the wire. `sourceOf` then waits until
+the native call settles, so `explicitLoad` holds the connection and device permits
+only while the transfer actually runs, and cancel and retry cannot stack reads.
+Cancelled results cannot retain a saved attachment or restore its row.
 The [operational guide](../imap-mailboxes.md#reading) owns limits, actions and cleanup.
 Issue #1021 adds recent-body prefetch after successful Inbox synchronization. Native
 SwiftMail reads only Content-Type and Content-Disposition for the selected UIDs;

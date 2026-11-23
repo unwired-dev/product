@@ -229,7 +229,11 @@ export interface NativeImapMailbox
   // Resolves `{ data }`, the raw message as standard base64; rejects with `imap-changed` when the
   // folder's UIDVALIDITY no longer matches.
   readonly imapMessage: (
-    mailbox: Readonly<{ address: string; generation: string }>,
+    mailbox: Readonly<{
+      address: string;
+      generation: string;
+      signal?: Readonly<AbortSignal>;
+    }>,
     message: Readonly<{ folder: string; uidValidity: number; uid: number }>,
   ) => Promise<unknown>;
   // Resolves `{ messages: [{ uid, headers: [{ name, value }] }] }`: the Content-Type and
@@ -531,7 +535,7 @@ const listMatches = (pattern: string, text: string) => {
 // A search may compare each pattern character with each name character; past this many, a folder
 // stays as one a skipped LIST would match.
 const listMatchBudget = 2 ** 24;
-const call = (operation: () => Promise<unknown>) =>
+const call = (operation: (signal: Readonly<AbortSignal>) => Promise<unknown>) =>
   Effect.tryPromise({
     try: operation,
     catch: (cause) => {
@@ -2559,17 +2563,23 @@ export function createImapInbox(
         diagnostic: 'Inbox closed',
       });
     }
-    // shortcut: native IMAP reads have no cancel handle, so a cancelled download keeps its load
-    // permits until the read settles and cancel and retry cannot stack reads; upgrade once native
-    // IMAP reads accept cancellation.
+    // Interruption cancels the native read, then waits until native code confirms it ended, so a
+    // cancelled download keeps its load permits only while the transfer still runs.
+    let read: Promise<unknown> = Promise.resolve();
     const raw = yield* decodeRaw(
-      yield* Effect.uninterruptible(
-        call(() =>
-          native.imapMessage(scope, {
+      yield* call((signal) => {
+        read = native.imapMessage(
+          { ...scope, signal },
+          {
             folder: message.folder,
             uidValidity: message.uidValidity,
             uid: message.uid,
-          }),
+          },
+        );
+        return read;
+      }).pipe(
+        Effect.onInterrupt(() =>
+          Effect.tryPromise(() => read).pipe(Effect.ignore),
         ),
       ),
     ).pipe(Effect.mapError(malformed));

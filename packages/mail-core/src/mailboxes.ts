@@ -242,7 +242,7 @@ export interface NativeGmailMailboxes {
     request: Parameters<NativeImapMailbox['imapHistory']>[1],
   ) => Promise<unknown>;
   readonly imapMessage: (
-    mailbox: Scope,
+    mailbox: Scope & Readonly<{ signal?: Readonly<AbortSignal> }>,
     message: Parameters<NativeImapMailbox['imapMessage']>[1],
   ) => Promise<unknown>;
   readonly imapHeaders: (
@@ -390,7 +390,13 @@ const boundImap = (
     imapHistory: (mailbox, request) =>
       native.imapHistory(scope(mailbox), request),
     imapMessage: (mailbox, message) =>
-      native.imapMessage(scope(mailbox), message),
+      native.imapMessage(
+        {
+          ...scope(mailbox),
+          ...(mailbox.signal === undefined ? {} : { signal: mailbox.signal }),
+        },
+        message,
+      ),
     imapHeaders: (mailbox, request) =>
       native.imapHeaders(scope(mailbox), request),
     imapSelect: (mailbox, request) =>

@@ -105,6 +105,9 @@ const assertResumed = (command, { large, sparse }) => {
   }
 };
 const operations = new Set();
+// Set while a stalled source that has sent its first bytes stays open, so each test attempt
+// observes its own transfer; `stalled-probe` sees it as one message.
+let stalling = false;
 // Namespace-shift's server drops its first session after refusing the shared LIST, and its next
 // session no longer reports the shared namespace.
 let shifted = false;
@@ -271,6 +274,13 @@ const refuseList = (socket, tag, user) => {
 // The user name a LOGIN presents, which chooses the synthetic server's variation.
 const userOf = (command) =>
   /^LOGIN "?(?<name>[\w-]+)"? /u.exec(command)?.groups?.name ?? '';
+// The probe's Inbox is empty until the stalled source has started.
+const existsOf = ({ large, user }) => {
+  if (large) {
+    return 500;
+  }
+  return user === 'stalled-probe' && !stalling ? 0 : 1;
+};
 // SELECT for organizing, EXAMINE for reading; a removed folder refuses both.
 // fallow-ignore-next-line complexity -- Exercised by the hosted native TLS test; the static JS test graph cannot see its real SwiftMail callers.
 const selectFolder = (socket, session, { tag, command }) => {
@@ -291,7 +301,7 @@ const selectFolder = (socket, session, { tag, command }) => {
     operations.add('unidentified');
   }
   socket.write(
-    `* FLAGS (\\Flagged)\r\n* ${session.large ? 500 : 1} EXISTS\r\n* 0 RECENT\r\n${session.identified ? `* OK [UIDVALIDITY ${session.selected === 'Archive' ? 9 : 7}] Stable\r\n` : ''}* OK [UIDNEXT ${uidNextOf(command)}] Next\r\n`,
+    `* FLAGS (\\Flagged)\r\n* ${existsOf(session)} EXISTS\r\n* 0 RECENT\r\n${session.identified ? `* OK [UIDVALIDITY ${session.selected === 'Archive' ? 9 : 7}] Stable\r\n` : ''}* OK [UIDNEXT ${uidNextOf(command)}] Next\r\n`,
   );
   socket.write(
     writable
@@ -434,6 +444,16 @@ const answerFetch = (socket, session, { tag, command }) => {
       // Send only the hostile declaration. The native parser must refuse before waiting
       // for or retaining payload; a timeout is a regression, not a passing refusal.
       socket.write(`* 1 FETCH (UID 12 BODY[] {${40 * 1024 * 1024 + 1}}\r\n`);
+    } else if (session.user === 'stalled-source') {
+      // Sends the first bytes of a larger source, then nothing: the transfer ends early only
+      // when the client cancels the read and closes its session.
+      socket.write(`* 1 FETCH (UID 11 BODY[] {${1024 * 1024}}\r\n`);
+      socket.write(raw);
+      stalling = true;
+      socket.once('close', () => {
+        stalling = false;
+        operations.add('source-cancelled');
+      });
     } else {
       assert.match(command, /^UID FETCH 11 /u);
       socket.write(`* 1 FETCH (UID 11 BODY[] {${raw.length}}\r\n`);
@@ -667,6 +687,7 @@ process.on('SIGTERM', () => {
       'sent-search',
       'shared-list',
       'shared-refused',
+      'source-cancelled',
       'store-deleted',
       'store-flagged',
       'store-seen',
