@@ -2684,7 +2684,8 @@ final class InboxTests: XCTestCase {
     let control = app.buttons.matching(
       NSPredicate(format: "label == %@ AND NOT (identifier BEGINSWITH 'assistant')", name)
     ).firstMatch
-    let item = app.cells[name]
+    // The system menu's rows hold the item as a labelled button.
+    let item = app.collectionViews.buttons[name]
     let more = app.buttons["More Lists and Links"]
     if !control.isHittable, item.exists || more.isHittable,
       ["Numbered List", "Outdent", "Indent", "Add Link", "Edit Link", "Undo", "Redo"].contains(name)
@@ -2706,9 +2707,12 @@ final class InboxTests: XCTestCase {
   private func formatSelected(_ name: String, in app: XCUIApplication) -> Bool {
     let control = formatControl(name, in: app)
     let selected = control.isSelected
-    if control.elementType == .cell {
-      app.otherElements["PopoverDismissRegion"].tap()
-      XCTAssertTrue(control.waitForNonExistence(timeout: 5))
+    let item = app.collectionViews.buttons[name]
+    if item.exists {
+      // A tap outside the system menu, above it, closes it.
+      item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).withOffset(CGVector(dx: 0, dy: -60))
+        .tap()
+      XCTAssertTrue(item.waitForNonExistence(timeout: 5))
     }
     return selected
   }
