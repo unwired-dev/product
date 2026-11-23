@@ -76,8 +76,14 @@ async function twoMailboxes(messages = 0, connectOther = true) {
   let beforeRead: (() => Promise<void>) | undefined = undefined;
   // Each connection whose grant verification renewed with its provider, in order.
   const verifications: string[] = [];
+  // Each push routing, which renews every verified connection's Gmail watch.
+  let routings = 0;
   const vault: NativeRegistrationVault = {
     ...synthetic.vault,
+    routeMailboxes: () => {
+      routings += 1;
+      return synthetic.vault.routeMailboxes();
+    },
     registration: async () => {
       const hook = beforeRead;
       beforeRead = undefined;
@@ -140,6 +146,7 @@ async function twoMailboxes(messages = 0, connectOther = true) {
     gmail,
     registration,
     verifications,
+    routings: () => routings,
     // The process ends: native code forgets which connections verified.
     end: () => vault.forgetMailboxAccess(),
     // Another Trusted Device revokes this one.
@@ -854,7 +861,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
       expect.hasAssertions();
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-11-20T13:00:00.000Z'));
-      const { gmail, registration, verifications, launch } =
+      const { gmail, registration, verifications, routings, launch } =
         await twoMailboxes(2);
       const { mailboxes, freshness } = launch();
       await loaded(mailboxes);
@@ -876,6 +883,7 @@ describe('keeping Gmail fresh through application lifecycles', () => {
       // Activation, Refresh, unscoped Try Again, Try Again for Other, and a wake routed to Alex.
       const everyPath = async () => {
         verifications.length = 0;
+        const routed = routings();
         await registration.resume();
         await freshness.refresh();
         await registration.refreshInbox(mailboxes.load);
@@ -883,6 +891,8 @@ describe('keeping Gmail fresh through application lifecycles', () => {
         await registration.refreshInbox(mailboxes.load, 'explicit', alex);
         expect(verifications).toStrictEqual([other, other, other, other]);
         expect(gmail.alex.requests).toHaveLength(requests);
+        // Push routing would renew Alex's watch with Gmail.
+        expect(routings()).toBe(routed);
         // Alex keeps the access this process verified.
         expect(states(registration)).toStrictEqual({
           [alex]: 'connected',

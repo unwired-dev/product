@@ -407,8 +407,9 @@ export function createRegistrationFlow(
 
   // Reports each retained connection as connected only after its provider access verifies again,
   // including one its provider refused before. One connection's failure never changes another's
-  // state. With `routed`, only that connection verifies, and watch renewal, which refreshes every
-  // verified connection's grant, waits for the next full verification.
+  // state. With `routed`, or while Gmail pauses a connection that keeps this process's access,
+  // watch renewal, which refreshes every verified connection's grant, waits for the next full
+  // verification.
   const mailboxStatus = Effect.fnUntraced(function* (routed?: string) {
     const value = yield* saved;
     if (value.product?.pending === true || value.mailboxes.length === 0) {
@@ -423,7 +424,7 @@ export function createRegistrationFlow(
     );
     if (verified) {
       yield* synchronize;
-      yield* routed === undefined
+      yield* routed === undefined && paused().length === 0
         ? pushStep(vault.routeMailboxes)
         : Effect.void;
     }

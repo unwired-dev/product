@@ -1668,7 +1668,8 @@ including while locked or unreadable storage hides the pause
 ([#2745](https://github.com/unwired-dev/product/issues/2745)). The mailbox keeps the
 access this process verified, so changes made meanwhile are still saved, and a
 mailbox this process has not verified opens its saved Inbox from its cache; the
-automatic attempt at that time verifies it again. Otherwise activation verifies
+automatic attempt at that time verifies it again. Push watch renewal, which
+also asks Gmail, waits for the first full verification after the pause. Otherwise activation verifies
 the saved grant, as it does for every connection, and the same usage limit on
 Gmail's profile, like a 429, keeps the saved Inbox open from its cache and asks for
 no authorization
