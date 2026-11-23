@@ -310,6 +310,7 @@ function syntheticHost(reporting?: NativeErrorReporting, productSync = false) {
     shared,
     imapServers,
     attachments: attachments.promise,
+    held,
     cancelled,
     counts,
     notified,
@@ -404,6 +405,83 @@ describe('the host assembly', () => {
     const download = inbox.downloadAttachment(id, locator);
     const request = await attachments;
     inbox.cancelAttachment(id, locator);
+    await download;
+    close();
+    expect(cancelled).toStrictEqual([request]);
+  });
+
+  it('cancels an aborted IMAP source read by its request name', async () => {
+    expect.hasAssertions();
+    const { host, shared, imapServers, held, cancelled } = syntheticHost();
+    const imap = createSyntheticImap();
+    await host.registration.register('google');
+    await host.registration.connectImap({
+      address: 'alex@example.invalid',
+      host: 'imap.example.invalid',
+      port: 993,
+      username: 'alex',
+      password: shared.imap.password,
+      smtp: {
+        host: 'smtp.example.invalid',
+        port: 465,
+        security: 'tls',
+        username: 'alex',
+      },
+    });
+    const mailbox = required(
+      mailboxesOf(host.registration.getSnapshot().snapshot)[0],
+    );
+    // Source reads after the body's wait until native code cancels them by name.
+    const named = Promise.withResolvers<string>();
+    let holding = false;
+    imapServers[mailbox.id] = {
+      ...imap.native,
+      imapMessage: async (scope, message) => {
+        const reply = await imap.native.imapMessage(scope, message);
+        if (!holding) {
+          return reply;
+        }
+        const request = 'request' in scope ? String(scope.request) : '';
+        const { promise, reject } = Promise.withResolvers<unknown>();
+        held.set(request, () => {
+          reject(new Error('cancelled'));
+        });
+        named.resolve(request);
+        return promise;
+      },
+    };
+    imap.deliver('INBOX', {
+      subject: 'Report',
+      raw: [
+        'Subject: Report',
+        'Content-Type: multipart/mixed; boundary="mixed"',
+        '',
+        '--mixed',
+        'Content-Type: text/plain',
+        '',
+        'Attached.',
+        '--mixed',
+        'Content-Type: application/pdf; name="report.pdf"',
+        'Content-Disposition: attachment; filename="report.pdf"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        'JVBERi0xLjQK',
+        '--mixed--',
+      ].join('\r\n'),
+    });
+    await host.gmailMailboxes.load();
+    const inbox = imapInbox(host);
+    const { id } = required(
+      inbox.getSnapshot().kind === 'ready'
+        ? inbox.getSnapshot().messages[0]
+        : undefined,
+    );
+    const close = inbox.retainMessage(id, Symbol('reader'));
+    await inbox.readMessage(id);
+    holding = true;
+    const download = inbox.downloadAttachment(id, '0.1');
+    const request = await named.promise;
+    inbox.cancelAttachment(id, '0.1');
     await download;
     close();
     expect(cancelled).toStrictEqual([request]);

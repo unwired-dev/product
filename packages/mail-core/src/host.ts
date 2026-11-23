@@ -95,7 +95,7 @@ export interface NativeHostModule
     NativeRemoteContent,
     NativeUnsubscribe,
     NativeNotifications {
-  // Cancels a Gmail or Microsoft Graph read by its request name.
+  // Cancels a Gmail, Microsoft Graph or IMAP message read by its request name.
   readonly cancelGmailRequest: (request: string) => void;
 }
 
@@ -420,7 +420,11 @@ export function createHost(
           native().imapFlags(mailbox, request),
         ),
       imapHistory: (mailbox, request) => native().imapHistory(mailbox, request),
-      imapMessage: (mailbox, message) => native().imapMessage(mailbox, message),
+      imapMessage: ({ signal, ...mailbox }, message) =>
+        cancellable(mailbox, signal, (request) => {
+          const scope = { ...mailbox, request };
+          return native().imapMessage(scope, message);
+        }),
       imapHeaders: (mailbox, request) => native().imapHeaders(mailbox, request),
       imapSelect: (mailbox, request) => native().imapSelect(mailbox, request),
       imapStore: (mailbox, request) => native().imapStore(mailbox, request),

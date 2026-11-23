@@ -795,6 +795,21 @@ extension PrivateInboxTests {
     } catch {
       #expect(String(reflecting: Swift.type(of: error)).hasSuffix("IMAPDecoderError"))
     }
+    // The server sends a source's first bytes and then nothing. Cancelling the read closes its
+    // session at once, long before SwiftMail's command timeout; the fixture records the close.
+    let stalled = try JSONDecoder().decode(
+      ImapAccount.self,
+      from: Data(#"{"host":"localhost","port":\#(port),"username":"stalled-source"}"#.utf8))
+    let read = Task {
+      try await provider.message(
+        stalled, password: "synthetic-password", folder: "INBOX", uidValidity: 7, uid: 11,
+        limit: RegistrationStore.imapMessageLimit)
+    }
+    try await Task.sleep(for: .seconds(2))
+    let cancelled = ContinuousClock.now
+    read.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await read.value }
+    #expect(ContinuousClock.now - cancelled < .seconds(3))
     // Refusal closes its session and leaves later independent work usable.
     try await provider.verify(account, password: "synthetic-password")
   }

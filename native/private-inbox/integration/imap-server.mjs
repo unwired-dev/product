@@ -417,6 +417,14 @@ const answerFetch = (socket, session, { tag, command }) => {
       // Send only the hostile declaration. The native parser must refuse before waiting
       // for or retaining payload; a timeout is a regression, not a passing refusal.
       socket.write(`* 1 FETCH (UID 12 BODY[] {${40 * 1024 * 1024 + 1}}\r\n`);
+    } else if (session.user === 'stalled-source') {
+      // Sends the first bytes of a larger source, then nothing: the transfer ends early only
+      // when the client cancels the read and closes its session.
+      socket.write(`* 1 FETCH (UID 11 BODY[] {${1024 * 1024}}\r\n`);
+      socket.write(raw);
+      socket.once('close', () => {
+        operations.add('source-cancelled');
+      });
     } else {
       assert.match(command, /^UID FETCH 11 /u);
       socket.write(`* 1 FETCH (UID 11 BODY[] {${raw.length}}\r\n`);
@@ -640,6 +648,7 @@ process.on('SIGTERM', () => {
       'sent-search',
       'shared-list',
       'shared-refused',
+      'source-cancelled',
       'store-deleted',
       'store-flagged',
       'store-seen',

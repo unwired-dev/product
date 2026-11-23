@@ -357,11 +357,10 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   unchanged and its bytes decode to that size. Attachments over 25 MiB are listed as
   **Too large to download on this device.**
 - **Cancel.** **Cancel** returns the attachment row to **Download** at once and
-  discards the cancelled result. The mail server's read of the source still finishes
-  in the background and counts against the connection's and device's concurrent
-  reads until it ends. Closing the last reader has the same transfer limitation;
-  ending the transfer itself is
-  [#1172](https://github.com/unwired-dev/product/issues/1172).
+  discards the cancelled result. It also cancels the native read of the source, which
+  closes that read's IMAP session and so ends the transfer on the wire. The read
+  counts against the connection's and device's concurrent reads until native code
+  reports that it ended. Closing the last reader ends a body read the same way.
 - **Failure.** The row says why and offers **Try Again**: **The mail server could not
   be reached to download this attachment.**, **The mail server needs your password
   again to download this attachment.** (the Inbox also asks for the password),
@@ -656,7 +655,8 @@ reader and the Inbox, a new UIDVALIDITY restoring nothing, and the display budge
 with Gmail readers. `test/imap-attachments.test.ts` lists an attachment without a server
 read, downloads its exact bytes from the message source, opens and shares it, and covers
 an unreachable server, a refused password, locked storage, an expunged message,
-cancellation, a new UIDVALIDITY with a download in flight, including for a folder that
+cancellation that aborts the source read and frees its load once the read ends, a new
+UIDVALIDITY with a download in flight, including for a folder that
 had left the cache, a body arriving after that change, isolation between folders
 whose names contain delimiters, and deletion with the last reader and the Inbox.
 `test/imap-history.test.ts` downloads a 1,100-message Inbox and a 600-message Archive
@@ -688,7 +688,8 @@ port and disposable simulator. It installs trust only on that simulator and chec
 real engine authentication, folders, the session's EXAMINE and its envelope and flag
 reads (including `UID n:*` naming the newest message below n), raw body reads, the
 prefetch preflight's header-only read of unfolded MIME fields,
-UIDVALIDITY refusal, oversized-literal refusal and closed sessions. It also checks
+UIDVALIDITY refusal, oversized-literal refusal, a stalled source read whose cancellation
+closes its session at once, and closed sessions. It also checks
 `\Seen` changes, MOVE with COPYUID, COPY with `UID EXPUNGE` on a server without MOVE,
 refusal without MOVE or UIDPLUS, a refused destination, a connection dropped after MOVE,
 a removed folder, cross-folder search, a history read that clamps an oversized UID range

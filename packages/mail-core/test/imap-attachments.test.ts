@@ -31,7 +31,8 @@ const withAttachment = (subject: string, name: string) =>
     '--mixed--',
   ].join('\r\n');
 
-// The connection's server, with source reads that wait for `release` while `held`.
+// The connection's server, with source reads that wait for `release` while `held`; with
+// `endsOnAbort`, a held read also ends when its signal aborts, as native cancellation does.
 const setup = async () => {
   const imap = createSyntheticImap();
   imap.deliver('INBOX', {
@@ -46,16 +47,27 @@ const setup = async () => {
     held: boolean;
     waiting: Array<() => void>;
     started?: () => void;
-  } = { held: false, waiting: [] };
+    endsOnAbort: boolean;
+    signals: AbortSignal[];
+  } = { held: false, waiting: [], endsOnAbort: false, signals: [] };
   const native: NativeImapMailbox = {
     ...imap.native,
     imapMessage: async (mailbox, message) => {
+      const { signal } = mailbox;
+      if (signal !== undefined) {
+        gate.signals.push(signal);
+      }
       const reply = await imap.native.imapMessage(mailbox, message);
       if (gate.held) {
         gate.started?.();
         // oxlint-disable-next-line promise/avoid-new -- Hold the server's answer until the test releases it.
-        await new Promise<void>((resolve) => {
+        await new Promise<void>((resolve, reject) => {
           gate.waiting.push(resolve);
+          if (gate.endsOnAbort) {
+            signal?.addEventListener('abort', () => {
+              reject(new Error('cancelled'));
+            });
+          }
         });
       }
       return reply;
@@ -87,6 +99,10 @@ const setup = async () => {
     inbox,
     idOf,
     open,
+    signals: gate.signals,
+    endOnAbort: () => {
+      gate.endsOnAbort = true;
+    },
     hold: () => {
       gate.held = true;
       // oxlint-disable-next-line promise/avoid-new -- Observe the held source read before changing the server.
@@ -243,11 +259,12 @@ describe('imap received attachments', () => {
     expect(imap.files.savedFiles.size).toBe(0);
   });
 
-  it('keeps the load of a cancelled download until its source read settles', async () => {
+  it('cancels the source read of a cancelled download and keeps its load until native code ends the read', async () => {
     expect.hasAssertions();
-    const { imap, inbox, open, hold, release } = await setup();
+    const { imap, inbox, open, hold, release, signals } = await setup();
     const { id } = await open('Report');
     imap.server.reads.length = 0;
+    signals.length = 0;
     const downloads: Array<Promise<void>> = [];
     // Control Effect's continuation scheduler without freezing setup or the held provider replies.
     vi.useFakeTimers({ toFake: ['setImmediate', 'clearImmediate'] });
@@ -266,6 +283,7 @@ describe('imap received attachments', () => {
         'message INBOX 1',
         'message INBOX 1',
       ]);
+      expect(signals.map(({ aborted }) => aborted)).toStrictEqual([true, true]);
     } finally {
       release();
       vi.useRealTimers();
@@ -273,6 +291,28 @@ describe('imap received attachments', () => {
     }
     expect(stateOf(inbox, id)).toStrictEqual({ kind: 'downloaded' });
     expect(imap.files.savedFiles.size).toBe(1);
+  });
+
+  it('frees the load of a cancelled download once native code ends its source read', async () => {
+    expect.hasAssertions();
+    const { imap, inbox, open, hold, release, endOnAbort } = await setup();
+    const { id } = await open('Report');
+    imap.server.reads.length = 0;
+    endOnAbort();
+    const started = hold();
+    const cancelled = inbox.downloadAttachment(id, '0.1');
+    await started;
+    inbox.cancelAttachment(id, '0.1');
+    // Settles without `release`: the aborted read ended, so its load is free.
+    await cancelled;
+    expect(stateOf(inbox, id)).toStrictEqual({ kind: 'available' });
+    release();
+    await inbox.downloadAttachment(id, '0.1');
+    expect(stateOf(inbox, id)).toStrictEqual({ kind: 'downloaded' });
+    expect(imap.server.reads).toStrictEqual([
+      'message INBOX 1',
+      'message INBOX 1',
+    ]);
   });
 
   it('a new UIDVALIDITY deletes saved attachments and drops downloads in flight', async () => {
