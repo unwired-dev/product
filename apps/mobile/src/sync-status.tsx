@@ -112,6 +112,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Wraps rather than overflowing a narrow list.
+  pausedText: {
+    flexShrink: 1,
+  },
+  // A 44pt target within the 48pt capsule.
+  pausedStatus: {
+    flexShrink: 1,
+    minHeight: 44,
+  },
+  // Leaves the message room at the largest text sizes, wrapping instead.
+  tryAgain: {
+    maxWidth: '50%',
+  },
   pausedLabel: {
     ...typography.ios.caption1,
     fontWeight: '600',
@@ -141,6 +154,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 17,
     fontWeight: '600',
+  },
+  // The width the list leaves the capsule.
+  room: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
   },
   // The header starts below the system grabber.
   sheet: {
@@ -461,8 +479,12 @@ export function SyncStatusCapsule({
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
-  const width = useCapsuleWidth();
   const clock = useClockTime();
+  const capsuleWidth = useCapsuleWidth();
+  // A narrower list, as beside a portrait iPad's sidebar, narrows the capsule: the popover's host
+  // takes the capsule's width, so it would otherwise overflow and be clipped by the list (#2484).
+  const [room, setRoom] = useState(capsuleWidth);
+  const width = Math.min(capsuleWidth, room);
   const status = syncStatusOf(shown);
   const waited = useWaited(status?.kind === 'progress');
   const [retrying, setRetrying] = useState(false);
@@ -511,6 +533,8 @@ export function SyncStatusCapsule({
         styles.capsule,
         {
           width,
+          // The paused capsule hugs its content, still within the list.
+          maxWidth: width,
           borderRadius: height / 2,
           boxShadow: colors.smallGlassShadow,
         },
@@ -543,13 +567,20 @@ export function SyncStatusCapsule({
     />
   );
   return (
-    <Presenter
-      isPresented={open && details}
-      onIsPresentedChange={setDetails}
-      // The system toolbar shows the paused capsule.
-      trigger={inToolbar(toolbar, said) ? <View /> : capsule}>
-      {content}
-    </Presenter>
+    <View
+      pointerEvents="box-none"
+      onLayout={({ nativeEvent }) => {
+        setRoom(nativeEvent.layout.width);
+      }}
+      style={styles.room}>
+      <Presenter
+        isPresented={open && details}
+        onIsPresentedChange={setDetails}
+        // The system toolbar shows the paused capsule.
+        trigger={inToolbar(toolbar, said) ? <View /> : capsule}>
+        {content}
+      </Presenter>
+    </View>
   );
 }
 
@@ -619,7 +650,7 @@ function CapsuleStatus({
         accessibilityLabel={said.spoken}
         accessibilityRole="button"
         onPress={onShowDetails}
-        style={styles.status}>
+        style={[styles.status, styles.pausedStatus]}>
         <View style={styles.pausedIcon}>
           <SFSymbol
             name="clock"
@@ -627,7 +658,7 @@ function CapsuleStatus({
             size={20}
           />
         </View>
-        <View>
+        <View style={styles.pausedText}>
           <Text style={[styles.pausedLabel, { color: colors.textPrimary }]}>
             {said.label}
           </Text>
@@ -652,15 +683,22 @@ function CapsuleStatus({
           name="exclamationmark.triangle.fill"
           color={colors.statusWarning}
         />
-        <Text style={[styles.message, { color: colors.textPrimary }]}>
+        {/* Each button names itself: inside the popover's SwiftUI host its text would otherwise
+            stay a separate element too small to press (#2484). */}
+        <Text
+          accessible={false}
+          style={[styles.message, { color: colors.textPrimary }]}>
           {said.label}
         </Text>
       </Pressable>
       <Pressable
+        accessibilityLabel={t('syncStatus.tryAgain')}
         accessibilityRole="button"
         onPress={onTryAgain}
-        style={styles.action}>
-        <Text style={[styles.actionLabel, { color: colors.accentInk }]}>
+        style={[styles.action, styles.tryAgain]}>
+        <Text
+          accessible={false}
+          style={[styles.actionLabel, { color: colors.accentInk }]}>
           {t('syncStatus.tryAgain')}
         </Text>
       </Pressable>
