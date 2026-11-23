@@ -640,25 +640,16 @@ describe('organizing IMAP mail', () => {
     expect.hasAssertions();
     const imap = organizedServer();
     const uid = imap.deliver('INBOX', { subject: 'Hello' });
-    let refuse = true;
-    const inbox = createImapInbox({
-      ...imap.native,
-      imapFlags: async (...[scope, request]) => {
-        if (refuse && request.uids.length === 1) {
-          throw Object.assign(new Error('Too many replies'), {
-            code: 'too-large',
-          });
-        }
-        return imap.native.imapFlags(scope, request);
-      },
-    });
+    const inbox = createImapInbox(imap.native);
     await inbox.load();
     const state = inbox.getSnapshot();
     const message = inboxMessage(state, 'Hello');
+    vi.spyOn(imap.native, 'imapFlags').mockRejectedValueOnce({
+      code: 'too-large',
+    });
     await inbox.organize(message, action(state, message, 'archive'));
     expect(imap.server.changes).toStrictEqual([]);
     expect(ready(inbox.getSnapshot()).notice?.kind).not.toBe('blocked');
-    refuse = false;
     await inbox.load();
     expect(imap.server.changes).toStrictEqual([`move INBOX ${uid} Archive`]);
     expect(ready(inbox.getSnapshot()).pending).toBe(0);
