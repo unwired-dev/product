@@ -798,7 +798,9 @@
     "providerMailServer": "{{provider}}’s mail server",
     "providers": {
       "icloud": "iCloud",
-      "fastmail": "Fastmail"
+      "fastmail": "Fastmail",
+      "outlook": "Outlook.com",
+      "microsoft365": "Microsoft 365"
     },
     "offline": "You’re offline",
     "offlineDetail": "Connect to respond. Unwired doesn’t keep a response to send later.",

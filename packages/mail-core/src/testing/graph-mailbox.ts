@@ -37,6 +37,8 @@ interface SyntheticGraphMessage {
   readonly headers: ReadonlyArray<Readonly<{ name: string; value: string }>>;
   // A sent message's own Message-ID, which Sent Items are searched by.
   readonly internetMessageId?: string;
+  // A meeting request's iCalendar text, which only its MIME carries.
+  readonly calendar?: string;
 }
 
 type Failure =
@@ -159,6 +161,7 @@ export function createSyntheticGraph({
     attachments = [],
     headers = [],
     folder = 'inbox',
+    calendar,
   }: {
     readonly from?: SyntheticGraphMessage['from'];
     readonly subject?: string;
@@ -170,6 +173,7 @@ export function createSyntheticGraph({
     readonly headers?: SyntheticGraphMessage['headers'];
     // A well-known folder's name or a folder's ID.
     readonly folder?: string;
+    readonly calendar?: string;
   } = {}) => {
     nextId += 1;
     // Graph IDs are long URL-safe base64 text.
@@ -186,6 +190,7 @@ export function createSyntheticGraph({
       body,
       attachments,
       headers,
+      ...(calendar === undefined ? {} : { calendar }),
     });
     changes.push(id);
     return id;
@@ -299,8 +304,35 @@ export function createSyntheticGraph({
       attachment,
       id: `${found.id}-attachment-${index}`,
     }));
+    if (path[0] === '$value') {
+      // Outlook's MIME of a meeting request: its body, then its calendar.
+      return found.calendar === undefined
+        ? notFound()
+        : Promise.resolve({
+            status: 200,
+            body: [
+              `Subject: ${found.subject}`,
+              'Content-Type: multipart/alternative; boundary="meeting"',
+              '',
+              '--meeting',
+              'Content-Type: text/plain; charset="utf-8"',
+              '',
+              found.body.content,
+              '--meeting',
+              'Content-Type: text/calendar; charset="utf-8"; method=REQUEST',
+              'Content-Transfer-Encoding: base64',
+              '',
+              Base64.encode(new TextEncoder().encode(found.calendar)),
+              '--meeting--',
+              '',
+            ].join('\r\n'),
+          });
+    }
     if (path.length === 0) {
       return respond({
+        ...(found.calendar === undefined
+          ? {}
+          : { '@odata.type': '#microsoft.graph.eventMessageRequest' }),
         id,
         body: found.body,
         from: { emailAddress: found.from },
@@ -566,7 +598,7 @@ export function createSyntheticGraph({
 
   const messageAt = (url: URL) => {
     const groups =
-      /^\/v1\.0\/me\/messages\/(?<id>[^/]+)(?:\/(?<list>attachments)(?:\/(?<attachment>[^/]+))?)?$/u.exec(
+      /^\/v1\.0\/me\/messages\/(?<id>[^/]+)(?:\/(?<list>attachments|\$value)(?:\/(?<attachment>[^/]+))?)?$/u.exec(
         url.pathname,
       )?.groups;
     // As Graph, $select names a file attachment's own property only through its type.

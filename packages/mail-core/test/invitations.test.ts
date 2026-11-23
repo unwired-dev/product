@@ -20,7 +20,9 @@ import {
   invitationWas,
   invitationWhen,
 } from '@private-email/mail-core/invitations';
+import { calendarPart } from '@private-email/mail-core/message-body';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
+import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
 const me = 'alex@example.invalid';
 
@@ -753,6 +755,25 @@ describe('meeting invitations', () => {
     }
   });
 
+  it('reads a message’s first calendar part, whether or not it is a named file', () => {
+    expect.hasAssertions();
+    const part = (filename: string) => ({
+      mimeType: 'text/calendar',
+      filename,
+      headers: [{ name: 'Content-Type', value: 'text/calendar' }],
+      body: { data: '', size: 0 },
+    });
+    const named = part('invite.ics');
+
+    expect(
+      calendarPart({
+        mimeType: 'multipart/mixed',
+        headers: [{ name: 'Content-Type', value: 'multipart/mixed' }],
+        parts: [named, part('')],
+      }),
+    ).toBe(named);
+  });
+
   it('shows no invitation for a message without a calendar part', () => {
     expect.hasAssertions();
     expect(invitationOf(documentOf(undefined), me)).toBeUndefined();
@@ -828,6 +849,136 @@ describe('meeting invitations', () => {
 
     expect(gmail.sends).toHaveLength(2);
     expect(replyOf(gmail.sends[1])).toContain('PARTSTAT=DECLINED');
+
+    close();
+  });
+
+  it('answers an Outlook meeting request read from its MIME and finds an unknown delivery in Sent Items', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ address: me });
+    const id = graph.deliver({
+      from: { name: 'Lena Fischer', address: 'lena@northwind.example' },
+      subject: 'Q4 roadmap review',
+      // Exchange names the zone by its Windows ID.
+      calendar: calendar(
+        meeting.map((line) =>
+          line.replace(
+            'TZID=Europe/Prague',
+            'TZID=Central Europe Standard Time',
+          ),
+        ),
+      ),
+    });
+    const inbox = createInboxStore(graph.native, {
+      provider: 'microsoft-graph',
+    });
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+    const invitation = await invitationIn(inbox, id);
+    const responses = invitationResponses(inbox, () =>
+      Date.UTC(2026, 10, 2, 9, 52),
+    );
+    graph.failSend({ lost: true });
+
+    expect(invitation.details.start).toStrictEqual({
+      at: Date.UTC(2026, 10, 6, 13),
+      allDay: false,
+    });
+
+    await responses.respond(invitation, 'accepted', english);
+
+    expect(responses.state(invitation)).toMatchObject({
+      kind: 'unknown',
+      choice: 'accepted',
+    });
+
+    const [sent] = graph.sends;
+
+    expect(sent?.raw).toContain('Subject: Re: Q4 roadmap review');
+    expect(sent?.raw).toMatch(/^Message-ID: <[\da-z]+@example\.invalid>\r$/mu);
+    expect(replyOf(sent)).toContain(
+      'ATTENDEE;CN=Alex;PARTSTAT=ACCEPTED:mailto:Alex@example.invalid',
+    );
+
+    await responses.check(invitation);
+
+    expect(graph.sends).toHaveLength(1);
+    expect(responses.state(invitation)).toStrictEqual({
+      kind: 'sent',
+      choice: 'accepted',
+      at: Date.UTC(2026, 10, 2, 9, 52),
+    });
+
+    close();
+  });
+
+  it.each([
+    ['an attached', false],
+    ['an inline', true],
+  ])(
+    'shows an Outlook meeting request’s own calendar ahead of %s calendar file',
+    async (_, isInline) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph({ address: me });
+      const other = calendar(
+        meeting.map((line) =>
+          line.replace('roadmap-42@northwind.example', 'other@example.invalid'),
+        ),
+      );
+      const id = graph.deliver({
+        calendar: calendar(meeting),
+        // Graph lists an inline file only for a body that references one.
+        body: { contentType: 'html', content: '<img src="cid:other">' },
+        attachments: [
+          {
+            name: 'other.ics',
+            contentType: 'text/calendar',
+            bytes: [...new TextEncoder().encode(other)],
+            isInline,
+            contentId: 'other',
+          },
+        ],
+      });
+      const inbox = createInboxStore(graph.native, {
+        provider: 'microsoft-graph',
+      });
+      await inbox.load();
+      const close = inbox.retainMessage(id);
+
+      const invitation = await invitationIn(inbox, id);
+
+      expect(invitation.uid).toBe('roadmap-42@northwind.example');
+
+      close();
+    },
+  );
+
+  it('leaves an Outlook meeting request readable without a card when its calendar cannot decode', async () => {
+    expect.hasAssertions();
+    const graph = createSyntheticGraph({ address: me });
+    const id = graph.deliver({ calendar: calendar(meeting) });
+    const inbox = createInboxStore(
+      {
+        ...graph.native,
+        // Base64 that cannot decode in place of the MIME's calendar line.
+        graphRequest: async (url, owner) => {
+          const reply = await graph.native.graphRequest(url, owner);
+          return {
+            ...reply,
+            body: reply.body.replace(/^[\d+/=A-Za-z]+\r$/mu, 'x\r'),
+          };
+        },
+      },
+      { provider: 'microsoft-graph' },
+    );
+    await inbox.load();
+    const close = inbox.retainMessage(id);
+    await inbox.readMessage(id);
+
+    expect(inbox.responseSource(id)).toMatchObject({
+      text: expect.stringContaining('Synthetic body.'),
+    });
+    expect(inbox.responseSource(id)?.calendar).toBeUndefined();
 
     close();
   });

@@ -9,6 +9,7 @@ import type { GmailAction } from './gmail-actions.ts';
 import type { GmailPart } from './message-body.ts';
 
 import { GraphId } from './mailbox-message.ts';
+import { messageCalendar } from './message-body.ts';
 
 // Microsoft Graph reads for one Outlook.com or Microsoft 365 mailbox. Native code attaches the
 // mailbox's token and refuses any URL outside the signed-in person's own mail; this module chooses
@@ -31,6 +32,10 @@ export const graphFolderMessage = (view: string, id: string) =>
 
 export const graphMessage = (id: string) =>
   `${graphRoot}/me/messages/${id}?$select=body,from,toRecipients,ccRecipients,replyTo,internetMessageId,internetMessageHeaders,hasAttachments`;
+
+// A message's MIME, which alone carries a meeting request's calendar.
+export const graphMime = (id: string) =>
+  `${graphRoot}/me/messages/${id}/$value`;
 
 // Content-ID belongs to file attachments, so Graph refuses it unqualified in a list's $select.
 export const graphAttachments = (id: string) =>
@@ -155,6 +160,7 @@ const GraphDeltaPageSchema = Schema.Struct({
 export const decodeGraphDelta = json(GraphDeltaPageSchema);
 
 const GraphFullSchema = Schema.Struct({
+  '@odata.type': Schema.optionalKey(Schema.String),
   id: GraphId,
   body: Schema.Struct({
     contentType: Schema.Literals(['html', 'text']),
@@ -421,9 +427,39 @@ const attachmentPart = (attachment: GraphAttachmentInfo): GmailPart => {
   };
 };
 
+// The part that stands for a meeting message's calendar, which only its MIME carries.
+export const graphCalendar = messageCalendar;
+// The most attachment bytes a meeting message's MIME is read with for its calendar.
+const calendarMessageLimit = 4 * 1024 * 1024;
+
+// Outlook files a meeting request or cancellation as an event message, keeping no calendar file;
+// a response to the person's own meeting is an event message response.
+const meetingTypes = new Set([
+  '#microsoft.graph.eventMessageRequest',
+  '#microsoft.graph.eventMessage',
+]);
+const calendarPart = (
+  message: GraphFull,
+  attachments: readonly GraphAttachmentInfo[],
+): readonly GmailPart[] =>
+  meetingTypes.has(message['@odata.type'] ?? '') &&
+  attachments.reduce((total, { size }) => total + size, 0) <=
+    calendarMessageLimit
+    ? [
+        {
+          mimeType: 'text/calendar',
+          headers: [
+            { name: 'Content-Type', value: 'text/calendar; charset=utf-8' },
+          ],
+          body: { attachmentId: graphCalendar, size: 0 },
+        },
+      ]
+    : [];
+
 // A Graph message as the MIME tree Gmail would return: its one decoded body, then inline parts in
-// the related scope and other attachments beside it. Its shape depends only on the attachment
-// list, so a part's locator is the same whether or not inline images were read.
+// the related scope and other attachments beside it, and a meeting message's calendar last. Its
+// shape depends only on the attachment list and message type, so a part's locator is the same
+// whether or not inline images were read.
 export function graphPayload(
   message: GraphFull,
   attachments: readonly GraphAttachmentInfo[],
@@ -436,7 +472,8 @@ export function graphPayload(
     body: { data: Base64Url.encode(bytes), size: bytes.length },
   };
   const headers = responseHeaders(message);
-  if (attachments.length === 0) {
+  const calendar = calendarPart(message, attachments);
+  if (attachments.length === 0 && calendar.length === 0) {
     return { ...content, headers: [...headers, ...(content.headers ?? [])] };
   }
   return {
@@ -456,6 +493,7 @@ export function graphPayload(
       ...attachments
         .filter(({ isInline }) => isInline !== true)
         .map(attachmentPart),
+      ...calendar,
     ],
   };
 }

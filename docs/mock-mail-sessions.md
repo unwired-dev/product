@@ -210,7 +210,9 @@ version and follows **Show Latest** back to the revision. Synthetic Gmail fails
 each response to the supplier walkthrough in turn: as offline, refused, with
 delivery unknown and, after **Respond Again**, needing a sign-in; its Sent search
 waits five seconds and finds nothing, so **Check Again** shows that it is checking.
-The journey captures each of these states. The Mac journey
+The journey captures each of these states. The synthetic Microsoft mailbox's message is then Jordan Lee's meeting request
+to its address, read from its MIME, for a Microsoft mailbox connected by hand
+([#2703](https://github.com/unwired-dev/product/issues/2703)). The Mac journey
 ([#1915](https://github.com/unwired-dev/product/issues/1915)) signs in the same way
 and, relaunched in Dark, opens the Q4 roadmap review, checks its three buttons and
 captures the card, then accepts and declines it, capturing each confirmed answer.

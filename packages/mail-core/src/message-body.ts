@@ -615,11 +615,17 @@ const attachmentLeaves = (
 // The largest iCalendar part read for a meeting invitation.
 const calendarLimit = 256 * 1024;
 
-// The message's meeting invitation part outside attached messages: its first `text/calendar` leaf,
-// or else an `application/ics` attachment, when it fits the limit.
+// The part locator a provider gives a meeting message's calendar that only the message's own MIME
+// carries, as Graph does.
+export const messageCalendar = '$value';
+
+// The message's meeting invitation part outside attached messages: a provider's message calendar,
+// else its first `text/calendar` leaf, or else an `application/ics` attachment, when it fits the
+// limit.
 export function calendarPart(payload: GmailPart) {
   const leaves = attachmentLeaves(payload, [0]).map(({ part }) => part);
   const found =
+    leaves.find((part) => part.body?.attachmentId === messageCalendar) ??
     leaves.find((part) => mimeType(part) === 'text/calendar') ??
     leaves.find((part) => mimeType(part) === 'application/ics');
   const size = found?.body?.size;
