@@ -825,9 +825,11 @@ password manager by running
 1. `simulator-credentials.zsh copy <udid> <variable>` puts the value on that Simulator's
    pasteboard. Keep **Automatically Sync Pasteboard** in Simulator's Edit menu off, or
    Simulator closed, so the value does not reach the Mac's pasteboard.
-2. Long-press the app's field and press **Paste** in the edit menu. On iPad, tap the
-   focused field to open that menu, with the field scrolled clear of the software
-   keyboard; the keyboard's own Paste key pastes nothing into the app's fields.
+2. Open the edit menu and press **Paste**: in Google's sign-in sheet, long-press the
+   field; in the app, tap the focused field again. The keyboard's own Paste key pastes
+   nothing into the app's fields. On iPad, scroll **Recovery Key** clear of the software
+   keyboard before taking step 4's snapshot
+   ([#2743](https://github.com/unwired-dev/product/issues/2743)).
 3. `simulator-credentials.zsh clear <udid>` empties the pasteboard at once.
 4. When the field shows its text, as **Recovery Key** does, nothing may read the screen
    while it holds the credential: screenshots, accessibility snapshots and agent-device
@@ -2028,7 +2030,8 @@ password manager by running
   pasting, and the field was emptied with `fill` before the next read. The first two
   presses of **Unlock with Recovery Key** showed **That Recovery Key does not unlock this
   Unwired account.**, because the keyboard's Paste key had pasted nothing and the focused
-  field lay under the software keyboard; scrolled clear of it, the field's own **Paste**
+  field lay under the software keyboard
+  ([#2743](https://github.com/unwired-dev/product/issues/2743)); scrolled clear of it, the field's own **Paste**
   pasted the Recovery Key, which unlocked the device. Google Product Sign-In found the
   certification Product Account, and both mailboxes connected as in the first record. The
   operator created a run folder in iCloud Mail over IMAP and appended A1, with a
@@ -2038,7 +2041,7 @@ password manager by running
   the folder over IMAP, created it again under the same name and appended message B with
   a different 5,000-byte file. The recreated folder reported a changed UIDVALIDITY, and B
   had A1's UID. Result: pass. **Superseded message:** A2, still listed from the cache and
-  never opened, opened 7 seconds later as **Couldn’t load this message** with **This
+  never opened, was opened 7 seconds after B was appended and within 9 seconds showed **Couldn’t load this message** with **This
   message is no longer in this folder on the mail server.** **Folder listed again:** a
   pull-down of the folder listed B, and neither A1 nor A2, 8 to 11 seconds later, without
   relaunching; the reader pane then read **Message unavailable** with **Choose another
