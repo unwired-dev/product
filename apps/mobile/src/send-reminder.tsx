@@ -40,7 +40,8 @@ const styles = StyleSheet.create({
   choices: { gap: spacing.m, padding: spacing.l },
   // The sheet's empty host stays out of the trigger's row, whose gap would move the trigger.
   sheetHost: { position: 'absolute' },
-  popover: { width: 320 },
+  // The frame's width, which keeps the time zone line on one line (#2147).
+  popover: { width: 359 },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   title: { ...textStyles.headline },
   sheetTitle: { ...textStyles.headline, textAlign: 'center' },
