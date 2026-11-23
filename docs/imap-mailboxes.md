@@ -1528,7 +1528,7 @@ password manager by running
   iCloud Mail address.
   Test messages were submitted to iCloud Mail over SMTP from Seznam Email outside the
   app, and each arrival time was read on the server as the message's IMAP `INTERNALDATE`.
-  Result: the three cases and the outage scope passed, and no file this run wrote held a
+  Result: the three cases and the outage scope passed, and no scanned file this run wrote held a
   credential; the scan still found earlier runs' copies (see below). Before any outage, a message appeared in the list at most 6 seconds after
   it arrived. **IDLE interruption and offline queueing:** the outage was started with All
   Inboxes open and the app's iCloud Mail connection waiting on the Inbox. That connection
@@ -1566,8 +1566,8 @@ password manager by running
   the Simulator was deleted. The scan of step 5 then covered `~/.agent-device`, `~/Library/Logs`,
   Xcode's DerivedData, the shell history, the temporary directories, the repository's
   `artifacts`, the operator's scratch files, this run's session transcript and T3
-  Code's state database and logs. No file this run wrote held a password or the
-  Recovery Key; the only matches were the earlier runs' copies in T3 Code's state
+  Code's state database and logs; the Simulator's own files were deleted with it and not
+  scanned. No scanned file this run wrote held a password or the Recovery Key; the only matches were the earlier runs' copies in T3 Code's state
   database and three of its logs, the latest written about four hours before this run
   ([#2688](https://github.com/unwired-dev/product/issues/2688)). Limitations: a first attempt loaded the
   rule without clearing the packet filter's states, and the open IDLE connection was
