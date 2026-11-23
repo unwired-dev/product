@@ -59,9 +59,17 @@ export function SidebarToggle() {
 // for the display mode with or without Mailboxes beside the list, and follows each change UIKit
 // makes, such as on rotation.
 // Only a split view showing its columns side by side has the toggle.
-export function useSidebarToggle(sideBySide: boolean, portrait: boolean) {
+// At the accessibility text sizes three columns break words between characters, so Mailboxes
+// hides in either orientation and the toggle shows it in the list's place, beside the reader
+// (#2193).
+export function useSidebarToggle(
+  sideBySide: boolean,
+  portrait: boolean,
+  largeText = false,
+) {
   const [displayMode, setDisplayMode] = useState<SplitDisplayMode>('automatic');
   const [shown, setShown] = useState(true);
+  const [listed, setListed] = useState(false);
   // UIKit ignores a display mode requested before it first places the columns, so the Portrait
   // one waits for its first report.
   const [placed, setPlaced] = useState(false);
@@ -70,15 +78,27 @@ export function useSidebarToggle(sideBySide: boolean, portrait: boolean) {
   if (orientation !== portrait) {
     setOrientation(portrait);
     setDisplayMode('automatic');
+    setListed(false);
   }
+  const inList = largeText && sideBySide && listed;
   const value = useMemo(
-    () => ({
-      shown,
-      toggle: () => {
-        setDisplayMode(shown ? 'oneBesideSecondary' : 'twoBesideSecondary');
-      },
-    }),
-    [shown],
+    () =>
+      largeText
+        ? {
+            shown: inList,
+            toggle: () => {
+              setListed(!inList);
+            },
+          }
+        : {
+            shown,
+            toggle: () => {
+              setDisplayMode(
+                shown ? 'oneBesideSecondary' : 'twoBesideSecondary',
+              );
+            },
+          },
+    [largeText, inList, shown],
   );
   // The iPad Portrait frames hide Mailboxes and keep the list beside the reader, where UIKit
   // would show all three columns.
@@ -86,7 +106,17 @@ export function useSidebarToggle(sideBySide: boolean, portrait: boolean) {
     displayMode === 'automatic' && sideBySide && portrait && placed;
   return {
     value: sideBySide ? value : undefined,
-    displayMode: portraitDefault ? 'oneBesideSecondary' : displayMode,
+    // The Mailboxes column's, which at the accessibility text sizes stays hidden.
+    column: sideBySide && !largeText ? value : undefined,
+    // Mailboxes shows in the list's column, in its place.
+    inList,
+    hideInList: () => {
+      setListed(false);
+    },
+    displayMode:
+      portraitDefault || (largeText && sideBySide && placed)
+        ? 'oneBesideSecondary'
+        : displayMode,
     follow: (next: string) => {
       setPlaced(true);
       setShown(next.startsWith('two'));

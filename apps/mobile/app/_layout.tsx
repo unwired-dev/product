@@ -1,6 +1,7 @@
 import type { NativeAssistance } from '@private-email/mail-core/assistance';
 import type { NativeQualification } from '@private-email/mail-core/assistance-qualification';
 import type { NativeTranslation } from '@private-email/mail-core/translation';
+import type { ComponentProps, ReactNode } from 'react';
 import type { TurboModule } from 'react-native';
 import type { SplitHostCommands } from 'react-native-screens/experimental';
 
@@ -75,7 +76,7 @@ import {
   useSidebarToggle,
 } from '../src/sidebar-toggle.tsx';
 import { Mailboxes } from '../src/sidebar.tsx';
-import { usePalette } from '../src/theme.ts';
+import { useLargeText, usePalette } from '../src/theme.ts';
 
 // A collapsed iPhone shows the Inbox's title and Back to Mailboxes in its navigation bar.
 const phone = Platform.OS === 'ios' && !Platform.isPad;
@@ -331,6 +332,50 @@ function floatingComposer({
   ];
 }
 
+// Mailboxes, whose choice of a Mailbox or the Outbox then shows its list by `onOpen`.
+function OpeningMailboxes({
+  onOpen,
+  onView,
+  onOutbox,
+  ...props
+}: ComponentProps<typeof Mailboxes> & {
+  readonly onOutbox: () => void;
+  readonly onOpen: () => void;
+}) {
+  return (
+    <Mailboxes
+      {...props}
+      onView={(next) => {
+        onView(next);
+        onOpen();
+      }}
+      onOutbox={() => {
+        onOutbox();
+        onOpen();
+      }}
+    />
+  );
+}
+
+// The list's column, where Mailboxes takes the list's place while `inList`; the list stays mounted
+// beneath it, keeping its place (#2193).
+function ListColumn({
+  inList,
+  mailboxes,
+  children,
+}: {
+  readonly inList: boolean;
+  readonly mailboxes: ReactNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <>
+      <View style={inList ? styles.hidden : styles.fill}>{children}</View>
+      {inList ? mailboxes : null}
+    </>
+  );
+}
+
 // Presentation choices live below WindowProfileScope, which retires them with the Profile.
 function MailShell() {
   const splitView = useRef<SplitHostCommands>(null);
@@ -338,7 +383,12 @@ function MailShell() {
   const { width, height: windowHeight } = useWindowDimensions();
   const [collapsed, setCollapsed] = useState(width < 600);
   const regular = width >= 600 && !collapsed;
-  const sidebarToggle = useSidebarToggle(regular, windowHeight > width);
+  const largeText = useLargeText();
+  const sidebarToggle = useSidebarToggle(
+    regular,
+    windowHeight > width,
+    largeText,
+  );
   const [expanded, setExpanded] = useState(false);
   // On iPad the composer floats over the reader until it is expanded to the full window.
   const floating = regular && !expanded;
@@ -476,6 +526,22 @@ function MailShell() {
       },
     });
   }
+
+  // Mailboxes in its column or, at the accessibility text sizes, in the list's (#2193).
+  const mailboxes = {
+    view,
+    onProfile: (profile: string) => {
+      void switchProfile(profile);
+    },
+    onView: setView,
+    onSelect: setView,
+    onOutbox: () => {
+      setView({ outbox: true });
+      setOutboxShown({});
+    },
+    onCompose: compose,
+    bar,
+  };
 
   const recovery = useRecoveryOffer(draft, compose);
 
@@ -620,25 +686,15 @@ function MailShell() {
                     testID="mailboxes-column"
                     onDidAppear={followBack}>
                     <SafeAreaProvider>
-                      <Mailboxes
-                        view={view}
-                        onProfile={(profile) => {
-                          void switchProfile(profile);
-                        }}
-                        onView={(next) => {
-                          setView(next);
-                          // On iPhone a Mailbox opens its list; beside it, the list is already shown.
-                          splitView.current?.show('supplementary');
-                        }}
-                        onSelect={setView}
-                        onOutbox={() => {
-                          setView({ outbox: true });
-                          setOutboxShown({});
-                          splitView.current?.show('supplementary');
-                        }}
-                        onCompose={compose}
-                        bar={bar}
-                      />
+                      <SidebarToggleContext value={sidebarToggle.column}>
+                        <OpeningMailboxes
+                          {...mailboxes}
+                          onOpen={() => {
+                            // On iPhone a Mailbox opens its list; beside it, the list is already shown.
+                            splitView.current?.show('supplementary');
+                          }}
+                        />
+                      </SidebarToggleContext>
                     </SafeAreaProvider>
                   </Split.Column>
                   <Split.Column
@@ -651,40 +707,54 @@ function MailShell() {
                       followBack();
                     }}>
                     <SafeAreaProvider>
-                      <Inbox
-                        visible={inboxVisible}
-                        composing={draft}
-                        onClose={closeReader}
-                        bar={bar}
-                        onCompose={compose}
-                        onSelect={selectMessage}
-                        onSelectBehindComposer={
-                          regular && overlay !== undefined
-                            ? (selection) => {
-                                // A message chosen in the Inbox clears the previous one's view.
-                                const next = {
-                                  ...selection,
-                                  folder: selection.folder,
-                                };
-                                reader.current = { ...reader.current, ...next };
-                                router.setParams(next);
-                              }
-                            : undefined
-                        }
-                        onView={setView}
-                        selected={
-                          id === undefined || mailbox === undefined
-                            ? undefined
-                            : {
-                                mailbox,
-                                id,
-                                ...(folder === undefined ? {} : { folder }),
-                              }
-                        }
-                        view={view}
-                        outboxShown={outboxShown}
-                        covered={coversList(expanded, draft)}
-                      />
+                      <ListColumn
+                        inList={sidebarToggle.inList}
+                        mailboxes={
+                          <OpeningMailboxes
+                            {...mailboxes}
+                            onOpen={() => {
+                              sidebarToggle.hideInList();
+                            }}
+                          />
+                        }>
+                        <Inbox
+                          visible={inboxVisible}
+                          composing={draft}
+                          onClose={closeReader}
+                          bar={bar}
+                          onCompose={compose}
+                          onSelect={selectMessage}
+                          onSelectBehindComposer={
+                            regular && overlay !== undefined
+                              ? (selection) => {
+                                  // A message chosen in the Inbox clears the previous one's view.
+                                  const next = {
+                                    ...selection,
+                                    folder: selection.folder,
+                                  };
+                                  reader.current = {
+                                    ...reader.current,
+                                    ...next,
+                                  };
+                                  router.setParams(next);
+                                }
+                              : undefined
+                          }
+                          onView={setView}
+                          selected={
+                            id === undefined || mailbox === undefined
+                              ? undefined
+                              : {
+                                  mailbox,
+                                  id,
+                                  ...(folder === undefined ? {} : { folder }),
+                                }
+                          }
+                          view={view}
+                          outboxShown={outboxShown}
+                          covered={coversList(expanded, draft)}
+                        />
+                      </ListColumn>
                     </SafeAreaProvider>
                   </Split.Column>
                   <Split.Column>
