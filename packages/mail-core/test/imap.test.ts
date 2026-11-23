@@ -982,6 +982,14 @@ describe('connecting IMAP mailboxes', () => {
       removals: 1,
     },
     {
+      code: 'mailbox-invalidated',
+      state: { kind: 'ready', status: 'retry' },
+      folder: { kind: 'ready', status: 'retry' },
+      subject: 'Private archive',
+      body: 'ready',
+      removals: 0,
+    },
+    {
       code: 'imap-refused',
       state: { kind: 'ready', status: 'authentication' },
       folder: { kind: 'ready', status: 'authentication' },
@@ -1419,7 +1427,10 @@ describe('connecting IMAP mailboxes', () => {
 
   it.each([
     { code: 'locked', state: { kind: 'locked' } },
-    { code: 'mailbox-invalidated', state: { kind: 'failed' } },
+    {
+      code: 'mailbox-invalidated',
+      state: { kind: 'ready', status: 'retry' },
+    },
     {
       code: 'imap-refused',
       state: { kind: 'ready', status: 'authentication' },
@@ -1447,6 +1458,35 @@ describe('connecting IMAP mailboxes', () => {
       release();
     },
   );
+
+  it('keeps saved mail shown when a restore waiting on an unreachable server invalidates its reopen', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.deliver('INBOX', { subject: 'Saved before the outage' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    // A poll's restore renews the native generation, and until its check of the unreachable server
+    // times out the connection opens neither verified nor as saved mail only (#2731).
+    const opening = vi
+      .spyOn(imap.native, 'openMailbox')
+      .mockRejectedValue({ code: 'mailbox-invalidated' });
+    await inbox.load();
+    expect(ready(inbox.getSnapshot())).toMatchObject({
+      status: 'retry',
+      messages: [
+        expect.objectContaining({ subject: 'Saved before the outage' }),
+      ],
+    });
+    // Saying so once keeps work that waits on Inbox changes, such as a Sent lookup, from retrying
+    // against the invalidated generation.
+    const listener = vi.fn<() => void>();
+    inbox.subscribe(listener);
+    await inbox.load();
+    expect(listener).not.toHaveBeenCalled();
+    opening.mockRestore();
+    await inbox.load();
+    expect(ready(inbox.getSnapshot()).status).toBe('current');
+  });
 
   it('hides a selected cached folder when reopening storage discovers a lock', async () => {
     expect.hasAssertions();

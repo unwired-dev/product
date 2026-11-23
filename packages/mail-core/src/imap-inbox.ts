@@ -1035,6 +1035,8 @@ export function createImapInbox(
   const withdrawals = new Set<string>();
   let shownStatus: Sync = 'current';
   let authenticationRejected = false;
+  // Whether a restore invalidated the shown Inbox's generation since it last opened.
+  let interrupted = false;
   // Folders whose history was read up to date since the connection opened, and folders it skips
   // until the next launch because they are gone or refused their UIDVALIDITY.
   const settled = new Map<string, number | undefined>();
@@ -1446,6 +1448,7 @@ export function createImapInbox(
       revision: cache.revision,
       lifetime,
     };
+    interrupted = false;
     document = stored;
     retireSuperseded();
     // Reopening refreshes no other folder, so one whose last read failed keeps saying so.
@@ -1827,13 +1830,26 @@ export function createImapInbox(
     yield* pruneBodies;
   });
 
+  // A restore renews the native generation, so work from before it is invalidated; an open Inbox
+  // keeps its saved mail, says so once, and reopens when `resume` follows the restore, as a Gmail
+  // Inbox does.
+  const keepsShown = (kind: ImapFailure['kind']) =>
+    kind === 'invalidated' && document !== undefined;
   // A removed device purged its data; the account page, not the Inbox, explains it. Locked storage
   // and transient or refused server access are expected; anything else is logged.
   function loadFailed({ kind, diagnostic }: Failure) {
     if (forgotten) {
       return Effect.void;
     }
+    if (keepsShown(kind)) {
+      if (!interrupted) {
+        interrupted = true;
+        render('retry');
+      }
+      return Effect.void;
+    }
     if (closesAccess(kind)) {
+      interrupted = false;
       originalIds = new Map();
       restoring.clear();
       authenticationRejected = false;
@@ -2471,8 +2487,8 @@ export function createImapInbox(
       return loadFailed(failure).pipe(
         Effect.andThen(
           Effect.sync(() => {
-            if (kind === 'authentication') {
-              showFolder(name, 'authentication');
+            if (kind === 'authentication' || keepsShown(kind)) {
+              showFolder(name, statusOf(kind));
             }
           }),
         ),
@@ -3818,6 +3834,12 @@ export function createImapInbox(
         presentLimited();
         notify();
         shared.released(imageOwner);
+      }
+    },
+    // Reopens an Inbox a restore interrupted, once registration changes after it.
+    resume: () => {
+      if (interrupted) {
+        void load();
       }
     },
     // Forgets the mail held in memory when the connection or its account leaves the Inbox.

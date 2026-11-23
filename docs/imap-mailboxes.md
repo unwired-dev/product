@@ -155,7 +155,12 @@ opens Settings on **Email Accounts**, where the connection can be repaired
 immediately without relaunching, including when **Open Inbox** has deferred
 Recovery Key setup. Password entry is also available for an IMAP connection awaiting a
 password on this device. Other failures keep its saved Inbox open from this device;
-Email Accounts labels it as saved mail awaiting another server check. On iPhone, an IMAP
+Email Accounts labels it as saved mail awaiting another server check. Mail work that
+the check renews meanwhile, as when the server times out during the five-minute
+check, also leaves the saved mail shown as offline, and the Inbox opens again at
+registration's next change, such as the check's end; the notice that saved mail can't
+be shown is only for this device's storage
+([#2731](https://github.com/unwired-dev/product/issues/2731)). On iPhone, an IMAP
 connection's **Enter the Password…** and **Remove…** are rows of their own below its
 address, so the address and summary keep the row's width; iPad keeps them as buttons in
 the connection's row.

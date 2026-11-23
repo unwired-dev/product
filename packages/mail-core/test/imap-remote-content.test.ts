@@ -225,7 +225,7 @@ describe('imap remote message content', () => {
     { operation: 'openRemoteContent', code: 'locked', state: 'locked' },
     {
       operation: 'fetchRemoteContent',
-      code: 'mailbox-invalidated',
+      code: 'mailbox-revoked',
       state: 'failed',
     },
     {
