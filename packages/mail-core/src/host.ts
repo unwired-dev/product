@@ -222,7 +222,8 @@ export function createHost(
     sealProfileRecord: (record) => native().sealProfileRecord(record),
     openProfileRecords: (records) => native().openProfileRecords(records),
     recordProfiles: (state) => native().recordProfiles(state),
-    forgetMailboxAccess: () => native().forgetMailboxAccess(),
+    forgetMailboxAccess: (keeping = []) =>
+      native().forgetMailboxAccess(keeping),
     retryMailboxCleanup: () => native().retryMailboxCleanup(),
     refreshMailbox: (connection) => native().refreshMailbox(connection),
     signInMailbox: (connection, suggest, provider) =>
@@ -254,7 +255,7 @@ export function createHost(
   let inboxes: Mailboxes | undefined = undefined;
   const registration = createRegistration(
     registrationVault,
-    (connection) => inboxes?.paused(connection) === true,
+    () => inboxes?.paused() ?? [],
   );
 
   // Mailbox or Draft work found this device removed and native code purged it.

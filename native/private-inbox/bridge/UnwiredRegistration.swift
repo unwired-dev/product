@@ -595,11 +595,14 @@ final class UnwiredRegistration: NSObject {
   ) {
     performStep("recordProfiles", resolve, reject: reject) { try $0.recordProfiles(state) }
   }
-  @objc(forgetMailboxAccess:rejecter:)
+  @objc(forgetMailboxAccess:resolver:rejecter:)
   func forgetMailboxAccess(
-    _ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock
+    _ keeping: [String], resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
   ) {
-    performStep("forgetMailboxAccess", resolve, reject: reject) { $0.forgetMailboxAccess() }
+    performStep("forgetMailboxAccess", resolve, reject: reject) {
+      $0.forgetMailboxAccess(keeping: Set(keeping))
+    }
   }
   @objc(retryMailboxCleanup:rejecter:)
   func retryMailboxCleanup(

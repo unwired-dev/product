@@ -266,10 +266,10 @@ const status = Effect.fnUntraced(function* (
   } satisfies RegistrationSnapshot;
 });
 
-// `paused` names a connection whose Inbox waits for a time Gmail named.
+// `paused` lists the connections whose Inbox waits for a time Gmail named.
 export function createRegistrationFlow(
   vault: NativeRegistrationVault,
-  paused: (connection: string) => boolean = () => false,
+  paused: () => readonly string[] = () => [],
 ) {
   const { native, step, record, saved, convex } = nativeSteps(vault);
   const productSyncFlow = createProductSyncProgram(vault);
@@ -396,7 +396,7 @@ export function createRegistrationFlow(
   ) => {
     if (
       (routed === undefined || mailbox.id === routed) &&
-      !paused(mailbox.id)
+      !paused().includes(mailbox.id)
     ) {
       return verify(mailbox);
     }
@@ -450,10 +450,12 @@ export function createRegistrationFlow(
     return yield* current;
   });
 
-  // A push wake names its `routed` connection; the others keep the access this process verified.
+  // A push wake names its `routed` connection; the others keep the access this process verified,
+  // as a connection Gmail paused until its time always does, since verifying it would ask Gmail.
   const restore = Effect.fnUntraced(function* (routed?: string) {
+    const kept = routed === undefined ? paused() : [];
     if (routed === undefined) {
-      yield* step(vault.forgetMailboxAccess);
+      yield* step(() => vault.forgetMailboxAccess(kept));
     }
     const retained = yield* record;
     if (retained === null) {
@@ -471,9 +473,11 @@ export function createRegistrationFlow(
     }
     const unconfirmed = yield* reconfirm(value).pipe(
       Effect.as(undefined),
-      // A push wake keeps the others' access only while the Product Sign-In confirms.
+      // Access is kept only while the Product Sign-In confirms.
       Effect.tapError(() =>
-        routed === undefined ? Effect.void : step(vault.forgetMailboxAccess),
+        routed === undefined && kept.length === 0
+          ? Effect.void
+          : step(vault.forgetMailboxAccess),
       ),
       Effect.catchIf(
         (error) => !endsAccess.has(error.code),

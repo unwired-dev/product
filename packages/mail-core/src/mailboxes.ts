@@ -892,13 +892,13 @@ export function createMailboxes(
     getSnapshot: () => snapshot,
     // Every connection whose Inbox can open, in the order they were added.
     getConnections: () => connections,
-    // Whether the connection's Inbox waits for a time Gmail named, whatever its storage shows.
-    paused: (connection: string) => {
-      const entry = inboxes.get(connection);
-      return entry !== undefined && entry.provider !== 'imap'
-        ? entry.inbox.paused()
-        : false;
-    },
+    // The connections whose Inbox waits for a time Gmail named, whatever its storage shows.
+    paused: () =>
+      [...inboxes]
+        .filter(
+          ([, entry]) => entry.provider !== 'imap' && entry.inbox.paused(),
+        )
+        .map(([id]) => id),
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {
