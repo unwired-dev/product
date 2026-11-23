@@ -143,6 +143,8 @@ export function createHost(
     const elapsedMs = () =>
       Math.min(86_400_000, Math.max(0, Date.now() - started));
     errorReporting.breadcrumb({ operation, stage: 'start' });
+    // A resolved failure or a native rejection carries no JavaScript frames of this request.
+    const callSite = errorReporting.callSite();
     try {
       const result = await request();
       const { status, failed } = reportingResponse(result, code);
@@ -153,7 +155,7 @@ export function createHost(
         ...(status === undefined ? {} : { status }),
       });
       if (failed) {
-        errorReporting.capture({ name: 'OperationError' }, code);
+        errorReporting.capture({ name: 'OperationError' }, code, callSite);
       }
       return result;
     } catch (error) {
@@ -164,7 +166,7 @@ export function createHost(
       });
       // Legacy transports also use unavailable for proven-unsent offline requests.
       if (rejectionCode(error) !== 'unavailable') {
-        errorReporting.capture(error, code);
+        errorReporting.capture(error, code, callSite);
       }
       throw error;
     }

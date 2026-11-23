@@ -596,11 +596,12 @@ Before the Work Profile's new message is sent, a long press on Send opens the Se
 menu, **Remind Me to Send…** sets **Tomorrow Morning** from the iPhone sheet or with
 the iPad popover's **Set Reminder**, and the composer stays open with the Draft's
 banner, **Change** and **Remove Reminder**
-([#2144](https://github.com/unwired-dev/product/issues/2144)). The captures are
+([#2144](https://github.com/unwired-dev/product/issues/2144)). The choices' last
+line must name the device's time zone in full, such as "Times in Central European
+Standard Time (Prague)" ([#2147](https://github.com/unwired-dev/product/issues/2147)). The captures are
 named "Send menu", "Remind Me to Send sheet" or "popover" and "Draft with a Send
 Reminder". The journey fails later on iPhone
-([#2587](https://github.com/unwired-dev/product/issues/2587)) and iPad
-([#2148](https://github.com/unwired-dev/product/issues/2148)).
+([#2587](https://github.com/unwired-dev/product/issues/2587)).
 
 ## iPhone and iPad Gmail pause journey
 

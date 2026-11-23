@@ -20,6 +20,7 @@ import {
 import {
   imageCharacter,
   imagesOf,
+  imageWidthOf,
 } from '@private-email/mail-core/semantic-document';
 import {
   createSendReminders,
@@ -459,6 +460,52 @@ const press = async (name: string) => {
   const button = await screen.findByRole('button', { name });
   await act(async () => {
     await fireEvent.press(button);
+  });
+};
+
+interface AssetMenuItem {
+  readonly id: string;
+  readonly title: string;
+  readonly checked?: boolean;
+  readonly items?: readonly AssetMenuItem[];
+}
+
+// An asset row's native context menu, which a secondary click opens.
+const assetMenuOf = (row: ReturnType<typeof screen.getByLabelText>) => {
+  let node = row.parent;
+  while (node !== null && node.type !== 'UnwiredContextMenu') {
+    node = node.parent;
+  }
+  if (node === null) {
+    throw new Error('Expected a context menu');
+  }
+  const sections: ReadonlyArray<{ readonly items: readonly AssetMenuItem[] }> =
+    node.props.sections;
+  const onSelect: (event: { nativeEvent: { id: string } }) => void =
+    node.props.onSelect;
+  return { sections, onSelect };
+};
+
+// The row menu's Image Size submenu items.
+const imageSizesOf = (row: ReturnType<typeof screen.getByLabelText>) =>
+  assetMenuOf(row).sections.flatMap(({ items }) =>
+    items.flatMap((item) => item.items ?? []),
+  );
+
+const checkedSizes = (row: ReturnType<typeof screen.getByLabelText>) =>
+  imageSizesOf(row)
+    .filter(({ checked }) => checked === true)
+    .map(({ title }) => title);
+
+const chooseSize = async (
+  row: ReturnType<typeof screen.getByLabelText>,
+  title: string,
+) => {
+  const item = imageSizesOf(row).find((each) => each.title === title);
+  ok(item, `Expected ${title}`);
+  const { onSelect } = assetMenuOf(row);
+  await act(async () => {
+    onSelect({ nativeEvent: { id: item.id } });
   });
 };
 
@@ -6145,6 +6192,103 @@ describe('adding files and images to a Draft', () => {
     await expect(reopened.readAsset(image)).resolves.toMatchObject({
       kind: 'ready',
     });
+  });
+
+  it('shows an inline image at the size chosen from its row’s Image Size menu, each choice one Undo step (#2696)', async () => {
+    expect.hasAssertions();
+    const image = (id: string, name: string) =>
+      ({
+        text: imageCharacter,
+        image: { id, name, type: 'image/png', state: 'cancelled' },
+      }) as const;
+    const photo = image('photo0001', 'photo.png');
+    const { drafts, id } = await composeWithTemplates((draft) => ({
+      ...draft,
+      body: [{ kind: 'paragraph', spans: [photo] }],
+      quoted: [
+        { kind: 'paragraph', spans: [image('quoted0001', 'quoted.png')] },
+      ],
+    }));
+    const row = () => screen.getByLabelText(/^photo\.png, /u);
+    expect(assetMenuOf(row()).sections).toMatchObject([
+      {
+        items: [
+          {
+            title: 'Image Size',
+            items: [
+              { title: 'Small · 320 px', checked: false },
+              { title: 'Medium · 640 px', checked: false },
+              { title: 'Large · 1024 px', checked: false },
+              { title: 'Original', checked: true },
+            ],
+          },
+        ],
+      },
+      { items: [{ title: 'Remove Image', destructive: true }] },
+    ]);
+    await chooseSize(row(), 'Medium · 640 px');
+    expect(checkedSizes(row())).toStrictEqual(['Medium · 640 px']);
+    // Choosing the current size again is not an edit, so one Undo returns to Original.
+    await chooseSize(row(), 'Medium · 640 px');
+    await press('Undo');
+    expect(checkedSizes(row())).toStrictEqual(['Original']);
+    // VoiceOver offers each size as an action on the row, speaking its name.
+    expect(row()).toHaveProp(
+      'accessibilityActions',
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Show photo.png at Large size' }),
+      ]),
+    );
+    await act(async () => {
+      await fireEvent(row(), 'accessibilityAction', {
+        nativeEvent: { actionName: 'Show photo.png at Large size' },
+      });
+    });
+    expect(checkedSizes(row())).toStrictEqual(['Large · 1024 px']);
+    // An image only in the quoted correspondence offers no size.
+    const quoted = screen.getByLabelText(/^quoted\.png, /u);
+    expect(() => assetMenuOf(quoted)).toThrow('Expected a context menu');
+    const quotedSize = expect.objectContaining({
+      name: expect.stringMatching(/^Show quoted\.png at /u),
+    });
+    expect(quoted).not.toHaveProp(
+      'accessibilityActions',
+      expect.arrayContaining([quotedSize]),
+    );
+    await saveAndClose();
+    const saved = draftsOf(drafts.getSnapshot()).find((each) => each.id === id);
+    ok(saved, 'Expected the saved Draft');
+    expect(imageWidthOf(saved.body, photo.image.id)).toBe(1024);
+  });
+
+  it('checks no size while an image’s uses differ, and resizes them together as one edit (#2696)', async () => {
+    expect.hasAssertions();
+    const photo = {
+      text: imageCharacter,
+      image: {
+        id: 'photo0001',
+        name: 'photo.png',
+        type: 'image/png',
+        state: 'cancelled',
+      },
+    } as const;
+    await composeWithTemplates((draft) => ({
+      ...draft,
+      body: [
+        {
+          kind: 'paragraph',
+          spans: [{ ...photo, width: 320 }, { text: ' and ' }, photo],
+        },
+      ],
+    }));
+    const row = () => screen.getByLabelText(/^photo\.png, /u);
+    expect(checkedSizes(row())).toStrictEqual([]);
+    await chooseSize(row(), 'Large · 1024 px');
+    expect(checkedSizes(row())).toStrictEqual(['Large · 1024 px']);
+    // One Undo restores both uses, leaving nothing to undo.
+    await press('Undo');
+    expect(checkedSizes(row())).toStrictEqual([]);
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   });
 
   it('attaches files, places an inline image, and keeps them through relaunch', async () => {

@@ -10,7 +10,8 @@ struct ReportingFrame: Codable, Sendable {
   var imageAddress: String?
 
   var valid: Bool {
-    if kind == "javascript" {
+    // A `call-site` frame is where a failed operation was requested, not where it failed.
+    if kind == "javascript" || kind == "call-site" {
       return (0...100_000_000).contains(line ?? -1) && (0...100_000_000).contains(column ?? -1)
         && address == nil
         && imageUuid == nil && imageAddress == nil

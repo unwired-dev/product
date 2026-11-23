@@ -54,11 +54,17 @@ const choose = async (
     menu = menu.parent;
   }
   ok(menu, 'Expected a context menu');
-  const sections: ReadonlyArray<{
-    items: ReadonlyArray<{ id: string; title: string }>;
-  }> = menu.props.sections;
+  interface Item {
+    id: string;
+    title: string;
+    items?: readonly Item[];
+  }
+  const sections: ReadonlyArray<{ items: readonly Item[] }> =
+    menu.props.sections;
+  // A submenu's items, such as Image Size's, are chosen the same way.
   const item = sections
     .flatMap(({ items }) => items)
+    .flatMap((each) => [each, ...(each.items ?? [])])
     .find((each) => each.title === title);
   ok(item, `Expected ${title}`);
   const select: (event: { nativeEvent: { id: string } }) => void =
@@ -947,11 +953,16 @@ describe('the Tiptap evaluation composer', () => {
     ok(plan, 'Expected the attached file');
     // Secondary-clicking the image offers Attach Instead, and VoiceOver offers it as an action.
     const chip = screen.getByLabelText(/^chart\.png, /u);
+    // Its sizes are page edits too.
+    await choose(chip, 'Large · 1024 px');
+    const resized = lastCommand();
     await choose(chip, 'Attach Instead');
     const converted = lastSent();
     await act(async () => {
       await fireEvent(chip, 'accessibilityAction', {
-        nativeEvent: { actionName: 'convert' },
+        nativeEvent: {
+          actionName: 'Attach chart.png instead of showing it inline',
+        },
       });
     });
     expect(lastSent()).toStrictEqual(converted);
@@ -982,12 +993,14 @@ describe('the Tiptap evaluation composer', () => {
     expect({
       attached: attached.images,
       converted,
+      resized,
       pasted,
       removed,
       stored: draftsOf(drafts.getSnapshot())[0],
     }).toMatchObject({
       attached: [],
       converted: { type: 'convert', id: chart.id },
+      resized: commandScript({ type: 'resize', id: chart.id, width: 1024 }),
       pasted: converted,
       removed: { type: 'remove', id: plan.id },
       stored: {

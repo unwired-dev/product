@@ -1633,6 +1633,21 @@ final class InboxTests: XCTestCase {
     let tomorrow = labelled("Tomorrow Morning, ")
     XCTAssertTrue(tomorrow.waitForExistence(timeout: 15))
     XCTAssertTrue(labelled("Keeps this message in Drafts").exists)
+    // #2147: the zone line names the zone in full, as the frames do, where Hermes formats it.
+    // The line names the zone as it is at the selected Tomorrow Morning, 8:00.
+    let zone = TimeZone.current
+    let calendar = Calendar.current
+    let morning = calendar.date(
+      bySettingHour: 8, minute: 0, second: 0,
+      of: calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+    ) ?? Date()
+    let name = zone.localizedName(
+      for: zone.isDaylightSavingTime(for: morning) ? .daylightSaving : .standard,
+      locale: Locale(identifier: "en")
+    ) ?? zone.identifier
+    let city = String(zone.identifier.split(separator: "/").last ?? "").replacingOccurrences(of: "_", with: " ")
+    let expected = "Times in \(name) (\(city))"
+    XCTAssertTrue(labelled(expected).exists, "Expected \"\(expected)\", found \"\(labelled("Times in ").label)\"")
     if UIDevice.current.userInterfaceIdiom == .pad {
       // The popover selects Tomorrow Morning; Set Reminder sets it.
       XCTAssertTrue(app.buttons["Cancel"].exists)
@@ -4610,6 +4625,9 @@ final class InboxTests: XCTestCase {
       XCTAssertTrue(maya.waitForExistence(timeout: 20))
       if largest {
         try audit(app, "Inbox at the largest text size", for: [.textClipped, .dynamicType])
+        if UIDevice.current.userInterfaceIdiom == .pad {
+          verifyLargestTextMailboxes(app, list: maya)
+        }
       }
       for _ in 0..<5 where !maya.isHittable {
         app.swipeDown()
@@ -4624,6 +4642,46 @@ final class InboxTests: XCTestCase {
       bodies.append(body.frame.height)
     }
     XCTAssertGreaterThan(bodies[1], bodies[0] * 1.5)
+  }
+
+  // #2193: at the largest text size the iPad hides Mailboxes in either orientation, and Show
+  // Sidebar shows it in the list's place beside the reader, where labels break only between
+  // words; choosing a Mailbox, or searching from the bar, shows the list again.
+  private func verifyLargestTextMailboxes(_ app: XCUIApplication, list: XCUIElement) {
+    func hittable(_ label: String) -> XCUIElement? {
+      app.buttons.matching(identifier: label).allElementsBoundByIndex.first { $0.isHittable }
+    }
+    for (orientation, name) in [
+      (UIDeviceOrientation.landscapeLeft, "Landscape"), (.portrait, "Portrait"),
+    ] {
+      XCUIDevice.shared.orientation = orientation
+      waitUntil {
+        let window = app.windows.firstMatch.frame
+        return (window.width > window.height) == (orientation == .landscapeLeft)
+          && hittable("Show Sidebar") != nil
+      }
+      XCTAssertNil(hittable("Hide Sidebar"))
+      XCTAssertNil(hittable("All Inboxes"))
+      attachScreen("Mailboxes hidden at the largest text size, \(name)", of: app, to: self)
+      hittable("Show Sidebar")?.tap()
+      waitUntil { hittable("Hide Sidebar") != nil }
+      let inboxes = hittable("All Inboxes")
+      XCTAssertNotNil(inboxes)
+      XCTAssertFalse(list.exists)
+      attachScreen("Mailboxes in the list's place at the largest text size, \(name)", of: app, to: self)
+      if orientation == .portrait {
+        // Searching from the window's bar shows the list again.
+        let search = app.searchFields.firstMatch
+        search.tap()
+        search.typeText("Maya\n")
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
+        closeSearch(app).tap()
+      } else {
+        inboxes?.tap()
+      }
+      waitUntil { list.exists && hittable("Show Sidebar") != nil }
+    }
   }
 
   private func verifyReadStateAfterRelaunch(_ app: XCUIApplication) {

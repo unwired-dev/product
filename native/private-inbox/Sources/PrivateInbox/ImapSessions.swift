@@ -12,6 +12,14 @@ struct ImapListedFolder: Sendable, Equatable {
   let delimiter: String?
 }
 
+// Every folder the server lists. SwiftMail skips a LIST of another user's or a shared namespace
+// that the server refuses and merges the rest without saying which it skipped; `skippable` holds
+// those LIST patterns, a namespace root or a prefix ending in `*`, whose folders may be missing.
+struct ImapListing: Sendable, Equatable {
+  let folders: [ImapListedFolder]
+  var skippable: [String] = []
+}
+
 // What a folder search looks for: a short text anywhere in the message, or the Message-ID header of
 // a message Unwired sent, which marks its Sent copy. Some servers, such as Seznam Email's, drop the
 // connection on a Content-Type search.
@@ -25,7 +33,7 @@ enum ImapSearchCriterion: Sendable, Equatable {
 protocol ImapSession: Sendable {
   func capabilities() async throws -> [String]
   // Every folder the server lists, in every namespace it declares.
-  func folders() async throws -> [ImapListedFolder]
+  func folders() async throws -> ImapListing
   // Selects the folder read-write for the commands that follow and returns its UIDVALIDITY; refuses
   // a folder the server does not select, one without UIDVALIDITY and a read-only selection.
   func select(_ folder: String) async throws -> UInt32
@@ -88,7 +96,7 @@ enum ImapStoredFlag: String, Sendable {
       try await run { try await $0.fetchCapabilities().map { String($0) } }
     }
 
-    func folders() async throws -> [ImapListedFolder] {
+    func folders() async throws -> ImapListing {
       try await run { server in
         // SwiftMail ignores namespace discovery failures at login; retirement needs the full list.
         if await server.namespaces == nil {
@@ -97,18 +105,32 @@ enum ImapStoredFlag: String, Sendable {
             _ = try await server.fetchNamespaces()
           }
         }
+        // SwiftMail lists by the namespaces it holds when listing starts, and a re-login between its
+        // LIST commands may replace them; the patterns it may have skipped come from that snapshot.
+        let namespaces = await server.namespaces
         let listed: [Mailbox.Info]
         do {
           listed = try await server.listMailboxes()
         } catch is ExceededListResponseLimitError {
           throw RegistrationError.unavailable
         }
-        return listed.map { info in
-          ImapListedFolder(
-            name: info.name,
-            attributes: Self.attributes.filter { info.attributes.contains($0.0) }.map(\.1),
-            delimiter: info.hierarchyDelimiter)
-        }
+        guard
+          await server.namespaces?.listingPatterns(for: "*")
+            == namespaces?.listingPatterns(for: "*")
+        else { throw RegistrationError.unavailable }
+        let skippable: Set<String> = namespaces.map { namespaces in
+          let personal = NamespaceResponse(personal: namespaces.personal, otherUsers: [], shared: [])
+          return Set(namespaces.listingPatterns(for: "*"))
+            .subtracting(personal.listingPatterns(for: "*"))
+        } ?? Set()
+        return ImapListing(
+          folders: listed.map { info in
+            ImapListedFolder(
+              name: info.name,
+              attributes: Self.attributes.filter { info.attributes.contains($0.0) }.map(\.1),
+              delimiter: info.hierarchyDelimiter)
+          },
+          skippable: skippable.sorted())
       }
     }
 
@@ -271,21 +293,31 @@ enum ImapStoredFlag: String, Sendable {
         let events = try await server.idle()
         let deadline = ContinuousClock.now + .seconds(seconds)
         // DONE ends the stream once the server acknowledges it, after any events it sent first.
-        let bound = Task {
-          try await Task.sleep(until: deadline)
+        // The bound or the first event, whichever comes first, sends the only DONE, which runs to
+        // its end: cancelling it would close the connection before the events that follow.
+        let (start, starting) = AsyncStream<Void>.makeStream()
+        let ending = Task {
+          var waiting = start.makeAsyncIterator()
+          guard await waiting.next() != nil else { return }
           try? await server.done()
         }
-        defer { bound.cancel() }
+        let bound = Task {
+          try await Task.sleep(until: deadline)
+          starting.yield()
+        }
+        defer {
+          bound.cancel()
+          starting.finish()
+        }
         var kinds: [String] = []
         for await event in events {
           let kind = Self.kind(event)
           guard !kinds.contains(kind) else { continue }
           kinds.append(kind)
-          if kinds.count == 1 {
-            bound.cancel()
-            try? await server.done()
-          }
+          if kinds.count == 1 { starting.yield() }
         }
+        starting.finish()
+        await ending.value
         // A stream that ends quietly before its bound lost the connection.
         if kinds.isEmpty, ContinuousClock.now < deadline { throw ImapFailure.offline }
         return kinds
@@ -356,15 +388,16 @@ extension RegistrationStore {
   func imapListFolders(connection: String, address: String, generation: String, session: String)
     async throws -> [String: Any]
   {
-    let folders = try await imapCommand(
+    let listing = try await imapCommand(
       session, connection: connection, address: address, generation: generation
     ) { try await $0.folders() }
     return [
-      "folders": folders.map {
+      "folders": listing.folders.map {
         var folder: [String: Any] = ["name": $0.name, "attributes": $0.attributes]
         folder["delimiter"] = $0.delimiter
         return folder
-      }
+      },
+      "skippable": listing.skippable,
     ]
   }
 
@@ -552,8 +585,7 @@ extension RegistrationStore {
       handle.command = nil
       handle.used = .now
     }
-    // Closing answers the caller at once. SwiftMail 1.16 cannot abort a command on the wire, so
-    // the connection closes once that command answers or times out.
+    // Closing answers the caller at once and cancels the command, which closes its transport.
     let value: Value = try await withCheckedThrowingContinuation {
       (continuation: CheckedContinuation<Value, any Error>) in
       let reply = ImapReply<Value>(continuation)

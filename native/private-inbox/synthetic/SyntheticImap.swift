@@ -94,7 +94,9 @@
       try SyntheticImap.messages(lock.withLock { examined })
     }
     func capabilities() async throws -> [String] { ["IMAP4rev1", "MOVE", "UIDPLUS"] }
-    func folders() async throws -> [ImapListedFolder] { SyntheticImap.folders.map(\.folder) }
+    func folders() async throws -> ImapListing {
+      ImapListing(folders: SyntheticImap.folders.map(\.folder))
+    }
     func select(_ folder: String) async throws -> UInt32 {
       _ = try await examine(folder)
       return SyntheticImap.uidValidity

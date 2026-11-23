@@ -413,3 +413,24 @@ mail content.
   Microsoft's one-time sign-in code was typed, as it expires within minutes; rows the
   earlier build kept stayed in the saved Inbox until those messages returned to it.
   Mac, iPad and the other areas the 2026-11-18 run left out were not run.
+- **2026-11-23, iPhone send and reply
+  ([#2697](https://github.com/unwired-dev/product/issues/2697)).** Target, operator and
+  toolchain as on 2026-11-18, on an iPhone 18 Pro Simulator. Build: the app source of
+  `1ac442d43fae08e8ef53bb50e24bc2597f30070d`. Result: pass. A fresh Google Product
+  Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
+  personal mailbox with every credential entered through the
+  [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app), none
+  typed. A new message to the mailbox's own address left the Outbox after the
+  **Undo Send Window**, appeared in **Sent Items** and arrived in the Inbox. A reply to
+  it arrived with the original's subject, Sent Items listed it, and Outlook on the web
+  grouped it with the original. All of them remained after a relaunch. **Undo** during
+  the window returned the message to the composer as a Draft with its recipient, and it
+  never reached Sent Items or the Inbox. After the Simulator was deleted, the credential
+  scan found nothing. Limitations: the first Undo
+  attempt was pressed after the 10-second window had closed, because the automation
+  waited for the button to settle, so that message was sent; a second attempt about
+  3 seconds after Send was undone. The iPhone reader shows the reply on its own, as it
+  does any message, rather than with its Thread
+  ([#846](https://github.com/unwired-dev/product/issues/846)). Mac, iPad, attachments,
+  uncertain outcomes, renewal after relaunch and revocation were not run and stay on
+  #637.

@@ -63,8 +63,8 @@ final class ControlledImap: ImapProvider, @unchecked Sendable {
 }
 
 // A controlled session: it lists the Inbox, records each change command and its close. With `hold`,
-// a listing waits for `release()`, as SwiftMail's command waits for the server's reply even after
-// the session closes. IDLE on the Inbox reports new mail; on any other folder it waits until the
+// a listing waits for `release()`, a controlled late completion that shows a closed handle ignores
+// the result. IDLE on the Inbox reports new mail; on any other folder it waits until the
 // session closes.
 final class ControlledImapSession: ImapSession, @unchecked Sendable {
   private let lock = NSLock()
@@ -107,11 +107,12 @@ final class ControlledImapSession: ImapSession, @unchecked Sendable {
   func append(_ folder: String, message: Data) async throws {
     lock.withLock { stored.append(message) }
   }
-  func folders() async throws -> [ImapListedFolder] {
+  func folders() async throws -> ImapListing {
     if hold {
       await withCheckedContinuation { continuation in lock.withLock { held = continuation } }
     }
-    return [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")]
+    return ImapListing(
+      folders: [ImapListedFolder(name: "INBOX", attributes: ["\\HasNoChildren"], delimiter: "/")])
   }
   func select(_ folder: String) async throws -> UInt32 {
     command("select \(folder)")
@@ -658,7 +659,7 @@ extension PrivateInboxTests {
     }
     try await provider.verify(account, password: "synthetic-password")
     // One session lists every folder with its LIST attributes, and the server's capabilities.
-    func listed(_ account: ImapAccount) async throws -> ([ImapListedFolder], [String]) {
+    func listed(_ account: ImapAccount) async throws -> (ImapListing, [String]) {
       let session = try await provider.open(account, password: "synthetic-password")
       do {
         let result = (try await session.folders(), try await session.capabilities())
@@ -669,7 +670,8 @@ extension PrivateInboxTests {
         throw error
       }
     }
-    let (folders, capabilities) = try await listed(account)
+    let (listing, capabilities) = try await listed(account)
+    let folders = listing.folders
     // swift-nio-imap reports any ASCII case of INBOX as `INBOX`.
     #expect(folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
     #expect(
@@ -690,7 +692,7 @@ extension PrivateInboxTests {
     let full = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"folders-at-limit"}"#.utf8))
-    #expect(try await listed(full).0.count == 1_000)
+    #expect(try await listed(full).0.folders.count == 1_000)
     let undiscovered = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespace-failure"}"#.utf8))
@@ -699,7 +701,28 @@ extension PrivateInboxTests {
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"namespaced"}"#.utf8))
     let (shared, sharedCapabilities) = try await listed(namespaced)
-    #expect(shared.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
+    #expect(shared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary", "Shared/Team"])
+    // SwiftMail skips a refused LIST of another user's or a shared namespace without saying so.
+    #expect(shared.skippable == ["Shared", "Shared/*"])
+    func refusing(_ user: String) async throws -> ImapListing {
+      try await listed(
+        try JSONDecoder().decode(
+          ImapAccount.self,
+          from: Data(#"{"host":"localhost","port":\#(port),"username":"\#(user)"}"#.utf8))
+      ).0
+    }
+    let unshared = try await refusing("shared-wildcard")
+    #expect(unshared.folders.map(\.name) == ["INBOX", "Archive", "ınbox", "Primary"])
+    #expect(unshared.skippable == ["Shared", "Shared/*"])
+    let rootless = try await refusing("shared-root")
+    #expect(rootless.folders.map(\.name) == shared.folders.map(\.name))
+    #expect(rootless.skippable == ["Shared", "Shared/*"])
+    // The listed root `~` also matches the refused `~*`.
+    let tilde = try await refusing("tilde")
+    #expect(tilde.folders.map(\.name).last == "~")
+    #expect(tilde.skippable == ["~", "~*"])
+    // A re-login between LIST commands that changes the namespaces refuses the listing.
+    await #expect(throws: (any Error).self) { _ = try await refusing("namespace-shift") }
     #expect(Set(sharedCapabilities.map { $0.uppercased() }).isDisjoint(with: ["MOVE", "UIDPLUS", "IDLE"]))
     // One session examines folders and reads their envelopes and flags, as a synchronization
     // does.
@@ -905,6 +928,8 @@ extension PrivateInboxTests {
     let watching = try await provider.open(synthetic, password: password)
     #expect(try await watching.idle(folder: "INBOX", seconds: 30) == ["exists"])
     #expect(try await watching.idle(folder: "Quiet", seconds: 1) == [])
+    // Events sent after the bound's DONE still reach the wait, and the session stays open.
+    #expect(try await watching.idle(folder: "Late", seconds: 1) == ["alert", "exists"])
     let wait = Task { try await watching.idle(folder: "Quiet", seconds: 30) }
     try await Task.sleep(for: .milliseconds(500))
     let closing = ContinuousClock.now

@@ -465,6 +465,9 @@ styles) so the file stays editable.
   834×1210 the 391pt list sits beside a 442pt reader, whose content is inset 23pt with no initials beside the sender and
   whose Thread lies flat between separators, as on iPhone; **Show Sidebar** beside the Command Input brings Mailboxes back. Settings
   keeps its 248pt sidebar beside the detail.
+- **iPad at accessibility text sizes:** in either orientation Mailboxes hides
+  beside the list and reader; **Show Sidebar** shows it in the list's column,
+  beside the reader, with Drafts and Settings pinned below its scrolling list.
 - **Sidebar order:** the Mail Profile switcher (full column width) at the top,
   then the primary Unified Mailboxes (Inbox, Snoozed, Pins and Sent),
   secondary Archive, All Mail, Spam and Trash, one collapsible section per
