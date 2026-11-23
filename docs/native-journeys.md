@@ -685,8 +685,12 @@ Edit Link, which offers Remove Link; one Undo removes the link and keeps the
 text, and Redo restores it, in iPad's expanded composer. After relaunch, the Inbox lists the saved Draft,
 which reopens with both edits and the link's destination; when the docked reply's iPad format bar is too narrow
 for it, Edit Link comes from **More Lists and Links**
-([#2357](https://github.com/unwired-dev/product/issues/2357)). Relaunched at
-Accessibility XXXL ([#2230](https://github.com/unwired-dev/product/issues/2230)),
+([#2357](https://github.com/unwired-dev/product/issues/2357)). Each relaunched
+at Accessibility XXXL ([#2730](https://github.com/unwired-dev/product/issues/2730)),
+Settings and each destination it lists pass the clipped-text and Dynamic Type
+audits, and no text of four or more characters is narrower than 60 points, the
+width of a title squeezed beside its value a letter to a line. Relaunched at
+that size ([#2230](https://github.com/unwired-dev/product/issues/2230)),
 the reopened Draft's composer passes the clipped-text audit, expanded on iPad,
 and its fields scroll into reach with **Show Cc and Bcc**, where the Dynamic Type
 audit runs too. It permits the body, a React Native multiline input like the

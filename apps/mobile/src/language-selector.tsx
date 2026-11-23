@@ -14,13 +14,16 @@ import {
   SettingsGroup,
   SettingsRow,
 } from './settings.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useLargeText, usePalette } from './theme.ts';
 
 const styles = StyleSheet.create({
   text: { ...textStyles.subheadline },
   // The iPhone Settings Row's pop-up: the choice in Body, then a 22pt circle holding the up-down
   // chevrons 12pt after it, at the row's trailing edge.
   menu: { minHeight: 44, marginVertical: -spacing.m },
+  // Stacked beneath the row's title at accessibility text sizes, the pop-up wraps its choice.
+  menuStacked: { marginVertical: 0 },
+  choiceWrap: { flexShrink: 1 },
   popUp: {
     minHeight: 44,
     flexDirection: 'row',
@@ -42,6 +45,7 @@ export function LanguageSelector({
 }) {
   const { t, settings } = useLocalization();
   const colors = usePalette();
+  const large = useLargeText();
   // The choice being saved. Clearing it after a refused save changes the selection back, which
   // is the only way the native picker drops the choice it already shows.
   const [pending, setPending] = useState<string>();
@@ -99,7 +103,7 @@ export function LanguageSelector({
           // on the system menu button.
           <MenuButton
             testID="language"
-            style={styles.menu}
+            style={[styles.menu, large && styles.menuStacked]}
             disabled={pending !== undefined}
             accessibilityLabel={t('language.title')}
             accessibilityValue={{ text: nameOf(shown) }}
@@ -120,8 +124,12 @@ export function LanguageSelector({
             ]}>
             <View style={styles.popUp}>
               <NativeText
-                numberOfLines={1}
-                style={[styles.choice, { color: colors.textPrimary }]}>
+                numberOfLines={large ? 0 : 1}
+                style={[
+                  styles.choice,
+                  large && styles.choiceWrap,
+                  { color: colors.textPrimary },
+                ]}>
                 {nameOf(shown)}
               </NativeText>
               <PopUpChevrons />

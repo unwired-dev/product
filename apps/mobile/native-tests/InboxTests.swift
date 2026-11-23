@@ -3524,6 +3524,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     XCTAssertEqual(app.textFields["Text"].value as? String, "reply")
     XCTAssertEqual(destination.value as? String, "https://example.com")
+    try verifySettingsLargestText(app)
     try verifyComposerLargestText(app, draft: draft, pad: pad)
   }
 
@@ -3565,6 +3566,54 @@ final class InboxTests: XCTestCase {
     }
     XCTAssertTrue(copies.isHittable)
     try audit(app, "Composer fields at the largest text size", for: [.textClipped, .dynamicType])
+  }
+
+  // #2730: at the largest accessibility text size Settings and each destination it lists clip no
+  // text, and no title is squeezed beside its value, a letter to a line, which the audit does not
+  // flag. As for the composer, each audited screen starts from a fresh launch.
+  private func verifySettingsLargestText(_ app: XCUIApplication) throws {
+    app.launchArguments += [
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+    ]
+    let phone = UIDevice.current.userInterfaceIdiom == .phone
+    let query = app.textFields["Type a command"]
+    func verifyUnsqueezed(_ screen: String) throws {
+      var pending = [try app.snapshot()]
+      while let element = pending.popLast() {
+        pending += element.children
+        guard element.elementType == .staticText, element.label.count > 3 else { continue }
+        XCTAssertGreaterThanOrEqual(
+          element.frame.width, 60, "\(element.label) is squeezed in \(screen)")
+      }
+    }
+    for destination in [
+      nil, "Account & Devices", "Email Accounts", "Profiles", "Reading", "Signatures",
+      "Notifications", "Blocked Senders", "Appearance", "Language", "Privacy & Data",
+    ] {
+      app.terminate()
+      app.launch()
+      // A tap before the Inbox lists its messages can reach the palette's button before its handler.
+      XCTAssertTrue(
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Outlook update 001"))
+          .firstMatch.waitForExistence(timeout: 30))
+      openPalette(app, header: app.staticTexts[phone ? "Inbox" : "All Inboxes"].firstMatch)
+      waitForFocus(query)
+      submit("Account", into: query, in: app)
+      XCTAssertTrue(app.buttons[settingsExit].waitForExistence(timeout: 10))
+      guard let destination else {
+        try verifyUnsqueezed("Settings")
+        try audit(app, "Settings at the largest text size", for: [.textClipped, .dynamicType])
+        continue
+      }
+      openSettings(destination, in: app)
+      if phone {
+        XCTAssertTrue(app.navigationBars[destination].waitForExistence(timeout: 10))
+      } else {
+        waitUntil { app.buttons[destination].firstMatch.isSelected }
+      }
+      try verifyUnsqueezed(destination)
+      try audit(app, "\(destination) at the largest text size", for: [.textClipped, .dynamicType])
+    }
   }
 
   // #1795: the Link Editor links the selected word of the reply. It opens as Add Link with Text

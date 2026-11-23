@@ -11,6 +11,45 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad Settings at the largest text size, 2026-11-23
+
+[#2730](https://github.com/unwired-dev/product/issues/2730), part of
+[#2007](https://github.com/unwired-dev/product/issues/2007), adds a step to the
+`registration-performance` journey, before the composer's. It relaunches at
+Accessibility XXXL, opens Settings and each destination it lists, and runs the
+XCTest audit for clipped text and Dynamic Type on each. It also fails when a text of four or more
+characters is narrower than 60 points. It ran on a `registration-performance`
+Release Simulator build with Xcode 27.2 (`27B52`), the iOS 27.0 runtime and
+macOS 27.2.1, in Dark. Host load was 5–700 from other work.
+
+- Before, on iPhone 18 Pro at 50debb80d: Email Accounts, Reading and Account &
+  Devices squeezed row titles beside their values, a letter or two to a line,
+  and Language's title had no width at all. The Profiles monogram's letter was
+  clipped. The audit reported none of these. The new width check fails there,
+  first on "Sign Out on This Device", 38.7 points wide.
+- After: at these sizes a Settings row puts its value and controls beneath its
+  title, pop-up choices, destinations and the account name wrap, and monogram
+  letters keep their circle's size.
+- iPhone 18 Pro passed the step in the whole journey: every screen passed the
+  audit and the width check. The journey then stops at the composer step that
+  follows, which no longer reaches **Show Cc and Bcc**
+  ([#2736](https://github.com/unwired-dev/product/issues/2736)). Of five runs,
+  three reached that step and stopped there; two stopped earlier, at focus and
+  typing waits.
+- iPad Pro 11-inch (M5) stops after the Inbox audit
+  ([#1873](https://github.com/unwired-dev/product/issues/1873)), before the
+  step, so it ran in a probe: an uncommitted copy of the journey that runs the
+  step after the Inbox audit. It printed `PROBE2730`. Every screen passed the
+  audit and the width check. The 248-point sidebar still breaks single words
+  between characters ("Accoun/ts", "Readin/g"), and the detail's one-line title
+  truncates ("Acco…"); that layout waits for approved frames in
+  [#2735](https://github.com/unwired-dev/product/issues/2735).
+- Settings › Signatures holds the signature editor, whose Dynamic Type finding
+  is a known gap from
+  [#2231](https://github.com/unwired-dev/product/issues/2231); on both devices
+  its audit reported nothing.
+- **Light appearance, landscape, VoiceOver and physical devices are deferred.**
+
 ## iPhone and iPad Remind Me to Send time zone line, 2026-11-23
 
 [#2147](https://github.com/unwired-dev/product/issues/2147) ran the

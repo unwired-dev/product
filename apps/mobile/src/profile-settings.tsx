@@ -187,7 +187,9 @@ export function ProfileMonogram({
         },
       ]}>
       {icon === undefined ? (
+        // The letter keeps the circle's size, which does not grow with the text.
         <Text
+          allowFontScaling={false}
           style={[
             styles.monogramText,
             { color: colors.brandOnDeep, fontSize: Math.ceil(size * 0.45) },
