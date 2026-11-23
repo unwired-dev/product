@@ -518,7 +518,8 @@ mail content.
   against the Microsoft Services Agreement and asked the person to show they are human; the
   agent stopped there. After the Simulator was deleted, the credential scan of this run's
   own files, `~/.agent-device`, the Simulator's logs, the shell history, the temporary
-  directory and this run's session transcripts found nothing; before deletion, the
+  directory, this run's session transcripts, `~/Library/Logs`, Xcode's DerivedData and the
+  repository's `artifacts` directory found nothing; before deletion, the
   Simulator's system log and two of its system search files matched a credential value.
   Limitations: Microsoft's one-time sign-in code was typed, as it expires within minutes.
   Typing the recipient opened the system's contacts access sheet, and the Simulator's sample
