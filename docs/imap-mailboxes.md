@@ -2000,12 +2000,12 @@ password manager by running
   files written since the run began under `~/.agent-device`, T3 Code's device sessions,
   `~/Library/Logs`, Xcode's DerivedData, the temporary directory, the repository's
   `artifacts`, the operator's scratch files and this run's session transcript, and the
-  shell history; none held a password or the Recovery Key. Limitations: a Draft from an earlier Outlook.com run,
-  synchronized through Product Sync, was listed above the folder's messages throughout.
-  Seznam Email cannot exercise this case: a folder it deleted and created again kept
-  UIDVALIDITY 1 and continued its UIDs. A changed UIDVALIDITY on iPad and Mac, of the
-  Inbox, with a reader or download still open, or during a history download stays on
-  #632, with Seznam Email outages on iPad, background refresh and push wakes,
+  shell history; none held a password or the Recovery Key. Limitations: a Draft from an
+  earlier Outlook.com run, synchronized through Product Sync, was listed above the
+  folder's messages throughout. Seznam Email cannot exercise this case: a folder it
+  deleted and created again kept UIDVALIDITY 1 and continued its UIDs. A changed
+  UIDVALIDITY on iPad and Mac, of the Inbox, with a reader or download still open, or
+  during a history download stays on #632, with background refresh and push wakes,
   server-closed sessions without a network loss and password recovery.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
