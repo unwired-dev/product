@@ -892,36 +892,46 @@ describe('meeting invitations', () => {
     close();
   });
 
-  it('shows an Outlook meeting request’s own calendar ahead of an attached calendar file', async () => {
-    expect.hasAssertions();
-    const graph = createSyntheticGraph({ address: me });
-    const other = calendar(
-      meeting.map((line) =>
-        line.replace('roadmap-42@northwind.example', 'other@example.invalid'),
-      ),
-    );
-    const id = graph.deliver({
-      calendar: calendar(meeting),
-      attachments: [
-        {
-          name: 'other.ics',
-          contentType: 'text/calendar',
-          bytes: [...new TextEncoder().encode(other)],
-        },
-      ],
-    });
-    const inbox = createInboxStore(graph.native, {
-      provider: 'microsoft-graph',
-    });
-    await inbox.load();
-    const close = inbox.retainMessage(id);
+  it.each([
+    ['an attached', false],
+    ['an inline', true],
+  ])(
+    'shows an Outlook meeting request’s own calendar ahead of %s calendar file',
+    async (_, isInline) => {
+      expect.hasAssertions();
+      const graph = createSyntheticGraph({ address: me });
+      const other = calendar(
+        meeting.map((line) =>
+          line.replace('roadmap-42@northwind.example', 'other@example.invalid'),
+        ),
+      );
+      const id = graph.deliver({
+        calendar: calendar(meeting),
+        // Graph lists an inline file only for a body that references one.
+        body: { contentType: 'html', content: '<img src="cid:other">' },
+        attachments: [
+          {
+            name: 'other.ics',
+            contentType: 'text/calendar',
+            bytes: [...new TextEncoder().encode(other)],
+            isInline,
+            contentId: 'other',
+          },
+        ],
+      });
+      const inbox = createInboxStore(graph.native, {
+        provider: 'microsoft-graph',
+      });
+      await inbox.load();
+      const close = inbox.retainMessage(id);
 
-    const invitation = await invitationIn(inbox, id);
+      const invitation = await invitationIn(inbox, id);
 
-    expect(invitation.uid).toBe('roadmap-42@northwind.example');
+      expect(invitation.uid).toBe('roadmap-42@northwind.example');
 
-    close();
-  });
+      close();
+    },
+  );
 
   it('leaves an Outlook meeting request readable without a card when its calendar cannot decode', async () => {
     expect.hasAssertions();
