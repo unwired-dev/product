@@ -14,6 +14,10 @@ import {
   partText,
 } from '../src/message-body.ts';
 import {
+  decodeGraphListed,
+  graphFolderMessage,
+} from '../src/microsoft-graph.ts';
+import {
   SyntheticGmailMessages,
   SyntheticGoogle,
   SyntheticScenario,
@@ -756,6 +760,30 @@ describe('the performance mailboxes', () => {
         ),
       ).body.body.content,
     ).toBe('Outlook update 125 body. Nothing here came from a real mailbox.');
+  });
+
+  it('read a Microsoft delta change with the folder it is in, as the Inbox checks it', async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-performance', { state: null });
+    const Reply = Schema.Struct({ status: Schema.Finite, body: Schema.String });
+    for (const id of [
+      'AAMkAGI2-synthetic-outlook=',
+      'AAMkAGI2-synthetic-performance-125=',
+    ]) {
+      const { status, body } = decoded(
+        Reply,
+        await ask('microsoft.graph', {
+          url: graphFolderMessage('INBOX', id),
+          method: 'GET',
+          body: null,
+          contentType: 'application/json',
+        }),
+      );
+      expect(status).toBe(200);
+      await expect(
+        Effect.runPromise(decodeGraphListed(body)),
+      ).resolves.toMatchObject({ id, parentFolderId: expect.any(String) });
+    }
   });
 });
 

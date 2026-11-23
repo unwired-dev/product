@@ -226,14 +226,12 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
         {
           matches: (_, lower) =>
             lower.startsWith('/v1.0/me/mailfolders/inbox/messages/'),
+          // Like Graph, a message is read by its ID wherever it is now.
           answer: ({ segments }) => {
             const found = extra.get(segments.at(-1) ?? '')?.listed;
-            if (found !== undefined) {
-              return reply(200, found);
-            }
-            return folder === 'inbox'
-              ? reply(200, listed())
-              : reply(404, { error: { code: 'ErrorItemNotFound' } });
+            return found === undefined
+              ? reply(200, { ...listed(), parentFolderId: folderID(folder) })
+              : reply(200, { ...found, parentFolderId: folderID('inbox') });
           },
         },
       ];
