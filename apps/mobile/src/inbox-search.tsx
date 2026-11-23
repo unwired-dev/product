@@ -234,7 +234,10 @@ export function InboxBar({
               showList?.();
               focused();
             }}
-            onQuery={setQuery}
+            onQuery={(next) => {
+              showList?.();
+              setQuery(next);
+            }}
             query={query}
             ready={ready || searching}
             search={field}
