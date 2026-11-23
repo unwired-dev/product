@@ -612,25 +612,28 @@ const attachmentLeaves = (
       );
 };
 
-const namedOrAttached = (part: GmailPart) =>
-  (part.filename ?? '') !== '' || isAttachment(part);
-
 // The largest iCalendar part read for a meeting invitation.
 const calendarLimit = 256 * 1024;
 
-// The message's meeting invitation part outside attached messages: its first `text/calendar` leaf
-// that is not a file, as a meeting message's own calendar is not, else its first `text/calendar`
-// leaf, or else an `application/ics` attachment, when it fits the limit.
+// The part locator a provider gives a meeting message's calendar that only the message's own MIME
+// carries, as Graph does.
+export const messageCalendar = '$value';
+
+// The message's meeting invitation part outside attached messages: a provider's message calendar,
+// else its first `text/calendar` leaf, or else an `application/ics` attachment, when it fits the
+// limit.
 export function calendarPart(payload: GmailPart) {
   const leaves = attachmentLeaves(payload, [0]).map(({ part }) => part);
-  const calendars = leaves.filter((part) => mimeType(part) === 'text/calendar');
   const found =
-    calendars.find((part) => !namedOrAttached(part)) ??
-    calendars[0] ??
+    leaves.find((part) => part.body?.attachmentId === messageCalendar) ??
+    leaves.find((part) => mimeType(part) === 'text/calendar') ??
     leaves.find((part) => mimeType(part) === 'application/ics');
   const size = found?.body?.size;
   return size === undefined || size > calendarLimit ? undefined : found;
 }
+
+const namedOrAttached = (part: GmailPart) =>
+  (part.filename ?? '') !== '' || isAttachment(part);
 
 // Received attachments in MIME order, located by child indexes from the payload: named or
 // attachment-disposition leaves outside attached messages, except the readable body and the

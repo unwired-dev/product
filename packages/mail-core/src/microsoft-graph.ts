@@ -9,6 +9,7 @@ import type { GmailAction } from './gmail-actions.ts';
 import type { GmailPart } from './message-body.ts';
 
 import { GraphId } from './mailbox-message.ts';
+import { messageCalendar } from './message-body.ts';
 
 // Microsoft Graph reads for one Outlook.com or Microsoft 365 mailbox. Native code attaches the
 // mailbox's token and refuses any URL outside the signed-in person's own mail; this module chooses
@@ -422,7 +423,7 @@ const attachmentPart = (attachment: GraphAttachmentInfo): GmailPart => {
 };
 
 // The part that stands for a meeting message's calendar, which only its MIME carries.
-export const graphCalendar = '$value';
+export const graphCalendar = messageCalendar;
 // The most attachment bytes a meeting message's MIME is read with for its calendar.
 const calendarMessageLimit = 4 * 1024 * 1024;
 

@@ -20,6 +20,7 @@ import {
   invitationWas,
   invitationWhen,
 } from '@private-email/mail-core/invitations';
+import { calendarPart } from '@private-email/mail-core/message-body';
 import { createSyntheticGmail } from '@private-email/mail-core/testing/gmail-mailbox';
 import { createSyntheticGraph } from '@private-email/mail-core/testing/graph-mailbox';
 
@@ -752,6 +753,25 @@ describe('meeting invitations', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('reads a message’s first calendar part, whether or not it is a named file', () => {
+    expect.hasAssertions();
+    const part = (filename: string) => ({
+      mimeType: 'text/calendar',
+      filename,
+      headers: [{ name: 'Content-Type', value: 'text/calendar' }],
+      body: { data: '', size: 0 },
+    });
+    const named = part('invite.ics');
+
+    expect(
+      calendarPart({
+        mimeType: 'multipart/mixed',
+        headers: [{ name: 'Content-Type', value: 'multipart/mixed' }],
+        parts: [named, part('')],
+      }),
+    ).toBe(named);
   });
 
   it('shows no invitation for a message without a calendar part', () => {
