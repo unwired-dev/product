@@ -360,7 +360,8 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   discards the cancelled result. It also cancels the native read of the source, which
   closes that read's IMAP session and so ends the transfer on the wire. The read
   counts against the connection's and device's concurrent reads until native code
-  reports that it ended. Closing the last reader ends a body read the same way.
+  reports that it ended. Closing the message's last reader cancels its downloads in
+  flight the same way.
 - **Failure.** The row says why and offers **Try Again**: **The mail server could not
   be reached to download this attachment.**, **The mail server needs your password
   again to download this attachment.** (the Inbox also asks for the password),

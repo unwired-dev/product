@@ -535,7 +535,7 @@ const listMatches = (pattern: string, text: string) => {
 // A search may compare each pattern character with each name character; past this many, a folder
 // stays as one a skipped LIST would match.
 const listMatchBudget = 2 ** 24;
-const call = (operation: (signal: AbortSignal) => Promise<unknown>) =>
+const call = (operation: (signal: Readonly<AbortSignal>) => Promise<unknown>) =>
   Effect.tryPromise({
     try: operation,
     catch: (cause) => {

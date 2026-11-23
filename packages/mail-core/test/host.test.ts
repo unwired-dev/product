@@ -431,26 +431,8 @@ describe('the host assembly', () => {
     const mailbox = required(
       mailboxesOf(host.registration.getSnapshot().snapshot)[0],
     );
-    // Source reads after the body's wait until native code cancels them by name.
-    const named = Promise.withResolvers<string>();
-    let holding = false;
-    imapServers[mailbox.id] = {
-      ...imap.native,
-      imapMessage: async (scope, message) => {
-        const reply = await imap.native.imapMessage(scope, message);
-        if (!holding) {
-          return reply;
-        }
-        const request = 'request' in scope ? String(scope.request) : '';
-        const { promise, reject } = Promise.withResolvers<unknown>();
-        held.set(request, () => {
-          reject(new Error('cancelled'));
-        });
-        named.resolve(request);
-        return promise;
-      },
-    };
-    imap.deliver('INBOX', {
+    imapServers[mailbox.id] = imap.native;
+    const uid = imap.deliver('INBOX', {
       subject: 'Report',
       raw: [
         'Subject: Report',
@@ -471,14 +453,24 @@ describe('the host assembly', () => {
     });
     await host.gmailMailboxes.load();
     const inbox = imapInbox(host);
-    const { id } = required(
-      inbox.getSnapshot().kind === 'ready'
-        ? inbox.getSnapshot().messages[0]
-        : undefined,
-    );
+    const { id } = listedImap(inbox, uid);
     const close = inbox.retainMessage(id, Symbol('reader'));
     await inbox.readMessage(id);
-    holding = true;
+    // Source reads now wait until native code cancels them by name.
+    const named = Promise.withResolvers<string>();
+    imapServers[mailbox.id] = {
+      ...imap.native,
+      imapMessage: async (scope, message) => {
+        await imap.native.imapMessage(scope, message);
+        const request = String(Reflect.get(scope, 'request'));
+        const { promise, reject } = Promise.withResolvers<unknown>();
+        held.set(request, () => {
+          reject(new Error('cancelled'));
+        });
+        named.resolve(request);
+        return promise;
+      },
+    };
     const download = inbox.downloadAttachment(id, '0.1');
     const request = await named.promise;
     inbox.cancelAttachment(id, '0.1');
