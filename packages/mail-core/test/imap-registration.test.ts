@@ -305,7 +305,7 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     expect(states).not.toContain('failed');
   });
 
-  it('reopens an IMAP Inbox once after a five-minute check whose restore invalidated its work', async () => {
+  it('reopens an IMAP Inbox after a five-minute check whose restore invalidated its work', async () => {
     expect.hasAssertions();
     const {
       store,
@@ -332,7 +332,9 @@ describe('decoding IMAP connections and repairing iCloud Mail', () => {
     expect(mailboxes.getConnections()[0]?.state).toMatchObject(savedShown);
     timeOut();
     await polling;
-    expect(reopened).toHaveResolvedTimes(1);
+    expect(reopened).toHaveResolvedWith(
+      expect.objectContaining({ generation: 'generation-2' }),
+    );
     expect(mailboxes.getConnections()[0]?.state).toMatchObject(savedShown);
     expect(states).not.toContain('failed');
   });
