@@ -616,7 +616,7 @@ checks each reply and each section's declared size before keeping it; a server t
 sends more fails the read as too large and loses that connection, without waiting for
 a command timeout. A synchronization that fails this way reports the failure and
 retries at the next one; an organizing change whose presence check fails this way
-was not sent and is tried again later. Literals nested in ENVELOPE are not counted: each FETCH
+stays pending and its next step is tried again later. Literals nested in ENVELOPE are not counted: each FETCH
 attribute is bounded by SwiftMail's 1 MiB response buffer, and each reply by its
 64-attribute limit.
 
