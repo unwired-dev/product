@@ -861,6 +861,9 @@ function EvaluationEditor({
           }}
           onPreview={showPreview}
           onRemove={removeAsset}
+          onResize={(id, width) => {
+            run({ type: 'resize', id, width: width ?? null });
+          }}
         />
         <DraftFields
           draft={draft}
