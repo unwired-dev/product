@@ -470,23 +470,26 @@ mail content.
 - **2026-11-23, iPhone attachments of 3 MB or more
   ([#2719](https://github.com/unwired-dev/product/issues/2719)).** Target, operator and
   toolchain as on 2026-11-18, on an iPhone 18 Pro Simulator. Build: the app source of
-  `f257226c0c8786b58784c9a4f497ee2ec8ed5a38`. Result: pass. A fresh Google Product
+  `f257226c0c8786b58784c9a4f497ee2ec8ed5a38`. Result: pass for the checks run, with three
+  checks not run (below). A fresh Google Product
   Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
   personal mailbox with the passwords and the Recovery Key entered through the
   [Simulator pasteboard](imap-mailboxes.md#certification-runs-through-the-app). A new
   message to the mailbox's own address with one 10,000,000-byte file left the Outbox
   after the **Undo Send Window**: its file went up through an upload session in three
-  ranges, the last answered 201. The message appeared in **Sent Items** and arrived in
-  the Inbox; **Download** saved exactly the bytes sent, and after a relaunch the file was
+  ranges, the last answered 201. The message appeared once in **Sent Items** and arrived
+  once in the Inbox; **Download** saved exactly the bytes sent, and after a relaunch the file was
   still listed with **Download**. A second message with two 24,000,000-byte files, each
   under the 25 MiB file limit and together under Send's 150 MB limit, uploaded the first
   file completely; Microsoft answered the last range of the second with status 400. The
   app deleted the Outlook draft, and the Outbox showed **Not sent. Microsoft refused this
-  message.** with **Edit**, also after a relaunch. Nothing reached Sent Items. After the
+  message.** with **Edit**, also after a relaunch. Nothing reached Sent Items or the Inbox. After the
   Simulator was deleted, the credential scan of this run's own files, `~/.agent-device`
   and the Simulator's logs found nothing; before deletion, the Simulator's system log
   and one of its system Siri model files matched a credential value. Limitations: Microsoft's one-time sign-in code was typed, as
   it expires within minutes. The body of the 400 answer was not recorded, so the run
-  shows that Microsoft refused the message, not why. Mac, iPad,
+  shows that Microsoft refused the message, not why. Not run: looking in **Drafts** for
+  an Outlook draft after the successful send, checking the downloaded file's name, and
+  pressing **Edit** on the refused message; they stay on #2719. Mac, iPad,
   uncertain outcomes, renewal after relaunch and revocation were not run and stay on
   #637.
