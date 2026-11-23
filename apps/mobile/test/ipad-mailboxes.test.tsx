@@ -191,6 +191,45 @@ describe('iPad Mailboxes', () => {
     expect(result.current.displayMode).toBe('oneBesideSecondary');
   });
 
+  it('hides Mailboxes in Landscape at the largest text sizes, and shows them in the list’s place', async () => {
+    expect.hasAssertions();
+    const { result, rerender } = await renderHook(
+      ({ largeText }: { largeText: boolean }) =>
+        useSidebarToggle(true, false, largeText),
+      { initialProps: { largeText: true } },
+    );
+    const state = () => ({
+      displayMode: result.current.displayMode,
+      inList: result.current.inList,
+      shown: result.current.value?.shown,
+    });
+    await act(() => {
+      result.current.follow('twoBesideSecondary');
+    });
+    expect(state()).toStrictEqual({
+      displayMode: 'oneBesideSecondary',
+      inList: false,
+      shown: false,
+    });
+    // Show Sidebar keeps the list's column beside the reader and shows Mailboxes in it.
+    await act(() => {
+      result.current.value?.toggle();
+    });
+    expect(state()).toStrictEqual({
+      displayMode: 'oneBesideSecondary',
+      inList: true,
+      shown: true,
+    });
+    // Choosing a Mailbox there shows its list again.
+    await act(() => {
+      result.current.hideInList();
+    });
+    expect(state()).toMatchObject({ inList: false });
+    // At the usual sizes Landscape shows all three columns again.
+    await rerender({ largeText: false });
+    expect(state().displayMode).toBe('automatic');
+  });
+
   it('shows a connection that needs sign-in beside its header and in the list subtitle', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
