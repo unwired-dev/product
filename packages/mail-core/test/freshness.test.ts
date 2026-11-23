@@ -5,6 +5,7 @@ import type {
   NativeGmailMailboxes,
 } from '@private-email/mail-core/mailboxes';
 
+import { gmailAction } from '@private-email/mail-core/gmail-actions';
 import {
   createRegistration,
   mailboxesOf,
@@ -17,7 +18,6 @@ import type { GmailInboxState } from '../src/inbox-store.ts';
 import type { NativeRegistrationVault } from '../src/registration-flow.ts';
 
 import { createFreshness, followWakes, pushCovers } from '../src/freshness.ts';
-import { gmailAction } from '../src/gmail-actions.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createRegistrationFlow } from '../src/registration-flow.ts';
 import {
