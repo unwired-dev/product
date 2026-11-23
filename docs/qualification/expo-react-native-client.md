@@ -11,6 +11,25 @@ The [mobile bootstrap](../expo-client.md) now uses Expo 57.0.25, React Native
 are available on the development host. The maintainer's earlier native-validation
 deferral still applies to unavailable release checks. Mac host evidence follows.
 
+## iPhone and iPad Remind Me to Send time zone line, 2026-11-23
+
+[#2147](https://github.com/unwired-dev/product/issues/2147) ran the
+`registration-apple` journey with Release Simulator builds of this change,
+Xcode 27.2 (`27B52`), the iOS 27.0 runtime and macOS 27.2, in Europe/Prague.
+The journey now checks the choices' last line against the device's own long
+zone name.
+
+- iPhone 18 Pro, Dark and Light: the sheet reads "Times in Central European
+  Standard Time (Prague)", where it read "Times in Central (Prague)": Hermes
+  splits `formatToParts` at each space on Apple platforms. Both runs failed
+  later, at the Reply sheet's missing **Folders** button
+  ([#2587](https://github.com/unwired-dev/product/issues/2587)).
+- iPad Pro 11-inch (M5), Dark and Light: the journey passed. At the popover's
+  former 320pt width the line wrapped "(Prague)" onto a second line; at the
+  frame's 359pt it stays on one line, as the frame draws it.
+- Not covered: other time zones and languages on device, VoiceOver, the Mac
+  (its reminder menu shows no zone line) and physical devices.
+
 ## iPad "Filtered by" beside the sidebar, 2026-11-17
 
 [#2086](https://github.com/unwired-dev/product/issues/2086) ran the `verifyFilters`

@@ -1019,7 +1019,8 @@ draft and remind me") offers, in the device's time zone (`mobileReminderTimes`),
 offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday. They appear
 as a sheet on iPhone, where a row sets the reminder, and as a popover from Send
 on iPad, where Tomorrow Morning starts selected and **Set Reminder** sets the
-selected choice. A tap on Send
+selected choice. Their last line names the zone in full and its city, such as
+"Times in Central European Standard Time (Prague)". A tap on Send
 still sends. Choosing a time, the banner, **Change**, **Remove Reminder** and the
 removal on Send, Discard or an empty Close behave as on the Mac, in the iPhone
 composer, the iPad card and the docked reply.
