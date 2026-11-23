@@ -105,16 +105,31 @@ const assertResumed = (command, { large, sparse }) => {
   }
 };
 const operations = new Set();
+// Namespace-shift's server drops its first session after refusing the shared LIST, and its next
+// session no longer reports the shared namespace.
+let shifted = false;
 // Sent copies appended by Message-ID; filing the same message again must find, not append.
 const appended = new Set();
-const discoverNamespaces = (socket, tag, failed) => {
+// RFC 2342 §5.9: Tilde's other users' prefix `~` does not end in its delimiter, so its root `~`
+// also matches the `~*` LIST.
+const namespacesOf = (user) => {
+  if (user === 'tilde') {
+    return '(("INBOX/" "/")) (("~" "/")) NIL';
+  }
+  if (user === 'namespace-shift' && shifted) {
+    operations.add('namespace-shift');
+    return '(("" "/")) NIL NIL';
+  }
+  return '(("" "/")) NIL (("Shared/" "/"))';
+};
+const discoverNamespaces = (socket, tag, { failed, user }) => {
   if (failed) {
     operations.add('namespace-refused');
     socket.write(`${tag} NO Namespace temporarily unavailable\r\n`);
   } else {
     operations.add('namespace');
     socket.write(
-      `* NAMESPACE (("" "/")) NIL (("Shared/" "/"))\r\n${tag} OK Completed\r\n`,
+      `* NAMESPACE ${namespacesOf(user)}\r\n${tag} OK Completed\r\n`,
     );
   }
 };
@@ -147,10 +162,12 @@ const foldersAtLimit = Array.from(
   { length: 1000 },
   (_, index) => `* LIST (\\HasNoChildren) "/" "Folder ${index + 1}"\r\n`,
 ).join('');
-const listFolders = (socket, command, { overflowing, listed }) => {
+const listFolders = (socket, command, { overflowing, listed, user }) => {
   operations.add('list');
   if (overflowing) {
     floodFolders(socket, overflowing);
+  } else if (user === 'tilde' && /~"?$/u.test(command)) {
+    socket.write('* LIST (\\Noselect) "/" "~"\r\n');
   } else if (command.includes('Shared/')) {
     operations.add('shared-list');
     socket.write('* LIST (\\HasNoChildren) "/" "Shared/Team"\r\n');
@@ -229,6 +246,22 @@ const organize = (socket, tag, command) => {
     assert.fail(`Unexpected organizing command: ${command}`);
   }
 };
+// The shared namespace LIST a user's server refuses: its subtree or its root.
+const refusedLists = {
+  'shared-wildcard': /Shared\/\*/u,
+  'shared-root': /Shared"?$/u,
+  'namespace-shift': /Shared\/\*/u,
+  tilde: /~\*/u,
+};
+// Zimbra refuses a wildcard in its other users' namespace, for one.
+const refuseList = (socket, tag, user) => {
+  operations.add('shared-refused');
+  socket.write(`${tag} NO LIST failed: wildcards not permitted\r\n`);
+  if (user === 'namespace-shift' && !shifted) {
+    shifted = true;
+    socket.end();
+  }
+};
 // The user name a LOGIN presents, which chooses the synthetic server's variation.
 const userOf = (command) =>
   /^LOGIN "?(?<name>[\w-]+)"? /u.exec(command)?.groups?.name ?? '';
@@ -267,7 +300,17 @@ const answerChange = (socket, session, { tag, command }) => {
   if (command === 'DONE') {
     assert.ok(session.idling, 'DONE outside IDLE');
     operations.add('idle-done');
-    socket.write(`${session.idling} OK Idle terminated\r\n`);
+    const answer = `${session.idling} OK Idle terminated\r\n`;
+    // Late's events arrive between DONE and its answer, and still reach the wait.
+    if (session.selected === 'Late') {
+      operations.add('idle-late');
+      socket.write('* OK [ALERT] Maintenance tonight\r\n');
+      setTimeout(() => {
+        socket.write(`* 2 EXISTS\r\n${answer}`);
+      }, 100);
+    } else {
+      socket.write(answer);
+    }
     session.idling = '';
   } else if (/^(?:EXAMINE|SELECT) /u.test(command)) {
     selectFolder(socket, session, { tag, command });
@@ -302,10 +345,11 @@ const answerChange = (socket, session, { tag, command }) => {
     );
   } else if (/^UID SEARCH .*UID \d+:\d+ ALL$/u.test(command)) {
     // History reads search bounded UID windows; the reply overstates them with a billions-wide range.
+    // An ESEARCH reply carries every item SwiftMail asks for: COUNT, MIN, MAX and ALL.
     assert.equal(session.user, 'history');
     operations.add('history-search');
     socket.write(
-      `* ESEARCH (TAG "${tag}") UID ALL 1:3,7,11:4000000000\r\n${tag} OK Completed\r\n`,
+      `* ESEARCH (TAG "${tag}") UID COUNT 3999999994 MIN 1 MAX 4000000000 ALL 1:3,7,11:4000000000\r\n${tag} OK Completed\r\n`,
     );
   } else if (command.startsWith('UID SEARCH ')) {
     assert.match(command, /TEXT "?Controlled"?$/u);
@@ -313,7 +357,7 @@ const answerChange = (socket, session, { tag, command }) => {
     if (session.user === 'large-search') {
       operations.add('large-search');
       socket.write(
-        `* ESEARCH (TAG "${tag}") UID ALL 1:4000000000\r\n${tag} OK Completed\r\n`,
+        `* ESEARCH (TAG "${tag}") UID COUNT 4000000000 MIN 1 MAX 4000000000 ALL 1:4000000000\r\n${tag} OK Completed\r\n`,
       );
     } else {
       socket.write(`* SEARCH 11\r\n${tag} OK Completed\r\n`);
@@ -488,15 +532,25 @@ const server = tls.createServer(
             ? foldersAtLimit
             : folders;
           namespaceFailure = command.includes('namespace-failure');
-          namespaces = ['namespace-failure', 'namespaced'].some((name) =>
-            command.includes(name),
-          );
+          namespaces = [
+            'namespace-failure',
+            'namespaced',
+            'shared-wildcard',
+            'shared-root',
+            'tilde',
+            'namespace-shift',
+          ].some((name) => command.includes(name));
           ok();
         }
       } else if (command === 'NAMESPACE') {
-        discoverNamespaces(socket, tag, namespaceFailure);
+        discoverNamespaces(socket, tag, { failed: namespaceFailure, user });
+      } else if (
+        command.startsWith('LIST ') &&
+        refusedLists[user]?.test(command)
+      ) {
+        refuseList(socket, tag, user);
       } else if (command.startsWith('LIST ')) {
-        listFolders(socket, command, { overflowing, listed });
+        listFolders(socket, command, { overflowing, listed, user });
         if (overflowing === 0) {
           ok();
         }
@@ -564,6 +618,7 @@ process.on('SIGTERM', () => {
       'history-search',
       'idle',
       'idle-done',
+      'idle-late',
       'large-search',
       'list',
       'logout',
@@ -575,6 +630,7 @@ process.on('SIGTERM', () => {
       'move-refused',
       'namespace',
       'namespace-refused',
+      'namespace-shift',
       'oversized',
       'oversized-headers',
       'refused',
@@ -583,6 +639,7 @@ process.on('SIGTERM', () => {
       'sent-found',
       'sent-search',
       'shared-list',
+      'shared-refused',
       'store-deleted',
       'store-flagged',
       'store-seen',

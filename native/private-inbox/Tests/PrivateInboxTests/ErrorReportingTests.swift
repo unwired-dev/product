@@ -257,6 +257,7 @@ private final class ReportingHTTPProtocol: URLProtocol, @unchecked Sendable {
           code: "native-crash", name: "NativeCrash", message: "Synthetic native crash",
           frames: [
             ReportingFrame(kind: "javascript", line: 1, column: 0),
+            ReportingFrame(kind: "call-site", line: 2, column: 4),
             ReportingFrame(
               kind: "native", address: "0x1001", imageUuid: UUID().uuidString, imageAddress: "0x1000"),
           ],

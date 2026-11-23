@@ -180,6 +180,7 @@ export function InboxHeading({
                       }
                       onClose();
                     }
+                    sidebar?.showList?.();
                     onSearch();
                   },
             inbox:
@@ -187,6 +188,7 @@ export function InboxHeading({
                 ? undefined
                 : async () => {
                     if (await onLeave()) {
+                      sidebar?.showList?.();
                       onClose();
                     }
                   },
@@ -212,6 +214,7 @@ export function InboxHeading({
                 }
                 onClose();
               }
+              sidebar?.showList?.();
               onView({ unified: role });
             },
           })

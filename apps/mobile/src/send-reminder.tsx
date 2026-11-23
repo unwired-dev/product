@@ -40,7 +40,8 @@ const styles = StyleSheet.create({
   choices: { gap: spacing.m, padding: spacing.l },
   // The sheet's empty host stays out of the trigger's row, whose gap would move the trigger.
   sheetHost: { position: 'absolute' },
-  popover: { width: 320 },
+  // The frame's width, which keeps the time zone line on one line (#2147).
+  popover: { width: 359 },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   title: { ...textStyles.headline },
   sheetTitle: { ...textStyles.headline, textAlign: 'center' },
@@ -63,7 +64,7 @@ const styles = StyleSheet.create({
 // `at` as `options`, with their time zone, name it in the person's language.
 const formatAt = (
   locale: string,
-  at: number,
+  at: number | undefined,
   options: Intl.DateTimeFormatOptions,
 ) => new Intl.DateTimeFormat(locale, options).format(at);
 
@@ -97,10 +98,12 @@ function ReminderChoices({
       hour: 'numeric',
       minute: '2-digit',
     });
+  // The zone's long name is what naming it adds to the date: Hermes on Apple splits formatToParts at
+  // every space, so its timeZoneName part is only the name's first word (#2147).
   const zoneName =
-    new Intl.DateTimeFormat(settings.locale, { timeZone, timeZoneName: 'long' })
-      .formatToParts(selected)
-      .find(({ type }) => type === 'timeZoneName')?.value ?? timeZone;
+    formatAt(settings.locale, selected, { timeZone, timeZoneName: 'long' })
+      .replace(formatAt(settings.locale, selected, { timeZone }), '')
+      .replaceAll(/^[\s,،]+|[\s,،]+$/gu, '') || timeZone;
   const choose = (dueAt: number) => {
     onClose();
     onRemind(dueAt, timeZone);

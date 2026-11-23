@@ -181,8 +181,13 @@ const ListedFolderSchema = Schema.Struct({
   attributes: Schema.Array(Schema.String),
   delimiter: Schema.optionalKey(Schema.NonEmptyString),
 });
+// `skippable` holds the LIST patterns of other users' and shared namespaces, a namespace root or a
+// prefix ending in `*`: SwiftMail skips one the server refuses without saying which.
 export const decodeListedFolders = Schema.decodeUnknownEffect(
-  Schema.Struct({ folders: Schema.Array(ListedFolderSchema) }),
+  Schema.Struct({
+    folders: Schema.Array(ListedFolderSchema),
+    skippable: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+  }),
 );
 
 // Special-use attributes (RFC 6154) and the role each gives its folder.

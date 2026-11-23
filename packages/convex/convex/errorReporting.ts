@@ -112,8 +112,14 @@ function event(
   metadata: ReportingMetadata,
 ) {
   const frames = report.frames.map((frame) =>
-    frame.kind === 'javascript'
+    frame.kind === 'native'
       ? {
+          platform: 'apple',
+          instruction_addr: frame.address,
+          image_addr: frame.imageAddress,
+          in_app: true,
+        }
+      : {
           platform:
             metadata.platform === 'backend' ? 'web:javascript' : 'hermes',
           chunk_id: `app:///${metadata.platform}/${metadata.appVersion}/${metadata.build}/index.bundle`,
@@ -121,12 +127,6 @@ function event(
           function: '<unknown>',
           lineno: frame.line,
           colno: frame.column,
-          in_app: true,
-        }
-      : {
-          platform: 'apple',
-          instruction_addr: frame.address,
-          image_addr: frame.imageAddress,
           in_app: true,
         },
   );
@@ -155,6 +155,10 @@ function event(
           type: report.name,
           ...(report.message === undefined ? {} : { value: report.message }),
           stacktrace: { type: 'raw', frames },
+          // The frames say where the operation was requested, not where it failed.
+          ...(report.frames.some((frame) => frame.kind === 'call-site')
+            ? { mechanism: { type: 'operation-call-site', synthetic: true } }
+            : {}),
         },
         ...report.causes.map((cause) => ({
           type: cause.name,

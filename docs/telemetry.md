@@ -243,6 +243,12 @@ with the outermost retained call first and the throw site last, following
 [PostHog wire order](https://github.com/PostHog/posthog-go/blob/main/error_tracking_stack_trace.go).
 Native stacks retain the final 64 admitted frames in the pinned SDK's existing
 wire order, so long stacks retain the crash site without forwarding SDK text.
+A failed operation whose error carries no bundle frames, such as a failed
+HTTP/envelope response or an asynchronous native rejection, instead sends the
+bundle coordinates where the operation was requested, taken only while
+collection is enabled. These `call-site` frames reach PostHog with an
+`operation-call-site` synthetic mechanism, so they are not shown as the throw
+site.
 
 Unknown messages are omitted rather than attempting to scrub arbitrary text.
 JS global exceptions and exceptions surfaced through React Native's explicit

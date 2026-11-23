@@ -1324,6 +1324,99 @@ describe('connecting IMAP mailboxes', () => {
     expect(inbox.folder('Archive')).toStrictEqual({ kind: 'loading' });
   });
 
+  it('keeps the cache of folders a skippable namespace LIST would match until a listing leaves them out', async () => {
+    expect.hasAssertions();
+    const imap = createSyntheticImap();
+    imap.addFolder('Shared');
+    imap.addFolder('Shared/Team');
+    imap.deliver('Shared', { subject: 'Root' });
+    imap.deliver('Shared/Team', { subject: 'Team' });
+    const inbox = createImapInbox(imap.native);
+    await inbox.load();
+    await inbox.openFolder('Shared');
+    await inbox.openFolder('Shared/Team');
+    const names = () =>
+      ready(inbox.getSnapshot()).folders.map(({ name }) => name);
+    // The server may have refused the namespace root's LIST, then its subtree's, which a server
+    // permitting another letter case may name differently and whose prefix may hold a wildcard.
+    const listing = vi.spyOn(imap.native, 'imapListFolders');
+    listing.mockResolvedValueOnce({
+      folders: [
+        { name: 'INBOX', attributes: [], delimiter: '/' },
+        { name: 'Shared/Team', attributes: [], delimiter: '/' },
+      ],
+      skippable: ['Shared'],
+    });
+    await inbox.load();
+    // Only the listing names folders; the unlisted one keeps its cache.
+    expect(names()).toStrictEqual(['INBOX', 'Shared/Team']);
+    expect(firstMessage(inbox.folder('Shared')).subject).toBe('Root');
+    listing.mockResolvedValueOnce({
+      folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
+      skippable: ['SH%/*'],
+    });
+    await inbox.load();
+    expect(names()).toStrictEqual(['INBOX']);
+    expect(firstMessage(inbox.folder('Shared/Team')).subject).toBe('Team');
+    expect(inbox.folder('Shared')).toStrictEqual({ kind: 'loading' });
+    // A listing that names the folder as no longer selectable retires it all the same.
+    listing.mockResolvedValueOnce({
+      folders: [
+        { name: 'INBOX', attributes: [], delimiter: '/' },
+        {
+          name: 'Shared/Team',
+          attributes: [String.raw`\Noselect`],
+          delimiter: '/',
+        },
+      ],
+      skippable: ['Shared/*'],
+    });
+    await inbox.load();
+    expect(inbox.folder('Shared/Team')).toStrictEqual({ kind: 'loading' });
+  });
+
+  it.each([
+    { pattern: 'ΟΣ*', name: 'ΟΣΑ', reason: 'a final sigma in any letter case' },
+    { pattern: 'STRAẞE/*', name: 'Straße/Team', reason: 'a capital sharp s' },
+    {
+      pattern: 'İstanbul/*',
+      name: 'istanbul/Team',
+      reason: 'a Turkish dotted capital I',
+    },
+    {
+      pattern: 'Shared/i%\u0307/*',
+      name: 'Shared/i\u0307/Team',
+      reason: 'a combining dot above beside a wildcard',
+    },
+    {
+      pattern: 'Shared/\u03AA\u0301/*',
+      name: 'Shared/\u0390/Team',
+      reason: 'a canonically equivalent spelling',
+    },
+    {
+      pattern: `*${'a'.repeat(5000)}b`,
+      name: 'a'.repeat(4000),
+      reason: 'matching past its budget',
+    },
+  ])(
+    'keeps the cache of a folder a skippable LIST matches by $reason',
+    async ({ pattern, name }) => {
+      expect.hasAssertions();
+      const imap = createSyntheticImap();
+      imap.addFolder(name);
+      imap.deliver(name, { subject: 'Shared' });
+      const inbox = createImapInbox(imap.native);
+      await inbox.load();
+      await inbox.openFolder(name);
+      vi.spyOn(imap.native, 'imapListFolders').mockResolvedValueOnce({
+        folders: [{ name: 'INBOX', attributes: [], delimiter: '/' }],
+        skippable: [pattern],
+      });
+      await inbox.load();
+      expect(firstMessage(inbox.folder(name)).subject).toBe('Shared');
+    },
+  );
+
   it.each([
     { code: 'locked', state: { kind: 'locked' } },
     { code: 'mailbox-invalidated', state: { kind: 'failed' } },

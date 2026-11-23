@@ -44,6 +44,7 @@ function reporting(initial: ErrorReportingSnapshot) {
     retryDeletion: jest.fn(async () => {
       update({ kind: 'ready', enabled: false, deletion: 'complete' });
     }),
+    callSite: jest.fn(),
     capture: jest.fn(),
     breadcrumb: jest.fn(),
     dispose: jest.fn(),

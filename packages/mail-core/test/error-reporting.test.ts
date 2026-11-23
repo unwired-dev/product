@@ -197,6 +197,58 @@ describe('installation error reporting at the protected native boundary', () => 
     }
   });
 
+  it('takes a call site only while collecting, and sends none after consent is withdrawn', async () => {
+    expect.hasAssertions();
+    const host = fixture();
+    const store = createErrorReporting(host.native);
+    const { prepareStackTrace } = Error;
+    Error.prepareStackTrace = (error, sites) =>
+      [String(error), ...sites.map(() => '    at f (main.jsbundle:1:5)')].join(
+        '\n',
+      );
+    const captures = () =>
+      host.requests
+        .filter((request) => request.operation === 'capture')
+        .map((request) => request.body);
+    try {
+      await store.load();
+      expect(store.callSite()).toBeUndefined();
+      await store.setEnabled(true);
+      const during = store.callSite();
+      store.capture({ name: 'OperationError' }, 'sync-failed', during);
+      await store.refresh();
+      expect(captures()).toHaveLength(1);
+      expect(captures()[0]).toContain(
+        '{"kind":"call-site","line":1,"column":5}',
+      );
+      await store.setEnabled(false);
+      store.capture({ name: 'OperationError' }, 'sync-failed', during);
+      await store.refresh();
+      expect(captures()).toHaveLength(1);
+      // An operation that spans withdrawal and re-enabling keeps none of its earlier site.
+      await store.setEnabled(true);
+      store.capture({ name: 'OperationError' }, 'sync-failed', during);
+      await store.refresh();
+      expect(captures()).toHaveLength(2);
+      expect(captures()[1]).toContain('"frames":[]');
+      // Consent withdrawn and given again natively, adopted by a refresh ahead of the capture.
+      const site = store.callSite();
+      const { generation } = host.state();
+      await host.native.errorReportingConsent(false, false, generation);
+      await host.native.errorReportingConsent(true, false, generation + 1);
+      const refreshing = store.refresh();
+      store.capture({ name: 'OperationError' }, 'sync-failed', site);
+      await refreshing;
+      await store.refresh();
+      expect(captures()).toHaveLength(3);
+      expect(captures()[2]).toContain('"frames":[]');
+      expect(host.state().document).not.toContain('call-site');
+    } finally {
+      Error.prepareStackTrace = prepareStackTrace;
+      store.dispose();
+    }
+  });
+
   it('ignores stale deletion retry actions after consent or identity changes', async () => {
     expect.hasAssertions();
     const host = fixture();

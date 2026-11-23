@@ -1429,6 +1429,8 @@
         "large": "Large",
         "original": "Original",
         "width": "{{width}} px",
+        "withWidth": "{{size}} · {{width}} px",
+        "menu": "Image Size",
         "label": "Show {{name}} at {{size}} size"
       },
       "toAttachment": "Attach Instead",

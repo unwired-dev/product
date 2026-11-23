@@ -681,8 +681,17 @@ from the row that shows the picture, where the approved
 [iPadOS](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T/?node-id=1243-1553)
 frames lift the image from the body. A size applies to every use of the image in
 the body as one edit that one **Undo** reverts; choosing the current size changes
-nothing. An image only in quoted correspondence offers no sizes. The original
-dimensions, the size caption and the Mac menu and corner handles come in later
+nothing. An image only in quoted correspondence offers no sizes.
+
+On the Mac, Control-clicking an inline image's row opens its menu with an
+**Image Size** submenu: **Small · 320 px**, **Medium · 640 px**, **Large · 1024 px**
+and **Original**, with a checkmark at the current size, then **Remove Image**.
+VoiceOver offers the same sizes as actions on the row, and a size works as on
+iPhone and iPad. The approved
+[macOS](https://www.figma.com/design/d1mHEaUNmnF7YUw6QwIs0T/?node-id=1243-3794)
+frame opens the menu from the image in the body; the body draws no image, so it
+opens from the row. The original dimensions, the size caption, and drawing the
+image in the body with corner handles come in later
 [#1735](https://github.com/unwired-dev/product/issues/1735) slices.
 
 An added file is **importing** until its bytes are stored. While it imports, its
@@ -1010,7 +1019,8 @@ draft and remind me") offers, in the device's time zone (`mobileReminderTimes`),
 offers **This Weekend**, Saturday at 9:00, from Sunday to Thursday. They appear
 as a sheet on iPhone, where a row sets the reminder, and as a popover from Send
 on iPad, where Tomorrow Morning starts selected and **Set Reminder** sets the
-selected choice. A tap on Send
+selected choice. Their last line names the zone in full and its city, such as
+"Times in Central European Standard Time (Prague)". A tap on Send
 still sends. Choosing a time, the banner, **Change**, **Remove Reminder** and the
 removal on Send, Discard or an empty Close behave as on the Mac, in the iPhone
 composer, the iPad card and the docked reply.

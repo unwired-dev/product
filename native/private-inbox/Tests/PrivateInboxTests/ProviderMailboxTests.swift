@@ -91,7 +91,7 @@ extension PrivateInboxTests {
     func verify(_ provider: Provider, from sender: Provider) async throws {
       let session = try await imapProvider.open(provider.imap, password: provider.password)
       do {
-        let folders = try await session.folders()
+        let folders = try await session.folders().folders
         func role(_ role: String) -> [String] {
           folders.filter { $0.attributes.contains("\\\(role)") }.map(\.name)
         }
@@ -173,7 +173,7 @@ extension PrivateInboxTests {
       var failure: (any Error)?
       var delivered = 0
       do {
-        let folders = try await session.folders().filter {
+        let folders = try await session.folders().folders.filter {
           $0.name == "INBOX" || !Set($0.attributes).isDisjoint(with: ["\\Sent", "\\Trash"])
         }
         func sweep() async {
