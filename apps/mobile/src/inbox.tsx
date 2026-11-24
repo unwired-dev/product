@@ -1031,8 +1031,10 @@ export function Inbox({
   // A plain conditional of the view, so React Compiler can preserve the memo below.
   const scope = keepsChoice ? view.mailbox : undefined;
   const scoped = useMemo(() => ({ profile, mailbox: scope }), [profile, scope]);
-  const shown = mailboxes.filter(
-    ({ id }) => scope === undefined || id === scope,
+  // Kept between renders, so the lists and search results built from it are too.
+  const shown = useMemo(
+    () => mailboxes.filter(({ id }) => scope === undefined || id === scope),
+    [mailboxes, scope],
   );
   const unconnected = unconnectedProfile(t, account, profile);
   // With more than one mailbox, every row and notice names its own.
