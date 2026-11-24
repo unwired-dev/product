@@ -442,7 +442,8 @@ merged cells and the formatting in cells, through encrypted save and reopen; a
 table cell holds no Inline Image. The composers do not show tables yet: they edit
 the Draft's text without its tables, and each table stays between the unchanged
 blocks around it, or after the edit that replaced them, so no edit removes one.
-Editing tables in the composers follows in a later #1268 slice.
+Editing tables in the composers follows in later #1268 slices, as the
+[table-editing plan](architecture/draft-table-editing.md) orders them.
 
 A Draft can carry a signature
 ([#2024](https://github.com/unwired-dev/product/issues/2024)): a Semantic Message

@@ -86,6 +86,12 @@ scheduled delivery are not implicit first-release requirements.
 - [External Agent access, separate from On-Device Mail Assistance](../adr/0073-separate-external-agent-access-from-on-device-assistance.md),
   a separately authorized post-launch milestone.
 
+## Plans
+
+- [Draft table editing](draft-table-editing.md): the chosen editor for tables in
+  the iPhone, iPad and Mac composers, its probe evidence and the #1268 slices,
+  after the owner adopted the Tiptap page.
+
 ## Existing architecture sources
 
 These directories remain whole sources; use their original filenames.
