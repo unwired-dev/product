@@ -2205,15 +2205,16 @@ password manager by running
   reading showed a total, which Sync Status shows only once every folder has begun. **Complete after relaunch:** the app was quit with Command-Q and launched again;
   Sync Status read **Checking the mail server…** 5 seconds after launch, the check ended
   with the list header reading **Updated just now** 7 seconds after launch, and no history
-  download followed in the next 90 seconds. Afterwards the run folder was deleted, an IMAP
+  download followed in the 76 seconds sampled after that. Afterwards the run folder was deleted, an IMAP
   count found the mailbox's original six folders and 1 message, **Sign Out of This Device**
   returned the app to Welcome, and the run's caches and HTTP storage were removed from the
   app's container. The scan of step 5 above covered the 509 files written since the run
   began under the locations of the record above, including this run's session transcript
   and T3 Code's state database; no file held a password or the Recovery Key.
-  Limitations: the process stop, not the recreation, made the app's connection fail, so the restarted pass began in
-  the app's own retry rather than in the pass it interrupted; the folder's absence between
-  the deletion and the creation was not visible to the stopped app. Sync Status closes with
+  Limitations: the attention notice appeared as soon as the process continued, and the
+  restarted pass began in the app's own retry rather than in the pass the stop interrupted;
+  the folder's absence between the deletion and the creation was not visible to the stopped
+  app. Sync Status closes with
   the capsule, so completion comes from the capsule fading and the relaunch downloading
   nothing.
 
