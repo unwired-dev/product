@@ -77,7 +77,9 @@ presenter; each names the appearances it ran in. Host load from other work was
   keyboard, including Escape on the Labels popover; the software keyboard in
   New Label and in the regular-width iPad composer; rotation while any
   presenter but the iPad Filters popover and the iPhone composer is
-  presented; Expand on iPad; the Dark-only and Light-only checks above in the
+  presented; Expand on iPad; a downward swipe on the iPhone Labels and New
+  Label sheets, and a swipe released early that keeps any sheet; closing iPad
+  More without choosing an action; the Dark-only and Light-only checks above in the
   other appearance; and iPhone's More, which shows only for mail without
   Reply, which no journey or the synthetic mailbox has. `agent-device` cannot
   turn VoiceOver on, rotate the device or resize an iPad window. The
