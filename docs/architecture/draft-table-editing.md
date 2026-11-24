@@ -111,22 +111,21 @@ One text view per cell, as React Native's multiline `TextInput` is a
 
 ## Comparison
 
-| Cost               | A. Split regions                                                                                                                                                               | B. Native text view                                                                                                                                            | C. Tiptap page                                                                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Native code        | None for editing; an accessibility container per platform for table semantics.                                                                                                 | A new text view on each platform with table layout, key handling, sideways scrolling and accessibility. It is an editor, not a minimal adapter under ADR 0067. | None new: the evaluation page and bridge already run on all three hosts.                                                                  |
-| Selection          | One selection per view. Select All, Shift-arrow and copy across cells and paragraphs need a JavaScript selection model over many views; the probe's Select All stopped at one. | One native selection across the body.                                                                                                                          | One ProseMirror selection across paragraphs and cells, with cell and table selections.                                                    |
-| Undo and Redo      | The existing JavaScript history can span regions, but each view keeps its own system undo that has to be suppressed.                                                           | System undo in the view; the JavaScript history and the Semantic Message Document need a converter from attributed text.                                       | One ProseMirror history; whole-table deletion was one step both ways.                                                                     |
-| Input methods      | Marked text and dictation end whenever focus moves between views; autocorrection and spelling state are per view.                                                              | Native, in one view.                                                                                                                                           | WebKit's own `contenteditable` input; the evaluation has not measured IME composition in tables.                                          |
-| VoiceOver          | No table without native containers; phrases written into labels.                                                                                                               | One text area on both platforms in the probes: no table, rows or cells.                                                                                        | Mac: a real table with rows, columns and spans. iOS: not proven (no VoiceOver in the Simulator; XCTest reports web table parts as Other). |
-| Keyboard           | Tab reaches JavaScript on both platforms; every other key between regions (arrows across cell edges, Backspace at a cell start) is JavaScript work.                            | Mac Tab works, Return leaves the table. iOS Tab types a tab character. Both need key overrides.                                                                | Tab and Shift-Tab matched the frames on all three hosts after one Tab command; Return and Backspace matched on the Mac.                   |
-| Approved behaviour | Outline and sideways scrolling are straightforward; Backspace, whole-table deletion and VoiceOver phrases are custom.                                                          | Sideways scrolling and the outline are not available from `NSTextTable` on iOS; Return and Tab disagree with the frames.                                       | Every keyboard, outline and scrolling behaviour shown on at least one host; marks in cells, nested content and iOS VoiceOver not probed.  |
+| Cost               | A. Split regions                                                                                                                                                               | B. Native text view                                                                                                                                            | C. Tiptap page                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native code        | None for editing; an accessibility container per platform for table semantics.                                                                                                 | A new text view on each platform with table layout, key handling, sideways scrolling and accessibility. It is an editor, not a minimal adapter under ADR 0067. | None new: the evaluation page and bridge already run on all three hosts.                                                                                |
+| Selection          | One selection per view. Select All, Shift-arrow and copy across cells and paragraphs need a JavaScript selection model over many views; the probe's Select All stopped at one. | One native selection across the body.                                                                                                                          | One ProseMirror selection across paragraphs and cells, with cell and table selections.                                                                  |
+| Undo and Redo      | The existing JavaScript history can span regions, but each view keeps its own system undo that has to be suppressed.                                                           | System undo in the view; the JavaScript history and the Semantic Message Document need a converter from attributed text.                                       | One ProseMirror history; whole-table deletion was one step both ways.                                                                                   |
+| Input methods      | Marked text and dictation end whenever focus moves between views; autocorrection and spelling state are per view.                                                              | Native, in one view.                                                                                                                                           | WebKit's own `contenteditable` input; the evaluation has not measured IME composition in tables.                                                        |
+| VoiceOver          | No table without native containers; phrases written into labels.                                                                                                               | One text area on both platforms in the probes: no table, rows or cells.                                                                                        | Mac: a real table with rows, columns and spans. iOS: not proven (no VoiceOver in the Simulator; XCTest reports web table parts as Other).               |
+| Keyboard           | Tab reaches JavaScript on both platforms; every other key between regions (arrows across cell edges, Backspace at a cell start) is JavaScript work.                            | Mac Tab works, Return leaves the table. iOS Tab types a tab character. Both need key overrides.                                                                | Forward Tab matched the frames on all three hosts after one Tab command; Shift-Tab, Tab leaving the last cell, Return and Backspace matched on the Mac. |
+| Approved behaviour | Outline and sideways scrolling are straightforward; Backspace, whole-table deletion and VoiceOver phrases are custom.                                                          | Sideways scrolling and the outline are not available from `NSTextTable` on iOS; Return and Tab disagree with the frames.                                       | Every keyboard, outline and scrolling behaviour shown on at least one host; marks in cells, nested content and iOS VoiceOver not probed.                |
 
 ## Decision
 
 **C, conditional on the owner adopting the Tiptap page for the production Draft body.**
 Only C gave one selection and one Undo history across paragraphs and cells, and it
-met the approved Tab behaviour on all three hosts, and Return, Backspace and
-whole-table Undo on the Mac, with no new native code.
+met forward Tab on all three hosts, and Shift-Tab, Tab leaving the last cell, Return, Backspace and whole-table Undo on the Mac, with no new native code.
 A rebuilds a rich-text editor's selection, history, input-method and accessibility
 model across many native views. B would need a native editor per platform, which
 ADR 0067 rules out, and it still showed no table to VoiceOver.
@@ -162,6 +161,14 @@ from below and does not show it is feasible.
   composition, dictation and autocorrection inside cells were not exercised.
 - **Marks and nested content in cells.** Format marks inside cells and reported
   nested tables and images were not probed; slice 3 covers them with page tests.
+- **Formatting parity.** The evaluation page's conversion does not yet carry the
+  current composer's alignment, color and font, so a production body on the page
+  would drop them from existing Drafts, around tables too. Preserving them is a
+  prerequisite of #823's production integration.
+- **Table shapes.** `prosemirror-tables` normalizes tables as soon as they are
+  edited: typing in a table whose rows have two and one cells adds a cell to the
+  short row. mail-core accepts such ragged tables, so the page must define which
+  shapes it edits unchanged and keep or report the rest.
 - **A table that ends the body.** The probe always had a paragraph after the
   table; Tab in the last cell must create or reach a paragraph after it.
 
@@ -171,7 +178,7 @@ The same change serves the remaining [#1735](https://github.com/unwired-dev/prod
 slice ([#2786](https://github.com/unwired-dev/product/issues/2786)). A `TextInput`
 cannot draw an image inside its text; the page already shows Inline Images and
 runs a `resize` command, and draws them at thumbnail size. Drawing them at the
-stored display size is a page change; the Mac corner handles and the iPad and
+stored display size is a page change, except that Original size and the size caption need the image's verified dimensions, which the bridge does not pass yet; the Mac corner handles and the iPad and
 iPhone touch-and-hold menu are host work on the same page. Under A, an image would
 be one more non-text region in the split body.
 
@@ -186,18 +193,15 @@ Each slice is one pull request and a sub-issue of #1268, in blocked-by order.
    which slices 4 to 6 also wait for. A rejection re-plans on A.
 2. **[#2857](https://github.com/unwired-dev/product/issues/2857) Draft storage of
    tables** (no editor dependency): `DraftSchema.body` accepts tables;
-   `TableSchema` keeps header cells; the Draft HTML round trip, encrypted copy and
-   outgoing mail keep them; nested tables and images in cells stay reported. The
-   current composers keep reporting a Draft's table without opening it. Existing
+   `TableSchema` keeps header cells; the encrypted local save and reopen, Draft HTML and outgoing mail keep them (live provider round trips stay with the provider Draft issues, such as #1269); nested tables and images in cells stay reported. The current composers do not open a Draft's table, and editing its subject, recipients or text leaves the table intact. Existing
    table-free Drafts decode unchanged.
 3. **[#2858](https://github.com/unwired-dev/product/issues/2858) Page tables**
-   (blocked by 1 and 2): conversion between table cells and Tiptap, the Tab
+   (blocked by 1 and 2): conversion between table cells and Tiptap, the table shapes it edits unchanged, the Tab
    command (including a table that ends the body), Return, Backspace after a
    table, whole-table selection as one Undo step, marks in cells and the
    focused-cell outline, tested in the page.
 4. **[#2859](https://github.com/unwired-dev/product/issues/2859) Mac** (blocked by
-   1 and 3): frames 948:8167, 948:8322, 948:8478, 948:8633, with the accessibility
-   table checked through the AX tree.
+   1 and 3): frames 948:8167, 948:8322, 948:8478, 948:8633, with the accessibility table checked through the AX tree and the VoiceOver phrases spoken.
 5. **[#2860](https://github.com/unwired-dev/product/issues/2860) iPad** (blocked by
    1 and 3): frames 949:16362, 949:16927, 949:17493, 949:18058, with a hardware
    keyboard, WebKit's own bold, italic and underline group removed from the
