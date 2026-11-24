@@ -111,11 +111,13 @@ import {
   selectedText,
   setBlockKind,
   setLink,
+  textOf,
   toggled,
   toggleMark,
   undo,
   withImageWidth,
   withoutImage,
+  withText,
 } from '@private-email/mail-core/semantic-document';
 import { radius, spacing } from '@private-email/mail-core/theme';
 import {
@@ -523,7 +525,7 @@ function DraftRowView({
   const { t } = useLocalization();
   const [focused, setFocused] = useState(false);
   // The sending mailbox stays visible whatever the body holds.
-  const preview = previewOf(draft.body);
+  const preview = previewOf(textOf(draft.body));
   // One line each: long metadata is cut before it is rendered or announced.
   const { subject, recipients, from, shortened } = draftSummary(t, draft);
   return (
@@ -1810,7 +1812,7 @@ export function DraftAssets({
   const images = [
     ...new Map(
       [
-        ...imagesOf(draft.body),
+        ...imagesOf(textOf(draft.body)),
         ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
       ].map((asset) => [asset.id, asset]),
     ).values(),
@@ -1818,7 +1820,7 @@ export function DraftAssets({
   if (attachments.length + images.length === 0) {
     return null;
   }
-  const inBody = new Set(imagesOf(draft.body).map(({ id }) => id));
+  const inBody = new Set(imagesOf(textOf(draft.body)).map(({ id }) => id));
   const rows = (assets: readonly Asset[], inline: boolean) =>
     assets.map((asset) => (
       <AssetRow
@@ -1833,7 +1835,7 @@ export function DraftAssets({
         onRemove={onRemove}
         {...(inline && inBody.has(asset.id)
           ? {
-              width: imageWidthOf(draft.body, asset.id),
+              width: imageWidthOf(textOf(draft.body), asset.id),
               onResize: (width: ImageWidth | undefined) => {
                 onResize(asset.id, width);
               },
@@ -2002,7 +2004,7 @@ export function WritingTools({
                   accessibilityLabel: t('translation.translateSelectionLabel'),
                   disabled: !hasTranslatableText(
                     selectedText(
-                      draft.body,
+                      textOf(draft.body),
                       selection,
                       translationInputLimit + 1,
                     ),
@@ -2400,11 +2402,16 @@ function DraftTemplates({
     });
   };
   const save = async () => {
-    const { subject, body } = getDraft();
+    const { subject, body: shown } = getDraft();
+    const body = textOf(shown);
     const owner = profile;
     question.current?.retire();
     if (imagesOf(body).length > 0) {
       notSaved(t('drafts.templates.hasImages'));
+      return;
+    }
+    if (shown.some((part) => part.kind === 'table')) {
+      notSaved(t('drafts.templates.hasTables'));
       return;
     }
     const naming = askForText(anchor.current, {
@@ -2843,14 +2850,14 @@ function useBodyRecipients(
     arm(undefined);
   }, [arm]);
   const query = useMemo(
-    () => bodyRecipientQuery(draft.body, selection),
+    () => bodyRecipientQuery(textOf(draft.body), selection),
     [draft.body, selection],
   );
   const open =
     !paused &&
     armed !== undefined &&
     query?.start === armed &&
-    onlyQueryIn(draft.body, query);
+    onlyQueryIn(textOf(draft.body), query);
   // Read once each time an @ arms, never asking for Contacts access.
   const contacts = useContactAddresses(armed !== undefined, false);
   const connections = use(AccountContext)?.mailboxes;
@@ -3314,7 +3321,7 @@ function Editor({
   const breakTyping = () => {
     commitHistory((current) => ({ ...current, typing: false }));
   };
-  const display = displayOf(draft.body);
+  const display = displayOf(textOf(draft.body));
   const recipientMenu = useBodyRecipients(draft, selection, {
     paused,
     pausedNow,
@@ -3471,9 +3478,10 @@ function Editor({
     const without = (document: SemanticDocument) =>
       ids.reduce((remaining, id) => withoutImage(remaining, id), document);
     const latest = authored.current;
+    const text = without(textOf(latest.body));
     change({
       ...latest,
-      body: without(latest.body),
+      body: withText(latest.body, text),
       ...(latest.quoted === undefined
         ? {}
         : { quoted: without(latest.quoted) }),
@@ -3495,7 +3503,10 @@ function Editor({
       return;
     }
     const latest = authored.current;
-    const body = withImageWidth(latest.body, id, width);
+    const body = withText(
+      latest.body,
+      withImageWidth(textOf(latest.body), id, width),
+    );
     if (body !== latest.body) {
       change({ ...latest, body });
     }
@@ -3506,14 +3517,14 @@ function Editor({
     if (pausedNow.current) {
       return;
     }
-    const before = displayOf(authored.current.body).text.length;
+    const before = displayOf(textOf(authored.current.body)).text.length;
     commitHistory((current) => keepIdentity(step(current)));
     placeTyping(undefined);
     update(historyNow.current.present);
     selectionNow.current = keptByTextView(
       selectionNow.current,
       before,
-      displayOf(authored.current.body).text.length,
+      displayOf(textOf(authored.current.body)).text.length,
     );
     place(selectionNow.current);
   };
@@ -3523,12 +3534,12 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
-    const textBefore = displayOf(latest.body).text;
+    const textBefore = displayOf(textOf(latest.body)).text;
     // Native selection formatting reports its unchanged text to advance RN's event count.
     if (text === textBefore) {
       return;
     }
-    const result = applyText(latest.body, text, {
+    const result = applyText(textOf(latest.body), text, {
       marks: typingNow.current,
       selection: at,
       deletion: deletion.current,
@@ -3539,19 +3550,22 @@ function Editor({
     const word = added && !/\s/u.test(text[at.start] ?? ' ');
     caret.current = at.end + text.length - textBefore.length;
     if (result.literal === undefined) {
-      change({ ...latest, body: result.document }, word, 'body');
+      change(
+        { ...latest, body: withText(latest.body, result.document) },
+        word,
+        'body',
+      );
     } else {
       // The literal marker is its own step, so one Undo restores it.
-      const { literal } = result;
+      const withLiteral = {
+        ...latest,
+        body: withText(latest.body, result.literal),
+      };
+      const typed = { ...latest, body: withText(latest.body, result.document) };
       commitHistory((current) =>
-        keepIdentity(
-          record(record(current, { ...latest, body: literal }), {
-            ...latest,
-            body: result.document,
-          }),
-        ),
+        keepIdentity(record(record(current, withLiteral), typed)),
       );
-      update({ ...latest, body: result.document });
+      update(typed);
     }
     if (result.selection !== undefined) {
       caret.current = result.selection.start;
@@ -3570,11 +3584,15 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
+    const text = textOf(latest.body);
     if (at.start === at.end) {
-      placeTyping(toggled(typingNow.current ?? marksAt(latest.body, at), mark));
+      placeTyping(toggled(typingNow.current ?? marksAt(text, at), mark));
       return;
     }
-    change({ ...latest, body: toggleMark(latest.body, at, mark) });
+    change({
+      ...latest,
+      body: withText(latest.body, toggleMark(text, at, mark)),
+    });
   };
   // Replaces exactly the captured text with its reviewed result as one undoable edit; a prompted
   // draft captured no text, so it is inserted at the caret. Recipients,
@@ -3593,11 +3611,11 @@ function Editor({
     captureNow.current = undefined;
     setCaptured(undefined);
     const result = replaceSelection(
-      latest.body,
+      textOf(latest.body),
       captured.selection,
       draftReplacement(captured.text, replacement),
     );
-    change({ ...latest, body: result.document });
+    change({ ...latest, body: withText(latest.body, result.document) });
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
     place(result.selection);
@@ -3645,8 +3663,8 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
-    const result = setBlockKind(latest.body, at, kind);
-    change({ ...latest, body: result.document });
+    const result = setBlockKind(textOf(latest.body), at, kind);
+    change({ ...latest, body: withText(latest.body, result.document) });
     selectionNow.current = result.selection ?? at;
     place(result.selection);
   };
@@ -3656,11 +3674,11 @@ function Editor({
     }
     const at = selectionNow.current;
     const latest = authored.current;
-    const result = indentList(latest.body, at, direction);
-    if (result.document === latest.body) {
+    const result = indentList(textOf(latest.body), at, direction);
+    if (result.document === textOf(latest.body)) {
       return;
     }
-    change({ ...latest, body: result.document });
+    change({ ...latest, body: withText(latest.body, result.document) });
     selectionNow.current = result.selection ?? at;
     place(result.selection);
   };
@@ -3669,8 +3687,8 @@ function Editor({
       return;
     }
     const latest = authored.current;
-    const result = setLink(latest.body, link, { text, href });
-    change({ ...latest, body: result.document });
+    const result = setLink(textOf(latest.body), link, { text, href });
+    change({ ...latest, body: withText(latest.body, result.document) });
     placeTyping(undefined);
     selectionNow.current = result.selection ?? selectionNow.current;
     place(result.selection);
@@ -3680,11 +3698,15 @@ function Editor({
       return;
     }
     const latest = authored.current;
-    const applied = applyTemplate(latest, selectionNow.current, template);
+    const applied = applyTemplate(
+      { ...latest, body: textOf(latest.body) },
+      selectionNow.current,
+      template,
+    );
     change({
       ...latest,
       subject: applied.subject,
-      body: applied.edit.document,
+      body: withText(latest.body, applied.edit.document),
     });
     placeTyping(undefined);
     selectionNow.current = applied.edit.selection ?? selectionNow.current;
@@ -3874,7 +3896,10 @@ function Editor({
   // Choosing a person for the @ replaces it with the greeting and adds them to To, as one edit.
   const chooseRecipient = (recipient: Recipient) => {
     const latest = authored.current;
-    const query = recipientMenu.choosable(latest.body, selectionNow.current);
+    const query = recipientMenu.choosable(
+      textOf(latest.body),
+      selectionNow.current,
+    );
     if (query === undefined) {
       return;
     }
@@ -3894,7 +3919,7 @@ function Editor({
   };
   const tabsIndent = listTabsOn(
     recipientMenu.choosing,
-    blockKindAt(draft.body, selection.start),
+    blockKindAt(textOf(draft.body), selection.start),
   );
   const keyDown = ({ nativeEvent }: KeyEvent) => {
     deletion.current = undefined;
@@ -4201,9 +4226,9 @@ function Editor({
     title.length < draft.subject.length
       ? t('drafts.titleShortened', { title })
       : title;
-  const active = typing ?? marksAt(draft.body, selection);
-  const kind = blockKindAt(draft.body, selection.start);
-  const indents = listIndentAt(draft.body, selection);
+  const active = typing ?? marksAt(textOf(draft.body), selection);
+  const kind = blockKindAt(textOf(draft.body), selection.start);
+  const indents = listIndentAt(textOf(draft.body), selection);
   useIndentMenu(bodyID, paused ? noIndents : indents, (direction) => {
     fromControl();
     indent(direction);
@@ -4401,7 +4426,7 @@ function Editor({
         }}>
         <LinkEditor
           disabled={paused}
-          link={editableLinkAt(draft.body, selection)}
+          link={editableLinkAt(textOf(draft.body), selection)}
           onChange={(link, text, href) => {
             fromControl();
             editLink(link, text, href);
@@ -4452,7 +4477,7 @@ function Editor({
               purpose === 'reply' ||
               hasTranslatableText(
                 selectedText(
-                  authored.current.body,
+                  textOf(authored.current.body),
                   at,
                   translationInputLimit + 1,
                 ),

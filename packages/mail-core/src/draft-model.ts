@@ -7,6 +7,8 @@ import {
   AssetSchema,
   imagesOf,
   SemanticDocumentSchema,
+  TableDocumentSchema,
+  textOf,
 } from './semantic-document.ts';
 
 const RecipientSchema = Schema.Struct({
@@ -65,7 +67,7 @@ export const DraftSchema = Schema.Struct({
   ),
   conflict: Schema.optionalKey(Schema.Literal(true)),
   subject: Schema.String,
-  body: SemanticDocumentSchema,
+  body: TableDocumentSchema,
   // Files attached apart from the body's inline images, in the order added.
   attachments: Schema.optionalKey(Schema.Array(AssetSchema)),
   // The received message a reply or forward answers, in the Draft's own Mailbox Connection.
@@ -191,7 +193,7 @@ export type SyncedAsset = Readonly<{
 // correspondence's last.
 export const assetsOf = (draft: Draft): readonly Asset[] => [
   ...(draft.attachments ?? []),
-  ...imagesOf(draft.body),
+  ...imagesOf(textOf(draft.body)),
   ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
 ];
 

@@ -419,8 +419,8 @@ code alignment, which is not sent.
 The same reader keeps a table as rows of cells
 ([#1878](https://github.com/unwired-dev/product/issues/1878), a first slice of
 [#1268](https://github.com/unwired-dev/product/issues/1268)). Each cell holds its
-own blocks and may span several columns or rows; a header cell reads as bold
-centered text, and an empty cell as one empty paragraph. Widths, heights, cell
+own blocks and may span several columns or rows; a header cell stays a header
+cell, its text bold and centered, and an empty cell reads as one empty paragraph. Widths, heights, cell
 padding and spacing, `border="0"`, collapsed borders and borders that do not show
 are ignored. Visible borders, backgrounds, vertical alignment, table alignment
 (including auto margins), captions, footers, column groups, a header after body
@@ -428,14 +428,21 @@ rows, a merged cell that crosses row groups, nested tables, images in cells, emp
 tables and rows, and tables inside lists, quotes, headings, inline formatting,
 text color, links or alignment are reported, because the document cannot hold them yet or standards
 and quirks mode show them differently. Outgoing HTML writes tables as plain rows
-and cells and reads back to the same document. The plain-text alternative
+and cells, header cells as `th` that show their blocks' own formatting, and reads
+back to the same document. The plain-text alternative
 ([#1886](https://github.com/unwired-dev/product/issues/1886)) writes each row on
 its own line with a tab between cells, as a browser copies a table's text; a cell
 with several blocks keeps them on separate lines, an empty cell writes nothing and
 a merged cell writes its text once. The table sits on its own lines, and
-numbered lists restart around it as around any other block. Drafts do not store
-tables yet; Draft storage and editing tables in the composers follow in later
-#1268 slices.
+numbered lists restart around it as around any other block.
+
+Drafts store tables between their blocks
+([#2857](https://github.com/unwired-dev/product/issues/2857)), with header cells,
+merged cells and the formatting in cells, through encrypted save and reopen; a
+table cell holds no Inline Image. The composers do not show tables yet: they edit
+the Draft's text without its tables, and each table stays between the unchanged
+blocks around it, or after the edit that replaced them, so no edit removes one.
+Editing tables in the composers follows in a later #1268 slice.
 
 A Draft can carry a signature
 ([#2024](https://github.com/unwired-dev/product/issues/2024)): a Semantic Message
@@ -512,7 +519,7 @@ Profile's, each with its subject or "No subject · body only". Choosing one appl
 it by the rules above. New Template from This Message… asks for a name in a sheet
 and saves the Draft's subject and body, without recipients or files, as a new
 template of the Draft's Profile; the Draft does not change. A blank name, a body
-with an Inline Image or a write storage refuses saves nothing, and a sheet says
+with an Inline Image or a table, or a write storage refuses saves nothing, and a sheet says
 why. The composer reads the templates when it opens and after it saves one.
 
 On iPhone the Add files menu ends with Insert Template…, and on iPad the format
@@ -523,8 +530,8 @@ of the Draft's Mail Profile's templates, never another Profile's, each with
 Choosing a template applies it by the rules above. New Template from This
 Message… asks for a name in the system text prompt and saves the Draft's subject
 and body, without recipients or files, as a new template of the Draft's Profile;
-the Draft does not change. A blank name, a body with an Inline Image or a write
-storage refuses saves nothing, and an alert says why. The composer reads the
+the Draft does not change. A blank name, a body with an Inline Image or a table, or a
+write storage refuses saves nothing, and an alert says why. The composer reads the
 templates when it opens and after it saves one. Manage Templates… and the Settings
 pane follow in later #850 slices.
 

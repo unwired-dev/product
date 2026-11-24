@@ -1,9 +1,17 @@
 import * as Arr from 'effect/Array';
 import * as Order from 'effect/Order';
 
-import type { SemanticDocument, Selection } from './semantic-document.ts';
+import type {
+  SemanticDocument,
+  Selection,
+  TableDocument,
+} from './semantic-document.ts';
 
-import { replaceSelection, selectedLinks } from './semantic-document.ts';
+import {
+  replaceSelection,
+  selectedLinks,
+  textOf,
+} from './semantic-document.ts';
 
 // Details a Writing tools result must not change unnoticed. The check reads text only: it cannot
 // tell whether meaning, questions or commitments survived, so people still read the result.
@@ -433,20 +441,21 @@ export const draftReplacement = (selected: string, replacement: string) =>
 export function checkDetails(
   original: Readonly<{
     text: string;
-    draft: Readonly<{ body: SemanticDocument }>;
+    draft: Readonly<{ body: TableDocument }>;
     selection: Selection;
   }>,
   result: string,
 ): DetailCheck {
+  const body = textOf(original.draft.body);
   const before = [
     ...detailsIn(original.text),
-    ...hiddenLinks(original.draft.body, original.selection),
+    ...hiddenLinks(body, original.selection),
   ];
   // The applied Draft, not the plain result, carries the links: replaced text keeps the link of
   // its first replaced character.
   const start = Math.min(original.selection.start, original.selection.end);
   const applied = replaceSelection(
-    original.draft.body,
+    body,
     original.selection,
     draftReplacement(original.text, result),
   );

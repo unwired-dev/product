@@ -7,10 +7,7 @@ import type {
 } from '@private-email/mail-core/semantic-document';
 
 import { documentFromHtml } from '@private-email/mail-core/draft-html';
-import {
-  htmlOf,
-  outgoingMessage,
-} from '@private-email/mail-core/outgoing-message';
+import { outgoingMessage } from '@private-email/mail-core/outgoing-message';
 import {
   BlockKindSchema,
   formatStyleOf,
@@ -19,7 +16,7 @@ import {
 import { palette } from '@private-email/mail-core/theme';
 import PostalMime from 'postal-mime';
 
-const sentHtml = async (body: SemanticDocument) => {
+const sentHtml = async (body: TableDocument) => {
   const draft: Draft = {
     id: 'd1',
     connection: 'connection-alex',
@@ -1030,7 +1027,7 @@ const cell = (
 });
 
 describe('tables in a Semantic Message Document from Draft HTML', () => {
-  it('reads back rows, merged cells and formatted cell text that outgoing mail writes', () => {
+  it('reads back rows, header cells, merged cells and formatted cell text that outgoing mail writes', async () => {
     expect.hasAssertions();
 
     const document: TableDocument = [
@@ -1047,6 +1044,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
                   align: 'center',
                 },
               ],
+              header: true,
             },
             cell('Place', { rows: 2 }),
           ],
@@ -1072,14 +1070,12 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
       { kind: 'paragraph', spans: [{ text: 'After' }] },
     ];
 
-    expect(
-      documentFromHtml(
-        `<!DOCTYPE html><html><body>${htmlOf(document)}</body></html>`,
-      ),
-    ).toStrictEqual({ document });
+    const html = await sentHtml(document);
+    expect(html).toContain('<th style="font-weight:normal;text-align:left">');
+    expect(documentFromHtml(html)).toStrictEqual({ document });
   });
 
-  it('reads header cells as bold centered text, empty cells as an empty paragraph, and ignores sizing', () => {
+  it('reads header cells as bold centered header cells, empty cells as an empty paragraph, and ignores sizing', () => {
     expect.hasAssertions();
 
     expect(
@@ -1096,6 +1092,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
           rows: [
             [
               {
+                header: true,
                 blocks: [
                   {
                     kind: 'paragraph',
@@ -1105,6 +1102,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
                 ],
               },
               {
+                header: true,
                 blocks: [
                   {
                     kind: 'paragraph',
@@ -1115,6 +1113,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
             ],
             [
               {
+                header: true,
                 blocks: [
                   {
                     kind: 'paragraph',
@@ -1125,6 +1124,7 @@ describe('tables in a Semantic Message Document from Draft HTML', () => {
             ],
             [
               {
+                header: true,
                 blocks: [
                   {
                     kind: 'paragraph',

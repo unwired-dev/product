@@ -7,6 +7,7 @@ import {
   imagesOf,
   isListKind,
   listNumbersOf,
+  textOf,
 } from './semantic-document.ts';
 
 // An outgoing RFC 5322 message as native code sends it: literal ASCII text, and Draft Assets whose
@@ -273,7 +274,7 @@ const spanAttribute = (name: string, span: number | undefined) =>
 // Consecutive quotes and code lines share one container, and consecutive list items one list,
 // each nested item inside the item before it.
 // fallow-ignore-next-line complexity -- One pass opens and closes each run of blocks in reading order.
-export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
+const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
   let html = '';
   // The open lists, outermost first, and whether each holds an item still open: a list nested
   // deeper than the item before it opens directly inside its parent list.
@@ -293,10 +294,16 @@ export const htmlOf = (document: ReadonlyArray<Block | Table>): string => {
         .map(
           (cells) =>
             `<tr>${cells
-              .map(
-                ({ blocks, columns, rows }) =>
-                  `<td${spanAttribute('colspan', columns)}${spanAttribute('rowspan', rows)}>${htmlOf(blocks)}</td>`,
-              )
+              .map(({ blocks, header: heads, columns, rows }) => {
+                const tag = heads === true ? 'th' : 'td';
+                // A header cell's blocks carry the formatting it shows, not the bold centered
+                // text mail clients give it.
+                const style =
+                  heads === true
+                    ? ' style="font-weight:normal;text-align:left"'
+                    : '';
+                return `<${tag}${style}${spanAttribute('colspan', columns)}${spanAttribute('rowspan', rows)}>${htmlOf(blocks)}</${tag}>`;
+              })
               .join('')}</tr>`,
         )
         .join('')}</tbody></table>`;
@@ -434,7 +441,7 @@ const sizeOf = (
 const inlineImages = (draft: Draft) => [
   ...new Map(
     [
-      ...imagesOf(draft.body),
+      ...imagesOf(textOf(draft.body)),
       ...(draft.quoted === undefined ? [] : imagesOf(draft.quoted)),
     ].map((image) => [image.id, image]),
   ).values(),

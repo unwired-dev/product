@@ -20,6 +20,7 @@ import {
   displayOf,
   replaceSelection,
   selectedText,
+  textOf,
 } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import { Slice } from '@tiptap/pm/model';
@@ -296,7 +297,7 @@ describe('the Tiptap evaluation page', () => {
     const id = await drafts.create(mailbox);
     const opened = draftOf(drafts.getSnapshot(), id);
     ok(opened, 'Expected the opened Draft');
-    const page = await open(opened.body);
+    const page = await open(textOf(opened.body));
     page.type('Window B');
     page.command({ type: 'editable', editable: false });
     const frozen = page.posted.at(-1);
