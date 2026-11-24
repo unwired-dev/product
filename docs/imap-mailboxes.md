@@ -564,6 +564,8 @@ waits to send until the connection's folder list has been read.
   message again. While filing waits, the row says why: the server cannot be reached,
   storage is locked, the password was refused, or the Sent folder is gone. Edit is not
   offered for an accepted message. Removing the connection drops a copy still waiting.
+  Once the copy is there, a Sent folder saved on this device is read again before the
+  message leaves the Outbox, so an open Sent list shows it without a pull-down.
 
 ## Engine and dependencies
 
@@ -664,8 +666,8 @@ also cover registration through the synthetic vault and MIME parsing against
 `postal-mime`. The sending journeys (`test/imap-send.test.ts`) run the real Draft store,
 Outbox and IMAP Inbox against controlled native bridge fixtures for IMAP and SMTP: one submission from
 the sending connection only, a delivered copy without Bcc and a Sent copy with it and
-the same Message-ID, a lost filing answer and a relaunch while filing without a second
-copy or submission, each refusal before acceptance, an ambiguous acceptance confirmed
+the same Message-ID, an open Sent folder showing the filed copy, a lost filing answer and
+a relaunch while filing without a second copy or submission, each refusal before acceptance, an ambiguous acceptance confirmed
 only by one Sent copy, a stop after acceptance read as unknown, and refusal without a
 Sent folder or verified SMTP. `test/imap-registration.test.ts` checks that SMTP is
 verified on its own with its own password and that each form builds its reviewed SMTP
