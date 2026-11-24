@@ -18,6 +18,12 @@ host-provided finishing callback. Like `mailboxes.ts.savedMessageBodies`, it
 composes Promise-returning host actions with plain async code; the underlying
 stores keep their single Effect run. Each Inbox provider owns one coordinator.
 
+The Outbox's wake only waits on `Clock`. Its pass, plain async code, runs each
+due Send's advance as one Effect program: the end of its Undo Send Window, the
+delivery claim, the durable handoff, the provider submission, outcome recording
+and Sent filing. The program composes the Drafts store's and the providers'
+Promise-returning actions, which stay the source of truth for Outbox state.
+
 Convex handlers run their program with `runConvexProgram` from
 `packages/convex/convex/effectRuntime.ts`. It reads each configuration key from
 Convex's `env` when loaded, because the default runtime's environment cannot be

@@ -517,7 +517,9 @@ describe('application-owned Outbox execution', () => {
         await expect(locked).resolves.toBe(1);
         expect(gmail.sends).toHaveLength(0);
         lock(false);
-        await expect(deliver()).resolves.toBe(1);
+        const unlocked = deliver();
+        await jest.advanceTimersByTimeAsync(0);
+        await expect(unlocked).resolves.toBe(1);
         expect(gmail.sends).toHaveLength(1);
         expect(host.drafts.getOutbox()).toStrictEqual([]);
         expect(releases).toHaveBeenCalledWith();

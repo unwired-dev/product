@@ -318,7 +318,8 @@ cover:
 - reclaiming sent files without another Draft edit or app relaunch;
 - immutable message segments through retries and folded long headers and file
   names that round-trip through an independent MIME parser;
-- an unreachable claim and a claim whose reply is lost;
+- an unreachable claim, a claim whose reply is lost, and a claim that fails
+  unexpectedly, which keeps the message queued and logs only its diagnostic;
 - a Gmail refusal and an accepted message whose reply is lost, kept apart and
   never sent again through relaunch;
 - the app stopping while Gmail has the message;

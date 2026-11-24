@@ -1,3 +1,5 @@
+import { format } from 'node:util';
+
 import type { SendCheck } from '@private-email/mail-core/outbox';
 
 import * as Schema from 'effect/Schema';
@@ -537,6 +539,38 @@ describe('sending a Draft through the Outbox', () => {
     await sending.outbox.process();
     expect(gmail.sends).toHaveLength(1);
     expect(submit).toHaveBeenCalledWith(admitted, expect.anything());
+    expect(sending.drafts.getOutbox()).toStrictEqual([]);
+    sending.outbox.dispose();
+  });
+
+  it('keeps a message queued after an unexpected claim failure, logging only its diagnostic', async () => {
+    expect.hasAssertions();
+    const { server, gmail } = sharedAccount();
+    const sending = await sender(server, gmail, 'phone');
+    const id = await addressed(sending);
+    await sending.outbox.send(() => sending.draft(id));
+    const delivery = present(sending.storage.delivery, 'delivery claims');
+    vi.spyOn(delivery, 'claimDraftDelivery').mockRejectedValueOnce(
+      Object.assign(new Error('Claim failed for alex@example.com'), {
+        code: 'synthetic-claim-failure',
+      }),
+    );
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
+    later(undoSendWindow);
+
+    await sending.outbox.process();
+    expect(sending.drafts.getOutbox()).toMatchObject([
+      { id, state: 'queued', claim: 'requested', problem: 'offline' },
+    ]);
+    expect(gmail.sends).toStrictEqual([]);
+    const logged = errors.mock.calls.map((call) => format(...call)).join('\n');
+    errors.mockRestore();
+    expect(logged).toContain('Delivery claim failed:');
+    expect(logged).toContain('unrecognized code');
+    expect(logged).not.toContain('alex@example.com');
+
+    await sending.outbox.process();
+    expect(gmail.sends).toHaveLength(1);
     expect(sending.drafts.getOutbox()).toStrictEqual([]);
     sending.outbox.dispose();
   });
