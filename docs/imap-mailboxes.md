@@ -2069,6 +2069,49 @@ password manager by running
   changed UIDVALIDITY on Mac, of the Inbox, or during a history download stays on #632,
   with background refresh and push wakes, server-closed sessions without a network loss
   and password recovery.
+- **2026-11-24, Mac recreated iCloud Mail folder
+  ([#2773](https://github.com/unwired-dev/product/issues/2773)).** This run repeats the
+  iPad record above on the Mac. Target, toolchain and operator as in the Mac connect
+  record, on macOS 27.2.1. Build: the app source of
+  `f792c0426f0036fa0e21c3429e323ae49ce833c8`. The operator drove the app and entered
+  each credential as in the Mac record of #2713. The **Recovery Key** field lay below the
+  visible part of the window, so the first entry reached no field and **Unlock with
+  Recovery Key** showed **That Recovery Key does not unlock this Unwired account.**;
+  scrolled into view, the field took the key, which unlocked the Mac. **Sign in with
+  Google** used the browser's existing session of the certification Product Account, and
+  both mailboxes connected as in the Mac connect record. The operator created a run
+  folder in iCloud Mail over IMAP and appended A1, with a 3,000-byte file, and A2.
+  **View › Refresh** of the iCloud Mail Inbox listed the folder in the sidebar; it showed
+  A1 and A2, A1 opened in the reader beside the list and **Download** saved its file with
+  the bytes appended. With A1 still in the reader, the operator deleted the folder over
+  IMAP, created it again under the same name and appended message B with a different
+  5,000-byte file. The recreated folder reported a changed UIDVALIDITY, and B had A1's
+  UID. Result: pass. **Superseded message:** A2, still listed from the cache and never
+  opened, was opened 8 seconds after B was appended and within 3 seconds showed **This
+  message is no longer in this folder on the mail server.** **Folder listed again:** 9
+  seconds after **View › Refresh**, the folder listed B, and neither A1 nor A2, without
+  relaunching; the reader then read **Message unavailable** with **Choose another
+  message from the Inbox.** **Nothing reused:** B opened with its own subject, text and
+  attachment row, and **Download** saved its file under its name with exactly the bytes
+  appended; A1's saved file was no longer in the app's container. **Relaunch:** after
+  the app was quit with Command-Q and launched again, the folder listed only B.
+  Afterwards the operator deleted the run folder, and **Sign Out of This Device** returned
+  the app to Welcome. The scan of step 5 above covered the 7,183 files written since the
+  run began under `~/Library/Logs`, Xcode's DerivedData, the repository's `artifacts`,
+  the shell history, the temporary directories, the operator's scratch files and this
+  run's session transcript, T3 Code's state and logs, the app's container,
+  `~/.agent-device`, `~/Library/Caches` and the browser's profile. No file held a password
+  or the Recovery Key written by this run: the only match was T3 Code's state database
+  file, whose matching entries were all written on 22 November
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)). Other tasks' worktrees
+  were not scanned. Limitations: the Outlook.com Draft of the iPhone record was listed
+  above the folder's messages throughout. When A1 first opened, within a minute of the
+  mailboxes connecting, the list header read **Offline** with **1 account needs
+  attention** and **Try Again**; without any action it read **Syncing** within 30
+  seconds, and no later check showed the notice. Seznam Email cannot exercise this case, as on
+  iPhone. A changed UIDVALIDITY of the Inbox or during a history download stays on #632,
+  with background refresh and push wakes, server-closed sessions without a network loss
+  and password recovery.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
