@@ -1549,6 +1549,45 @@ describe('searching IMAP mail at the server', () => {
     }
   });
 
+  it('drops a result the server no longer has from the open search, keeping the rest', async () => {
+    expect.hasAssertions();
+    const imap = organizedServer();
+    imap.deliver('Projects', {
+      subject: 'Invoice gone',
+      received: Date.UTC(2020, 0, 3),
+    });
+    imap.deliver('Projects', {
+      subject: 'Invoice kept',
+      received: Date.UTC(2020, 0, 2),
+    });
+    const inbox = createImapInbox(imap.native);
+    try {
+      await inbox.load();
+      const search = createGmailSearch(
+        [{ id: 'imap', profile: 'default', inbox }],
+        'invoice',
+        { profile: 'default' },
+      );
+      const stop = search.subscribe(() => undefined);
+      await search.search();
+      const subjects = () =>
+        search
+          .getSnapshot()
+          .found?.results.map(({ message }) => message.subject);
+      expect(subjects()).toStrictEqual(['Invoice gone', 'Invoice kept']);
+      const gone = first(
+        foundMessages(await inbox.searchGmail('Invoice gone')),
+      );
+      imap.expunge('Projects', gone.uid);
+      // Another client expunged it, so marking it read finds it absent on the server.
+      await inbox.organize(gone, { kind: 'read' });
+      expect(subjects()).toStrictEqual(['Invoice kept']);
+      stop();
+    } finally {
+      inbox.forget();
+    }
+  });
+
   it('keeps an online-only reader’s read state current after the server confirms it', async () => {
     expect.hasAssertions();
     const imap = organizedServer();

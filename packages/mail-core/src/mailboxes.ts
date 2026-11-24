@@ -1303,7 +1303,8 @@ const imapSearchScope = (folders: readonly ImapFolder[] | undefined) =>
 
 // One view's online search. This composes Promise-returning Inbox actions without another Effect
 // run. Replacing the view's query or scope replaces this store, so an old answer cannot reappear.
-// Only the scope's own ready mailboxes are asked.
+// Only the scope's own ready mailboxes are asked. A result stays listed while its Inbox still
+// holds it, so one the provider confirmed deleted leaves the open search.
 export function createGmailSearch<
   M extends Readonly<{
     id: string;
@@ -1313,7 +1314,9 @@ export function createGmailSearch<
       getSnapshot: () => Readonly<{
         kind: string;
         folders?: readonly ImapFolder[];
+        found?: ReadonlyArray<Readonly<{ id: string }>>;
       }>;
+      subscribe: (listener: () => void) => () => void;
       searchGmail?: Searchable['inbox']['searchGmail'];
     }>;
   }>,
@@ -1340,11 +1343,33 @@ export function createGmailSearch<
       listener();
     }
   };
+  const held = (found: OnlineSearch<M & Searchable>) => {
+    const ids = new Map(
+      mailboxes.map(({ id, inbox }) => [
+        id,
+        new Set(inbox.getSnapshot().found?.map((message) => message.id)),
+      ]),
+    );
+    const results = found.results.filter(({ mailbox, message }) =>
+      ids.get(mailbox.id)?.has(message.id),
+    );
+    return results.length === found.results.length
+      ? found
+      : { ...found, results };
+  };
+  const prune = () => {
+    const found = state.found === undefined ? undefined : held(state.found);
+    if (found !== undefined && found !== state.found) {
+      publish({ ...state, found });
+    }
+  };
+  let unwatch: (() => void) | undefined = undefined;
   const run = async (previous?: OnlineSearch<M & Searchable>) => {
     request += 1;
     const asking = request;
     publish({ searching: true, ...(previous && { found: previous }) });
-    const found = await searchGmail(mailboxes, query, previous);
+    // A deletion confirmed while a page loads still drops its earlier result.
+    const found = held(await searchGmail(mailboxes, query, previous));
     if (asking === request) {
       publish({ searching: false, found });
     }
@@ -1353,8 +1378,20 @@ export function createGmailSearch<
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
+      unwatch ??= (() => {
+        const stops = mailboxes.map(({ inbox }) => inbox.subscribe(prune));
+        return () => {
+          for (const stop of stops) {
+            stop();
+          }
+        };
+      })();
       return () => {
         listeners.delete(listener);
+        if (listeners.size === 0) {
+          unwatch?.();
+          unwatch = undefined;
+        }
       };
     },
     matches: (next: readonly M[], text: string, view: ViewScope) =>
