@@ -228,7 +228,8 @@ final class InboxTests: XCTestCase {
     // sheet (#2781), whose dimmed top half the tap lands on, as the link can lie under the sheet.
     let bodyText = app.webViews.links["garden plan"].firstMatch
     let phone = UIDevice.current.userInterfaceIdiom == .phone
-    let labels = app.staticTexts["Labels"]
+    // The labels sheet's title reaches XCTest as a text inside a text of the same label.
+    let labels = app.staticTexts["Labels"].firstMatch
     // iPad's More is the system menu, titled as the row menu names its actions.
     let panelItem = phone ? labels : app.buttons["Mark as Unread"]
     if phone {
