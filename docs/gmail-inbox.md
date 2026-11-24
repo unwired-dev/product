@@ -574,9 +574,12 @@ typing. Choosing a folder closes the picker and moves the message once it has di
 search field, the account, then its folders as above. A tap outside or Escape closes it without
 moving anything, the system keeps it clear of the keyboard, and choosing a folder closes it and
 moves the message. On
-iPhone, **Labels** in More's menu opens the same label checkboxes under a **Labels**
-heading, in that sheet. On iPad, **Labels** in the toolbar opens the label checkboxes, each
-with Move to, in a system popover on it; a tap outside or Escape closes it. On iPhone and iPad, **New Label…** after the label checkboxes
+iPhone, **Labels** in More's menu opens the same label checkboxes in that sheet. On iPad,
+**Labels** in the toolbar opens the label checkboxes, each with a folder button that moves the
+message to that label, in a system popover on it; a tap outside or Escape closes it. As the
+#1683 frames draw them, the checkboxes sit under a **Labels** title and the Gmail account, as
+grouped rows with a checkmark on each label the message has, then **New Label…** in a group
+of its own. On iPhone and iPad, **New Label…** after the label checkboxes
 ([#2441](https://github.com/unwired-dev/product/issues/2441)) opens **Labels**: a native sheet
 on iPhone, once the label checkboxes' sheet has closed, and on iPad the popover the checkboxes
 were in. It names the Gmail account, starts in a

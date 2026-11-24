@@ -340,6 +340,12 @@ describe('iPad reader', () => {
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Labels' }),
     );
+    // The labels sit under the #1683 frames' Labels title, as New Label's form does.
+    expect(
+      within(screen.getByTestId('popover')).getByRole('header', {
+        name: 'Labels',
+      }),
+    ).toBeVisible();
     await fireEvent.press(
       within(screen.getByTestId('popover')).getByRole('button', {
         name: 'New Label…',

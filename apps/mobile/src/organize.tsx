@@ -46,7 +46,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 
 import type { Destination } from './move-sheet.tsx';
 import type { ThreadAction } from './reply-sheet.tsx';
@@ -69,11 +69,10 @@ import {
   useProviderName,
 } from './mailbox.tsx';
 import { MovePanel, MoveSheet } from './move-sheet.tsx';
-import { NewLabel } from './new-label.tsx';
-import { ActionButton } from './organize-action-button.tsx';
+import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
@@ -88,7 +87,7 @@ const placed = (picker: ReactElement) =>
 export type ReaderPanel = 'folders' | 'more' | 'newLabel';
 
 // Gmail's labels to add or remove, given what New Label… runs.
-type Labels = (newLabel: () => void) => ReactNode;
+type Labels = (newLabel: () => void) => ReactElement;
 
 // The iPad reader toolbar's top edge sits 15.3pt beneath the safe area, at y47.3 as the frames draw
 // it, so its centre shares the top row's line 36pt beneath the safe area.
@@ -111,17 +110,6 @@ const styles = StyleSheet.create({
   // The iPhone toolbar's More, sized as its other buttons.
   compactMoreButton: { width: 44, height: 44, alignItems: 'center' },
   groups: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 * ipadListScale },
-  // iPad's labels in the popover on the toolbar's Labels, as wide as New Label's form there.
-  labelsPopover: { width: 400, maxHeight: 280, flexGrow: 0 },
-  panel: { gap: 4, padding: spacing.l },
-  labelRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.s,
-  },
-  labelName: { flexGrow: 1, flexShrink: 1, minWidth: 44 },
-  secondary: { ...textStyles.subheadline },
 });
 
 // Folders the server declares a role for show its SF Symbol, as the Move picker lists them.
@@ -454,7 +442,6 @@ function LabelsSheet({
   readonly onNewLabel: () => void;
 }) {
   const colors = usePalette();
-  const { t } = useLocalization();
   const [creating, setCreating] = useState(false);
   return (
     <Host matchContents>
@@ -477,17 +464,10 @@ function LabelsSheet({
             presentationBackground(colors.surfacePanel),
           ]}>
           <RNHostView>
-            <ScrollView contentContainerStyle={styles.panel}>
-              <Text
-                accessibilityRole="header"
-                style={[styles.secondary, { color: colors.textSecondary }]}>
-                {t('gmailActions.labels')}
-              </Text>
-              {renderLabels(() => {
-                setCreating(true);
-                onClose();
-              })}
-            </ScrollView>
+            {renderLabels(() => {
+              setCreating(true);
+              onClose();
+            })}
           </RNHostView>
         </Group>
       </BottomSheet>
@@ -1197,57 +1177,29 @@ function GmailMessageActions({
       }}
     />
   );
-  // Labels to add or remove, each with Move to unless the picker moves instead.
+  // Gmail's labels to add or remove, each with Move to unless the picker moves instead.
   const labelControls = (moves: boolean, createLabel: () => void) => (
-    <>
-      {state.labels.length === 0 ? (
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t(folders ? 'gmailActions.noFolders' : 'gmailActions.noLabels')}
-        </Text>
-      ) : null}
-      {state.labelsLimited === true ? (
-        <Text style={[styles.secondary, { color: colors.textSecondary }]}>
-          {t('gmailActions.foldersLimited', {
-            count: state.labels.length,
-          })}
-        </Text>
-      ) : null}
-      {state.labels.map((label) => (
-        <View
-          key={label.id}
-          style={styles.labelRow}>
-          {folders ? null : (
-            <View style={styles.labelName}>
-              <ActionButton
-                checked={applied.has(label.id)}
-                label={label.name}
-                onPress={() => {
-                  act(
-                    applied.has(label.id)
-                      ? gmailAction.unlabel(label.id)
-                      : gmailAction.label(label.id),
-                  );
-                }}
-              />
-            </View>
-          )}
-          {moves ? (
-            <ActionButton
-              label={t('gmailActions.moveTo', { label: label.name })}
-              onPress={() => {
-                act(gmailAction.move(label.id, view, provider));
-              }}
-            />
-          ) : null}
-        </View>
-      ))}
-      {folders ? null : (
-        <ActionButton
-          label={t('gmailActions.newLabel')}
-          onPress={createLabel}
-        />
-      )}
-    </>
+    <LabelChoices
+      labels={state.labels}
+      applied={applied}
+      notes={[
+        ...(state.labels.length === 0 ? [t('gmailActions.noLabels')] : []),
+        ...(state.labelsLimited === true
+          ? [t('gmailActions.foldersLimited', { count: state.labels.length })]
+          : []),
+      ]}
+      onToggle={(label, checked) => {
+        act(checked ? gmailAction.unlabel(label) : gmailAction.label(label));
+      }}
+      onMove={
+        moves
+          ? (label) => {
+              act(gmailAction.move(label, view, provider));
+            }
+          : undefined
+      }
+      onNewLabel={createLabel}
+    />
   );
   return (
     <>
@@ -1353,17 +1305,11 @@ function GmailMessageActions({
             : {
                 // New Label… takes the labels' place in the same popover.
                 background: colors.surfacePanel,
-                popover: labels.labeling ? (
-                  newLabel
-                ) : (
-                  <ScrollView style={styles.labelsPopover}>
-                    <View style={styles.panel}>
-                      {labelControls(true, () => {
-                        setPanel('newLabel');
-                      })}
-                    </View>
-                  </ScrollView>
-                ),
+                popover: labels.labeling
+                  ? newLabel
+                  : labelControls(true, () => {
+                      setPanel('newLabel');
+                    }),
               }),
         }}
         more={{
