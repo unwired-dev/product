@@ -3524,10 +3524,15 @@ export function createImapInbox(
     );
   };
   // Files the copy as `appendSent` does; once it is there, a cached Sent folder is read again, so
-  // an open Sent list shows it.
+  // an open Sent list shows it. A folder read running meanwhile settles first, since it may have
+  // read the folder before the copy.
   const fileSent = async (message: OutgoingSend, id: string) => {
     const problem = await appendSent(message, id);
-    const folder = imapRoleFolder(document?.folders ?? [], 'sent');
+    const folder = await runLogged(
+      foreground.withPermit(
+        Effect.sync(() => imapRoleFolder(document?.folders ?? [], 'sent')),
+      ),
+    );
     if (
       problem === undefined &&
       folder !== undefined &&
