@@ -568,6 +568,14 @@ describe('mailbox connections and the unified Inbox', () => {
     ]);
     expect(retried.next.get(alex)).toBe('20');
     expect(retried.results).toHaveLength(21);
+    // A mailbox whose first page failed has no next page, so its failure stays through More.
+    gmail.other.fail({ code: 'unavailable' });
+    const partial = await searchGmail(shown, 'QUARTERLY');
+    const more = await searchGmail(shown, 'QUARTERLY', partial);
+    expect(
+      more.failures.map(({ mailbox: { id }, reason }) => [id, reason]),
+    ).toStrictEqual([[other, 'offline']]);
+    expect(more.results).toHaveLength(21);
 
     // A protected-storage rejection from search hides this connection's mail immediately.
     const protectedInbox = mailbox(mailboxes.getSnapshot(), other).inbox;
