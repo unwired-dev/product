@@ -57,6 +57,8 @@ const styles = StyleSheet.create({
   panelList: { maxHeight: 300, flexGrow: 0 },
   list: { flexShrink: 1 },
   listContent: { gap: 10 },
+  // The frames leave 10pt between the title and the account.
+  heading: { gap: 10 },
   title: { ...textStyles.headline },
   account: { ...textStyles.subheadline },
   field: {
@@ -82,6 +84,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
+    // Long nested names wrap, so labels sharing a prefix stay apart.
+    paddingVertical: 12,
   },
   choiceTitle: { flex: 1 },
   move: { width: 52, alignItems: 'center', justifyContent: 'center' },
@@ -193,7 +197,7 @@ function LabelsHeader() {
   const mailbox = useMailbox();
   const provider = useProviderName();
   return (
-    <View>
+    <View style={styles.heading}>
       <Text
         accessibilityRole="header"
         style={[styles.title, { color: colors.textPrimary }]}>
@@ -273,7 +277,6 @@ export function LabelChoices({
                         pressed && pressedRow,
                       ]}>
                       <Text
-                        numberOfLines={1}
                         style={[styles.rowTitle, styles.choiceTitle, primary]}>
                         {label.name}
                       </Text>

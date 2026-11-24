@@ -340,17 +340,11 @@ describe('iPad reader', () => {
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Labels' }),
     );
-    // The labels sit under the #1683 frames' Labels title, as New Label's form does.
-    expect(
-      within(screen.getByTestId('popover')).getByRole('header', {
-        name: 'Labels',
-      }),
-    ).toBeVisible();
-    await fireEvent.press(
-      within(screen.getByTestId('popover')).getByRole('button', {
-        name: 'New Label…',
-      }),
-    );
+    const popover = within(screen.getByTestId('popover'));
+    // The labels sit under the #1683 frames' Labels title, as New Label's form does; getBy throws
+    // without it.
+    popover.getByRole('header', { name: 'Labels' });
+    await fireEvent.press(popover.getByRole('button', { name: 'New Label…' }));
     const labels = within(screen.getByTestId('new-label'));
     // Labels takes the labels' place in the system popover on the toolbar's Labels, which hides it.
     expect(
