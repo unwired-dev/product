@@ -435,7 +435,7 @@ with several blocks keeps them on separate lines, an empty cell writes nothing a
 a merged cell writes its text once. The table sits on its own lines, and
 numbered lists restart around it as around any other block. Drafts do not store
 tables yet; Draft storage and editing tables in the composers follow in later
-#1268 slices.
+#1268 slices, as the [table-editing plan](architecture/draft-table-editing.md) orders them.
 
 A Draft can carry a signature
 ([#2024](https://github.com/unwired-dev/product/issues/2024)): a Semantic Message
