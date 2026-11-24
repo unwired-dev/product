@@ -36,7 +36,12 @@ import { MenuButton, SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { profileChoices } from './profile-choices.ts';
 import { SettingsGroup, SettingsRow, settingsColumns } from './settings.tsx';
-import { textStyles, useLargeText, usePalette, useProfilePalette } from './theme.ts';
+import {
+  textStyles,
+  useLargeText,
+  usePalette,
+  useProfilePalette,
+} from './theme.ts';
 
 const value = settingsColumns ? typography.ipadList.body : textStyles.body;
 
