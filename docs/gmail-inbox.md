@@ -272,6 +272,8 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
   results stay: no connection, a refused grant, which also offers **Allow Gmail
   access** as a reader would, or another failure. **Try Again** asks every
   mailbox afresh; a failed next page keeps its place, so **More from Mail Servers** retries it.
+  A mailbox whose first page failed has no next page, so its failure stays through
+  **More from Mail Servers** until **Try Again** or a new search asks it again.
 - **Stale requests.** An answer belongs to the query and the mailboxes' Inboxes it
   was asked of. Changing the query or view, a removed or changed mailbox, or another
   Product Account leaves it unshown until Gmail is asked again, and a reply for an

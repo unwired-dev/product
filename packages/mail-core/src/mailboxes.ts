@@ -1232,7 +1232,7 @@ export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
   >;
   // The next page of each mailbox that has one, by mailbox ID.
   next: ReadonlyMap<string, string>;
-  // Mailboxes the provider could not search for the latest page; their earlier results stay.
+  // Mailboxes the provider could not search when last asked; their earlier results stay.
   failures: ReadonlyArray<
     Readonly<{
       mailbox: M;
@@ -1242,6 +1242,15 @@ export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
   // IMAP mailboxes whose search left some folders out.
   limited: readonly M[];
 }>;
+
+// A mailbox not asked again, such as one whose first page failed, keeps its failure.
+const keptFailures = <M extends Searchable>(
+  asked: readonly M[],
+  previous: OnlineSearch<M> | undefined,
+) =>
+  (previous?.failures ?? []).filter(
+    ({ mailbox }) => !asked.some(({ id }) => id === mailbox.id),
+  );
 
 // Searches every given mailbox that has online search at its provider at once. With `previous`, asks each mailbox that has
 // another page for it and adds the results; a mailbox that fails keeps its page to try again. Each
@@ -1271,7 +1280,7 @@ export async function searchGmail<M extends Searchable>(
   const next = new Map(previous?.next);
   const results = [...(previous?.results ?? [])];
   const seen = new Set(results.map(resultKey));
-  const failures: Array<OnlineSearch<M>['failures'][number]> = [];
+  const failures = keptFailures(asked, previous);
   const limited = [
     ...(previous?.limited ?? []),
     ...pages.flatMap(([mailbox, page]) => (leftOut(page) ? [mailbox] : [])),
