@@ -519,7 +519,7 @@ Profile's, each with its subject or "No subject · body only". Choosing one appl
 it by the rules above. New Template from This Message… asks for a name in a sheet
 and saves the Draft's subject and body, without recipients or files, as a new
 template of the Draft's Profile; the Draft does not change. A blank name, a body
-with an Inline Image or a write storage refuses saves nothing, and a sheet says
+with an Inline Image or a table, or a write storage refuses saves nothing, and a sheet says
 why. The composer reads the templates when it opens and after it saves one.
 
 On iPhone the Add files menu ends with Insert Template…, and on iPad the format

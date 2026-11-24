@@ -4438,6 +4438,33 @@ describe('composing Drafts', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('refuses to save a Draft with a table as a template', async () => {
+    expect.hasAssertions();
+    const templates = await composeWithTemplates('regular', (draft) => ({
+      ...draft,
+      body: [
+        { kind: 'paragraph', spans: [{ text: 'Rota' }] },
+        {
+          kind: 'table',
+          rows: [
+            [{ blocks: [{ kind: 'paragraph', spans: [{ text: 'Monday' }] }] }],
+          ],
+        },
+      ],
+    }));
+    const notSaved = jest.spyOn(Alert, 'alert').mockReturnValue(undefined);
+    await saveAsTemplate();
+    expect(notSaved).toHaveBeenCalledWith(
+      'Template not saved',
+      'Templates can’t hold tables. Remove them from the message, then try again.',
+      [{ text: 'OK' }],
+    );
+    notSaved.mockRestore();
+    await expect(
+      templates.store.templates(defaultProfile),
+    ).resolves.toStrictEqual([]);
+  });
+
   // An iPhone row sets its time; on iPad a choice is selected, then Set Reminder sets it.
   it.each([
     {

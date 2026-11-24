@@ -2787,6 +2787,10 @@ function useTemplateItems({
       notSaved(t('drafts.templates.hasImages'));
       return;
     }
+    if (shown.some((part) => part.kind === 'table')) {
+      notSaved(t('drafts.templates.hasTables'));
+      return;
+    }
     const saveNamed = async (entered = '') => {
       const name = entered.trim();
       if (name === '') {

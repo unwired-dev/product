@@ -1938,6 +1938,23 @@ describe('storing Drafts', () => {
       table,
       { kind: 'paragraph', spans: [{ text: 'Later' }] },
     ]);
+    // Deleting one of several equal paragraphs keeps the table beside the ones that stay.
+    const same = { kind: 'paragraph', spans: [{ text: 'TBD' }] } as const;
+    const repeated: TableDocument = [
+      same,
+      { ...same },
+      table,
+      { ...same },
+      { ...same },
+    ];
+    expect(
+      withText(
+        repeated,
+        applyText(textOf(repeated), 'TBD\nTBD\nTBD', {
+          selection: { start: 0, end: 4 },
+        }).document,
+      ),
+    ).toStrictEqual([same, table, same, same]);
     expect(withText(body, typed(textOf(body), ''))).toStrictEqual([
       { kind: 'paragraph', spans: [] },
       table,

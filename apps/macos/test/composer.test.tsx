@@ -3297,6 +3297,30 @@ describe('composing Drafts', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('refuses to save a Draft with a table as a template', async () => {
+    expect.hasAssertions();
+    const templates = await composeWithTemplates((draft) => ({
+      ...draft,
+      body: [
+        { kind: 'paragraph', spans: [{ text: 'Rota' }] },
+        {
+          kind: 'table',
+          rows: [
+            [{ blocks: [{ kind: 'paragraph', spans: [{ text: 'Monday' }] }] }],
+          ],
+        },
+      ],
+    }));
+    await press('Templates');
+    await chooseMenuItem('New Template from This Message…');
+    await templateNotSaved(
+      'Templates can’t hold tables. Remove them from the message, then try again.',
+    );
+    await expect(
+      templates.store.templates(defaultProfile),
+    ).resolves.toStrictEqual([]);
+  });
+
   it('sets, changes and removes a Draft’s Send Reminder from the Send menu without sending it', async () => {
     expect.hasAssertions();
     // Noon today, so the menu offers This Evening and Tomorrow Morning whenever the test runs.

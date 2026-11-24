@@ -2410,6 +2410,10 @@ function DraftTemplates({
       notSaved(t('drafts.templates.hasImages'));
       return;
     }
+    if (shown.some((part) => part.kind === 'table')) {
+      notSaved(t('drafts.templates.hasTables'));
+      return;
+    }
     const naming = askForText(anchor.current, {
       title: t('drafts.templates.nameTitle'),
       detail: t('drafts.templates.nameDetail'),
