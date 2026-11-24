@@ -189,8 +189,7 @@ Each slice is one pull request and a sub-issue of #1268, in blocked-by order.
 1. **[#2856](https://github.com/unwired-dev/product/issues/2856) Owner decision**
    (`ready-for-human`, blocked by #823): adopt the Tiptap page as the production
    Draft body, and accept WebKit's VoiceOver table phrasing or keep the approved
-   wording. An adopt decision starts #823's production integration of the page,
-   which slices 4 to 6 also wait for. A rejection re-plans on A.
+   wording. An adopt decision starts #823's production integration of the page, tracked in [#2865](https://github.com/unwired-dev/product/issues/2865), which slices 4 to 6 also wait for. A rejection re-plans on A.
 2. **[#2857](https://github.com/unwired-dev/product/issues/2857) Draft storage of
    tables** (no editor dependency): `DraftSchema.body` accepts tables;
    `TableSchema` keeps header cells; the encrypted local save and reopen, Draft HTML and outgoing mail keep them (live provider round trips stay with the provider Draft issues, such as #1269); nested tables and images in cells stay reported. The current composers do not open a Draft's table, and editing its subject, recipients or text leaves the table intact. Existing
@@ -201,12 +200,12 @@ Each slice is one pull request and a sub-issue of #1268, in blocked-by order.
    table, whole-table selection as one Undo step, marks in cells and the
    focused-cell outline, tested in the page.
 4. **[#2859](https://github.com/unwired-dev/product/issues/2859) Mac** (blocked by
-   1 and 3): frames 948:8167, 948:8322, 948:8478, 948:8633, with the accessibility table checked through the AX tree and the VoiceOver phrases spoken.
+   1, 3 and #2865): frames 948:8167, 948:8322, 948:8478, 948:8633, with the accessibility table checked through the AX tree and the VoiceOver phrases spoken.
 5. **[#2860](https://github.com/unwired-dev/product/issues/2860) iPad** (blocked by
-   1 and 3): frames 949:16362, 949:16927, 949:17493, 949:18058, with a hardware
+   1, 3 and #2865): frames 949:16362, 949:16927, 949:17493, 949:18058, with a hardware
    keyboard, WebKit's own bold, italic and underline group removed from the
    shortcut bar, and the VoiceOver phrases checked on a device.
 6. **[#2861](https://github.com/unwired-dev/product/issues/2861) iPhone** (blocked
-   by 1 and 3): frames 949:25969, 949:26287, 949:26606, 949:26924, sideways
+   by 1, 3 and #2865): frames 949:25969, 949:26287, 949:26606, 949:26924, sideways
    scrolling, a first tap that places the caret, no WebKit form accessory bar, and
    the VoiceOver phrases checked on a device.
