@@ -45,7 +45,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SFSymbol } from './design.tsx';
 import { useLocalization } from './localization.ts';
 import { useMailbox, useProviderName } from './mailbox.tsx';
-import { textStyles, usePalette } from './theme.ts';
+import { textStyles, useAppearance, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
@@ -536,6 +536,7 @@ function LabelForm({
 // iPhone shows Labels in a system sheet; iPad in the labels' popover on the reader's toolbar.
 export function NewLabel(props: Parameters<typeof LabelForm>[0]) {
   const colors = usePalette();
+  const appearance = useAppearance();
   const { height } = useWindowDimensions();
   const { bottom } = useSafeAreaInsets();
   if (!compact) {
@@ -562,7 +563,11 @@ export function NewLabel(props: Parameters<typeof LabelForm>[0]) {
             presentationDetents([
               { height: Math.min(626, height - 70) - bottom },
             ]),
-            presentationBackground(colors.surfacePanel),
+            // The Dark frames draw the sheet as the glass panel surface; Light keeps the system's
+            // sheet glass, as the Reply sheet does.
+            ...(appearance === 'dark'
+              ? [presentationBackground(colors.surfacePanel)]
+              : []),
           ]}>
           <RNHostView>
             <View

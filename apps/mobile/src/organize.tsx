@@ -72,7 +72,7 @@ import { MovePanel, MoveSheet } from './move-sheet.tsx';
 import { LabelChoices, NewLabel } from './new-label.tsx';
 import { usePinAction, usePinned } from './pins.tsx';
 import { ThreadActionsContext } from './reply-sheet.tsx';
-import { usePalette } from './theme.ts';
+import { useAppearance, usePalette } from './theme.ts';
 
 const compact = Platform.OS === 'ios' && !Platform.isPad;
 
@@ -442,6 +442,7 @@ function LabelsSheet({
   readonly onNewLabel: () => void;
 }) {
   const colors = usePalette();
+  const appearance = useAppearance();
   const [creating, setCreating] = useState(false);
   return (
     <Host matchContents>
@@ -461,7 +462,11 @@ function LabelsSheet({
         <Group
           modifiers={[
             presentationDetents(['medium', 'large']),
-            presentationBackground(colors.surfacePanel),
+            // The Dark frames draw the sheet as the glass panel surface; Light keeps the system's
+            // sheet glass, as the Reply sheet does.
+            ...(appearance === 'dark'
+              ? [presentationBackground(colors.surfacePanel)]
+              : []),
           ]}>
           <RNHostView>
             {renderLabels(() => {
@@ -1075,6 +1080,11 @@ const shownMessage = <Listed,>(
   listed ??
   ('found' in state ? state.found?.find((item) => item.id === id) : undefined);
 
+// The Dark frames draw the labels' popover as the glass panel surface; Light keeps the system's
+// popover glass, as the Reply sheet keeps its sheet glass.
+const darkPanel = (appearance: string, surface: string) =>
+  appearance === 'dark' ? { background: surface } : {};
+
 // The Labels or Folders toggle. New Label… opens Labels, to create a Gmail label and apply it: an
 // iPhone sheet above the toolbar, or on iPad the labels' own popover. While it shows, the toggle
 // reads Hide Labels and closes it.
@@ -1112,6 +1122,7 @@ function GmailMessageActions({
   const state = useInbox();
   const store = useInboxActions();
   const colors = usePalette();
+  const appearance = useAppearance();
   const { t } = useLocalization();
   const mailbox = useMailbox();
   const pinFor = usePinFor();
@@ -1304,7 +1315,7 @@ function GmailMessageActions({
               )
             : {
                 // New Label… takes the labels' place in the same popover.
-                background: colors.surfacePanel,
+                ...darkPanel(appearance, colors.surfacePanel),
                 popover: labels.labeling
                   ? newLabel
                   : labelControls(true, () => {
