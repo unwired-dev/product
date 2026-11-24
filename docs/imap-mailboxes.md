@@ -2272,8 +2272,10 @@ password manager by running
   and only iCloud Mail was connected. Before the app connected, the iCloud Mail
   certification mailbox held 1 message across its six selectable folders. The operator's
   script opened Sync Status from the capsule whenever the capsule showed and read it about
-  once a second. Times are from launch. Result: pass. **Counted attempt:** with the app
-  terminated, a run folder of 6,000 small synthetic messages was added over IMAP, and the
+  once a second. Times are from launch. Result: pass for the restart and the relaunch; the
+  completed count was not on screen. **Counted attempt:** iCloud Mail was already connected
+  from the attempts below, so this history download began at launch, not at **Connect**.
+  With the app terminated, a run folder of 6,000 small synthetic messages was added over IMAP, and the
   server counted 6,001 across seven selectable folders. After launch, Sync Status read
   **Downloading history · 1 messages** at 14 seconds. The operator stopped the app's process
   (`SIGSTOP`) at 15 seconds, but that reading did not show the run folder had begun, so the
@@ -2286,7 +2288,8 @@ password manager by running
   process 43 seconds after stopping it. **Restarted, not reused:** Sync Status read **501
   of 6,001 messages** for a second, **1 messages** 2 seconds after the process continued,
   then **501 of 1,501** and **1,001 of 1,501 messages**. The total matched the server's
-  count after the recreation, and the capsule faded 10 seconds after the process continued.
+  count after the recreation, and the capsule faded 10 seconds after the process continued,
+  before a reading showed **1,501 of 1,501**.
   No reading showed **Offline** or an account needing attention. **Complete after
   relaunch:** about 2 minutes later the app was terminated and launched again. Sync Status
   read **Checking the mail server…** 15 seconds after launch, and the check ended with
@@ -2306,16 +2309,17 @@ password manager by running
   **Connect**, Sync Status read
   **Downloading history · 5,501 messages**, and the operator stopped the process there and
   recreated the folder with 1,500 messages, under a new UIDVALIDITY. Once continued, Sync
-  Status read **6,001 messages** and closed. The stop had come during the folder's last
-  batch of 500, so this attempt did not show whether that batch had already been read
-  before the recreation, and it is not counted. Deleting that folder and creating it again
+  Status read **6,001 messages** and closed. One batch of 500 remained in the displayed
+  count, and the operator could not tell whether the app had already read it before the
+  recreation, so this attempt is not counted. Deleting that folder and creating it again
   at once then left iCloud Mail reporting the name as existing while LIST and STATUS did
   not find it. It was listed again, empty, about 4 minutes later and deleted, so the counted
   attempt used a run folder under another name. With the software keyboard hidden but a field
   still focused, the first tap on **Connect** did nothing
   ([#2571](https://github.com/unwired-dev/product/issues/2571)). As on the other hosts, Sync
-  Status closes with the capsule, so the final count of 1,501 was not on screen; completion
-  comes from the capsule fading and the relaunch downloading nothing.
+  Status closes with the capsule, so the final count was not on screen: completion at the
+  server's count comes from the total of 1,501, the capsule fading and the relaunch
+  downloading nothing, not from an app-side count.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
