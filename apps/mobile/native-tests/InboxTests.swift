@@ -4615,7 +4615,7 @@ final class InboxTests: XCTestCase {
     verifyStableSearchEdits(app, search: search, maya: maya)
     // #2549: while the field has focus, one tap on a result opens it, and the keyboard leaves.
     maya.tap()
-    let opened = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
+    let opened = header("maya@example.com", in: app)
     XCTAssertTrue(opened.waitForExistence(timeout: 10))
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
     verifyCompactSwipeBackToResults(app, search: search, row: maya, reader: opened)
@@ -4631,7 +4631,7 @@ final class InboxTests: XCTestCase {
       waitUntil { app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width }
     }
     maya.tap()
-    let sender = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
+    let sender = header("maya@example.com", in: app)
     XCTAssertTrue(sender.waitForExistence(timeout: 10))
     if UIDevice.current.userInterfaceIdiom == .pad {
       XCTAssertGreaterThan(sender.frame.minX, maya.frame.maxX)
@@ -4685,8 +4685,8 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(oliver.isHittable)
     XCTAssertTrue(oliver.label.hasPrefix("Unread."))
     oliver.tap()
-    XCTAssertTrue(app.staticTexts["oliver@example.com"].waitForExistence(timeout: 10))
-    XCTAssertFalse(app.staticTexts["maya@example.com"].exists)
+    XCTAssertTrue(header("oliver@example.com", in: app).waitForExistence(timeout: 10))
+    XCTAssertFalse(header("maya@example.com", in: app).exists)
     // Opening it read it.
     XCTAssertTrue(app.buttons["Mark as Unread"].waitForExistence(timeout: 10))
     let committed = XCTAttachment(screenshot: app.screenshot())
@@ -5200,7 +5200,7 @@ final class InboxTests: XCTestCase {
       .firstMatch
     XCTAssertTrue(row.isHittable)
     row.tap()
-    let reader = app.staticTexts.matching(identifier: "hello@example.com").firstMatch
+    let reader = header("hello@example.com", in: app)
     XCTAssertTrue(reader.waitForExistence(timeout: 10))
     edgeSwipe(app, completing: true)
     waitUntil { row.isHittable && !reader.exists }
