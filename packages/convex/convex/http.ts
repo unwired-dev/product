@@ -1,6 +1,7 @@
 import { productAccountDeletionAbortedErrorCode } from '@private-email/contracts/productAccount';
 import { httpRouter } from 'convex/server';
 import { ConvexError } from 'convex/values';
+import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 
@@ -8,6 +9,7 @@ import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
 import { env, httpAction } from './_generated/server.js';
+import { call, runConvexProgram } from './effectRuntime.js';
 import { handle as errorReporting } from './errorReporting.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 import { keyRotationErrorCodes } from './productAccount.js';
@@ -436,67 +438,60 @@ async function sha256Hex(value: string): Promise<string> {
     .join('');
 }
 
-function microsoftGraphValidationResponse(url: URL): Response | null {
-  const validationToken = url.searchParams.get('validationToken');
-  if (validationToken === null) {
-    return null;
-  }
-  return new Response(validationToken, {
-    headers: { 'content-type': 'text/plain' },
-    status: 200,
-  });
-}
-
-function microsoftGraphRouteId(url: URL): string | null {
-  const routeId = url.searchParams.get('routeId');
-  return routeId?.length === 0 ? null : routeId;
-}
-
-async function enqueueMicrosoftGraphNotifications(
-  ctx: ActionCtx,
-  routeId: string,
-  notifications: readonly MicrosoftGraphNotification[],
-): Promise<void> {
-  const uniqueNotifications = new Map<
-    string,
-    { clientStateDigest: string; subscriptionId: string }
-  >();
-  for (const notification of notifications) {
-    const digest = await sha256Hex(notification.clientState);
-    uniqueNotifications.set(`${notification.subscriptionId}:${digest}`, {
-      clientStateDigest: digest,
-      subscriptionId: notification.subscriptionId,
-    });
-  }
-  for (const notification of uniqueNotifications.values()) {
-    await ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
-      clientStateDigest: notification.clientStateDigest,
-      routeId,
-      subscriptionId: notification.subscriptionId,
-    });
-  }
-}
-
+// Wakeups carry only the route, subscription and client-state digest, never the raw notification.
 async function microsoftGraphPushResponse(
   ctx: ActionCtx,
   request: Request,
 ): Promise<Response> {
-  const url = new URL(request.url);
-  const validationResponse = microsoftGraphValidationResponse(url);
-  if (validationResponse !== null) {
-    return validationResponse;
-  }
-  const routeId = microsoftGraphRouteId(url);
-  if (routeId === null) {
-    return new Response('Microsoft Graph route required', { status: 400 });
-  }
-  const payload: unknown = await request.json().catch(() => null);
-  const notifications = microsoftGraphNotifications(payload);
-  if (notifications.length === 0) {
-    return new Response('Invalid Microsoft Graph push', { status: 400 });
-  }
-  await enqueueMicrosoftGraphNotifications(ctx, routeId, notifications);
-  return new Response(null, { status: 202 });
+  return runConvexProgram(
+    Effect.gen(function* () {
+      const url = new URL(request.url);
+      const validationToken = url.searchParams.get('validationToken');
+      if (validationToken !== null) {
+        return new Response(validationToken, {
+          headers: { 'content-type': 'text/plain' },
+          status: 200,
+        });
+      }
+      const routeId = url.searchParams.get('routeId');
+      if (routeId === null || routeId.length === 0) {
+        return new Response('Microsoft Graph route required', { status: 400 });
+      }
+      const payload = yield* call(async (): Promise<unknown> =>
+        request.json(),
+      ).pipe(Effect.orElseSucceed(() => null));
+      const notifications = microsoftGraphNotifications(payload);
+      if (notifications.length === 0) {
+        return new Response('Invalid Microsoft Graph push', { status: 400 });
+      }
+      const uniqueNotifications = new Map<
+        string,
+        { clientStateDigest: string; subscriptionId: string }
+      >();
+      for (const notification of notifications) {
+        const clientStateDigest = yield* call(async () =>
+          sha256Hex(notification.clientState),
+        );
+        uniqueNotifications.set(
+          `${notification.subscriptionId}:${clientStateDigest}`,
+          { clientStateDigest, subscriptionId: notification.subscriptionId },
+        );
+      }
+      yield* Effect.forEach(
+        uniqueNotifications.values(),
+        (notification) =>
+          call(async () =>
+            ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+              ...notification,
+              routeId,
+            }),
+          ),
+        { discard: true },
+      );
+      return new Response(null, { status: 202 });
+    }),
+    (failure) => failure.cause,
+  );
 }
 
 http.route({
