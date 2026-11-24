@@ -3528,19 +3528,18 @@ export function createImapInbox(
   // read the folder before the copy.
   const fileSent = async (message: OutgoingSend, id: string) => {
     const problem = await appendSent(message, id);
+    if (problem !== undefined) {
+      return problem;
+    }
     const folder = await runLogged(
       foreground.withPermit(
         Effect.sync(() => imapRoleFolder(document?.folders ?? [], 'sent')),
       ),
     );
-    if (
-      problem === undefined &&
-      folder !== undefined &&
-      cacheOf(folder) !== undefined
-    ) {
+    if (folder !== undefined && cacheOf(folder) !== undefined) {
       await openFolder(folder);
     }
-    return problem;
+    return undefined;
   };
   // Looks for a message whose submission had no answer in the Sent folder by its Message-ID, not
   // its MIME boundary, which the Gmail and Microsoft inboxes take too. Resolves sent for exactly one
