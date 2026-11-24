@@ -987,16 +987,15 @@ export function Inbox({
   const pinned = usePinned(mailboxes.map(({ id }) => id));
   const pinAction = usePinAction();
   const leave = useLeaveComposer();
-  // Opening a message ends search editing, so the keyboard never covers the reader (#2549).
   const select = async (selection: Selection) => {
     if (onSelectBehindComposer !== undefined) {
       reporting.breadcrumb({ operation: 'reader', stage: 'open' });
-      Keyboard.dismiss();
       onSelectBehindComposer(selection);
       return;
     }
     if (await leave()) {
       reporting.breadcrumb({ operation: 'reader', stage: 'open' });
+      // Opening a message ends search editing, so the keyboard never covers the reader (#2549).
       Keyboard.dismiss();
       onSelect(selection);
     }
