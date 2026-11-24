@@ -183,15 +183,14 @@ const styles = StyleSheet.create({
   },
   noticeMessage: { flexDirection: 'row', gap: spacing.s },
   noticeMessageText: { flex: 1 },
-  // A 48pt glass capsule; a message that wraps grows it, 12pt above and below.
+  // A 48pt glass capsule, its message on one line.
   toast: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    minHeight: 48,
+    height: 48,
     paddingLeft: spacing.l,
     paddingRight: 20,
-    paddingVertical: 12,
     borderRadius: 24,
     borderCurve: 'continuous',
   },
@@ -733,9 +732,13 @@ export function Toast({
       open={open}
       origin="bottom"
       style={[styles.toast, { boxShadow: colors.toastShadow }]}>
-      <Glass cornerRadius={24} />
       {/* React Native's legacy view interop mounts a nested native view without its offset,
-          so the symbol sits in a plain view inside the toast's padding. */}
+          so the glass and the symbol each sit in a plain view. */}
+      <View
+        collapsable={false}
+        style={StyleSheet.absoluteFill}>
+        <Glass cornerRadius={24} />
+      </View>
       <View
         collapsable={false}
         style={styles.toastSymbol}>
@@ -748,7 +751,11 @@ export function Toast({
         accessible
         accessibilityLabel={messageLabel}
         style={styles.toastMessage}>
-        <Text style={[styles.toastMessageText, ink]}>{message}</Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.toastMessageText, ink]}>
+          {message}
+        </Text>
       </View>
       <Pressable
         accessibilityLabel={actionLabel}
