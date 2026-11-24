@@ -293,7 +293,8 @@ controls. [Inbox requirements](../gmail-inbox.md#filtering-the-inbox) give Filte
 native compact sheet or regular-width anchored popover with system motion. The
 [organizing-mail requirements](../gmail-inbox.md#organizing-mail) give the native
 Reply sheet and iPhone's Move picker system presentation, dismissal and swipe-down
-behavior, and iPad's Move picker a system popover; toolbar panels ease in and fade out.
+behavior, and iPad's Move picker a system popover. A Gmail reader's labels open in a
+system sheet on iPhone and a system popover on iPad, with system motion (#2781).
 The owner's #1046 decision supersedes the earlier custom Reply and Move motion
 with system presentation motion under #1118 and #1074.
 
