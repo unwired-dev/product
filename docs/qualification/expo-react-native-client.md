@@ -53,9 +53,13 @@ presenter; each names the appearances it ran in. Host load from other work was
 - The `registration-declined` journey's Labels steps ran for the first time
   since #2781. In Light on iPhone it stopped before the #972 swipe: XCTest saw
   the sheet's "Labels" title as a text inside a text of the same label. The
-  journey now takes the first match. In Dark it stopped where Labels reopens
-  after a Command Palette star, its app not idle for 60 seconds at each step;
-  the same steps by hand opened the sheet.
+  journey now takes the first match, and in Light on iPhone it then passed the
+  Labels steps: a tap above closes the sheet, a downward swipe closes it, and
+  the Reply sheet reopens without it. It stopped later, outside this slice,
+  where Settings › Appearance waits 20 seconds for the app to follow the device
+  into Dark. In Dark it stopped where Labels reopens after a Command Palette
+  star, its app not idle for 60 seconds at each step; the same steps by hand
+  opened the sheet.
 - Composer: on iPhone New Message opens the system sheet, and Close closes an
   empty Draft (Light and Dark). Its controls stay above the software keyboard,
   and a slow downward swipe on a changed Draft keeps the sheet and asks Delete
@@ -72,20 +76,19 @@ presenter; each names the appearances it ran in. Host load from other work was
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
   return when it closes; Reduce Motion; a compact iPad window, where the
-  composer and Filters turn into sheets and the Move and Labels popovers,
-  chosen by device rather than width, adapt as SwiftUI decides; a hardware
-  keyboard, including Escape on the Labels popover; the software keyboard in
-  New Label and in the regular-width iPad composer; rotation while any
-  presenter but the iPad Filters popover and the iPhone composer is
-  presented; Expand on iPad; a downward swipe on the iPhone Labels and New
-  Label sheets, and a swipe released early that keeps any sheet; closing iPad
-  More without choosing an action; the Dark-only and Light-only checks above in the
-  other appearance; and iPhone's More, which shows only for mail without
-  Reply, which no journey or the synthetic mailbox has. `agent-device` cannot
-  turn VoiceOver on, rotate the device or resize an iPad window. The
-  `registration-apple` journey, whose Move steps rotate to landscape before
-  opening the picker and check its keyboard there, stopped under host load
-  before them.
+  composer and Filters turn into sheets and the Move and Labels popovers, chosen
+  by device rather than width, adapt as SwiftUI decides; a hardware keyboard,
+  including Escape on the Labels popover; the software keyboard in New Label and
+  in the regular-width iPad composer; rotation while any presenter but the iPad
+  Filters popover and the iPhone composer is presented; Expand on iPad; a
+  downward swipe on the iPhone Labels sheet in Dark and on the New Label sheet,
+  and a swipe released early that keeps any sheet; closing iPad More without
+  choosing an action; the Dark-only and Light-only checks above in the other
+  appearance; and iPhone's More, which shows only for mail without Reply, which
+  no journey or the synthetic mailbox has. `agent-device` cannot turn VoiceOver
+  on, rotate the device or resize an iPad window. The `registration-apple`
+  journey, whose Move steps rotate to landscape before opening the picker and
+  check its keyboard there, stopped under host load before them.
 
 ## iPhone and iPad Settings at the largest text size, 2026-11-23
 
