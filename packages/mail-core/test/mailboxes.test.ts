@@ -626,6 +626,60 @@ describe('mailbox connections and the unified Inbox', () => {
     expect(otherInbox.messageBody(otherMatch)).toBeUndefined();
   });
 
+  it('drops a result Gmail confirmed deleted from an open search, keeping the rest in order with their next page', async () => {
+    expect.hasAssertions();
+    // Holds Alex's next result page until released.
+    let paging: PromiseWithResolvers<undefined> | undefined = undefined;
+    let held = 0;
+    const { gmail, mailboxes } = await twoMailboxes((base) => ({
+      ...base,
+      gmailRequest: async (path, query, scope) => {
+        const page = query.some(([name]) => name === 'pageToken');
+        // oxlint-disable-next-line vitest/no-conditional-in-test -- Only Alex's next page waits.
+        if (paging !== undefined && page) {
+          held += 1;
+          await paging.promise;
+        }
+        return base.gmailRequest(path, query, scope);
+      },
+    }));
+    for (let day = 1; day <= 21; day += 1) {
+      gmail.alex.deliver({ subject: `Invoice ${day}`, at: at(day) });
+    }
+    const fromOther = gmail.other.deliver({ subject: 'Invoice', at: at(30) });
+    await mailboxes.load();
+    const shown = mailboxes.getSnapshot();
+    const online = createGmailSearch(shown, 'invoice', everything);
+    const stop = online.subscribe(() => undefined);
+    await online.search();
+    const first = onlineAnswer(online.getSnapshot().found);
+    const ids = (search: typeof first) =>
+      search.results.map(({ message }) => message.id);
+    expect(first.results).toHaveLength(21);
+    const deleted = firstOf(ids(first).slice(1));
+
+    // Gmail's history confirms the deletion; the open search drops only that result.
+    gmail.alex.remove(deleted);
+    await mailbox(shown, alex).inbox.load();
+    const after = onlineAnswer(online.getSnapshot().found);
+    expect(ids(after)).toStrictEqual(ids(first).filter((id) => id !== deleted));
+    expect(after.next).toStrictEqual(first.next);
+
+    // A deletion confirmed while the next page loads is not restored by that page.
+    paging = Promise.withResolvers<undefined>();
+    const more = online.more();
+    gmail.other.remove(fromOther);
+    await mailbox(shown, other).inbox.load();
+    expect(held).toBe(1);
+    paging.resolve(undefined);
+    await more;
+    const paged = ids(onlineAnswer(online.getSnapshot().found));
+    // The synthetic mailbox pages by offset, so the deletion moved its last match onto the shown page.
+    expect(paged).toStrictEqual(ids(after).filter((id) => id !== fromOther));
+    expect(onlineAnswer(online.getSnapshot().found).next.size).toBe(0);
+    stop();
+  });
+
   it('keeps one connection usable and isolated while another needs Gmail again', async () => {
     expect.hasAssertions();
     const { gmail, synthetic, registration, mailboxes } = await twoMailboxes();
