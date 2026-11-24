@@ -648,6 +648,18 @@ extension PrivateInboxTests {
       ImapAccount.self,
       from: Data(#"{"host":"localhost","port":\#(port),"username":"synthetic"}"#.utf8))
     let provider = SwiftMailImap()
+    // A freshly booted Simulator's first verified TLS handshakes can outlast SwiftMail's
+    // five-second greeting wait on a loaded runner, which reads as `.offline` (#2341). Open one
+    // verified session first, so the failures below are classified once the handshake is warm.
+    let ready = ContinuousClock.now + .seconds(30)
+    while true {
+      do {
+        try await provider.verify(account, password: "synthetic-password")
+        break
+      } catch ImapFailure.offline where ContinuousClock.now < ready {
+        try await Task.sleep(for: .milliseconds(500))
+      }
+    }
     let mismatchedHost = try JSONDecoder().decode(
       ImapAccount.self,
       from: Data(#"{"host":"127.0.0.1","port":\#(port),"username":"synthetic"}"#.utf8))
@@ -657,7 +669,6 @@ extension PrivateInboxTests {
     await #expect(throws: ImapFailure.authentication) {
       try await provider.verify(account, password: "refused")
     }
-    try await provider.verify(account, password: "synthetic-password")
     // One session lists every folder with its LIST attributes, and the server's capabilities.
     func listed(_ account: ImapAccount) async throws -> (ImapListing, [String]) {
       let session = try await provider.open(account, password: "synthetic-password")

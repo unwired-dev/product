@@ -410,6 +410,29 @@ describe('the host assembly', () => {
     expect(cancelled).toStrictEqual([request]);
   });
 
+  it("asks Gmail nothing on activation while Gmail's usage limit pauses the mailbox until its time", async () => {
+    expect.hasAssertions();
+    const { host, native, gmail } = syntheticHost();
+    await host.registration.register('google');
+    await host.registration.addMailbox();
+    await host.gmailMailboxes.load();
+    const until = new Date(Date.now() + 3_600_000).toISOString();
+    gmail.fail({
+      status: 429,
+      body: JSON.stringify({
+        error: { message: `Rate limit exceeded. Retry after ${until}` },
+      }),
+    });
+    await host.gmailMailboxes.load();
+    const refreshed = vi.spyOn(native, 'refreshMailbox');
+    const requests = gmail.requests.length;
+    await host.registration.resume();
+    expect(refreshed).not.toHaveBeenCalled();
+    expect(gmail.requests).toHaveLength(requests);
+    // Closing the Inbox ends the pause and its wait.
+    required(host.gmailMailboxes.getSnapshot()[0]?.inbox).forget();
+  });
+
   it('cancels an aborted IMAP source read by its request name', async () => {
     expect.hasAssertions();
     const { host, shared, imapServers, held, cancelled } = syntheticHost();

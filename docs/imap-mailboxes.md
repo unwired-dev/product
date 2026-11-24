@@ -825,7 +825,11 @@ password manager by running
 1. `simulator-credentials.zsh copy <udid> <variable>` puts the value on that Simulator's
    pasteboard. Keep **Automatically Sync Pasteboard** in Simulator's Edit menu off, or
    Simulator closed, so the value does not reach the Mac's pasteboard.
-2. Long-press the app's field and press **Paste** in the edit menu.
+2. Open the edit menu and press **Paste**: in Google's sign-in sheet, long-press the
+   field; in the app, tap the focused field again. The keyboard's own Paste key pastes
+   nothing into the app's fields. On iPad, scroll **Recovery Key** clear of the software
+   keyboard before taking step 4's snapshot
+   ([#2743](https://github.com/unwired-dev/product/issues/2743)).
 3. `simulator-credentials.zsh clear <udid>` empties the pasteboard at once.
 4. When the field shows its text, as **Recovery Key** does, nothing may read the screen
    while it holds the credential: screenshots, accessibility snapshots and agent-device
@@ -2016,6 +2020,49 @@ password manager by running
   download still open, or during a history download stays on #632, with background
   refresh and push wakes, server-closed sessions without a network loss and password
   recovery.
+- **2026-11-23, iPad recreated iCloud Mail folder
+  ([#2740](https://github.com/unwired-dev/product/issues/2740)).** This run repeats the
+  iPhone record above on iPad. Target, toolchain and operator as in the first record, on
+  a new iPad Pro 11-inch (M5) Simulator on iOS 27.0, with Simulator closed. Build: the app
+  source of `acffc78d429a2a0ad86e35f83cddc60b08f37d2b`. Every credential was entered
+  with pasteboard steps 1 to 3 above, and the Recovery Key also with step 4: the field's
+  and **Unlock with Recovery Key**'s coordinates came from a snapshot taken before
+  pasting, and the field was emptied with `fill` before the next read. The first two
+  presses of **Unlock with Recovery Key** showed **That Recovery Key does not unlock this
+  Unwired account.**, because the keyboard's Paste key had pasted nothing and the focused
+  field lay under the software keyboard
+  ([#2743](https://github.com/unwired-dev/product/issues/2743)); scrolled clear of it, the field's own **Paste**
+  pasted the Recovery Key, which unlocked the device. Google Product Sign-In found the
+  certification Product Account, and both mailboxes connected as in the first record. The
+  operator created a run folder in iCloud Mail over IMAP and appended A1, with a
+  3,000-byte file, and A2. A pull-down of the iCloud Mail Inbox listed the folder in the
+  sidebar; it showed A1 and A2, A1 opened in the reader pane and **Download** saved its
+  file with the bytes appended. With A1 still in the reader pane, the operator deleted
+  the folder over IMAP, created it again under the same name and appended message B with
+  a different 5,000-byte file. The recreated folder reported a changed UIDVALIDITY, and B
+  had A1's UID. Result: pass. **Superseded message:** A2, still listed from the cache and
+  never opened, was opened 7 seconds after B was appended and within 9 seconds showed **Couldn’t load this message** with **This
+  message is no longer in this folder on the mail server.** **Folder listed again:** a
+  pull-down of the folder listed B, and neither A1 nor A2, 8 to 11 seconds later, without
+  relaunching; the reader pane then read **Message unavailable** with **Choose another
+  message from the Inbox.** **Nothing reused:** B opened with its own subject, text and
+  attachment row, and **Download** saved its file under its name with exactly the bytes
+  appended; A1's saved file was no longer in the app's container. **Relaunch:** after the
+  app was quit and launched again, the folder listed only B. Afterwards the operator
+  deleted the run folder, **Sign Out of This Device** returned the app to Welcome, and the
+  Simulator was deleted. The scan of step 5 above covered the files written since the run
+  began under `~/.agent-device`, T3 Code's device sessions and logs, `~/Library/Logs`,
+  Xcode's DerivedData, the temporary directory, the repository's `artifacts`, the
+  operator's scratch files and this run's session transcript, and the shell history and
+  T3 Code's state database write-ahead log, 35,688 files in all; none held a password or
+  the Recovery Key. Other tasks' temporary worktrees, which changed during the scan, and
+  the state database file itself, which holds earlier runs' copies
+  ([#2688](https://github.com/unwired-dev/product/issues/2688)), were not scanned.
+  Limitations: the Outlook.com Draft of the iPhone record was listed above the folder's
+  messages throughout, and Seznam Email cannot exercise this case, as on iPhone. A
+  changed UIDVALIDITY on Mac, of the Inbox, or during a history download stays on #632,
+  with background refresh and push wakes, server-closed sessions without a network loss
+  and password recovery.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

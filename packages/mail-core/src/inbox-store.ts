@@ -4056,6 +4056,8 @@ export function createInboxStore(
     // changes requested there and not yet saved.
     forget: forgetOpenInbox,
     load,
+    // Gmail named a time still to come: until then nothing may ask Gmail about this mailbox.
+    paused: held,
     // Synchronizes again after a registration change when a foreground restore invalidated the
     // latest synchronization, once per invalidation.
     resume: () => {

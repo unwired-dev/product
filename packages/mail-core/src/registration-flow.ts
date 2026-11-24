@@ -266,7 +266,11 @@ const status = Effect.fnUntraced(function* (
   } satisfies RegistrationSnapshot;
 });
 
-export function createRegistrationFlow(vault: NativeRegistrationVault) {
+// `paused` lists the connections whose Inbox waits for a time Gmail named.
+export function createRegistrationFlow(
+  vault: NativeRegistrationVault,
+  paused: () => readonly string[] = () => [],
+) {
   const { native, step, record, saved, convex } = nativeSteps(vault);
   const productSyncFlow = createProductSyncProgram(vault);
   const { synchronize, listedFor } = productSyncFlow;
@@ -383,14 +387,17 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
 
   const { checkedMailbox, verify } = createMailboxVerification(vault);
 
-  // A push wake's routed connection alone verifies with its provider: the others keep this
-  // process's access, and one it has not verified opens its saved Inbox from the cache until a
-  // later verification.
+  // A push wake's routed connection alone verifies with its provider, and a connection Gmail
+  // paused until a time still to come never does: the others keep this process's access, and one
+  // it has not verified opens its saved Inbox from the cache until a later verification.
   const verifyRouted = (
     mailbox: RegistrationRecord['mailboxes'][number],
-    routed: string,
+    routed: string | undefined,
   ) => {
-    if (mailbox.id === routed) {
+    if (
+      (routed === undefined || mailbox.id === routed) &&
+      !paused().includes(mailbox.id)
+    ) {
       return verify(mailbox);
     }
     return !mailbox.authorizationNeeded && mailbox.access === 'unverified'
@@ -400,17 +407,16 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
 
   // Reports each retained connection as connected only after its provider access verifies again,
   // including one its provider refused before. One connection's failure never changes another's
-  // state. With `routed`, only that connection verifies, and watch renewal, which refreshes every
-  // verified connection's grant, waits for the next full verification.
+  // state. With `routed`, or while Gmail pauses a connection that keeps this process's access,
+  // watch renewal, which refreshes every verified connection's grant, waits for the next full
+  // verification.
   const mailboxStatus = Effect.fnUntraced(function* (routed?: string) {
     const value = yield* saved;
     if (value.product?.pending === true || value.mailboxes.length === 0) {
       return yield* pendingStatus(value);
     }
     for (const mailbox of value.mailboxes) {
-      yield* routed === undefined
-        ? verify(mailbox)
-        : verifyRouted(mailbox, routed);
+      yield* verifyRouted(mailbox, routed);
     }
     const verified = (yield* saved).mailboxes.some(
       (mailbox) =>
@@ -418,7 +424,7 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     );
     if (verified) {
       yield* synchronize;
-      yield* routed === undefined
+      yield* routed === undefined && paused().length === 0
         ? pushStep(vault.routeMailboxes)
         : Effect.void;
     }
@@ -445,10 +451,12 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     return yield* current;
   });
 
-  // A push wake names its `routed` connection; the others keep the access this process verified.
+  // A push wake names its `routed` connection; the others keep the access this process verified,
+  // as a connection Gmail paused until its time always does, since verifying it would ask Gmail.
   const restore = Effect.fnUntraced(function* (routed?: string) {
+    const kept = routed === undefined ? paused() : [];
     if (routed === undefined) {
-      yield* step(vault.forgetMailboxAccess);
+      yield* step(() => vault.forgetMailboxAccess(kept));
     }
     const retained = yield* record;
     if (retained === null) {
@@ -466,9 +474,11 @@ export function createRegistrationFlow(vault: NativeRegistrationVault) {
     }
     const unconfirmed = yield* reconfirm(value).pipe(
       Effect.as(undefined),
-      // A push wake keeps the others' access only while the Product Sign-In confirms.
+      // Access is kept only while the Product Sign-In confirms.
       Effect.tapError(() =>
-        routed === undefined ? Effect.void : step(vault.forgetMailboxAccess),
+        routed === undefined && kept.length === 0
+          ? Effect.void
+          : step(vault.forgetMailboxAccess),
       ),
       Effect.catchIf(
         (error) => !endsAccess.has(error.code),

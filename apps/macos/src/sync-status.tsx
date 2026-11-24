@@ -2,7 +2,7 @@ import type { Translate } from '@private-email/localization';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 import { lastUpdated } from '@private-email/localization';
-import { spacing } from '@private-email/mail-core/theme';
+import { radius, spacing } from '@private-email/mail-core/theme';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,6 +17,7 @@ import type { InboxMailbox } from './private-storage.ts';
 import { Action } from './action.tsx';
 import {
   AnimatedPanel,
+  Button,
   Glass,
   Popover,
   SFSymbol,
@@ -80,7 +81,14 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     gap: spacing.m,
   },
+  // The shown connections' inset group, as the frames draw it.
+  connections: {
+    borderRadius: radius.menu,
+    paddingHorizontal: spacing.m,
+    paddingVertical: spacing.xs,
+  },
   connection: {
+    paddingVertical: 10,
     gap: spacing.xs,
   },
   separator: {
@@ -88,6 +96,37 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     ...textStyles.subheadline,
+  },
+  // Try Again below a paused connection's status, beside the time Gmail named.
+  limitActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  // The sidebar's warning while Gmail pauses the shown mailboxes, from the frames' "Sidebar Warning".
+  sidebarWarning: {
+    marginHorizontal: spacing.s,
+    marginBottom: spacing.xs,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    paddingHorizontal: spacing.s,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderCurve: 'continuous',
+  },
+  pausedLabel: {
+    ...textStyles.body,
+    lineHeight: 17,
+    flexShrink: 1,
+  },
+  // The frames' 12pt sidebar warning.
+  sidebarLabel: {
+    fontSize: 12,
+    lineHeight: 15,
+    flexShrink: 1,
+  },
+  sidebarStatus: {
+    gap: 6,
   },
 });
 
@@ -98,9 +137,24 @@ export const checking = (state: InboxMailbox['state']) =>
     (('sync' in state && state.sync === 'syncing') ||
       ('status' in state && state.status === 'syncing')));
 
-// A mailbox whose server could not be reached shows the mail saved on this device.
+// Gmail's usage limit paused this mailbox's synchronization.
+const limitOf = (state: InboxMailbox['state']) =>
+  state.kind === 'ready' && 'limit' in state ? state.limit : undefined;
+
+export const limited = (state: InboxMailbox['state']) =>
+  limitOf(state) !== undefined;
+
+// Gmail named a time that has not come yet.
+const waitsForGmail = (state: InboxMailbox['state']) => {
+  const until = limitOf(state)?.until;
+  return until !== undefined && Date.now() < Date.parse(until);
+};
+
+// A mailbox whose server could not be reached shows the mail saved on this device. One waiting
+// out Gmail's usage limit is paused, not offline.
 export const offline = (state: InboxMailbox['state']) =>
   state.kind === 'ready' &&
+  limitOf(state) === undefined &&
   (('sync' in state && state.sync === 'retry') ||
     ('status' in state && state.status === 'retry'));
 
@@ -119,10 +173,15 @@ const backfill = (state: InboxMailbox['state']) =>
 // A mailbox that needs attention: authorization was refused, its server could not be reached,
 // or a failed read paused its backfill until the next synchronization.
 export const failed = (state: InboxMailbox['state']) =>
-  offline(state) || backfill(state)?.paused === true || refused(state);
+  offline(state) ||
+  limited(state) ||
+  backfill(state)?.paused === true ||
+  refused(state);
 
 type SyncStatus =
   | Readonly<{ kind: 'attention'; count: number }>
+  // Every mailbox that needs attention waits out Gmail's usage limit; one names Gmail's time.
+  | Readonly<{ kind: 'paused'; count: number; until?: string }>
   | Readonly<{ kind: 'progress'; count: number; percent?: number }>;
 
 // How far some backfills have come together, undefined until one knows its total.
@@ -144,9 +203,20 @@ const percentOf = (states: ReadonlyArray<InboxMailbox['state']>) => {
 export const syncStatusOf = (
   shown: readonly InboxMailbox[],
 ): SyncStatus | undefined => {
-  const attention = shown.filter(({ state }) => failed(state)).length;
-  if (attention > 0) {
-    return { kind: 'attention', count: attention };
+  const attention = shown.filter(({ state }) => failed(state));
+  if (attention.length > 0) {
+    const limits = attention.map(({ state }) => limitOf(state));
+    const [only] = limits;
+    // Locked or failed storage needs attention that Gmail's pause would not say.
+    const storage = shown.some(
+      ({ state }) => state.kind === 'locked' || state.kind === 'failed',
+    );
+    if (storage || !limits.every((limit) => limit !== undefined)) {
+      return { kind: 'attention', count: attention.length };
+    }
+    return limits.length === 1 && only?.until !== undefined
+      ? { kind: 'paused', count: 1, until: only.until }
+      : { kind: 'paused', count: limits.length };
   }
   const updating = shown.filter(
     ({ state }) => checking(state) || backfill(state) !== undefined,
@@ -167,10 +237,49 @@ type Shown = Readonly<{
   kind: SyncStatus['kind'];
   label: string;
   percent: number | undefined;
+  // Gmail's time, after a paused label.
+  detail?: string;
 }>;
 
+// Formats an ISO instant as the device's time of day.
+const useClock = () => {
+  const { time } = useMessageDateFormats();
+  return (iso: string) => time.format(Date.parse(iso));
+};
+
+const spokenOf = ({ label, detail }: Shown) =>
+  detail === undefined ? label : `${label}, ${detail}`;
+
+// VoiceOver hears a failure or Gmail's pause as it appears, not progress.
+const announced = (said: Shown | undefined) =>
+  said === undefined || said.kind === 'progress' ? undefined : spokenOf(said);
+
+const sameSaid = (last: Shown | undefined, current: Shown) =>
+  last?.label === current.label &&
+  last.percent === current.percent &&
+  last.detail === current.detail;
+
 // What the capsule says about a status, with the combined percentage while progress is measurable.
-const describe = (t: Translate, status: SyncStatus): Shown => {
+const describe = (
+  t: Translate,
+  status: SyncStatus,
+  time: (iso: string) => string,
+): Shown => {
+  if (status.kind === 'paused') {
+    return {
+      kind: 'paused',
+      label:
+        status.count === 1
+          ? t('syncStatus.paused')
+          : t('syncStatus.pausedAccounts', { count: status.count }),
+      percent: undefined,
+      ...(status.until === undefined
+        ? {}
+        : {
+            detail: t('syncStatus.pausedUntil', { time: time(status.until) }),
+          }),
+    };
+  }
   if (status.kind === 'attention') {
     return {
       kind: 'attention',
@@ -219,6 +328,7 @@ export function SyncStatusCapsule({
   refreshing,
   now,
   onTryAgain,
+  sidebarShown = false,
 }: {
   readonly shown: readonly InboxMailbox[];
   // While a refresh the person started runs.
@@ -226,9 +336,12 @@ export function SyncStatusCapsule({
   readonly now: number;
   // Synchronizes these mailboxes again.
   readonly onTryAgain: (loaded: readonly InboxMailbox[]) => Promise<void>;
+  // The shown sidebar reports Gmail's pause in the capsule's place.
+  readonly sidebarShown?: boolean;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  const clock = useClock();
   const status = syncStatusOf(shown);
   const waited = useWaited(status?.kind === 'progress');
   const [retrying, setRetrying] = useState(false);
@@ -243,16 +356,18 @@ export function SyncStatusCapsule({
     // Not in `finally`: React Compiler cannot compile a finally clause.
     setRetrying(false);
   };
-  const current = status === undefined ? undefined : describe(t, status);
+  const current = status === undefined ? undefined : describe(t, status, clock);
+  // Try Again has nothing to do for a mailbox still waiting for Gmail's time.
+  const retryable = shown.filter(
+    ({ state }) => failed(state) && !waitsForGmail(state),
+  );
   const open =
     current !== undefined &&
-    (current.kind === 'attention' || refreshing || retrying || waited);
+    !(current.kind === 'paused' && sidebarShown) &&
+    (current.kind !== 'progress' || refreshing || retrying || waited);
   // The closing capsule keeps what it last said while it fades.
   const [last, setLast] = useState(current);
-  if (
-    open &&
-    (last?.label !== current.label || last.percent !== current.percent)
-  ) {
+  if (open && !sameSaid(last, current)) {
     setLast(current);
   }
   // The popover closes with the capsule.
@@ -261,10 +376,7 @@ export function SyncStatusCapsule({
   }
   const [height, setHeight] = useState(0);
   const motion = useMenuMotion(open, 'grow');
-  useOutcomeAnnouncement(
-    current?.kind === 'attention' ? current.label : undefined,
-    true,
-  );
+  useOutcomeAnnouncement(announced(current), true);
   const said = open ? current : last;
   if (!motion.shown || said === undefined) {
     return null;
@@ -288,9 +400,13 @@ export function SyncStatusCapsule({
         onShowDetails={() => {
           setDetails(true);
         }}
-        onTryAgain={() => {
-          void tryAgain(shown.filter(({ state }) => failed(state)));
-        }}
+        onTryAgain={
+          retryable.length === 0
+            ? undefined
+            : () => {
+                void tryAgain(retryable);
+              }
+        }
       />
       <Popover
         title={t('syncStatus.title')}
@@ -310,7 +426,153 @@ export function SyncStatusCapsule({
   );
 }
 
-// The capsule's one line: a failure with its Try Again, or progress with a bar while measurable.
+// Gmail's pause: a clock, the label and Gmail's time, which opens Sync Status.
+function PausedStatus({
+  said,
+  onShowDetails,
+  sidebar = false,
+}: {
+  readonly said: Shown;
+  readonly onShowDetails: () => void;
+  readonly sidebar?: boolean;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const text = sidebar ? styles.sidebarLabel : styles.pausedLabel;
+  return (
+    <Pressable
+      accessibilityHint={t('syncStatus.showDetails')}
+      accessibilityLabel={spokenOf(said)}
+      accessibilityRole="button"
+      onPress={onShowDetails}
+      style={[styles.status, sidebar && styles.sidebarStatus]}>
+      <SFSymbol
+        name="clock"
+        color={colors.statusWarning}
+        size={sidebar ? 13 : 16}
+      />
+      <Text
+        numberOfLines={1}
+        style={[text, { color: colors.textPrimary }]}>
+        {said.label}
+      </Text>
+      {said.detail === undefined ? null : (
+        <Text
+          numberOfLines={1}
+          style={[text, { color: colors.textSecondary }]}>
+          {said.detail}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
+// Try Again for the given mailboxes verifies the registration, then loads them. While Gmail
+// pauses any connection until its time, each other mailbox verifies only its own connection
+// instead, so Gmail hears nothing from the paused one before then.
+export const retryMailboxes =
+  (
+    account:
+      | Readonly<{
+          refreshInbox: (
+            load: () => Promise<void>,
+            mailboxLoading?: 'explicit',
+            routed?: string,
+          ) => Promise<void>;
+        }>
+      | undefined,
+    // Every Profile's mailboxes: registration verifies all their connections.
+    all: readonly InboxMailbox[],
+    load: (loaded: readonly InboxMailbox[]) => () => Promise<void>,
+  ) =>
+  async (loaded: readonly InboxMailbox[]) => {
+    if (account === undefined) {
+      await load(loaded)();
+      return;
+    }
+    const { refreshInbox } = account;
+    if (!all.some(({ state }) => waitsForGmail(state))) {
+      await refreshInbox(load(loaded));
+      return;
+    }
+    await Promise.all(
+      loaded
+        .filter(({ state }) => !waitsForGmail(state))
+        .map((mailbox) =>
+          refreshInbox(load([mailbox]), 'explicit', mailbox.id),
+        ),
+    );
+  };
+
+// The sidebar's warning while Gmail pauses every shown mailbox that needs attention; it opens Sync
+// Status beside the sidebar.
+export function SyncStatusSidebarWarning({
+  shown,
+  now,
+  onTryAgain,
+}: {
+  readonly shown: readonly InboxMailbox[];
+  readonly now: number;
+  // Synchronizes these mailboxes again.
+  readonly onTryAgain: (loaded: readonly InboxMailbox[]) => Promise<void>;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const clock = useClock();
+  const [details, setDetails] = useState(false);
+  const status = syncStatusOf(shown);
+  const paused = status?.kind === 'paused';
+  // The popover closes with the warning.
+  if (!paused && details) {
+    setDetails(false);
+  }
+  if (!paused) {
+    return null;
+  }
+  // The full-width holder places the popover beside the sidebar's trailing edge.
+  return (
+    <View>
+      <View
+        style={[
+          styles.sidebarWarning,
+          details && { backgroundColor: colors.fillControl },
+        ]}>
+        <PausedStatus
+          sidebar
+          said={describe(t, status, clock)}
+          onShowDetails={() => {
+            setDetails(true);
+          }}
+        />
+      </View>
+      <Popover
+        beside
+        title={t('syncStatus.title')}
+        shown={details}
+        onClose={() => {
+          setDetails(false);
+        }}>
+        <SyncStatusDetails
+          shown={shown}
+          now={now}
+          onTryAgain={(mailbox) => {
+            const retry = async () => {
+              try {
+                await onTryAgain([mailbox]);
+              } catch {
+                // The popover keeps reporting the pause, and the list keeps its saved mail.
+              }
+            };
+            void retry();
+          }}
+        />
+      </Popover>
+    </View>
+  );
+}
+
+// The capsule's one line: a failure with its Try Again, Gmail's pause, or progress with a bar
+// while measurable.
 function CapsuleStatus({
   said,
   onShowDetails,
@@ -318,10 +580,19 @@ function CapsuleStatus({
 }: {
   readonly said: Shown;
   readonly onShowDetails: () => void;
-  readonly onTryAgain: () => void;
+  // Undefined while no mailbox needing attention can be tried again yet.
+  readonly onTryAgain: (() => void) | undefined;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  if (said.kind === 'paused') {
+    return (
+      <PausedStatus
+        said={said}
+        onShowDetails={onShowDetails}
+      />
+    );
+  }
   return said.kind === 'attention' ? (
     <View style={styles.status}>
       <Pressable
@@ -338,13 +609,15 @@ function CapsuleStatus({
           {said.label}
         </Text>
       </Pressable>
-      <View style={styles.inline}>
-        <Action
-          label={t('syncStatus.tryAgain')}
-          onPress={onTryAgain}
-          variant="banner"
-        />
-      </View>
+      {onTryAgain === undefined ? null : (
+        <View style={styles.inline}>
+          <Action
+            label={t('syncStatus.tryAgain')}
+            onPress={onTryAgain}
+            variant="banner"
+          />
+        </View>
+      )}
     </View>
   ) : (
     <Pressable
@@ -423,10 +696,16 @@ function SyncStatusDetails({
     synchronizedAt.length === 0
       ? undefined
       : Math.min(...synchronizedAt.map((at) => Date.parse(at)));
+  const updated =
+    oldest === undefined
+      ? t('syncStatus.refresh')
+      : t('syncStatus.updatedAt', { time: time.format(oldest) });
+  const paused = shown.some(({ state }) => limited(state));
   return (
     <View
       testID="sync-status-details"
-      style={styles.details}>
+      // The paused frames draw the popover 20pt narrower.
+      style={[styles.details, paused && { width: 320 }]}>
       <Label
         accessibilityRole="header"
         style={[
@@ -435,41 +714,54 @@ function SyncStatusDetails({
         ]}>
         {t('syncStatus.title')}
       </Label>
-      {shown.map((mailbox, index) => (
-        <View
-          key={mailbox.id}
-          style={styles.connection}>
-          {index === 0 ? null : (
-            <View
-              style={[
-                styles.separator,
-                { backgroundColor: colors.separator, marginBottom: spacing.s },
-              ]}
-            />
-          )}
-          <Connection
-            mailbox={mailbox}
-            now={now}
-            onTryAgain={() => {
-              onTryAgain(mailbox);
-            }}
-          />
-        </View>
-      ))}
+      <View style={[styles.connections, { backgroundColor: colors.fillQuiet }]}>
+        {shown.map((mailbox, index) => (
+          <View key={mailbox.id}>
+            {index === 0 ? null : (
+              <View
+                style={[
+                  styles.separator,
+                  { backgroundColor: colors.separator },
+                ]}
+              />
+            )}
+            <View style={styles.connection}>
+              <Connection
+                mailbox={mailbox}
+                now={now}
+                paused={paused}
+                onTryAgain={() => {
+                  onTryAgain(mailbox);
+                }}
+              />
+            </View>
+          </View>
+        ))}
+      </View>
+      {/* While Gmail limits a mailbox, refreshing cannot reach it; saved mail and sending go on. */}
       <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
-        {oldest === undefined
-          ? t('syncStatus.refresh')
-          : t('syncStatus.updatedAt', { time: time.format(oldest) })}
+        {paused ? t('syncStatus.pausedFooter', { context: 'mac' }) : updated}
       </Label>
     </View>
   );
 }
 
+// What Gmail's usage limit means for one connection, with Gmail's time when it named one.
+const limitStatus = (
+  t: Translate,
+  { times, until }: NonNullable<ReturnType<typeof limitOf>>,
+  clock: (iso: string) => string,
+) =>
+  until === undefined
+    ? t('gmailSync.limited', { count: times, ordinal: true })
+    : t('gmailSync.limitedUntil', { time: clock(until), context: 'popover' });
+
 // What one connection is doing, as its row in the popover says it.
 const connectionStatus = (
   t: Translate,
   { provider, state }: InboxMailbox,
-  now: number,
+  // When it was last up to date, as the row says it.
+  updatedAt: (at: string) => string | undefined,
 ) => {
   const name = t(`mailProviders.${provider ?? 'gmail'}`);
   const imap = provider === 'imap';
@@ -506,7 +798,7 @@ const connectionStatus = (
     state.kind === 'ready' &&
     'synchronizedAt' in state &&
     state.synchronizedAt !== undefined
-      ? lastUpdated(t, [state.synchronizedAt], now)
+      ? updatedAt(state.synchronizedAt)
       : undefined;
   return updated === undefined
     ? t('syncStatus.upToDate')
@@ -516,16 +808,27 @@ const connectionStatus = (
 function Connection({
   mailbox,
   now,
+  paused,
   onTryAgain,
 }: {
   readonly mailbox: InboxMailbox;
   readonly now: number;
+  // While Gmail pauses a shown connection, the frames give the clock time of the last update.
+  readonly paused: boolean;
   readonly onTryAgain: () => void;
 }) {
   const { t } = useLocalization();
   const colors = usePalette();
+  const clock = useClock();
   const attention = failed(mailbox.state);
-  const percent = percentOf([mailbox.state]);
+  const limit = limitOf(mailbox.state);
+  // A paused backfill does not move, so its bar is left out.
+  const percent = limit === undefined ? percentOf([mailbox.state]) : undefined;
+  const upToDate =
+    mailbox.state.kind === 'ready' &&
+    !attention &&
+    !checking(mailbox.state) &&
+    backfill(mailbox.state) === undefined;
   const title = `${t(`mailProviders.${mailbox.provider ?? 'gmail'}`)} · ${
     mailbox.address ?? mailbox.id
   }`;
@@ -534,8 +837,16 @@ function Connection({
       <View style={styles.title}>
         {attention ? (
           <SFSymbol
-            name="exclamationmark.triangle.fill"
+            name={
+              limit === undefined ? 'exclamationmark.triangle.fill' : 'clock'
+            }
             color={colors.statusWarning}
+          />
+        ) : null}
+        {upToDate ? (
+          <SFSymbol
+            name="checkmark.circle.fill"
+            color={colors.statusSuccess}
           />
         ) : null}
         <View style={{ flex: 1 }}>
@@ -547,7 +858,8 @@ function Connection({
             {title}
           </Label>
         </View>
-        {attention ? (
+        {/* A paused connection offers Try Again below its status instead. */}
+        {attention && limit === undefined ? (
           <View style={styles.inline}>
             <Action
               accessibilityLabel={t('syncStatus.tryAgainFor', {
@@ -561,8 +873,20 @@ function Connection({
         ) : null}
       </View>
       <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
-        {connectionStatus(t, mailbox, now)}
+        {limit === undefined
+          ? connectionStatus(t, mailbox, (at) =>
+              paused ? clock(at) : lastUpdated(t, [at], now),
+            )
+          : limitStatus(t, limit, clock)}
       </Label>
+      {limit === undefined ? null : (
+        <LimitActions
+          title={title}
+          until={limit.until}
+          now={now}
+          onTryAgain={onTryAgain}
+        />
+      )}
       {percent === undefined ? null : (
         <View
           accessible
@@ -573,5 +897,41 @@ function Connection({
         </View>
       )}
     </>
+  );
+}
+
+// Try Again below a paused connection's status: unavailable, beside Gmail's time, until that time;
+// otherwise one attempt.
+function LimitActions({
+  title,
+  until,
+  now,
+  onTryAgain,
+}: {
+  readonly title: string;
+  readonly until: string | undefined;
+  readonly now: number;
+  readonly onTryAgain: () => void;
+}) {
+  const { t } = useLocalization();
+  const colors = usePalette();
+  const clock = useClock();
+  const waiting =
+    until !== undefined && now < Date.parse(until) ? until : undefined;
+  return (
+    <View style={styles.limitActions}>
+      <Button
+        accessibilityLabel={t('syncStatus.tryAgainFor', { account: title })}
+        label={t('syncStatus.tryAgain')}
+        fill="accent"
+        disabled={waiting !== undefined}
+        onPress={onTryAgain}
+      />
+      {waiting === undefined ? null : (
+        <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
+          {t('syncStatus.availableAt', { time: clock(waiting) })}
+        </Label>
+      )}
+    </View>
   );
 }

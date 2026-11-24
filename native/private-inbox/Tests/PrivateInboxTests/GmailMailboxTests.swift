@@ -601,6 +601,11 @@ extension PrivateInboxTests {
     }
     #expect(try await store.restore()["kind"] == "connected")
     #expect(try store.openMailbox(current)["document"] as? String == document)
+    // A connection Gmail paused keeps this process's access and work while a restore forgets the rest.
+    let kept = store.generation(currentSubject)
+    store.forgetMailboxAccess(keeping: [current])
+    #expect(store.generation(currentSubject) == kept)
+    #expect(try store.openMailbox(current)["availability"] == nil)
     google.verificationFailure = URLError(.timedOut)
     #expect(try await store.restore()["kind"] == "cached")
     google.verificationFailure = RegistrationError.gmailUnavailable

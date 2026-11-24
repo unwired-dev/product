@@ -81,6 +81,7 @@ const NativePopover = requireNativeComponent<
   ViewProps & {
     readonly shown: boolean;
     readonly below?: boolean;
+    readonly beside?: boolean;
     readonly contentWidth: number;
     readonly contentHeight: number;
     readonly title: string;
@@ -154,6 +155,8 @@ const styles = StyleSheet.create({
   // The popover points at the holder's top edge; the host itself takes no space.
   popoverHost: { position: 'absolute', top: 0, left: 0, right: 0, height: 0 },
   popoverHostBelow: { top: undefined, bottom: 0 },
+  // Beside the holder, it opens from the holder's trailing edge, level with its bottom.
+  popoverHostBeside: { top: undefined, left: undefined, bottom: 0, width: 0 },
   // Laid out at its own size, which the popover takes.
   popoverContent: { position: 'absolute', top: 0, left: 0 },
   group: {
@@ -1040,6 +1043,7 @@ export function Popover({
   title,
   shown,
   below = false,
+  beside = false,
   onClose,
   children,
 }: {
@@ -1047,6 +1051,8 @@ export function Popover({
   readonly title: string;
   readonly shown: boolean;
   readonly below?: boolean;
+  // Opens beside the trailing edge, as from the sidebar.
+  readonly beside?: boolean;
   readonly onClose: () => void;
   readonly children: ReactNode;
 }) {
@@ -1059,6 +1065,7 @@ export function Popover({
   return (
     <NativePopover
       below={below}
+      beside={beside}
       contentHeight={size.height}
       contentWidth={size.width}
       onClose={() => {
@@ -1066,7 +1073,12 @@ export function Popover({
         onClose();
       }}
       shown={shown && size.height > 0}
-      style={[styles.popoverHost, below && styles.popoverHostBelow]}
+      style={[
+        styles.popoverHost,
+        below && styles.popoverHostBelow,
+        // Its holder's bottom, as tall as the popover, which AppKit centres beside it.
+        beside && [styles.popoverHostBeside, { height: size.height }],
+      ]}
       title={title}>
       {presented ? (
         // The popover takes this one view as its content, so Fabric must not flatten it.
