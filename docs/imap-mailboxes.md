@@ -2248,7 +2248,7 @@ password manager by running
   sampled after that. Afterwards the run folder was deleted, an IMAP count found the
   mailbox's original six folders and 1 message, **Sign Out of This Device** returned the
   app to Welcome, and the Simulator was deleted. The scan of step 5 above covered the
-  36,100 files written since the run began under `~/.agent-device`, T3 Code's data
+  43,543 files written since the run began under `~/.agent-device`, T3 Code's data
   directory (its device sessions, state database and logs), `~/Library/Logs`, Xcode's
   DerivedData, the shell history, the temporary directories, the repository's `artifacts`,
   the operator's scratch files and this run's session transcript; no file held a password
