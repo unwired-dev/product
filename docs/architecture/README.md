@@ -90,7 +90,7 @@ scheduled delivery are not implicit first-release requirements.
 
 - [Draft table editing](draft-table-editing.md): the chosen editor for tables in
   the iPhone, iPad and Mac composers, its probe evidence and the #1268 slices,
-  pending the owner's Tiptap decision.
+  after the owner adopted the Tiptap page.
 
 ## Existing architecture sources
 
