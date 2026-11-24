@@ -30,22 +30,23 @@ Host load was 5–700 from other work.
   clipped. The audit reported none of these. The new width check fails there,
   first on "Sign Out on This Device", 38.7 points wide.
 - After: at these sizes a Settings row puts its value and controls beneath its
-  title, pop-up choices, destinations, the account name and mailbox addresses wrap, and monogram
-  letters keep their circle's size.
+  title, pop-up choices, destinations, the account name and mailbox addresses
+  wrap, and monogram letters keep their circle's size.
 - iPhone 18 Pro passed the step in the whole journey: every screen passed the
-  audit and the width check. The reach check, added after review, passed in a
-  probe like iPad's. The journey then stops at the composer step that
-  follows, which no longer reaches **Show Cc and Bcc**
+  audit and the width check. The reach check, added after review, passed on
+  the final build in a probe like iPad's. The journey then stops at the
+  composer step that follows, which no longer reaches **Show Cc and Bcc**
   ([#2736](https://github.com/unwired-dev/product/issues/2736)). Of five runs,
   three reached that step and stopped there; two stopped earlier, at focus and
   typing waits.
 - iPad Pro 11-inch (M5) stops after the Inbox audit
   ([#1873](https://github.com/unwired-dev/product/issues/1873)), before the
   step, so it ran in a probe: an uncommitted copy of the journey that runs the
-  step after the Inbox audit. It printed `PROBE2730`. Every screen passed the
-  audit, the width check and the reach check. The 248-point sidebar still
-  breaks single words between characters ("Accoun/ts", "Readin/g"), and the detail's one-line title
-  truncates ("Acco…"); that layout waits for approved frames in
+  step after the Inbox audit. It printed `PROBE2730`. On the final build every
+  screen passed the audit, the width check and the reach check. The 248-point
+  sidebar still breaks single words between characters ("Accoun/ts",
+  "Readin/g"), and the detail's one-line title truncates ("Acco…"); that
+  layout waits for approved frames in
   [#2735](https://github.com/unwired-dev/product/issues/2735).
 - Settings › Signatures holds the signature editor, whose Dynamic Type finding
   is a known gap from
@@ -57,7 +58,9 @@ Host load was 5–700 from other work.
   Settings bar title no longer scale at any size, so at the default size they
   are unchanged. The same journey's default-size audit of the Settings list
   passed on iPhone. A default-size comparison of each destination is deferred.
-- **Light appearance, landscape, VoiceOver and physical devices are deferred.**
+- The final build's step also passed in Light, on iPad in the probe and on
+  iPhone in a probe that captured the PR's screenshots.
+- **Landscape, VoiceOver and physical devices are deferred.**
 
 ## iPhone and iPad Remind Me to Send time zone line, 2026-11-23
 

@@ -3524,6 +3524,10 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(destination.waitForExistence(timeout: 10))
     XCTAssertEqual(app.textFields["Text"].value as? String, "reply")
     XCTAssertEqual(destination.value as? String, "https://example.com")
+    // Both steps relaunch at the largest text size.
+    app.launchArguments += [
+      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+    ]
     try verifySettingsLargestText(app)
     try verifyComposerLargestText(app, draft: draft, pad: pad)
   }
@@ -3533,9 +3537,6 @@ final class InboxTests: XCTestCase {
   private func verifyComposerLargestText(_ app: XCUIApplication, draft: XCUIElement, pad: Bool)
     throws
   {
-    app.launchArguments += [
-      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
-    ]
     // An audit leaves the app at the system's text size, with its inputs still at the largest
     // (#2231), so each audited screen starts from a fresh launch.
     func reopen() {
@@ -3572,9 +3573,6 @@ final class InboxTests: XCTestCase {
   // text, and no title is squeezed beside its value, a letter to a line, which the audit does not
   // flag. As for the composer, each audited screen starts from a fresh launch.
   private func verifySettingsLargestText(_ app: XCUIApplication) throws {
-    app.launchArguments += [
-      "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
-    ]
     let phone = UIDevice.current.userInterfaceIdiom == .phone
     let query = app.textFields["Type a command"]
     func verifyUnsqueezed(_ screen: String) throws {
@@ -3614,17 +3612,17 @@ final class InboxTests: XCTestCase {
       let screen = destination ?? "Settings"
       try verifyUnsqueezed(screen)
       try audit(app, "\(screen) at the largest text size", for: [.textClipped, .dynamicType])
-      guard let destination else { continue }
-      // Each control in the destination scrolls into reach, checked on a fresh launch because the
-      // audit leaves the app at the system's text size. On iPad the swipe scrolls the detail, so the
-      // check skips the 256pt sidebar (8pt inset and 248pt panel), whose list scrolls apart.
+      if destination == nil && !phone { continue }
+      // Each control scrolls into reach, checked on a fresh launch because the audit leaves the app
+      // at the system's text size. On iPad the swipe scrolls the detail, so the check skips the
+      // 256pt sidebar (8pt inset and 248pt panel), whose list scrolls apart.
       open(destination)
       let controls = app.buttons.allElementsBoundByIndex + app.switches.allElementsBoundByIndex
       for control in controls where phone || control.frame.minX >= 256 {
         for _ in 0..<8 where !control.isHittable {
           app.swipeUp()
         }
-        XCTAssertTrue(control.isHittable, "\(control.label) is out of reach in \(destination)")
+        XCTAssertTrue(control.isHittable, "\(control.label) is out of reach in \(screen)")
       }
     }
   }
