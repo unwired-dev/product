@@ -1975,6 +1975,47 @@ describe('storing Drafts', () => {
         ).document,
       ),
     ).toStrictEqual([intro, keep, table, end]);
+    // Pasting a copy of a line before it keeps the table after the line itself.
+    const pasted = applyText(
+      [intro, keep, end],
+      'Intro\nKeep\nNew\nKeep\nEnd',
+      {
+        selection: { start: 6, end: 6 },
+      },
+    ).document;
+    expect(pasted[3]).toBe(keep);
+    expect(withText([intro, keep, table, end], pasted)).toStrictEqual([
+      intro,
+      keep,
+      { kind: 'paragraph', spans: [{ text: 'New' }] },
+      keep,
+      table,
+      end,
+    ]);
+    // Rewriting the lines before the table keeps it before the next line.
+    const meet = {
+      kind: 'paragraph',
+      spans: [{ text: 'We can meet.' }],
+    } as const;
+    const talk = {
+      kind: 'paragraph',
+      spans: [{ text: 'We can talk.' }],
+    } as const;
+    const agenda = { kind: 'paragraph', spans: [{ text: 'Agenda' }] } as const;
+    const thanks = { kind: 'paragraph', spans: [{ text: 'Thanks' }] } as const;
+    const rewritten = replaceSelection(
+      [meet, talk, agenda, thanks],
+      { start: 0, end: 26 },
+      'Let’s meet to talk.\n',
+    ).document;
+    expect(
+      withText([meet, talk, table, agenda, thanks], rewritten),
+    ).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Let’s meet to talk.' }] },
+      table,
+      agenda,
+      thanks,
+    ]);
     // Formatting across a table keeps it in place.
     const both: TableDocument = [
       { kind: 'paragraph', spans: [{ text: 'First' }] },
