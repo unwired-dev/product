@@ -2228,9 +2228,14 @@ describe('connected Gmail Inbox', () => {
     expect(
       screen.getByText('Starred: “Saturday, by the river?”.'),
     ).toBeVisible();
-    // On iPhone, More's Labels opens the labels to add or remove, since Move is a picker.
+    // On iPhone, More's Labels opens the labels to add or remove in a system sheet, since Move is a
+    // picker.
     await chooseFromMenu(screen.getByLabelText('More'), 'Labels');
-    expect(screen.getByRole('header', { name: 'Labels' })).toBeVisible();
+    expect(
+      within(screen.getByTestId('bottom-sheet')).getByRole('header', {
+        name: 'Labels',
+      }),
+    ).toBeVisible();
     await act(async () => {
       await fireEvent.press(
         screen.getByRole('checkbox', { name: 'Travel', checked: false }),
@@ -2914,8 +2919,6 @@ describe('connected Gmail Inbox', () => {
         name: 'Unread. Rowan Hale. Garden plans',
       }),
     );
-    // The system menu owns its presentation and dismissal; no reader panel opens behind it.
-    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
     // Only opening the message changed it: it is read.
     expect(graph.modifies).toStrictEqual([{ message: plans, read: true }]);
     await chooseFromMenu(screen.getByLabelText('More'), 'Mark as Unread');

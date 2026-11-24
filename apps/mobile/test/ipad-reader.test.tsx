@@ -261,17 +261,17 @@ describe('iPad reader', () => {
       </InboxProvider>,
     );
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
-    expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
+    expect(screen.getByTestId('popover')).toBeVisible();
     imap.server.capabilities.moves = false;
     await act(inbox.load);
-    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+    expect(screen.queryByTestId('popover')).toBeNull();
     // Restoring the capability does not reopen the retired panel.
     imap.server.capabilities.moves = true;
     await act(inbox.load);
     expect(
       screen.getByRole('button', { name: 'Folders', expanded: false }),
     ).toBeVisible();
-    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+    expect(screen.queryByTestId('popover')).toBeNull();
     // On iPad More is the system menu the frames draw.
     const sections: ReadonlyArray<{ items: ReadonlyArray<{ title: string }> }> =
       screen.getByLabelText('More').props.sections;
@@ -320,7 +320,7 @@ describe('iPad reader', () => {
     });
   });
 
-  it('creates a Gmail label from Labels in the panel the labels were shown in', async () => {
+  it('creates a Gmail label from Labels in the popover the labels were shown in', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ messages: 0 });
     gmail.createLabel('Clients');
@@ -340,11 +340,15 @@ describe('iPad reader', () => {
     await fireEvent.press(
       await screen.findByRole('button', { name: 'Labels' }),
     );
-    await fireEvent.press(screen.getByRole('button', { name: 'New Label…' }));
+    await fireEvent.press(
+      within(screen.getByTestId('popover')).getByRole('button', {
+        name: 'New Label…',
+      }),
+    );
     const labels = within(screen.getByTestId('new-label'));
-    // Labels takes the labels' place beneath the toolbar, whose Move hides it.
+    // Labels takes the labels' place in the system popover on the toolbar's Labels, which hides it.
     expect(
-      within(screen.getByTestId('reader-panels')).getByTestId('new-label'),
+      within(screen.getByTestId('popover')).getByTestId('new-label'),
     ).toBeVisible();
     expect(
       screen.getByRole('button', { name: 'Hide Labels', expanded: true }),
@@ -482,12 +486,12 @@ describe('iPad reader', () => {
     );
     await render(reader(first));
     await fireEvent.press(screen.getByRole('button', { name: 'Folders' }));
-    expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
+    expect(screen.getByTestId('popover')).toBeVisible();
     await screen.rerender(reader(second));
     expect(
       screen.getByRole('button', { name: 'Folders', expanded: false }),
     ).toBeVisible();
-    expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+    expect(screen.queryByTestId('popover')).toBeNull();
   });
 
   /* oxlint-disable vitest/max-expects -- One reader journey covers Labels, the saved-only notice and Reply All. */
@@ -578,22 +582,20 @@ describe('iPad reader', () => {
         expect(
           screen.getByText('This Gmail mailbox has no labels of its own yet.'),
         ).toBeVisible();
-        expect(screen.getByTestId('reader-panels')).toHaveStyle({
-          position: 'absolute',
-        });
+        expect(screen.getByTestId('popover')).toBeVisible();
         await fireEvent.press(
           screen.getByRole('button', { name: 'Hide Labels' }),
         );
         await fireEvent.press(screen.getByRole('button', { name: 'Labels' }));
-        expect(screen.getByTestId('reader-panel-dismissal')).toBeOnTheScreen();
+        expect(screen.getByTestId('popover')).toBeVisible();
         const { openMailbox } = gmail.native;
         gmail.native.openMailbox = async () => ({
           ...(await openMailbox()),
           availability: 'retry',
         });
         await act(inbox.load);
-        // Organizing that becomes unavailable takes its open panel and dismissal with it.
-        expect(screen.queryByTestId('reader-panel-dismissal')).toBeNull();
+        // Organizing that becomes unavailable takes its open popover with it.
+        expect(screen.queryByTestId('popover')).toBeNull();
         expect(
           isScrollable(
             screen.getByText(

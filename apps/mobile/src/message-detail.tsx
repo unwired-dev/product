@@ -35,7 +35,6 @@ import {
 import {
   ActivityIndicator,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -826,27 +825,6 @@ function MessageToolbar({
   );
 }
 
-// While a toolbar panel is open, a tap outside it closes the panel and reaches nothing beneath.
-// The reader places it under its toolbar, which stays usable.
-function PanelDismissal({
-  panel,
-  onPanel,
-}: {
-  readonly panel: ReaderPanel | undefined;
-  readonly onPanel: (panel: ReaderPanel | undefined) => void;
-}) {
-  return panel === undefined ? null : (
-    <Pressable
-      accessible={false}
-      testID="reader-panel-dismissal"
-      onPress={() => {
-        onPanel(undefined);
-      }}
-      style={StyleSheet.absoluteFill}
-    />
-  );
-}
-
 // The open message's context menu: the commands its reader offers, grouped as the design orders
 // them, with Delete last.
 function MessageMenu({
@@ -1153,7 +1131,7 @@ function MailboxMessage({
             {header ? <ReaderHeader subject={message.subject} /> : null}
             {compact ? null : (
               <View
-                // Its empty width leaves taps to the panel dismissal beneath.
+                // Its empty width leaves taps to the message beneath.
                 pointerEvents="box-none"
                 style={styles.topToolbar}>
                 {toolbar}
@@ -1182,15 +1160,11 @@ function MailboxMessage({
                 connection={mailbox?.id}
               />
             </ReaderScrollView>
-            <PanelDismissal
-              panel={panel}
-              onPanel={setPanel}
-            />
             {compact ? (
               <>
                 <ReaderEdge />
                 <View
-                  // The gaps between its groups leave taps to the panel dismissal beneath.
+                  // The gaps between its groups leave taps to the message beneath.
                   pointerEvents="box-none"
                   style={[
                     styles.bottomToolbar,

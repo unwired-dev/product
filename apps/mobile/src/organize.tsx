@@ -7,7 +7,17 @@ import type {
 import type { PersistentInbox } from '@private-email/mail-core/persistent-inbox';
 import type { ReactElement, ReactNode, RefObject } from 'react';
 
-import { Host, Popover, RNHostView } from '@expo/ui/swift-ui';
+import {
+  BottomSheet,
+  Group,
+  Host,
+  Popover,
+  RNHostView,
+} from '@expo/ui/swift-ui';
+import {
+  presentationBackground,
+  presentationDetents,
+} from '@expo/ui/swift-ui/modifiers';
 import {
   commandTarget,
   organizeCommands,
@@ -44,7 +54,6 @@ import type { ThreadAction } from './reply-sheet.tsx';
 import { RegisterCommands } from './command-palette.tsx';
 import {
   GlassGroup,
-  GlassPanel,
   MenuButton,
   Notice,
   scaledToolbar,
@@ -78,11 +87,14 @@ const placed = (picker: ReactElement) =>
 // remove. New Label… among the labels opens Labels, to create one.
 export type ReaderPanel = 'folders' | 'more' | 'newLabel';
 
+// Gmail's labels to add or remove, given what New Label… runs.
+type Labels = (newLabel: () => void) => ReactNode;
+
 // The iPad reader toolbar's top edge sits 15.3pt beneath the safe area, at y47.3 as the frames draw
 // it, so its centre shares the top row's line 36pt beneath the safe area.
 export const readerToolbarInset = 15.3;
 
-// At most one panel is open. The reader holds which, so a tap outside the panel can close it.
+// At most one panel is open, and the reader holds which.
 type PanelState = Readonly<{
   panel: ReaderPanel | undefined;
   onPanel: (panel: ReaderPanel | undefined) => void;
@@ -99,16 +111,8 @@ const styles = StyleSheet.create({
   // The iPhone toolbar's More, sized as its other buttons.
   compactMoreButton: { width: 44, height: 44, alignItems: 'center' },
   groups: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 * ipadListScale },
-  // Panels open above a bottom toolbar and below a top one; the reader positions the whole.
-  panels: { maxHeight: 280, flexGrow: 0 },
-  floatingPanels: {
-    position: 'absolute',
-    // Beneath the toolbar, also when its groups wrap in a narrow pane.
-    top: '100%',
-    marginTop: spacing.s,
-    right: spacing.l,
-    gap: spacing.s,
-  },
+  // iPad's labels in the popover on the toolbar's Labels, as wide as New Label's form there.
+  labelsPopover: { width: 400, maxHeight: 280, flexGrow: 0 },
   panel: { gap: 4, padding: spacing.l },
   labelRow: {
     flexDirection: 'row',
@@ -426,25 +430,59 @@ export function MessageActionsNotice({ id }: { readonly id: string }) {
 const returned = (name: string, spam: boolean) =>
   name === 'restore' && spam ? 'notSpam' : name;
 
-// More's panel: Gmail's labels to add or remove on iPhone, which More's menu or the Reply sheet
-// opens. VoiceOver's escape gesture closes it, as no button toggles it.
-function MorePanel({
-  labels,
-  onPanel,
+// iPhone's Gmail labels to add or remove, which More's menu or the Reply sheet opens in a system
+// sheet, as the #1683 frames draw. New Label… opens its own sheet once this one finishes
+// dismissing, since a sibling sheet cannot present before then.
+function LabelsSheet({
+  open,
+  renderLabels,
+  onClose,
+  onNewLabel,
 }: {
-  readonly labels: ReactNode;
-  readonly onPanel: PanelState['onPanel'];
+  readonly open: boolean;
+  readonly renderLabels: Labels;
+  readonly onClose: () => void;
+  readonly onNewLabel: () => void;
 }) {
+  const colors = usePalette();
+  const { t } = useLocalization();
+  const [creating, setCreating] = useState(false);
   return (
-    <ScrollView style={styles.panels}>
-      <View
-        style={styles.panel}
-        onAccessibilityEscape={() => {
-          onPanel(undefined);
+    <Host matchContents>
+      <BottomSheet
+        isPresented={open}
+        onIsPresentedChange={(presented) => {
+          if (!presented) {
+            onClose();
+          }
+        }}
+        onDismiss={() => {
+          if (creating) {
+            setCreating(false);
+            onNewLabel();
+          }
         }}>
-        {labels}
-      </View>
-    </ScrollView>
+        <Group
+          modifiers={[
+            presentationDetents(['medium', 'large']),
+            presentationBackground(colors.surfacePanel),
+          ]}>
+          <RNHostView>
+            <ScrollView contentContainerStyle={styles.panel}>
+              <Text
+                accessibilityRole="header"
+                style={[styles.secondary, { color: colors.textSecondary }]}>
+                {t('gmailActions.labels')}
+              </Text>
+              {renderLabels(() => {
+                setCreating(true);
+                onClose();
+              })}
+            </ScrollView>
+          </RNHostView>
+        </Group>
+      </BottomSheet>
+    </Host>
   );
 }
 
@@ -462,7 +500,7 @@ const menuActions = (t: ReturnType<typeof useLocalization>['t']) =>
   }) as const;
 
 // More: the system menu the iPad frames draw: read state, Move to Spam (Not Spam in Spam) and
-// Move to…, then Trash's Move to Inbox and Gmail's Labels, which toggle in place in More's panel. The
+// Move to…, then Trash's Move to Inbox and Gmail's Labels, which open in their own sheet. The
 // iPhone toolbar has no Delete or Pin, so its menu ends with Delete and starts with Pin.
 function MoreButton({
   more,
@@ -471,7 +509,7 @@ function MoreButton({
   readonly more: Readonly<{
     toggle: () => void;
     actions: readonly Named[];
-    labels?: ReactNode;
+    renderLabels?: Labels | undefined;
   }>;
   // Move's destinations, which open beneath the toolbar.
   readonly folders:
@@ -525,7 +563,7 @@ function MoreButton({
         {
           items: [
             ...items(['restore']),
-            ...(more.labels === undefined
+            ...(more.renderLabels === undefined
               ? []
               : [
                   {
@@ -593,7 +631,7 @@ const threadActions = (
           run: folders.show.run,
         },
       ]),
-  ...(more.labels === undefined
+  ...(more.renderLabels === undefined
     ? []
     : [
         {
@@ -673,7 +711,7 @@ const lastGroup = (
       />
     ),
     more.actions.length === 0 &&
-    more.labels === undefined &&
+    more.renderLabels === undefined &&
     folders === undefined ? null : (
       <MoreButton
         key="more"
@@ -709,9 +747,8 @@ function Toolbar({
           // The Reply sheet's entry, which opens the destinations even when they are shown.
           show: Readonly<{ label: string; run: () => void }>;
         } & (
-          | { panel: ReactNode }
           | { sheet: ReactNode }
-          // Move's destinations in the system popover on the toolbar's Move.
+          // Move's destinations, or iPad's Gmail labels, in the system popover on the toolbar's Move.
           | { popover: ReactElement }
         )
       >
@@ -722,8 +759,8 @@ function Toolbar({
     // The actions More lists, which the iPhone Reply sheet offers instead.
     actions: readonly Named[];
     // Gmail's labels to add or remove, which More lists on iPhone, where Move is a picker. The
-    // Reply sheet opens them in More's panel.
-    labels?: ReactNode;
+    // Reply sheet opens them in the same sheet.
+    renderLabels?: Labels | undefined;
   }>;
   readonly pin?: PinAction | undefined;
   readonly children: ReactNode;
@@ -741,22 +778,12 @@ function Toolbar({
       onPanel(undefined);
     };
   }, [shown, onPanel]);
-  const [shownPanel, setShownPanel] = useState<ReaderPanel>('more');
   // Mail that cannot be answered, such as IMAP mail, has no Reply sheet and keeps More.
   const [replySheet, setReplySheet] = useState(false);
   const thread = {
     offered: setReplySheet,
     actions: threadActions(t, { archive, folders, more, onPanel }),
   };
-  const foldersOpen =
-    folders !== undefined && 'panel' in folders && folders.open;
-  if (foldersOpen && shownPanel !== 'folders') {
-    setShownPanel('folders');
-  } else if (more.open && shownPanel !== 'more') {
-    setShownPanel('more');
-  }
-  const foldersPanel =
-    shownPanel === 'folders' && folders !== undefined && 'panel' in folders;
   return (
     <>
       <PinCommand pin={pin} />
@@ -778,21 +805,18 @@ function Toolbar({
         />
       </View>
       {folders !== undefined && 'sheet' in folders ? folders.sheet : null}
-      <View
-        pointerEvents="box-none"
-        testID="reader-panels"
-        style={compact ? undefined : styles.floatingPanels}>
-        <GlassPanel open={foldersOpen || more.open}>
-          {foldersPanel ? (
-            folders.panel
-          ) : (
-            <MorePanel
-              labels={more.labels}
-              onPanel={onPanel}
-            />
-          )}
-        </GlassPanel>
-      </View>
+      {more.renderLabels === undefined ? null : (
+        <LabelsSheet
+          open={more.open}
+          renderLabels={more.renderLabels}
+          onClose={() => {
+            onPanel(undefined);
+          }}
+          onNewLabel={() => {
+            onPanel('newLabel');
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1063,7 +1087,7 @@ const shownMessage = <Listed,>(
   ('found' in state ? state.found?.find((item) => item.id === id) : undefined);
 
 // The Labels or Folders toggle. New Label… opens Labels, to create a Gmail label and apply it: an
-// iPhone sheet above the toolbar, or on iPad the labels' own panel. While it shows, the toggle
+// iPhone sheet above the toolbar, or on iPad the labels' own popover. While it shows, the toggle
 // reads Hide Labels and closes it.
 const labelsToggle = (panel: ReaderPanel | undefined, picker: boolean) => {
   const labeling = panel === 'newLabel';
@@ -1150,8 +1174,7 @@ function GmailMessageActions({
   // iPhone moves through the shared picker, as Microsoft's folders always do.
   const picker = folders || compact;
   const labels = labelsToggle(panel, picker);
-  // Microsoft folders have no labels to create.
-  const newLabel = folders ? undefined : (
+  const newLabel = (
     <NewLabel
       open={labels.labeling}
       labels={state.labels}
@@ -1166,7 +1189,7 @@ function GmailMessageActions({
     />
   );
   // Labels to add or remove, each with Move to unless the picker moves instead.
-  const labelControls = (moves: boolean) => (
+  const labelControls = (moves: boolean, createLabel: () => void) => (
     <>
       {state.labels.length === 0 ? (
         <Text style={[styles.secondary, { color: colors.textSecondary }]}>
@@ -1212,9 +1235,7 @@ function GmailMessageActions({
       {folders ? null : (
         <ActionButton
           label={t('gmailActions.newLabel')}
-          onPress={() => {
-            setPanel('newLabel');
-          }}
+          onPress={createLabel}
         />
       )}
     </>
@@ -1243,7 +1264,8 @@ function GmailMessageActions({
           })
         }
       />
-      {compact ? newLabel : null}
+      {/* Microsoft folders have no labels to create. */}
+      {compact && !folders ? newLabel : null}
       <Toolbar
         onPanel={setPanel}
         labeling={labels.sheet}
@@ -1320,11 +1342,16 @@ function GmailMessageActions({
                 />,
               )
             : {
-                panel: labels.labeling ? (
+                // New Label… takes the labels' place in the same popover.
+                popover: labels.labeling ? (
                   newLabel
                 ) : (
-                  <ScrollView style={styles.panels}>
-                    <View style={styles.panel}>{labelControls(true)}</View>
+                  <ScrollView style={styles.labelsPopover}>
+                    <View style={styles.panel}>
+                      {labelControls(true, () => {
+                        setPanel('newLabel');
+                      })}
+                    </View>
                   </ScrollView>
                 ),
               }),
@@ -1343,17 +1370,10 @@ function GmailMessageActions({
                 act(action);
               },
             })),
-          labels:
-            picker && !folders ? (
-              <>
-                <Text
-                  accessibilityRole="header"
-                  style={[styles.secondary, { color: colors.textSecondary }]}>
-                  {t('gmailActions.labels')}
-                </Text>
-                {labelControls(false)}
-              </>
-            ) : undefined,
+          renderLabels:
+            picker && !folders
+              ? (createLabel) => labelControls(false, createLabel)
+              : undefined,
         }}>
         {children}
       </Toolbar>

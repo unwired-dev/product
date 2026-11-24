@@ -378,7 +378,7 @@ function LabelForm({
   );
 }
 
-// iPhone shows Labels in a system sheet; iPad in the reader's panel beneath its toolbar.
+// iPhone shows Labels in a system sheet; iPad in the labels' popover on the reader's toolbar.
 export function NewLabel(props: Parameters<typeof LabelForm>[0]) {
   const colors = usePalette();
   const { height } = useWindowDimensions();

@@ -552,8 +552,8 @@ opens a native sheet on the opaque content surface: the sender's initials, name 
 message preview beside a Close button, then Reply, Reply All, Forward and Archive
 tiles and the Thread's other actions in grouped rows — read state, then
 Move, **Labels** for Gmail, Move to Spam (**Not Spam** in Spam, **Move to Inbox** in
-Trash) and Delete, offering only what the provider supports. **Labels** opens the label checkboxes in a glass panel above the toolbar; a tap
-outside it or VoiceOver's escape gesture closes it.
+Trash) and Delete, offering only what the provider supports. **Labels** opens the label checkboxes in a native sheet; a swipe down or VoiceOver's
+escape gesture closes it.
 The system owns Reply's presentation, dismissal and swipe-down gesture. Choosing an
 action closes the sheet before running it. For every
 provider, iPhone's **Folders** opens the Move picker in a full-height native sheet on the
@@ -574,9 +574,11 @@ search field, the account, then its folders as above. A tap outside or Escape cl
 moving anything, the system keeps it clear of the keyboard, and choosing a folder closes it and
 moves the message. On
 iPhone, **Labels** in More's menu opens the same label checkboxes under a **Labels**
-heading. On iPhone and iPad, **New Label…** after the label checkboxes
+heading, in that sheet. On iPad, **Labels** in the toolbar opens the label checkboxes, each
+with Move to, in a system popover on it; a tap outside or Escape closes it. On iPhone and iPad, **New Label…** after the label checkboxes
 ([#2441](https://github.com/unwired-dev/product/issues/2441)) opens **Labels**: a native sheet
-on iPhone, and on iPad the panel the checkboxes were in. It names the Gmail account, starts in a
+on iPhone, once the label checkboxes' sheet has closed, and on iPad the popover the checkboxes
+were in. It names the Gmail account, starts in a
 label name field and lists the account's labels, under **Matching labels** once a name is typed.
 A name no label has offers **Create “Acme” inside “Clients”** (a slash
 nests the label, as in Gmail) or **Create “Acme”**; that row, **Apply** or Return creates the
@@ -587,10 +589,8 @@ applies the existing label, or **Edit Name**. When Gmail refuses the name or can
 an alert says the label could not be created, nothing is applied and the name stays to edit.
 **Cancel** changes nothing and is unavailable while Gmail creates the label; closing **Labels**
 another way meanwhile still creates and applies it, and still explains a refusal. Labels already on
-the Thread stay. Menu panels ease in from their
-toolbar and fade out on iPhone and iPad; with Reduce Motion
-they only fade. The Reply sheet and the Move picker are system presentations and move as iOS presents
-them. The action buttons and label checkboxes are keyboard-focusable
+the Thread stay. The Reply sheet, the Move picker and the
+label checkboxes are system presentations and move as iOS presents them. The action buttons and label checkboxes are keyboard-focusable
 and show the system keyboard focus indicator. After a removal, **Undo** appears in the Inbox. For every provider, a
 row that leaves the list collapses and fades in 200 ms while the rows below follow it up, and
 Undo, a refused or rolled-back change, or a discarded one grows it back from its current height
