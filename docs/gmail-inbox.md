@@ -1661,10 +1661,19 @@ limit ([#2488](https://github.com/unwired-dev/product/issues/2488)); it never as
 for authorization again. Saved mail stays readable, and changes made meanwhile are
 saved and wait. When Gmail's message names a time (`Retry after <instant>`),
 nothing synchronizes the mailbox before it, neither activation, refresh nor
-**Try Again**, and synchronization runs again at that time; activation still
-verifies the saved grant, as it does for every connection. That verification
-reads Gmail's profile, and the same usage limit there, like a 429, keeps the saved
-Inbox open from its cache and asks for no authorization
+**Try Again**, and synchronization runs again at that time. Registration
+verification, which renews the grant and reads Gmail's profile, skips the
+mailbox until then too, on activation, refresh, any **Try Again** and push wakes,
+including while locked or unreadable storage hides the pause
+([#2745](https://github.com/unwired-dev/product/issues/2745)). The mailbox keeps the
+access this process verified, so changes made meanwhile are still saved, and a
+mailbox this process has not verified opens its saved Inbox from its cache; the
+automatic attempt at that time verifies it again. While any Gmail mailbox
+is paused, full registration verification also skips push watch renewal, which
+asks Gmail, for every connection. Otherwise activation verifies
+the saved grant, as it does for every connection, and the same usage limit on
+Gmail's profile, like a 429, keeps the saved Inbox open from its cache and asks for
+no authorization
 ([#2502](https://github.com/unwired-dev/product/issues/2502)). Without a time, or with
 one already past, synchronization tries again after one minute, doubling with
 each limit in a row up to half an hour, and earlier when the person asks for

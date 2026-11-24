@@ -23,7 +23,7 @@ import type {
   NativeMailTemplateSync,
   NativeMailTemplates,
 } from './mail-templates.ts';
-import type { NativeGmailMailboxes } from './mailboxes.ts';
+import type { Mailboxes, NativeGmailMailboxes } from './mailboxes.ts';
 import type { NativeNotifications } from './notifications.ts';
 import type { NativeDeliveryClaim } from './outbox.ts';
 import type { NativePins } from './pins.ts';
@@ -177,7 +177,7 @@ export function createHost(
     void errorReporting.setEnabled(false);
     return request();
   };
-  const registration = createRegistration({
+  const registrationVault: NativeRegistrationVault = {
     registration: () => native().registration(),
     signInIdentity: (provider, hint) =>
       observe('sign-in', 'sign-in-failed', () =>
@@ -222,7 +222,8 @@ export function createHost(
     sealProfileRecord: (record) => native().sealProfileRecord(record),
     openProfileRecords: (records) => native().openProfileRecords(records),
     recordProfiles: (state) => native().recordProfiles(state),
-    forgetMailboxAccess: () => native().forgetMailboxAccess(),
+    forgetMailboxAccess: (keeping = []) =>
+      native().forgetMailboxAccess(keeping),
     retryMailboxCleanup: () => native().retryMailboxCleanup(),
     refreshMailbox: (connection) => native().refreshMailbox(connection),
     signInMailbox: (connection, suggest, provider) =>
@@ -249,7 +250,13 @@ export function createHost(
     stopMailboxWatches: () => native().stopMailboxWatches(),
     confirmRecoveryKey: (entry) => native().confirmRecoveryKey(entry),
     readsAsRecoveryKey: (entry) => native().readsAsRecoveryKey(entry),
-  });
+  };
+  // The Inboxes opened below; verification asks Gmail nothing before a time Gmail named one.
+  let inboxes: Mailboxes | undefined = undefined;
+  const registration = createRegistration(
+    registrationVault,
+    () => inboxes?.paused() ?? [],
+  );
 
   // Mailbox or Draft work found this device removed and native code purged it.
   const removed = () => {
@@ -500,6 +507,7 @@ export function createHost(
       relocated: (connection, from, to) => pins.move(connection, from, to),
     },
   );
+  inboxes = gmailMailboxes;
 
   // The signed-in Product Account's encrypted Drafts on this device, synchronized through Product
   // Sync with its other Trusted Devices.

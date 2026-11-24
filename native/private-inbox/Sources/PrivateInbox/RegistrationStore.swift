@@ -619,11 +619,12 @@ typealias BackendTransport = @MainActor (BackendRequest) async throws -> (Int, D
     if mode != .renew { session = identity }
   }
 
-  // Forgets which connections verified, invalidating all suspended mailbox work.
-  func forgetMailboxAccess() {
-    mailboxGenerations = [:]
-    verifiedMailboxes = []
-    cacheOnlyMailboxes = []
+  // Forgets which connections verified, invalidating all suspended mailbox work, except for the
+  // connections `keeping` names, which keep this process's access and work.
+  func forgetMailboxAccess(keeping: Set<String> = []) {
+    mailboxGenerations = mailboxGenerations.filter { keeping.contains($0.key) }
+    verifiedMailboxes = verifiedMailboxes.intersection(keeping)
+    cacheOnlyMailboxes = cacheOnlyMailboxes.intersection(keeping)
   }
 
   func mailboxGeneration(_ id: String) -> UUID {
