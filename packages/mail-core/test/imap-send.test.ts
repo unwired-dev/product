@@ -221,6 +221,35 @@ describe('sending through SMTP and filing Sent copies', () => {
     }
   });
 
+  it('shows the filed copy in an open Sent folder without a pull-down', async () => {
+    expect.hasAssertions();
+    const sending = await imapSender();
+    try {
+      const { inbox } = present(
+        sending.mailboxes
+          .getConnections()
+          .find(({ id: connection }) => connection === work.id),
+        'mailbox',
+      );
+      if (!('openFolder' in inbox)) {
+        throw new Error('Expected an IMAP Inbox');
+      }
+      await inbox.openFolder('Sent');
+      expect(inbox.folder('Sent')).toMatchObject({ messages: [] });
+      const id = await sending.addressed();
+      await sending.outbox.send(() => sending.draft(id));
+      later(undoSendWindow);
+      await sending.outbox.process();
+      expect(sending.drafts.getOutbox()).toStrictEqual([]);
+      expect(inbox.folder('Sent')).toMatchObject({
+        status: 'current',
+        messages: [{ subject: 'Lunch' }],
+      });
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
   it('files the copy again after a lost answer or a relaunch, without a second copy or submission', async () => {
     expect.hasAssertions();
     const sending = await imapSender();

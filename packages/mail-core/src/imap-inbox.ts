@@ -3474,8 +3474,24 @@ export function createImapInbox(
     );
   // Files an accepted message's copy in the Sent folder the server declares, unless a copy with its
   // Message-ID is there already, as after a lost answer to an earlier filing. Resolves undefined
-  // once the copy is there, or why it still waits.
-  const fileSent = (
+  // once the copy is there, after a cached Sent folder is read again to show it, or why it still
+  // waits.
+  const fileSent = async (
+    message: OutgoingSend,
+    id: string,
+  ): Promise<DeliveryProblem | undefined> => {
+    const problem = await appendSent(message, id);
+    const folder = imapRoleFolder(document?.folders ?? [], 'sent');
+    if (
+      problem === undefined &&
+      folder !== undefined &&
+      cacheOf(folder) !== undefined
+    ) {
+      await openFolder(folder);
+    }
+    return problem;
+  };
+  const appendSent = (
     message: OutgoingSend,
     id: string,
   ): Promise<DeliveryProblem | undefined> => {
