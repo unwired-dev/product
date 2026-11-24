@@ -1,5 +1,5 @@
 diff --git a/ios/Popover/PopoverView.swift b/ios/Popover/PopoverView.swift
-index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..1fdea4f8e9f726a0d673fd9ce101eb5b7f7f0cd3 100644
+index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..40438dc6edc33fbba41534916b5333fde3493525 100644
 --- a/ios/Popover/PopoverView.swift
 +++ b/ios/Popover/PopoverView.swift
 @@ -14,14 +14,14 @@ internal struct PopoverView: ExpoSwiftUI.View {
@@ -45,7 +45,7 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..1fdea4f8e9f726a0d673fd9ce101eb5b
    @ViewBuilder
    private var popoverContent: some View {
      if let content = props.children?.slot("popover") {
-@@ -55,3 +73,99 @@ internal struct PopoverView: ExpoSwiftUI.View {
+@@ -55,3 +73,101 @@ internal struct PopoverView: ExpoSwiftUI.View {
      }
    }
  }
@@ -70,11 +70,13 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..1fdea4f8e9f726a0d673fd9ce101eb5b
 +internal final class ArrowlessPopoverController: UIViewController {
 +  // The gap between the control and the popover in the approved Filters frame.
 +  private static let gap: CGFloat = 13
-+  // The sidebar can show or hide while the popover is open, as when the iPad rotates.
++  // The sidebar can show or hide while the popover is open, as when the iPad rotates. Nothing else
++  // lays the open popover out again then, so the new rect would wait for the next layout.
 +  var leading = false {
 +    didSet {
 +      if leading != oldValue, let presented {
 +        place(presented)
++        presented.popoverPresentationController?.containerView?.setNeedsLayout()
 +      }
 +    }
 +  }
