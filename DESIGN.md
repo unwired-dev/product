@@ -556,7 +556,9 @@ content.
   material ("Liquid Glass - Medium") in its Light or Dark variant. On iPhone
   and iPad, toolbar control groups use interactive system glass with their
   controls inside the material and no opaque backing fill; menus, sheets and
-  structural surfaces keep passive material.
+  structural surfaces keep passive material. The Mac Link Editor popover backs
+  its controls with `surface/panel` at 92% over the glass, so its hint keeps
+  4.5:1 over a dark window behind ([#1794](https://github.com/unwired-dev/product/issues/1794)).
 - Small glass controls (48pt or less) use a soft shadow: 8pt blur, 2pt down, 8%
   black in Light and 30% in Dark. Large glass (sidebar) uses 16pt blur, 4pt
   down. Menus and sheets keep a deeper shadow so they read as floating: 8pt down

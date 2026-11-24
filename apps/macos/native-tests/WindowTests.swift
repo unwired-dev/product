@@ -2999,10 +2999,8 @@ final class WindowTests: XCTestCase {
       pasteboard.writeObjects(saved)
     }
     let app = XCUIApplication(url: appURL)
-    app.launchArguments += ["-interfaceLanguage", "en"]
-    app.launchArguments +=
-      appearance == "Dark"
-      ? ["-AppleInterfaceStyle", "Dark"] : ["-NSRequiresAquaSystemAppearance", "YES"]
+    // Settings › Appearance for this launch, which the app applies whatever the Mac's appearance.
+    app.launchArguments += ["-interfaceLanguage", "en", "-UnwiredAppearance", appearance.lowercased()]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     let window = app.windows["Inbox 1"]
@@ -3665,11 +3663,6 @@ final class WindowTests: XCTestCase {
     where type == .staticText && screen == "Privacy & Data"
       && ["Use Private Cloud", "Turn on Mail Assistance above to use Private Cloud."].contains(label):
       return "Inactive control"
-    // Light's primary hint on popover glass renders about 5:1 where the popover overlaps a dark
-    // window behind, yet the audit flags it.
-    case .contrast
-    where type == .staticText && label == "Enter a web, email or phone link for the selected text.":
-      return "#1794"
     case .contrast where type == .staticText:
       return issue.element.flatMap { drawnContrastGap($0, in: app) }
     case .action where touchBar, .sufficientElementDescription where touchBar:
