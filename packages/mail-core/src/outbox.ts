@@ -394,7 +394,8 @@ export function createOutbox({
       if (awaiting !== undefined && (yield* answer(awaiting)) !== undefined) {
         return false;
       }
-      const sentAt = yield* Clock.currentTimeMillis;
+      // Read on each compare-and-set attempt, so a retried step keeps a current time.
+      const clock = yield* Clock.Clock;
       return yield* write(id, (entry) =>
         awaitingOutcome(entry.state)
           ? {
@@ -402,7 +403,7 @@ export function createOutbox({
               ...(outcome.message === undefined
                 ? {}
                 : { message: outcome.message }),
-              sentAt,
+              sentAt: clock.currentTimeMillisUnsafe(),
             }
           : undefined,
       );
@@ -702,12 +703,12 @@ export function createOutbox({
           mailbox.inbox.fileSent(entry.message, messageId),
         )) ?? (yield* answer(entry));
     }
-    const sentAt = yield* Clock.currentTimeMillis;
+    const clock = yield* Clock.Clock;
     yield* write(
       entry.id,
       step('filing', (each) => {
         if (problem === undefined) {
-          return { id: each.id, sentAt };
+          return { id: each.id, sentAt: clock.currentTimeMillisUnsafe() };
         }
         return problem === each.problem
           ? undefined

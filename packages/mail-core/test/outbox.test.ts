@@ -1,3 +1,5 @@
+import { format } from 'node:util';
+
 import type { SendCheck } from '@private-email/mail-core/outbox';
 
 import * as Schema from 'effect/Schema';
@@ -553,9 +555,7 @@ describe('sending a Draft through the Outbox', () => {
         code: 'synthetic-claim-failure',
       }),
     );
-    const errors = vi
-      .spyOn(console, 'error')
-      .mockImplementation(() => undefined);
+    const errors = vi.spyOn(console, 'error').mockReturnValue(undefined);
     later(undoSendWindow);
 
     await sending.outbox.process();
@@ -563,7 +563,7 @@ describe('sending a Draft through the Outbox', () => {
       { id, state: 'queued', claim: 'requested', problem: 'offline' },
     ]);
     expect(gmail.sends).toStrictEqual([]);
-    const logged = JSON.stringify(errors.mock.calls);
+    const logged = errors.mock.calls.map((call) => format(...call)).join('\n');
     errors.mockRestore();
     expect(logged).toContain('Delivery claim failed:');
     expect(logged).toContain('unrecognized code');
