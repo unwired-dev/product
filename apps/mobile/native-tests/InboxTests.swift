@@ -3851,8 +3851,8 @@ final class InboxTests: XCTestCase {
       return "React Native multiline text input (#2231)"
     // The iPad Mailboxes sidebar's SwiftUI Edit button (#2769).
     case .dynamicType
-    where UIDevice.current.userInterfaceIdiom == .pad && issue.element?.elementType == .button
-      && label == "Edit":
+    where UIDevice.current.userInterfaceIdiom == .pad
+      && issue.element?.identifier == "mailboxes-edit":
       return "Mailboxes Edit button (#2769)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:

@@ -289,6 +289,10 @@ jest.mock('@expo/ui/swift-ui/modifiers', () => ({
     $type: 'accessibilityAddTraits',
     traits,
   }),
+  accessibilityIdentifier: (identifier) => ({
+    $type: 'accessibilityIdentifier',
+    identifier,
+  }),
   accessibilityLabel: (label) => ({ $type: 'accessibilityLabel', label }),
   accessibilityHint: (hint) => ({ $type: 'accessibilityHint', hint }),
   background: (style, shape) => ({ $type: 'background', style, shape }),

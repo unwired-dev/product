@@ -15,6 +15,7 @@ import type { LayoutChangeEvent, ScrollViewInstance } from 'react-native';
 
 import { Host, Button as SwiftUIButton } from '@expo/ui/swift-ui';
 import {
+  accessibilityIdentifier,
   buttonBorderShape,
   buttonStyle,
   controlSize,
@@ -1320,6 +1321,7 @@ function EditButton({
         <SwiftUIButton
           label={t('mailboxes.edit')}
           modifiers={[
+            accessibilityIdentifier('mailboxes-edit'),
             buttonStyle(compact ? 'glass' : 'borderless'),
             controlSize(compact ? 'large' : 'regular'),
             tint(colors.textPrimary),
