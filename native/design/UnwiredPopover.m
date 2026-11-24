@@ -87,9 +87,19 @@
 // NSPopover has no property to hide its arrow (#2254). Shown against the whole bounds of its
 // positioning view, it drops the arrow and stays in place once those bounds shift by a point. A
 // resize places it again, so it is placed against the unshifted bounds.
+// The popover centres on the edge, which moves along so the popover stays 16pt inside the window,
+// as the toolbar does; AppKit keeps it only on the screen (#2459).
 - (void)anchor:(BOOL)anchored
 {
-  _edge.frame = NSInsetRect(self.bounds, 0, -0.5);
+  NSRect edge = NSInsetRect(self.bounds, 0, -0.5);
+  NSView *content = self.window.contentView;
+  if (content != nil) {
+    CGFloat inset = 16 + self.contentWidth / 2;
+    CGFloat middle = NSMidX([self convertRect:edge toView:content]);
+    CGFloat placed = MAX(MIN(middle, NSMaxX(content.bounds) - inset), NSMinX(content.bounds) + inset);
+    edge.origin.x += placed - middle;
+  }
+  _edge.frame = edge;
   _edge.bounds = (NSRect){NSMakePoint(0, anchored ? 0 : 1), _edge.frame.size};
 }
 - (void)popoverWillShow:(NSNotification *)notification
@@ -101,6 +111,16 @@
   NSResponder *focused = window.firstResponder;
   if ([focused isKindOfClass:NSTextView.class] && ((NSTextView *)focused).isFieldEditor) {
     focused = (NSResponder *)((NSTextView *)focused).delegate;
+    // AppKit edits the input again as the window becomes key, and the field editor of this first
+    // edit stays behind, drawing the placeholder under the typed text (#2459). The first edit
+    // ends here, unseen by React, which keeps the input focused.
+    if ([focused isKindOfClass:NSTextField.class]) {
+      NSTextField *field = (NSTextField *)focused;
+      id<NSTextFieldDelegate> delegate = field.delegate;
+      field.delegate = nil;
+      [window endEditingFor:field];
+      field.delegate = delegate;
+    }
   }
   if ([focused isKindOfClass:NSView.class]) window.initialFirstResponder = (NSView *)focused;
 }
