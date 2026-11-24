@@ -375,7 +375,8 @@ actions as [Gmail's received attachments](gmail-inbox.md#received-attachments):
   **Try Again**.
 - **Removal.** A saved file is deleted when the message's last reader closes, the
   Inbox closes, and with the connection, sign-out, account deletion, device removal
-  and relaunch. Like saved bodies, attachments follow the folder identity the
+  and relaunch. A file that **Forward** or **Attach to New Message** is copying into
+  a Draft is deleted only once that copy has finished or failed. Like saved bodies, attachments follow the folder identity the
   connection's encrypted cache commits: once a successful folder synchronization
   records a new UIDVALIDITY, the saved files of the folder's earlier messages are
   deleted and their downloads in flight are dropped, even while a reader still
@@ -528,7 +529,10 @@ then the rest in listing order, leaving out Trash and Spam, including chosen one
 search covers up to 50 folders and the newest 50 matches of each, and says when folders
 or older matches were left out; a folder the server no longer selects is skipped. IMAP
 results join Gmail's and Microsoft's in the unified Inbox, newest first, and open in the
-reader without being saved.
+reader without being saved. A result leaves the open search once a change made here
+moves it out of its folder or finds it no longer on the server; one another client
+deleted or moved stays listed until then or until the next search
+([#2451](https://github.com/unwired-dev/product/issues/2451)).
 
 ## Sending
 

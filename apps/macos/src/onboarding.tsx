@@ -351,8 +351,8 @@ export function Welcome({
                 style={({ pressed }) => [
                   styles.continue,
                   styles.privacy,
-                  // On the deep page the focus ring takes the page's ink, as the Outbox toast's does,
-                  // and the pressed fill the Dark value, the page being deep in both appearances.
+                  // On the deep page the focus ring takes the page's ink, and the pressed fill the
+                  // Dark value, the page being deep in both appearances.
                   {
                     outlineColor: privacyFocused
                       ? colors.brandOnDeep

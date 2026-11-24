@@ -349,6 +349,8 @@ export type ImapInboxState =
       readonly address: string;
       // The Inbox folder's messages, newest first, with changes not yet applied by the server.
       readonly messages: readonly ImapMessage[];
+      // Online search results the reader can open, kept in memory only until the Inbox closes.
+      readonly found?: readonly ImapMessage[];
       readonly status: Sync;
       // When the Inbox folder's last completed read began, as an ISO instant; absent before one.
       readonly synchronizedAt?: string;
@@ -1391,6 +1393,7 @@ export function createImapInbox(
       kind: 'ready',
       address: opened.address,
       messages: projected(messages, changes()),
+      ...(found.size === 0 ? {} : { found: [...found.values()] }),
       status: shownStatus,
       ...(synchronizedAt === undefined ? {} : { synchronizedAt }),
       folders: roleFolders(document.folders),
@@ -3388,6 +3391,7 @@ export function createImapInbox(
         for (const message of messages) {
           found.set(message.id, message);
         }
+        render();
         return {
           kind: 'found',
           messages,
@@ -3798,7 +3802,7 @@ export function createImapInbox(
     presentAttachment: attachments.presentAttachment,
     saveAttachmentCopy: attachments.saveAttachmentCopy,
     saveAttachmentToDownloads: attachments.saveAttachmentToDownloads,
-    attachmentFile: attachments.attachmentFile,
+    holdAttachmentFile: attachments.holdAttachmentFile,
     // Loads an opened message's Remote Message Content, as for Gmail: from the Authorized Remote
     // Content Cache, and with `network` also through the isolated native fetch.
     loadRemoteImages: remoteContent.load,

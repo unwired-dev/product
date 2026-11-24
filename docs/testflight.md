@@ -365,7 +365,7 @@ The [Release workflow](../.github/workflows/release.yml) runs on every push to
 `main`, tracked in [#725](https://github.com/unwired-dev/product/issues/725).
 
 The plan job runs [`changesets/action`](https://github.com/changesets/action)
-with two repository scripts:
+with two repository scripts, then creates the GitHub Release with a third:
 
 ```text
 push to main
@@ -374,10 +374,16 @@ push to main
            force-updates `changeset-release/main` and opens or updates the
            "Version packages" pull request
     no  -> scripts/release-tag.sh: merged version PR with an untagged version?
-           yes -> the action creates tag vX.Y.Z and its GitHub Release from
-                  the mobile changelog, then both hosts upload to TestFlight
+           yes -> the action pushes tag vX.Y.Z; scripts/release-github.sh
+                  creates its GitHub Release from the mobile changelog, then
+                  both hosts upload to TestFlight
            no  -> stop
 ```
+
+The Release body is the version's section of `apps/mobile/CHANGELOG.md`.
+GitHub refuses a body over 125,000 characters, so a longer section (counted in
+bytes) is replaced by links to both hosts' changelogs at the tag, and the
+release still uploads in the same run.
 
 Merging the version pull request is the release decision. Both hosts carry the
 same version: they are a fixed Changesets group, and both scripts refuse to
@@ -402,18 +408,20 @@ attributed to the token owner. Version planning refuses a pushed commit that is
 no longer current `main`, before changing versions or updating the version PR;
 run the Release workflow for current `main` instead. Current runs rewrite the
 version branch from the pushed commit, including unchanged reruns. Release runs
-queue instead of replacing pending runs. The
-personal token is available only to the action step; checkout and dependency
-installation use the read-only workflow token. That step runs the release
-scripts and `changeset version` from the pushed commit, so code merged to
-`main` is trusted with the token's contents and pull-request write access.
-Limiting the secret to one step does not isolate that code.
+queue instead of replacing pending runs. The personal token is available only
+to the action and Release steps; checkout and dependency installation use the
+read-only workflow token. Those steps run the release scripts and
+`changeset version` from the pushed commit, so code merged to `main` is trusted
+with the token's contents and pull-request write access. Limiting the secret to
+two steps does not isolate that code.
 
 If an upload fails after the tag exists, rerun the failed TestFlight job of that
 Release run, or dispatch the TestFlight workflow for the tag. Rerunning the plan
 job finds the tag at the merge commit and stops without uploading; it refuses a
-tag that points to another commit. If the action created the tag but not its
-GitHub Release, create it with `gh release create vX.Y.Z --verify-tag`.
+tag that points to another commit. If the tag exists but its GitHub Release does
+not, the plan job failed before either upload: create the Release with
+`gh release create vX.Y.Z --verify-tag`, then dispatch the TestFlight workflow
+for the tag with `platform=both`.
 
 ```sh
 gh workflow run testflight.yml -f platform=macos -f ref=vX.Y.Z

@@ -124,6 +124,39 @@ describe('outbox execution opportunities', () => {
     }
   });
 
+  it('cancels the wake while paused or disposed and wakes once at the original deadline after resume', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const { server, gmail } = sharedAccount();
+    const phone = await sender(server, gmail, 'phone');
+    try {
+      const id = await addressed(phone);
+      // Draft synchronization keeps its own pending timer; the rest is the Outbox's wake.
+      const others = vi.getTimerCount();
+      await phone.outbox.send(() => phone.draft(id));
+      expect(vi.getTimerCount()).toBe(others + 1);
+      await vi.advanceTimersByTimeAsync(4000);
+      phone.outbox.pause();
+      expect(vi.getTimerCount()).toBe(others);
+      await vi.advanceTimersByTimeAsync(2000);
+      await phone.outbox.resume();
+      expect(vi.getTimerCount()).toBe(others + 1);
+      await vi.advanceTimersByTimeAsync(undoSendWindow - 6001);
+      expect(gmail.sends).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(gmail.sends).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(others);
+
+      const second = await addressed(phone);
+      await phone.outbox.send(() => phone.draft(second));
+      expect(vi.getTimerCount()).toBe(others + 1);
+      phone.outbox.dispose();
+      expect(vi.getTimerCount()).toBe(others);
+    } finally {
+      phone.outbox.dispose();
+    }
+  });
+
   it.each(['queued', 'unknown'] as const)(
     'recovers a durable %s delivery with a fresh unopened mailbox',
     async (state) => {

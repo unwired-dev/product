@@ -71,7 +71,8 @@ logging, `Clock` and `DateTime` for time, `Config` for environment values,
 `HttpClient` for HTTP, and `Schedule` for retries and polling.
 
 When a scheduler coordinates existing Promise-returning store actions, run only
-its Schedule steps through `runLogged` and invoke the actions from plain async
+its waits (an `Effect.sleep` on `Clock` until a deadline, or Schedule steps)
+through `runLogged` and invoke the actions from plain async
 code outside those Effects. Its owner aborts pending waits and prevents future
 actions on disposal; already-started actions settle through their own boundaries.
 

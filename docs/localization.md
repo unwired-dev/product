@@ -126,7 +126,9 @@ and iPad journey, whose Apple registration scenario also checks the Sign In page
 menu across relaunch. The
 focused Mac language journey chooses from the sign-in page's Language pop-up in two
 windows. It checks that repeated preference changes keep one Window menu entry per
-open window, remove closed windows and survive relaunch. Build with
+open window, remove closed windows and survive relaunch. Unlike the other Mac
+journeys it leaves the interface language unpinned, so System Default must
+resolve to English: run it on a Mac whose system language is English. Build with
 `UNWIRED_MOCK_SCENARIO=registration-performance` so the app opens signed out:
 
 ```sh

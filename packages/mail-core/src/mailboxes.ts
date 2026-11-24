@@ -57,12 +57,13 @@ export {
   restingRowMotion,
 } from './mailbox-motion.ts';
 export {
-  createGmailViewEntries,
   failedFolders,
+  folderListing,
   gmailMailbox,
   gmailViewRow,
   gmailViewName,
   mailboxFolder,
+  listedFolder,
   inboxChoice,
   inboxUnlisted,
   mailboxSidebar,
@@ -1232,7 +1233,7 @@ export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
   >;
   // The next page of each mailbox that has one, by mailbox ID.
   next: ReadonlyMap<string, string>;
-  // Mailboxes the provider could not search for the latest page; their earlier results stay.
+  // Mailboxes the provider could not search when last asked; their earlier results stay.
   failures: ReadonlyArray<
     Readonly<{
       mailbox: M;
@@ -1242,6 +1243,15 @@ export type OnlineSearch<M extends Searchable = Mailbox> = Readonly<{
   // IMAP mailboxes whose search left some folders out.
   limited: readonly M[];
 }>;
+
+// A mailbox not asked again, such as one whose first page failed, keeps its failure.
+const keptFailures = <M extends Searchable>(
+  asked: readonly M[],
+  previous: OnlineSearch<M> | undefined,
+) =>
+  (previous?.failures ?? []).filter(
+    ({ mailbox }) => !asked.some(({ id }) => id === mailbox.id),
+  );
 
 // Searches every given mailbox that has online search at its provider at once. With `previous`, asks each mailbox that has
 // another page for it and adds the results; a mailbox that fails keeps its page to try again. Each
@@ -1271,7 +1281,7 @@ export async function searchGmail<M extends Searchable>(
   const next = new Map(previous?.next);
   const results = [...(previous?.results ?? [])];
   const seen = new Set(results.map(resultKey));
-  const failures: Array<OnlineSearch<M>['failures'][number]> = [];
+  const failures = keptFailures(asked, previous);
   const limited = [
     ...(previous?.limited ?? []),
     ...pages.flatMap(([mailbox, page]) => (leftOut(page) ? [mailbox] : [])),
@@ -1310,7 +1320,8 @@ const imapSearchScope = (folders: readonly ImapFolder[] | undefined) =>
 
 // One view's online search. This composes Promise-returning Inbox actions without another Effect
 // run. Replacing the view's query or scope replaces this store, so an old answer cannot reappear.
-// Only the scope's own ready mailboxes are asked.
+// Only the scope's own ready mailboxes are asked. A result stays listed while its Inbox still
+// holds it, so one the provider confirmed deleted leaves the open search.
 export function createGmailSearch<
   M extends Readonly<{
     id: string;
@@ -1320,7 +1331,9 @@ export function createGmailSearch<
       getSnapshot: () => Readonly<{
         kind: string;
         folders?: readonly ImapFolder[];
+        found?: ReadonlyArray<Readonly<{ id: string }>>;
       }>;
+      subscribe: (listener: () => void) => () => void;
       searchGmail?: Searchable['inbox']['searchGmail'];
     }>;
   }>,
@@ -1347,11 +1360,33 @@ export function createGmailSearch<
       listener();
     }
   };
+  const held = (found: OnlineSearch<M & Searchable>) => {
+    const ids = new Map(
+      mailboxes.map(({ id, inbox }) => [
+        id,
+        new Set(inbox.getSnapshot().found?.map((message) => message.id)),
+      ]),
+    );
+    const results = found.results.filter(({ mailbox, message }) =>
+      ids.get(mailbox.id)?.has(message.id),
+    );
+    return results.length === found.results.length
+      ? found
+      : { ...found, results };
+  };
+  const prune = () => {
+    const found = state.found === undefined ? undefined : held(state.found);
+    if (found !== undefined && found !== state.found) {
+      publish({ ...state, found });
+    }
+  };
+  let unwatch: (() => void) | undefined = undefined;
   const run = async (previous?: OnlineSearch<M & Searchable>) => {
     request += 1;
     const asking = request;
     publish({ searching: true, ...(previous && { found: previous }) });
-    const found = await searchGmail(mailboxes, query, previous);
+    // A deletion confirmed while a page loads still drops its earlier result.
+    const found = held(await searchGmail(mailboxes, query, previous));
     if (asking === request) {
       publish({ searching: false, found });
     }
@@ -1360,8 +1395,22 @@ export function createGmailSearch<
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
+      if (unwatch === undefined) {
+        const stops = mailboxes.map(({ inbox }) => inbox.subscribe(prune));
+        unwatch = () => {
+          for (const stop of stops) {
+            stop();
+          }
+        };
+        // A deletion confirmed while nothing listened leaves too.
+        prune();
+      }
       return () => {
         listeners.delete(listener);
+        if (listeners.size === 0) {
+          unwatch?.();
+          unwatch = undefined;
+        }
       };
     },
     matches: (next: readonly M[], text: string, view: ViewScope) =>
