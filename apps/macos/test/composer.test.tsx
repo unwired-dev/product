@@ -3314,7 +3314,7 @@ describe('composing Drafts', () => {
     await press('Templates');
     await chooseMenuItem('New Template from This Message…');
     await templateNotSaved(
-      'Templates can’t hold tables. Remove them from the message, then try again.',
+      'Templates can’t hold tables yet, and this message has one.',
     );
     await expect(
       templates.store.templates(defaultProfile),

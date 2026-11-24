@@ -1471,7 +1471,7 @@
       "notSavedDetail": "Your message is unchanged. Choose New Template from This Message… to try again.",
       "needsName": "Give the template a name, then try again.",
       "hasImages": "Templates can’t hold inline images. Remove them from the message, then try again.",
-      "hasTables": "Templates can’t hold tables. Remove them from the message, then try again."
+      "hasTables": "Templates can’t hold tables yet, and this message has one."
     },
     "response": {
       "wrote": "On {{date}}, {{sender}} wrote:",

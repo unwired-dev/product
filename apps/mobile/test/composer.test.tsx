@@ -4456,7 +4456,7 @@ describe('composing Drafts', () => {
     await saveAsTemplate();
     expect(notSaved).toHaveBeenCalledWith(
       'Template not saved',
-      'Templates can’t hold tables. Remove them from the message, then try again.',
+      'Templates can’t hold tables yet, and this message has one.',
       [{ text: 'OK' }],
     );
     notSaved.mockRestore();
