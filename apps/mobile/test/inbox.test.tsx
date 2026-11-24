@@ -1404,6 +1404,45 @@ describe('connected Gmail Inbox', () => {
     }
   });
 
+  it('searches the iPad unified Sent list', async () => {
+    expect.hasAssertions();
+    const platform = jest.replaceProperty(
+      jest.requireActual<{ ipad: typeof ipad }>('../src/inbox-styles.ts'),
+      'ipad',
+      true,
+    );
+    try {
+      const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
+      gmail.deliver({ subject: 'Saved mail remains available' });
+      for (const subject of ['Flight to Zagreb', 'Lunch in Split']) {
+        const sent = gmail.deliver({ subject });
+        gmail.setLabel(sent, 'INBOX', false);
+        gmail.setLabel(sent, 'SENT', true);
+      }
+      await renderConnected(gmail.native);
+      await act(async () => {
+        await fireEvent.press(
+          await screen.findByRole('button', { name: 'Sent. In All Mailboxes' }),
+        );
+      });
+      await expect(
+        screen.findByRole('button', { name: /Lunch in Split/u }),
+      ).resolves.toBeVisible();
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'zagreb',
+      );
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: /Lunch in Split/u }),
+      ).toBeNull();
+    } finally {
+      platform.restore();
+    }
+  });
+
   it.each([false, true])(
     'shows one Top Results header for provider-only matches (isPad=%s)',
     async (isPad) => {

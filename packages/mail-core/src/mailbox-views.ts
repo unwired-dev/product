@@ -687,17 +687,37 @@ export const notIncludedDetail = (
 };
 
 // One window's retained Unified Mailbox views. Store identity is part of ownership, so repairing
-// a connection releases its old views before opening the replacement store's.
-export function createUnifiedMailboxRetention(changed: () => void) {
+// a connection releases its old views before opening the replacement store's. `listed` keeps its
+// Unified Mailbox until the mailboxes, role or a followed folder change, or a folder stops being
+// followed, so the list and the search results built from it keep their identity between renders.
+export function createUnifiedMailboxRetention<
+  M extends BrowsableMailbox & Readonly<{ id: string }>,
+>(changed: () => void) {
   const held = new Map<
     string,
     Readonly<{ inbox: BrowsableMailbox['inbox']; release: () => void }>
   >();
+  let last:
+    | Readonly<{
+        mailboxes: readonly M[];
+        role: UnifiedRole;
+        listed: ReturnType<typeof unifiedMailbox<M>>;
+      }>
+    | undefined = undefined;
+  const folderChanged = () => {
+    last = undefined;
+    changed();
+  };
   return {
-    update: (
-      mailboxes: ReadonlyArray<BrowsableMailbox & Readonly<{ id: string }>>,
-      role: UnifiedRole | undefined,
-    ) => {
+    listed: (mailboxes: readonly M[], role: UnifiedRole) => {
+      if (last?.mailboxes === mailboxes && last.role === role) {
+        return last.listed;
+      }
+      const listed = unifiedMailbox(mailboxes, role);
+      last = { mailboxes, role, listed };
+      return listed;
+    },
+    update: (mailboxes: readonly M[], role: UnifiedRole | undefined) => {
       const opened =
         role === undefined
           ? []
@@ -715,13 +735,14 @@ export function createUnifiedMailboxRetention(changed: () => void) {
         if (owners.get(key) !== inbox) {
           release();
           held.delete(key);
+          last = undefined;
         }
       }
       for (const { key, mailbox, name } of opened) {
         if (name !== inboxFolder && !held.has(key)) {
           held.set(key, {
             inbox: mailbox.inbox,
-            release: openUnifiedFolder(mailbox, name, changed),
+            release: openUnifiedFolder(mailbox, name, folderChanged),
           });
         }
       }
@@ -731,6 +752,7 @@ export function createUnifiedMailboxRetention(changed: () => void) {
         release();
       }
       held.clear();
+      last = undefined;
     },
   };
 }
@@ -755,8 +777,8 @@ function openUnifiedFolder(
       return state.kind === 'ready' ? state.status : undefined;
     };
     let status = statusOf();
-    void inbox.openFolder(name);
-    return inbox.subscribe(() => {
+    // Followed before it opens, so a change the opening makes at once is noticed too.
+    const unsubscribe = inbox.subscribe(() => {
       const finished = status === 'syncing';
       status = statusOf();
       if (finished && status === 'current') {
@@ -764,6 +786,8 @@ function openUnifiedFolder(
       }
       changed();
     });
+    void inbox.openFolder(name);
+    return unsubscribe;
   }
   return () => undefined;
 }
@@ -821,12 +845,9 @@ const folderMessages = (mailbox: BrowsableMailbox, name: string) => {
 // without the role are `missing`; a folder or view that could not be read makes its mailbox
 // `failed`. A mailbox still opening, or a folder or view that has listed nothing yet because its
 // first listing is still to arrive or failed, leaves the Unified Mailbox `unlisted`.
-export const unifiedMailbox = <
+export function unifiedMailbox<
   M extends BrowsableMailbox & Readonly<{ id: string }>,
->(
-  mailboxes: readonly M[],
-  role: UnifiedRole,
-) => {
+>(mailboxes: readonly M[], role: UnifiedRole) {
   const missing: M[] = [];
   const failed: M[] = [];
   let unlisted = false;
@@ -859,4 +880,4 @@ export const unifiedMailbox = <
     failed: Arr.dedupe(failed),
     unlisted,
   };
-};
+}
