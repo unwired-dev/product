@@ -16,6 +16,7 @@ import type {
 import { menuState } from '@private-email/mail-core/context-menu';
 import { radius, spacing, typography } from '@private-email/mail-core/theme';
 import {
+  createContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -1057,6 +1058,9 @@ export function AnnouncedAlert({
     </Label>
   );
 }
+
+// The height of the window's panes, which bounds a popover's content; 0 until they are laid out.
+export const WindowHeightContext = createContext(0);
 
 export function Popover({
   title,

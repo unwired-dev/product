@@ -3,10 +3,11 @@ import type { StyleProp, ViewStyle } from 'react-native';
 
 import { lastUpdated } from '@private-email/localization';
 import { radius, spacing } from '@private-email/mail-core/theme';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -17,12 +18,12 @@ import type { InboxMailbox } from './private-storage.ts';
 import { Action } from './action.tsx';
 import {
   AnimatedPanel,
-  Button,
   Glass,
   Popover,
   SFSymbol,
   useMenuMotion,
   useOutcomeAnnouncement,
+  WindowHeightContext,
 } from './design.tsx';
 import { Label } from './label.tsx';
 import { useLocalization, useMessageDateFormats } from './localization.ts';
@@ -30,6 +31,12 @@ import { textStyles, usePalette } from './theme.ts';
 
 // The Sync Status Capsule floating above the Inbox search bar, and the popover it opens, from the
 // Mac "Sync Status Capsule" and "Popover · Sync Status" Figma frames.
+
+// The window height Sync Status leaves free: the capsule's top sits 105pt above the window's
+// bottom, AppKit places the popover 13pt above it, and the popover stays 16pt inside the window's
+// top.
+const popoverClearance = 105 + 13 + spacing.l;
+
 const styles = StyleSheet.create({
   capsule: {
     width: 300,
@@ -81,9 +88,13 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     gap: spacing.m,
   },
-  // The shown connections' inset group, as the frames draw it.
+  // The shown connections' inset group, as the frames draw it, scrolling once the popover would
+  // be taller than the window.
   connections: {
+    flexGrow: 0,
     borderRadius: radius.menu,
+  },
+  connectionRows: {
     paddingHorizontal: spacing.m,
     paddingVertical: spacing.xs,
   },
@@ -102,6 +113,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  // The frames' 28pt capsule, its 12pt semibold title 14pt from either end. Unavailable, it keeps
+  // its place without a fill, its title greyed.
+  tryAgain: {
+    height: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    outlineWidth: 2,
+  },
+  tryAgainLabel: {
+    ...textStyles.subheadlineEmphasized,
+    fontSize: 12,
   },
   // The sidebar's warning while Gmail pauses the shown mailboxes, from the frames' "Sidebar Warning".
   sidebarWarning: {
@@ -701,11 +725,17 @@ function SyncStatusDetails({
       ? t('syncStatus.refresh')
       : t('syncStatus.updatedAt', { time: time.format(oldest) });
   const paused = shown.some(({ state }) => limited(state));
+  const windowHeight = use(WindowHeightContext);
   return (
     <View
       testID="sync-status-details"
-      // The paused frames draw the popover 20pt narrower.
-      style={[styles.details, paused && { width: 320 }]}>
+      style={[
+        styles.details,
+        // The paused frames draw the popover 20pt narrower.
+        paused && { width: 320 },
+        // It keeps clear of the floating bar below it and of the window's top.
+        windowHeight > 0 && { maxHeight: windowHeight - popoverClearance },
+      ]}>
       <Label
         accessibilityRole="header"
         style={[
@@ -714,7 +744,9 @@ function SyncStatusDetails({
         ]}>
         {t('syncStatus.title')}
       </Label>
-      <View style={[styles.connections, { backgroundColor: colors.fillQuiet }]}>
+      <ScrollView
+        contentContainerStyle={styles.connectionRows}
+        style={[styles.connections, { backgroundColor: colors.fillQuiet }]}>
         {shown.map((mailbox, index) => (
           <View key={mailbox.id}>
             {index === 0 ? null : (
@@ -737,7 +769,7 @@ function SyncStatusDetails({
             </View>
           </View>
         ))}
-      </View>
+      </ScrollView>
       {/* While Gmail limits a mailbox, refreshing cannot reach it; saved mail and sending go on. */}
       <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
         {paused ? t('syncStatus.pausedFooter', { context: 'mac' }) : updated}
@@ -916,19 +948,51 @@ function LimitActions({
   const { t } = useLocalization();
   const colors = usePalette();
   const clock = useClock();
+  const [focused, setFocused] = useState(false);
   const waiting =
     until !== undefined && now < Date.parse(until) ? until : undefined;
+  const disabled = waiting !== undefined;
   return (
     <View style={styles.limitActions}>
-      <Button
+      <Pressable
         accessibilityLabel={t('syncStatus.tryAgainFor', { account: title })}
-        label={t('syncStatus.tryAgain')}
-        fill="accent"
-        disabled={waiting !== undefined}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        enableFocusRing={false}
+        focusable
+        onBlur={() => {
+          setFocused(false);
+        }}
+        onFocus={() => {
+          setFocused(true);
+        }}
         onPress={onTryAgain}
-      />
+        style={({ pressed }) => [
+          styles.tryAgain,
+          {
+            backgroundColor: disabled ? 'transparent' : colors.accentFill,
+            opacity: pressed ? 0.8 : 1,
+            outlineColor:
+              focused && !disabled ? colors.accentInk : 'transparent',
+          },
+        ]}>
+        <Text
+          style={[
+            styles.tryAgainLabel,
+            disabled
+              ? { color: colors.textPrimary, opacity: 0.3 }
+              : { color: colors.accentOnFill },
+          ]}>
+          {t('syncStatus.tryAgain')}
+        </Text>
+      </Pressable>
       {waiting === undefined ? null : (
-        <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
+        <Label
+          style={[
+            styles.subtitle,
+            { alignSelf: 'center', color: colors.textSecondary },
+          ]}>
           {t('syncStatus.availableAt', { time: clock(waiting) })}
         </Label>
       )}

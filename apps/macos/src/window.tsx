@@ -40,7 +40,12 @@ import {
   useCommandRegistry,
 } from './command-palette.tsx';
 import { useRecoveryOffer } from './composer.tsx';
-import { askInSheet, GlassGroup, SFSymbol } from './design.tsx';
+import {
+  askInSheet,
+  GlassGroup,
+  SFSymbol,
+  WindowHeightContext,
+} from './design.tsx';
 import { DraftComposer } from './evaluation-composer.tsx';
 import { FolderChoiceSheet } from './folder-choice.tsx';
 import { BarOffsetContext, createBarOffset } from './inbox-bar.tsx';
@@ -479,172 +484,174 @@ function WindowContents({
     />
   );
   return (
-    <View
-      testID={`inbox-window-${windowId}`}
-      style={styles.fill}>
-      <NativeSidebar
-        thickness={sidebarPaneWidth}
-        onCollapse={({ nativeEvent }) => {
-          setCollapsed(nativeEvent.collapsed);
-        }}
-        onInset={({ nativeEvent }) => {
-          barOffset.set(nativeEvent.inset / 2);
-        }}
-        style={styles.sidebarHost}>
-        <View
-          style={[
-            styles.sidebarPane,
-            // The window's own surface shows around the floating glass sidebar, as in the frames.
-            { backgroundColor: colors.surfaceContent },
-          ]}>
-          <GlassGroup
-            style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+    <WindowHeightContext value={panes.height}>
+      <View
+        testID={`inbox-window-${windowId}`}
+        style={styles.fill}>
+        <NativeSidebar
+          thickness={sidebarPaneWidth}
+          onCollapse={({ nativeEvent }) => {
+            setCollapsed(nativeEvent.collapsed);
+          }}
+          onInset={({ nativeEvent }) => {
+            barOffset.set(nativeEvent.inset / 2);
+          }}
+          style={styles.sidebarHost}>
+          <View
+            style={[
+              styles.sidebarPane,
+              // The window's own surface shows around the floating glass sidebar, as in the frames.
+              { backgroundColor: colors.surfaceContent },
+            ]}>
+            <GlassGroup
+              style={[styles.sidebar, { boxShadow: colors.largeGlassShadow }]}>
+              <View
+                style={[
+                  styles.sidebarBacking,
+                  { backgroundColor: colors.materialSidebarBacking },
+                ]}
+              />
+              <Mailboxes
+                toggle={collapsed ? undefined : toggle}
+                view={view}
+                onView={setView}
+                onProfile={(next) => {
+                  void switchProfile(next);
+                }}
+              />
+            </GlassGroup>
+            <OutsideClickLayer />
+          </View>
+        </NativeSidebar>
+        <LinkConfirmationProvider
+          inbox={inbox}
+          id={selected?.id}>
+          <View
+            ref={recoveryAnchor}
+            style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
             <View
-              style={[
-                styles.sidebarBacking,
-                { backgroundColor: colors.materialSidebarBacking },
-              ]}
-            />
-            <Mailboxes
-              toggle={collapsed ? undefined : toggle}
-              view={view}
-              onView={setView}
-              onProfile={(next) => {
-                void switchProfile(next);
+              testID={`window-panes-${windowId}`}
+              onLayout={({ nativeEvent }) => {
+                setPanes({
+                  width: nativeEvent.layout.width,
+                  height: nativeEvent.layout.height,
+                });
+              }}
+              style={styles.panes}>
+              <BarOffsetContext value={barOffset}>
+                <Inbox
+                  composing={composing}
+                  leading={collapsed ? toggle : undefined}
+                  sidebarShown={!collapsed}
+                  reader={
+                    <View
+                      // The reader's toolbar and the rest left uncovered stay interactive above the
+                      // overlay.
+                      style={[
+                        styles.detail,
+                        { backgroundColor: colors.surfaceContent },
+                      ]}>
+                      {/* Only the categorization-spike build has a page for the empty reader. */}
+                      {selected === undefined &&
+                      CategorizationSpike !== undefined ? (
+                        <CategorizationSpike />
+                      ) : (
+                        <ReaderToolbarWidthContext value={setToolbarWidth}>
+                          {/* Another message of the same mailbox replaces the reader's, beneath an
+                            open composer. */}
+                          <OpenMessageContext
+                            value={(id) => {
+                              if (selected !== undefined) {
+                                setSelected({ mailbox: selected.mailbox, id });
+                              }
+                            }}>
+                            <ShowOutboxContext
+                              value={() => {
+                                setView({ outbox: true });
+                                setOutboxShown({});
+                              }}>
+                              <MessageDetail
+                                id={selected?.id}
+                                mailbox={selected?.mailbox}
+                                folder={selected?.folder}
+                                onClose={close}
+                                onCompose={compose}
+                              />
+                            </ShowOutboxContext>
+                          </OpenMessageContext>
+                        </ReaderToolbarWidthContext>
+                      )}
+                      {composing === undefined ? null : (
+                        <View
+                          testID="composer-overlay"
+                          style={[
+                            styles.composer,
+                            styles.composerOverlay,
+                            {
+                              height: composerHeight(panes.height),
+                              borderColor: colors.separator,
+                              boxShadow: colors.menuShadow,
+                            },
+                          ]}>
+                          <DraftComposer
+                            id={composing}
+                            recovered={recovered?.record}
+                            onClose={() => {
+                              setComposing(undefined);
+                            }}
+                            // Expand moves the saved Draft into its own New Message window.
+                            onExpand={(id) => {
+                              windowHost()?.openComposer(
+                                id,
+                                profile,
+                                `inbox-window-${windowId}`,
+                              );
+                              setComposing(undefined);
+                            }}
+                            onOpenDraft={(open) => {
+                              openDraft.current = open;
+                            }}
+                            onRebind={(id) => {
+                              setRecovered(
+                                (current) => current && { ...current, id },
+                              );
+                              setComposing(id);
+                            }}
+                          />
+                        </View>
+                      )}
+                    </View>
+                  }
+                  selected={selected}
+                  onClose={close}
+                  onCompose={compose}
+                  onSelectBehindComposer={
+                    composing === undefined ? undefined : setSelected
+                  }
+                  onSelect={(selection) => {
+                    setComposing(undefined);
+                    setSelected(selection);
+                  }}
+                  onView={setView}
+                  view={view}
+                  searchEnded={outboxShown}
+                />
+              </BarOffsetContext>
+            </View>
+            <CommandBar
+              floating={{
+                left: listWidth + spacing.l,
+                availableWidth: Math.max(
+                  0,
+                  panes.width - listWidth - 2 * spacing.l,
+                ),
+                width: commandsWidth(panes.width - listWidth, toolbarWidth),
               }}
             />
-          </GlassGroup>
-          <OutsideClickLayer />
-        </View>
-      </NativeSidebar>
-      <LinkConfirmationProvider
-        inbox={inbox}
-        id={selected?.id}>
-        <View
-          ref={recoveryAnchor}
-          style={[styles.window, { backgroundColor: colors.surfaceContent }]}>
-          <View
-            testID={`window-panes-${windowId}`}
-            onLayout={({ nativeEvent }) => {
-              setPanes({
-                width: nativeEvent.layout.width,
-                height: nativeEvent.layout.height,
-              });
-            }}
-            style={styles.panes}>
-            <BarOffsetContext value={barOffset}>
-              <Inbox
-                composing={composing}
-                leading={collapsed ? toggle : undefined}
-                sidebarShown={!collapsed}
-                reader={
-                  <View
-                    // The reader's toolbar and the rest left uncovered stay interactive above the
-                    // overlay.
-                    style={[
-                      styles.detail,
-                      { backgroundColor: colors.surfaceContent },
-                    ]}>
-                    {/* Only the categorization-spike build has a page for the empty reader. */}
-                    {selected === undefined &&
-                    CategorizationSpike !== undefined ? (
-                      <CategorizationSpike />
-                    ) : (
-                      <ReaderToolbarWidthContext value={setToolbarWidth}>
-                        {/* Another message of the same mailbox replaces the reader's, beneath an
-                            open composer. */}
-                        <OpenMessageContext
-                          value={(id) => {
-                            if (selected !== undefined) {
-                              setSelected({ mailbox: selected.mailbox, id });
-                            }
-                          }}>
-                          <ShowOutboxContext
-                            value={() => {
-                              setView({ outbox: true });
-                              setOutboxShown({});
-                            }}>
-                            <MessageDetail
-                              id={selected?.id}
-                              mailbox={selected?.mailbox}
-                              folder={selected?.folder}
-                              onClose={close}
-                              onCompose={compose}
-                            />
-                          </ShowOutboxContext>
-                        </OpenMessageContext>
-                      </ReaderToolbarWidthContext>
-                    )}
-                    {composing === undefined ? null : (
-                      <View
-                        testID="composer-overlay"
-                        style={[
-                          styles.composer,
-                          styles.composerOverlay,
-                          {
-                            height: composerHeight(panes.height),
-                            borderColor: colors.separator,
-                            boxShadow: colors.menuShadow,
-                          },
-                        ]}>
-                        <DraftComposer
-                          id={composing}
-                          recovered={recovered?.record}
-                          onClose={() => {
-                            setComposing(undefined);
-                          }}
-                          // Expand moves the saved Draft into its own New Message window.
-                          onExpand={(id) => {
-                            windowHost()?.openComposer(
-                              id,
-                              profile,
-                              `inbox-window-${windowId}`,
-                            );
-                            setComposing(undefined);
-                          }}
-                          onOpenDraft={(open) => {
-                            openDraft.current = open;
-                          }}
-                          onRebind={(id) => {
-                            setRecovered(
-                              (current) => current && { ...current, id },
-                            );
-                            setComposing(id);
-                          }}
-                        />
-                      </View>
-                    )}
-                  </View>
-                }
-                selected={selected}
-                onClose={close}
-                onCompose={compose}
-                onSelectBehindComposer={
-                  composing === undefined ? undefined : setSelected
-                }
-                onSelect={(selection) => {
-                  setComposing(undefined);
-                  setSelected(selection);
-                }}
-                onView={setView}
-                view={view}
-                searchEnded={outboxShown}
-              />
-            </BarOffsetContext>
           </View>
-          <CommandBar
-            floating={{
-              left: listWidth + spacing.l,
-              availableWidth: Math.max(
-                0,
-                panes.width - listWidth - 2 * spacing.l,
-              ),
-              width: commandsWidth(panes.width - listWidth, toolbarWidth),
-            }}
-          />
-        </View>
-      </LinkConfirmationProvider>
-    </View>
+        </LinkConfirmationProvider>
+      </View>
+    </WindowHeightContext>
   );
 }
 
