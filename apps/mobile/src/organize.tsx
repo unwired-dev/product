@@ -369,6 +369,8 @@ function FoldersButton({
     open: boolean;
     toggle: () => void;
     popover?: ReactElement;
+    // An opaque popover, as New Label's buttons need: the system's glass greys them out.
+    background?: string;
   }>;
 }) {
   const button = (
@@ -396,7 +398,14 @@ function FoldersButton({
           <RNHostView matchContents>{button}</RNHostView>
         </Popover.Trigger>
         <Popover.Content>
-          <RNHostView matchContents>{folders.popover}</RNHostView>
+          <Group
+            modifiers={
+              folders.background === undefined
+                ? []
+                : [presentationBackground(folders.background)]
+            }>
+            <RNHostView matchContents>{folders.popover}</RNHostView>
+          </Group>
         </Popover.Content>
       </Popover>
     </Host>
@@ -749,7 +758,7 @@ function Toolbar({
         } & (
           | { sheet: ReactNode }
           // Move's destinations, or iPad's Gmail labels, in the system popover on the toolbar's Move.
-          | { popover: ReactElement }
+          | { popover: ReactElement; background?: string }
         )
       >
     | undefined;
@@ -1343,6 +1352,7 @@ function GmailMessageActions({
               )
             : {
                 // New Label… takes the labels' place in the same popover.
+                background: colors.surfacePanel,
                 popover: labels.labeling ? (
                   newLabel
                 ) : (
