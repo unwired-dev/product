@@ -551,20 +551,20 @@ mail content.
   ([#2847](https://github.com/unwired-dev/product/issues/2847)).** Target, operator and
   toolchain as on 2026-11-18, on a new iPhone 18 Pro Simulator. Build: a new Release build
   from the app source of `8d5bdaa015222a84e2f7a5767fc861d63df13072`. Result: pass for
-  renewal, sending and recovery, with a defect in the refused state
+  sending after relaunch and for recovery, with a defect in the refused state
   ([#2853](https://github.com/unwired-dev/product/issues/2853)). A fresh Google Product
   Sign-In with the Recovery Key, then **Microsoft 365 and Outlook**, connected the
   personal mailbox with the passwords and the Recovery Key entered through the [Simulator
   pasteboard](imap-mailboxes.md#certification-runs-through-the-app); Microsoft reused the
   account's earlier grant without asking for consent, and the app was closed. A relaunch
-  66 minutes after connecting, once the first access token had expired, synchronized the
-  Inbox with no Microsoft sign-in, and a new message to the mailbox's own address left the
-  Outbox, appeared in **Sent Items** and arrived in the Inbox within 3 minutes. The app's
-  permissions were then removed from the Microsoft account's **Apps and services you've
-  given access**. A relaunch right afterwards still synchronized, as the renewed token had
-  not expired. A relaunch 54 minutes later opened the account page with **Connect your
-  mail** instead of the Inbox, listing the mailbox with **Microsoft needs your permission
-  again**, **Allow Microsoft Access for** its address and **Remove**; it said **Microsoft
+  66 minutes after connecting synchronized the Inbox with no Microsoft sign-in, and a new
+  message to the mailbox's own address left the Outbox, appeared in **Sent Items** and
+  arrived in the Inbox within 3 minutes. The app's permissions were then removed from the
+  Microsoft account's **Apps and services you've given access**. A relaunch right
+  afterwards still synchronized with the token the app held. A relaunch 54 minutes later
+  opened the account page with **Connect your mail** instead of the Inbox, listing the
+  mailbox with **Microsoft needs your permission again**, **Allow Microsoft Access for**
+  its address and **Remove**; it said **Microsoft
   mail is unavailable for this account. Its organization may need to approve Unwired
   Mail…**, and the saved mail was closed, as [Gmail
   mailboxes](gmail-inbox.md#gmail-mailboxes) describes for every mailbox needing
@@ -577,5 +577,7 @@ mail content.
   Simulator, the credential scan of `~/.agent-device`, `~/Library/Logs`, the shell history,
   the repository's `artifacts` directory with this run's DerivedData, this run's scratch and
   temporary directories and its session transcripts found no password or Recovery Key.
-  Limitations: Microsoft's one-time sign-in codes were typed, as they expire
-  within minutes. Mac, iPad and uncertain outcomes were not run and stay on #637.
+  Limitations: the run did not record when Microsoft's access tokens expired or when the
+  app asked for a new one, so renewal after expiry is inferred from the elapsed time, not
+  observed. Microsoft's one-time sign-in codes were typed, as they expire within minutes.
+  Mac, iPad and uncertain outcomes were not run and stay on #637.
