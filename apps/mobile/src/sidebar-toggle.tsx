@@ -128,8 +128,12 @@ export function useSidebarToggle(
       setShown(next.startsWith('two'));
       // Once the person has chosen a mode, by the toggle or by a swipe that leaves the Portrait
       // default, record the one UIKit reports, so the next toggle always asks for a change; until
-      // then UIKit keeps choosing for the orientation.
-      if (next === 'oneBesideSecondary' || next === 'twoBesideSecondary') {
+      // then UIKit keeps choosing for the orientation. The largest text sizes' hidden Mailboxes
+      // are not a choice, so returning from them keeps the one made before.
+      if (
+        !largeText &&
+        (next === 'oneBesideSecondary' || next === 'twoBesideSecondary')
+      ) {
         setDisplayMode((mode) =>
           mode === 'automatic' &&
           !(portraitDefault && next === 'twoBesideSecondary')

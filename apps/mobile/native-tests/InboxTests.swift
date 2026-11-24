@@ -138,7 +138,7 @@ final class InboxTests: XCTestCase {
     if !phone {
       rotate(app, to: .landscapeLeft)
       rowan.tap()
-      XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+      XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     }
     let paused = app.buttons.matching(
       NSPredicate(format: "label BEGINSWITH %@", "Gmail paused")
@@ -184,7 +184,7 @@ final class InboxTests: XCTestCase {
         timeout: 15))
     XCTAssertFalse(app.staticTexts["recovery-key"].exists)
     rowan.tap()
-    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     blockSenderJourney(app)
     blockedSendersJourney(app)
     pinJourney(app)
@@ -508,8 +508,8 @@ final class InboxTests: XCTestCase {
   // #2166: a long press on the reader's sender opens its menu, whose Block Sender… asks in the
   // system alert. Block Sender blocks the exact address and leaves the open message in place.
   private func blockSenderJourney(_ app: XCUIApplication) {
-    let sender = app.staticTexts["rowan@example.invalid"].firstMatch
-    // Text in the header's menu host is never hittable, so the press goes to its place.
+    let sender = header("rowan@example.invalid", in: app)
+    // The header's menu host is never hittable, so the press goes to its place.
     sender.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.2)
     let item = app.buttons["Block Sender…"]
     XCTAssertTrue(item.waitForExistence(timeout: 10))
@@ -556,7 +556,7 @@ final class InboxTests: XCTestCase {
     waitWithoutWelcome(for: pinned, in: app)
     attachScreen("Pinned row after relaunch", of: app, to: self)
     pinned.tap()
-    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     choose("Unpin").tap()
     sheetClosed()
     // iPad lists the row beside the reader; iPhone's Reply sheet offers Pin again.
@@ -607,7 +607,7 @@ final class InboxTests: XCTestCase {
     XCTAssertTrue(exit.waitForExistence(timeout: 10))
     exit.tap()
     // iPad's Back to Mail returns to the open message; iPhone reopens it from the Inbox.
-    let sender = app.staticTexts["rowan@example.invalid"]
+    let sender = header("rowan@example.invalid", in: app)
     if !sender.waitForExistence(timeout: 5) {
       app.buttons.matching(
         NSPredicate(format: "label CONTAINS %@", "Rowan Hale. Garden plans for spring")
@@ -689,9 +689,9 @@ final class InboxTests: XCTestCase {
     try profileSwitcherJourney(app)
     profileIsolationJourney(app)
     // iPhone's reader header summarizes the recipients where iPad shows the sender's address.
-    let jordanHeader = app.staticTexts[
+    let jordanHeader = header(
       UIDevice.current.userInterfaceIdiom == .pad
-        ? "jordan@example.invalid" : "to casey@example.invalid"]
+        ? "jordan@example.invalid" : "to casey@example.invalid", in: app)
     XCTAssertTrue(jordan.waitForExistence(timeout: 20))
     jordan.tap()
     XCTAssertTrue(jordanHeader.waitForExistence(timeout: 10))
@@ -875,7 +875,7 @@ final class InboxTests: XCTestCase {
     // #1523: a delivered link asks to leave first; a save that fails again keeps the composer and
     // the reader beneath it, and drops the link.
     let link = URL(string: "unwired-mail://")!
-    let reader = app.staticTexts["to casey@example.invalid"]
+    let reader = header("to casey@example.invalid", in: app)
     app.open(link)
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     save.tap()
@@ -2044,7 +2044,7 @@ final class InboxTests: XCTestCase {
     ).prefix(16).map { String(format: "%02x", $0) }.joined()
     app.terminate()
     app.open(URL(string: "unwired-mail://thread/19a0c0ffee000013?mailbox=\(connection)")!)
-    let opened = app.staticTexts["crew3@example.invalid"].firstMatch
+    let opened = header("crew3@example.invalid", in: app)
     XCTAssertTrue(opened.waitForExistence(timeout: 20))
     XCTAssertTrue(app.staticTexts["6 Messages"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["Crew 3, note 2."].waitForExistence(timeout: 20))
@@ -2084,7 +2084,7 @@ final class InboxTests: XCTestCase {
     shot.lifetime = .keepAlways
     add(shot)
     // Scrolling back to the newest message mounts its body again.
-    let newest = app.staticTexts["crew6@example.invalid"].firstMatch
+    let newest = header("crew6@example.invalid", in: app)
     for _ in 0..<30 where !onScreen(newest) {
       app.swipeDown(velocity: .fast)
     }
@@ -2166,7 +2166,7 @@ final class InboxTests: XCTestCase {
   private func portraitJourney(_ app: XCUIApplication, onScreen: (XCUIElement) -> Bool) {
     waitUntil { app.windows.firstMatch.frame.width < app.windows.firstMatch.frame.height }
     // The Thread lies flat on the reader's inset, an earlier message beneath the newest.
-    let earlier = app.staticTexts["crew5@example.invalid"].firstMatch
+    let earlier = header("crew5@example.invalid", in: app)
     for _ in 0..<30 where !onScreen(earlier) { app.swipeUp(velocity: .slow) }
     XCTAssertTrue(onScreen(earlier))
     attachScreen("Portrait Thread", of: app, to: self)
@@ -2179,7 +2179,7 @@ final class InboxTests: XCTestCase {
     // Rows span the 391pt list but for their 7pt insets.
     XCTAssertLessThan(row.frame.minX, 20)
     XCTAssertEqual(row.frame.maxX, 384, accuracy: 2)
-    XCTAssertGreaterThanOrEqual(app.staticTexts["crew6@example.invalid"].firstMatch.frame.minX, 392)
+    XCTAssertGreaterThanOrEqual(header("crew6@example.invalid", in: app).frame.minX, 392)
     XCTAssertFalse(app.buttons["Settings"].firstMatch.isHittable)
     // The list opens a message of the Thread in the reader, under its toolbar.
     let selected = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Crew 6."))
@@ -2324,6 +2324,11 @@ final class InboxTests: XCTestCase {
 
   private func text(_ value: String, in app: XCUIApplication) -> XCUIElement {
     app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
+  }
+
+  // A reader's sender header, which reads its name, address and recipients as one element (#2484).
+  private func header(_ value: String, in app: XCUIApplication) -> XCUIElement {
+    app.otherElements.matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
   }
 
   private func enter(_ value: String, into field: XCUIElement, in app: XCUIApplication) {
@@ -3849,6 +3854,11 @@ final class InboxTests: XCTestCase {
         "Composer fields at the largest text size",
       ].contains(screen):
       return "React Native multiline text input (#2231)"
+    // The iPad Mailboxes sidebar's SwiftUI Edit button (#2769).
+    case .dynamicType
+    where UIDevice.current.userInterfaceIdiom == .pad
+      && issue.element?.identifier == "mailboxes-edit":
+      return "Mailboxes Edit button (#2769)"
     // WCAG sets no contrast for an inactive control, such as the Link Editor's Apply before a link.
     case .contrast where issue.element?.elementType == .button && issue.element?.isEnabled == false:
       return "inactive control"
@@ -4011,7 +4021,7 @@ final class InboxTests: XCTestCase {
         app.buttons["Befehlspalette öffnen"], heading, status,
         row("Quarterly planning"), row("Garden plans for spring"),
         app.buttons["Archivieren"], app.buttons["Antworten"], app.buttons["Mehr"],
-        app.staticTexts["jordan@example.invalid"].firstMatch,
+        header("jordan@example.invalid", in: app),
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1. Oktober 2025")).firstMatch,
         app.otherElements["Zusammenfassung · Auf dem Gerät"],
         app.buttons["Zusammenfassung ausblenden"], app.buttons["Diese Nachricht übersetzen"],
@@ -4041,7 +4051,7 @@ final class InboxTests: XCTestCase {
 
     // Thread: the summary and the toolbar hold.
     jordan.tap()
-    XCTAssertTrue(text("an casey@example.invalid", in: app).waitForExistence(timeout: 15))
+    XCTAssertTrue(header("an casey@example.invalid", in: app).waitForExistence(timeout: 15))
     assertLaidOut([
       app.buttons["Archivieren"], app.buttons["Ordner"], app.buttons["Antworten"],
       app.buttons["Neue Nachricht"].firstMatch,
@@ -4087,7 +4097,7 @@ final class InboxTests: XCTestCase {
     let rowan = app.buttons["Unread. Rowan Hale. Garden plans for spring"]
     XCTAssertTrue(rowan.waitForExistence(timeout: 30))
     rowan.tap()
-    XCTAssertTrue(app.staticTexts["rowan@example.invalid"].waitForExistence(timeout: 10))
+    XCTAssertTrue(header("rowan@example.invalid", in: app).waitForExistence(timeout: 10))
     // iPhone opens the labels from the Reply sheet; iPad from the toolbar's Labels.
     if UIDevice.current.userInterfaceIdiom == .phone {
       app.buttons["Reply"].tap()

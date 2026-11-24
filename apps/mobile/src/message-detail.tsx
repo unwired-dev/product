@@ -209,14 +209,15 @@ const styles = StyleSheet.create({
   subject: { ...textStyles.reading.subject },
   metadata: {
     gap: 2,
+    paddingTop: 4,
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   // iPhone's frames draw the 40pt sender header alone, its body 10pt beneath. The message menu's
-  // bounds take in the sender's 44pt target, 2pt beyond the header on each side, as the native menu
-  // only receives touches within them; its padding sits on the content, which the menu would offset
-  // twice.
-  compactMenu: { marginTop: -2 },
+  // bounds take in the sender's 44pt target, 2pt beyond the header on each side (4pt on iPad), as
+  // the native menu only receives touches within them; its padding sits on the content, which the
+  // menu would offset twice.
+  menu: { marginTop: compact ? -2 : -4 },
   compactMetadata: { paddingVertical: 2 },
   secondary: { ...textStyles.footnote },
   body: { ...textStyles.reading.body },
@@ -860,7 +861,7 @@ function MessageMenu({
   const commands = useMessageCommands(target);
   return (
     <ContextMenu
-      style={compact && styles.compactMenu}
+      style={styles.menu}
       sections={messageContextMenu(t, target, commands)}>
       {children}
     </ContextMenu>
