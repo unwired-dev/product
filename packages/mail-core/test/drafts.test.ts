@@ -1955,6 +1955,39 @@ describe('storing Drafts', () => {
         }).document,
       ),
     ).toStrictEqual([same, table, same, same]);
+    // Deleting from the end of a paragraph keeps the table after it, beside equal text.
+    const intro = { kind: 'paragraph', spans: [{ text: 'Intro' }] } as const;
+    const keep = { kind: 'paragraph', spans: [{ text: 'Keep' }] } as const;
+    const end = { kind: 'paragraph', spans: [{ text: 'End' }] } as const;
+    const deleted = {
+      kind: 'paragraph',
+      spans: [{ text: 'Delete this' }],
+    } as const;
+    expect(
+      withText(
+        [intro, keep, table, deleted, { ...keep }, end],
+        applyText(
+          [intro, keep, deleted, { ...keep }, end],
+          'Intro\nKeep\nEnd',
+          {
+            selection: { start: 10, end: 27 },
+          },
+        ).document,
+      ),
+    ).toStrictEqual([intro, keep, table, end]);
+    // Formatting across a table keeps it in place.
+    const both: TableDocument = [
+      { kind: 'paragraph', spans: [{ text: 'First' }] },
+      table,
+      { kind: 'paragraph', spans: [{ text: 'Next' }] },
+    ];
+    expect(
+      withText(both, toggleMark(textOf(both), { start: 0, end: 10 }, 'bold')),
+    ).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'First', marks: ['bold'] }] },
+      table,
+      { kind: 'paragraph', spans: [{ text: 'Next', marks: ['bold'] }] },
+    ]);
     // Deleting the paragraph before the table keeps the table before the next one.
     const first = { kind: 'paragraph', spans: [{ text: 'First' }] } as const;
     const next = { kind: 'paragraph', spans: [{ text: 'Next' }] } as const;

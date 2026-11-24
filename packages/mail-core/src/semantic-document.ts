@@ -193,28 +193,31 @@ export const textOf = (body: TableDocument): SemanticDocument => {
 };
 
 // How many blocks at the start and at the end of `before` and `after` are the same, never
-// counting a block twice. An edit keeps the blocks it leaves as they are, so those count first;
-// then blocks with the same content, from the end, since an edit may rebuild the block after it.
+// counting a block twice. An edit keeps the blocks it leaves as they are, so equal text elsewhere
+// does not count; only an edit that rebuilt every block, such as an editor page's, is compared by
+// content.
 const sameBlock = Schema.toEquivalence(BlockSchema);
 const sharedEnds = (before: SemanticDocument, after: SemanticDocument) => {
   const shared = Math.min(before.length, after.length);
-  const kept = (at: number) => before.at(at) === after.at(at);
-  const equal = (at: number) => {
+  const kept = new Set<Block>(before);
+  const rebuilt = !after.some((block) => kept.has(block));
+  const same = (at: number) => {
     const [one, other] = [before.at(at), after.at(at)];
-    return one !== undefined && other !== undefined && sameBlock(one, other);
+    return (
+      one === other ||
+      (rebuilt &&
+        one !== undefined &&
+        other !== undefined &&
+        sameBlock(one, other))
+    );
   };
   let prefix = 0;
-  while (prefix < shared && kept(prefix)) {
+  while (prefix < shared && same(prefix)) {
     prefix += 1;
   }
   let suffix = 0;
-  for (const same of [kept, equal]) {
-    while (prefix + suffix < shared && same(-1 - suffix)) {
-      suffix += 1;
-    }
-  }
-  while (prefix + suffix < shared && equal(prefix)) {
-    prefix += 1;
+  while (prefix + suffix < shared && same(-1 - suffix)) {
+    suffix += 1;
   }
   return { prefix, suffix };
 };
@@ -238,10 +241,11 @@ export const withText = (
   let blocks = 0;
   for (const part of body) {
     if (part.kind === 'table') {
-      // A table after the edit keeps its place from the end; one among the replaced blocks
-      // follows the edit.
+      // An edit that keeps the number of blocks, such as formatting, keeps every table in place.
+      // Otherwise a table after the edit keeps its place from the end, and one among the
+      // replaced blocks follows the edit.
       const at =
-        blocks <= prefix
+        blocks <= prefix || text.length === before.length
           ? blocks
           : Math.max(
               blocks + text.length - before.length,
@@ -800,15 +804,24 @@ const splice = (
     .split('\n');
   const above = head.length === 0 && parts.length > 1 && parts[0] === '';
   const last = parts.length - 1;
-  const created = parts.map((text, index): Block => ({
-    ...first,
-    kind: createdKind(kind, { index, count: parts.length, above }),
-    spans: joinSpans(
-      index === 0 ? head : [],
-      [spanOf(text, typed, { link, ...paint })],
-      index === last ? tail : [],
-    ),
-  }));
+  // A line the edit leaves as it was stays the same block, so what sits beside it stays there.
+  const unchanged = (block: Block, original: Block | undefined) =>
+    original !== undefined && sameBlock(block, original) ? original : block;
+  const created = parts.map((text, index): Block => {
+    const block: Block = {
+      ...first,
+      kind: createdKind(kind, { index, count: parts.length, above }),
+      spans: joinSpans(
+        index === 0 ? head : [],
+        [spanOf(text, typed, { link, ...paint })],
+        index === last ? tail : [],
+      ),
+    };
+    const kept = index === 0 ? unchanged(block, lines[from.line]) : block;
+    return index === last && kept === block
+      ? unchanged(block, lines[to.line])
+      : kept;
+  });
   return {
     lines: [
       ...lines.slice(0, from.line),
