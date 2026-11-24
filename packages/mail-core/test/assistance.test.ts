@@ -266,6 +266,12 @@ describe('on-device message summaries', () => {
         answer.resolve(' \n ');
       },
     ],
+    [
+      'a clarification request, which only Writing tools ask',
+      (answer: PromiseWithResolvers<unknown>) => {
+        answer.reject({ code: 'needs-clarification' });
+      },
+    ],
   ] as const)(
     'fails closed on %s and logs no mail content',
     async (_case, settle) => {
@@ -1033,6 +1039,57 @@ describe('on-device Draft rewrites and reply suggestions', () => {
       expect(JSON.stringify(logged.mock.calls)).not.toContain('friday');
     },
   );
+
+  it.each([
+    { purpose: 'rewrite', expected: 'clarification' },
+    { purpose: 'expand', expected: 'clarification' },
+    { purpose: 'shorten', expected: 'clarification' },
+    { purpose: 'friendly', expected: 'clarification' },
+    { purpose: 'neutral', expected: 'clarification' },
+    { purpose: 'proofread', expected: 'failed' },
+    { purpose: 'paragraphs', expected: 'failed' },
+    { purpose: 'reply', expected: 'failed' },
+    { purpose: 'generate', expected: 'failed' },
+  ] as const)(
+    'reads a clarification request for $purpose as $expected, retryable and without Draft text',
+    async ({ purpose, expected }) => {
+      expect.hasAssertions();
+      const logged = vi.spyOn(console, 'error').mockReturnValue(undefined);
+      const { native, nth } = scriptedAssistance();
+      const assistance = createDraftAssistance(native);
+      // The core routes by purpose alone, so every purpose carries the same request text.
+      const request = { purpose, text: 'Lets meet friday ok', omitted: false };
+      const done = assistance.start(request);
+      const call = await nth(0);
+      call.answer.reject(
+        Object.assign(new Error('Lets meet friday ok'), {
+          code: 'needs-clarification',
+        }),
+      );
+      await done;
+      const state = assistance.getSnapshot(request);
+      expect(state).toStrictEqual({ kind: expected });
+      expect(canRetryAssistance(state)).toBe(true);
+      expect(JSON.stringify(logged.mock.calls)).not.toContain('friday');
+    },
+  );
+
+  it('drops a clarification request that arrives after Cancel', async () => {
+    expect.hasAssertions();
+    const { native, nth } = scriptedAssistance();
+    const assistance = createDraftAssistance(native);
+    const rewrite = rewriteFixture();
+    const done = assistance.start(rewrite);
+    const call = await nth(0);
+    assistance.cancel();
+    call.answer.reject(
+      Object.assign(new Error('clarify'), { code: 'needs-clarification' }),
+    );
+    await done;
+    expect(assistance.getSnapshot(rewrite)).toStrictEqual({
+      kind: 'cancelled',
+    });
+  });
 
   it.each([imageCharacter, `Generated ${imageCharacter} text`])(
     'rejects a result containing an image placeholder, which applying would drop: %j',

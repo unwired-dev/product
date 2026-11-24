@@ -2113,6 +2113,68 @@ password manager by running
   iPhone. A changed UIDVALIDITY of the Inbox or during a history download stays on #632,
   with background refresh and push wakes, server-closed sessions without a network loss
   and password recovery.
+- **2026-11-24, Mac iCloud Mail folder recreated during a history download
+  ([#2778](https://github.com/unwired-dev/product/issues/2778)).** Target, toolchain and
+  operator as in the Mac connect record, on macOS 27.2.1. Build: the app source of
+  `7372eadb538a227f4eb8549477308498ef0fce25`. The operator drove the app and entered each
+  credential as in the Mac record of #2713, with the **Recovery Key** field scrolled into
+  view first, which unlocked the Mac. **Sign in with Google** opened the browser, whose
+  renderers had all crashed; relaunched, it showed the account chooser, which ignored
+  synthesized clicks, so the certification Product Account was chosen with the keyboard.
+  Before the app connected, the iCloud Mail certification mailbox held 1 message across
+  its six selectable folders. A run folder of 6,000 small synthetic messages was added
+  over IMAP as in #2674: 4,678 appended, the rest copied within the folder, and the
+  server counted 6,001. Each server count below is the sum of every selectable folder's
+  IMAP message count, and times come from the operator's Sync Status readings. **First
+  attempt:** **iCloud Mail** connected over `imap.mail.me.com` 993 (TLS), and the first
+  Sync Status reading of the history, about 50 seconds after **Connect**, was already
+  **Downloading history · 6,001 messages**, the whole mailbox, so the recreation that
+  followed was not during a download. With the app quit, the run folder was deleted and
+  created again under the same name with 6,000 messages, under a new UIDVALIDITY. **Run:**
+  launched again, the app downloaded the run folder's history again from the start:
+  **Downloading history · 1 messages** 14 seconds after launch, then **501 of 6,001
+  messages**, and **2,001 of 6,001** 26 seconds after launch. The operator then deleted the
+  run folder over IMAP, created it again under the same name within the same second,
+  and appended 1,500 new messages over the next 91 seconds. The recreated folder reported
+  a UIDVALIDITY other than the one the download had begun under. Readings of **2,501** and
+  **3,001 of 6,001**, the second a second after the deletion, were followed 3 seconds
+  later by **Downloading history · 1 messages**, with no total: the folder's 3,000
+  downloaded messages were discarded and only it restarted. The capsule faded 2 seconds
+  later, while the folder was still filling. Result: pass for the restart and for the
+  count after relaunch; completion at the server's count without a relaunch was not
+  observed. **Restarted, not reused:** the restarted pass ended before most of the 1,500
+  messages arrived. The engine reads later arrivals of a completed folder without Sync
+  Status showing history, which may explain why no reading showed them; no reading shows
+  which session read them. **View › Refresh** 45 seconds after the fill and a relaunch
+  showed only **Checking the mail server…**. To read the count, the operator added a
+  second run folder of 500 messages and launched the app again: 10 seconds after launch,
+  before the new folder had begun, Sync Status showed **Downloading history · 1,501
+  messages**, the server's count before that folder, and the capsule faded 6 seconds
+  later. As the count had dropped to 1 at the restart, it counted only messages read
+  since, so none of the 6,000 earlier messages was counted. **Complete after relaunch:**
+  the next launch showed only **Checking the mail server…**, and 7 seconds after launch
+  the check ended with the list header reading **Updated just now** and no history
+  download. Afterwards both run folders were deleted, an IMAP
+  count found the mailbox's original six folders and 1 message, **Sign Out of This
+  Device** returned the app to Welcome, and the run's caches and HTTP storage were removed
+  from the app's container. The scan of step 5 above covered the 14,995 files written
+  since the run began under `~/Library/Logs`, `~/Library/Caches`, the temporary
+  directories, the operator's scratch files and this run's session transcript, T3 Code's
+  state database and logs, the app's container, `~/.agent-device` and the browser's
+  profile; a second scan after the record was written covered the session transcript, the
+  operator's scratch files and the shell history. No file held a password or the
+  Recovery Key. Other tasks' worktrees were not scanned. Limitations: the count's completion after the
+  recreation was read at a later launch, not before a relaunch, because the restarted pass
+  ran while the folder was still filling; Sync Status closes with the capsule, so the
+  final count of 2,001 was not on screen. The operator reopened the Sync Status popover
+  every 1 to 3 seconds and missed readings while it was closed, so the times are
+  approximate. **View › Refresh** and the relaunch before the second run folder each showed
+  **1 account needs attention** with the list header reading **Offline** for about
+  2 seconds before **Syncing**; the cause was not established. A run whose recreated folder
+  is full before the restarted pass begins, to show completion at the server's count
+  without a relaunch, stays on #2778. A changed UIDVALIDITY of the
+  Inbox, during a history download on iPhone and iPad, background refresh and push wakes,
+  server-closed sessions without a network loss and password recovery stay on #632.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release

@@ -40,6 +40,9 @@ import { textStyles, usePalette } from './theme.ts';
 const styles = StyleSheet.create({
   // The "Link Editor" popover frame.
   linkPopover: { width: 340, gap: 10, padding: 14 },
+  // The popover glass darkens over a dark window behind it, where the hint would fail contrast;
+  // the panel surface, nearly opaque, keeps it readable (#1794).
+  linkBacking: { ...StyleSheet.absoluteFill, opacity: 0.92 },
   linkField: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
   linkLabel: { ...textStyles.body, width: 36 },
   linkInput: {
@@ -727,6 +730,12 @@ export function LinkEditor({
           onShown?.(false, returning.current);
         }}>
         <View style={styles.linkPopover}>
+          <View
+            style={[
+              styles.linkBacking,
+              { backgroundColor: colors.surfacePanel },
+            ]}
+          />
           {field(false)}
           {field(true)}
           <Label

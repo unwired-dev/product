@@ -430,7 +430,8 @@ during search, the capsule rises with it and stays 12pt above it.
   authorization notice above the list, and the sidebar keeps each connection's problem.
 
 On Mac, clicking the capsule opens **Sync Status** in an AppKit popover above it.
-The connections sit in an inset group. Each shown connection has a row with its provider and address and what it is doing:
+The connections sit in an inset group, which scrolls when the popover would be taller than the
+window, keeping the title and the footer in view. Each shown connection has a row with its provider and address and what it is doing:
 checking its server, downloading history with its message count and a progress bar,
 up to date with its last update and a green checkmark, or its problem with a warning and its own
 **Try Again**, which synchronizes only that connection. Below the rows the popover

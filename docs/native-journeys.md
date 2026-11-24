@@ -128,9 +128,8 @@ readback. It runs Reply from the palette,
 types into the reply and pastes into it. It then selects the reply and clicks
 **Add Link** ([#1792](https://github.com/unwired-dev/product/issues/1792)): the
 Link Editor popover opens with the selection as its Text, Link focused and empty,
-Apply disabled and no Remove Link. Its audit completes with two exceptions: the
-tracked contrast gap [#1794](https://github.com/unwired-dev/product/issues/1794)
-and the hint's false "Label duplicates role description" finding. The capture is
+Apply disabled and no Remove Link. Its audit completes with one exception, the
+hint's false "Label duplicates role description" finding. The capture is
 kept as an `Add Link` attachment. Review it for the body's selection drawn as inactive
 ([#1796](https://github.com/unwired-dev/product/issues/1796)); no assertion checks the highlight. An invalid destination shows its reason after Return,
 Escape closes the popover keeping the text and selection, which reopening it
@@ -181,9 +180,9 @@ It runs XCTest's accessibility audit on the Inbox, Command Palette, Settings,
 Privacy & Data, Language, the flagged link's sheet over the HTML reader, reader,
 composer and Link Editor, and prints each issue as an `ACCESSIBILITY` JSON line
 in `xcodebuild.log`. `knownAccessibilityGap` names the owner of each issue the
-audits still report. These are the Link Editor hint on popover glass ([#1794](https://github.com/unwired-dev/product/issues/1794)),
-AppKit's text Touch Bar, email or web addresses used as labels, Private Cloud's
-row while Mail Assistance is off (an inactive control), and the false "Label
+audits still report. These are AppKit's text Touch Bar, email or web addresses
+used as labels, Private Cloud's row while Mail Assistance is off (an inactive
+control), and the false "Label
 duplicates role description" finding on the Link Editor hint, Private Cloud's
 explanation and the Writing tools privacy note, sentences containing "text".
 The contrast audit also flags text whose drawn pixels pass and text that is not
