@@ -530,8 +530,8 @@ of the Draft's Mail Profile's templates, never another Profile's, each with
 Choosing a template applies it by the rules above. New Template from This
 Message… asks for a name in the system text prompt and saves the Draft's subject
 and body, without recipients or files, as a new template of the Draft's Profile;
-the Draft does not change. A blank name, a body with an Inline Image or a write
-storage refuses saves nothing, and an alert says why. The composer reads the
+the Draft does not change. A blank name, a body with an Inline Image or a table, or a
+write storage refuses saves nothing, and an alert says why. The composer reads the
 templates when it opens and after it saves one. Manage Templates… and the Settings
 pane follow in later #850 slices.
 

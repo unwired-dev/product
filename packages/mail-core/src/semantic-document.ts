@@ -193,31 +193,28 @@ export const textOf = (body: TableDocument): SemanticDocument => {
 };
 
 // How many blocks at the start and at the end of `before` and `after` are the same, never
-// counting a block twice. An edit keeps the blocks it leaves as they are, so equal text elsewhere
-// does not count; only an edit that rebuilt every block, such as an editor page's, is compared by
-// content.
+// counting a block twice. An edit keeps the blocks it leaves as they are, so those count first;
+// then blocks with the same content, from the end, since an edit may rebuild the block after it.
 const sameBlock = Schema.toEquivalence(BlockSchema);
 const sharedEnds = (before: SemanticDocument, after: SemanticDocument) => {
   const shared = Math.min(before.length, after.length);
-  const kept = new Set<Block>(before);
-  const rebuilt = !after.some((block) => kept.has(block));
-  const same = (at: number) => {
+  const kept = (at: number) => before.at(at) === after.at(at);
+  const equal = (at: number) => {
     const [one, other] = [before.at(at), after.at(at)];
-    return (
-      one === other ||
-      (rebuilt &&
-        one !== undefined &&
-        other !== undefined &&
-        sameBlock(one, other))
-    );
+    return one !== undefined && other !== undefined && sameBlock(one, other);
   };
   let prefix = 0;
-  while (prefix < shared && same(prefix)) {
+  while (prefix < shared && kept(prefix)) {
     prefix += 1;
   }
   let suffix = 0;
-  while (prefix + suffix < shared && same(-1 - suffix)) {
-    suffix += 1;
+  for (const same of [kept, equal]) {
+    while (prefix + suffix < shared && same(-1 - suffix)) {
+      suffix += 1;
+    }
+  }
+  while (prefix + suffix < shared && equal(prefix)) {
+    prefix += 1;
   }
   return { prefix, suffix };
 };

@@ -1955,6 +1955,17 @@ describe('storing Drafts', () => {
         }).document,
       ),
     ).toStrictEqual([same, table, same, same]);
+    // Deleting the paragraph before the table keeps the table before the next one.
+    const first = { kind: 'paragraph', spans: [{ text: 'First' }] } as const;
+    const next = { kind: 'paragraph', spans: [{ text: 'Next' }] } as const;
+    expect(
+      withText(
+        [first, table, next, after],
+        applyText([first, next, after], 'Next\nAfter', {
+          selection: { start: 0, end: 6 },
+        }).document,
+      ),
+    ).toStrictEqual([table, next, after]);
     expect(withText(body, typed(textOf(body), ''))).toStrictEqual([
       { kind: 'paragraph', spans: [] },
       table,
