@@ -357,7 +357,7 @@ function FoldersButton({
     open: boolean;
     toggle: () => void;
     popover?: ReactElement;
-    // An opaque popover, as New Label's buttons need: the system's glass greys them out.
+    // The popover's surface where the frames draw one over the system's glass, as in Dark.
     background?: string;
   }>;
 }) {
