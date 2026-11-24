@@ -2172,9 +2172,51 @@ password manager by running
   **1 account needs attention** with the list header reading **Offline** for about
   2 seconds before **Syncing**; the cause was not established. A run whose recreated folder
   is full before the restarted pass begins, to show completion at the server's count
-  without a relaunch, stays on #2778. A changed UIDVALIDITY of the
+  without a relaunch, is the rerun below. A changed UIDVALIDITY of the
   Inbox, during a history download on iPhone and iPad, background refresh and push wakes,
   server-closed sessions without a network loss and password recovery stay on #632.
+- **2026-11-24, Mac iCloud Mail folder recreated during a history download, rerun
+  ([#2778](https://github.com/unwired-dev/product/issues/2778)).** Target, toolchain and
+  operator as in the Mac connect record, on macOS 27.2.1. Build: the app source of
+  `8d5bdaa015222a84e2f7a5767fc861d63df13072`. Sign-in, unlock and credential entry as in the
+  record above; this time the browser's account chooser took a click. Before the app
+  connected, the iCloud Mail certification mailbox held 1 message across its six selectable
+  folders, and a run folder of 6,000 small synthetic messages was added over IMAP as in
+  #2674 (400 appended, the rest copied within the folder); the server counted 6,001. Server
+  counts and times come from the same sources as in the record above, with Sync Status
+  read every 0.3 to 2 seconds. **iCloud Mail** connected over `imap.mail.me.com` 993
+  (TLS), and Sync Status read **Downloading history · 1 messages** 16 seconds after
+  **Connect**, then **501**, **1,001** and **1,501 messages** 24 seconds after it. So that
+  the recreated folder was full before the app read it again, the operator then stopped the
+  app's process (`SIGSTOP`) with that reading on screen, deleted the run folder over IMAP 2
+  seconds later, created it again under the same name within the same second and filled it
+  with 1,500 new messages (10 appended, the rest copied within the folder). The recreated
+  folder reported a UIDVALIDITY other than the first one, and its count held at 1,500 for 5
+  seconds before the operator continued the process, 63 seconds after stopping it. Result:
+  pass. **Restarted, not reused:** at once Sync Status showed **1 account needs
+  attention** with "The mail server could not be reached. Showing mail saved on this
+  device." With no input from the operator, the app tried again 82 seconds later: the list
+  header read **Syncing**, Sync Status read **Downloading history · 1,501 messages**, the
+  count from before the stop, then **1 messages** 6 seconds later, **501**, **1,001** and
+  **1,501 messages** 14 seconds later, and the capsule faded 7 seconds after that. The count
+  had dropped to 1 at the restart, so it counted only the Inbox message and the recreated
+  folder: 1,501, the server's count across its seven selectable folders after the
+  recreation, read again over IMAP 2 minutes later; every other folder was empty. No
+  reading showed a total, which Sync Status shows only once every folder has begun. **Complete after relaunch:** the app was quit with Command-Q and launched again;
+  Sync Status read **Checking the mail server…** 5 seconds after launch, the check ended
+  with the list header reading **Updated just now** 7 seconds after launch, and no history
+  download followed in the 76 seconds sampled after that. Afterwards the run folder was deleted, an IMAP
+  count found the mailbox's original six folders and 1 message, **Sign Out of This Device**
+  returned the app to Welcome, and the run's caches and HTTP storage were removed from the
+  app's container. The scan of step 5 above covered the 509 files written since the run
+  began under the locations of the record above, including this run's session transcript
+  and T3 Code's state database; no file held a password or the Recovery Key.
+  Limitations: the attention notice appeared as soon as the process continued, and the
+  restarted pass began in the app's own retry rather than in the pass the stop interrupted;
+  the folder's absence between the deletion and the creation was not visible to the stopped
+  app. Sync Status closes with
+  the capsule, so completion comes from the capsule fading and the relaunch downloading
+  nothing.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
