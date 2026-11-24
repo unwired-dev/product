@@ -11,15 +11,19 @@ import {
   Text as SwiftUIText,
 } from '@expo/ui/swift-ui';
 import {
+  background,
   buttonBorderShape,
   buttonStyle,
+  contentShape,
   controlSize,
   font,
   foregroundStyle,
   frame,
   disabled as inactive,
+  padding,
   presentationBackground,
   presentationDetents,
+  shapes,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { typedLabel } from '@private-email/mail-core/gmail-actions';
@@ -81,7 +85,7 @@ const styles = StyleSheet.create({
   buttons: { gap: spacing.s },
 });
 
-// One of the form's full-width capsule buttons: the system's bordered button, prominent for Apply.
+// One of the form's full-width capsule buttons.
 function FormButton({
   label,
   prominent,
@@ -94,14 +98,21 @@ function FormButton({
   readonly onPress: () => void;
 }) {
   const colors = usePalette();
+  // The popover's bordered styles mute Cancel's fill and override disabled Apply's tint.
+  const muted = prominent ? `${colors.accentFill}B3` : colors.fillQuiet;
+  const fill = !compact && (!prominent || disabled) ? muted : undefined;
   return (
     <Host matchContents={{ vertical: true }}>
       <SwiftUIButton
         modifiers={[
-          buttonStyle(prominent ? 'borderedProminent' : 'bordered'),
-          buttonBorderShape('capsule'),
-          controlSize('large'),
-          tint(prominent ? colors.accentFill : colors.fillQuiet),
+          ...(fill === undefined
+            ? [
+                buttonStyle(prominent ? 'borderedProminent' : 'bordered'),
+                buttonBorderShape('capsule'),
+                controlSize('large'),
+                tint(prominent ? colors.accentFill : colors.fillQuiet),
+              ]
+            : [buttonStyle('plain'), background(fill, shapes.capsule())]),
           inactive(disabled),
         ]}
         onPress={onPress}>
@@ -111,7 +122,13 @@ function FormButton({
             foregroundStyle(
               prominent ? colors.accentOnFill : colors.textPrimary,
             ),
-            frame({ maxWidth: Infinity }),
+            ...(fill === undefined
+              ? [frame({ maxWidth: Infinity })]
+              : [
+                  padding({ horizontal: 12, vertical: 10 }),
+                  frame({ maxWidth: Infinity, minHeight: 50 }),
+                  contentShape(shapes.capsule()),
+                ]),
           ]}>
           {label}
         </SwiftUIText>
