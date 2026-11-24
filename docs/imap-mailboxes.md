@@ -2140,16 +2140,19 @@ password manager by running
   **3,001 of 6,001**, the second a second after the deletion, were followed 3 seconds
   later by **Downloading history · 1 messages**, with no total: the folder's 3,000
   downloaded messages were discarded and only it restarted. The capsule faded 2 seconds
-  later, while the folder was still filling. Result: pass. **Restarted, not reused:** the
-  restarted pass ended before most of the 1,500 messages arrived, and the app read them as
-  arrivals of a completed folder, which Sync Status does not show as history; no reading
-  shows when. **View › Refresh** 45 seconds after the fill and a relaunch showed only
-  **Checking the mail server…**. To read the count, the operator added a second run folder
-  of 500 messages and launched the app again: 10 seconds after launch, before the new
-  folder had begun, Sync Status showed **Downloading history · 1,501 messages**, the
-  server's count before that folder, so none of the 6,000 earlier messages was counted,
-  and the capsule faded 6 seconds later. **Complete after relaunch:** the next launch
-  showed only **Checking the mail server…** and then nothing for about 60 seconds. Afterwards both run folders were deleted, an IMAP
+  later, while the folder was still filling. Result: pass for the restart and for the
+  count after relaunch; completion at the server's count without a relaunch was not
+  observed. **Restarted, not reused:** the restarted pass ended before most of the 1,500
+  messages arrived. The engine reads later arrivals of a completed folder without Sync
+  Status showing history, which may explain why no reading showed them; no reading shows
+  which session read them. **View › Refresh** 45 seconds after the fill and a relaunch
+  showed only **Checking the mail server…**. To read the count, the operator added a
+  second run folder of 500 messages and launched the app again: 10 seconds after launch,
+  before the new folder had begun, Sync Status showed **Downloading history · 1,501
+  messages**, the server's count before that folder, so none of the 6,000 earlier messages
+  was counted, and the capsule faded 6 seconds later. **Complete after relaunch:** the
+  next launch showed only **Checking the mail server…**, and no history in the readings
+  recorded over the 7 seconds after launch. Afterwards both run folders were deleted, an IMAP
   count found the mailbox's original six folders and 1 message, **Sign Out of This
   Device** returned the app to Welcome, and the run's caches and HTTP storage were removed
   from the app's container. The scan of step 5 above covered the 14,995 files written
