@@ -884,7 +884,7 @@ function Connection({
         <View style={{ flex: 1 }}>
           <Label
             style={[
-              textStyles.body,
+              textStyles.bodyEmphasized,
               { lineHeight: 17, color: colors.textPrimary },
             ]}>
             {title}
