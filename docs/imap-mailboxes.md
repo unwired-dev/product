@@ -528,8 +528,9 @@ then the rest in listing order, leaving out Trash and Spam, including chosen one
 search covers up to 50 folders and the newest 50 matches of each, and says when folders
 or older matches were left out; a folder the server no longer selects is skipped. IMAP
 results join Gmail's and Microsoft's in the unified Inbox, newest first, and open in the
-reader without being saved. A result the server no longer has, or that a change moved
-out of its folder, leaves the open search
+reader without being saved. A result leaves the open search once a change made here
+moves it out of its folder or finds it no longer on the server; one another client
+deleted or moved stays listed until then or until the next search
 ([#2451](https://github.com/unwired-dev/product/issues/2451)).
 
 ## Sending

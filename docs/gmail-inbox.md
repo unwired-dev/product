@@ -282,7 +282,7 @@ mailbox, or every mailbox under **All Inboxes**. The API search excludes spam an
 - **Deleted mail.** Once Gmail confirms a result deleted, through the mailbox's
   history or the check after its history expired, the open search stops listing it
   without another search, as it does for an
-  [IMAP](imap-mailboxes.md#online-search) result the server no longer has; the other
+  [IMAP](imap-mailboxes.md#online-search) result a change made here finds gone; the other
   results keep their order and **More from Mail Servers** its page
   ([#2451](https://github.com/unwired-dev/product/issues/2451)).
 

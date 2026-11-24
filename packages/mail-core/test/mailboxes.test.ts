@@ -666,11 +666,9 @@ describe('mailbox connections and the unified Inbox', () => {
     paging.resolve(undefined);
     await more;
     const paged = ids(onlineAnswer(online.getSnapshot().found));
-    expect(paged).toStrictEqual(
-      expect.arrayContaining(ids(after).filter((id) => id !== fromOther)),
-    );
-    expect(paged).not.toContain(fromOther);
-    expect(paged).not.toContain(deleted);
+    // The synthetic mailbox pages by offset, so the deletion moved its last match onto the shown page.
+    expect(paged).toStrictEqual(ids(after).filter((id) => id !== fromOther));
+    expect(onlineAnswer(online.getSnapshot().found).next.size).toBe(0);
     stop();
   });
 
