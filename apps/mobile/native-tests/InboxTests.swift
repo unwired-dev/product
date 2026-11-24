@@ -2649,6 +2649,7 @@ final class InboxTests: XCTestCase {
         for: [XCTNSPredicateExpectation(predicate: restored, object: nil)], timeout: 10),
       .completed)
     formattingJourney(app, typed: typed)
+    evaluationLinkJourney(app)
     // Teardown: the last round trip reopened the Draft unchanged, so Close removes the page's web
     // view without asking.
     app.buttons["Close"].tap()
@@ -2935,6 +2936,50 @@ final class InboxTests: XCTestCase {
     accepted.name = "Evaluation editor after rewrite and translation"
     accepted.lifetime = .keepAlways
     add(accepted)
+  }
+
+  // #2866: the Link Editor links the translated paragraph as one edit that one Undo reverts and
+  // Redo restores, and the link survives saving, relaunch and reopening.
+  private func evaluationLinkJourney(_ app: XCUIApplication) {
+    // The translation replaced one word of the paragraph, so the page names the whole paragraph.
+    let paragraph = webText("Synthetic translation of local mail.", in: app).label
+    let link = app.webViews.links[paragraph]
+    let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Copy"))
+      .firstMatch
+    for _ in 0..<3 where !copy.exists {
+      webText(paragraph, in: app).tap(withNumberOfTaps: 3, numberOfTouches: 1)
+      _ = copy.waitForExistence(timeout: 5)
+    }
+    XCTAssertTrue(copy.exists)
+    let addLink = formatControl("Add Link", in: app)
+    waitUntil { addLink.isEnabled }
+    addLink.tap()
+    let destination = app.textFields["Link"]
+    XCTAssertTrue(destination.waitForExistence(timeout: 10))
+    waitForFocus(destination)
+    XCTAssertEqual(app.textFields["Text"].value as? String, paragraph)
+    XCTAssertFalse(app.buttons["Remove Link"].exists)
+    submit("https://example.com", into: destination, in: app)
+    XCTAssertTrue(destination.waitForNonExistence(timeout: 10))
+    XCTAssertTrue(link.waitForExistence(timeout: 10))
+    let edit = formatControl("Edit Link", in: app)
+    waitUntil { edit.isEnabled }
+    edit.tap()
+    XCTAssertTrue(app.buttons["Remove Link"].waitForExistence(timeout: 10))
+    XCTAssertEqual(destination.value as? String, "https://example.com")
+    let linked = XCTAttachment(screenshot: app.screenshot())
+    linked.name = "Evaluation Edit Link"
+    linked.lifetime = .keepAlways
+    add(linked)
+    dismissLinkEditor(app, field: destination, pad: UIDevice.current.userInterfaceIdiom == .pad)
+
+    formatControl("Undo", in: app).tap()
+    waitUntil { !link.exists }
+    XCTAssertTrue(webText(paragraph, in: app).exists)
+    formatControl("Redo", in: app).tap()
+    XCTAssertTrue(link.waitForExistence(timeout: 10))
+    reopenDraft(app)
+    XCTAssertTrue(link.waitForExistence(timeout: 15))
   }
 
   // Close, relaunch and reopen through the native encrypted Draft store, not mounted history.
