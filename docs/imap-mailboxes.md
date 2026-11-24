@@ -2149,10 +2149,12 @@ password manager by running
   showed only **Checking the mail server…**. To read the count, the operator added a
   second run folder of 500 messages and launched the app again: 10 seconds after launch,
   before the new folder had begun, Sync Status showed **Downloading history · 1,501
-  messages**, the server's count before that folder, so none of the 6,000 earlier messages
-  was counted, and the capsule faded 6 seconds later. **Complete after relaunch:** the
-  next launch showed only **Checking the mail server…**, and no history in the readings
-  recorded over the 7 seconds after launch. Afterwards both run folders were deleted, an IMAP
+  messages**, the server's count before that folder, and the capsule faded 6 seconds
+  later. As the count had dropped to 1 at the restart, it counted only messages read
+  since, so none of the 6,000 earlier messages was counted. **Complete after relaunch:**
+  the next launch showed only **Checking the mail server…**, and 7 seconds after launch
+  the check ended with the list header reading **Updated just now** and no history
+  download. Afterwards both run folders were deleted, an IMAP
   count found the mailbox's original six folders and 1 message, **Sign Out of This
   Device** returned the app to Welcome, and the run's caches and HTTP storage were removed
   from the app's container. The scan of step 5 above covered the 14,995 files written
@@ -2168,7 +2170,9 @@ password manager by running
   every 1 to 3 seconds and missed readings while it was closed, so the times are
   approximate. **View › Refresh** and the relaunch before the second run folder each showed
   **1 account needs attention** with the list header reading **Offline** for about
-  2 seconds before **Syncing**; the cause was not established. A changed UIDVALIDITY of the
+  2 seconds before **Syncing**; the cause was not established. A run whose recreated folder
+  is full before the restarted pass begins, to show completion at the server's count
+  without a relaunch, stays on #2778. A changed UIDVALIDITY of the
   Inbox, during a history download on iPhone and iPad, background refresh and push wakes,
   server-closed sessions without a network loss and password recovery stay on #632.
 
