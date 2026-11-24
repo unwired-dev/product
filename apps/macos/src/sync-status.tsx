@@ -18,7 +18,6 @@ import type { InboxMailbox } from './private-storage.ts';
 import { Action } from './action.tsx';
 import {
   AnimatedPanel,
-  Button,
   Glass,
   Popover,
   SFSymbol,
@@ -114,6 +113,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  // The frames' 28pt capsule, its 12pt semibold title 14pt from either end. Unavailable, it keeps
+  // its place without a fill, its title greyed.
+  tryAgain: {
+    height: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    outlineWidth: 2,
+  },
+  tryAgainLabel: {
+    ...textStyles.subheadlineEmphasized,
+    fontSize: 12,
   },
   // The sidebar's warning while Gmail pauses the shown mailboxes, from the frames' "Sidebar Warning".
   sidebarWarning: {
@@ -936,19 +948,51 @@ function LimitActions({
   const { t } = useLocalization();
   const colors = usePalette();
   const clock = useClock();
+  const [focused, setFocused] = useState(false);
   const waiting =
     until !== undefined && now < Date.parse(until) ? until : undefined;
+  const disabled = waiting !== undefined;
   return (
     <View style={styles.limitActions}>
-      <Button
+      <Pressable
         accessibilityLabel={t('syncStatus.tryAgainFor', { account: title })}
-        label={t('syncStatus.tryAgain')}
-        fill="accent"
-        disabled={waiting !== undefined}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        enableFocusRing={false}
+        focusable
+        onBlur={() => {
+          setFocused(false);
+        }}
+        onFocus={() => {
+          setFocused(true);
+        }}
         onPress={onTryAgain}
-      />
+        style={({ pressed }) => [
+          styles.tryAgain,
+          {
+            backgroundColor: disabled ? 'transparent' : colors.accentFill,
+            opacity: pressed ? 0.8 : 1,
+            outlineColor:
+              focused && !disabled ? colors.accentInk : 'transparent',
+          },
+        ]}>
+        <Text
+          style={[
+            styles.tryAgainLabel,
+            disabled
+              ? { color: colors.textPrimary, opacity: 0.3 }
+              : { color: colors.accentOnFill },
+          ]}>
+          {t('syncStatus.tryAgain')}
+        </Text>
+      </Pressable>
       {waiting === undefined ? null : (
-        <Label style={[styles.subtitle, { color: colors.textSecondary }]}>
+        <Label
+          style={[
+            styles.subtitle,
+            { alignSelf: 'center', color: colors.textSecondary },
+          ]}>
           {t('syncStatus.availableAt', { time: clock(waiting) })}
         </Label>
       )}
