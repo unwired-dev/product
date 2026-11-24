@@ -25,6 +25,7 @@ import {
   emptyDocument,
   imageCharacter,
   plainText,
+  textOf,
 } from '../src/semantic-document.ts';
 import { createSyntheticDrafts } from '../src/testing/drafts.ts';
 import {
@@ -294,7 +295,7 @@ describe('replying to and forwarding a received message', () => {
     const reopened = createDrafts(storage.native, registration);
     await reopened.load();
     const kept = present(draftOf(reopened.getSnapshot(), all.id), 'reopened');
-    expect(plainText(kept.body)).toBe('Sounds good.');
+    expect(plainText(textOf(kept.body))).toBe('Sounds good.');
     expect(kept.quoted).toStrictEqual(all.quoted);
     expect(kept.response).toStrictEqual(all.response);
     // Nothing was sent: the Draft stays a Draft.

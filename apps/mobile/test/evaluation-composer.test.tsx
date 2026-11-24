@@ -7,7 +7,7 @@ import type { KeyboardEvent } from 'react-native';
 
 import { commandScript } from '@private-email/draft-editor/messages';
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import { imagesOf } from '@private-email/mail-core/semantic-document';
+import { imagesOf, textOf } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createMockMailSession,
@@ -1099,10 +1099,9 @@ describe('the Tiptap evaluation composer', () => {
     await waitFor(() => {
       const [stored] = draftsOf(drafts.getSnapshot());
       ok(stored, 'Expected the stored Draft');
-      expect(imagesOf(stored.body).map(({ state }) => state)).toStrictEqual([
-        'cancelled',
-        'complete',
-      ]);
+      expect(
+        imagesOf(textOf(stored.body)).map(({ state }) => state),
+      ).toStrictEqual(['cancelled', 'complete']);
     });
     await first.unmount();
     // Bytes that no longer verify are listed as damaged, and the page gets no thumbnail.
@@ -1239,9 +1238,9 @@ describe('the Tiptap evaluation composer', () => {
     await waitFor(() => {
       const [stored] = draftsOf(drafts.getSnapshot());
       ok(stored, 'Expected the stored Draft');
-      expect(imagesOf(stored.body).map(({ state }) => state)).toStrictEqual([
-        'complete',
-      ]);
+      expect(
+        imagesOf(textOf(stored.body)).map(({ state }) => state),
+      ).toStrictEqual(['complete']);
     });
   });
 });

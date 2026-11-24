@@ -1,7 +1,7 @@
 import { ok } from 'node:assert/strict';
 
 import { createDrafts, draftsOf } from '@private-email/mail-core/drafts';
-import { imagesOf } from '@private-email/mail-core/semantic-document';
+import { imagesOf, textOf } from '@private-email/mail-core/semantic-document';
 import { createSyntheticDrafts } from '@private-email/mail-core/testing/drafts';
 import {
   createMockMailSession,
@@ -200,7 +200,7 @@ describe('evaluation Draft save ordering', () => {
     const [survivor] = survivors;
     ok(survivor, 'Expected the surviving Draft');
     expect(
-      imagesOf(survivor.body).map((image) => [image.id, image.state]),
+      imagesOf(textOf(survivor.body)).map((image) => [image.id, image.state]),
     ).toStrictEqual([[kept.id, 'complete']]);
     // The surviving Draft keeps its bytes; the abandoned import keeps none.
     await waitFor(() => {

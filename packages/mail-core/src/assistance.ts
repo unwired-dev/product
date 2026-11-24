@@ -17,6 +17,7 @@ import {
   imageCharacter,
   replaceSelection,
   selectedText,
+  textOf,
 } from './semantic-document.ts';
 
 export { checkDetails, draftReplacement } from './draft-details.ts';
@@ -601,10 +602,10 @@ export type CapturedDraftText = Readonly<{
 // The whole-body check stops at the first visible span without projecting document ranges.
 export const canRewrite = (body: Draft['body'], at: Selection) =>
   at.start === at.end
-    ? body.some(({ spans }) =>
+    ? textOf(body).some(({ spans }) =>
         spans.some((span) => !('image' in span) && hasVisibleText(span.text)),
       )
-    : hasVisibleText(selectedText(body, at, summaryInputLimit + 1));
+    : hasVisibleText(selectedText(textOf(body), at, summaryInputLimit + 1));
 
 // Only Reply and Reply All Drafts with local quoted correspondence admit a reply suggestion.
 export const canSuggestReply = ({ quoted, response }: Draft) =>
@@ -631,7 +632,10 @@ export function slashTools(
   reply: boolean,
 ): readonly SlashTool[] {
   const caret = { start: query.start, end: query.start };
-  const text = canRewrite(replaceSelection(body, query, '').document, caret);
+  const text = canRewrite(
+    replaceSelection(textOf(body), query, '').document,
+    caret,
+  );
   return slashToolGroups
     .flat()
     .filter((tool) => tool === 'generate' || (tool === 'reply' ? reply : text));
@@ -809,9 +813,13 @@ export function captureDraftText(
   // A text tool defaults to the whole body; a reply suggestion always replaces the whole body.
   const selection =
     purpose === 'reply' || (isTextTool(purpose) && at.start === at.end)
-      ? { start: 0, end: displayOf(draft.body).text.length }
+      ? { start: 0, end: displayOf(textOf(draft.body)).text.length }
       : at;
-  const text = selectedText(draft.body, selection, summaryInputLimit + 1);
+  const text = selectedText(
+    textOf(draft.body),
+    selection,
+    summaryInputLimit + 1,
+  );
   let input: DraftAssistanceInput | undefined = undefined;
   let issue: CapturedDraftText['issue'] = undefined;
   if (isTextTool(purpose)) {

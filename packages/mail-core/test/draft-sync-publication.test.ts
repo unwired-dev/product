@@ -1,5 +1,5 @@
 import { createDrafts } from '../src/drafts.ts';
-import { applyText } from '../src/semantic-document.ts';
+import { applyText, textOf } from '../src/semantic-document.ts';
 import { createSyntheticProductSync } from '../src/testing/drafts.ts';
 import {
   alex,
@@ -336,7 +336,7 @@ describe('draft publication recovery', () => {
     await phone.drafts.update(
       {
         ...phone.draft(id),
-        body: applyText(phone.draft(id).body, 'Before').document,
+        body: applyText(textOf(phone.draft(id).body), 'Before').document,
       },
       phone.draft(id),
     );

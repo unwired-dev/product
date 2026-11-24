@@ -10,12 +10,8 @@ changes no production behaviour; the slices at the end do.
 - mail-core reads tables from HTML and writes them to outgoing mail
   ([#1878](https://github.com/unwired-dev/product/issues/1878),
   [#1886](https://github.com/unwired-dev/product/issues/1886)); the reader rules
-  are in [Drafts](../drafts.md). `TableSchema` in
-  `packages/mail-core/src/semantic-document.ts` stores rows of cells, each with
-  its own blocks and optional column and row spans. It keeps no header identity:
-  `documentFromHtml` turns a `th` into a bold, centered cell.
-- `DraftSchema.body` in `packages/mail-core/src/draft-model.ts` is a
-  `SemanticDocument`, which holds no tables.
+  are in [Drafts](../drafts.md). `TableSchema` in `packages/mail-core/src/semantic-document.ts` stores rows of cells, each with its own blocks, optional column and row spans and, since [#2857](https://github.com/unwired-dev/product/issues/2857), a header flag.
+- `DraftSchema.body` in `packages/mail-core/src/draft-model.ts` is a `TableDocument` since #2857: Drafts keep tables through save and reopen, and the composers edit `textOf(body)` and write it back with `withText`, which leaves tables in place without showing them.
 - Both production composers edit the body in one multiline `TextInput` whose
   children are styled `Text` runs (`apps/mobile/src/composer.tsx`,
   `apps/macos/src/composer.tsx`). Undo and Redo are JavaScript-owned
@@ -154,9 +150,7 @@ from below and does not show it is feasible.
   hardware keyboards, IME, dictation, autocorrection and VoiceOver as outstanding
   before any adoption decision. The probe page also lacked the evaluation page's
   normalizer, conversion and save ordering.
-- **Header identity.** The probe page started from real `th` cells. `TableSchema`
-  keeps no header flag, so after a save and reopen the column header in
-  "2 Dec, Date, row 3 of 5" would be lost. Draft storage adds it.
+- **Header identity.** The probe page started from real `th` cells. Storage keeps the header flag since #2857; the page's conversion must carry it (slice 3).
 - **Keys and input.** Simulator Tab injection is not a physical keyboard; IME
   composition, dictation and autocorrection inside cells were not exercised.
 - **Marks and nested content in cells.** Format marks inside cells and reported
@@ -190,10 +184,7 @@ Each slice is one pull request and a sub-issue of #1268, in blocked-by order.
    (`ready-for-human`, blocked by #823): adopt the Tiptap page as the production
    Draft body, and accept WebKit's VoiceOver table phrasing or keep the approved
    wording. An adopt decision starts #823's production integration of the page, tracked in [#2865](https://github.com/unwired-dev/product/issues/2865), which slices 4 to 6 also wait for. A rejection re-plans on A.
-2. **[#2857](https://github.com/unwired-dev/product/issues/2857) Draft storage of
-   tables** (no editor dependency): `DraftSchema.body` accepts tables;
-   `TableSchema` keeps header cells; the encrypted local save and reopen, Draft HTML and outgoing mail keep them (live provider round trips stay with the provider Draft issues, such as #1269); nested tables and images in cells stay reported. The current composers do not open a Draft's table, and editing its subject, recipients or text leaves the table intact. Existing
-   table-free Drafts decode unchanged.
+2. **[#2857](https://github.com/unwired-dev/product/issues/2857) Draft storage of tables** (delivered): `DraftSchema.body` accepts tables with header and merged cells, and the composers keep them intact without showing them. Live provider round trips stay with the provider Draft issues, such as #1269.
 3. **[#2858](https://github.com/unwired-dev/product/issues/2858) Page tables**
    (blocked by 1 and 2): conversion between table cells and Tiptap, the table shapes it edits unchanged, the Tab
    command (including a table that ends the body), Return, Backspace after a

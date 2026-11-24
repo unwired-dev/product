@@ -11,6 +11,8 @@ import type {
   Block,
   BlockKind,
   SemanticDocument,
+  Table,
+  TableDocument,
 } from '../src/semantic-document.ts';
 
 import { slashTools } from '../src/assistance.ts';
@@ -47,29 +49,31 @@ import {
   applyText,
   BlockKindSchema,
   displayOf,
+  editableLinkAt,
   emptyDocument,
   historyOf,
   imageCharacter,
   imagesOf,
   imageWidthOf,
+  indentList,
   insertImage,
-  editableLinkAt,
   linkAt,
+  listIndentAt,
   marksAt,
   plainText,
   previewOf,
   record,
   redo,
-  SemanticDocumentSchema,
   replaceSelection,
-  indentList,
-  listIndentAt,
   selectedText,
+  SemanticDocumentSchema,
   setBlockKind,
   setLink,
+  textOf,
   toggled,
   toggleMark,
   undo,
+  withText,
   withImageWidth,
   withoutImage,
 } from '../src/semantic-document.ts';
@@ -1882,6 +1886,175 @@ describe('storing Drafts', () => {
     ).toBe(defaultProfile);
   });
 
+  it('keeps a table with its header cells, merged cells and cell marks through text edits and reopening', async () => {
+    expect.hasAssertions();
+    const session = account(connected('account-a'));
+    const storage = createSyntheticDrafts(session.productAccount);
+    const drafts = createDrafts(storage.native, session.registration);
+    await drafts.load();
+    const id = await drafts.create(alex);
+    const created = present(draftOf(drafts.getSnapshot(), id), 'the new Draft');
+    const table: Table = {
+      kind: 'table',
+      rows: [
+        [
+          {
+            blocks: [
+              { kind: 'paragraph', spans: [{ text: 'Date', marks: ['bold'] }] },
+            ],
+            header: true,
+          },
+          {
+            blocks: [
+              {
+                kind: 'paragraph',
+                spans: [{ text: 'Place', marks: ['italic'] }],
+              },
+            ],
+            header: true,
+            rows: 2,
+          },
+        ],
+        [{ blocks: [{ kind: 'paragraph', spans: [{ text: 'Monday' }] }] }],
+        [{ blocks: [{ kind: 'paragraph', spans: [] }], columns: 2 }],
+      ],
+    };
+    const after = { kind: 'paragraph', spans: [{ text: 'After' }] } as const;
+    const body: TableDocument = [
+      { kind: 'paragraph', spans: [{ text: 'Before' }] },
+      table,
+      after,
+    ];
+
+    // A composer edits the text around the table it does not show, and the table stays.
+    const edited = withText(body, typed(textOf(body), 'Before you go\nAfter'));
+    expect(edited).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Before you go' }] },
+      table,
+      after,
+    ]);
+    expect(withText(body, typed(textOf(body), 'Before\nLater'))).toStrictEqual([
+      body[0],
+      table,
+      { kind: 'paragraph', spans: [{ text: 'Later' }] },
+    ]);
+    // Deleting one of several equal paragraphs keeps the table beside the ones that stay.
+    const same = { kind: 'paragraph', spans: [{ text: 'TBD' }] } as const;
+    const repeated: TableDocument = [
+      same,
+      { ...same },
+      table,
+      { ...same },
+      { ...same },
+    ];
+    expect(
+      withText(
+        repeated,
+        applyText(textOf(repeated), 'TBD\nTBD\nTBD', {
+          selection: { start: 0, end: 4 },
+        }).document,
+      ),
+    ).toStrictEqual([same, table, same, same]);
+    // Deleting from the end of a paragraph keeps the table after it, beside equal text.
+    const intro = { kind: 'paragraph', spans: [{ text: 'Intro' }] } as const;
+    const keep = { kind: 'paragraph', spans: [{ text: 'Keep' }] } as const;
+    const end = { kind: 'paragraph', spans: [{ text: 'End' }] } as const;
+    const deleted = {
+      kind: 'paragraph',
+      spans: [{ text: 'Delete this' }],
+    } as const;
+    expect(
+      withText(
+        [intro, keep, table, deleted, { ...keep }, end],
+        applyText(
+          [intro, keep, deleted, { ...keep }, end],
+          'Intro\nKeep\nEnd',
+          {
+            selection: { start: 10, end: 27 },
+          },
+        ).document,
+      ),
+    ).toStrictEqual([intro, keep, table, end]);
+    // Pasting a copy of a line before it keeps the table after the line itself.
+    const pasted = applyText(
+      [intro, keep, end],
+      'Intro\nKeep\nNew\nKeep\nEnd',
+      {
+        selection: { start: 6, end: 6 },
+      },
+    ).document;
+    expect(pasted[3]).toBe(keep);
+    expect(withText([intro, keep, table, end], pasted)).toStrictEqual([
+      intro,
+      keep,
+      { kind: 'paragraph', spans: [{ text: 'New' }] },
+      keep,
+      table,
+      end,
+    ]);
+    // Rewriting the lines before the table keeps it before the next line.
+    const meet = {
+      kind: 'paragraph',
+      spans: [{ text: 'We can meet.' }],
+    } as const;
+    const talk = {
+      kind: 'paragraph',
+      spans: [{ text: 'We can talk.' }],
+    } as const;
+    const agenda = { kind: 'paragraph', spans: [{ text: 'Agenda' }] } as const;
+    const thanks = { kind: 'paragraph', spans: [{ text: 'Thanks' }] } as const;
+    const rewritten = replaceSelection(
+      [meet, talk, agenda, thanks],
+      { start: 0, end: 26 },
+      'Let’s meet to talk.\n',
+    ).document;
+    expect(
+      withText([meet, talk, table, agenda, thanks], rewritten),
+    ).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'Let’s meet to talk.' }] },
+      table,
+      agenda,
+      thanks,
+    ]);
+    // Formatting across a table keeps it in place.
+    const both: TableDocument = [
+      { kind: 'paragraph', spans: [{ text: 'First' }] },
+      table,
+      { kind: 'paragraph', spans: [{ text: 'Next' }] },
+    ];
+    expect(
+      withText(both, toggleMark(textOf(both), { start: 0, end: 10 }, 'bold')),
+    ).toStrictEqual([
+      { kind: 'paragraph', spans: [{ text: 'First', marks: ['bold'] }] },
+      table,
+      { kind: 'paragraph', spans: [{ text: 'Next', marks: ['bold'] }] },
+    ]);
+    // Deleting the paragraph before the table keeps the table before the next one.
+    const first = { kind: 'paragraph', spans: [{ text: 'First' }] } as const;
+    const next = { kind: 'paragraph', spans: [{ text: 'Next' }] } as const;
+    expect(
+      withText(
+        [first, table, next, after],
+        applyText([first, next, after], 'Next\nAfter', {
+          selection: { start: 0, end: 6 },
+        }).document,
+      ),
+    ).toStrictEqual([table, next, after]);
+    expect(withText(body, typed(textOf(body), ''))).toStrictEqual([
+      { kind: 'paragraph', spans: [] },
+      table,
+    ]);
+
+    await expect(
+      drafts.update({ ...created, subject: 'Rota', body: edited }),
+    ).resolves.toBe(true);
+    const relaunched = createDrafts(storage.native, session.registration);
+    await relaunched.load();
+    expect(
+      present(draftOf(relaunched.getSnapshot(), id), 'the reopened Draft').body,
+    ).toStrictEqual(edited);
+  });
+
   it('starts no Draft from a sender that stopped sending while the open composer saved', async () => {
     expect.hasAssertions();
     const cases: ReadonlyArray<readonly RegistrationSnapshot[]> = [
@@ -3198,7 +3371,8 @@ describe('adding files and images to Drafts', () => {
       {
         ...created,
         attachments: [attachment],
-        body: insertImage(created.body, { start: 0, end: 0 }, image).document,
+        body: insertImage(textOf(created.body), { start: 0, end: 0 }, image)
+          .document,
       },
       created,
     );
@@ -3220,7 +3394,7 @@ describe('adding files and images to Drafts', () => {
 
     // Removing the image keeps its bytes for Undo while the Draft exists in this session.
     const complete = draft();
-    const removed = { ...complete, body: typed(complete.body, '') };
+    const removed = { ...complete, body: typed(textOf(complete.body), '') };
     await drafts.update(removed, complete);
     expect(storage.assets()).toContain(image.id);
     await drafts.update(complete, removed);
@@ -3243,7 +3417,10 @@ describe('adding files and images to Drafts', () => {
       'the reopened Draft',
     );
     expect(assetsOf(reopened)).toStrictEqual(assetsOf(complete));
-    const withoutImage = { ...reopened, body: typed(reopened.body, '') };
+    const withoutImage = {
+      ...reopened,
+      body: typed(textOf(reopened.body), ''),
+    };
     await relaunched.update(withoutImage, reopened);
     expect(storage.assets()).toHaveLength(2);
     relaunched = await relaunch();
@@ -3636,8 +3813,8 @@ describe('adding files and images to Drafts', () => {
       await drafts.importAsset(asset, picked.source);
     }
     const refused = present(draftOf(drafts.getSnapshot(), target), 'the Draft');
-    expect(imagesOf(refused.body)).toHaveLength(1);
-    expect(imagesOf(refused.body)[0]).toMatchObject({
+    expect(imagesOf(textOf(refused.body))).toHaveLength(1);
+    expect(imagesOf(textOf(refused.body))[0]).toMatchObject({
       state: 'failed',
       reason: 'too-large',
     });

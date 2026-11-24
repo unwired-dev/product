@@ -13,7 +13,7 @@ import { createDrafts } from '../src/drafts.ts';
 import { createMailboxes } from '../src/mailboxes.ts';
 import { createOutbox, outboxCopy, undoSendWindow } from '../src/outbox.ts';
 import { boundaryOf } from '../src/outgoing-message.ts';
-import { plainText } from '../src/semantic-document.ts';
+import { plainText, textOf } from '../src/semantic-document.ts';
 import { syntheticConnections } from '../src/testing/gmail-mailbox.ts';
 import { alex, present } from './draft-sync-fixture.ts';
 import { account, addressed, sender, sharedAccount } from './outbox-fixture.ts';
@@ -846,7 +846,9 @@ describe('recovering Outbox outcomes and late Send refusals', () => {
         // Edit returns it under a new identifier, because its old one stays claimed.
         const restored = String(await sending.outbox.undo(id));
         expect(restored).not.toBe(id);
-        expect(plainText(sending.draft(restored).body)).toBe('See you there');
+        expect(plainText(textOf(sending.draft(restored).body))).toBe(
+          'See you there',
+        );
         expect(gmail.sends).toStrictEqual([]);
       },
     );
