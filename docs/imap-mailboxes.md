@@ -2235,8 +2235,8 @@ password manager by running
   folder over IMAP 7 seconds later, created it again under the same name within the same
   second and filled it with 1,500 new messages (10 appended, the rest copied within the
   folder). The recreated folder reported a UIDVALIDITY other than the first one, and its
-  count read 1,500 over IMAP and again 24 seconds later, when the server counted 1,501
-  messages across its seven selectable folders. The operator continued the process 21
+  count read 1,500 over IMAP. 24 seconds later the server counted 1,501 messages across
+  its seven selectable folders. The operator continued the process 21
   seconds after that count, 53 seconds after stopping it. **Restarted, not reused:** Sync Status read **1,001
   messages** for a second, then **1 messages** 3 seconds after the process continued,
   **501**, **1,001** and **1,501 messages** 11 seconds after it, the server's count after
