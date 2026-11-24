@@ -69,7 +69,8 @@ const folderID = (name: string) =>
   name === projects ? name : `AQMkAGI2-synthetic-${name}=`;
 
 // The `registration-performance` mailbox adds older Inbox messages, each its own conversation and
-// never written to, for the warm-cache performance journey; Outlook update 001 is the newest.
+// read until a write marks it unread, for the warm-cache performance journey; Outlook update 001
+// is the newest.
 const performance = new Map(
   Array.from({ length: syntheticPerformanceCount }, (_, index) => {
     const number = String(index + 1).padStart(3, '0');
@@ -114,12 +115,22 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
         scenario === 'registration-performance' ? performance : [],
       );
       const extraListed = () =>
-        [...extra.values()].map(({ listed: item }) => item);
+        [...extra.values()].map(({ listed: item }) => ({
+          ...item,
+          isRead: extraPlacement(item.id).isRead,
+        }));
       // The message's well-known folder name or folder ID, its read state, and how many writes
       // changed it; a delta link names the count it was issued at.
       let folder = 'inbox';
       let isRead = false;
       let changes = 0;
+      // The added messages' read states, once a write changes one; they stay in the Inbox.
+      const extraRead = new Map<string, boolean>();
+      const extraPlacement = (id: string) => ({
+        id,
+        parentFolderId: folderID('inbox'),
+        isRead: extraRead.get(id) ?? true,
+      });
       const listed = () => ({
         id: message,
         conversationId: 'synthetic-outlook-conversation',
@@ -137,11 +148,17 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
 
       const write = Effect.fn('SyntheticMicrosoft.write')(function* (
         method: string,
+        url: string,
         body: string,
       ) {
         const change = yield* Schema.decodeEffect(Change)(body).pipe(
           Effect.catch(() => refuse('unavailable')),
         );
+        const id = requestURL(url).segments.at(-1) ?? '';
+        if (extra.has(id)) {
+          extraRead.set(id, change.isRead ?? extraPlacement(id).isRead);
+          return yield* reply(200, extraPlacement(id));
+        }
         isRead = change.isRead ?? isRead;
         folder = change.destinationId ?? folder;
         changes += 1;
@@ -219,7 +236,7 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
             return reply(
               200,
               search.includes('parentFolderId')
-                ? { id, parentFolderId: folderID('inbox'), isRead: true }
+                ? extraPlacement(id)
                 : {
                     id,
                     hasAttachments: false,
@@ -276,7 +293,7 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
             const found = extra.get(segments.at(-1) ?? '')?.listed;
             return found === undefined
               ? reply(200, { ...listed(), parentFolderId: folderID(folder) })
-              : reply(200, { ...found, parentFolderId: folderID('inbox') });
+              : reply(200, { ...found, ...extraPlacement(found.id) });
           },
         },
       ];
@@ -308,7 +325,7 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
           return { status: 202, body: '' };
         }
         if (body !== null) {
-          return yield* write(method, body);
+          return yield* write(method, url, body);
         }
         const request = requestURL(url);
         const route = routes.find(({ matches }) =>

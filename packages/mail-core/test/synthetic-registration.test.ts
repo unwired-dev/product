@@ -782,6 +782,33 @@ describe('the performance mailboxes', () => {
       expect(body.parentFolderId).not.toBe('');
     }
   });
+
+  it('confirm marking an added Microsoft message unread by its own ID', async () => {
+    expect.hasAssertions();
+    const ask = launch('registration-performance', { state: null });
+    const id = 'AAMkAGI2-synthetic-performance-003=';
+    const Placed = Schema.Struct({
+      status: Schema.Finite,
+      body: Schema.fromJsonString(
+        Schema.Struct({ id: Schema.String, isRead: Schema.Boolean }),
+      ),
+    });
+    const graph = async (method: string, body: string | null) =>
+      decoded(
+        Placed,
+        await ask('microsoft.graph', {
+          url: `https://graph.microsoft.com/v1.0/me/messages/${id}${body === null ? '?$select=id,parentFolderId,isRead' : ''}`,
+          method,
+          body,
+          contentType: 'application/json',
+        }),
+      ).body;
+    expect(await graph('PATCH', '{"isRead":false}')).toStrictEqual({
+      id,
+      isRead: false,
+    });
+    expect(await graph('GET', null)).toStrictEqual({ id, isRead: false });
+  });
 });
 
 describe('the invitation mailbox', () => {
