@@ -3474,23 +3474,7 @@ export function createImapInbox(
     );
   // Files an accepted message's copy in the Sent folder the server declares, unless a copy with its
   // Message-ID is there already, as after a lost answer to an earlier filing. Resolves undefined
-  // once the copy is there, after a cached Sent folder is read again to show it, or why it still
-  // waits.
-  const fileSent = async (
-    message: OutgoingSend,
-    id: string,
-  ): Promise<DeliveryProblem | undefined> => {
-    const problem = await appendSent(message, id);
-    const folder = imapRoleFolder(document?.folders ?? [], 'sent');
-    if (
-      problem === undefined &&
-      folder !== undefined &&
-      cacheOf(folder) !== undefined
-    ) {
-      await openFolder(folder);
-    }
-    return problem;
-  };
+  // once the copy is there, or why it still waits.
   const appendSent = (
     message: OutgoingSend,
     id: string,
@@ -3538,6 +3522,20 @@ export function createImapInbox(
         }),
       ),
     );
+  };
+  // Files the copy as `appendSent` does; once it is there, a cached Sent folder is read again, so
+  // an open Sent list shows it.
+  const fileSent = async (message: OutgoingSend, id: string) => {
+    const problem = await appendSent(message, id);
+    const folder = imapRoleFolder(document?.folders ?? [], 'sent');
+    if (
+      problem === undefined &&
+      folder !== undefined &&
+      cacheOf(folder) !== undefined
+    ) {
+      await openFolder(folder);
+    }
+    return problem;
   };
   // Looks for a message whose submission had no answer in the Sent folder by its Message-ID, not
   // its MIME boundary, which the Gmail and Microsoft inboxes take too. Resolves sent for exactly one

@@ -1,6 +1,7 @@
 import * as Schema from 'effect/Schema';
 import PostalMime from 'postal-mime';
 
+import type { ImapMailbox, Mailbox } from '../src/mailboxes.ts';
 import type { RegistrationSnapshot } from '../src/registration.ts';
 import type { SyntheticProductSync } from '../src/testing/drafts.ts';
 
@@ -47,6 +48,12 @@ const snapshot = (smtp = true): RegistrationSnapshot => ({
   signInProvider: 'google',
   mailboxes: JSON.stringify([connection(work, smtp), connection(home, smtp)]),
 });
+
+// The IMAP mailbox of one connection, with its folders.
+const imapConnection =
+  (id: string) =>
+  (mailbox: Mailbox | ImapMailbox): mailbox is ImapMailbox =>
+    mailbox.provider === 'imap' && mailbox.id === id;
 
 const decodeRaw = Schema.decodeUnknownSync(
   Schema.Struct({ data: Schema.String }),
@@ -226,14 +233,9 @@ describe('sending through SMTP and filing Sent copies', () => {
     const sending = await imapSender();
     try {
       const { inbox } = present(
-        sending.mailboxes
-          .getConnections()
-          .find(({ id: connection }) => connection === work.id),
+        sending.mailboxes.getConnections().find(imapConnection(work.id)),
         'mailbox',
       );
-      if (!('openFolder' in inbox)) {
-        throw new Error('Expected an IMAP Inbox');
-      }
       await inbox.openFolder('Sent');
       expect(inbox.folder('Sent')).toMatchObject({ messages: [] });
       const id = await sending.addressed();
