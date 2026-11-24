@@ -1466,8 +1466,9 @@ final class WindowTests: XCTestCase {
     XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
     let app = XCUIApplication(
       url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
-    // Every launch starts from one new window, whatever AppKit saved at the previous quit.
-    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en"]
+    // Every launch starts from one new window, whatever AppKit saved at the previous quit. Unlike
+    // the other journeys, it leaves `interfaceLanguage` unpinned: the pop-up's choice must apply.
+    app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
     app.launch()
     addTeardownBlock { if app.state != .notRunning { app.terminate() } }
     // Past Welcome, the sign-in page of `window` ends with the Language pop-up.
@@ -1516,10 +1517,13 @@ final class WindowTests: XCTestCase {
     _ app: XCUIApplication, titles: [String], file: StaticString = #filePath, line: UInt = #line
   ) {
     app.menuBars.menuBarItems["Window"].click()
-    let entries = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "Inbox "))
+    // A window's entry carries its name as the title, with no label, and its action as the
+    // identifier.
+    let entries = app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "Inbox "))
     XCTAssertEqual(entries.count, titles.count, file: file, line: line)
     for title in titles {
-      XCTAssertEqual(entries.matching(identifier: title).count, 1, file: file, line: line)
+      let entry = entries.matching(NSPredicate(format: "title == %@", title))
+      XCTAssertEqual(entry.count, 1, file: file, line: line)
     }
     XCTAssertFalse(app.menuItems["Merge All Windows"].exists, file: file, line: line)
     app.typeKey(.escape, modifierFlags: [])
