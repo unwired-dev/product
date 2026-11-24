@@ -133,7 +133,7 @@ hint's false "Label duplicates role description" finding. The capture is
 kept as an `Add Link` attachment. Review it for the body's selection drawn as inactive
 ([#1796](https://github.com/unwired-dev/product/issues/1796)); no assertion checks the highlight. An invalid destination shows its reason after Return,
 Escape closes the popover keeping the text and selection, which reopening it
-prefills again, and a valid destination applied from it reads **Edit Link**, which one Undo reverts and Redo restores.
+prefills again, and a valid destination applied from it reads **Edit Link**, which one Undo reverts, leaving Edit Link unavailable at the caret, and Redo restores.
 Edit Link then offers Remove Link with the saved destination, and Escape closes
 it. With the reply docked, it clicks the
 reader toolbar above it ([#1211](https://github.com/unwired-dev/product/issues/1211)):
