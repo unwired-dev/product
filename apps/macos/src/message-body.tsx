@@ -749,7 +749,7 @@ const attachmentStatus = (
 
 // A Downloaded Attachment as a Draft can copy it, through its mailbox's current generation.
 export type SavedAttachment = NonNullable<
-  ReturnType<GmailInbox['attachmentFile']>
+  ReturnType<GmailInbox['holdAttachmentFile']>
 >;
 // The Gmail, Microsoft or IMAP Inbox whose received attachments a reader shows.
 type AttachmentSource = Pick<
@@ -761,7 +761,7 @@ type AttachmentSource = Pick<
   | 'presentAttachment'
   | 'saveAttachmentCopy'
   | 'saveAttachmentToDownloads'
-  | 'attachmentFile'
+  | 'holdAttachmentFile'
 >;
 type SaveReply = Exclude<
   Awaited<ReturnType<AttachmentSource['saveAttachmentToDownloads']>>,
@@ -855,7 +855,7 @@ function AttachmentRow({
             return undefined;
           }
           await inbox.downloadAttachment(id, locator);
-          return current() ? inbox.attachmentFile(id, locator) : undefined;
+          return current() ? inbox.holdAttachmentFile(id, locator) : undefined;
         });
       }
     };

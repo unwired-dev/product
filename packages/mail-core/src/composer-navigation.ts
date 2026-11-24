@@ -31,9 +31,10 @@ export interface ComposerNavigation {
       // The reader's Mailbox Connection, which the Downloaded Attachment is read through.
       mailbox: string;
       mailboxes: readonly MailboxConnection[];
-      // Resolves the Downloaded Attachment after leaving, so a later destination still wins.
+      // Resolves the held Downloaded Attachment after leaving, so a later destination still wins;
+      // it is released once the Draft copied it or creation ended without it.
       saved: () => Promise<
-        | Readonly<NonNullable<ReturnType<GmailInbox['attachmentFile']>>>
+        | Readonly<NonNullable<ReturnType<GmailInbox['holdAttachmentFile']>>>
         | undefined
       >;
     }>,
@@ -130,16 +131,23 @@ export function createComposerNavigation(): ComposerNavigation {
         return undefined;
       }
       let file: Awaited<ReturnType<typeof saved>> = undefined;
-      return create(drafts, sender, {
-        before: async () => {
-          file = await saved();
-          return file !== undefined;
-        },
-        prepare: (id) => {
-          const chosen = file;
-          return chosen === undefined
-            ? Promise.resolve(false)
-            : drafts.attach(id, [
+      let release = () => {};
+      let attached = false;
+      try {
+        return await create(drafts, sender, {
+          before: async () => {
+            file = await saved();
+            release = file?.release ?? release;
+            return file !== undefined;
+          },
+          prepare: async (id) => {
+            const chosen = file;
+            if (chosen === undefined) {
+              return false;
+            }
+            attached = await drafts.attach(
+              id,
+              [
                 {
                   name: chosen.name,
                   type: chosen.type,
@@ -153,9 +161,17 @@ export function createComposerNavigation(): ComposerNavigation {
                     file: chosen.file,
                   },
                 },
-              ]);
-        },
-      });
+              ],
+              chosen.release,
+            );
+            return attached;
+          },
+        });
+      } finally {
+        if (!attached) {
+          release();
+        }
+      }
     },
   };
 }

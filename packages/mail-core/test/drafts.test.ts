@@ -3494,6 +3494,7 @@ describe('adding files and images to Drafts', () => {
       address: personal.address,
       generation: 'generation-1',
       file: 'downloaded-file',
+      release: () => undefined,
     };
     const navigation = createComposerNavigation();
     const started = present(
@@ -3726,6 +3727,7 @@ describe('adding files and images to Drafts', () => {
           address: alex.address,
           generation: 'generation-2',
           file: 'downloaded-file',
+          release: () => undefined,
         };
       },
     });
@@ -3747,6 +3749,7 @@ describe('adding files and images to Drafts', () => {
       address: alex.address,
       generation: 'generation-1',
       file: 'downloaded-file',
+      release: () => undefined,
     };
     let attaching: () => void = () => undefined;
     // oxlint-disable-next-line promise/avoid-new -- Signals when the real attach reaches held storage.

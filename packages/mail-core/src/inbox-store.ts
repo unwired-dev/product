@@ -4219,7 +4219,7 @@ export function createInboxStore(
     presentAttachment: attachments.presentAttachment,
     saveAttachmentCopy: attachments.saveAttachmentCopy,
     saveAttachmentToDownloads: attachments.saveAttachmentToDownloads,
-    attachmentFile: attachments.attachmentFile,
+    holdAttachmentFile: attachments.holdAttachmentFile,
     // Whether the provider keeps the Message-ID a sent message carries, which then finds its copy in
     // Sent: Microsoft does, and Gmail assigns its own.
     keepsMessageIds: provider === 'microsoft-graph',
