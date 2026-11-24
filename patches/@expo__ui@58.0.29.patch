@@ -1,5 +1,5 @@
 diff --git a/ios/Popover/PopoverView.swift b/ios/Popover/PopoverView.swift
-index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..cb5ad02b22604f1506e9ae7d98aa49b36cd496b1 100644
+index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..40438dc6edc33fbba41534916b5333fde3493525 100644
 --- a/ios/Popover/PopoverView.swift
 +++ b/ios/Popover/PopoverView.swift
 @@ -14,14 +14,14 @@ internal struct PopoverView: ExpoSwiftUI.View {
@@ -45,7 +45,7 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..cb5ad02b22604f1506e9ae7d98aa49b3
    @ViewBuilder
    private var popoverContent: some View {
      if let content = props.children?.slot("popover") {
-@@ -55,3 +73,90 @@ internal struct PopoverView: ExpoSwiftUI.View {
+@@ -55,3 +73,101 @@ internal struct PopoverView: ExpoSwiftUI.View {
      }
    }
  }
@@ -70,7 +70,17 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..cb5ad02b22604f1506e9ae7d98aa49b3
 +internal final class ArrowlessPopoverController: UIViewController {
 +  // The gap between the control and the popover in the approved Filters frame.
 +  private static let gap: CGFloat = 13
-+  var leading = false
++  // The sidebar can show or hide while the popover is open, as when the iPad rotates. Nothing else
++  // lays the open popover out again then, so the new rect would wait for the next layout.
++  var leading = false {
++    didSet {
++      if leading != oldValue, let presented {
++        place(presented)
++        presented.popoverPresentationController?.containerView?.setNeedsLayout()
++      }
++    }
++  }
++  private weak var presented: UIViewController?
 +  private var anchor: CGRect = .null
 +  private var placed: CGRect = .null
 +  private var arrow: UIPopoverArrowDirection = []
@@ -83,6 +93,7 @@ index dac02b2ea14de86cf43387b1bcefe995dfb07c4d..cb5ad02b22604f1506e9ae7d98aa49b3
 +    while let parent = presented.parent {
 +      presented = parent
 +    }
++    self.presented = presented
 +    place(presented)
 +    // A resized popover stays centred on its source rect, and SwiftUI moves the rect back onto the
 +    // control when the control moves, so either change places it again.
