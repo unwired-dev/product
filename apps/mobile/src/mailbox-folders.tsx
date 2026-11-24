@@ -13,7 +13,6 @@ import {
   mailboxFolder,
   notIncludedDetail,
   unifiedFolders,
-  unifiedMailbox,
   unifiedRow,
 } from '@private-email/mail-core/mailboxes';
 import {
@@ -233,7 +232,7 @@ function useUnifiedMailbox(
 ) {
   const [, changed] = useReducer((count: number) => count + 1, 0);
   const retained = useMemo(
-    () => createUnifiedMailboxRetention(changed),
+    () => createUnifiedMailboxRetention<InboxMailbox>(changed),
     [changed],
   );
   useLayoutEffect(() => {
@@ -245,5 +244,5 @@ function useUnifiedMailbox(
     },
     [retained],
   );
-  return role === undefined ? undefined : unifiedMailbox(mailboxes, role);
+  return role === undefined ? undefined : retained.listed(mailboxes, role);
 }

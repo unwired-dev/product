@@ -150,6 +150,49 @@ describe('message list', () => {
     }
   });
 
+  it('keeps a search when the list switches to unified Sent', async () => {
+    expect.hasAssertions();
+    const gmail = createSyntheticGmail();
+    gmail.deliver({ subject: 'Saved mail remains available' });
+    for (const subject of ['Flight to Zagreb', 'Lunch in Split']) {
+      const sent = gmail.deliver({ subject });
+      gmail.setLabel(sent, 'INBOX', false);
+      gmail.setLabel(sent, 'SENT', true);
+    }
+    const inbox = createInboxStore(gmail.native);
+    const mailboxes = singleMailbox(inbox, 'work-mailbox');
+    const show = (view: MailboxView) => (
+      <InboxProvider mailboxes={mailboxes}>
+        <Inbox
+          onSelect={() => undefined}
+          selected={undefined}
+          view={view}
+        />
+      </InboxProvider>
+    );
+    try {
+      const app = await render(show({}));
+      await screen.findByRole('button', { name: /Saved mail remains/u });
+      await fireEvent.changeText(
+        screen.getByLabelText('Search senders and subjects'),
+        'zagreb',
+      );
+      expect(
+        screen.queryByRole('button', { name: /Flight to Zagreb/u }),
+      ).toBeNull();
+      await app.rerender(show({ unified: 'SENT' }));
+      await expect(
+        screen.findByRole('button', { name: /Flight to Zagreb/u }),
+      ).resolves.toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: /Lunch in Split/u }),
+      ).toBeNull();
+    } finally {
+      await cleanup();
+      inbox.forget();
+    }
+  });
+
   it('names a connection that needs sign-in after the count, in place of the scope and update time', async () => {
     expect.hasAssertions();
     const { gmail, inbox } = await renderGmailInbox();
