@@ -66,18 +66,21 @@ presenter; each names the appearances it ran in. Host load from other work was
   docks in the reading column, both closed by Close (Light and Dark).
 - On iPad, a tap outside the Labels popover (from the toolbar and from More, in
   Dark) and the Filters popover (in Light) sometimes closed it only at the
-  second tap. CI closes the Filters popover with one tap; the cause of the
-  others is not established, and
-  [#2873](https://github.com/unwired-dev/product/issues/2873) tracks it.
+  second tap. CI closes the Filters popover with one tap in Dark; the cause of
+  each observation is not established, and
+  [#2873](https://github.com/unwired-dev/product/issues/2873) keeps them open.
 - **Deferred** to [#2873](https://github.com/unwired-dev/product/issues/2873):
   the iPad Folders popover; VoiceOver focus when a presenter opens and its
-  return when it closes; Reduce Motion; a compact iPad window; a hardware
-  keyboard's Escape on the Labels popover and its keyboard avoidance on
-  iPhone; rotation while the Move picker, Reply sheet, labels or link alert is
-  presented; the Dark-only and Light-only checks above in the other
-  appearance; and iPhone's More, which shows only for mail without Reply,
-  which no journey or the synthetic mailbox has. `agent-device` cannot turn
-  VoiceOver on, rotate the device or resize an iPad window. The
+  return when it closes; Reduce Motion; a compact iPad window, where the
+  composer and Filters turn into sheets and the Move and Labels popovers,
+  chosen by device rather than width, adapt as SwiftUI decides; a hardware
+  keyboard, including Escape on the Labels popover; the software keyboard in
+  New Label and in the regular-width iPad composer; rotation while any
+  presenter but the iPad Filters popover and the iPhone composer is
+  presented; Expand on iPad; the Dark-only and Light-only checks above in the
+  other appearance; and iPhone's More, which shows only for mail without
+  Reply, which no journey or the synthetic mailbox has. `agent-device` cannot
+  turn VoiceOver on, rotate the device or resize an iPad window. The
   `registration-apple` journey, whose Move steps rotate to landscape before
   opening the picker and check its keyboard there, stopped under host load
   before them.
