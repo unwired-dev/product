@@ -114,6 +114,13 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
       const extra = new Map(
         scenario === 'registration-performance' ? performance : [],
       );
+      // The added messages' read states, once a write changes one; they stay in the Inbox.
+      const extraRead = new Map<string, boolean>();
+      const extraPlacement = (id: string) => ({
+        id,
+        parentFolderId: folderID('inbox'),
+        isRead: extraRead.get(id) ?? true,
+      });
       const extraListed = () =>
         [...extra.values()].map(({ listed: item }) => ({
           ...item,
@@ -124,13 +131,6 @@ export class SyntheticMicrosoft extends Context.Service<SyntheticMicrosoft>()(
       let folder = 'inbox';
       let isRead = false;
       let changes = 0;
-      // The added messages' read states, once a write changes one; they stay in the Inbox.
-      const extraRead = new Map<string, boolean>();
-      const extraPlacement = (id: string) => ({
-        id,
-        parentFolderId: folderID('inbox'),
-        isRead: extraRead.get(id) ?? true,
-      });
       const listed = () => ({
         id: message,
         conversationId: 'synthetic-outlook-conversation',

@@ -797,11 +797,11 @@ describe('the performance mailboxes', () => {
         }),
       ),
     });
-    const graph = async (method: string, body: string | null) =>
+    const graph = async (method: string, query: string, body: string | null) =>
       decoded(
         Placed,
         await ask('microsoft.graph', {
-          url: `https://graph.microsoft.com/v1.0/me/messages/${id}${body === null ? '?$select=id,parentFolderId,isRead' : ''}`,
+          url: `https://graph.microsoft.com/v1.0/me/messages/${id}${query}`,
           method,
           body,
           contentType: 'application/json',
@@ -811,8 +811,12 @@ describe('the performance mailboxes', () => {
       status: 200,
       body: { id, parentFolderId: 'AQMkAGI2-synthetic-inbox=', isRead: false },
     };
-    expect(await graph('PATCH', '{"isRead":false}')).toStrictEqual(unread);
-    expect(await graph('GET', null)).toStrictEqual(unread);
+    await expect(graph('PATCH', '', '{"isRead":false}')).resolves.toStrictEqual(
+      unread,
+    );
+    await expect(
+      graph('GET', '?$select=id,parentFolderId,isRead', null),
+    ).resolves.toStrictEqual(unread);
   });
 });
 
