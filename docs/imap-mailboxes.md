@@ -2288,8 +2288,8 @@ password manager by running
   process 43 seconds after stopping it. **Restarted, not reused:** Sync Status read **501
   of 6,001 messages** for a second, **1 messages** 2 seconds after the process continued,
   then **501 of 1,501** and **1,001 of 1,501 messages**. The total matched the server's
-  count after the recreation, and the capsule faded 10 seconds after the process continued,
-  before a reading showed **1,501 of 1,501**.
+  count after the recreation, and the capsule faded 10 seconds after the process continued.
+  No reading showed **1,501 of 1,501**.
   No reading showed **Offline** or an account needing attention. **Complete after
   relaunch:** about 2 minutes later the app was terminated and launched again. Sync Status
   read **Checking the mail server…** 15 seconds after launch, and the check ended with
@@ -2317,9 +2317,9 @@ password manager by running
   attempt used a run folder under another name. With the software keyboard hidden but a field
   still focused, the first tap on **Connect** did nothing
   ([#2571](https://github.com/unwired-dev/product/issues/2571)). As on the other hosts, Sync
-  Status closes with the capsule, so the final count was not on screen: completion at the
-  server's count comes from the total of 1,501, the capsule fading and the relaunch
-  downloading nothing, not from an app-side count.
+  Status closes with the capsule, so the final count was not on screen. Completion is inferred
+  from the total of 1,501, the capsule fading and the relaunch downloading nothing; the
+  final downloaded count is unverified.
 
 Real iCloud Mail and Seznam Email organizing, IDLE and Sent filing qualification, through
 the app on both hosts, remains required before release
