@@ -2562,6 +2562,64 @@ final class WindowTests: XCTestCase {
     XCTAssertTrue(window.buttons["Pin"].waitForExistence(timeout: 5))
   }
 
+  // #2459: Labels, which More › Labels › New Label… opens below the reader's toolbar, stays inside
+  // the window at M1's width and where the toolbar wraps. The captures show the typed name with no
+  // placeholder under it.
+  func testNewLabelPopover() throws {
+    try newLabelPopover(appearance: "Light")
+  }
+
+  func testNewLabelPopoverDark() throws {
+    try newLabelPopover(appearance: "Dark")
+  }
+
+  private func newLabelPopover(appearance: String) throws {
+    continueAfterFailure = false
+    let environment = ProcessInfo.processInfo.environment
+    XCTAssertEqual(environment["UNWIRED_TEST_SCENARIO"], "registration-performance")
+    let app = XCUIApplication(url: URL(fileURLWithPath: try XCTUnwrap(environment["UNWIRED_APP_PATH"])))
+    app.launchArguments += [
+      "-ApplePersistenceIgnoreState", "YES", "-interfaceLanguage", "en",
+      "-UnwiredAppearance", appearance.lowercased(),
+    ]
+    app.launch()
+    addTeardownBlock { if app.state != .notRunning { app.terminate() } }
+    let window = app.windows["Inbox 1"]
+    performanceSetup(app, window: window)
+    window.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Gmail update 001")).firstMatch
+      .click()
+    let more = window.menuButtons["More"]
+    XCTAssertTrue(more.waitForExistence(timeout: 15))
+    let labels = app.popovers.firstMatch
+    let name = app.textFields["Label name"]
+    for width: CGFloat in [1278, 902] {
+      // A drag can end several points short, and AppKit ignores one of a few points, so a short
+      // drag repeats and the width is about the target.
+      for _ in 0..<3 where abs(window.frame.width - width) > 8 {
+        let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+          .withOffset(CGVector(dx: -2, dy: -2))
+        corner.click(
+          forDuration: 0.2,
+          thenDragTo: corner.withOffset(CGVector(dx: width - window.frame.width, dy: 0)))
+      }
+      XCTAssertEqual(window.frame.width, width, accuracy: 8)
+      more.click()
+      app.menuItems["Labels"].click()
+      app.menuItems["New Label…"].click()
+      XCTAssertTrue(name.waitForExistence(timeout: 10))
+      name.typeText("Travel/Spain")
+      XCTAssertEqual(name.value as? String, "Travel/Spain")
+      XCTAssertTrue(
+        window.frame.contains(labels.frame), "Labels at \(labels.frame) leaves \(window.frame)")
+      let attachment = XCTAttachment(screenshot: window.screenshot())
+      attachment.name = "Labels at \(Int(width)) pt (\(appearance))"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+      app.typeKey(.escape, modifierFlags: [])
+      XCTAssertTrue(name.waitForNonExistence(timeout: 10))
+    }
+  }
+
   // #2359: with the German test catalog, the Inbox with a Thread open, the Command Palette, a New
   // Message window and Settings › Notifications lay out as #2096's frames draw them.
   func testGermanStrings() throws {

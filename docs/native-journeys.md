@@ -282,6 +282,14 @@ row is still pinned, and **Unpin** removes both. The pinned window is kept as an
 attachment. It sets Light; `testPinThreadDark`
 runs it in Dark.
 
+`testNewLabelPopover` uses the same build and sign-in
+([#2459](https://github.com/unwired-dev/product/issues/2459)). It opens Gmail
+update 001, resizes the window to 1,278 pt and then to 902 pt, where the toolbar
+wraps, and at each width chooses **More › Labels › New Label…** and types
+`Travel/Spain`. **Labels** stays inside the window at both widths. Each window
+with the typed name is kept as an attachment, which shows no placeholder under
+the name. It sets Light; `testNewLabelPopoverDark` runs it in Dark.
+
 On iPhone and iPad, the default Gmail registration journey
 ([#2166](https://github.com/unwired-dev/product/issues/2166)) long-presses the
 open message's sender, chooses **Block Sender…**, and confirms
