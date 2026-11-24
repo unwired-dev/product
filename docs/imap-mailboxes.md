@@ -2235,16 +2235,16 @@ password manager by running
   folder over IMAP 7 seconds later, created it again under the same name within the same
   second and filled it with 1,500 new messages (10 appended, the rest copied within the
   folder). The recreated folder reported a UIDVALIDITY other than the first one, and its
-  count held at 1,500 for 21 seconds, read twice over IMAP, before the operator continued
-  the process, 53 seconds after stopping it. The server then counted 1,501 messages across
-  its seven selectable folders. **Restarted, not reused:** Sync Status read **1,001
+  count read 1,500 over IMAP and again 24 seconds later, when the server counted 1,501
+  messages across its seven selectable folders. The operator continued the process 21
+  seconds after that count, 53 seconds after stopping it. **Restarted, not reused:** Sync Status read **1,001
   messages** for a second, then **1 messages** 3 seconds after the process continued,
   **501**, **1,001** and **1,501 messages** 11 seconds after it, the server's count after
   the recreation, and the capsule faded 3 seconds later. No reading showed a total,
   **Offline** or an account needing attention, and a check of the mail server about 3
   minutes later downloaded no history. **Complete after relaunch:** the app was terminated and
-  launched again; Sync Status read **Checking the mail server…** 10 seconds after launch,
-  the capsule faded a second later, and no history download followed in the 69 seconds
+  launched again; Sync Status read **Checking the mail server…** 9 seconds after launch,
+  the capsule faded 2 seconds later, and no history download followed in the 69 seconds
   sampled after that. Afterwards the run folder was deleted, an IMAP count found the
   mailbox's original six folders and 1 message, **Sign Out of This Device** returned the
   app to Welcome, and the Simulator was deleted. The scan of step 5 above covered the
