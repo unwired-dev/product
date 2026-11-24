@@ -1114,6 +1114,12 @@ final class InboxTests: XCTestCase {
         .firstMatch.waitForExistence(timeout: 10))
     XCTAssertTrue(own.waitForExistence(timeout: 10))
     XCTAssertFalse(other.exists)
+    // #2549: while the field has focus, one tap on Search Mail Servers starts the server search.
+    let servers = app.buttons["Search Mail Servers for “plan”"]
+    XCTAssertTrue(servers.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.keyboards.firstMatch.exists)
+    servers.tap()
+    XCTAssertTrue(servers.waitForNonExistence(timeout: 10))
     closeSearch(app).tap()
     XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 10))
   }
@@ -4537,9 +4543,12 @@ final class InboxTests: XCTestCase {
     results.lifetime = .keepAlways
     add(results)
     verifyStableSearchEdits(app, search: search, maya: maya)
-    search.typeText("\n")
+    // #2549: while the field has focus, one tap on a result opens it, and the keyboard leaves.
+    maya.tap()
+    let opened = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
+    XCTAssertTrue(opened.waitForExistence(timeout: 10))
     XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10))
-    verifyCompactSwipeBackToResults(app, search: search, row: maya)
+    verifyCompactSwipeBackToResults(app, search: search, row: maya, reader: opened)
     closeSearch(app).tap()
     XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     // React Native resets the indicator inset as the keyboard leaves.
@@ -5092,12 +5101,9 @@ final class InboxTests: XCTestCase {
   // #1066: an iPhone edge swipe from a reader opened in search results returns to those results
   // with the query intact. What shows beneath the page during the drag needs a recording.
   private func verifyCompactSwipeBackToResults(
-    _ app: XCUIApplication, search: XCUIElement, row: XCUIElement
+    _ app: XCUIApplication, search: XCUIElement, row: XCUIElement, reader: XCUIElement
   ) {
     guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-    row.tap()
-    let reader = app.staticTexts.matching(identifier: "maya@example.com").firstMatch
-    XCTAssertTrue(reader.waitForExistence(timeout: 10))
     edgeSwipe(app, completing: true)
     waitUntil { row.isHittable && !reader.exists }
     XCTAssertEqual(search.value as? String, "Maya")
