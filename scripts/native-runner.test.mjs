@@ -20,6 +20,9 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const parseJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const scenarios = [
   ['success', 0, 2],
+  // CoreSimulator may shut a device down before the runner does (#2741).
+  ['already-shut-down', 0, 2],
+  ['shutdown-failure', 1, 1],
   ['delete-failure', 1, 2],
   ['terminated', 143, 1],
   ['multiple-tests', 0, 2],
@@ -97,6 +100,8 @@ const next = (name) => {
   return count;
 };
 if (command === 'xcrun' && args[1] === 'create') { fs.appendFileSync(path.join(base, 'created'), args[3] + '\\n'); console.log('owned-' + next('devices')); }
+if (command === 'xcrun' && args[1] === 'shutdown' && scenario === 'already-shut-down') { console.error('Unable to shutdown device in current state: Shutdown'); process.exit(149); }
+if (command === 'xcrun' && args[1] === 'shutdown' && scenario === 'shutdown-failure') { console.error('Unable to shutdown device in current state: Booted'); process.exit(1); }
 if (command === 'xcrun' && args[1] === 'delete') { fs.appendFileSync(path.join(base, 'deleted'), args[2] + '\\n'); if (scenario === 'delete-failure') process.exit(1); }
 if (command === 'xcodebuild' && args[0] === 'test-without-building') {
   const attempt = next('attempts');
