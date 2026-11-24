@@ -527,3 +527,22 @@ mail content.
   Typing the recipient opened the system's contacts access sheet, and the Simulator's sample
   contacts were shared. The bodies of the 400 and 403 answers were not recorded. Mac, iPad,
   uncertain outcomes, renewal after relaunch and revocation were not run and stay on #637.
+- **2026-11-24, iPhone attachments of 3 MB or more, Drafts after a successful send
+  ([#2719](https://github.com/unwired-dev/product/issues/2719)).** Target, operator and
+  toolchain as on 2026-11-18, on a new iPhone 18 Pro Simulator, after the owner lifted the
+  lock of #2724. Build: a new Release build from the app source of
+  `7372eadb538a227f4eb8549477308498ef0fce25`. Result: pass. A fresh Google Product Sign-In
+  with the Recovery Key, then **Microsoft 365 and Outlook**, connected the personal
+  mailbox with the passwords and the Recovery Key entered through the [Simulator
+  pasteboard](imap-mailboxes.md#certification-runs-through-the-app). A new message to the
+  mailbox's own address with one 10,000,000-byte file from **Attach File** left the Outbox
+  after the **Undo Send Window**: its file went up through an upload session in three
+  ranges, the last answered 201, and the send was answered 202. The message appeared once
+  in **Sent Items** and arrived once in the Inbox, and **Drafts** in Outlook on the web
+  then showed **Nothing in Drafts**. With the two runs above, every check of #2719 has now
+  passed. After **Sign Out of This Device** and deleting the Simulator, the credential
+  scan of this run's own files, `~/.agent-device`, `~/Library/Logs`, the repository's
+  `artifacts` directory with this run's DerivedData, the shell history and this run's
+  session transcripts found nothing. Limitations: Microsoft's one-time sign-in code was
+  typed, as it expires within minutes. Mac, iPad, uncertain outcomes, renewal after
+  relaunch and revocation were not run and stay on #637.
