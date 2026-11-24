@@ -59,7 +59,9 @@ presenter; each names the appearances it ran in. Host load from other work was
   where Settings › Appearance waits 20 seconds for the app to follow the device
   into Dark. In Dark it stopped where Labels reopens after a Command Palette
   star, its app not idle for 60 seconds at each step; the same steps by hand
-  opened the sheet.
+  opened the sheet. A second Dark run stopped earlier, where the Reply sheet
+  did not open within 5 seconds for the pin steps, at host load 59; CI passes
+  the same steps in Dark at `8dbd55782`.
 - Composer: on iPhone New Message opens the system sheet, and Close closes an
   empty Draft (Light and Dark). Its controls stay above the software keyboard,
   and a slow downward swipe on a changed Draft keeps the sheet and asks Delete
