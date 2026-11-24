@@ -2098,17 +2098,18 @@ password manager by running
   Afterwards the operator deleted the run folder, and **Sign Out of This Device** returned
   the app to Welcome. The scan of step 5 above covered the 7,183 files written since the
   run began under `~/Library/Logs`, Xcode's DerivedData, the repository's `artifacts`,
-  the shell history, the temporary directories, the operator's scratch files and this
+  the temporary directories, the operator's scratch files and this
   run's session transcript, T3 Code's state and logs, the app's container,
   `~/.agent-device`, `~/Library/Caches` and the browser's profile. No file held a password
-  or the Recovery Key written by this run: the only match was T3 Code's state database
+  or the Recovery Key written by this run, and a separate scan of the whole shell history
+  found none: the only match was T3 Code's state database
   file, whose matching entries were all written on 22 November
   ([#2688](https://github.com/unwired-dev/product/issues/2688)). Other tasks' worktrees
-  were not scanned. Limitations: the Outlook.com Draft of the iPhone record was listed
-  above the folder's messages throughout. When A1 first opened, within a minute of the
-  mailboxes connecting, the list header read **Offline** with **1 account needs
-  attention** and **Try Again**; without any action it read **Syncing** within 30
-  seconds, and no later check showed the notice. Seznam Email cannot exercise this case, as on
+  were not scanned. Limitations: an Outlook.com Draft from an earlier run was listed
+  above the folder's messages before the recreation and after the relaunch. When A1
+  first opened, the list header read **Offline** with **1 account needs attention** and
+  **Try Again**; about 6 seconds after **Download** it read **Syncing**, and the next
+  check showed no notice. Seznam Email cannot exercise this case, as on
   iPhone. A changed UIDVALIDITY of the Inbox or during a history download stays on #632,
   with background refresh and push wakes, server-closed sessions without a network loss
   and password recovery.
