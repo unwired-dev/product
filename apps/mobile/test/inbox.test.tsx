@@ -1413,15 +1413,21 @@ describe('connected Gmail Inbox', () => {
     );
     try {
       const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });
-      const message = gmail.deliver({ subject: 'Flight to Zagreb' });
-      gmail.setLabel(message, 'SENT', true);
+      gmail.deliver({ subject: 'Saved mail remains available' });
+      for (const subject of ['Flight to Zagreb', 'Lunch in Split']) {
+        const sent = gmail.deliver({ subject });
+        gmail.setLabel(sent, 'INBOX', false);
+        gmail.setLabel(sent, 'SENT', true);
+      }
       await renderConnected(gmail.native);
       await act(async () => {
         await fireEvent.press(
           await screen.findByRole('button', { name: 'Sent. In All Mailboxes' }),
         );
       });
-      await screen.findByText(/^All Mailboxes · 1 unread$/u);
+      await expect(
+        screen.findByRole('button', { name: /Lunch in Split/u }),
+      ).resolves.toBeVisible();
       await fireEvent.changeText(
         screen.getByLabelText('Search senders and subjects'),
         'zagreb',
@@ -1429,6 +1435,9 @@ describe('connected Gmail Inbox', () => {
       await expect(
         screen.findByRole('button', { name: /Flight to Zagreb/u }),
       ).resolves.toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: /Lunch in Split/u }),
+      ).toBeNull();
     } finally {
       platform.restore();
     }

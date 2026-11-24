@@ -688,8 +688,8 @@ export const notIncludedDetail = (
 
 // One window's retained Unified Mailbox views. Store identity is part of ownership, so repairing
 // a connection releases its old views before opening the replacement store's. `listed` keeps its
-// Unified Mailbox until the mailboxes, role or a followed folder change, so the list and the
-// search results built from it keep their identity between renders.
+// Unified Mailbox until the mailboxes, role or a followed folder change, or a folder stops being
+// followed, so the list and the search results built from it keep their identity between renders.
 export function createUnifiedMailboxRetention<
   M extends BrowsableMailbox & Readonly<{ id: string }>,
 >(changed: () => void) {
@@ -735,6 +735,7 @@ export function createUnifiedMailboxRetention<
         if (owners.get(key) !== inbox) {
           release();
           held.delete(key);
+          last = undefined;
         }
       }
       for (const { key, mailbox, name } of opened) {
@@ -751,6 +752,7 @@ export function createUnifiedMailboxRetention<
         release();
       }
       held.clear();
+      last = undefined;
     },
   };
 }
@@ -775,8 +777,8 @@ function openUnifiedFolder(
       return state.kind === 'ready' ? state.status : undefined;
     };
     let status = statusOf();
-    void inbox.openFolder(name);
-    return inbox.subscribe(() => {
+    // Followed before it opens, so a change the opening makes at once is noticed too.
+    const unsubscribe = inbox.subscribe(() => {
       const finished = status === 'syncing';
       status = statusOf();
       if (finished && status === 'current') {
@@ -784,6 +786,8 @@ function openUnifiedFolder(
       }
       changed();
     });
+    void inbox.openFolder(name);
+    return unsubscribe;
   }
   return () => undefined;
 }
