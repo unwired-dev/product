@@ -535,6 +535,29 @@ describe('sending Microsoft mail through Graph', () => {
     }
   });
 
+  it('wakes for a failed preparation cleanup after the retry delay', async () => {
+    expect.hasAssertions();
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const sending = await microsoftSender();
+    try {
+      const { id } = await large(sending);
+      sending.graph.failPrepare({ after: 1, interrupted: true });
+      await vi.advanceTimersByTimeAsync(undoSendWindow);
+      expect(sending.graph.drafts.size).toBe(1);
+      sending.graph.failDiscard({ status: 503 });
+      await expect(sending.outbox.undo(id)).resolves.not.toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sending.graph.drafts.size).toBe(1);
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(sending.graph.drafts.size).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sending.graph.drafts.size).toBe(0);
+      expect(sending.graph.sends).toStrictEqual([]);
+    } finally {
+      sending.outbox.dispose();
+    }
+  });
+
   it('cleans a preparation edited while native code was attaching its files', async () => {
     expect.hasAssertions();
     const sending = await microsoftSender();
