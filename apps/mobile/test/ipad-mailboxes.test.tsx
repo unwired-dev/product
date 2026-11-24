@@ -230,6 +230,31 @@ describe('iPad Mailboxes', () => {
     expect(state().displayMode).toBe('automatic');
   });
 
+  it('keeps Mailboxes shown by Show Sidebar through a trip to the largest text sizes', async () => {
+    expect.hasAssertions();
+    const { result, rerender } = await renderHook(
+      ({ largeText }: { largeText: boolean }) =>
+        useSidebarToggle(true, true, largeText),
+      { initialProps: { largeText: false } },
+    );
+    await act(() => {
+      result.current.follow('oneBesideSecondary');
+    });
+    await act(() => {
+      result.current.value?.toggle();
+    });
+    await act(() => {
+      result.current.follow('twoBesideSecondary');
+    });
+    // The largest text sizes hide Mailboxes, which UIKit reports.
+    await rerender({ largeText: true });
+    await act(() => {
+      result.current.follow('oneBesideSecondary');
+    });
+    await rerender({ largeText: false });
+    expect(result.current.displayMode).toBe('twoBesideSecondary');
+  });
+
   it('shows a connection that needs sign-in beside its header and in the list subtitle', async () => {
     expect.hasAssertions();
     const gmail = createSyntheticGmail({ address: 'alex@example.invalid' });

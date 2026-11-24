@@ -76,7 +76,10 @@ const styles = StyleSheet.create({
   sender: { ...textStyles.headline },
   secondary: { ...textStyles.footnote },
   padFrom: { alignItems: 'flex-start' },
-  padFromText: { flex: 1 },
+  // iPad's sender and recipients lines measure 37.5pt, so its target reaches 44pt with 4pt more on
+  // each side (#2484).
+  padFromText: { flex: 1, marginVertical: -4 },
+  padFromTarget: { paddingVertical: 4 },
   padIdentity: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -242,7 +245,7 @@ export function MessageHeader({
           },
           { items: blockItems },
         ]}>
-        <View style={ipad ? null : styles.fromTarget}>
+        <View style={ipad ? styles.padFromTarget : styles.fromTarget}>
           <View style={ipad ? [styles.padIdentity, layout.stack] : null}>
             <Text
               accessibilityActions={[

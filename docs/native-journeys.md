@@ -705,7 +705,9 @@ bar keep their frames, attaching a screenshot of each state.
 Each Command Palette command is typed and run with Return: Account opens Settings,
 Inbox leaves it, and Search Mail focuses search. It types a query into search,
 then selects, cuts and pastes it back with Command-A, Command-X and Command-V,
-and Return submits it. Reply from the palette opens a Draft. Typing extends its
+and Return submits it. On iPad each audit permits the Mailboxes sidebar's
+SwiftUI Edit button to fail Dynamic Type
+([#2769](https://github.com/unwired-dev/product/issues/2769)). Reply from the palette opens a Draft. Typing extends its
 subject, Tab moves focus to its recipients, and the body takes typing.
 Shift-Option-Left selects the reply's last word for the Link Editor, opened from
 iPad's format bar as a popover and from iPhone's Format panel as a sheet. It
