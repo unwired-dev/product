@@ -275,9 +275,19 @@ placeholder characters are rejected, keeping the Draft unchanged rather than
 applying text the editor would drop. A text tool that may ask for clarification
 rejects with `needs-clarification` and carries no text; the core reads that code
 as a clarification only for `rewrite`, `expand`, `shorten`, `friendly` and
-`neutral`, and as a failure for any other operation. The binding does not emit it
-yet: the model signal that does is tracked in
-[#806](https://github.com/unwired-dev/product/issues/806). Failure logs carry only the
+`neutral`, and as a failure for any other operation. For those five operations
+the binding first asks the model, in its own session with guided generation, whether
+the text can be edited without guessing
+([#2849](https://github.com/unwired-dev/product/issues/2849)). It answers only
+`needsClarification`, true only for text that contradicts itself or cannot be read;
+short, informal, questioning or vague text is edited. When it is true the binding
+rejects with `needs-clarification` before generating, so no model-written text or
+reason leaves it; otherwise the edit is the same plain-text generation as before.
+Guided generation always applies the system's default guardrails, which reject some
+ordinary text the plain edit accepts, such as a request to transfer money, so a check
+that fails for any reason other than cancellation lets the edit proceed. Answering
+the flag and the edit in one guided response was tested and rejected because it
+changed the edits themselves. Failure logs carry only the
 allow-listed native code or decode path, never Draft or generated text.
 
 ## Deterministic evidence

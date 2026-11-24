@@ -28,7 +28,7 @@ contacts no provider. Only this build contains the corpus run and its evidence
 recorder; `verify:bundle` rejects the run in any other bundle, and TestFlight
 uploads refuse mock builds.
 
-Each interactive launch runs version 4 of the synthetic corpus once, through the
+Each interactive launch runs version 5 of the synthetic corpus once, through the
 same shared stores the reader and composer use and the real native module:
 
 - summaries of English, Czech and German messages, a message that tells the model
@@ -37,6 +37,12 @@ same shared stores the reader and composer use and the real native module:
   Czech line, of a short note that reads like a request to expand it, and of
   authored text just inside the input limit, to show whether the model's context
   window holds it;
+- notes each clarifying Writing tool must still edit (open questions, an unclear
+  pronoun, a date with two readings, a short thank-you, a money transfer request
+  the clarification check's guardrails reject, and one note each for Expand,
+  Shorten, Make More Friendly and Make More Neutral), and three that must ask for
+  clarification instead (a self-contradicting instruction, contradicting times and
+  fragments). An unexpected or missed clarification fails its case;
 - reply suggestions with authored text, without authored text for a German
   message, and with a quoted message cut at the limit;
 - translations between installed or missing language pairs, and the same-language

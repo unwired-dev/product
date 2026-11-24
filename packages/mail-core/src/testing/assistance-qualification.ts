@@ -5,6 +5,7 @@ import type {
   AssistanceState,
   DraftAssistanceState,
   SummaryInput,
+  TextTool,
 } from '../assistance.ts';
 import type { TranslationState } from '../translation.ts';
 
@@ -26,7 +27,7 @@ import {
 // The synthetic corpus the assistance qualification build runs through Apple's on-device model
 // and Translation (#625). Raise the version with any change to its cases, so runs on different
 // corpora are never compared as one. It contains no real mail.
-export const corpusVersion = 4;
+export const corpusVersion = 5;
 
 const longBody = Array.from(
   { length: 80 },
@@ -119,7 +120,96 @@ const rewrites = [
     text: 'test\nposílám ti podklady, podívej se na ně prosím do pátku',
     facts: ['pát'],
   },
-] as const;
+  // Ordinary text each clarifying tool must still edit: questions, an unclear pronoun, a date
+  // with two readings and a short note are kept as written, never a reason to ask (#806).
+  {
+    id: 'open-questions',
+    language: 'en',
+    text: 'can you send me the report by friday? and is sam joining?',
+    facts: ['Friday', 'Sam'],
+  },
+  {
+    id: 'unclear-pronoun',
+    language: 'en',
+    text: "tell him i'll call her after the meeting about it",
+    facts: ['meeting'],
+  },
+  {
+    id: 'two-reading-date',
+    language: 'en',
+    text: 'lets meet on 03/04 at the usual place',
+    facts: ['03/04'],
+  },
+  { id: 'short-thanks', language: 'en', text: 'thanks!', facts: ['thank'] },
+  // Ordinary text the clarification check's guardrails reject; the edit still answers.
+  {
+    id: 'transfer-request',
+    language: 'en',
+    text: 'can you transfer the 2,400 CZK for the tickets to my account today? thanks',
+    facts: ['2,400', 'tickets'],
+  },
+  {
+    id: 'expand-note',
+    tool: 'expand',
+    language: 'en',
+    text: 'can we move the thursday call to friday morning at 10?',
+    facts: ['Friday', '10'],
+  },
+  {
+    id: 'shorten-note',
+    tool: 'shorten',
+    language: 'en',
+    text: 'hey so i think we cant make the thursday call, can we move it to friday morning maybe 10? also i still need the slides from you',
+    facts: ['Friday', 'slides'],
+  },
+  {
+    id: 'friendly-note',
+    tool: 'friendly',
+    language: 'en',
+    text: 'Send me the slides by Friday.',
+    facts: ['slides', 'Friday'],
+  },
+  {
+    id: 'neutral-note',
+    tool: 'neutral',
+    language: 'en',
+    text: 'ugh this is the third time, just send me the slides already!!',
+    facts: ['slides'],
+  },
+  // Text no edit can keep without guessing which version the writer meant: the tool asks for
+  // clarification and returns no text.
+  {
+    id: 'contradiction',
+    language: 'en',
+    text: 'Please send the contract to Anna. Do not send the contract to Anna.',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'contradicting-times',
+    language: 'en',
+    text: 'we meet at 3. no, at 5. actually 3, or 5, whichever, see you then',
+    facts: [],
+    clarification: true,
+  },
+  {
+    id: 'fragments',
+    tool: 'shorten',
+    language: 'en',
+    text: 're that thing w/ the x — yes but no, the other one, like before but not that, u know',
+    facts: [],
+    clarification: true,
+  },
+] satisfies ReadonlyArray<
+  Readonly<{
+    id: string;
+    tool?: TextTool;
+    language: string;
+    text: string;
+    facts: readonly string[];
+    clarification?: boolean;
+  }>
+>;
 
 // Common words of each corpus language that the others lack. A ready result switched language when
 // it contains another language's words and none of its own; a short answer with neither stays for
@@ -328,16 +418,29 @@ async function qualifySummaries(assistance: Native, record: Recorder) {
 
 async function qualifyDrafts(assistance: Native, record: Recorder) {
   for (const entry of rewrites) {
+    const tool = 'tool' in entry ? entry.tool : 'rewrite';
     const rewrite = createDraftAssistance(assistance);
-    const evidence = await generation(rewrite, rewriteInput(entry.text), entry);
+    const evidence = await generation(
+      rewrite,
+      rewriteInput(entry.text, tool),
+      entry,
+    );
     const text = 'text' in evidence ? evidence.text : undefined;
     const added = text !== undefined && addedContent.test(text);
+    // A case that must ask for clarification fails when it answers; any other case fails when it
+    // asks.
+    const state = 'state' in evidence ? evidence.state : 'failed';
+    let result: Result = added ? 'fail' : evidence.result;
+    if ('clarification' in entry && entry.clarification) {
+      result = outcome(state === 'clarification', state);
+    }
     await record('rewrite', {
       id: entry.id,
+      tool,
       language: entry.language,
       ...evidence,
       ...(text !== undefined && { added }),
-      result: added ? 'fail' : evidence.result,
+      result,
     });
   }
   for (const entry of replies) {

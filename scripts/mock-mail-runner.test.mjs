@@ -159,6 +159,18 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
         'german-note',
         'instruction-like-note',
         'short-czech-note',
+        'open-questions',
+        'unclear-pronoun',
+        'two-reading-date',
+        'short-thanks',
+        'transfer-request',
+        'expand-note',
+        'shorten-note',
+        'friendly-note',
+        'neutral-note',
+        'contradiction',
+        'contradicting-times',
+        'fragments',
       ].map((id) => ({
         kind: 'rewrite',
         id,
@@ -186,9 +198,9 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
         inFlight: true,
       },
       { kind: 'translation-cancel', shown: 'cancelled', after: 'cancelled' },
-    ].map((entry) => ({ ...entry, corpusVersion: 4, result: 'pass' }));
+    ].map((entry) => ({ ...entry, corpusVersion: 5, result: 'pass' }));
     const device = {
-      corpusVersion: 4,
+      corpusVersion: 5,
       kind: 'device',
       hardware: 'Mac16,10',
       system: 'Version 27.0.1 (Build 26A434)',
@@ -197,9 +209,9 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
       availability: 'available',
     };
     const complete = {
-      corpusVersion: 4,
+      corpusVersion: 5,
       kind: 'complete',
-      pass: 23,
+      pass: 35,
       limited: 0,
       fail: 0,
     };
@@ -216,20 +228,20 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
       /Incomplete or malformed assistance qualification evidence/u;
     for (const [rows, expectedExit, reason] of [
       [[device, ...cases, complete], 0],
-      [[device, ...limited, { ...complete, pass: 22, limited: 1 }], 0],
+      [[device, ...limited, { ...complete, pass: 34, limited: 1 }], 0],
       [
-        [device, ...failed, { ...complete, pass: 22, fail: 1 }],
+        [device, ...failed, { ...complete, pass: 34, fail: 1 }],
         1,
         /Assistance qualification has 1 failed checks/u,
       ],
-      [[device, ...cases.slice(1), { ...complete, pass: 22 }], 1, malformed],
+      [[device, ...cases.slice(1), { ...complete, pass: 34 }], 1, malformed],
       [[device, cases[1], ...cases.slice(1), complete], 1, malformed],
-      [[device, ...cases, { ...complete, pass: 22 }], 1, malformed],
-      [[device, { corpusVersion: 4, kind: 'stopped' }], 1, malformed],
+      [[device, ...cases, { ...complete, pass: 34 }], 1, malformed],
+      [[device, { corpusVersion: 5, kind: 'stopped' }], 1, malformed],
       [
         [device, ...cases, complete].map((row) => ({
           ...row,
-          corpusVersion: 3,
+          corpusVersion: 4,
         })),
         1,
         malformed,
@@ -253,7 +265,7 @@ test('assistance evidence admits complete pass/limited runs and rejects failed o
           device,
           { ...limitedCase, reason: undefined },
           ...cases.slice(1),
-          { ...complete, pass: 22, limited: 1 },
+          { ...complete, pass: 34, limited: 1 },
         ],
         1,
         malformed,
