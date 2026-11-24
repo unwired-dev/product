@@ -790,7 +790,11 @@ describe('the performance mailboxes', () => {
     const Placed = Schema.Struct({
       status: Schema.Finite,
       body: Schema.fromJsonString(
-        Schema.Struct({ id: Schema.String, isRead: Schema.Boolean }),
+        Schema.Struct({
+          id: Schema.String,
+          parentFolderId: Schema.String,
+          isRead: Schema.Boolean,
+        }),
       ),
     });
     const graph = async (method: string, body: string | null) =>
@@ -802,12 +806,13 @@ describe('the performance mailboxes', () => {
           body,
           contentType: 'application/json',
         }),
-      ).body;
-    expect(await graph('PATCH', '{"isRead":false}')).toStrictEqual({
-      id,
-      isRead: false,
-    });
-    expect(await graph('GET', null)).toStrictEqual({ id, isRead: false });
+      );
+    const unread = {
+      status: 200,
+      body: { id, parentFolderId: 'AQMkAGI2-synthetic-inbox=', isRead: false },
+    };
+    expect(await graph('PATCH', '{"isRead":false}')).toStrictEqual(unread);
+    expect(await graph('GET', null)).toStrictEqual(unread);
   });
 });
 
