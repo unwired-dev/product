@@ -1378,14 +1378,16 @@ export function createGmailSearch<
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
-      unwatch ??= (() => {
+      if (unwatch === undefined) {
         const stops = mailboxes.map(({ inbox }) => inbox.subscribe(prune));
-        return () => {
+        unwatch = () => {
           for (const stop of stops) {
             stop();
           }
         };
-      })();
+        // A deletion confirmed while nothing listened leaves too.
+        prune();
+      }
       return () => {
         listeners.delete(listener);
         if (listeners.size === 0) {

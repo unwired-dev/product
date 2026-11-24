@@ -1579,10 +1579,13 @@ describe('searching IMAP mail at the server', () => {
         foundMessages(await inbox.searchGmail('Invoice gone')),
       );
       imap.expunge('Projects', gone.uid);
-      // Another client expunged it, so marking it read finds it absent on the server.
-      await inbox.organize(gone, { kind: 'read' });
-      expect(subjects()).toStrictEqual(['Invoice kept']);
+      // Another client expunged it, so marking it read finds it absent on the server, while
+      // nothing listens to the search; the next listener sees it gone.
       stop();
+      await inbox.organize(gone, { kind: 'read' });
+      const listening = search.subscribe(() => undefined);
+      expect(subjects()).toStrictEqual(['Invoice kept']);
+      listening();
     } finally {
       inbox.forget();
     }
