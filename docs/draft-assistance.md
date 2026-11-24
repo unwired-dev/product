@@ -206,8 +206,16 @@ results for changed details on Mac, and on iPhone and iPad.
   accessibility announcement of that message; native VoiceOver qualification is still pending.
   **Rewrite Again** runs the same tool on the current text and selection, as the Writing tools menu does,
   and is unavailable when no text is left to rewrite; **Close** dismisses the card. On iPhone the two
-  buttons share the card's width. A failed, refused or cancelled request has no result to drop, so an edit
-  closes it without the card, as do Send and applying or keeping a result.
+  buttons share the card's width. A failed, refused, cancelled or clarification request has no result to drop,
+  so an edit closes it without the card, as do Send and applying or keeping a result.
+- When the model cannot edit the text without guessing a material fact or intent, **Rewrite**, **Expand
+  Text**, **Shorten Text**, **Make More Friendly** and **Make More Neutral** show the clarification card
+  ([#2776](https://github.com/unwired-dev/product/issues/2776)) on the on-device surface under the tool's
+  marker: "Couldn’t rewrite this. Your Draft is unchanged — edit your original to make it clearer, then try
+  again." It has no result and no Apply action, and the Draft and its Undo history are untouched. **Try
+  Again** asks for the same text again and **Close** dismisses the card; on iPhone the two buttons share the
+  card's width. **Proofread**, **Break into Paragraphs**, Suggest Reply and Generate a Draft never ask for
+  clarification.
 - Send closes any assistance preview and cancels its pending request. Rewrite and
   Suggest Reply wait while Send is pending and become available again if it is refused.
 - When the model cannot run, the Draft is unchanged and the panel says why, with
@@ -264,7 +272,12 @@ the quoted message. Generation uses temperature 0 and at most 1,500 response tok
 `@private-email/mail-core/assistance` decodes every result with Schema (up to
 12,000 characters) and fails closed on anything else. Results containing image
 placeholder characters are rejected, keeping the Draft unchanged rather than
-applying text the editor would drop. Failure logs carry only the
+applying text the editor would drop. A text tool that may ask for clarification
+rejects with `needs-clarification` and carries no text; the core reads that code
+as a clarification only for `rewrite`, `expand`, `shorten`, `friendly` and
+`neutral`, and as a failure for any other operation. The binding does not emit it
+yet: the model signal that does is tracked in
+[#806](https://github.com/unwired-dev/product/issues/806). Failure logs carry only the
 allow-listed native code or decode path, never Draft or generated text.
 
 ## Deterministic evidence
@@ -277,7 +290,8 @@ allow-listed native code or decode path, never Draft or generated text.
   encoded reply overflow and unusable quoted context, routing to `rewrite` or `suggestReply`,
   each text tool's operation and refusals, a prompt-only `generate` request
   inserted after a selection and its blank and too-long prompts,
-  refusal, unavailability and failure without logging Draft text, retry rules, an
+  refusal, unavailability and failure without logging Draft text, a clarification request for each
+  operation and a late one after Cancel, retry rules, an
   oversized result, cancellation with a late result, and Mock Mail Session outcomes.
 - `packages/mail-core/test/draft-details.test.ts` checks the detail rules: kept,
   changed, uncertain, removed and added details of each kind, the accepted equivalents,
@@ -294,7 +308,9 @@ allow-listed native code or decode path, never Draft or generated text.
   Escape or a system dismissal against queued input, its prompt-only request, Cancel, Insert at the caret with Undo, Discard and a too-long prompt,
   review and apply the whole-body result as one undoable edit without touching recipients, keep the
   original against a queued apply, show reply-length guidance without inference when the encoded authored
-  reply leaves no room for context, show a refusal, cancel and retry, and drop a
+  reply leaves no room for context, show a refusal, show the clarification card on Mac, iPhone and iPad
+  with Try Again, Close, an unchanged Undo history and an edit that closes it without the stale-result
+  card, cancel and retry, and drop a
   pending result when the body is edited or the Product Account changes. The Mac tests, and the
   `apps/mobile/test/composer.test.tsx` tests on iPhone and iPad layouts, also show the
   details note on every rewrite, and a rewrite with changed details: its count and announcement, one

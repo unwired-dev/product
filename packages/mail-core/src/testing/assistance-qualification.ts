@@ -1,7 +1,11 @@
 import * as Schema from 'effect/Schema';
 
 import type { QualificationModules } from '../assistance-qualification.ts';
-import type { AssistanceState, SummaryInput } from '../assistance.ts';
+import type {
+  AssistanceState,
+  DraftAssistanceState,
+  SummaryInput,
+} from '../assistance.ts';
 import type { TranslationState } from '../translation.ts';
 
 import {
@@ -226,7 +230,7 @@ const Device = Schema.Struct({
 // not provide the capability (an unavailable reason or a refusal), with mail unaffected. `fail`:
 // anything else. Facts are recorded, never scored: live model output is not deterministic.
 type Result = 'pass' | 'limited' | 'fail';
-type Generated = AssistanceState<'summarizing' | 'generating'>;
+type Generated = AssistanceState<'summarizing'> | DraftAssistanceState;
 type Native = ReturnType<QualificationModules>['assistance'];
 type Entry = Readonly<Record<string, unknown> & { result?: Result }>;
 type Recorder = (kind: string, entry: Entry) => Promise<void>;
